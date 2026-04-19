@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx ts-node:*)",
+      "WebFetch(domain:solscan.io)",
+      "WebSearch",
+      "WebFetch(domain:solana.fm)",
+      "WebFetch(domain:www.helius.dev)",
+      "WebFetch(domain:helius.mintlify.app)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:read.cryptodatabytes.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:api-mainnet.magiceden.dev)",
+      "WebFetch(domain:developers.metaplex.com)",
+      "WebFetch(domain:blog.syndica.io)",
+      "WebFetch(domain:www.metaplex.com)",
+      "WebFetch(domain:api.tensor.trade)",
+      "WebFetch(domain:metaplex.foundation)",
+      "Bash(grep -n \"sale_type\\\\|saleType\\\\|\\\\$17\" /Users/victory/nft-live-feed/src/db/insert.ts)",
+      "Bash(python3 -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s 'https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -X POST -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s 'https://api.helius.xyz/v0/transactions/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -X POST -H 'Content-Type: application/json' -d '{\"transactions\":[\"416BSLXiRZdRhu3K62WD4Q8g6U9rSEZgeNnLW9Typb1nyBEFhs2786yuEBE1ZdgPVXauZRX9N7c8p38RpMKewgYE\"]}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s 'https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"getAsset\",\"params\":{\"id\":\"FYUTFyXpudkscyFVXs4N3aZHoUD4DRTMKvZYdtgMZGL\"}}')",
+      "Bash(curl -s -X POST 'https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":[\"55zxwJcgWZYWTRyudfUMM4dgXHP77CC5gAAKSGC2KPmYNKzpTNei5Um5YSFCVhqBm5kXff6rmCJ4T52MoVg3NEsP\",{\"encoding\":\"jsonParsed\",\"maxSupportedTransactionVersion\":0}]}')",
+      "Bash(curl -s -X POST 'https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":[\"55zxwJcgWZYWTRyudfUMM4dgXHP77CC5gAAKSGC2KPmYNKzpTNei5Um5YSFCVhqBm5kXff6rmCJ4T52MoVg3NEsP\",{\"encoding\":\"json\",\"maxSupportedTransactionVersion\":0}]}')",
+      "Bash(grep -v '^$')",
+      "Bash(curl -s -X POST 'https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c' -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTransaction\",\"params\":[\"4TRJQBsrB6DnEe6crYsWT41BRWJkL658wSYjK4kPD28HyMhp4Wu8ypxk93VELLxaFR3c2muthxvJucBn6PmQ8XkC\",{\"encoding\":\"json\",\"maxSupportedTransactionVersion\":0}]}')",
+      "Bash(python3 -)",
+      "Bash(curl -s https://api.mainnet-beta.solana.com -X POST -H 'Content-Type: application/json' -d '{ *)"
+    ]
+  }
+}

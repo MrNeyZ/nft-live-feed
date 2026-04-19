@@ -1,0 +1,284 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0d0d14;
+  color: #e0e0ec;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* ── Layout ─────────────────────────────────────────── */
+
+.page {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b6b88;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b6b88;
+}
+.status-dot.connected    { background: #4ade80; }
+.status-dot.connecting   { background: #facc15; }
+.status-dot.disconnected { background: #f87171; }
+
+/* ── Feed ────────────────────────────────────────────── */
+
+.feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty {
+  text-align: center;
+  color: #6b6b88;
+  padding: 64px 0;
+  font-size: 15px;
+}
+
+/* ── Card ────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  gap: 14px;
+  background: #17172280;
+  border: 1px solid #26263a;
+  border-radius: 10px;
+  padding: 12px 14px;
+  transition: border-color 0.15s;
+}
+
+.card:hover { border-color: #3a3a55; }
+
+/* Card border: buy events → green, sell events → red */
+.card--buy  { border-left: 3px solid rgba(74,  222, 128, 0.55); border-right: 3px solid rgba(74,  222, 128, 0.55); }
+.card--sell { border-left: 3px solid rgba(248, 113, 113, 0.75); border-right: 3px solid rgba(248, 113, 113, 0.75); }
+/* Legacy card classes (historical REST rows) */
+.card--normal-sale, .card--list-buy, .card--amm-buy  { border-left: 3px solid rgba(74,  222, 128, 0.55); border-right: 3px solid rgba(74,  222, 128, 0.55); }
+.card--bid-sell,    .card--amm-sell                  { border-left: 3px solid rgba(248, 113, 113, 0.75); border-right: 3px solid rgba(248, 113, 113, 0.75); }
+
+/* Trade label pill badges */
+.badge-normal-sale { background: #22c55e20; color: #4ade80; border: 1px solid #22c55e40; }
+.badge-pool-sale   { background: #ef444420; color: #f87171; border: 1px solid #ef444440; }
+.badge-listing     { background: #3b82f620; color: #60a5fa; border: 1px solid #3b82f640; }
+.badge-pool-buy    { background: #22c55e20; color: #4ade80; border: 1px solid #22c55e40; }
+.badge-pool-sell   { background: #f9731620; color: #fb923c; border: 1px solid #f9731640; }
+.badge-bid-sell    { background: #ef444420; color: #f87171; border: 1px solid #ef444440; }
+/* Legacy badge classes */
+.badge-list-buy, .badge-amm-buy { background: #22c55e20; color: #4ade80; border: 1px solid #22c55e40; }
+.badge-amm-sell                 { background: #f9731620; color: #fb923c; border: 1px solid #f9731640; }
+
+/* Signal badges */
+.badge-signal-under-floor { background: #0ea5e920; color: #38bdf8; border: 1px solid #0ea5e940; }
+.badge-signal-above-offer { background: #f9731620; color: #fb923c; border: 1px solid #f9731640; }
+
+.card-img {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: #1e1e2e;
+}
+
+.card-img-placeholder {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #1e1e30 0%, #2a2040 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  user-select: none;
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.card-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+/* Link badges in the name row — shrink-proof so they never get clipped */
+.card-row1-link {
+  flex-shrink: 0;
+}
+
+.card-price {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 15px;
+  color: #4ade80;
+}
+
+.card-price-gross {
+  font-size: 11px;
+  color: #555570;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.card-collection {
+  font-size: 12px;
+  color: #8888a8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* marketplace */
+.badge-magic-eden     { background: #e4257520; color: #e42575; border: 1px solid #e4257540; }
+.badge-magic-eden-amm { background: #e4257520; color: #e42575; border: 1px solid #e4257540; }
+.badge-tensor         { background: #7c3aed20; color: #a78bfa; border: 1px solid #7c3aed40; }
+.badge-tensor-amm     { background: #7c3aed20; color: #a78bfa; border: 1px solid #7c3aed40; }
+.badge-unknown        { background: #ffffff0a; color: #6b6b88;  border: 1px solid #ffffff14; }
+
+/* nft type */
+.badge-legacy         { background: #f59e0b20; color: #fbbf24;  border: 1px solid #f59e0b40; }
+.badge-pnft           { background: #f59e0b20; color: #fbbf24;  border: 1px solid #f59e0b40; text-transform: none; }
+.badge-core,
+.badge-metaplex-core  { background: #3b82f620; color: #60a5fa;  border: 1px solid #3b82f640; }
+.badge-cnft           { background: #10b98120; color: #34d399;  border: 1px solid #10b98140; }
+
+.card-addresses {
+  font-size: 11px;
+  color: #6b6b88;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-time {
+  font-size: 11px;
+  color: #55556a;
+}
+
+.source-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.source-helius { background: #6b6b8820; color: #8888a8; border: 1px solid #6b6b8840; }
+.source-me_raw { background: #e4257510; color: #e42575;  border: 1px solid #e4257530; }
+
+/* Tensor link pill — gray (distinct from the purple tensor marketplace badge) */
+.badge-link-tensor { background: #ffffff0d; color: #9090b0; border: 1px solid #ffffff1a; }
+
+.wallet-link {
+  color: #6b6b88;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  transition: opacity 0.15s;
+}
+.wallet-link:hover { opacity: 0.75; }
+
+.you-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.30);
+  background: rgba(255, 255, 255, 0.07);
+  color: #d4d4e8;
+  letter-spacing: 0.4px;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: opacity 0.15s;
+}
+.you-badge:hover { opacity: 0.75; }
+
+.card-price-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.card-floor-delta {
+  font-size: 10px;
+  font-weight: 600;
+  color: #facc15;
+  line-height: 1.2;
+}
+
+.card-offer-delta {
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
+  line-height: 1.2;
+}

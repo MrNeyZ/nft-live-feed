@@ -1,0 +1,177 @@
+
+> nft-live-feed@0.1.0 dev
+> nodemon --exec ts-node src/index.ts
+
+[33m[nodemon] 3.1.14[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: ts,json[39m
+[32m[nodemon] starting `ts-node src/index.ts`[39m
+[db] connected
+[listener] starting  targets=4  concurrency=1
+[amm-poller] starting  targets=ammpoll:mmm,ammpoll:tamm  interval=300s  page=5
+[server] listening on port 3000
+[server] SSE feed: GET  /events/stream
+[server] webhook:  POST /webhooks/helius (standby)
+[listener/tamm] subscribed  program=TAMM6ub3...
+[listener/me_v2] subscribed  program=M2mx93ek...
+[listener/tcomp] subscribed  program=TCMPhJdw...
+[listener/mmm] subscribed  program=mmm3XBJg...
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[timing] SSE-emit   sig=YnSGjQGBK82C  T=1776447769978
+[me_raw] sale  magic_eden/core  0.0654 SOL  mint=AW3cLPgP...  ix=coreExecuteSaleV2
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[listener/me_v2] seen=62 fired=62 filtered=0 errors=0
+[listener/mmm] seen=155 fired=155 filtered=0 errors=0
+[listener/tcomp] seen=39 fired=39 filtered=0 errors=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[timing] SSE-emit   sig=4vF2wf8fhMV7  T=1776447853894
+[me_raw] sale  magic_eden/pnft  0.0036 SOL  mint=r5YkvjPE...  ix=mip1ExecuteSaleV2
+[blacklist] removed CCryptWBYktu  sig=4vF2wf8fhMV7...
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[timing] SSE-emit   sig=4CV82ZChPcTj  T=1776447897049
+[me_raw] sale  magic_eden/pnft  5.4642 SOL  mint=2AmuWujg...  ix=mip1ExecuteSaleV2
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=2  idle=2  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[timing] SSE-emit   sig=53ZJRq97e2U7  T=1776447920673
+[me_raw] sale  magic_eden_amm/pnft  4.9803 SOL  mint=2AmuWujg...  ix=solMip1FulfillBuy
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=2  idle=2  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[timing] SSE-emit   sig=3EEafy86obcp  T=1776448020220
+[me_raw] sale  magic_eden_amm/legacy  4.4174 SOL  mint=7MuqWgNQ...  ix=solFulfillBuy
+[alert] UNDER_FLOOR  -13.3% below floor  price=4.417 SOL  collection=whal3s  sig=3EEafy86obcp...
+[enrich] active=0  queue=0  skipped=0
+[timing] SSE-emit   sig=52iSryzShpC6  T=1776448029802
+[me_raw] sale  magic_eden_amm/pnft  2.5143 SOL  mint=87Dw6Ajc...  ix=solMip1FulfillBuy
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[listener/tamm] disconnected (code=1001)  reconnecting in 10s
+[amm-poller/ammpoll:mmm] swept 5 sigs
+[enrich] active=0  queue=0  skipped=0
+[listener/tamm] subscribed  program=TAMM6ub3...
+[timing] SSE-emit   sig=5Dv9Qs2joREf  T=1776448059659
+[me_raw] sale  magic_eden_amm/core  0.0531 SOL  mint=J79uhyfJ...  ix=coreFulfillSell
+[timing] SSE-emit   sig=5aZstcYLjzX4  T=1776448059965
+[me_raw] sale  magic_eden_amm/core  0.0555 SOL  mint=FhZJypfE...  ix=coreFulfillSell
+[timing] SSE-emit   sig=FWc1ZAR2gMCq  T=1776448060288
+[me_raw] sale  magic_eden/core  0.0545 SOL  mint=7F89Xwb2...  ix=coreExecuteSaleV2
+[timing] SSE-emit   sig=3VdEyqZ552qT  T=1776448060597
+[me_raw] sale  magic_eden/core  0.0545 SOL  mint=6HKqW9kq...  ix=coreExecuteSaleV2
+[timing] SSE-emit   sig=4oPjN4Mnm1qy  T=1776448060915
+[me_raw] sale  magic_eden/core  0.1635 SOL  mint=GUiYD4PA...  ix=coreExecuteSaleV2
+[timing] SSE-emit   sig=t74GTKVjnKN1  T=1776448061241
+[me_raw] sale  magic_eden/core  0.0545 SOL  mint=ASrNL4G9...  ix=coreExecuteSaleV2
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[timing] SSE-emit   sig=TwLxTvbSyYHx  T=1776448138561
+[me_raw] sale  magic_eden_amm/core  0.0080 SOL  mint=CvLQBoSE...  ix=coreFulfillSell
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[timing] SSE-emit   sig=5b6Smrs2n52a  T=1776448185332
+[me_raw] sale  magic_eden_amm/legacy  0.3889 SOL  mint=FbBCpJbS...  ix=solFulfillBuy
+[timing] SSE-emit   sig=h5z7sDioQrLY  T=1776448186114
+[me_raw] sale  magic_eden_amm/core  0.0605 SOL  mint=HKZz8eNX...  ix=coreFulfillSell
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=1  idle=1  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=1  activeFetch=1
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[listener/tamm] seen=1 fired=0 filtered=1 errors=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
+[enrich] active=0  queue=0  skipped=0
+[enrich] active=0  queue=0  skipped=0
+[me_raw/counters] activeIngests=0  activeFetch=0
+[pool] total=0  idle=0  waiting=0  activeEnrich=0
