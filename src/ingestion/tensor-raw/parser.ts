@@ -27,7 +27,6 @@ import {
   extractPartiesFromTokenFlow,
   extractCnftAssetId,
 } from './price';
-import bs58 from 'bs58';
 
 export type ParseResult =
   | { ok: true;  event: SaleEvent }
@@ -86,13 +85,13 @@ function parseTcompSale(
       };
     }
   } else if (nftType === 'cnft') {
-    // cNFT: no SPL token balance — asset ID from instruction data (stub).
-    const ixData = Buffer.from(bs58.decode(match.ix.data));
-    mint = extractCnftAssetId(accs, ixData);
+    // cNFT: no SPL token balance — derive the asset ID from the Bubblegum
+    // `transfer` inner CPI inside the tx we already fetched.
+    mint = extractCnftAssetId(tx);
     if (!mint) {
       return {
         ok: false,
-        reason: `tcomp(${match.instructionName}): cNFT asset ID extraction not yet implemented`,
+        reason: `tcomp(${match.instructionName}): could not derive cNFT asset ID from Bubblegum CPI`,
       };
     }
   } else {

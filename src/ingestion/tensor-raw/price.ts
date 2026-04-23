@@ -13,8 +13,11 @@
  *      (merkle tree + leaf index → asset ID derivation, or direct account reference)
  *   3. For TSwap pool buys: is price the total SOL out, or is there a royalty split?
  */
+import { PublicKey } from '@solana/web3.js';
+import { createHash } from 'crypto';
+import bs58 from 'bs58';
 import { RawSolanaTx } from './types';
-import { TENSOR_FEE_ACCOUNT } from './programs';
+import { TENSOR_FEE_ACCOUNT, BUBBLEGUM_PROGRAM } from './programs';
 
 // ─── SOL balance delta ────────────────────────────────────────────────────────
 
@@ -143,26 +146,66 @@ export function extractPartiesFromTokenFlow(
 // ─── cNFT asset ID extraction ─────────────────────────────────────────────────
 
 /**
- * Attempt to extract the cNFT asset ID for a TComp transaction.
+ * Derive the cNFT asset ID from the Bubblegum `transfer` inner CPI that TComp
+ * emits when settling a compressed-NFT sale. The raw `getTransaction` response
+ * we already paid for carries every field we need, so we derive locally rather
+ * than issuing a paid Helius `v0/transactions` parsed-tx call.
  *
- * ⚠️ STUB — NOT IMPLEMENTED.
- *    cNFT asset IDs are derived from a Merkle tree + leaf index; they do not
- *    appear as SPL token balances. The encoding in TComp instruction data or
- *    accounts is not yet confirmed from live transactions.
+ *     asset_id = PDA(["asset", merkle_tree, u64_le(nonce)], Bubblegum)
  *
- *    Once a ground-truth TComp cNFT sale signature is provided, inspect:
- *      - instruction accounts: which index holds the Merkle tree address?
- *      - instruction data: is the leaf index encoded in the data payload?
- *      - Bubblegum inner instruction accounts: the asset ID may be derivable from
- *        the Bubblegum `transfer` inner instruction.
+ * Bubblegum `transfer` layout:
+ *   discriminator = sha256("global:transfer")[0..8]
+ *   data: 8 disc | 32 root | 32 data_hash | 32 creator_hash | 8 nonce_le | 4 index
+ *   accounts[4] = merkle_tree
  *
- * Returns null until implemented — the parser will emit ok:false for cNFT sales
- * until this is filled in.
+ * Returns null when no matching Bubblegum `transfer` inner instruction exists
+ * (e.g. an unsupported ix variant). Callers must treat null as "asset id
+ * unknown" and decide whether to drop the sale or insert with an empty mint.
  */
-export function extractCnftAssetId(
-  _accounts: string[],
-  _ixData: Buffer
-): string | null {
-  // TODO: implement after verifying account layout from live TComp cNFT sale tx
+const BUBBLEGUM_TRANSFER_DISC = createHash('sha256')
+  .update('global:transfer')
+  .digest()
+  .subarray(0, 8);
+const BUBBLEGUM_PROGRAM_PK = new PublicKey(BUBBLEGUM_PROGRAM);
+const ASSET_SEED = Buffer.from('asset');
+/** Minimum byte length for a Bubblegum `transfer` ix data: 8+32+32+32+8+4. */
+const BUBBLEGUM_TRANSFER_MIN_DATA_LEN = 116;
+
+// Resolve an account index to its pubkey. `fetchRawTx` merges loadedAddresses
+// into `accountKeys` before the parser runs, so entries are typically
+// `{ pubkey }` objects; tests/bypass callers may pass raw strings.
+function pubkeyAt(tx: RawSolanaTx, idx: number): string | null {
+  const keys = tx.transaction.message.accountKeys as unknown as Array<string | { pubkey?: string } | undefined>;
+  const k = keys[idx];
+  if (typeof k === 'string') return k;
+  if (k && typeof k === 'object' && typeof k.pubkey === 'string') return k.pubkey;
+  return null;
+}
+
+export function extractCnftAssetId(tx: RawSolanaTx): string | null {
+  const groups = tx.meta?.innerInstructions ?? [];
+  for (const g of groups) {
+    for (const ix of g.instructions) {
+      const program = pubkeyAt(tx, ix.programIdIndex);
+      if (program !== BUBBLEGUM_PROGRAM) continue;
+      let data: Buffer;
+      try { data = Buffer.from(bs58.decode(ix.data)); } catch { continue; }
+      if (data.length < BUBBLEGUM_TRANSFER_MIN_DATA_LEN) continue;
+      if (!data.subarray(0, 8).equals(BUBBLEGUM_TRANSFER_DISC)) continue;
+      const merkleIdx = ix.accounts[4];
+      if (merkleIdx === undefined) continue;
+      const merkle = pubkeyAt(tx, merkleIdx);
+      if (!merkle) continue;
+      const nonceBuf = Buffer.alloc(8);
+      data.copy(nonceBuf, 0, 104, 112);
+      try {
+        const [pda] = PublicKey.findProgramAddressSync(
+          [ASSET_SEED, new PublicKey(merkle).toBuffer(), nonceBuf],
+          BUBBLEGUM_PROGRAM_PK,
+        );
+        return pda.toBase58();
+      } catch { /* malformed merkle key — skip */ }
+    }
+  }
   return null;
 }
