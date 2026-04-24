@@ -22,7 +22,15 @@ import { RawSolanaTx } from './types';
 import { insertSaleEvent, patchSaleEventRaw } from '../../db/insert';
 import { HeliusEnhancedTransaction } from '../helius/types';
 import { SaleEvent, Marketplace, NftType } from '../../models/sale-event';
-import { Limiter } from '../concurrency';
+import { trace } from '../../trace';
+import { extractPaymentInfo, extractNftMint, extractNftMintsInvolved, extractPartiesFromTokenFlow } from './price';
+import { extractCoreAssetFromInnerIx } from './decoder';
+import { ME_V2_PROGRAM, ME_AMM_PROGRAM } from './programs';
+import bs58 from 'bs58';
+import { Limiter, Priority } from '../concurrency';
+import { incTxFetch, incTxNull, startTelemetry } from '../telemetry';
+import { saleEventBus } from '../../events/emitter';
+import { getMode } from '../../runtime/mode';
 
 // ─── RPC fetch ────────────────────────────────────────────────────────────────
 
@@ -33,10 +41,23 @@ function rpcUrl(): string {
 }
 
 // Shared across ALL callers of fetchRawTx (ingestMeRaw + ingestTensorRaw,
-// from both listener and poller paths). Caps combined concurrent getTransaction
-// calls to 4 with a 75ms inter-call gap — avoids HTTP 429 on Helius Developer
-// plan without reintroducing the old serial bottleneck.
-const rpcLimiter = new Limiter(4, 75);
+// from both listener and poller paths). 4 concurrent with a 75ms inter-call
+// gap — avoids HTTP 429 on Helius Developer plan without reintroducing the
+// old serial bottleneck. Priority queues give WS notifications the fast lane
+// over poller catch-up; low-priority tasks (amm-poller pages-2+) that wait
+// longer than STALE_LOW_MS are dropped at admission instead of spending a
+// `getTransaction` credit on a sig that no longer matters during a burst.
+const STALE_LOW_MS = 20_000;
+const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS);
+
+/**
+ * `budget` mode disables listing_refresh_hint emission in the DROP-branch
+ * below — listings become TTL-driven but the sale path is unchanged.
+ * `full` / `sales_only` keep real-time refresh hints. Mode is read via
+ * `getMode()` so a runtime switch takes effect on the next call.
+ */
+
+startTelemetry(rpcLimiter);
 
 // ─── Pre-fetch signature dedupe ───────────────────────────────────────────────
 //
@@ -148,7 +169,11 @@ function onFetchSuccess(): void {
  * bestEffort = false → primary path: no sale emitted yet; this fetch IS the
  *                       ingestion. Never skipped due to cooldown.
  */
-export async function fetchRawTx(sig: string, bestEffort = false): Promise<RawSolanaTx | null> {
+export async function fetchRawTx(
+  sig: string,
+  bestEffort = false,
+  priority: Priority = 'medium',
+): Promise<RawSolanaTx | null> {
   // Circuit-breaker applies only to best-effort (rawpatch) callers.
   // Primary callers must never be silenced by a rawpatch-triggered cooldown.
   if (bestEffort && Date.now() < cooldownUntil) return null;
@@ -159,16 +184,23 @@ export async function fetchRawTx(sig: string, bestEffort = false): Promise<RawSo
   inFlight.add(sig);
 
   try {
-    return await rpcLimiter.run(async () => {
+    // rpcLimiter.run resolves to `null` when a low-priority task is stale-dropped
+    // at admission — the same contract as dedup hits, so callers handle it with
+    // their existing `if (!tx) return` guard.
+    const tx = await rpcLimiter.run(async () => {
       // Re-check after waiting in queue: cooldown may have activated while this
       // sig was queued. Only bail for best-effort callers.
       if (bestEffort && Date.now() < cooldownUntil) return null;
       const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
       return _fetchRawTxRpc(sig, maxRetries);
-    });
+    }, priority);
+    // Only record a TTL dedup entry when the RPC actually returned a tx.
+    // Transient failures (429, timeout, non-JSON, null result, stale-drop)
+    // must stay retryable by subsequent poller / listener passes.
+    if (tx) recentSigs.set(sig, Date.now() + SIG_TTL_MS);
+    return tx;
   } finally {
     inFlight.delete(sig);
-    recentSigs.set(sig, Date.now() + SIG_TTL_MS);
   }
 }
 
@@ -190,6 +222,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
 
       let res: Response;
       try {
+        incTxFetch();
         res = await fetch(rpcUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -238,7 +271,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
       }
 
       if (json.error) throw new Error(`RPC: ${json.error.message}`);
-      if (!json.result) return null;
+      if (!json.result) { incTxNull(); return null; }
 
       onFetchSuccess();
       const tx = json.result;
@@ -269,6 +302,44 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
   // Exhausted retries without returning — should not be reached
   throw new Error(`fetchRawTx: exhausted ${maxRetries} retries for sig=${sig.slice(0, 12)}...`);
 }
+
+// ─── Instruction scanner (debug) ─────────────────────────────────────────────
+//
+// For every ME-program instruction in a raw tx, extract the 8-byte discriminator
+// as hex. Used to log what instructions were seen when parsing fails, so we can
+// identify gaps in ME_V2_SALE_INSTRUCTIONS / MMM_SALE_INSTRUCTIONS.
+
+const ME_PROGRAM_LABELS: Record<string, string> = {
+  [ME_V2_PROGRAM]:  'me_v2',
+  [ME_AMM_PROGRAM]: 'mmm',
+};
+
+interface IxScan { program: string; disc: string; }
+
+function scanMeInstructions(tx: RawSolanaTx): IxScan[] {
+  const keys = tx.transaction.message.accountKeys;
+  const allIxs = [
+    ...(tx.transaction.message.instructions ?? []),
+    ...(tx.meta?.innerInstructions ?? []).flatMap((g) => g.instructions),
+  ];
+  const out: IxScan[] = [];
+  for (const ix of allIxs) {
+    const prog = keys[ix.programIdIndex]?.pubkey ?? '';
+    const label = ME_PROGRAM_LABELS[prog];
+    if (!label) continue;
+    let disc = 'short';
+    try {
+      const buf = Buffer.from(bs58.decode(ix.data));
+      if (buf.length >= 8) disc = buf.subarray(0, 8).toString('hex');
+    } catch { /* skip */ }
+    out.push({ program: label, disc });
+  }
+  return out;
+}
+
+// Minimum price for an unknown-candidate event: 0.05 SOL.
+// Below this, the transaction is almost certainly not a sale (dust, spam, tests).
+const CANDIDATE_MIN_LAMPORTS = 50_000_000n;
 
 // ─── Fast-path event builder ──────────────────────────────────────────────────
 //
@@ -397,11 +468,19 @@ function tryBuildFastEvent(tx: HeliusEnhancedTransaction): SaleEvent | null {
  *
  * Never throws — all errors are logged and swallowed so callers can fire-and-forget.
  */
-export async function ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): Promise<void> {
-  await _ingestMeRaw(sig, heliusTx);
+export async function ingestMeRaw(
+  sig: string,
+  heliusTx?: HeliusEnhancedTransaction,
+  priority: Priority = 'medium',
+): Promise<void> {
+  await _ingestMeRaw(sig, heliusTx, priority);
 }
 
-async function _ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): Promise<void> {
+async function _ingestMeRaw(
+  sig: string,
+  heliusTx?: HeliusEnhancedTransaction,
+  priority: Priority = 'medium',
+): Promise<void> {
   // ── Fast path ───────────────────────────────────────────────────────────────
   let fastPathInserted = false;
   let fastParser: string | undefined;
@@ -413,7 +492,8 @@ async function _ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): 
       try {
         const id = await insertSaleEvent(fast);
         fastPathInserted = id !== null;
-      } catch {
+      } catch (err) {
+        console.log(`DEDUPE_DEBUG_SKIP ${fast.signature} insert_condition_failed(fast_path): ${(err as Error)?.message ?? 'unknown'}`);
         // Fast path failure is non-fatal — raw path will insert normally.
       }
     }
@@ -444,7 +524,7 @@ async function _ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): 
   try {
     // bestEffort=true only when fast-path already emitted a sale card —
     // in that case the raw fetch is an optional correction, skippable under cooldown.
-    tx = await fetchRawTx(sig, fastPathInserted);
+    tx = await fetchRawTx(sig, fastPathInserted, priority);
   } catch (err) {
     console.error(`[me_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
     return;
@@ -452,8 +532,162 @@ async function _ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): 
 
   if (!tx) return;  // deduped or not found — already processed elsewhere
 
+  // ── Per-tx debug: log every ME instruction discriminator seen ───────────────
+  const ixScan = scanMeInstructions(tx);
+  const discStr = ixScan.map((s) => `${s.program}:${s.disc}`).join(' ');
+  const programsStr = [...new Set(ixScan.map((s) => s.program))].join(',') || 'none';
+
   const result = parseRawMeTransaction(tx);
-  if (!result.ok) return;  // not an ME sale instruction we recognise
+
+  if (!result.ok) {
+    // Log EVERY failed parse — primary signal for diagnosing missing sales.
+    console.log(
+      `[me_raw] DROP  sig=${sig.slice(0, 12)}` +
+      `  programs=${programsStr}` +
+      `  reason="${result.reason}"` +
+      (ixScan.length ? `  discs=[${discStr}]` : ''),
+    );
+
+    // Non-sale ME/MMM tx: could be list / cancel / pool deposit / pool
+    // withdraw / repricing. Signal the listings store so any cached slug
+    // touching one of these mints is scheduled for reconciliation.
+    const touchedMints = extractNftMintsInvolved(tx);
+    if (touchedMints.length > 0) saleEventBus.emitTxMintsTouched({ mints: touchedMints });
+
+    // ── Precise live deltas: classify the ME v2 / MMM outer ix ────────────────
+    // Verified anchor discriminators — observed live and matched against
+    // anchorDisc(name):
+    //   ME v2  sell / mip1_sell / core_sell → user listed an NFT  → immediate refresh
+    //   MMM    update_pool                   → pool reprice        → immediate refresh
+    // ME v2 cancel_sell variants are NOT included yet — not observed live and
+    // not independently verified; falls through to the tx_mints_touched
+    // dirty+debounce path (still correct, just 10 s slower).
+    const ME_V2_LIST_DISCS = new Set<string>([
+      '33e685a4017f83ad', // sell
+      '3a32ac6fa697165e', // mip1_sell
+      '1ff3f73b8653a5da', // core_sell
+    ]);
+    const MMM_REPRICE_DISCS = new Set<string>([
+      'efd6aa4e24231e22', // update_pool       (pool reprice)
+      '2f2a9ce4f9a3feb9', // withdraw_sell     (pool-owner pulls NFT from pool → pool listings change)
+      'e992d18ecf6840bc', // create_pool       (new pool seeds new listings)
+      // Added via MMM audit (2026-04-23): these were already fetched as DROPs
+      // but did not trigger a refresh, leaving the listings/bids panels stale
+      // until the 30 s TTL cycle caught up. Including them here converts the
+      // existing getTransaction spend into useful real-time refresh hints.
+      'f87de814754eeaea', // sol_close_pool    (pool closes → its listings disappear)
+      '42e50b366da455ee', // sol_deposit_buy   (buy-side SOL added → pool bid capacity up)
+      '9a2950e8ae30f623', // sol_withdraw_buy  (buy-side SOL pulled → pool bid capacity down)
+    ]);
+    const hasMeV2List   = ixScan.some(s => s.program === 'me_v2' && ME_V2_LIST_DISCS.has(s.disc));
+    const hasMmmReprice = ixScan.some(s => s.program === 'mmm'   && MMM_REPRICE_DISCS.has(s.disc));
+    if (hasMeV2List || hasMmmReprice) {
+      // For MMM update_pool the tx has no token-balance delta → touchedMints
+      // is empty. Pass all tx account keys so the store can resolve a slug
+      // via its poolKey→slug index. For ME v2 list the mint path (emitted
+      // for each touched mint) is the primary resolution — poolKeys is
+      // harmless there (won't match any MMM pool entry).
+      const poolKeys = hasMmmReprice
+        ? tx.transaction.message.accountKeys
+            .map(k => typeof k === 'string' ? k : k?.pubkey)
+            .filter((k): k is string => !!k)
+        : undefined;
+      if (getMode() !== 'budget') {
+        if (touchedMints.length > 0) {
+          for (const m of touchedMints) saleEventBus.emitListingRefreshHint({ mint: m, poolKeys });
+        } else if (poolKeys && poolKeys.length > 0) {
+          // Reprice with no mint — a single hint carrying just the account keys.
+          saleEventBus.emitListingRefreshHint({ poolKeys });
+        }
+      }
+      console.log(
+        `[me_raw] ${hasMeV2List ? 'LIST' : 'REPRICE'}  sig=${sig.slice(0, 12)}` +
+        `  mints=${touchedMints.length}  poolKeys=${poolKeys?.length ?? 0}`,
+      );
+    }
+
+    // ── Unknown-candidate path ──────────────────────────────────────────────
+    // When the reason is a missing instruction match (not a structural failure
+    // like missing blockTime or on-chain error), attempt a best-effort generic
+    // extraction. If we can resolve price + mint + parties, insert the event
+    // so it shows up in the feed rather than being silently dropped.
+    // Disabled for fast-path-inserted cases (the SSE card already exists).
+    if (!fastPathInserted && result.reason.includes('no recognised')) {
+      const payment = extractPaymentInfo(tx);
+      // Mint fallback chain: SPL token movement → MPL Core inner CPI.
+      // Covers Core NFTs whose asset id doesn't appear in preTokenBalances.
+      const splMint  = extractNftMint(tx);
+      const coreMint = splMint ? null : extractCoreAssetFromInnerIx(tx);
+      const mint     = splMint ?? coreMint;
+      if (!payment || payment.priceLamports < CANDIDATE_MIN_LAMPORTS) {
+        console.log(`DEDUPE_DEBUG_SKIP ${tx.signature} missing_price(candidate:${payment?.priceLamports ?? 'none'})`);
+      } else if (!mint) {
+        console.log(`DEDUPE_DEBUG_SKIP ${tx.signature} empty_mint(candidate)`);
+      }
+      if (payment && payment.priceLamports >= CANDIDATE_MIN_LAMPORTS && mint) {
+        const { seller: tkSeller, buyer: tkBuyer } = extractPartiesFromTokenFlow(tx, mint);
+        const seller = payment.seller ?? tkSeller;
+        const buyer  = tkBuyer ?? payment.buyer;
+        if (!(seller && buyer && seller !== buyer)) {
+          console.log(`DEDUPE_DEBUG_SKIP ${tx.signature} missing_seller(candidate:seller=${seller ?? 'none'} buyer=${buyer ?? 'none'})`);
+        }
+        if (seller && buyer && seller !== buyer) {
+          console.log(
+            `[me_raw] CAND  sig=${sig.slice(0, 12)}` +
+            `  discs=[${discStr}]` +
+            `  src=${splMint ? 'spl' : 'core'}` +
+            `  price=${(Number(payment.priceLamports) / 1e9).toFixed(4)} SOL` +
+            `  mint=${mint.slice(0, 8)}...`,
+          );
+          const event: SaleEvent = {
+            signature:         tx.signature,
+            blockTime:         new Date(tx.blockTime! * 1000),
+            marketplace:       'magic_eden',
+            nftType:           coreMint ? 'metaplex_core' : 'legacy',
+            mintAddress:       mint,
+            collectionAddress: null,
+            seller,
+            buyer,
+            priceLamports:     payment.priceLamports,
+            priceSol:          Number(payment.priceLamports) / 1e9,
+            currency:          'SOL',
+            rawData: {
+              _parser:   'unknown_sale_candidate',
+              _program:  programsStr,
+              _discs:    discStr,
+              _mintFrom: splMint ? 'spl_token_balance' : 'mpl_core_inner_cpi',
+              saleType:  'unknown',
+            },
+            nftName:           null,
+            imageUrl:          null,
+            collectionName:    null,
+            magicEdenUrl:      null,
+          };
+          try {
+            const id = await insertSaleEvent(event);
+            if (id) console.log(`[me_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`);
+          } catch (err) {
+            console.log(`DEDUPE_DEBUG_SKIP ${event.signature} insert_condition_failed(candidate): ${(err as Error)?.message ?? 'unknown'}`);
+            console.error(`[me_raw] CAND insert error  sig=${sig.slice(0, 12)}`, err);
+          }
+        }
+      }
+    }
+    return;
+  }
+
+  // Step 4 — raw parser recognised this as a sale.
+  trace(sig, 'parse:ok', `parser=me_v2_raw  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
+
+  console.log(
+    `[me_raw] OK    sig=${sig.slice(0, 12)}` +
+    `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}` +
+    `  ${result.event.marketplace}/${result.event.nftType}` +
+    `  ${result.event.priceSol.toFixed(4)} SOL` +
+    `  mint=${result.event.mintAddress.slice(0, 8)}...`,
+  );
+
+  console.log(`INSERT_DEBUG_PARSED ${result.event.signature} me_v2_raw ${result.event.marketplace} ${result.event.mintAddress}`);
 
   try {
     const id = await insertSaleEvent(result.event);
@@ -475,6 +709,7 @@ async function _ingestMeRaw(sig: string, heliusTx?: HeliusEnhancedTransaction): 
       console.log(`[me_raw] dup   sig=${sig.slice(0, 12)}...`);
     }
   } catch (err) {
+    console.log(`DEDUPE_DEBUG_SKIP ${result.event.signature} insert_condition_failed: ${(err as Error)?.message ?? 'unknown'}`);
     console.error(`[me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
   }
 }

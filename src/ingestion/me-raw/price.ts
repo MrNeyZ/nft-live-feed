@@ -106,6 +106,30 @@ export function extractPaymentInfo(tx: RawSolanaTx): PaymentInfo | null {
  * Works for legacy and pNFT (SPL token, decimals=0, supply=1).
  * Does NOT work for MPL Core assets (no SPL token involved).
  */
+/**
+ * Collect every NFT-like mint that appears with amount=1 in pre- or
+ * post-token-balances. Intentionally permissive — covers sale (owner → buyer),
+ * cancel/delist (escrow → owner), pool deposit (owner → pool PDA), pool
+ * withdraw (pool PDA → owner). Direction-agnostic by design: the listings
+ * store uses this only to flag potentially-affected collections for
+ * debounced reconciliation, so false positives (an NFT sitting in a wallet
+ * untouched by this tx but appearing in its accounts) are cheap — byMint
+ * lookup is O(1) and no-op when the mint isn't tracked.
+ */
+export function extractNftMintsInvolved(tx: RawSolanaTx): string[] {
+  const seen = new Set<string>();
+  const entries = [
+    ...(tx.meta?.preTokenBalances  ?? []),
+    ...(tx.meta?.postTokenBalances ?? []),
+  ];
+  for (const b of entries) {
+    if (b.uiTokenAmount.decimals !== 0) continue;
+    if (b.uiTokenAmount.amount !== '1') continue;
+    seen.add(b.mint);
+  }
+  return Array.from(seen);
+}
+
 export function extractNftMint(tx: RawSolanaTx): string | null {
   const pre  = tx.meta?.preTokenBalances  ?? [];
   const post = tx.meta?.postTokenBalances ?? [];

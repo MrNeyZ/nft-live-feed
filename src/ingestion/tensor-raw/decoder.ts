@@ -1,5 +1,5 @@
 import bs58 from 'bs58';
-import { RawSolanaTx, RawInstruction } from './types';
+import { RawSolanaTx, RawInstruction, resolveAccountKey } from './types';
 import {
   TCOMP_PROGRAM,
   TAMM_PROGRAM,
@@ -41,7 +41,7 @@ function allInstructions(tx: RawSolanaTx): Array<{ ix: RawInstruction; isInner: 
 }
 
 function programAt(tx: RawSolanaTx, ix: RawInstruction): string {
-  return tx.transaction.message.accountKeys[ix.programIdIndex]?.pubkey ?? '';
+  return resolveAccountKey(tx, ix.programIdIndex);
 }
 
 function anyProgramInvolved(tx: RawSolanaTx, programId: string): boolean {
@@ -52,7 +52,17 @@ function anyProgramInvolved(tx: RawSolanaTx, programId: string): boolean {
 
 /** Fast check: does this transaction involve any Tensor program? */
 export function isTensorTransaction(tx: RawSolanaTx): boolean {
-  return tx.transaction.message.accountKeys.some((k) => TENSOR_PROGRAMS.has(k.pubkey));
+  const keys = tx.transaction.message.accountKeys as unknown as Array<string | { pubkey: string }>;
+  for (const k of keys) {
+    const pk = typeof k === 'string' ? k : k?.pubkey;
+    if (pk && TENSOR_PROGRAMS.has(pk)) return true;
+  }
+  const loaded = tx.meta?.loadedAddresses;
+  if (loaded) {
+    for (const pk of loaded.writable ?? []) if (TENSOR_PROGRAMS.has(pk)) return true;
+    for (const pk of loaded.readonly ?? []) if (TENSOR_PROGRAMS.has(pk)) return true;
+  }
+  return false;
 }
 
 // ─── TComp detection ─────────────────────────────────────────────────────────
@@ -72,8 +82,6 @@ export interface TcompMatch {
 }
 
 export function findTcompSaleIx(tx: RawSolanaTx): TcompMatch | null {
-  const accountKeys = tx.transaction.message.accountKeys;
-
   for (const { ix } of allInstructions(tx)) {
     if (programAt(tx, ix) !== TCOMP_PROGRAM) continue;
 
@@ -89,7 +97,7 @@ export function findTcompSaleIx(tx: RawSolanaTx): TcompMatch | null {
           sellerAcctIdx:   def.sellerAcctIdx,
           coreAssetIdx:    def.coreAssetIdx,
           ix,
-          accounts: ix.accounts.map((i) => accountKeys[i]?.pubkey ?? ''),
+          accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };
       }
     }
@@ -113,8 +121,6 @@ export interface TammMatch {
 }
 
 export function findTammSaleIx(tx: RawSolanaTx): TammMatch | null {
-  const accountKeys = tx.transaction.message.accountKeys;
-
   for (const { ix } of allInstructions(tx)) {
     if (programAt(tx, ix) !== TAMM_PROGRAM) continue;
 
@@ -130,7 +136,7 @@ export function findTammSaleIx(tx: RawSolanaTx): TammMatch | null {
           sellerAcctIdx:   def.sellerAcctIdx,
           coreAssetIdx:    def.coreAssetIdx,
           ix,
-          accounts: ix.accounts.map((i) => accountKeys[i]?.pubkey ?? ''),
+          accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };
       }
     }
@@ -160,4 +166,24 @@ export function classifyNftType(tx: RawSolanaTx, _instructionName: string): NftT
   // is not yet implemented — default to 'legacy' until a live pNFT Tensor tx
   // is observed and the heuristic is confirmed.
   return 'legacy';
+}
+
+// ─── Core asset ID from inner instruction ────────────────────────────────────
+
+/**
+ * Extract the MPL Core asset ID from the first MPL Core CPI in the transaction.
+ * MPL Core always places the asset account at accounts[0] of its instruction,
+ * regardless of the calling program's account layout. Used as a fallback when
+ * the outer instruction's coreAssetIdx is null or unverified (e.g. takeBidFullMeta).
+ */
+export function extractCoreAssetFromInnerIx(tx: RawSolanaTx): string | null {
+  for (const group of tx.meta?.innerInstructions ?? []) {
+    for (const ix of group.instructions) {
+      if (resolveAccountKey(tx, ix.programIdIndex) !== MPL_CORE_PROGRAM) continue;
+      if (ix.accounts.length === 0) continue;
+      const asset = resolveAccountKey(tx, ix.accounts[0]);
+      if (asset) return asset;
+    }
+  }
+  return null;
 }

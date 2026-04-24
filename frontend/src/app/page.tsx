@@ -1,496 +1,556 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { FeedEvent, LatestApiResponse, fromRow } from '@/types';
+// Soloist — Live Feed (design port of feed.html)
+// Snapshot via REST + live updates via SSE; mapped through `fromBackend`.
 
-// Max events kept in memory; oldest are dropped once exceeded
-const MAX_EVENTS = 100;
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  COLLECTIONS_DB, FeedEvent, Side,
+  rndFloat, shortWallet, timeAgo,
+} from '@/soloist/mock-data';
+import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
+import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
+import { ItemThumb, LiveDot, MktIconBadge, TopNav, compressImage } from '@/soloist/shared';
+import {
+  feedReducer, initFeedState, orderedEvents,
+  type MetaPatch,
+} from '@/soloist/feed-store';
+import { isCnftDust } from '@/soloist/cnft-filter';
 
-// ── Signal thresholds ────────────────────────────────────────────────────────
-/** Show UNDER FLOOR when sale is this far below floor (fraction, e.g. 0.05 = 5%). */
-const UNDER_FLOOR_THRESHOLD = 0.05;
-/** Show ABOVE OFFER when top offer exceeds sale by this fraction of sale price. */
-const ABOVE_OFFER_THRESHOLD = 0.05;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+const MAX_EVENTS = 200;
+const SNAPSHOT_LIMIT = 100;
+/** Scroll tolerance (px) for treating the user as "at top". */
+const AT_TOP_THRESHOLD = 4;
+/** Lowercased collection-name blacklist; mirrors src/db/blacklist.ts NAME_BLACKLIST. */
+const FEED_NAME_BLACKLIST = new Set<string>([
+  'collector crypt',
+]);
+/** Frontend-only slug blacklist — hide specific collections from the Live
+ *  Feed without touching ingestion. Collection page for these slugs still
+ *  renders normally if visited directly. */
+const FEED_SLUG_BLACKLIST = new Set<string>([
+  'staratlascrew',
+]);
 
-// ── Net price constants ───────────────────────────────────────────────────────
-/** Magic Eden / Tensor marketplace fee deducted from every sale. */
-const MARKETPLACE_FEE = 0.02;
-// Creator royalty is fetched per-collection at runtime; fallback = 0% when unknown.
+// ── Feed Card ────────────────────────────────────────────────────────────────
+// Memoized: existing cards skip render when new events are prepended.
+// Re-renders only when `event` or `tick` changes (tick drives time-label refresh).
 
-/**
- * Convert backend floorDelta (gross basis) to net basis.
- * Backend: floorDelta = (grossPrice − floor) / floor
- * Net:     netDelta   = netFactor × (1 + floorDelta) − 1
- */
-function toNetFloorDelta(floorDelta: number, netFactor: number): number {
-  return netFactor * (1 + floorDelta) - 1;
+interface FeedCardProps {
+  event: FeedEvent;
+  tick: number;
+  /** LMB on avatar → open a small centered image preview. */
+  onPreview: (url: string) => void;
 }
 
-/**
- * Convert backend offerDelta (gross basis) to net basis.
- * Backend: offerDelta = grossPrice − topOffer  (SOL, absolute)
- * Net:     netDelta   = offerDelta − grossPrice × (1 − netFactor)
- */
-function toNetOfferDelta(offerDelta: number, grossPriceSol: number, netFactor: number): number {
-  return offerDelta - grossPriceSol * (1 - netFactor);
-}
+const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
+  const isNew = event.ts > Date.now() - 6000;
+  const ago = isNew ? 'just now' : timeAgo(event.ts);
+  // Recency color tiers for the time label — font size/weight/position unchanged.
+  //   0–5s   : pink (just-now emphasis)
+  //   5–60s  : pastel yellow (recent-but-fading)
+  //   60s+   : muted lavender (previous 5–60s tone, slightly dimmed)
+  const ageMs = Date.now() - event.ts;
+  const isJustNow = ageMs < 5000;
+  const isRecent  = !isJustNow && ageMs < 60000;
+  const timeColor  = isJustNow ? '#e87ab0' : isRecent ? '#c7b479' : '#877496';
+  const timeWeight = isJustNow ? 600 : 500;
+  const cardClass = `feed-card ${event.side === 'buy' ? 'buy-card' : 'sell-card'}`;
+  const typeLabel = event.side === 'buy' ? 'Buy' : 'Sell';
+  const typeBg = event.side === 'buy' ? 'rgba(79,209,144,0.18)' : 'rgba(229,133,133,0.18)';
+  const typeFg = event.side === 'buy' ? '#4fd190' : '#e58585';
+  const m = event.nftName.match(/^(.*?)\s*#?(\d+)$/);
+  const baseName = m ? m[1] : event.nftName;
+  const num = m ? m[2] : '';
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function truncate(addr: string): string {
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
-
-const MY_WALLET = 'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE';
-
-function WalletLabel({ addr }: { addr: string }) {
-  const href = `https://magiceden.io/u/${addr}`;
-  if (addr === MY_WALLET) {
-    return <a className="you-badge" href={href} target="_blank" rel="noopener noreferrer">YOU</a>;
-  }
-  return <a className="wallet-link" href={href} target="_blank" rel="noopener noreferrer">{truncate(addr)}</a>;
-}
-
-function timeAgo(iso: string): string {
-  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 5)   return 'just now';
-  if (secs < 60)  return `${secs}s ago`;
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-  return `${Math.floor(secs / 3600)}h ago`;
-}
-
-function resolveImage(url: string | null): string | null {
-  if (!url) return null;
-  const resolved = url.startsWith('ipfs://')
-    ? url.replace('ipfs://', 'https://ipfs.io/ipfs/')
-    : url;
-  const isGif = resolved.toLowerCase().includes('.gif');
-  const cdn = `https://images.weserv.nl/?url=${encodeURIComponent(resolved)}&w=320&h=320&fit=cover`;
-  return isGif ? `${cdn}&output=jpg` : cdn;
-}
-
-function marketplaceBadgeClass(mp: string): string {
-  return 'badge badge-' + mp.replace(/_/g, '-');
-}
-
-function marketplaceLabel(mp: string): string {
-  const labels: Record<string, string> = {
-    magic_eden:     'Magic Eden',
-    magic_eden_amm: 'ME AMM',
-    tensor:         'Tensor',
-    tensor_amm:     'Tensor AMM',
-    unknown:        'Unknown',
+  // Avatar click routing, local to the Live Feed card:
+  //   LMB  → centered image preview (onPreview callback).
+  //   MMB  → open /collection/<slug> in a new tab.
+  //   RMB  → default (browser context menu) — no handler.
+  //
+  // The inner <ItemThumb> is wrapped in a `pointer-events: none` shell so
+  // the <img> never becomes the event target. That removes every
+  // image-native default (open-image-in-new-tab, drag-to-tab, extension
+  // middle-click-open-URL) without an absolute overlay. Parent handlers
+  // still fire because events fall through to `.feed-thumb`.
+  const thumbImg  = compressImage(event.imageUrl);
+  const thumbSlug = event.meCollectionSlug;
+  const handleThumbClick = () => { if (thumbImg) onPreview(thumbImg); };
+  const handleThumbMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
   };
-  return labels[mp] ?? mp;
-}
-
-function nftTypeBadgeClass(t: string): string {
-  return 'badge badge-' + t.replace(/_/g, '-');
-}
-
-function nftTypeLabel(t: string): string {
-  const labels: Record<string, string> = {
-    legacy:        'Legacy',
-    pnft:          'pNFT',
-    core:          'Core',
-    metaplex_core: 'Core',
-    cnft:          'cNFT',
+  const handleThumbAuxClick = (e: React.MouseEvent) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (thumbSlug) {
+      window.open(`/collection/${encodeURIComponent(thumbSlug)}`, '_blank', 'noopener,noreferrer');
+    }
   };
-  return labels[t] ?? t;
-}
-
-// ── SaleCard ─────────────────────────────────────────────────────────────────
-
-/**
- * Format the offer delta for display.
- *
- * Two modes:
- *  • Small/moderate gap (|delta| < salePriceSol):  "(+0.41 vs offer)" — absolute SOL
- *  • Offer >> sale   (offer ≥ 2× sale price):      "(+2050% vs sale)"  — % of sale price
- */
-function formatOfferDelta(delta: number, salePriceSol: number): string {
-  const absSol = Math.abs(delta);
-  const sign   = delta >= 0 ? '+' : '−';
-
-  // When the offer dwarfs the sale, switch to "vs sale" % form
-  if (delta < 0 && absSol >= salePriceSol) {
-    const pct = Math.round(absSol / salePriceSol * 100);
-    return `(+${pct}% vs sale)`;
-  }
-
-  // Absolute SOL — vary decimals by magnitude
-  let val: string;
-  if (absSol < 0.01)  val = absSol.toFixed(4);
-  else if (absSol < 1) val = absSol.toFixed(2);
-  else                 val = absSol.toFixed(1);
-
-  return `(${sign}${val} vs offer)`;
-}
-
-// Card border: pool / bid sells → red; normal sales and pool buys → green
-function saleTypeClass(t: string): string {
-  if (t === 'pool_sale' || t === 'bid_sell' || t === 'pool_sell') return 'card--sell';
-  return 'card--buy';
-}
-
-function saleTypeBadgeClass(t: string): string {
-  if (t === 'normal_sale') return 'badge badge-normal-sale';
-  if (t === 'pool_sale')   return 'badge badge-pool-sale';
-  if (t === 'bid_sell')    return 'badge badge-bid-sell';
-  if (t === 'pool_sell')   return 'badge badge-pool-sell';
-  if (t === 'pool_buy')    return 'badge badge-pool-buy';
-  return 'badge badge-listing';
-}
-
-function saleTypeLabel(t: string): string {
-  if (t === 'normal_sale') return 'NORMAL SALE';
-  if (t === 'pool_sale')   return 'POOL SALE';
-  if (t === 'bid_sell')    return 'BID SALE';
-  if (t === 'pool_sell')   return 'POOL SELL';
-  if (t === 'pool_buy')    return 'POOL BUY';
-  return 'LISTING';
-}
-
-function signalBadges(e: FeedEvent, netFactor: number): Array<{ key: string; label: string; cls: string }> {
-  const badges: Array<{ key: string; label: string; cls: string }> = [];
-  const netFloorD = e.floorDelta != null ? toNetFloorDelta(e.floorDelta, netFactor)              : null;
-  const netOfferD = e.offerDelta != null ? toNetOfferDelta(e.offerDelta, e.priceSol, netFactor)  : null;
-  const netSol    = e.priceSol * netFactor;
-  if (netOfferD != null && netSol > 0 && (-netOfferD / netSol) > ABOVE_OFFER_THRESHOLD)
-    badges.push({ key: 'above-offer', label: 'ABOVE OFFER', cls: 'badge badge-signal-above-offer' });
-  return badges;
-}
-
-function SaleCard({ event: e, netFactor }: { event: FeedEvent; netFactor: number }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  // Reset failure flag whenever a new imageUrl arrives (e.g. after meta patch)
-  useEffect(() => { setImgFailed(false); }, [e.imageUrl]);
-  const imgSrc = resolveImage(e.imageUrl);
 
   return (
-    <div className={`card ${saleTypeClass(e.saleType)}`}>
-      {imgSrc && !imgFailed ? (
-        <img
-          className="card-img"
-          src={imgSrc}
-          alt={e.nftName ?? ''}
-          onError={() => setImgFailed(true)}
-        />
-      ) : (
-        <div className="card-img-placeholder">🖼</div>
-      )}
-
-      <div className="card-body">
-        <div className="card-row1">
-          <span className="card-name">{e.nftName ?? 'NFT'}</span>
-          <a
-            className="badge badge-magic-eden card-row1-link"
-            href={e.meCollectionSlug
-              ? `https://magiceden.io/marketplace/${e.meCollectionSlug}`
-              : `https://magiceden.io/item-details/${e.mintAddress}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >Magic Eden</a>
-          <a
-            className="badge badge-link-tensor card-row1-link"
-            href={`https://www.tensor.trade/trade/${e.mintAddress}`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >Tensor</a>
-          <div className="card-price-block">
-            {(() => {
-              const np  = e.priceSol * netFactor;
-              const nfd = e.floorDelta != null ? toNetFloorDelta(e.floorDelta, netFactor)             : null;
-              const nod = e.offerDelta != null ? toNetOfferDelta(e.offerDelta, e.priceSol, netFactor) : null;
-              return (<>
-                <span className="card-price">
-                  {np.toFixed(np < 0.1 ? 4 : 3)} {e.currency}
-                </span>
-                <span className="card-price-gross">
-                  {e.priceSol.toFixed(e.priceSol < 0.1 ? 4 : 3)} gross
-                </span>
-                {nfd != null && (
-                  <span className="card-floor-delta">
-                    ({nfd >= 0 ? '+' : ''}{Math.round(nfd * 100)}%)
-                  </span>
-                )}
-                {nod != null && (
-                  <span className="card-offer-delta">
-                    {formatOfferDelta(nod, np)}
-                  </span>
-                )}
-              </>);
-            })()}
+    <div className={`feed-row-wrap${isNew ? ' new-' + event.side : ''}`}>
+      <div className={cardClass}>
+        <div
+          className="feed-thumb"
+          onClick={handleThumbClick}
+          onMouseDown={handleThumbMouseDown}
+          onAuxClick={handleThumbAuxClick}
+          style={{ cursor: thumbImg ? 'pointer' : 'default' }}
+        >
+          <div draggable={false} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+            <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={56} />
           </div>
         </div>
 
-        {e.collectionName && (
-          <div className="card-collection">{e.collectionName}</div>
-        )}
+        {/* Middle column */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingTop: 1, paddingBottom: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden' }}>
+            <span style={{
+              fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
+            </span>
+          </div>
 
-        <div className="card-badges">
-          {signalBadges(e, netFactor).map((s) => (
-            <span key={s.key} className={s.cls}>{s.label}</span>
-          ))}
-          <span className={saleTypeBadgeClass(e.saleType)}>
-            {saleTypeLabel(e.saleType)}
-          </span>
-          <span className={marketplaceBadgeClass(e.marketplace)}>
-            {marketplaceLabel(e.marketplace)}
-          </span>
-          <span className={nftTypeBadgeClass(e.nftType)}>
-            {nftTypeLabel(e.nftType)}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3 }}>
+            <div style={{ fontSize: 10.5, color: '#55556e' }}>
+              <span style={{ marginRight: 6 }}>seller:</span>
+              <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                {event.seller ? shortWallet(event.seller) : 'N/A'}
+              </span>
+            </div>
+            <div style={{ fontSize: 10.5, color: '#55556e' }}>
+              <span style={{ marginRight: 6 }}>buyer:</span>
+              <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                {event.buyer ? shortWallet(event.buyer) : 'N/A'}
+              </span>
+            </div>
+          </div>
         </div>
 
-        <div className="card-addresses">
-          <WalletLabel addr={e.seller} />
-          {' → '}
-          <WalletLabel addr={e.buyer} />
-        </div>
-
-        <div className="card-footer">
-          <span className="card-time">{timeAgo(e.blockTime)}</span>
-          <span className={`source-badge source-${e.source}`}>{e.source}</span>
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 11, color: timeColor, fontWeight: timeWeight }}>{ago}</span>
+            <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 4,
+              background: typeBg, color: typeFg, letterSpacing: '0.2px',
+            }}>{typeLabel}</span>
+            <span style={{ fontSize: 11, color: '#6a6a84' }}>for</span>
+            <span style={{
+              fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
+              fontFamily: "'SF Mono','Fira Code',monospace",
+            }}>
+              {event.price.toFixed(2)}{' '}
+              <span style={{ color: '#8a8aa6', fontWeight: 600, fontSize: 11 }}>SOL</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>
   );
-}
+});
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Feed App ─────────────────────────────────────────────────────────────────
 
-type SseStatus = 'connecting' | 'connected' | 'disconnected';
+type FilterKey = 'all' | Side | 'listing' | 'me' | 'tensor';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+const FILTERS: { key: FilterKey; label: string; color: string }[] = [
+  { key: 'all',     label: 'All',        color: '#a890e8' },
+  { key: 'buy',     label: 'Buys',       color: '#4fd190' },
+  { key: 'sell',    label: 'Sells',      color: '#e58585' },
+  { key: 'listing', label: 'Listings',   color: '#a890e8' },
+  { key: 'me',      label: 'Magic Eden', color: '#e87ab0' },
+  { key: 'tensor',  label: 'Tensor',     color: '#a890e8' },
+];
 
 export default function FeedPage() {
-  const [events, setEvents] = useState<FeedEvent[]>([]);
-  const [status, setStatus] = useState<SseStatus>('connecting');
-  const [loading, setLoading] = useState(true);
-  // Single shared tick drives timeAgo() updates for all visible cards.
-  // One interval here instead of N intervals in children avoids browser timer throttling.
-  const [, setTick] = useState(0);
+  const [filter, setFilter] = useState<FilterKey>('all');
+  const [collFilter, setCollFilter] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
+  // Avatar-preview overlay state. One modal per page; clicking another thumb
+  // just replaces the URL. Cleared on backdrop click or Escape key.
+  const [preview, setPreview] = useState<string | null>(null);
   useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [preview]);
+  const [tick, setTick] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [solPrice] = useState(() => rndFloat(38, 42).toFixed(2));
+
+  // Normalized feed state: dedup + ordering + patching live inside the reducer,
+  // so every SSE/REST path below just dispatches a typed action instead of
+  // splicing a flat array by hand.
+  const [feedState, dispatch] = useReducer(feedReducer, undefined, () => initFeedState(MAX_EVENTS));
+  const events = useMemo(() => orderedEvents(feedState), [feedState]);
+
+  // Scrollable list element + scroll snapshot captured before list-expanding
+  // dispatches. Layout effect consumes the snapshot post-commit and either
+  // pins the user to the top (if they were already there) or compensates
+  // scrollTop by the added height so their viewport doesn't jump. First-wins:
+  // when many events are batched, only the earliest snapshot is used.
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollSnapshotRef = useRef<{ height: number; top: number; wasAtTop: boolean } | null>(null);
+
+  function captureScroll() {
+    if (scrollSnapshotRef.current !== null) return;
+    const el = listRef.current;
+    scrollSnapshotRef.current = {
+      height:   el?.scrollHeight ?? 0,
+      top:      el?.scrollTop    ?? 0,
+      wasAtTop: !el || el.scrollTop <= AT_TOP_THRESHOLD,
+    };
+  }
+
+  useLayoutEffect(() => {
+    const snap = scrollSnapshotRef.current;
+    if (!snap) return;
+    scrollSnapshotRef.current = null;
+    const el = listRef.current;
+    if (!el) return;
+    if (snap.wasAtTop) {
+      el.scrollTop = 0;
+    } else {
+      const delta = el.scrollHeight - snap.height;
+      if (delta !== 0) el.scrollTop = snap.top + delta;
+    }
+  }, [feedState]);
+
+  // Shared tick so timeAgo refreshes on all visible cards without per-card timers.
+  useEffect(() => {
+    const id = setInterval(() => setTick(n => n + 1), 3000);
     return () => clearInterval(id);
   }, []);
-  const seenRef    = useRef(new Set<string>());
-  // mint → enriched metadata — populated when a `meta` event arrives
-  const metaCache  = useRef(new Map<string, { nftName: string | null; imageUrl: string | null; collectionName: string | null; meCollectionSlug: string | null }>());
 
-  // ── Per-collection royalty rates ────────────────────────────────────────────
-  // Fetched on demand from ME API; keyed by collection slug.
-  // Fallback = 0% (no entry) when royalty is unknown or collection has 0% enforced royalty.
-  const royaltyFetchedRef = useRef(new Set<string>()); // guards against duplicate in-flight fetches
-  const [royalties, setRoyalties] = useState<Map<string, number>>(new Map());
-
-  function addEvent(ev: FeedEvent) {
-    if (seenRef.current.has(ev.signature)) return;
-    seenRef.current.add(ev.signature);
-    // Apply cached metadata immediately so repeated mints never flash as "Unnamed NFT"
-    const cached = metaCache.current.get(ev.mintAddress);
-    const ready  = cached
-      ? { ...ev,
-          nftName:          cached.nftName          ?? ev.nftName,
-          imageUrl:         cached.imageUrl         ?? ev.imageUrl,
-          collectionName:   cached.collectionName   ?? ev.collectionName,
-          meCollectionSlug: cached.meCollectionSlug ?? ev.meCollectionSlug,
-        }
-      : ev;
-    setEvents((prev) => [ready, ...prev].slice(0, MAX_EVENTS));
-  }
-
-  function updateMeta(update: { mintAddress: string; signature: string; nftName: string | null; imageUrl: string | null; collectionName: string | null; meCollectionSlug: string | null; floorDelta: number | null; offerDelta: number | null }) {
-    // Persist per-mint metadata in cache (reused when the same mint appears again)
-    metaCache.current.set(update.mintAddress, {
-      nftName:          update.nftName,
-      imageUrl:         update.imageUrl,
-      collectionName:   update.collectionName,
-      meCollectionSlug: update.meCollectionSlug,
-    });
-    // Patch visible cards: mint-level fields by mintAddress, price-based deltas by signature
-    setEvents((prev) => prev.map((e) => {
-      if (e.mintAddress !== update.mintAddress) return e;
-      const isExact = e.signature === update.signature;
-      return {
-        ...e,
-        nftName:          update.nftName          ?? e.nftName,
-        imageUrl:         update.imageUrl         ?? e.imageUrl,
-        collectionName:   update.collectionName   ?? e.collectionName,
-        meCollectionSlug: update.meCollectionSlug ?? e.meCollectionSlug,
-        floorDelta:  isExact ? (update.floorDelta  ?? e.floorDelta)  : e.floorDelta,
-        offerDelta:  isExact ? (update.offerDelta  ?? e.offerDelta)  : e.offerDelta,
-      };
-    }));
-  }
-
-  // Fetch royalty rates for collection slugs not yet resolved.
-  // Runs whenever events change (new slugs arrive via meta patches).
-  // One fetch per slug lifetime; 0% fallback stays when fetch fails or returns no data.
+  // Snapshot on mount + live SSE. Paused → close stream; resume → reconnect
+  // and re-fetch snapshot so events that arrived during the pause get merged
+  // in (reducer dedups the overlap by id).
+  //
+  // Currently subscribed: `sale` (live append), `meta` (enrichment patch).
+  // `rawpatch` and `remove` actions exist in the reducer but are not yet
+  // wired here — adding them is one dispatch line each with no state rewire.
   useEffect(() => {
-    for (const ev of events) {
-      const slug = ev.meCollectionSlug;
-      if (!slug || royaltyFetchedRef.current.has(slug)) continue;
-      royaltyFetchedRef.current.add(slug);
-      fetch(`https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((data: { sellerFeeBasisPoints?: number } | null) => {
-          if (data?.sellerFeeBasisPoints != null) {
-            setRoyalties((prev) => new Map(prev).set(slug, data.sellerFeeBasisPoints! / 10000));
-          }
-          // No entry → 0% fallback stays in effect
-        })
-        .catch(() => {}); // silent; 0% fallback stays
-    }
-  }, [events]);
-
-  // Initial load
-  useEffect(() => {
-    fetch(`${API_BASE}/api/events/latest?limit=100`)
-      .then((r) => r.json())
-      .then((data: LatestApiResponse) => {
-        const mapped = data.events.map(fromRow);
-        mapped.forEach((e) => seenRef.current.add(e.signature));
-        setEvents(mapped);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  // SSE live updates + visibility-change resync
-  useEffect(() => {
-    let es: EventSource;
+    let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
 
-    function connect() {
-      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    const connect = () => {
+      if (cancelled || paused) return;
       es?.close();
-      setStatus('connecting');
       es = new EventSource(`${API_BASE}/api/events/stream`);
-
-      es.addEventListener('open', () => setStatus('connected'));
-
+      // `sale` is the only list-expanding SSE event, so it's also the only
+      // path that captures the scroll snapshot before dispatching.
       es.addEventListener('sale', (e: MessageEvent) => {
         try {
-          const ev = JSON.parse(e.data) as FeedEvent;
-          console.log(`[timing] SSE-recv   sig=${ev.signature.slice(0,12)}  T=${Date.now()}`); // TIMING PROBE
-          addEvent(ev);
-        } catch {
-          console.error('[sse] failed to parse sale event', e.data);
-        }
+          const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
+          captureScroll();
+          dispatch({ type: 'live', event: ev });
+        } catch { /* malformed frame — skip */ }
       });
-
+      // Enrichment patches: fill in nftName / collectionName / meCollectionSlug
+      // for events previously rendered as "Unknown #?". Matches by signature
+      // and by mintAddress (same mint in multiple sales benefits from one fetch).
+      // Patch logic lives in the reducer so this handler stays a pure
+      // JSON → action adapter.
       es.addEventListener('meta', (e: MessageEvent) => {
         try {
-          updateMeta(JSON.parse(e.data));
-        } catch {
-          console.error('[sse] failed to parse meta event', e.data);
-        }
+          const patch = JSON.parse(e.data) as MetaPatch;
+          dispatch({ type: 'meta', patch });
+        } catch { /* malformed frame — skip */ }
       });
-
+      // Backend fires `remove` for rows deleted after enrichment (blacklisted
+      // collections, late cNFT floor-gate). Without this listener the card
+      // painted from the earlier `sale` frame would linger forever because
+      // `collectionName` is null at sale time and never gets patched (no
+      // `meta` frame is emitted for blacklisted rows).
       es.addEventListener('remove', (e: MessageEvent) => {
         try {
           const { signature } = JSON.parse(e.data) as { signature: string };
-          seenRef.current.delete(signature);
-          setEvents((prev) => prev.filter((ev) => ev.signature !== signature));
-        } catch {
-          console.error('[sse] failed to parse remove event', e.data);
-        }
+          if (signature) dispatch({ type: 'remove', signature });
+        } catch { /* malformed frame — skip */ }
       });
-
-      es.addEventListener('rawpatch', (e: MessageEvent) => {
-        try {
-          const p = JSON.parse(e.data) as {
-            signature: string; seller: string; buyer: string;
-            marketplace: string; nftType: string; saleType: string;
-            priceSol: number;
-          };
-          setEvents((prev) => prev.map((ev) =>
-            ev.signature !== p.signature ? ev : {
-              ...ev,
-              seller:      p.seller,
-              buyer:       p.buyer,
-              marketplace: p.marketplace,
-              nftType:     p.nftType,
-              saleType:    p.saleType,
-              priceSol:    p.priceSol,
-            }
-          ));
-        } catch {
-          console.error('[sse] failed to parse rawpatch event', e.data);
-        }
-      });
-
       es.addEventListener('error', () => {
-        setStatus('disconnected');
-        es.close();
-        // Only schedule a reconnect if the tab is visible; if backgrounded, the
-        // visibilitychange handler will reconnect when the tab comes back.
-        if (!document.hidden) {
+        es?.close();
+        if (!cancelled && !paused && !document.hidden) {
           reconnectTimer = setTimeout(connect, 3000);
         }
       });
-    }
-
-    // Fetch the latest 100 events and merge any the SSE stream missed.
-    function catchUp() {
-      fetch(`${API_BASE}/api/events/latest?limit=100`)
-        .then((r) => r.json())
-        .then((data: LatestApiResponse) => {
-          data.events.forEach((row) => {
-            if (!seenRef.current.has(row.signature)) {
-              addEvent(fromRow(row));
-            }
-          });
-        })
-        .catch(console.error);
-    }
-
-    function onVisibilityChange() {
-      if (document.hidden) return;
-      // Tab just became visible: reconnect SSE (stream may have stalled while
-      // backgrounded) then pull any missed events from the REST snapshot.
-      connect();
-      catchUp();
-    }
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    connect();
-    return () => {
-      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-      es?.close();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const statusLabel: Record<SseStatus, string> = {
-    connecting:   'Connecting…',
-    connected:    'Live',
-    disconnected: 'Reconnecting…',
-  };
+    // Pull latest snapshot (newest-first) and dispatch as a single `snapshot`
+    // action — the reducer handles dedup against any live events that might
+    // have already arrived for the same signatures.
+    fetch(`${API_BASE}/api/events/latest?limit=${SNAPSHOT_LIMIT}`)
+      .then(r => r.json())
+      .then((data: LatestApiResponse) => {
+        if (cancelled) return;
+        const events: FeedEvent[] = data.events.map(r => fromBackend(fromRow(r)));
+        captureScroll();
+        dispatch({ type: 'snapshot', events });
+      })
+      .catch(() => { /* snapshot failed — live stream still attempts to connect */ })
+      .finally(() => { if (!cancelled) connect(); });
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+    };
+  }, [paused]);
+
+  // ── cNFT collection-floor filter ────────────────────────────────────────
+  // Hide cNFT collections whose CURRENT FLOOR is below 0.002 SOL. Reuses
+  // /api/collections/bids (same endpoint the Dashboard uses; backend caches
+  // per slug for 60s). Floor is fetched once per newly-seen cNFT slug,
+  // batched with a small debounce so bursts don't turn into 1-per-event
+  // calls. Shared predicate (`isCnftDust`) keeps Dashboard in lockstep.
+  const [floorBySlug, setFloorBySlug] = useState<Record<string, number | null>>({});
+  const requestedFloorRef = useRef<Set<string>>(new Set());
+  const pendingFloorRef   = useRef<Set<string>>(new Set());
+  const floorFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    for (const e of events) {
+      if (e.nftType !== 'cnft' || !e.meCollectionSlug) continue;
+      if (requestedFloorRef.current.has(e.meCollectionSlug)) continue;
+      pendingFloorRef.current.add(e.meCollectionSlug);
+    }
+    if (pendingFloorRef.current.size === 0 || floorFetchTimerRef.current) return;
+    floorFetchTimerRef.current = setTimeout(async () => {
+      floorFetchTimerRef.current = null;
+      const batch = Array.from(pendingFloorRef.current).slice(0, 80);
+      pendingFloorRef.current.clear();
+      for (const s of batch) requestedFloorRef.current.add(s);
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(batch.join(','))}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json() as {
+          bids?: Record<string, { floorLamports: number | null }>;
+        };
+        if (!data.bids) return;
+        setFloorBySlug(prev => {
+          const next = { ...prev };
+          for (const [slug, v] of Object.entries(data.bids!)) {
+            next[slug] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
+          }
+          return next;
+        });
+      } catch { /* transient — retry path is the next unseen cNFT slug */ }
+    }, 500);
+  }, [events]);
+  useEffect(() => () => {
+    if (floorFetchTimerRef.current) clearTimeout(floorFetchTimerRef.current);
+  }, []);
+
+  const filtered = useMemo(() => events.filter(e => {
+    // Collection-floor gate for cNFTs (replaces the old sale-price guard):
+    // shared predicate — see `@/soloist/cnft-filter`.
+    if (isCnftDust(e, s => floorBySlug[s])) return false;
+    // Defensive blacklist — backend deletes blacklisted rows after enrichment,
+    // but if a card was already painted via the immediate `sale` SSE frame we
+    // also drop it here once enrichment / meta fills in the collection name.
+    // Lowercase comparison matches NAME_BLACKLIST in src/db/blacklist.ts.
+    if (e.collectionName && FEED_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) return false;
+    if (e.meCollectionSlug && FEED_SLUG_BLACKLIST.has(e.meCollectionSlug)) return false;
+    if (collFilter && e.collectionName !== collFilter) return false;
+    if (filter === 'buy')     return e.side === 'buy';
+    if (filter === 'sell')    return e.side === 'sell';
+    if (filter === 'listing') return false; // backend does not emit listings in v1
+    if (filter === 'me')      return e.marketplace === 'me';
+    if (filter === 'tensor')  return e.marketplace === 'tensor';
+    return true;
+  }), [events, filter, collFilter, floorBySlug]);
 
   return (
-    <div className="page">
-      <div className="header">
-        <h1>NFT Live Feed</h1>
-        <div className="header-right">
-          <div className={`status-dot ${status}`} />
-          <span>{statusLabel[status]}</span>
-          {!loading && <span>· {events.length} events</span>}
+    <div className="feed-root">
+      <TopNav active="feed" />
+
+      {/* Centered column stage */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
+        <div style={{ width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+
+          {/* Promoted feed card */}
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+            border: '1px solid rgba(168,144,232,0.65)',
+            borderRadius: 12,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+            margin: '14px 0 3px',
+            minHeight: 0,
+          }}>
+
+            {/* Card header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 14px', flexShrink: 0,
+              borderBottom: '1px solid rgba(168,144,232,0.12)',
+              background: 'rgba(168,144,232,0.04)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
+                <span style={{ fontSize: 13 }}>⚡</span>
+                <LiveDot />
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#8068d8', marginLeft: 4 }}>
+                  ({filtered.length.toLocaleString()})
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={() => setFiltersOpen(o => !o)}
+                  title="Filters"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '3px 9px', fontSize: 10.5, fontWeight: 600, borderRadius: 4,
+                    border: filtersOpen ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                    background: filtersOpen ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.03)',
+                    color: filtersOpen ? '#c4b3f0' : '#8f8fa8',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span> Filters
+                </button>
+                <button
+                  onClick={() => setPaused(p => !p)}
+                  style={{
+                    padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 4,
+                    border: `1px solid ${paused ? '#c9a82066' : '#4fd19048'}`,
+                    background: paused ? '#c9a82018' : '#4fd19015',
+                    color: paused ? '#c9a820' : '#4fd190',
+                    cursor: 'pointer',
+                  }}
+                >{paused ? '▶ Resume' : '⏸ Pause'}</button>
+              </div>
+            </div>
+
+            {/* Feed surface */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+              {filtersOpen && (
+                <div style={{ padding: '10px 4px 12px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Type:</span>
+                    {FILTERS.map(f => (
+                      <button key={f.key} onClick={() => setFilter(f.key)} style={{
+                        padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+                        border: `1px solid ${filter === f.key ? f.color + '66' : '#ffffff0d'}`,
+                        background: filter === f.key ? f.color + '22' : 'rgba(255,255,255,0.02)',
+                        color: filter === f.key ? f.color : '#8f8fa8',
+                        cursor: 'pointer',
+                      }}>{f.label}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Collection:</span>
+                    {COLLECTIONS_DB.slice(0, 8).map(c => (
+                      <button
+                        key={c.name}
+                        onClick={() => setCollFilter(collFilter === c.name ? null : c.name)}
+                        style={{
+                          padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+                          border: `1px solid ${collFilter === c.name ? c.color + '66' : '#ffffff0d'}`,
+                          background: collFilter === c.name ? c.color + '22' : 'rgba(255,255,255,0.02)',
+                          color: collFilter === c.name ? c.color : '#8f8fa8',
+                          cursor: 'pointer',
+                        }}>{c.abbr}</button>
+                    ))}
+                    {collFilter && (
+                      <button onClick={() => setCollFilter(null)} style={{
+                        padding: '2px 8px', fontSize: 10, borderRadius: 4,
+                        border: '1px solid #bf5f5f40', background: '#bf5f5f15',
+                        color: '#e58585', cursor: 'pointer',
+                      }}>✕ clear</button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Feed list */}
+              <div ref={listRef} className="feed-list" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
+                {filtered.length === 0 && (
+                  <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
+                    No events match current filters
+                  </div>
+                )}
+                {filtered.map(e => <FeedCard key={e.id} event={e} tick={tick} onPreview={setPreview} />)}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="feed">
-        {loading && <div className="empty">Loading…</div>}
-        {!loading && events.length === 0 && (
-          <div className="empty">No sales yet. Waiting for events…</div>
-        )}
-        {events.map((e) => {
-          const royaltyRate = e.meCollectionSlug ? (royalties.get(e.meCollectionSlug) ?? 0) : 0;
-          return <SaleCard key={e.signature} event={e} netFactor={1 - MARKETPLACE_FEE - royaltyRate} />;
-        })}
+      {/* Bottom status — mirrors the top nav's gradient/border/shadow so the
+          shell reads as two balanced rails instead of top-only. Full-bleed
+          wrapper breaks out of `.feed-root`'s 16 px horizontal padding. */}
+      <div style={{
+        width: '100vw',
+        marginLeft: 'calc(50% - 50vw)',
+        background: 'linear-gradient(180deg, rgba(10,8,18,0.95) 0%, rgba(20,14,34,0.7) 100%)',
+        borderTop: '1px solid rgba(255,255,255,0.04)',
+        boxShadow: '0 -1px 0 rgba(128,104,216,0.04), 0 -8px 24px rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(12px)',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '6px 18px',
+          maxWidth: 1400, margin: '0 auto',
+          fontSize: 11,
+        }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <span style={{ color: '#55556e' }}>Discord</span>
+            <span style={{ color: '#55556e' }}>Twitter</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
+              <span style={{ color: '#55556e' }}>alerts</span>
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+            <span><span style={{ color: '#55556e' }}>EVENTS </span><span style={{ color: '#56566e' }}>{events.length}</span></span>
+            <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#36b868' }}>${solPrice}</span></span>
+          </div>
+        </div>
       </div>
+
+      {/* Avatar preview — single overlay shared by every FeedCard. Backdrop
+       *  click and Escape close it. The <img> stops propagation so clicks on
+       *  the picture itself don't dismiss. Reuses the already-fetched wsrv
+       *  URL from `compressImage`, so no extra network request. */}
+      {preview && (
+        <div
+          onClick={() => setPreview(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+          role="dialog"
+          aria-label="Preview"
+        >
+          <img
+            src={preview}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 200, height: 200, objectFit: 'contain',
+              borderRadius: 8, background: '#0e0b22',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+              cursor: 'default',
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

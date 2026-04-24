@@ -1,5 +1,5 @@
 import bs58 from 'bs58';
-import { RawSolanaTx, RawInstruction } from './types';
+import { RawSolanaTx, RawInstruction, resolveAccountKey } from './types';
 import {
   ME_V2_PROGRAM,
   ME_AMM_PROGRAM,
@@ -41,7 +41,7 @@ function allInstructions(tx: RawSolanaTx): Array<{ ix: RawInstruction; isInner: 
 }
 
 function programAt(tx: RawSolanaTx, ix: RawInstruction): string {
-  return tx.transaction.message.accountKeys[ix.programIdIndex]?.pubkey ?? '';
+  return resolveAccountKey(tx, ix.programIdIndex);
 }
 
 function anyProgramInvolved(tx: RawSolanaTx, programId: string): boolean {
@@ -70,8 +70,6 @@ export interface MeV2Match {
 }
 
 export function findMeV2SaleIx(tx: RawSolanaTx): MeV2Match | null {
-  const accountKeys = tx.transaction.message.accountKeys;
-
   // Scan def-first so higher-priority instructions (mip1ExecuteSaleV2) win
   // even when a lower-priority instruction (buyV2) exists as an inner CPI
   // within the same transaction.
@@ -87,7 +85,7 @@ export function findMeV2SaleIx(tx: RawSolanaTx): MeV2Match | null {
           verified: def.verified,
           coreAssetIdx: def.coreAssetIdx,
           ix,
-          accounts: ix.accounts.map((i) => accountKeys[i]?.pubkey ?? ''),
+          accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };
       }
     }
@@ -123,8 +121,6 @@ export interface MmmMatch {
 }
 
 export function findMmmSaleIx(tx: RawSolanaTx): MmmMatch | null {
-  const accountKeys = tx.transaction.message.accountKeys;
-
   for (const { ix } of allInstructions(tx)) {
     if (programAt(tx, ix) !== ME_AMM_PROGRAM) continue;
 
@@ -139,7 +135,7 @@ export function findMmmSaleIx(tx: RawSolanaTx): MmmMatch | null {
           buyerAcctIdx:  def.buyerAcctIdx,
           coreAssetIdx:  def.coreAssetIdx,
           ix,
-          accounts: ix.accounts.map((i) => accountKeys[i]?.pubkey ?? ''),
+          accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };
       }
     }
@@ -159,13 +155,12 @@ export function findMmmSaleIx(tx: RawSolanaTx): MmmMatch | null {
  * in others). The inner CPI is the canonical, stable source.
  */
 export function extractCoreAssetFromInnerIx(tx: RawSolanaTx): string | null {
-  const accountKeys = tx.transaction.message.accountKeys;
   for (const group of tx.meta?.innerInstructions ?? []) {
     for (const ix of group.instructions) {
-      const prog = accountKeys[ix.programIdIndex]?.pubkey ?? '';
-      if (prog === MPL_CORE_PROGRAM && ix.accounts.length > 0) {
-        return accountKeys[ix.accounts[0]]?.pubkey ?? null;
-      }
+      if (resolveAccountKey(tx, ix.programIdIndex) !== MPL_CORE_PROGRAM) continue;
+      if (ix.accounts.length === 0) continue;
+      const asset = resolveAccountKey(tx, ix.accounts[0]);
+      if (asset) return asset;
     }
   }
   return null;
@@ -187,5 +182,16 @@ export function classifyNftType(tx: RawSolanaTx): NftType {
 
 /** Fast check: does this transaction involve any ME program at all? */
 export function isMeTransaction(tx: RawSolanaTx): boolean {
-  return tx.transaction.message.accountKeys.some((k) => ME_PROGRAMS.has(k.pubkey));
+  // Pre-merge shape (strings) or post-merge shape (objects) — accept both.
+  const keys = tx.transaction.message.accountKeys as unknown as Array<string | { pubkey: string }>;
+  for (const k of keys) {
+    const pk = typeof k === 'string' ? k : k?.pubkey;
+    if (pk && ME_PROGRAMS.has(pk)) return true;
+  }
+  const loaded = tx.meta?.loadedAddresses;
+  if (loaded) {
+    for (const pk of loaded.writable ?? []) if (ME_PROGRAMS.has(pk)) return true;
+    for (const pk of loaded.readonly ?? []) if (ME_PROGRAMS.has(pk)) return true;
+  }
+  return false;
 }

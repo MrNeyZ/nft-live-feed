@@ -37,7 +37,10 @@ export function parseHeliusTransaction(
   }
 
   const nft = nftEvent.nfts?.[0];
-  if (!nft?.mint) {
+  // cNFT sales may arrive without a resolvable mint — let them pass through
+  // with an empty placeholder (matches the raw tensor/tcomp cNFT path).
+  const isCnft = type === 'COMPRESSED_NFT_SALE';
+  if (!nft?.mint && !isCnft) {
     return { ok: false, reason: 'no mint in nft event' };
   }
 
@@ -68,7 +71,7 @@ export function parseHeliusTransaction(
     blockTime: new Date(nftEvent.timestamp * 1000),
     marketplace,
     nftType,
-    mintAddress: nft.mint,
+    mintAddress: nft?.mint ?? '',
     collectionAddress: null, // enriched later if needed
     seller: nftEvent.seller,
     buyer: nftEvent.buyer,

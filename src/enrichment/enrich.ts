@@ -18,14 +18,15 @@ const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS);
 const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS);
 
 interface MeTokenData {
-  slug:      string | null;
-  nftName:   string | null;
-  imageUrl:  string | null;
+  slug:           string | null;
+  collectionName: string | null;
+  nftName:        string | null;
+  imageUrl:       string | null;
 }
 
 /**
  * Fetches the Magic Eden token record for a mint.
- * Returns slug, nftName, and imageUrl (all may be null).
+ * Returns slug, human-readable collectionName, nftName, and imageUrl (all may be null).
  * Uses the public ME v2 tokens API — no key required.
  * Never throws.
  */
@@ -35,15 +36,23 @@ async function getMeTokenData(mint: string): Promise<MeTokenData> {
       `https://api-mainnet.magiceden.dev/v2/tokens/${mint}`,
       { signal: AbortSignal.timeout(4000) },
     );
-    if (!res.ok) return { slug: null, nftName: null, imageUrl: null };
-    const json = await res.json() as { collection?: string; name?: string; image?: string };
+    if (!res.ok) return { slug: null, collectionName: null, nftName: null, imageUrl: null };
+    // ME v2 tokens shape (verified against live response):
+    //   { collection: "<slug>", collectionName: "<Human Name>", name: "<NFT Name>", image, ... }
+    const json = await res.json() as {
+      collection?:     string;
+      collectionName?: string;
+      name?:           string;
+      image?:          string;
+    };
     return {
-      slug:     json.collection ?? null,
-      nftName:  json.name       ?? null,
-      imageUrl: json.image      ?? null,
+      slug:           json.collection     ?? null,
+      collectionName: json.collectionName ?? null,
+      nftName:        json.name           ?? null,
+      imageUrl:       json.image          ?? null,
     };
   } catch {
-    return { slug: null, nftName: null, imageUrl: null };
+    return { slug: null, collectionName: null, nftName: null, imageUrl: null };
   }
 }
 
@@ -189,10 +198,15 @@ function releaseEnrichSlot(): void {
 const inFlightEnriches = new Map<string, Promise<SaleEvent>>();
 
 export async function enrich(event: SaleEvent): Promise<SaleEvent> {
+  // Tensor cNFT sales have their asset ID derived at parse time from the
+  // Bubblegum `transfer` inner CPI (tensor-raw/price.ts:extractCnftAssetId).
+  // If that failed, mintAddress stays '' and the empty-mint short-circuit
+  // below skips all downstream metadata lookups.
   const mint = event.mintAddress;
 
   // If the same mint is already being enriched, reuse that promise.
-  const inflight = inFlightEnriches.get(mint);
+  // Skip dedup when mint is still empty — each unresolved event is unique.
+  const inflight = mint ? inFlightEnriches.get(mint) : undefined;
   if (inflight) {
     // Merge the in-flight result onto this event's identity fields.
     const resolved = await inflight;
@@ -214,9 +228,9 @@ export async function enrich(event: SaleEvent): Promise<SaleEvent> {
 
   const promise = _enrich(event).finally(() => {
     releaseEnrichSlot();
-    inFlightEnriches.delete(mint);
+    if (mint) inFlightEnriches.delete(mint);
   });
-  inFlightEnriches.set(mint, promise);
+  if (mint) inFlightEnriches.set(mint, promise);
   return promise;
 }
 
@@ -224,6 +238,13 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
   const mint = event.mintAddress;
   let metadata: NftMetadata | null = null;
 
+  // Skip caches for empty mint — cache keyed by '' would conflate unrelated
+  // unresolved cNFT events (different signatures, different assets).
+  // Empty mint here means resolveCnftAssetId failed up-front; all downstream
+  // HTTP lookups would return nothing, so short-circuit.
+  if (!mint) {
+    return applyMetadata(event, null);
+  }
   if (successCache.has(mint)) {
     metadata = successCache.get(mint)!;
   } else if (!failureCache.has(mint)) {
@@ -250,11 +271,18 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
       }
     }
 
-    // ── Magic Eden token data (slug + optional name/image) ──────────────────
+    // ── Magic Eden token data (slug + optional name/image + collectionName) ─
     const meData = await getMeTokenData(mint);
     const meCollectionSlug = meData.slug;
     if (metadata) {
-      metadata = { ...metadata, meCollectionSlug };
+      // ME's top-level `collectionName` is the human-readable collection name
+      // (DAS almost always omits this for Core / pNFT). Backfill when DAS's
+      // `grouping[*].collection_metadata.name` came up null.
+      metadata = {
+        ...metadata,
+        meCollectionSlug,
+        collectionName: metadata.collectionName ?? meData.collectionName ?? null,
+      };
     }
 
     // ── Tensor → Magic Eden name/image fallback (all NFT types) ─────────────
@@ -282,7 +310,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
         metadata = {
           nftName:           mergedName,
           imageUrl:          mergedImage,
-          collectionName:    metadata?.collectionName    ?? null,
+          collectionName:    metadata?.collectionName    ?? meData.collectionName ?? null,
           collectionAddress: metadata?.collectionAddress ?? null,
           meCollectionSlug:  meCollectionSlug,
         };

@@ -74,6 +74,13 @@ export const ME_V2_SALE_INSTRUCTIONS: MeV2IxDef[] = [
     coreAssetIdx: null,
   },
   {
+    // ⚠️ Unverified: non-V2 Core execute sale; may exist for older ME Core listings.
+    name: 'coreExecuteSale',
+    disc: anchorDisc('core_execute_sale'),
+    verified: false,
+    coreAssetIdx: null,
+  },
+  {
     // ✅ Confirmed: discriminator seen in pNFT sale + pNFT lucky-buy (2026-04-14).
     name: 'mip1ExecuteSaleV2',
     disc: anchorDisc('mip1_execute_sale_v2'),  // eca3ccad4790eb76
@@ -202,6 +209,50 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     // Account positions not confirmed — parser will fall back to token-flow / SOL-flow.
     name:          'solFulfillSell',
     disc:          anchorDisc('sol_fulfill_sell'),   // a4b460c067e169e8
+    direction:     'fulfillSell',
+    sellerAcctIdx: null,
+    buyerAcctIdx:  null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ocp_fulfill_buy = 71e1aa41b5d40a21).
+    // OCP = Open Creator Protocol; uses standard SPL token program → extractNftMint works.
+    // fulfillBuy: user sells NFT into pool. Account layout mirrors solFulfillBuy:
+    //   accounts[0] = seller (fulfiller), accounts[1] = pool-state PDA (buyer identifier).
+    name:          'solOcpFulfillBuy',
+    disc:          anchorDisc('sol_ocp_fulfill_buy'),  // 71e1aa41b5d40a21
+    direction:     'fulfillBuy',
+    sellerAcctIdx: 0,
+    buyerAcctIdx:  1,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ocp_fulfill_sell = d5283a63816df593).
+    // OCP pool sell: user buys NFT from pool. Account layout unconfirmed — using null
+    // indices so the parser falls back to SOL+token flow for buyer/seller resolution.
+    name:          'solOcpFulfillSell',
+    disc:          anchorDisc('sol_ocp_fulfill_sell'),  // d5283a63816df593
+    direction:     'fulfillSell',
+    sellerAcctIdx: null,
+    buyerAcctIdx:  null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ext_fulfill_buy = 9d5a7ad45a795378).
+    // Ext = extended token standard (e.g. Token-2022, programmable); standard SPL balances.
+    // fulfillBuy account layout mirrors solFulfillBuy.
+    name:          'solExtFulfillBuy',
+    disc:          anchorDisc('sol_ext_fulfill_buy'),  // 9d5a7ad45a795378
+    direction:     'fulfillBuy',
+    sellerAcctIdx: 0,
+    buyerAcctIdx:  1,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ext_fulfill_sell = 7913c7be30f0b673).
+    // Ext pool sell: user buys NFT from pool. Account layout unconfirmed — null indices.
+    name:          'solExtFulfillSell',
+    disc:          anchorDisc('sol_ext_fulfill_sell'),  // 7913c7be30f0b673
     direction:     'fulfillSell',
     sellerAcctIdx: null,
     buyerAcctIdx:  null,

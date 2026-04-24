@@ -1,9 +1,19 @@
 import { getPool } from './client';
-import { SaleEvent } from '../models/sale-event';
+import { SaleEvent, CNFT_MIN_PRICE_LAMPORTS } from '../models/sale-event';
 import { saleEventBus } from '../events/emitter';
 import { enrich } from '../enrichment/enrich';
-import { COLLECTION_BLACKLIST, SLUG_BLACKLIST } from './blacklist';
+import { isBlacklistedCollection } from './blacklist';
 import { checkPricingAlerts } from '../alerts/alerts';
+import { trace } from '../trace';
+import { saleTypeFromEvent } from '../domain/sale-event-adapters';
+import { slugForMint } from '../server/listings-store';
+
+/** Sentinel: an event whose price is below the cNFT floor — used by both
+ *  insert and patchSaleEventRaw to gate emission and remove already-emitted
+ *  rows when later raw-parsing reveals the true nft_type. */
+function isCnftBelowMin(event: SaleEvent): boolean {
+  return event.nftType === 'cnft' && event.priceLamports <= CNFT_MIN_PRICE_LAMPORTS;
+}
 
 
 // ─── Raw-data patch (fast-path → raw-parse correction) ────────────────────────
@@ -16,30 +26,23 @@ const PATCH_RAW_SQL = `
 `;
 
 /**
- * Derive the display saleType for a raw-parser event.
- * Mirrors SALE_TYPE_EXPR in queries.ts — raw-parser cases only
- * (Helius path not needed here; fast-path events are always replaced by raw data).
- */
-function deriveSaleTypeFromRaw(rawData: Record<string, unknown>): string {
-  const parser = rawData._parser as string | undefined;
-  const dir    = rawData._direction as string | undefined;
-  if (parser === 'me_v2_raw')  return 'normal_sale';
-  if (parser === 'mmm_raw') {
-    if (dir === 'fulfillSell') return 'pool_buy';
-    if (dir === 'takeBid')     return 'bid_sell';
-    return 'pool_sale';
-  }
-  if (parser === 'tensor_raw') return dir === 'takeBid' ? 'bid_sell' : 'normal_sale';
-  if (parser === 'tamm_raw')   return dir === 'takeBid' ? 'bid_sell' : 'pool_sale';
-  return 'normal_sale';
-}
-
-/**
  * Update a previously fast-path-inserted event with corrected raw-parser data.
  * Emits a `rawpatch` SSE event so connected clients update their cards.
+ *
+ * Late cNFT discard: the helius/transfer fast paths label everything as
+ * 'legacy', so a cNFT sale below the 0.002 SOL floor slips through the
+ * parse-time filter and only gets its true nftType assigned here. When that
+ * happens we delete the row and emit `remove` so any client that already
+ * rendered the card drops it.
  */
 export async function patchSaleEventRaw(event: SaleEvent): Promise<void> {
   const pool = getPool();
+  if (isCnftBelowMin(event)) {
+    await pool.query('DELETE FROM sale_events WHERE signature = $1', [event.signature]);
+    saleEventBus.emitRemove(event.signature);
+    console.log(`[cnft-min] removed (post-patch)  price=${event.priceSol} sig=${event.signature.slice(0, 12)}...`);
+    return;
+  }
   await pool.query(PATCH_RAW_SQL, [
     event.signature,
     event.seller,
@@ -56,7 +59,7 @@ export async function patchSaleEventRaw(event: SaleEvent): Promise<void> {
     buyer:       event.buyer,
     marketplace: event.marketplace,
     nftType:     event.nftType,
-    saleType:    deriveSaleTypeFromRaw(event.rawData as Record<string, unknown>),
+    saleType:    saleTypeFromEvent(event),
     priceSol:    event.priceSol,
   });
 }
@@ -74,13 +77,29 @@ const INSERT_SQL = `
 
 const UPDATE_META_SQL = `
   UPDATE sale_events
-  SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5
+  SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5, mint_address = $6, me_collection_slug = $7
   WHERE signature = $1
 `;
 
 export async function insertSaleEvent(event: SaleEvent): Promise<string | null> {
+  // Defensive cNFT-floor gate. Parsers in helius/parser.ts and
+  // tensor-raw/parser.ts (TComp branch) already enforce this, but the fast
+  // paths (tensor_helius_fast / me_helius_fast / *_xfer_fast) build SaleEvents
+  // directly without a parse-time check. Catching it here guarantees no row is
+  // ever written with nftType='cnft' below the floor.
+  if (isCnftBelowMin(event)) {
+    console.log(`[cnft-min] dropped at insert  price=${event.priceSol} sig=${event.signature.slice(0, 12)}...`);
+    return null;
+  }
+
+  // Tensor cNFT sales have their assetId derived locally in the tensor-raw
+  // parser from the Bubblegum `transfer` inner CPI (see extractCnftAssetId).
+  // When that derivation fails, mintAddress stays '' — enrichment's empty-mint
+  // short-circuit skips downstream lookups for that row, same as before.
   const magicEdenUrl = `https://magiceden.io/item-details/${event.mintAddress}`;
   const pool = getPool();
+
+  console.log(`INSERT_DEBUG_BEFORE_DB ${event.signature}`);
 
   // Insert immediately with null metadata so we can emit SSE without waiting for enrichment.
   const result = await pool.query(INSERT_SQL, [
@@ -103,28 +122,58 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   ]);
 
   const id = result.rows[0]?.id ?? null;
-  if (!id) return null;   // duplicate signature — already processed
+  if (!id) {
+    console.log(`INSERT_DEBUG_SKIPPED ${event.signature} duplicate_signature`);
+    console.log(`DEDUPE_DEBUG_SKIP ${event.signature} duplicate_signature`);
+    return null;   // duplicate signature — already processed
+  }
+
+  console.log(`INSERT_DEBUG_AFTER_DB ${event.signature}`);
+
+  // Step 5 — row inserted into sale_events.
+  trace(event.signature, 'db:inserted', `id=${id}`);
 
   // Emit immediately so the frontend card appears at once.
+  // Fill `meCollectionSlug` synchronously from the in-process mintToSlug map
+  // when available — otherwise the frontend's Collection page filter
+  // (`b.meCollectionSlug !== slug`) drops every live sale until enrichment
+  // catches up via `meta`. Falls back to the event's own slug (usually
+  // undefined) then null.
+  const resolvedSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
   const blockAgeSec = ((Date.now() - event.blockTime.getTime()) / 1000).toFixed(1);
-  console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s`);
-  saleEventBus.emitSale({ ...event, nftName: null, imageUrl: null, collectionName: null, magicEdenUrl });
+  console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}`);
+  saleEventBus.emitSale({
+    ...event,
+    nftName: null,
+    imageUrl: null,
+    collectionName: null,
+    magicEdenUrl,
+    meCollectionSlug: resolvedSlug,
+  });
+
+  // Step 6 — SSE event on the wire to all connected clients.
+  trace(event.signature, 'sse:emitted', `blockAge=${blockAgeSec}s`);
 
   // ── Background enrichment ────────────────────────────────────────────────────
   // Fire-and-forget: never awaited, never delays INSERTs or SSE.
-  // Write semaphore (MAX_BG_WRITES=3) prevents burst-completing enriches from
-  // simultaneously saturating the pool and blocking hot-path INSERTs.
+  // Hard guarantee: enrichment is never invoked with an empty mintAddress —
+  // cNFT resolve is done synchronously above, so reaching here with '' means
+  // Helius didn't index the tx yet and downstream DAS / ME lookups would be
+  // wasted calls.
+  if (!event.mintAddress) {
+    return id;
+  }
   enrich(event)
     .then(async (enriched) => {
-      const isBlacklisted =
-        (enriched.collectionAddress && COLLECTION_BLACKLIST.has(enriched.collectionAddress)) ||
-        (enriched.meCollectionSlug  && SLUG_BLACKLIST.has(enriched.meCollectionSlug));
-
-      if (isBlacklisted) {
+      if (isBlacklistedCollection({
+        collectionAddress: enriched.collectionAddress,
+        meCollectionSlug:  enriched.meCollectionSlug,
+        collectionName:    enriched.collectionName,
+      })) {
         await pool.query('DELETE FROM sale_events WHERE signature = $1', [event.signature]);
         saleEventBus.emitRemove(event.signature);
         console.log(
-          `[blacklist] removed ${(enriched.collectionAddress ?? enriched.meCollectionSlug ?? '?').slice(0, 12)}` +
+          `[blacklist] removed ${(enriched.collectionAddress ?? enriched.meCollectionSlug ?? enriched.collectionName ?? '?').slice(0, 24)}` +
           `  sig=${event.signature.slice(0, 12)}...`,
         );
         return;
@@ -136,6 +185,8 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         enriched.imageUrl,
         enriched.collectionName,
         enriched.collectionAddress,
+        enriched.mintAddress,        // backfills cNFT asset id when tensor-raw emitted ''
+        enriched.meCollectionSlug,   // persisted so REST snapshot rows can render collection-page links
       ]);
 
       checkPricingAlerts(enriched);

@@ -18,6 +18,7 @@ import { HeliusEnhancedTransaction } from './helius/types';
 import { insertSaleEvent } from '../db/insert';
 import { getLastSig, setLastSig } from '../db/poller-state';
 import { ingestMeRaw } from './me-raw/ingest';
+import { trace } from '../trace';
 import { ME_PROGRAMS } from './me-raw/programs';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { TENSOR_PROGRAMS } from './tensor-raw/programs';
@@ -217,22 +218,26 @@ async function pollTarget(target: PollTarget, txType: string): Promise<void> {
   const isMeTarget     = ME_PROGRAMS.has(target.programAddress);
   const isTensorTarget = TENSOR_PROGRAMS.has(target.programAddress);
 
+  for (const tx of txs) trace(tx.signature, 'poll:fetched', `target=${target.name}:${txType}`);
+
   // Fire ME raw parser for ME program targets in parallel.
   const rawIngests = isMeTarget
-    ? txs.map((tx) =>
-        ingestMeRaw(tx.signature).catch((err) =>
+    ? txs.map((tx) => {
+        trace(tx.signature, 'poll:ingest', `target=${target.name}:${txType}`);
+        return ingestMeRaw(tx.signature).catch((err) =>
           console.error('[me_raw] unhandled error', err)
-        )
-      )
+        );
+      })
     : [];
 
   // Fire Tensor raw parser for Tensor program targets in parallel.
   const tensorRawIngests = isTensorTarget
-    ? txs.map((tx) =>
-        ingestTensorRaw(tx.signature).catch((err) =>
+    ? txs.map((tx) => {
+        trace(tx.signature, 'poll:ingest', `target=${target.name}:${txType}`);
+        return ingestTensorRaw(tx.signature).catch((err) =>
           console.error('[tensor_raw] unhandled error', err)
-        )
-      )
+        );
+      })
     : [];
 
   let inserted = 0;

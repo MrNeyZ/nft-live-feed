@@ -12,11 +12,13 @@
 
 import { NftMetadata } from './helius-das';
 
-// Minimal shape we care about from the ME v2 tokens response
+// Verified live shape of ME v2 /tokens/{mint} response:
+//   { mintAddress, collection (slug), collectionName, name, image, … }
 interface MeTokenResponse {
-  title?:      string;
-  image?:      string;
-  collection?: { name?: string };
+  name?:           string;
+  image?:          string;
+  collection?:     string;   // slug
+  collectionName?: string;   // human-readable collection name
 }
 
 /**
@@ -41,16 +43,16 @@ export async function getMeTokenMetadata(mintAddress: string): Promise<NftMetada
   const json = (await res.json()) as MeTokenResponse;
 
   // ME returns 200 with an empty object when the mint is not indexed
-  if (!json.title && !json.image) {
+  if (!json.name && !json.image) {
     throw new Error('ME tokens: empty response (mint not indexed)');
   }
 
   return {
-    nftName:           json.title          ?? null,
+    nftName:           json.name           ?? null,
     imageUrl:          json.image          ?? null,
-    collectionName:    json.collection?.name ?? null,
+    collectionName:    json.collectionName ?? null,
     // ME v2 tokens API does not expose the on-chain collection group address
     collectionAddress: null,
-    meCollectionSlug:  null,  // populated separately in enrich.ts via ME public API
+    meCollectionSlug:  json.collection     ?? null,
   };
 }

@@ -20,6 +20,7 @@ import {
   findTcompSaleIx,
   findTammSaleIx,
   classifyNftType,
+  extractCoreAssetFromInnerIx,
 } from './decoder';
 import {
   extractPaymentInfo,
@@ -70,30 +71,24 @@ function parseTcompSale(
   let mint: string | null;
 
   if (nftType === 'core') {
-    // Core NFT: asset address is at a verified account index — no SPL balance.
-    if (match.coreAssetIdx === null) {
-      return {
-        ok: false,
-        reason: `tcomp(${match.instructionName}): coreAssetIdx not set for Core NFT`,
-      };
-    }
-    mint = accs[match.coreAssetIdx] ?? null;
+    // Core NFT: prefer the verified account index; fall back to the MPL Core
+    // inner CPI (accounts[0] of the first MPL Core instruction) when the
+    // indexed lookup is absent OR yields an empty string (e.g. ALT-loaded
+    // asset, variant layout, or unverified instruction).
+    mint = match.coreAssetIdx !== null ? (accs[match.coreAssetIdx] || null) : null;
+    if (!mint) mint = extractCoreAssetFromInnerIx(tx);
     if (!mint) {
       return {
         ok: false,
-        reason: `tcomp(${match.instructionName}): Core asset not found at accounts[${match.coreAssetIdx}]`,
+        reason: `tcomp(${match.instructionName}): could not determine Core asset ID`,
       };
     }
   } else if (nftType === 'cnft') {
     // cNFT: no SPL token balance — derive the asset ID from the Bubblegum
-    // `transfer` inner CPI inside the tx we already fetched.
-    mint = extractCnftAssetId(tx);
-    if (!mint) {
-      return {
-        ok: false,
-        reason: `tcomp(${match.instructionName}): could not derive cNFT asset ID from Bubblegum CPI`,
-      };
-    }
+    // `transfer` inner CPI inside the tx we already fetched. If the local
+    // derivation fails, emit with an empty mint placeholder so the sale still
+    // surfaces in the feed (downstream enrich skips empty mints cleanly).
+    mint = extractCnftAssetId(tx) ?? '';
   } else {
     // Standard SPL NFT (legacy / pNFT).
     mint = extractNftMint(tx);
@@ -187,18 +182,15 @@ function parseTammSale(
   let mint: string | null;
 
   if (nftType === 'core') {
-    // Core NFT: asset address at verified account index.
-    if (match.coreAssetIdx === null) {
-      return {
-        ok: false,
-        reason: `tamm(${match.instructionName}): coreAssetIdx not set for Core NFT`,
-      };
-    }
-    mint = accs[match.coreAssetIdx] ?? null;
+    // Core NFT: same fallback chain as TComp — indexed first, then MPL Core
+    // inner CPI. Covers variants where the asset position is ALT-loaded or the
+    // instruction has no verified index.
+    mint = match.coreAssetIdx !== null ? (accs[match.coreAssetIdx] || null) : null;
+    if (!mint) mint = extractCoreAssetFromInnerIx(tx);
     if (!mint) {
       return {
         ok: false,
-        reason: `tamm(${match.instructionName}): Core asset not found at accounts[${match.coreAssetIdx}]`,
+        reason: `tamm(${match.instructionName}): could not determine Core asset ID`,
       };
     }
   } else {

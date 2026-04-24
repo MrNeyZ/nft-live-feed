@@ -16,7 +16,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { createHash } from 'crypto';
 import bs58 from 'bs58';
-import { RawSolanaTx } from './types';
+import { RawSolanaTx, resolveAccountKey } from './types';
 import { TENSOR_FEE_ACCOUNT, BUBBLEGUM_PROGRAM } from './programs';
 
 // ─── SOL balance delta ────────────────────────────────────────────────────────
@@ -95,21 +95,30 @@ export function extractNftMint(tx: RawSolanaTx): string | null {
   const pre  = tx.meta?.preTokenBalances  ?? [];
   const post = tx.meta?.postTokenBalances ?? [];
 
-  // Find mints that changed from 1→0 (send) or 0→1 (receive)
+  // An NFT mint is identified by ANY accountIndex with a 1→0 or 0→1 transition
+  // for that mint, under decimals=0. The previous scalar diff collapsed
+  // per-mint instead of per-account — which fails on pool-style transfers
+  // where the NFT moves between two ATAs: both snapshots carry amount=1 for
+  // the mint (just on different accountIndexes), so the diff is 0 and the
+  // true NFT was discarded. Symmetric to `extractPartiesFromTokenFlow` below.
   const allMints = new Set([...pre.map((b) => b.mint), ...post.map((b) => b.mint)]);
 
   for (const mint of allMints) {
-    const preBal  = pre.find((b)  => b.mint === mint);
-    const postBal = post.find((b) => b.mint === mint);
+    const sample = pre.find((b) => b.mint === mint) ?? post.find((b) => b.mint === mint);
+    if (sample?.uiTokenAmount.decimals !== 0) continue; // fungible → skip
 
-    const preAmt  = parseInt(preBal?.uiTokenAmount.amount  ?? '0', 10);
-    const postAmt = parseInt(postBal?.uiTokenAmount.amount ?? '0', 10);
-    const dec = preBal?.uiTokenAmount.decimals ?? postBal?.uiTokenAmount.decimals ?? -1;
-
-    if (dec !== 0) continue; // not an NFT token (fungible tokens have decimals > 0)
-    if (Math.abs(postAmt - preAmt) === 1) return mint;
+    const accountIndexes = new Set<number>([
+      ...pre .filter((b) => b.mint === mint).map((b) => b.accountIndex),
+      ...post.filter((b) => b.mint === mint).map((b) => b.accountIndex),
+    ]);
+    for (const idx of accountIndexes) {
+      const preEntry  = pre .find((b) => b.mint === mint && b.accountIndex === idx);
+      const postEntry = post.find((b) => b.mint === mint && b.accountIndex === idx);
+      const preAmt  = parseInt(preEntry?.uiTokenAmount.amount  ?? '0', 10);
+      const postAmt = parseInt(postEntry?.uiTokenAmount.amount ?? '0', 10);
+      if ((preAmt === 1 && postAmt === 0) || (preAmt === 0 && postAmt === 1)) return mint;
+    }
   }
-
   return null;
 }
 
@@ -147,9 +156,12 @@ export function extractPartiesFromTokenFlow(
 
 /**
  * Derive the cNFT asset ID from the Bubblegum `transfer` inner CPI that TComp
- * emits when settling a compressed-NFT sale. The raw `getTransaction` response
- * we already paid for carries every field we need, so we derive locally rather
- * than issuing a paid Helius `v0/transactions` parsed-tx call.
+ * emits when settling a compressed-NFT sale.
+ *
+ * Previously this was a stub returning null, and `src/db/insert.ts` fell back
+ * to a Helius `v0/transactions` parsed-tx call (1 credit per cNFT sale) to
+ * recover the mint. The raw `getTransaction` response we already paid for
+ * carries every field we need, so we derive locally:
  *
  *     asset_id = PDA(["asset", merkle_tree, u64_le(nonce)], Bubblegum)
  *
@@ -159,8 +171,9 @@ export function extractPartiesFromTokenFlow(
  *   accounts[4] = merkle_tree
  *
  * Returns null when no matching Bubblegum `transfer` inner instruction exists
- * (e.g. an unsupported ix variant). Callers must treat null as "asset id
- * unknown" and decide whether to drop the sale or insert with an empty mint.
+ * (e.g. a future variant, or a layout change). Callers must treat null as
+ * "asset id unknown" — the sale is still inserted with an empty mint, matching
+ * the prior fallback-failure semantics.
  */
 const BUBBLEGUM_TRANSFER_DISC = createHash('sha256')
   .update('global:transfer')
@@ -171,22 +184,11 @@ const ASSET_SEED = Buffer.from('asset');
 /** Minimum byte length for a Bubblegum `transfer` ix data: 8+32+32+32+8+4. */
 const BUBBLEGUM_TRANSFER_MIN_DATA_LEN = 116;
 
-// Resolve an account index to its pubkey. `fetchRawTx` merges loadedAddresses
-// into `accountKeys` before the parser runs, so entries are typically
-// `{ pubkey }` objects; tests/bypass callers may pass raw strings.
-function pubkeyAt(tx: RawSolanaTx, idx: number): string | null {
-  const keys = tx.transaction.message.accountKeys as unknown as Array<string | { pubkey?: string } | undefined>;
-  const k = keys[idx];
-  if (typeof k === 'string') return k;
-  if (k && typeof k === 'object' && typeof k.pubkey === 'string') return k.pubkey;
-  return null;
-}
-
 export function extractCnftAssetId(tx: RawSolanaTx): string | null {
   const groups = tx.meta?.innerInstructions ?? [];
   for (const g of groups) {
     for (const ix of g.instructions) {
-      const program = pubkeyAt(tx, ix.programIdIndex);
+      const program = resolveAccountKey(tx, ix.programIdIndex);
       if (program !== BUBBLEGUM_PROGRAM) continue;
       let data: Buffer;
       try { data = Buffer.from(bs58.decode(ix.data)); } catch { continue; }
@@ -194,7 +196,7 @@ export function extractCnftAssetId(tx: RawSolanaTx): string | null {
       if (!data.subarray(0, 8).equals(BUBBLEGUM_TRANSFER_DISC)) continue;
       const merkleIdx = ix.accounts[4];
       if (merkleIdx === undefined) continue;
-      const merkle = pubkeyAt(tx, merkleIdx);
+      const merkle = resolveAccountKey(tx, merkleIdx);
       if (!merkle) continue;
       const nonceBuf = Buffer.alloc(8);
       data.copy(nonceBuf, 0, 104, 112);

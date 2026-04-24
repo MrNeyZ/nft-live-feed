@@ -1,61 +1,13 @@
 import { Router, Request, Response } from 'express';
-import { saleEventBus, MetaUpdate, RawPatch } from '../events/emitter';
+import {
+  saleEventBus,
+  MetaUpdate,
+  RawPatch,
+  ListingRemoveDelta,
+  ListingSnapshotDelta,
+} from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
-
-/**
- * Display-only trade label derived purely from rawData at SSE-emission time.
- * Wrapped in try/catch — NEVER throws, NEVER affects insertion or event flow.
- *
- * Return values:  'listing' | 'pool_buy' | 'pool_sell' | 'bid_sell'
- *
- * rawData fields:
- *   _parser       — which path produced this event
- *   _instruction  — instruction name (ME raw, Tensor raw)
- *   _direction    — semantic direction (Tensor raw)
- *   events.nft.saleType — Helius-supplied hint (Helius path only)
- */
-function deriveTradeLabel(event: SaleEvent): string {
-  try {
-    return _tradeLabel(event);
-  } catch {
-    return 'listing';  // safe fallback — never breaks the stream
-  }
-}
-
-function _tradeLabel(event: SaleEvent): string {
-  const raw    = event.rawData;
-  const parser = raw._parser    as string | undefined;
-  const dir    = raw._direction as string | undefined;
-
-  // ── Hard-cut: program address is the source of truth for ME transactions ────
-  //   M2mx93...  = Magic Eden V2 fixed-price marketplace  → NORMAL_SALE
-  //   mmm3X...   = Magic Eden AMM pool                    → POOL_SALE
-  if (parser === 'me_v2_raw') return 'normal_sale';
-  if (parser === 'mmm_raw') {
-    if (dir === 'fulfillSell') return 'pool_buy';
-    if (dir === 'takeBid')    return 'bid_sell'; // individual bid through ME AMM
-    return 'pool_sale';
-  }
-
-  // ── Tensor paths (direction field is reliable, no complex heuristics) ───────
-  if (parser === 'tensor_raw' || parser === 'tamm_raw') {
-    if (dir === 'takeBid')              return 'bid_sell';
-    if (parser === 'tamm_raw')          return 'pool_sale';  // TAMM is AMM pool
-    return 'normal_sale';                                    // TComp = listing
-  }
-
-  // ── Helius path: use the saleType hint they already computed ─────────────────
-  const heliusNft = ((raw as Record<string, unknown>)?.events as Record<string, unknown>)
-    ?.nft as Record<string, unknown> | undefined;
-  const st = (heliusNft?.saleType as string | undefined)?.toUpperCase() ?? '';
-  // Check bid-specific patterns before the generic AMM check:
-  // ME's AMM bid system can produce saleTypes that contain both "AMM" and "BID"
-  // (e.g. "AMM_BID_FILL"). Those must resolve to bid_sell, not pool_sale.
-  if (st.includes('BID') || st.includes('ACCEPT') || st === 'GLOBAL_SELL')  return 'bid_sell';
-  if (st.includes('AMM'))                                                     return 'pool_sale';
-
-  return 'normal_sale';
-}
+import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -100,7 +52,7 @@ export function createSseRouter(): Router {
           blockTime:        event.blockTime.toISOString(),
           marketplace:      event.marketplace,
           nftType:          event.nftType,
-          saleType:         deriveTradeLabel(event),
+          saleType:         saleTypeFromEvent(event),
           mintAddress:      event.mintAddress,
           collectionAddress: event.collectionAddress,
           seller:           event.seller,
@@ -146,10 +98,24 @@ export function createSseRouter(): Router {
       }
     }
 
+    function onListingRemove(delta: ListingRemoveDelta) {
+      try {
+        res.write(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`);
+      } catch { /* disconnected */ }
+    }
+
+    function onListingSnapshot(delta: ListingSnapshotDelta) {
+      try {
+        res.write(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`);
+      } catch { /* disconnected */ }
+    }
+
     saleEventBus.onSale(onSale);
     saleEventBus.onMetaUpdate(onMetaUpdate);
     saleEventBus.onRemove(onRemove);
     saleEventBus.onRawPatch(onRawPatch);
+    saleEventBus.onListingRemove(onListingRemove);
+    saleEventBus.onListingSnapshot(onListingSnapshot);
 
     req.on('close', () => {
       clearInterval(heartbeat);
@@ -157,6 +123,8 @@ export function createSseRouter(): Router {
       saleEventBus.offMetaUpdate(onMetaUpdate);
       saleEventBus.offRemove(onRemove);
       saleEventBus.offRawPatch(onRawPatch);
+      saleEventBus.offListingRemove(onListingRemove);
+      saleEventBus.offListingSnapshot(onListingSnapshot);
     });
   });
 

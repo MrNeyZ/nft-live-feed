@@ -13,13 +13,21 @@
  * Slot heartbeat + dual watchdog + forced 120s restart prevent silent stalls.
  */
 import WebSocket from 'ws';
-import { ingestMeRaw } from './me-raw/ingest';
+import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
-import { Limiter } from './concurrency';
+import { Limiter, Priority } from './concurrency';
+import { incPrefilterSkip, incSigListFetch } from './telemetry';
+import { HeliusEnhancedTransaction } from './helius/types';
+import { trace } from '../trace';
+import { getMode } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
-type IngestFn = (sig: string) => Promise<void>;
+type IngestFn = (
+  sig: string,
+  heliusTx?: HeliusEnhancedTransaction,
+  priority?: Priority,
+) => Promise<void>;
 
 interface Target {
   /** Short name used in log prefixes and stats output. */
@@ -129,9 +137,16 @@ function logStats() {
 // Matched case-insensitively against the "Program log: Instruction: <name>" lines
 // emitted by each Anchor program into the transaction log.
 //
-// TakeBidFullMeta  — tcomp bid accept — Core / pNFT (our parser name: takeBid)
+// TakeBidFullMeta  — tcomp bid accept — Core / pNFT
 // TakeBidLegacy   — tcomp bid accept — legacy SPL NFT (anchorDisc: bc23746c00e9edc9)
-// Buy             — tcomp listing purchase / tamm pool buy
+// TakeBidMetaHash — tcomp bid accept — cNFT via metadata hash
+// TakeBidT22      — tcomp bid accept — Token-2022 NFT
+// TakeBidWns      — tcomp bid accept — WNS NFT
+// Buy             — tcomp listing purchase (generic, legacy/pNFT)
+// BuyLegacy       — tcomp listing purchase — explicit legacy path
+// BuyCore         — tcomp listing purchase — Core NFT
+// BuyT22          — tcomp listing purchase — Token-2022 NFT
+// BuyWns          — tcomp listing purchase — WNS NFT
 // coreFulfillBuy  — mmm Core NFT pool buy  (logged as SolMplCoreFulfillBuy)
 // coreFulfillSell — mmm Core NFT pool sell (logged as SolMplCoreFulfillSell)
 // executeSale     — me_v2 legacy/pNFT fixed-price sale
@@ -139,19 +154,36 @@ function logStats() {
 // mip1ExecuteSaleV2 — me_v2 pNFT/mip1 fixed-price sale
 // solMip1FulfillBuy  — mmm pNFT pool buy
 // solMip1FulfillSell — mmm pNFT pool sell
+// solOcpFulfillBuy/Sell — mmm OCP token pool trades
+// solExtFulfillBuy/Sell — mmm extended token standard pool trades
 const SALE_INSTRUCTIONS: ReadonlySet<string> = new Set([
-  'takebidfullfmeta',    // tcomp bid accept — Core / pNFT
-  'takebidlegacy',       // tcomp bid accept — legacy SPL NFT  ← confirmed live tx bc23746c...
-  'buy',
+  // tcomp bid accepts
+  'takebidfullfmeta',       // Core / pNFT bid accept (full metadata)
+  'takebidlegacy',          // legacy SPL bid accept  (confirmed bc23746c...)
+  'takebidmetahash',        // cNFT bid accept (meta hash)
+  'takebidt22',             // Token-2022 bid accept
+  'takebidwns',             // WNS bid accept
+  // tcomp listing purchases
+  'buy',                    // generic (legacy/pNFT) + tamm pool buy
+  'buylegacy',              // explicit legacy listing purchase
+  'buycore',                // Core NFT listing purchase
+  'buyt22',                 // Token-2022 listing purchase
+  'buywns',                 // WNS listing purchase
+  // mmm (ME AMM) pool trades
   'corefulfillbuy',
   'corefulfillsell',
-  'executesale',
-  'coreexecutesalev2',   // CoreExecuteSaleV2 — me_v2 Core NFT fixed-price sale
-  'mip1executesalev2',
+  'solfulfillbuy',          // legacy SPL pool buy  (confirmed 5c10e24f...)
+  'solfulfillsell',         // legacy SPL pool sell
   'solmip1fulfillbuy',
   'solmip1fulfillsell',
-  'solfulfillbuy',      // mmm legacy SPL pool buy  (confirmed disc 5c10e24f1ff23576)
-  'solfulfillsell',     // mmm legacy SPL pool sell (confirmed disc a4b460c067e169e8, unverified layout)
+  'solocpfulfillbuy',       // OCP token pool buy
+  'solocpfulfillsell',      // OCP token pool sell
+  'solextfulfillbuy',       // ext token pool buy
+  'solextfulfillsell',      // ext token pool sell
+  // me_v2 fixed-price
+  'executesale',
+  'coreexecutesalev2',
+  'mip1executesalev2',
 ]);
 
 const LOG_IX_PREFIX = 'program log: instruction: ';
@@ -166,6 +198,177 @@ function hasSaleInstruction(logs: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * Targets whose logsNotification bypasses the `hasSaleInstruction` allowlist.
+ * MMM logs human-readable dispatch names (e.g. `SolMplCoreFulfillBuy`) rather
+ * than the Anchor method name the parser keys on, so an allowlist there is
+ * brittle and silently drops real sales. Let the parser decide instead — it
+ * already rejects non-sales cheaply via `findMmmSaleIx`.
+ */
+const LOG_PREFILTER_BYPASS: ReadonlySet<string> = new Set(['mmm']);
+
+// ─── S3: Tensor-only log prefilter ───────────────────────────────────────────
+//
+// Before dispatching a WS sig into fetchRawTx we check the tx logs for an
+// Anchor `Program log: Instruction: <name>` line that matches one of Tensor's
+// known SALE instructions. Anything else (list / delist / bid / cancel /
+// pool-edit / pool-create / deposit / withdraw) is obvious non-sale noise we
+// can skip before paying for getTransaction. Unlike MMM, TComp and TAMM both
+// emit Anchor-generated log names, so the allowlist is deterministic.
+//
+// On skip we call markSigFetched(sig) so the primary poller (1.5 s cadence on
+// the same 4 programs) does not re-dispatch the sig a moment later — that's
+// what converts the skip from "queue shed" into a real fetch saved.
+//
+// Fail mode: a new Tensor instruction we forget to add would be dropped. Kept
+// strict to the names canonicalized in `TCOMP_SALE_INSTRUCTIONS` /
+// `TAMM_SALE_INSTRUCTIONS` (programs.ts); if TAMM / TComp adds a new variant,
+// the 60 s skip-stats log will surface it (unexpected names are rare —
+// program deploys are public).
+const TENSOR_SALE_INSTRUCTIONS: ReadonlySet<string> = new Set([
+  // tcomp
+  'buy', 'buylegacy', 'buycore', 'buyt22', 'buywns',
+  'takebidlegacy', 'takebidcore', 'takebidfullmeta', 'takebidmetahash',
+  'takebidt22', 'takebidwns',
+  // tamm
+  'sell', 'sellnfttradepool', 'buynfttradepool',
+]);
+
+const TENSOR_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['tcomp', 'tamm']);
+
+// ─── S5: ME v2 deny-list prefilter ───────────────────────────────────────────
+//
+// Conservative: only skip WS notifications whose logs contain ONE OR MORE
+// Anchor `Instruction:` lines AND ALL such instruction names are in the
+// deny-list below. Any unknown or load-bearing instruction present → keep
+// (fail-open). This protects every sale / list / delist / cancel while
+// shedding the product-irrelevant offer mechanics.
+//
+// Deny-list rationale:
+//   BuyV2        — user places an escrowed offer (deposit step). Not a sale,
+//                  not a listing-state change. We don't surface per-mint ME
+//                  offers anywhere in the product.
+//   CancelBuyV2  — user cancels their own offer. Same reasoning.
+//   CancelBuy    — older cancel-buy variant kept for completeness.
+//
+// MMM is intentionally NOT gated here: programs.ts notes that MMM logs can
+// use dispatch names that diverge from the Anchor method names (e.g.
+// `SolMplCoreFulfillBuy`, plus one observed instruction with name unknown).
+// An allowlist or deny-list without full name coverage would silently drop
+// real sales, which is the exact failure mode S3's comment calls out.
+const ME_V2_SAFE_SKIP_LOG_NAMES: ReadonlySet<string> = new Set([
+  'buyv2',
+  'cancelbuy',
+  'cancelbuyv2',
+]);
+
+/**
+ * Ingestion mode. `sales_only` (and, for now, `budget`) widens the WS
+ * prefilter deny-lists so listing-state instructions (ME v2 sell / cancel_sell
+ * / MMM pool updates) are shed before `fetchRawTx` — listings become
+ * TTL-driven but Helius getTransaction volume drops sharply. `full` leaves
+ * the existing prefilters unchanged.
+ *
+ * Single source of truth: `getMode()` from runtime/mode.ts. Every call re-reads
+ * the current mode so a runtime mode switch takes effect on the next filter
+ * check — no module-level constants, no `process.env` mirroring.
+ */
+function effectiveMode(): string { return getMode(); }
+
+// In sales_only / budget, also shed ME v2 list / delist instructions. Sale
+// fills (execute_sale / core_execute_sale_v2 / mip1_execute_sale_v2 etc.)
+// are NOT in this set — they remain fail-open.
+const ME_V2_SALES_ONLY_EXTRA_SKIP: ReadonlySet<string> = new Set([
+  'sell', 'mip1sell', 'coresell',
+  'cancelsell', 'mip1cancelsell', 'corecancelsell',
+]);
+
+const ME_V2_LEAN_SKIP: ReadonlySet<string> =
+  new Set([...ME_V2_SAFE_SKIP_LOG_NAMES, ...ME_V2_SALES_ONLY_EXTRA_SKIP]);
+
+/** Mode-aware ME v2 deny-list. `budget` ≡ `sales_only` for prefilters until
+ *  per-mode gating differentiates them. */
+function effectiveMeV2Skip(): ReadonlySet<string> {
+  const m = effectiveMode();
+  return (m === 'sales_only' || m === 'budget') ? ME_V2_LEAN_SKIP : ME_V2_SAFE_SKIP_LOG_NAMES;
+}
+
+/**
+ * True when the tx logs prove this ME v2 notification is product-irrelevant
+ * under the active mode (every Anchor `Instruction:` line names a known
+ * skippable method). Returns false if logs are absent, contain no Instruction
+ * lines, or contain any non-deny-listed name → keep the sig.
+ */
+function shouldSkipMeV2Logs(logs: unknown): boolean {
+  if (!Array.isArray(logs) || logs.length === 0) return false;
+  let seenInstruction = false;
+  for (const line of logs as string[]) {
+    const lower = (line ?? '').toLowerCase();
+    if (!lower.startsWith(LOG_IX_PREFIX)) continue;
+    seenInstruction = true;
+    const ix = lower.slice(LOG_IX_PREFIX.length);
+    if (!effectiveMeV2Skip().has(ix)) return false;  // any load-bearing name → keep
+  }
+  return seenInstruction;  // only true when every seen instruction was in the deny-list
+}
+
+// ─── sales_only: MMM deny-list prefilter ─────────────────────────────────────
+//
+// Active only when the runtime mode is 'sales_only' / 'budget'. Pool-admin / liquidity-
+// change instructions are load-bearing for the listings/bids panels in
+// full mode — in sales_only we explicitly accept TTL-only listings, so
+// they can be shed before getTransaction.
+//
+// The deny-list is a confirmed-observed subset of MMM non-sale instructions
+// (see earlier MMM audit: update_pool ~58 %, set_shared_escrow ~37 %,
+// withdraw/deposit_buy ~3 %, close_pool ~1.5 %, create_pool ~1 %, plus
+// standard deposit_sell / withdraw_sell variants). Every MMM SALE
+// instruction — including the known-unknown `coreFulfillBuyV2` log name —
+// is absent from this set and therefore fails-open, preserving sale
+// coverage exactly as the audit's safety review required.
+const MMM_SALES_ONLY_SKIP_LOG_NAMES: ReadonlySet<string> = new Set([
+  'updatepool',
+  'createpool',
+  'solclosepool',
+  'soldepositbuy',
+  'solwithdrawbuy',
+  'withdrawsell',
+  'depositsell',
+  'soldepositsell',
+  'solwithdrawsell',
+  'setsharedescrow',
+]);
+
+function shouldSkipMmmLogsSalesOnly(logs: unknown): boolean {
+  const m = effectiveMode();
+  if (m !== 'sales_only' && m !== 'budget') return false;
+  if (!Array.isArray(logs) || logs.length === 0) return false;
+  let seenInstruction = false;
+  for (const line of logs as string[]) {
+    const lower = (line ?? '').toLowerCase();
+    if (!lower.startsWith(LOG_IX_PREFIX)) continue;
+    seenInstruction = true;
+    const ix = lower.slice(LOG_IX_PREFIX.length);
+    if (!MMM_SALES_ONLY_SKIP_LOG_NAMES.has(ix)) return false;
+  }
+  return seenInstruction;
+}
+
+/** Scan WS logs for a Tensor-sale Anchor instruction. Fail-open if logs absent. */
+function hasTensorSaleInstruction(logs: unknown): boolean {
+  if (!Array.isArray(logs) || logs.length === 0) return true;
+  for (const line of logs as string[]) {
+    const lower = (line ?? '').toLowerCase();
+    if (!lower.startsWith(LOG_IX_PREFIX)) continue;
+    const ix = lower.slice(LOG_IX_PREFIX.length);
+    if (TENSOR_SALE_INSTRUCTIONS.has(ix)) return true;
+  }
+  return false;
+}
+
+// Per-target skip counters are routed into the aggregated [telemetry] line in
+// src/ingestion/telemetry.ts so the console stays at one summary line / min.
 
 // ─── WebSocket URL ────────────────────────────────────────────────────────────
 
@@ -209,6 +412,15 @@ const lastRealNotifTs = new Map<string, number>(
 );
 
 /**
+ * Tracks whether each target has EVER received a real logsNotification since
+ * process start. Needed for the health-gated poll cadence: a fresh start
+ * looks "fresh" via `lastRealNotifTs` seeds but WS has delivered nothing —
+ * we must not treat that as healthy. Toggles true in the WS `message`
+ * handler alongside `lastRealNotifTs.set(...)`.
+ */
+const wsEverReal = new Map<string, boolean>(TARGETS.map((t) => [t.name, false]));
+
+/**
  * How long a single target may go without any logsNotification before its
  * subscription is torn down and reopened. Two minutes is safely above any
  * real quiet period for the high-activity programs (me_v2, mmm) while still
@@ -225,12 +437,25 @@ let slotWs: WebSocket | null = null;
 /** Guard: prevent concurrent restartListeners() calls. */
 let restarting = false;
 
+/**
+ * True while ingestion is meant to be live. `stopListener()` flips it to
+ * false and every reconnect/poll scheduler short-circuits on the check —
+ * without this, open sockets are torn down but `setTimeout`-driven reconnects
+ * would immediately re-open them and leak. Restarting after a stop is fine:
+ * `startListener()` flips it back to true.
+ */
+let running = false;
+
+/** Handles captured from `startListener()` so `stopListener()` can clear them. */
+const intervalHandles: NodeJS.Timeout[] = [];
+
 // ─── Single-program subscription ─────────────────────────────────────────────
 
 const BACKOFF_MIN_MS = 10_000;  // 10s minimum — avoids rapid reconnect storms
 const BACKOFF_MAX_MS = 120_000; // 2 min ceiling
 
 function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnect = false): void {
+  if (!running) return;  // stopListener() was called — don't re-open
   // NOTE: lastNotificationTs is NOT reset here.
   // Resetting it on every reconnect (including automatic close-handler reconnects)
   // would mask silent subscriptions: if Helius drops idle WebSocket connections
@@ -258,7 +483,16 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       method:  'logsSubscribe',
       params: [
         { mentions: [target.program] },
-        { commitment: 'processed' },
+        // `confirmed` matches the `commitment: 'confirmed'` we use for
+        // getTransaction in fetchRawTx. Subscribing at `processed` caused
+        // a ~40 % null-result rate (measured via `nullTx=/min` telemetry):
+        // Helius notified immediately at processed, then our fetch raced
+        // ahead of the processed→confirmed indexing window (typically 0.8-
+        // 1.2 s). Waiting for confirmed on the subscribe side adds the
+        // same ~0.8 s to WS notification latency but eliminates the race
+        // entirely. Downstream SSE still fires within a few seconds of
+        // on-chain settlement.
+        { commitment: 'confirmed' },
       ],
     }));
     backoffMs = BACKOFF_MIN_MS;
@@ -289,6 +523,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     lastEventTs = Date.now();
     lastNotificationTs.set(target.name, Date.now());
     lastRealNotifTs.set(target.name, Date.now()); // real traffic only — never set by restarts
+    if (!wsEverReal.get(target.name)) wsEverReal.set(target.name, true);
     stats.seen++;
 
     if (value.err !== null && value.err !== undefined) {
@@ -296,22 +531,64 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       return;
     }
 
-    // Pre-filter: skip if logs contain no recognised sale instruction.
-    // Eliminates ~90% of RPC calls from listings, bids, cancels, etc.
-    if (!hasSaleInstruction(value.logs)) {
+    // Pre-filter removed for me_v2 / mmm: the listener forwards every
+    // transaction that mentions a watched program and lets the parser decide.
+    // The old allowlist silently dropped real sales when program logs used
+    // dispatch names that differed from Anchor method identifiers (MMM).
+    // `SALE_INSTRUCTIONS` / `hasSaleInstruction` / `LOG_PREFILTER_BYPASS` are
+    // retained above as dead code for now — safe to delete in a later cleanup.
+    void LOG_PREFILTER_BYPASS; void hasSaleInstruction;
+
+    const sig = value.signature as string;
+
+    // S3: Tensor-only log prefilter. Tensor programs use Anchor-generated log
+    // names reliably, so we can safely skip obvious non-sale txs before paying
+    // for getTransaction. markSigFetched blocks the 1.5 s primary poller from
+    // re-dispatching the same sig — otherwise the saving is zero.
+    if (TENSOR_PREFILTER_TARGETS.has(target.name) && !hasTensorSaleInstruction(value.logs)) {
       stats.filtered++;
+      incPrefilterSkip();
+      markSeen(sig);        // block poller path via seenSigs FIFO
+      markSigFetched(sig);  // block fetchRawTx path via recentSigs (3 min TTL)
+      return;
+    }
+
+    // S5: ME v2 deny-list prefilter. MMM intentionally skipped in full/budget
+    // modes — its log naming is ambiguous (see comment above). The
+    // sales_only mode below widens the deny-list to also cover ME v2
+    // listing-state instructions (sell / cancel_sell variants).
+    if (target.name === 'me_v2' && shouldSkipMeV2Logs(value.logs)) {
+      stats.filtered++;
+      incPrefilterSkip();
+      markSeen(sig);
+      markSigFetched(sig);
+      return;
+    }
+
+    // sales_only: shed MMM pool-admin / liquidity-change txs before fetch.
+    // Fail-open for every MMM sale family (including the known-unknown
+    // coreFulfillBuyV2 log name) — see MMM_SALES_ONLY_SKIP_LOG_NAMES for
+    // the confirmed deny-list scope.
+    if (target.name === 'mmm' && shouldSkipMmmLogsSalesOnly(value.logs)) {
+      stats.filtered++;
+      incPrefilterSkip();
+      markSeen(sig);
+      markSigFetched(sig);
       return;
     }
 
     stats.fired++;
-    const sig = value.signature as string;
     // Do NOT call markSeen here. Cross-path dedup is handled inside fetchRawTx:
     //   inFlight   — blocks concurrent double-fetch while the listener fetch is live
     //   recentSigs — 3-min TTL, set only on successful fetch
     // Calling markSeen before ingest completes would permanently block the poller
     // from retrying a sig whose raw fetch failed (429 cooldown, timeout, etc.).
+    // S4: WS notifications are sub-second fresh → highest priority slot in
+    // the shared rpcLimiter. The outer `limiter` here is the listener's own
+    // concurrency cap for dispatching into target.ingest; priority is passed
+    // through so it takes effect at fetchRawTx's shared rpcLimiter.
     limiter
-      .run(() => target.ingest(sig))
+      .run(() => target.ingest(sig, undefined, 'high'))
       .catch((err: unknown) => {
         stats.errors++;
         console.error(`[listener/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
@@ -337,6 +614,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
 // catches silent stalls that logsNotification alone cannot detect at low volume.
 
 function openSlotSubscription(): void {
+  if (!running) return;  // stopListener() was called
   let url: string;
   try { url = wssUrl(); } catch { return; }
 
@@ -437,14 +715,31 @@ function restartTarget(target: Target, reason: string): void {
   openSubscription(target, BACKOFF_MIN_MS, true);
 }
 
-// ─── Fallback poller ─────────────────────────────────────────────────────────
+// ─── Primary discovery poller ─────────────────────────────────────────────────
+//
+// WS logsSubscribe is currently unreliable (seen=0 / fired=0 for long periods).
+// This poller is the PRIMARY discovery path while WS remains degraded.
+// WS listeners are kept running as a secondary path but not depended on.
+//
+// Cadence: 1.5s — fast enough to catch sales within a few seconds of confirmation.
+// Block-age window: 10 minutes — wide enough to recover sigs missed during a
+// poller restart or brief outage without re-ingesting hours-old noise.
 
-const POLL_LIMIT        = 60;    // covers a 3s burst without over-fetching on dev plan
-const POLL_INTERVAL_MS  = 3_000; // 3s cadence — reduces getSignaturesForAddress rate pressure
-const MAX_BLOCK_AGE_S   = 300;   // 5-minute window — covers BACKOFF_MAX_MS (120s) with margin.
-                                  // ME v2 type=DEPOSIT sales (BuyV2+CoreExecuteSaleV2) are not
-                                  // delivered by the Helius webhook or API poller; the
-                                  // getSignaturesForAddress poller here is the only recovery path.
+const POLL_LIMIT        = 100;     // sigs per fetch — generous to avoid missing bursts
+// ─── WS-health-gated poll cadence ───────────────────────────────────────────
+// When WS logsSubscribe is healthy — defined as: both high-volume targets
+// (me_v2 + mmm) have EACH received a real notification, AND each of their
+// last-real-notification timestamps is younger than WS_HEALTHY_MAX_AGE_MS —
+// the primary poller slows from 1.5 s to 10 s. Low-activity targets
+// (tcomp/tamm) are intentionally excluded from the health signal so their
+// natural quiet periods can't pin us in degraded mode.
+// Any staleness on a high-volume target instantly flips the cadence back
+// to fast. amm-poller still runs at 30 s as a secondary safety net.
+const POLL_FAST_MS          = 1_500;
+const POLL_HEALTHY_MS       = 10_000;
+const WS_HEALTHY_MAX_AGE_MS = 60_000;
+const WS_HEALTH_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm']);
+const MAX_BLOCK_AGE_S   = 600;     // 10-minute recency window
 
 function rpcHttpUrl(): string {
   const key = process.env.HELIUS_API_KEY;
@@ -452,16 +747,30 @@ function rpcHttpUrl(): string {
   return `https://mainnet.helius-rpc.com/?api-key=${key}`;
 }
 
+// Per-target accumulated stats, reset each time logPollSummary() runs.
+interface PollAccum { fetched: number; unseen: number; ingested: number; skipped: number; }
+const pollAccum = new Map<string, PollAccum>(
+  TARGETS.map((t) => [t.name, { fetched: 0, unseen: 0, ingested: 0, skipped: 0 }]),
+);
+
+function logPollSummary(): void {
+  for (const [name, a] of pollAccum) {
+    console.log(
+      `[poll/summary/${name}]` +
+      `  fetched=${a.fetched}  unseen=${a.unseen}  ingested=${a.ingested}  skipped=${a.skipped}`,
+    );
+    pollAccum.set(name, { fetched: 0, unseen: 0, ingested: 0, skipped: 0 });
+  }
+}
+
 async function pollTarget(target: Target): Promise<void> {
-  // Retry once on network/HTTP failure — the most common cause is the same
-  // transient Helius outage that caused the WS disconnect in the first place.
-  // One retry with a short pause is enough to survive brief blips without
-  // introducing meaningful delay on the happy path.
+  // Retry once on network/HTTP failure.
   let res: Response | null = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 600));
     try {
+      incSigListFetch();
       const r = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -474,9 +783,8 @@ async function pollTarget(target: Target): Promise<void> {
         signal: AbortSignal.timeout(8_000),
       });
       if (r.ok) { res = r; break; }
-      // HTTP error (429, 5xx) — log on final attempt only to avoid spam.
       if (attempt === 1) {
-        console.warn(`[poller/${target.name}] HTTP ${r.status}  skipping cycle`);
+        console.warn(`[poll/${target.name}] HTTP ${r.status}  skipping cycle`);
       }
     } catch {
       // Network error or timeout — try again (silently give up after last attempt).
@@ -492,24 +800,62 @@ async function pollTarget(target: Target): Promise<void> {
   const rows = json.result;
   if (!Array.isArray(rows)) return;
 
+  const accum = pollAccum.get(target.name)!;
+  let fetched  = 0;
+  let unseen   = 0;
+  let ingested = 0;
+  let skipped  = 0;
+
+  const nowSec = Date.now() / 1000;
+
   for (const row of rows) {
-    if (!row.signature || row.err !== null) continue;
+    fetched++;
 
-    // Drop stale sigs regardless of seenSigs state.
+    // Drop on-chain failures.
+    if (!row.signature || row.err !== null) { skipped++; continue; }
+
+    // Step 1 — sig was returned by getSignaturesForAddress (valid, non-failed tx).
+    trace(row.signature, 'poll:fetched', `target=${target.name}`);
+
+    // Drop sigs outside the recency window.
     // getSignaturesForAddress returns newest-first; low-activity programs can
-    // surface sigs hours old. Without this gate, seenSigs FIFO eviction causes
-    // those old sigs to re-enter the ingest queue as if they were new.
-    if (row.blockTime && (Date.now() / 1000 - row.blockTime) > MAX_BLOCK_AGE_S) continue;
+    // surface sigs that are hours old. Without this gate, seenSigs FIFO eviction
+    // causes those old sigs to re-enter the ingest queue as if they were new.
+    if (row.blockTime && (nowSec - row.blockTime) > MAX_BLOCK_AGE_S) { skipped++; continue; }
 
-    if (seenSigs.has(row.signature)) continue;
+    // Dedup: skip already-seen sigs.
+    if (seenSigs.has(row.signature)) { skipped++; continue; }
 
+    // Step 2 — sig passed age filter + seenSigs dedup.
+    trace(row.signature, 'poll:unseen', `target=${target.name}`);
+
+    unseen++;
     const sig = row.signature;
     markSeen(sig);
+
+    // Step 3 — dispatching to target.ingest() via pollerLimiter.
+    trace(sig, 'poll:ingest', `target=${target.name}`);
+    ingested++;
+
     pollerLimiter
       .run(() => target.ingest(sig))
       .catch((err: unknown) => {
-        console.error(`[poller/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
+        console.error(`[poll/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
       });
+  }
+
+  // Accumulate into the 60s summary.
+  accum.fetched  += fetched;
+  accum.unseen   += unseen;
+  accum.ingested += ingested;
+  accum.skipped  += skipped;
+
+  // Immediate log when new sigs are found — don't wait for the summary interval.
+  if (ingested > 0) {
+    console.log(
+      `[poll/${target.name}]` +
+      `  fetched=${fetched}  unseen=${unseen}  ingested=${ingested}  skipped=${skipped}`,
+    );
   }
 }
 
@@ -520,6 +866,7 @@ async function pollAll(): Promise<void> {
 async function seedSeenSigs(): Promise<void> {
   for (const target of TARGETS) {
     try {
+      incSigListFetch();
       const res = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -546,15 +893,21 @@ async function seedSeenSigs(): Promise<void> {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function startListener(): void {
-  console.log(`[listener] starting  targets=${TARGETS.length}  concurrency=${limiter.max}`);
+  if (running) { console.log('[listener] already running — skip'); return; }
+  running = true;
+  console.log(`[listener] starting  targets=${TARGETS.length}  concurrency=${limiter.max}  mode=${effectiveMode()}`);
 
   for (const target of TARGETS) openSubscription(target);
   openSlotSubscription();
 
-  // Heartbeat — confirms the listener process is alive.
-  setInterval(() => {
+  // Handles captured into `intervalHandles` so stopListener() can clear them.
+  // Keeping `.unref()` so that if the process is otherwise idle it can still
+  // exit, but we also now track the handle for explicit teardown.
+  const heartbeat = setInterval(() => {
     console.log('[listener] alive', new Date().toISOString());
-  }, 60_000).unref();
+  }, 60_000);
+  heartbeat.unref();
+  intervalHandles.push(heartbeat);
 
   // Watchdog — checked every 15s, three independent tiers:
   //
@@ -565,7 +918,8 @@ export function startListener(): void {
   // Tier 3 is the critical addition: without it, a single active subscription
   // (e.g. tamm) refreshes the shared lastEventTs and masks the silent death of
   // me_v2/mmm/tcomp indefinitely — the observed 10–20 min degradation pattern.
-  setInterval(() => {
+  const watchdog = setInterval(() => {
+    if (!running) return;
     const now = Date.now();
     if (now - lastSlotTs > 20_000) {
       restartListeners('stale (no slots for 20s)');
@@ -580,29 +934,20 @@ export function startListener(): void {
         }
       }
     }
-  }, 15_000).unref();
+  }, 15_000);
+  watchdog.unref();
+  intervalHandles.push(watchdog);
 
-  // Log aggregate stats every 60 seconds.
-  setInterval(logStats, 60_000).unref();
+  const statsLog = setInterval(logStats, 60_000);        statsLog.unref(); intervalHandles.push(statsLog);
+  const pollLog  = setInterval(logPollSummary, 60_000);  pollLog.unref();  intervalHandles.push(pollLog);
 
   // ── Hard periodic refresh (temporary reliability workaround) ─────────────
-  //
   // Every 3 minutes, unconditionally restart every target subscription.
-  // No skip conditions — active targets are restarted the same as silent ones.
-  //
-  // Uses restartTarget(), which (a) terminates the existing WS, (b) resets
-  // lastNotificationTs (watchdog grace window), and (c) calls openSubscription
-  // with isReconnect=true so a catch-up poll fires on the new socket open.
-  // seenSigs dedup prevents any re-ingestion of already-processed signatures.
-  //
-  // Only guard: skip if a full restartListeners() is already in progress —
-  // that already restarts every target.
   const HARD_REFRESH_INTERVAL_MS = 3 * 60_000; // 3 minutes
-
   let hardRefreshing = false;
 
-  setInterval(() => {
-    if (restarting || hardRefreshing) return;
+  const hardRefresh = setInterval(() => {
+    if (!running || restarting || hardRefreshing) return;
     hardRefreshing = true;
     console.log('[listener] hard-refresh cycle start');
     try {
@@ -612,11 +957,79 @@ export function startListener(): void {
     } finally {
       hardRefreshing = false;
     }
-  }, HARD_REFRESH_INTERVAL_MS).unref();
+  }, HARD_REFRESH_INTERVAL_MS);
+  hardRefresh.unref();
+  intervalHandles.push(hardRefresh);
 
-  // Fallback poller — starts after seeding to avoid replaying startup sigs.
+  // Primary poller — main discovery path while WS logsSubscribe is degraded.
+  // Seeds seenSigs first so the first cycle doesn't replay already-processed sigs.
   seedSeenSigs().finally(() => {
-    setInterval(() => { pollAll().catch(() => {}); }, POLL_INTERVAL_MS).unref();
-    console.log(`[poller] started  interval=${POLL_INTERVAL_MS}ms  limit=${POLL_LIMIT}  targets=${TARGETS.length}`);
+    if (!running) return;
+    schedulePollTick();
+    console.log(
+      `[poll] started (primary discovery)` +
+      `  fastMs=${POLL_FAST_MS}  healthyMs=${POLL_HEALTHY_MS}` +
+      `  wsHealthAge=${WS_HEALTHY_MAX_AGE_MS}ms  limit=${POLL_LIMIT}` +
+      `  maxBlockAge=${MAX_BLOCK_AGE_S}s  targets=${TARGETS.length}`,
+    );
   });
+}
+
+/**
+ * Stop ingestion cleanly. Closes every WebSocket, clears watchdog /
+ * heartbeat / hard-refresh intervals, and flips `running` so any already-
+ * scheduled reconnect setTimeouts short-circuit on fire. The poll scheduler
+ * (`schedulePollTick`) also checks `running` before re-arming itself, so
+ * after a stop no further pollAll() calls will fire.
+ */
+export function stopListener(): void {
+  if (!running) return;
+  running = false;
+  console.log('[listener] stopping');
+
+  // Tear down program sockets.
+  for (const [, ws] of activeSockets) {
+    try { ws.removeAllListeners(); ws.terminate(); } catch { /* noop */ }
+  }
+  activeSockets.clear();
+
+  // Tear down slot socket.
+  if (slotWs) {
+    try { slotWs.removeAllListeners(); slotWs.terminate(); } catch { /* noop */ }
+    slotWs = null;
+  }
+
+  // Clear all intervals (heartbeat, watchdog, stats, hard-refresh).
+  while (intervalHandles.length) {
+    const h = intervalHandles.pop()!;
+    clearInterval(h);
+  }
+}
+
+// ─── WS-health check + self-rescheduling poll loop ──────────────────────────
+
+function wsIsHealthy(): boolean {
+  const now = Date.now();
+  for (const name of WS_HEALTH_TARGETS) {
+    if (!wsEverReal.get(name)) return false;
+    const ts = lastRealNotifTs.get(name) ?? 0;
+    if (now - ts > WS_HEALTHY_MAX_AGE_MS) return false;
+  }
+  return true;
+}
+
+let currentPollMode: 'fast' | 'healthy' | null = null;
+function schedulePollTick(): void {
+  if (!running) return;  // stopListener() — don't re-arm
+  const healthy = wsIsHealthy();
+  const nextMode: 'fast' | 'healthy' = healthy ? 'healthy' : 'fast';
+  if (nextMode !== currentPollMode) {
+    console.log(`[poll] mode=${nextMode}  (ws ${healthy ? 'healthy' : 'degraded'})`);
+    currentPollMode = nextMode;
+  }
+  const delay = healthy ? POLL_HEALTHY_MS : POLL_FAST_MS;
+  setTimeout(() => {
+    if (!running) return;
+    pollAll().catch(() => {}).finally(() => { if (running) schedulePollTick(); });
+  }, delay).unref();
 }

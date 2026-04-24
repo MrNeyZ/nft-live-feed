@@ -54,6 +54,7 @@ export interface RestRow {
   image_url: string | null;
   collection_name: string | null;
   magic_eden_url: string | null;
+  me_collection_slug: string | null;
   parser_source: string | null;
 }
 
@@ -75,6 +76,6 @@ export function fromRow(row: RestRow): FeedEvent {
     collectionName: row.collection_name,
     magicEdenUrl: row.magic_eden_url,
     source: row.parser_source ? 'me_raw' : 'helius',
-    meCollectionSlug: null,  // not persisted in DB yet; arrives via SSE meta update for live events
+    meCollectionSlug: row.me_collection_slug,
   };
 }

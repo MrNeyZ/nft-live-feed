@@ -1,15 +1,24 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { Gate } from '@/runtime/Gate';
 
 export const metadata: Metadata = {
-  title: 'NFT Live Feed',
+  title: 'Soloist — Live Feed',
   description: 'Solana-wide NFT sales in real time',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Dancing+Script:wght@700&family=Fira+Code:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body><Gate>{children}</Gate></body>
     </html>
   );
 }

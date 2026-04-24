@@ -69,11 +69,12 @@ export interface TcompIxDef {
 }
 
 export const TCOMP_SALE_INSTRUCTIONS: TcompIxDef[] = [
+  // ─── Core NFT paths ───────────────────────────────────────────────────────────
   {
     // ✅ VERIFIED — confirmed from sig 1 (listing buy, Core NFT).
-    // Discriminator observed: a9 e3 57 ff 4c 56 ff 19
+    // IDL name: buyCore. Discriminator: a9 e3 57 ff 4c 56 ff 19
     // Buyer  = accounts[4], Seller = accounts[6], Core asset = accounts[2]
-    name:          'buy',
+    name:          'buyCore',
     disc:          Buffer.from('a9e357ff4c56ff19', 'hex'),
     verified:      true,
     direction:     'buy',
@@ -83,10 +84,9 @@ export const TCOMP_SALE_INSTRUCTIONS: TcompIxDef[] = [
   },
   {
     // ✅ VERIFIED — confirmed from sig 2 (bid accept, Core NFT).
-    // Discriminator observed: fa 29 f8 14 3d a1 1b 8d
-    // Seller = accounts[1], Buyer = embedded in bid account (resolved via payment flow)
-    // Core asset = accounts[8]
-    name:          'takeBid',
+    // IDL name: takeBidCore. Discriminator: fa 29 f8 14 3d a1 1b 8d
+    // Seller = accounts[1], Core asset = accounts[8]; buyer from SOL flow.
+    name:          'takeBidCore',
     disc:          Buffer.from('fa29f8143da11b8d', 'hex'),
     verified:      true,
     direction:     'takeBid',
@@ -94,22 +94,118 @@ export const TCOMP_SALE_INSTRUCTIONS: TcompIxDef[] = [
     sellerAcctIdx: 1,
     coreAssetIdx:  8,
   },
+
+  // ─── Legacy / pNFT paths ──────────────────────────────────────────────────────
   {
-    // ✅ VERIFIED — confirmed from live tx:
-    //   4TRJQBsrB6DnEe6crYsWT41BRWJkL658wSYjK4kPD28HyMhp4Wu8ypxk93VELLxaFR3c2muthxvJucBn6PmQ8XkC
-    // Bid accept for standard SPL (legacy) NFTs. Distinct from takeBid (Core).
-    // Discriminator observed: bc 23 74 6c 00 e9 ed c9  = anchorDisc('take_bid_legacy') ✅
-    // SOL flow: bid escrow (ix.accounts[2]) pays, seller (ix.accounts[1]) receives.
-    // ix.accounts[1] = seller wallet (confirmed: +147M lamports in the live tx).
-    // Buyer not present as a fixed index — resolved from SPL token-flow (TransferChecked CPIs).
-    // NFT mint extracted from SPL preTokenBalances/postTokenBalances (classifyNftType → 'legacy').
+    // ✅ VERIFIED — confirmed from live tx (takeBidLegacy, legacy SPL bid accept).
+    // Discriminator: bc 23 74 6c 00 e9 ed c9  = anchorDisc('take_bid_legacy')
+    // ix.accounts[1] = seller wallet (+147M lamports confirmed). Buyer via token flow.
     name:          'takeBidLegacy',
     disc:          Buffer.from('bc23746c00e9edc9', 'hex'),
     verified:      true,
     direction:     'takeBid',
     buyerAcctIdx:  null,
     sellerAcctIdx: 1,
-    coreAssetIdx:  null,  // legacy SPL — mint from extractNftMint (token balance delta)
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: buy (generic listing purchase for legacy/pNFT NFTs).
+    // Discriminator: 66063d1201daebea = anchorDisc('buy')
+    // Account layout unconfirmed — buyer/seller resolved via SOL+token flow.
+    name:          'buy',
+    disc:          Buffer.from('66063d1201daebea', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: buyLegacy (legacy SPL listing purchase).
+    // Discriminator: 447f2b08d41ff972 = anchorDisc('buy_legacy')
+    // Account layout unconfirmed — buyer/seller resolved via SOL+token flow.
+    name:          'buyLegacy',
+    disc:          Buffer.from('447f2b08d41ff972', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: takeBidFullMeta (pNFT/Core bid accept with full metadata).
+    // Discriminator: f2c2cbe1ea350a60 = anchorDisc('take_bid_full_meta')
+    // Seller likely accounts[1] (same pattern as takeBidCore/takeBidLegacy). Buyer via flow.
+    // Core asset extracted via extractCoreAssetFromInnerIx when nftType=core.
+    name:          'takeBidFullMeta',
+    disc:          Buffer.from('f2c2cbe1ea350a60', 'hex'),
+    verified:      false,
+    direction:     'takeBid',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: 1,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: takeBidMetaHash (cNFT bid accept via metadata hash).
+    // Discriminator: 55e3ca462dd70ac1 = anchorDisc('take_bid_meta_hash')
+    // cNFT — asset ID extraction from Bubblegum inner CPI needed; falls to unknown_candidate.
+    name:          'takeBidMetaHash',
+    disc:          Buffer.from('55e3ca462dd70ac1', 'hex'),
+    verified:      false,
+    direction:     'takeBid',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+
+  // ─── Token-2022 paths ─────────────────────────────────────────────────────────
+  {
+    // ⚠️ UNVERIFIED — IDL name: buyT22 (Token-2022 NFT listing purchase).
+    // Discriminator: 5162e3abc969b4d8 = anchorDisc('buy_t22')
+    // T22 token balances appear in pre/postTokenBalances same as SPL — extractNftMint works.
+    name:          'buyT22',
+    disc:          Buffer.from('5162e3abc969b4d8', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: takeBidT22 (Token-2022 NFT bid accept).
+    // Discriminator: 12fa71f21ff41396 = anchorDisc('take_bid_t22')
+    name:          'takeBidT22',
+    disc:          Buffer.from('12fa71f21ff41396', 'hex'),
+    verified:      false,
+    direction:     'takeBid',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+
+  // ─── WNS (Wormhole Name Service / Metaplex WNS) paths ────────────────────────
+  {
+    // ⚠️ UNVERIFIED — IDL name: buyWns (WNS NFT listing purchase).
+    // Discriminator: a82bb3d92c3b23f4 = anchorDisc('buy_wns')
+    // WNS tokens use standard SPL token program — extractNftMint works.
+    name:          'buyWns',
+    disc:          Buffer.from('a82bb3d92c3b23f4', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — IDL name: takeBidWns (WNS NFT bid accept).
+    // Discriminator: 58057a58fa8b23d8 = anchorDisc('take_bid_wns')
+    name:          'takeBidWns',
+    disc:          Buffer.from('58057a58fa8b23d8', 'hex'),
+    verified:      false,
+    direction:     'takeBid',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
   },
 ];
 
@@ -165,6 +261,38 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     buyerAcctIdx:  1,
     sellerAcctIdx: 7,
     coreAssetIdx:  14,
+  },
+
+  // ─── TAMM V2 trade-pool paths ──────────────────────────────────────────────
+  // Newer TAMM instructions observed in live txs (log prefix `BuyV2` /
+  // `SellV2`, dispatch name `sell_nft_trade_pool` / `buy_nft_trade_pool`).
+  // Account layouts not yet verified — parser will resolve seller/buyer via
+  // SOL-flow + token-flow fallbacks, and the Core asset via the existing
+  // MPL Core inner-CPI scan (`extractCoreAssetFromInnerIx`).
+
+  {
+    // ⚠️ UNVERIFIED — discriminator observed live (sig
+    //    2NFRJdpDckSaD3rV9FVDLjVfiFqdYXJApV4f2vXde8r6m9cG2VWCPSyRkJ3eG3k2WmzKZk8UnQXKtw5eepEhRFR4).
+    // IDL name: sell_nft_trade_pool (Anchor disc sha256("global:sell_nft_trade_pool")[:8]).
+    // Direction: user sells NFT into trade pool — pool receives NFT, user receives SOL.
+    name:          'sellNftTradePool',
+    disc:          Buffer.from('83527d4d0d9d245a', 'hex'),
+    verified:      false,
+    direction:     'sell',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
+  },
+  {
+    // ⚠️ UNVERIFIED — computed Anchor discriminator for buy_nft_trade_pool.
+    // Paired counterpart to sell_nft_trade_pool; user buys NFT from trade pool.
+    name:          'buyNftTradePool',
+    disc:          Buffer.from('1b4ad9d65fe0e4a7', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  null,
+    sellerAcctIdx: null,
+    coreAssetIdx:  null,
   },
 ];
 

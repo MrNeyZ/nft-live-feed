@@ -11,4 +11,6 @@ export type {
   RawTokenBalance,
   RawTransactionMeta,
   RawAccountKey,
+  LoadedAddresses,
 } from '../me-raw/types';
+export { resolveAccountKey } from '../me-raw/types';
