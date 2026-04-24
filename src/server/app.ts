@@ -17,17 +17,15 @@ import { createCollectionIconRouter } from './collection-icon';
 import { createCollectionMetaRouter } from './collection-meta';
 import { createMarketRouter } from './market';
 import { createRuntimeRouter } from './runtime';
+import { corsMiddleware } from './cors';
 
 export function createApp() {
   const app = express();
 
-  // Allow cross-origin requests from the Next.js dev server (localhost:3001)
-  // and any production frontend that connects directly to avoid proxy buffering.
-  app.use((_req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    next();
-  });
+  // Origin-allowlist CORS (UI_ALLOWED_ORIGINS, plus localhost defaults in
+  // dev). Replaces the previous `Access-Control-Allow-Origin: *`. Mounted
+  // first so it also handles OPTIONS preflights before any router runs.
+  app.use(corsMiddleware);
 
   app.use(express.json({ limit: '10mb' }));
 

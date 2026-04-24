@@ -1,7 +1,10 @@
 import 'dotenv/config';
+import * as path from 'path';
 import { createApp } from './server/app';
 import { getPool } from './db/client';
 import { trimStartupLog } from './startup-log-trim';
+import { acquireSingleton } from './runtime/lock';
+import { validateEnv } from './runtime/env-validation';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -13,6 +16,17 @@ import { trimStartupLog } from './startup-log-trim';
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
 async function main() {
+  // Environment validation runs first. In production this exits(1) before
+  // the lock is even acquired if any required secret is missing — the goal
+  // is to make "deployed with dev defaults" an immediate, visible failure.
+  validateEnv();
+
+  // Single-instance guard — refuse to start if another backend owns the lock.
+  // Running side-by-side would double every Helius subscription / poller call.
+  // Lock lives under project root so it works identically on macOS and Linux
+  // without relying on OS-specific paths (/var/run etc. would need sudo).
+  acquireSingleton(path.join(process.cwd(), '.runtime', 'backend.lock'));
+
   // Keep the captured log file bounded across restarts (no-op without LOG_FILE).
   trimStartupLog();
 

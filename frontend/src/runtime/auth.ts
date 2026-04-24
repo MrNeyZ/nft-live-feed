@@ -1,10 +1,12 @@
 // Frontend auth helpers for the control-plane.
 //
-// "Auth" is just the shared secret the backend expects as a Bearer token.
-// We stash it in localStorage so it persists across tabs + reloads within
-// the same browser — opening a collection in a new tab mustn't re-prompt.
+// Backend issues a short-lived HMAC-signed token on successful login. We
+// stash it in localStorage so it persists across tabs + reloads within the
+// same browser — opening a collection in a new tab mustn't re-prompt.
 // `clearAuth()` (called by OFF or on any 401) wipes it and the Gate falls
-// back to the login screen.
+// back to the login screen. The token self-expires after 12h; a 401 with
+// `reason:"expired"` is treated exactly like any other 401 — we clear and
+// send the user back to /access.
 
 const TOKEN_KEY = 'ui-auth-token';
 const API_BASE  = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -32,10 +34,10 @@ export function authHeaders(): Record<string, string> {
 }
 
 /**
- * Attempt login with a wallet + password. Backend validates both; on success
- * we stash the bearer token (which happens to equal the password — the
- * backend has no session layer). Callers should use `getToken()` / `authHeaders()`
- * rather than relying on that coincidence.
+ * Attempt login with a wallet + password. Backend validates both and, on
+ * success, returns an opaque HMAC-signed token that carries {wallet, iat, exp}.
+ * Callers should only touch it via `getToken()` / `authHeaders()` —
+ * the format is a backend-internal contract and may change.
  */
 export async function login(wallet: string, password: string): Promise<boolean> {
   try {

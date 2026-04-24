@@ -17,6 +17,7 @@
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Connection } from '@solana/web3.js';
+import { authHeaders } from '@/runtime/auth';
 import { FeedEvent, formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
 import {
   fromBackend,
@@ -1213,8 +1214,20 @@ export default function CollectionPage() {
     const key = listing.mint;
     setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'preparing' } }));
     try {
-      const url = `${API_BASE}/api/buy/me?mint=${encodeURIComponent(listing.mint)}&buyer=${encodeURIComponent(walletPubkey)}&price=${listing.priceSol}`;
-      const res = await fetch(url);
+      // Backend enforces marketplace allowlist, collection binding, live
+      // price + slippage, and on-tx checks (mint, lamports bound, signer
+      // shape). We default slippage to 1% — users can currently only buy
+      // the price we just showed them; any real-world move rejects here.
+      const params = new URLSearchParams({
+        marketplace:      'magic_eden',
+        mint:             listing.mint,
+        buyer:            walletPubkey,
+        collectionSlug:   slug,
+        expectedPriceSol: String(listing.priceSol),
+        maxSlippagePct:   '1',
+      });
+      const url = `${API_BASE}/api/buy/me?${params.toString()}`;
+      const res = await fetch(url, { headers: { ...authHeaders() } });
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as Record<string, unknown>));
         if (res.status === 409 && (body as { currentPriceSol?: number }).currentPriceSol != null) {
