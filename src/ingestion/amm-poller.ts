@@ -22,6 +22,7 @@ import { trace } from '../trace';
 import { Priority } from './concurrency';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { incSigListFetch } from './telemetry';
+import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ async function fetchPage(
   program: string,
   until: string | null,
   before: string | null,
+  targetName: string,
 ): Promise<SigInfo[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params: any = { limit: PAGE_SIZE, commitment: 'confirmed' };
@@ -97,6 +99,7 @@ async function fetchPage(
   if (before) params.before = before;
 
   incSigListFetch();
+  noteSigList('amm', targetName);
   const res = await fetch(rpcUrl(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -122,9 +125,9 @@ async function fetchPage(
  * On first run (`until === null`) we take a single page so startup doesn't
  * walk arbitrarily deep into history.
  */
-async function fetchSinceCursor(program: string, until: string | null, gen: number): Promise<SigInfo[]> {
+async function fetchSinceCursor(program: string, until: string | null, gen: number, targetName: string): Promise<SigInfo[]> {
   // First run: one page, no pagination — treat "now" as the starting point.
-  if (!until) return fetchPage(program, null, null);
+  if (!until) return fetchPage(program, null, null, targetName);
 
   const all: SigInfo[] = [];
   let before: string | null = null;
@@ -132,7 +135,7 @@ async function fetchSinceCursor(program: string, until: string | null, gen: numb
     // Bail between pages if mode flipped or this sweep belongs to a prior
     // generation — prevents a deep burst from continuing to page after OFF.
     if (getMode() === 'off' || gen !== currentGeneration()) break;
-    const page = await fetchPage(program, until, before);
+    const page = await fetchPage(program, until, before, targetName);
     if (getMode() === 'off' || gen !== currentGeneration()) break;
     if (page.length === 0) break;
     all.push(...page);
@@ -201,7 +204,7 @@ async function sweepTarget(target: PollTarget): Promise<void> {
   try {
     const lastSig = await getLastSig(target.name);
     if (getMode() === 'off' || gen !== currentGeneration()) return;
-    const page    = await fetchSinceCursor(target.program, lastSig, gen);
+    const page    = await fetchSinceCursor(target.program, lastSig, gen, target.name);
     if (getMode() === 'off' || gen !== currentGeneration()) return;
     const fetched = page.length;
     if (fetched === 0) {
@@ -256,12 +259,23 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 
+// In `sales_only` the MMM and TAMM AMM-pool programs are deliberately NOT
+// polled here: the listener's own pollAll already sweeps the same four
+// programs on a WS-health-gated cadence, and sales_only widens the
+// prefilter deny-list to shed MMM pool-admin / liquidity txs before
+// fetchRawTx anyway. Polling them from two subsystems doubles the
+// getSignaturesForAddress spend for zero added sale coverage. Full mode
+// keeps the behaviour unchanged — pool / reprice latency matters there.
+const SALES_ONLY_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:tcomp']);
+
 function tick(): void {
-  if (getMode() === 'off') return;
-  // Fire all targets in parallel — each has its own re-entrancy guard, so
-  // overlap between ticks for the same target is prevented without blocking
-  // other targets.
+  const mode = getMode();
+  if (mode === 'off') return;
+  // Fire enabled targets in parallel — each has its own re-entrancy guard,
+  // so overlap between ticks for the same target is prevented without
+  // blocking other targets.
   for (const t of TARGETS) {
+    if (mode === 'sales_only' && !SALES_ONLY_TARGETS.has(t.name)) continue;
     sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
   }
 }

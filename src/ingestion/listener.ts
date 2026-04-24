@@ -17,6 +17,7 @@ import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
+import { noteSigList } from './sig-list-audit';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
 import { getMode, currentGeneration } from '../runtime/mode';
@@ -769,8 +770,16 @@ function logPollSummary(): void {
   }
 }
 
+// Same logic as amm-poller: in sales_only we poll only the programs that
+// carry standalone sale activity the prefilter keeps. MMM and TAMM are
+// AMM-pool programs whose non-sale pool-admin txs are shed downstream
+// anyway; double-polling them from both subsystems doubles sigList spend.
+const LISTENER_POLL_SALES_ONLY_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'tcomp']);
+
 async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off') return;
+  // sales_only: skip MMM/TAMM here — see note above.
+  if (getMode() === 'sales_only' && !LISTENER_POLL_SALES_ONLY_TARGETS.has(target.name)) return;
   const gen = currentGeneration();
   // Retry once on network/HTTP failure.
   let res: Response | null = null;
@@ -781,6 +790,7 @@ async function pollTarget(target: Target): Promise<void> {
     if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
     try {
       incSigListFetch();
+      noteSigList('listener', target.name);
       const r = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -879,6 +889,7 @@ async function seedSeenSigs(): Promise<void> {
   for (const target of TARGETS) {
     try {
       incSigListFetch();
+      noteSigList('seed', target.name);
       const res = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
