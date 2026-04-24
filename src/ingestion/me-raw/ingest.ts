@@ -48,7 +48,11 @@ function rpcUrl(): string {
 // longer than STALE_LOW_MS are dropped at admission instead of spending a
 // `getTransaction` credit on a sig that no longer matters during a burst.
 const STALE_LOW_MS = 20_000;
-const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS);
+// Gate: once mode is `off`, every queued task resolves `null` and every
+// admission is refused — no queued `getTransaction` consumes a slot after
+// OFF, and no in-flight task re-enters the RPC path once it releases.
+const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS, () => getMode() !== 'off');
+export function rpcLimiterAbortQueued(): number { return rpcLimiter.abortQueued(); }
 
 /**
  * `budget` mode disables listing_refresh_hint emission in the DROP-branch
@@ -174,6 +178,9 @@ export async function fetchRawTx(
   bestEffort = false,
   priority: Priority = 'medium',
 ): Promise<RawSolanaTx | null> {
+  // Hard kill switch — runtime is off, skip every callsite before any work.
+  if (getMode() === 'off') return null;
+
   // Circuit-breaker applies only to best-effort (rawpatch) callers.
   // Primary callers must never be silenced by a rawpatch-triggered cooldown.
   if (bestEffort && Date.now() < cooldownUntil) return null;
@@ -188,8 +195,9 @@ export async function fetchRawTx(
     // at admission — the same contract as dedup hits, so callers handle it with
     // their existing `if (!tx) return` guard.
     const tx = await rpcLimiter.run(async () => {
-      // Re-check after waiting in queue: cooldown may have activated while this
-      // sig was queued. Only bail for best-effort callers.
+      // Re-check after waiting in queue: mode may have flipped to off OR
+      // cooldown activated while this sig was queued.
+      if (getMode() === 'off') return null;
       if (bestEffort && Date.now() < cooldownUntil) return null;
       const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
       return _fetchRawTxRpc(sig, maxRetries);
@@ -216,6 +224,9 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
   });
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // Between retry attempts the mode may have flipped to off; bail before
+      // issuing another getTransaction.
+      if (getMode() === 'off') return null;
       // Per-attempt timeout — prevents hanging indefinitely on slow RPC nodes.
       const controller = new AbortController();
       const timerId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

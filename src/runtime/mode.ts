@@ -10,6 +10,7 @@
 
 import { startListener, stopListener } from '../ingestion/listener';
 import { startAmmPoller, stopAmmPoller } from '../ingestion/amm-poller';
+import { saleEventBus } from '../events/emitter';
 
 export type RuntimeMode = 'off' | 'full' | 'budget' | 'sales_only';
 
@@ -25,7 +26,17 @@ let current: RuntimeMode = 'off';
  *  start/stop and leave sockets in a half-open state. */
 let transition: Promise<void> = Promise.resolve();
 
+/** Monotonically increasing counter bumped on every mode change.
+ *  Long-running async pipelines (poller sweeps, limiter tasks, backlog
+ *  drainers) capture the generation at start and bail if the value has
+ *  advanced by the time they come back from an await. This is the hard
+ *  kill switch that prevents work queued under the previous mode from
+ *  continuing after OFF. */
+let generation = 0;
+
 export function getMode(): RuntimeMode { return current; }
+export function currentGeneration(): number { return generation; }
+export function isActive(): boolean { return current !== 'off'; }
 
 export function setMode(next: RuntimeMode): Promise<void> {
   transition = transition.then(() => applyTransition(next)).catch(err => {
@@ -34,10 +45,26 @@ export function setMode(next: RuntimeMode): Promise<void> {
   return transition;
 }
 
+/** Captures the timestamp of the first sale that lands after each mode
+ *  start, so we can log end-to-end startup latency. Armed on every
+ *  active-mode transition; disarmed once the first event fires. */
+let firstEventWaiter: ((event: { signature: string }) => void) | null = null;
+saleEventBus.onSale((ev) => {
+  if (firstEventWaiter) {
+    const fn = firstEventWaiter;
+    firstEventWaiter = null;
+    fn(ev);
+  }
+});
+
 async function applyTransition(next: RuntimeMode): Promise<void> {
   if (next === current) return;
   const prev = current;
-  console.log(`[runtime] mode ${prev} → ${next}`);
+  // Bump BEFORE any teardown so every in-flight task whose next
+  // `if (gen !== currentGeneration()) return` check runs after this point
+  // sees the new value and bails.
+  generation++;
+  console.log(`[runtime] mode ${prev} → ${next}  generation=${generation}`);
 
   if (next === 'off') {
     stopListener();
@@ -54,6 +81,15 @@ async function applyTransition(next: RuntimeMode): Promise<void> {
     stopAmmPoller();
   }
   current = next;
+  const startedAt = Date.now();
+  console.log(`[runtime] MODE STARTED mode=${next} ts=${new Date(startedAt).toISOString()}`);
+  firstEventWaiter = (ev) => {
+    const elapsed = Date.now() - startedAt;
+    console.log(
+      `[runtime] first event after start  mode=${next}  ` +
+      `elapsed=${elapsed}ms  ts=${new Date().toISOString()}  sig=${ev.signature}`
+    );
+  };
   startListener();
   startAmmPoller();
 }

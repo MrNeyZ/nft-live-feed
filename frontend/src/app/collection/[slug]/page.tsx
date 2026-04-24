@@ -29,7 +29,7 @@ import {
   type MetaPatch, type RawPatch,
 } from '@/soloist/feed-store';
 import {
-  CollectionIcon, ItemThumb, LiveDot, MktBadge, RankBadge, TopNav, TypeBadge,
+  CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TopNav, TypeBadge,
   compressImage,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
@@ -456,23 +456,14 @@ function StatItem({ value, label, highlight, title }: { value: React.ReactNode; 
 // ── FilterBtn / DropBtn (verbatim ports; non-functional placeholders) ──────
 function FilterBtn({ label }: { label: string }) {
   const [active, setActive] = useState(false);
-  return (
-    <button onClick={() => setActive(a => !a)} style={{
-      padding:'2px 6px', fontSize:10, borderRadius:3,
-      border:`1px solid ${active ? '#8068d866' : '#ffffff0d'}`,
-      background: active ? '#8068d818' : '#ffffff07',
-      color: active ? '#8068d8' : '#56566e',
-      cursor:'pointer', transition:'all 0.12s',
-    }}>{label}</button>
-  );
+  return <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm" />;
 }
 function DropBtn({ label }: { label: string }) {
   return (
-    <button style={{
-      display:'flex', alignItems:'center', gap:3, padding:'2px 5px', fontSize:10,
-      borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07',
-      color:'#56566e', cursor:'pointer',
-    }}>{label} <span style={{color:'#3a3a52'}}>▼</span></button>
+    <Pill
+      label={<>{label} <span style={{ color: '#3a3a52' }}>▼</span></>}
+      size="sm"
+    />
   );
 }
 
@@ -1448,17 +1439,14 @@ export default function CollectionPage() {
                *  + LiveDot + filters + sort only. */}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <button onClick={() => setFiltersOpen(o => !o)} title="Filters" style={{
-                display:'flex', alignItems:'center', gap:4,
-                padding:'2px 7px', fontSize:10, fontWeight:600,
-                borderRadius:4,
-                border: filtersOpen ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                background: filtersOpen ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.03)',
-                color: filtersOpen ? '#c4b3f0' : '#8f8fa8',
-                cursor:'pointer',
-              }}>
-                <span style={{ fontSize:11, lineHeight:1 }}>⚙</span> Filters
-              </button>
+              <Pill
+                active={filtersOpen}
+                onClick={() => setFiltersOpen(o => !o)}
+                title="Filters"
+                icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+                label="Filters"
+                size="sm"
+              />
               <span style={{ fontSize:10, color:'#3a3a52' }}>Sort:</span>
               <DropBtn label="listing date" />
             </div>
@@ -1567,17 +1555,14 @@ export default function CollectionPage() {
               })()}
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <button onClick={() => setTradeFiltersOpen(o => !o)} title="Filters" style={{
-                display:'flex', alignItems:'center', gap:4,
-                padding:'2px 7px', fontSize:10, fontWeight:600,
-                borderRadius:4,
-                border: tradeFiltersOpen ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                background: tradeFiltersOpen ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.03)',
-                color: tradeFiltersOpen ? '#c4b3f0' : '#8f8fa8',
-                cursor:'pointer',
-              }}>
-                <span style={{ fontSize:11, lineHeight:1 }}>⚙</span> Filters
-              </button>
+              <Pill
+                active={tradeFiltersOpen}
+                onClick={() => setTradeFiltersOpen(o => !o)}
+                title="Filters"
+                icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+                label="Filters"
+                size="sm"
+              />
               <span style={{ fontSize:10, color:'#3a3a52' }}>Sort:</span>
               <DropBtn label="trade date" />
             </div>

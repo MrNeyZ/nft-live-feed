@@ -1,0 +1,242 @@
+diff --git a/frontend/src/soloist/shared.tsx b/frontend/src/soloist/shared.tsx
+--- a/frontend/src/soloist/shared.tsx
++++ b/frontend/src/soloist/shared.tsx
+@@ -186,6 +186,53 @@ export function LiveDot({ color = '#4fb67d' }: { color?: string }) {
+   );
+ }
+ 
++// ── Shared Pill ─────────────────────────────────────────────────────────────
++//
++// Unified pill / filter-button / tab primitive. Replaces the near-identical
++// inline-styled buttons that were copy-pasted across Live Feed filters,
++// Dashboard filters / tabs / timeframe pills, and the Collection page's
++// FilterBtn. Purple is the default; callers pass a `color` for category-
++// tinted variants (Buys = green, Sells = red, ME = pink, etc.).
++//
++// The `size` prop picks one of two padding + font presets so the same
++// primitive covers the `3px 10px / fs 10-11` filter-pill geometry and the
++// tighter `2px 8px / fs 10` collection-filter geometry without a one-off
++// style. Radius is normalized to 4 across every call site.
++export function Pill({
++  active, onClick, color = '#a890e8', size = 'md', title, children,
++}: {
++  active: boolean;
++  onClick: () => void;
++  /** Hex (no alpha) — drives border + background tint + text color when active. */
++  color?: string;
++  /** `md` matches feed/dashboard filter pills; `sm` matches collection filter pills. */
++  size?: 'sm' | 'md';
++  title?: string;
++  children: React.ReactNode;
++}) {
++  const pad    = size === 'sm' ? '2px 8px' : '3px 10px';
++  const fs     = size === 'sm' ? 10        : 10;
++  const weight = 600;
++  return (
++    <button
++      onClick={onClick}
++      title={title}
++      style={{
++        padding: pad, fontSize: fs, fontWeight: weight, borderRadius: 4,
++        border: `1px solid ${active ? color + '66' : 'rgba(255,255,255,0.08)'}`,
++        background: active ? color + '22' : 'rgba(255,255,255,0.02)',
++        color: active ? color : '#8f8fa8',
++        cursor: 'pointer',
++        fontFamily: 'inherit',
++        letterSpacing: '0.3px',
++        transition: 'all 0.12s',
++      }}>
++      {children}
++    </button>
++  );
++}
++
+ export function RankBadge({ rank }: { rank: number }) {
+   return (
+     <span style={{
+diff --git a/frontend/src/app/page.tsx b/frontend/src/app/page.tsx
+--- a/frontend/src/app/page.tsx
++++ b/frontend/src/app/page.tsx
+@@ -10,7 +10,7 @@
+ } from '@/soloist/mock-data';
+ import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
+ import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
+-import { ItemThumb, LiveDot, MktIconBadge, TopNav, compressImage } from '@/soloist/shared';
++import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage } from '@/soloist/shared';
+ import {
+   feedReducer, initFeedState, orderedEvents,
+   type FeedAction,
+@@ -441,13 +441,7 @@ export default function FeedPage() {
+                   <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                     <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Type:</span>
+                     {FILTERS.map(f => (
+-                      <button key={f.key} onClick={() => setFilter(f.key)} style={{
+-                        padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+-                        border: `1px solid ${filter === f.key ? f.color + '66' : '#ffffff0d'}`,
+-                        background: filter === f.key ? f.color + '22' : 'rgba(255,255,255,0.02)',
+-                        color: filter === f.key ? f.color : '#8f8fa8',
+-                        cursor: 'pointer',
+-                      }}>{f.label}</button>
++                      <Pill key={f.key} active={filter === f.key} color={f.color} onClick={() => setFilter(f.key)}>{f.label}</Pill>
+                     ))}
+                   </div>
+                   <div style={{ display: 'flex', gap: 3, alignItems: 'center', flexWrap: 'wrap' }}>
+@@ -455,16 +449,13 @@ export default function FeedPage() {
+                     {COLLECTIONS_DB.slice(0, 8).map(c => (
+-                      <button
++                      <Pill
+                         key={c.name}
++                        active={collFilter === c.name}
++                        color={c.color}
++                        size="sm"
+                         onClick={() => setCollFilter(collFilter === c.name ? null : c.name)}
+-                        style={{
+-                          padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+-                          border: `1px solid ${collFilter === c.name ? c.color + '66' : '#ffffff0d'}`,
+-                          background: collFilter === c.name ? c.color + '22' : 'rgba(255,255,255,0.02)',
+-                          color: collFilter === c.name ? c.color : '#8f8fa8',
+-                          cursor: 'pointer',
+-                        }}>{c.abbr}</button>
++                      >{c.abbr}</Pill>
+                     ))}
+                     {collFilter && (
+                       <button onClick={() => setCollFilter(null)} style={{
+diff --git a/frontend/src/app/dashboard/page.tsx b/frontend/src/app/dashboard/page.tsx
+--- a/frontend/src/app/dashboard/page.tsx
++++ b/frontend/src/app/dashboard/page.tsx
+@@ -13,7 +13,7 @@
+ import type { FeedEvent } from '@/soloist/mock-data';
+ import { fromBackend, fromRow } from '@/soloist/from-backend';
+ import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
+-import { CollectionIcon, LiveDot, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
++import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
+ import { useCollectionIcons } from '@/soloist/collection-icons';
+ import { isCnftDust } from '@/soloist/cnft-filter';
+ 
+@@ -288,15 +288,7 @@ function ChartMini({ data, color }: { data: number[]; color: string }) {
+ 
+ function FilterPill({ label }: { label: string }) {
+   const [active, setActive] = useState(false);
+-  return (
+-    <button onClick={() => setActive(a => !a)} style={{
+-      padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+-      border: active ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.06)',
+-      background: active ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.02)',
+-      color: active ? '#c4b3f0' : '#8f8fa8',
+-      cursor: 'pointer',
+-    }}>{label}</button>
+-  );
++  return <Pill active={active} onClick={() => setActive(a => !a)}>{label}</Pill>;
+ }
+ 
+ // ── Timeframe pills ──────────────────────────────────────────────────────────
+@@ -305,15 +297,7 @@ function TimeframePills({ active, onChange }: { active: Timeframe; onChange: (t:
+   return (
+     <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+       {TIMEFRAMES.map(t => (
+-        <button key={t} onClick={() => onChange(t)} style={{
+-          padding: '3px 9px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+-          border: active === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
+-          background: active === t ? 'rgba(168,144,232,0.22)' : 'transparent',
+-          color: active === t ? '#c4b3f0' : '#9090a8',
+-          cursor: 'pointer', letterSpacing: '0.3px',
+-          boxShadow: active === t ? '0 0 10px rgba(128,104,216,0.28)' : 'none',
+-          transition: 'all 0.12s',
+-        }}>{t}</button>
++        <Pill key={t} active={active === t} onClick={() => onChange(t)}>{t}</Pill>
+       ))}
+     </div>
+   );
+@@ -919,16 +903,7 @@ export default function Dashboard() {
+         }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+             {(['active', 'recent'] as const).map(t => (
+-              <button key={t} onClick={() => setTab(t)} style={{
+-                padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+-                background: tab === t ? 'rgba(168,144,232,0.18)' : 'transparent',
+-                border: tab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',
+-                color: tab === t ? '#c4b3f0' : '#56566e',
+-                cursor: 'pointer', textTransform: 'uppercase', borderRadius: 4,
+-                transition: 'all 0.12s',
+-              }}>
+-                {t}
+-              </button>
++              <Pill key={t} active={tab === t} onClick={() => setTab(t)}>{t.toUpperCase()}</Pill>
+             ))}
+             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
+             <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
+@@ -962,13 +937,7 @@ export default function Dashboard() {
+                 { k: 'me',     l: 'Magic Eden', c: '#e87ab0' },
+                 { k: 'tensor', l: 'Tensor',     c: '#a890e8' },
+               ] as const).map(f => (
+-                <button key={f.k} onClick={() => setMkt(f.k)} style={{
+-                  padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+-                  border: `1px solid ${mkt === f.k ? f.c + '66' : '#ffffff0d'}`,
+-                  background: mkt === f.k ? f.c + '22' : 'rgba(255,255,255,0.02)',
+-                  color: mkt === f.k ? f.c : '#8f8fa8',
+-                  cursor: 'pointer',
+-                }}>{f.l}</button>
++                <Pill key={f.k} active={mkt === f.k} color={f.c} onClick={() => setMkt(f.k)}>{f.l}</Pill>
+               ))}
+               <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
+               <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Min volume:</span>
+diff --git a/frontend/src/app/collection/[slug]/page.tsx b/frontend/src/app/collection/[slug]/page.tsx
+--- a/frontend/src/app/collection/[slug]/page.tsx
++++ b/frontend/src/app/collection/[slug]/page.tsx
+@@ -29,7 +29,7 @@
+   formatSol, shortWallet, timeAgo, rndFloat,
+ } from '@/soloist/mock-data';
+ import {
+-  CollectionIcon, ItemThumb, LiveDot, MktBadge, RankBadge, TopNav, TypeBadge,
++  CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TopNav, TypeBadge,
+   compressImage,
+ } from '@/soloist/shared';
+ import { useCollectionIcons } from '@/soloist/collection-icons';
+@@ -456,15 +456,7 @@ function TradeRowItem({ ... }) {
+ // ── FilterBtn / DropBtn (verbatim ports; non-functional placeholders) ──────
+ function FilterBtn({ label }: { label: string }) {
+   const [active, setActive] = useState(false);
+-  return (
+-    <button onClick={() => setActive(a => !a)} style={{
+-      padding:'2px 6px', fontSize:10, borderRadius:3,
+-      border:`1px solid ${active ? '#8068d866' : '#ffffff0d'}`,
+-      background: active ? '#8068d818' : '#ffffff07',
+-      color: active ? '#8068d8' : '#56566e',
+-      cursor:'pointer', transition:'all 0.12s',
+-    }}>{label}</button>
+-  );
++  return <Pill active={active} size="sm" onClick={() => setActive(a => !a)}>{label}</Pill>;
+ }
+ function DropBtn({ label }: { label: string }) {
+   return (
+diff --git a/frontend/src/runtime/Gate.tsx b/frontend/src/runtime/Gate.tsx
+--- a/frontend/src/runtime/Gate.tsx
++++ b/frontend/src/runtime/Gate.tsx
+@@ -220,9 +220,9 @@ const inputStyle: CSSProperties = {
+ function primaryBtn(disabled: boolean): CSSProperties {
+   return {
+     padding: '9px 12px', fontSize: 12, fontWeight: 600, letterSpacing: '1px',
+-    color: disabled ? '#55556e' : '#0c0a1a',
+-    background: disabled ? 'rgba(128,104,216,0.15)' : '#a890e8',
+-    border: '1px solid rgba(168,144,232,0.4)',
++    color: disabled ? '#55556e' : '#c4b3f0',
++    background: disabled ? 'rgba(168,144,232,0.06)' : 'rgba(168,144,232,0.18)',
++    border: `1px solid ${disabled ? 'rgba(168,144,232,0.2)' : 'rgba(168,144,232,0.45)'}`,
+     borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
+   };
+ }
+@@ -230,11 +230,11 @@ function primaryBtn(disabled: boolean): CSSProperties {
+ function modeBtn(active: boolean, dimmed: boolean): CSSProperties {
+   return {
+     padding: '11px 14px', fontSize: 12, fontWeight: 600, letterSpacing: '1px',
+-    color: active ? '#0c0a1a' : '#d4d4e8',
++    color: active ? '#c4b3f0' : '#d4d4e8',
+     background: active
+-      ? '#a890e8'
++      ? 'rgba(168,144,232,0.18)'
+       : 'linear-gradient(180deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.04) 100%)',
+-    border: '1px solid rgba(168,144,232,0.28)',
++    border: `1px solid ${active ? 'rgba(168,144,232,0.45)' : 'rgba(168,144,232,0.28)'}`,
+     borderRadius: 6,
+     cursor: dimmed ? 'not-allowed' : 'pointer',
+     opacity: dimmed ? 0.5 : 1,

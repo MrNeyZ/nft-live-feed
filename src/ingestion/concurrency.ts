@@ -57,14 +57,25 @@ export class Limiter {
    * @param staleLowMs  When >0, low-priority tasks whose queue wait exceeds
    *                    this are resolved with `null` at dispatch time instead
    *                    of running. Default 0 (no stale drop).
+   * @param gate        Optional predicate checked immediately before each task
+   *                    executes. If it returns false the task is resolved with
+   *                    `null` without running `fn` — the hard kill switch used
+   *                    by the runtime-mode layer to stop ingestion instantly
+   *                    on OFF. Queued tasks are also drained through the gate
+   *                    when the limiter is notified via `abortQueued()`.
    */
   constructor(
     readonly max: number,
     private readonly delayMs = 0,
     private readonly staleLowMs = 0,
+    private readonly gate: (() => boolean) | null = null,
   ) {}
 
   run<T>(fn: () => Promise<T>, priority: Priority = 'medium'): Promise<T | null> {
+    if (this.gate && !this.gate()) {
+      // Admission-time bail: no slot consumed, no work scheduled.
+      return Promise.resolve(null);
+    }
     if (this.running < this.max) {
       return this.exec(fn);
     }
@@ -76,6 +87,19 @@ export class Limiter {
         enqueuedAt: Date.now(),
       });
     });
+  }
+
+  /** Drop every queued task by resolving it with `null`. Used by ingestion
+   *  teardown to guarantee that work queued while a mode was active does not
+   *  execute after OFF. In-flight tasks are not interrupted but the exec()
+   *  fast-path re-checks the gate between ticks. */
+  abortQueued(): number {
+    let n = 0;
+    for (const p of PRIORITY_ORDER) {
+      const q = this.queues[p];
+      while (q.length > 0) { q.shift()!.resolve(null); n++; }
+    }
+    return n;
   }
 
   /** Combined queue depth across all priorities. */
@@ -92,9 +116,13 @@ export class Limiter {
     };
   }
 
-  private async exec<T>(fn: () => Promise<T>): Promise<T> {
+  private async exec<T>(fn: () => Promise<T>): Promise<T | null> {
     this.running++;
     try {
+      // Last-moment check: something queued under the previous mode might
+      // have bubbled up to the slot after the mode flipped. Resolve null
+      // instead of burning a `getTransaction`.
+      if (this.gate && !this.gate()) return null;
       return await fn();
     } finally {
       if (this.delayMs > 0) await sleep(this.delayMs);

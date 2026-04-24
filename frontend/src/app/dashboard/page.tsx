@@ -13,7 +13,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { CollectionIcon, LiveDot, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
+import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { isCnftDust } from '@/soloist/cnft-filter';
 
@@ -288,15 +288,7 @@ function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; 
 
 function FilterPill({ label }: { label: string }) {
   const [active, setActive] = useState(false);
-  return (
-    <button onClick={() => setActive(a => !a)} style={{
-      padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-      border: active ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.06)',
-      background: active ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.02)',
-      color: active ? '#c4b3f0' : '#8f8fa8',
-      cursor: 'pointer',
-    }}>{label}</button>
-  );
+  return <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm" />;
 }
 
 // ── Timeframe pills ──────────────────────────────────────────────────────────
@@ -305,15 +297,15 @@ function TimeframePills({ active, onChange }: { active: Timeframe; onChange: (t:
   return (
     <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
       {TIMEFRAMES.map(t => (
-        <button key={t} onClick={() => onChange(t)} style={{
-          padding: '3px 9px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-          border: active === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
-          background: active === t ? 'rgba(168,144,232,0.22)' : 'transparent',
-          color: active === t ? '#c4b3f0' : '#9090a8',
-          cursor: 'pointer', letterSpacing: '0.3px',
-          boxShadow: active === t ? '0 0 10px rgba(128,104,216,0.28)' : 'none',
-          transition: 'all 0.12s',
-        }}>{t}</button>
+        <Pill
+          key={t}
+          active={active === t}
+          onClick={() => onChange(t)}
+          label={t}
+          size="sm"
+          style={{ border: active === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
+                   background: active === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
+        />
       ))}
     </div>
   );
@@ -918,14 +910,16 @@ export default function Dashboard() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             {(['active', 'recent'] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)} style={{
-                padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
-                background: tab === t ? 'rgba(168,144,232,0.18)' : 'transparent',
-                border: tab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',
-                color: tab === t ? '#c4b3f0' : '#56566e',
-                cursor: 'pointer', textTransform: 'uppercase', borderRadius: 4,
-                transition: 'all 0.12s',
-              }}>{t}</button>
+              <Pill
+                key={t}
+                active={tab === t}
+                onClick={() => setTab(t)}
+                label={t}
+                style={{ padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+                         textTransform: 'uppercase',
+                         border: tab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',
+                         background: tab === t ? 'rgba(168,144,232,0.18)' : 'transparent' }}
+              />
             ))}
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
             <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
@@ -934,19 +928,14 @@ export default function Dashboard() {
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
+            <Pill
+              active={filtersOpen}
               onClick={() => setFiltersOpen(o => !o)}
               title="Filters"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '2px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-                border: filtersOpen ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                background: filtersOpen ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.03)',
-                color: filtersOpen ? '#c4b3f0' : '#8f8fa8',
-                cursor: 'pointer',
-              }}>
-              <span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span> Filters
-            </button>
+              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+              label="Filters"
+              size="sm"
+            />
             <span style={{ fontSize: 10, color: '#3a3a52' }}>Timeframe:</span>
             <TimeframePills active={tf} onChange={handleTfChange} />
           </div>
@@ -962,13 +951,14 @@ export default function Dashboard() {
                 { k: 'me',     l: 'Magic Eden', c: '#e87ab0' },
                 { k: 'tensor', l: 'Tensor',     c: '#a890e8' },
               ] as const).map(f => (
-                <button key={f.k} onClick={() => setMkt(f.k)} style={{
-                  padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-                  border: `1px solid ${mkt === f.k ? f.c + '66' : '#ffffff0d'}`,
-                  background: mkt === f.k ? f.c + '22' : 'rgba(255,255,255,0.02)',
-                  color: mkt === f.k ? f.c : '#8f8fa8',
-                  cursor: 'pointer',
-                }}>{f.l}</button>
+                <Pill
+                  key={f.k}
+                  active={mkt === f.k}
+                  color={f.c}
+                  onClick={() => setMkt(f.k)}
+                  label={f.l}
+                  size="sm"
+                />
               ))}
               <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
               <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Min volume:</span>

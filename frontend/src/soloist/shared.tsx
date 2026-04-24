@@ -10,6 +10,7 @@ import {
 import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
 import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
+import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 
 // Route http(s) image URLs through the wsrv.nl public proxy so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -179,6 +180,60 @@ export function CollectionCircle({ color, abbr, size = 40 }: { color: string; ab
   );
 }
 
+/**
+ * Unified Pill primitive for filter/tab/timeframe buttons.
+ *
+ * Centralises the repeated inline `{ padding, fontSize, fontWeight,
+ * borderRadius, border, background, color, cursor }` block used across
+ * the Dashboard, Live Feed, Collection page, and runtime Gate. One look,
+ * two visual states (active/idle), optional color override for semantic
+ * tints (e.g. green "buys", red "sells"), optional leading icon.
+ *
+ * Does NOT own business logic — callers still supply `active` and `onClick`.
+ * `color` defaults to the app's brand purple; pass a hex to keep the
+ * row/button coherent with its semantic accent.
+ */
+export function Pill({
+  label, active = false, color = '#a890e8',
+  onClick, icon, title, disabled = false, size = 'md', style,
+}: {
+  label:    React.ReactNode;
+  active?:  boolean;
+  color?:   string;      // base hex for the active-tint palette
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  icon?:    React.ReactNode;
+  title?:   string;
+  disabled?: boolean;
+  size?:    'sm' | 'md';
+  style?:   React.CSSProperties;
+}) {
+  const pad      = size === 'sm' ? '2px 8px' : '3px 10px';
+  const fontSize = size === 'sm' ? 10 : 10.5;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: pad, fontSize, fontWeight: 600, borderRadius: 4,
+        letterSpacing: '0.3px',
+        border:     active ? `1px solid ${color}66` : '1px solid rgba(255,255,255,0.08)',
+        background: active ? `${color}22`           : 'rgba(255,255,255,0.03)',
+        color:      active ? color                  : '#8f8fa8',
+        cursor:     disabled ? 'not-allowed' : 'pointer',
+        opacity:    disabled ? 0.55 : 1,
+        transition: 'all 0.12s',
+        ...style,
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 export function LiveDot({ color = '#4fb67d' }: { color?: string }) {
   return (
     <span style={{
@@ -334,6 +389,18 @@ export function TopNav({ active }: { active: Page }) {
     const id = setInterval(load, 20 * 60_000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  // Frontend-tab liveness ping. Only main app pages render TopNav, so mounting
+  // the heartbeat here gives it exactly the scope the backend expects —
+  // Dashboard / Live Feed / Collection page, never /access. If every tab
+  // closes, the backend's idle watcher flips runtime mode to `off` and stops
+  // burning Helius credits on its own.
+  useEffect(() => {
+    sendHeartbeat();
+    const id = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    return () => { clearInterval(id); };
+  }, []);
+
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -345,7 +412,7 @@ export function TopNav({ active }: { active: Page }) {
   const pages: { key: Page; label: string; href: string }[] = [
     { key: 'dashboard',  label: 'DASHBOARD',  href: '/dashboard' },
     { key: 'collection', label: 'COLLECTION', href: '/dashboard' },
-    { key: 'feed',       label: 'LIVE FEED',  href: '/' },
+    { key: 'feed',       label: 'LIVE FEED',  href: '/feed' },
   ];
 
   // Build a real (name → slug) index from recent sales so search results
@@ -488,27 +555,20 @@ export function TopNav({ active }: { active: Page }) {
           tab's text baseline — fixes the "floating" offset that `center`
           alignment produced because the serif/cursive logo has more ascender
           headroom than the sans nav tabs. */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
         <a href="/dashboard" style={{
-          display: 'flex', alignItems: 'baseline', gap: 5, textDecoration: 'none',
-          filter: 'drop-shadow(0 0 14px rgba(168,144,232,0.35))',
-          // Nudged slightly leftward from the math-center (was 14) for a
-          // more natural visual weight at the start of the header.
+          display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6,
         }}>
-          <span style={{
-            fontFamily: "'Playfair Display',Georgia,serif", fontWeight: 700,
-            fontSize: 21, letterSpacing: '-0.3px',
-            color: '#a890e8', lineHeight: 1,
-            textShadow: '0 0 18px rgba(168,144,232,0.18)',
-          }}>Victory</span>
-          <span style={{
-            fontFamily: "'Dancing Script','Brush Script MT',cursive", fontWeight: 700,
-            fontSize: 19, letterSpacing: '0px',
-            color: '#f0eef8', fontStyle: 'italic', lineHeight: 1,
-            transform: 'translateY(1px)',
-            textShadow: '0 0 14px rgba(168,144,232,0.15)',
-          }}>Labs</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/victorylabs.png"
+            alt="VictoryLabs"
+            width={125}
+            height={38}
+            draggable={false}
+            style={{ display: 'block' }}
+          />
         </a>
         <div style={{ display: 'flex', gap: 2 }}>
           {pages.map(p => (

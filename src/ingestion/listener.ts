@@ -19,7 +19,7 @@ import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
-import { getMode } from '../runtime/mode';
+import { getMode, currentGeneration } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -66,8 +66,11 @@ const TARGETS: Target[] = [
 // before starting — at 20 queued sigs × 2s each = 40s queue delay.
 // Raising to 8 concurrent with no inter-call delay drains the queue in parallel.
 // 8 concurrent getTransaction calls is well within Helius paid-plan limits.
-const limiter       = new Limiter(4, 25);  // listener path — 4 concurrent, 25ms gap
-const pollerLimiter = new Limiter(4, 25);  // poller path   — same budget
+// Gate: both limiters short-circuit the moment runtime mode flips to off,
+// so queued ingest tasks from the last active window don't fire a second
+// `getTransaction` after the stop.
+const limiter       = new Limiter(4, 25, 0, () => getMode() !== 'off');  // listener path — 4 concurrent, 25ms gap
+const pollerLimiter = new Limiter(4, 25, 0, () => getMode() !== 'off');  // poller path   — same budget
 
 // ─── Seen-signature dedup (shared by listener + poller) ──────────────────────
 
@@ -510,6 +513,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
   });
 
   ws.on('message', (raw: WebSocket.RawData) => {
+    // Ignore every notification after stop — we may still hold a reference
+    // to the socket until terminate() finishes flushing.
+    if (!running || getMode() === 'off') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -764,11 +770,15 @@ function logPollSummary(): void {
 }
 
 async function pollTarget(target: Target): Promise<void> {
+  if (!running || getMode() === 'off') return;
+  const gen = currentGeneration();
   // Retry once on network/HTTP failure.
   let res: Response | null = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
     if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 600));
+    if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
     try {
       incSigListFetch();
       const r = await fetch(rpcHttpUrl(), {
@@ -792,11 +802,13 @@ async function pollTarget(target: Target): Promise<void> {
   }
 
   if (!res) return;
+  if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
 
   const json = await res.json() as {
     result?: Array<{ signature: string; err: unknown; blockTime?: number | null }>;
   };
 
+  if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
   const rows = json.result;
   if (!Array.isArray(rows)) return;
 
@@ -985,7 +997,12 @@ export function startListener(): void {
 export function stopListener(): void {
   if (!running) return;
   running = false;
-  console.log('[listener] stopping');
+  // Drop every queued ingest on both listener-scoped limiters so the
+  // rpcLimiter downstream never sees them. In-flight calls will re-check
+  // `getMode() === 'off'` on their next await and bail.
+  const dListener = limiter.abortQueued();
+  const dPoller   = pollerLimiter.abortQueued();
+  console.log(`[listener] stopping  dropped_listener=${dListener}  dropped_poller=${dPoller}`);
 
   // Tear down program sockets.
   for (const [, ws] of activeSockets) {

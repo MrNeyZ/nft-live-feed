@@ -15,13 +15,14 @@
  * the same sig across successive polls (the Helius `until=cursor` window is
  * exclusive, but we keep it as a belt-and-suspenders guard for log fidelity).
  */
-import { ingestMeRaw } from './me-raw/ingest';
+import { ingestMeRaw, rpcLimiterAbortQueued } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { getLastSig, setLastSig } from '../db/poller-state';
 import { trace } from '../trace';
 import { Priority } from './concurrency';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { incSigListFetch } from './telemetry';
+import { getMode, currentGeneration } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -44,13 +45,10 @@ const TARGETS: PollTarget[] = [
   { name: 'poll:tamm',  program: 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg', ingest: ingestTensorRaw },
 ];
 
-// 30 s (was 2.5 s) — `listener.pollAll` already sweeps the same 4 programs at
-// 1.5 s with limit=100 and `sigSeen/inFlight` collapses any duplicate discovery
-// onto a single `getTransaction`. This poller's only remaining job is the
-// pages-2+ catch-up when a sweep is saturated — useful occasionally, not
-// every 2.5 s. 12× rate reduction, zero Live-Feed latency change. Credit
-// saving: ~5 300 `getSignaturesForAddress`/hr across the 4 programs.
-const INTERVAL_MS = 30_000;
+// Tightened back to 2.5 s so that right after a mode switch there is at
+// most a ~2.5 s wait before the first catch-up sweep lands. `startAmmPoller`
+// also fires an immediate `tick()` so the very first sweep runs at t≈0.
+const INTERVAL_MS = 2_500;
 const PAGE_SIZE   = 20;
 /** Hard ceiling on catch-up pages per sweep — protects against runaway loops. */
 const MAX_PAGES_PER_SWEEP = 75; // up to 1500 sigs per sweep during bursts
@@ -124,14 +122,18 @@ async function fetchPage(
  * On first run (`until === null`) we take a single page so startup doesn't
  * walk arbitrarily deep into history.
  */
-async function fetchSinceCursor(program: string, until: string | null): Promise<SigInfo[]> {
+async function fetchSinceCursor(program: string, until: string | null, gen: number): Promise<SigInfo[]> {
   // First run: one page, no pagination — treat "now" as the starting point.
   if (!until) return fetchPage(program, null, null);
 
   const all: SigInfo[] = [];
   let before: string | null = null;
   for (let i = 0; i < MAX_PAGES_PER_SWEEP; i++) {
+    // Bail between pages if mode flipped or this sweep belongs to a prior
+    // generation — prevents a deep burst from continuing to page after OFF.
+    if (getMode() === 'off' || gen !== currentGeneration()) break;
     const page = await fetchPage(program, until, before);
+    if (getMode() === 'off' || gen !== currentGeneration()) break;
     if (page.length === 0) break;
     all.push(...page);
     // Short page means we reached the `until` boundary — no gap possible.
@@ -162,9 +164,15 @@ const BACKLOG_GAP_MS = 120;
 function kickBacklogDrain(): void {
   if (backlogDraining) return;
   backlogDraining = true;
+  const startGen = currentGeneration();
   (async () => {
     try {
       while (backlog.length > 0) {
+        // HARD STOP. This loop is the primary source of continuous
+        // `getTransaction` traffic after OFF — one ingest call every
+        // BACKLOG_GAP_MS, for however many sigs were banked from the last
+        // pre-OFF sweep (1500 max). Bail on mode flip or generation bump.
+        if (getMode() === 'off' || startGen !== currentGeneration()) break;
         const item = backlog.shift()!;
         try {
           // S4: deep catch-up sigs are low-priority. If the shared rpcLimiter
@@ -175,6 +183,7 @@ function kickBacklogDrain(): void {
         } catch (err: unknown) {
           console.error(`[${item.target}] backlog ingest error  sig=${item.sig.slice(0, 12)}...`, err);
         }
+        if (getMode() === 'off' || startGen !== currentGeneration()) break;
         await new Promise((r) => setTimeout(r, BACKLOG_GAP_MS));
       }
     } finally {
@@ -185,11 +194,15 @@ function kickBacklogDrain(): void {
 
 async function sweepTarget(target: PollTarget): Promise<void> {
   if (sweepInFlight.get(target.name)) return;
+  if (getMode() === 'off') return;
+  const gen = currentGeneration();
   sweepInFlight.set(target.name, true);
 
   try {
     const lastSig = await getLastSig(target.name);
-    const page    = await fetchSinceCursor(target.program, lastSig);
+    if (getMode() === 'off' || gen !== currentGeneration()) return;
+    const page    = await fetchSinceCursor(target.program, lastSig, gen);
+    if (getMode() === 'off' || gen !== currentGeneration()) return;
     const fetched = page.length;
     if (fetched === 0) {
       console.log(`[${target.name}] fetched=0`);
@@ -244,9 +257,10 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 
 function tick(): void {
+  if (getMode() === 'off') return;
   // Fire all targets in parallel — each has its own re-entrancy guard, so
   // overlap between ticks for the same target is prevented without blocking
-  // other targets. Total steady-state rate: 4 getSignaturesForAddress / 30s.
+  // other targets.
   for (const t of TARGETS) {
     sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
   }
@@ -267,16 +281,34 @@ export function startAmmPoller(): void {
     `[poller] starting  targets=${TARGETS.map(t => t.name).join(',')}` +
     `  interval=${INTERVAL_MS / 1000}s  page=${PAGE_SIZE}`
   );
+  // Fire the first sweep immediately so startup latency is bounded by the
+  // RPC round-trip, not by `INTERVAL_MS`.
+  tick();
   tickHandle = setInterval(tick, INTERVAL_MS);
   tickHandle.unref();
 }
 
-/** Stop the AMM gap-healer. Idempotent. In-flight `tick()` call (if any)
- *  completes normally — each sweep is guarded by `sweepInFlight` so a late
- *  completion after stop is harmless. */
+/** Stop the AMM gap-healer. Idempotent.
+ *
+ *  Hard kill: clear the interval, drop every sig still waiting in the
+ *  backlog queue, reset the per-target re-entrancy guards, and also
+ *  dump every task currently queued in the shared rpcLimiter. In-flight
+ *  awaits re-check `getMode() === 'off'` on return and bail before
+ *  issuing another RPC. Combined with the generation-token check in
+ *  every async boundary, this drops ingestion to 0 req/sec within the
+ *  round-trip of whatever is currently mid-fetch. */
 export function stopAmmPoller(): void {
-  if (!tickHandle) return;
-  clearInterval(tickHandle);
-  tickHandle = null;
-  console.log('[poller] stopped');
+  if (tickHandle) {
+    clearInterval(tickHandle);
+    tickHandle = null;
+  }
+  const droppedBacklog  = backlog.length;
+  backlog.length = 0;
+  const droppedLimiter = rpcLimiterAbortQueued();
+  sweepInFlight.clear();
+  localSeen.clear();
+  localSeenQueue.length = 0;
+  console.log(
+    `[poller] stopped  backlog_dropped=${droppedBacklog}  rpcLimiter_dropped=${droppedLimiter}`
+  );
 }

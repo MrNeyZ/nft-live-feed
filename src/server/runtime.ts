@@ -18,6 +18,39 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getMode, setMode, isRuntimeMode } from '../runtime/mode';
 
+// ── Idle auto-off ──────────────────────────────────────────────────────────
+// If no frontend tab has checked in for IDLE_TIMEOUT_MS and a non-`off` mode
+// is active, force the mode back to `off` so Helius credits stop burning when
+// nobody's actually watching. The frontend posts a heartbeat from its main
+// app pages (Dashboard / Feed / Collection) — never from /access.
+//
+// `lastSeenAt` is initialized lazily the first time a mode goes active. That
+// avoids a cold-boot race where the watcher would auto-off mode before the
+// first heartbeat could land.
+
+const IDLE_TIMEOUT_MS = 90_000;
+const WATCHER_TICK_MS = 10_000;
+
+let lastSeenAt: number | null = null;
+let watcherTimer: NodeJS.Timeout | null = null;
+
+function markFrontendSeen(): void {
+  lastSeenAt = Date.now();
+  ensureWatcher();
+}
+
+function ensureWatcher(): void {
+  if (watcherTimer) return;
+  watcherTimer = setInterval(() => {
+    if (getMode() === 'off') return;
+    if (lastSeenAt == null) return;
+    if (Date.now() - lastSeenAt <= IDLE_TIMEOUT_MS) return;
+    console.log(`[runtime] idle auto-off: no frontend heartbeat for ${IDLE_TIMEOUT_MS}ms`);
+    void setMode('off');
+  }, WATCHER_TICK_MS);
+  if (typeof watcherTimer.unref === 'function') watcherTimer.unref();
+}
+
 /** Resolve the shared-secret password from env. No default: an unset env
  *  var must FAIL login rather than silently accept some fallback. The
  *  login handler short-circuits to 401 when this returns null. */
@@ -101,6 +134,18 @@ export function createRuntimeRouter(): Router {
       return;
     }
     await setMode(requested);
+    // When the operator manually turns the pipeline active, give the frontend
+    // a grace window so the idle watcher can't fire before the first tab
+    // heartbeat arrives.
+    if (requested !== 'off') markFrontendSeen();
+    res.json({ ok: true, mode: getMode() });
+  });
+
+  // Frontend liveness ping. Main app pages (TopNav-bearing routes) post here
+  // on a short interval; /access is intentionally excluded. Auth-gated so an
+  // unauthenticated visitor can't keep the pipeline alive.
+  router.post('/runtime/heartbeat', requireAuth, (_req: Request, res: Response) => {
+    markFrontendSeen();
     res.json({ ok: true, mode: getMode() });
   });
 

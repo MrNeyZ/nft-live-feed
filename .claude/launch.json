@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "-p", "3002"],
+      "port": 3002,
+      "cwd": "frontend"
+    }
+  ]
+}
