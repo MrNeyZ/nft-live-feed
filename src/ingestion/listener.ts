@@ -771,11 +771,14 @@ function logPollSummary(): void {
 }
 
 // Same logic as amm-poller: in the lean modes (`sales_only` and `budget`)
-// we poll only the programs that carry standalone sale activity the
-// prefilter keeps. MMM and TAMM are AMM-pool programs whose non-sale
-// pool-admin txs are shed downstream anyway; double-polling them from
-// both subsystems doubles sigList spend.
-const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'tcomp']);
+// we poll only the programs that carry sale activity the prefilter keeps.
+// MMM IS included — its sale instructions (`SolMplCoreFulfillBuy`, etc.)
+// are not on the lean prefilter deny-list, and skipping MMM polling here
+// leaves the WS as the only coverage path for fresh MMM sale sigs.
+// TAMM remains excluded: its non-sale pool-admin txs are shed by the
+// tensor listener prefilter, and tcomp's listener-pollAll plus the WS
+// reconnect catch-up cover the rare TAMM sale.
+const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm', 'tcomp']);
 
 async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off') return;

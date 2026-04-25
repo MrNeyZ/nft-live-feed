@@ -380,14 +380,16 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 
-// In the lean modes (`sales_only` and `budget`) the MMM and TAMM AMM-pool
-// programs are deliberately NOT polled here: the listener's own pollAll
-// already sweeps the same four programs on a WS-health-gated cadence, and
-// the lean prefilter deny-list sheds MMM pool-admin / liquidity txs
-// before fetchRawTx anyway. Polling them from two subsystems doubles the
-// getSignaturesForAddress spend for zero added sale coverage. Full mode
-// keeps the behaviour unchanged — pool / reprice latency matters there.
-const LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:tcomp']);
+// In the lean modes (`sales_only` and `budget`) the TAMM AMM-pool program
+// is deliberately NOT polled here: the listener's own pollAll already
+// sweeps it, and tensor's listener prefilter sheds non-sale txs before
+// fetchRawTx anyway. MMM is INCLUDED — its sale-side instructions
+// (`SolMplCoreFulfillBuy`, `solFulfillBuy`, etc.) are NOT in the
+// `MMM_SALES_ONLY_SKIP_LOG_NAMES` deny-list and we must keep them
+// covered by both subsystems; without amm-poller as a safety net,
+// transient WS stalls mean MMM sale sigs go missing in lean modes.
+// Full mode keeps the behaviour unchanged.
+const LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:mmm', 'poll:tcomp']);
 function isLeanMode(mode: ReturnType<typeof getMode>): boolean {
   return mode === 'sales_only' || mode === 'budget';
 }
