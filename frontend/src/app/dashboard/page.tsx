@@ -914,10 +914,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Promoted table card */}
+      {/* Promoted table card. In embed mode the maxWidth cap is removed
+          so the card fills the iframe symmetrically (no auto-margin
+          gutters that the iframe scrollbar would make look uneven). */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-        width: '100%', maxWidth: 1000, margin: '0 auto',
+        width: '100%',
+        maxWidth: embedded ? 'none' : 1000,
+        margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,

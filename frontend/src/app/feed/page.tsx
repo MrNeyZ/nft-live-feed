@@ -577,7 +577,7 @@ export default function FeedPage() {
 
       {/* Centered column stage */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
-        <div style={{ width: '100%', maxWidth: 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0, transition: 'max-width 0.28s ease' }}>
+        <div style={{ width: '100%', maxWidth: embedded ? 'none' : 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0, transition: 'max-width 0.28s ease' }}>
 
           {/* Promoted feed card */}
           <div style={{
