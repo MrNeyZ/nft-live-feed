@@ -7,7 +7,6 @@
 // event stream where possible, with a deterministic fallback for bid imbalance.
 
 import { useEffect, useMemo, useState, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
 import {
   COLLECTIONS_DB, Collection, FeedEvent,
   formatSol, timeAgo,
@@ -498,7 +497,14 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
 // ── Dashboard Page ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const embedded = useSearchParams()?.get('embed') === '1';
+  // Read query directly off window.location to stay compatible with
+  // Next's static prerender (useSearchParams would force a Suspense
+  // boundary). Defaults to false on server, hydrates to the real value.
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, []);
   useEffect(() => { document.title = 'VictoryLabs — Dashboard'; }, []);
   const [tf, setTf] = useState<Timeframe>('1H');
   const [tab, setTab] = useState<Tab>('active');
@@ -890,20 +896,23 @@ export default function Dashboard() {
     <div className="feed-root">
       {!embedded && <TopNav active="dashboard" />}
 
-      {/* Header */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
-              Trending collections
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <LiveDot />
-              <span style={{ fontSize: 11, color: '#4fb67d' }}>Feed is live</span>
+      {/* Header — hidden in multi-tab embed mode so the iframe can fit
+          more collection rows in the same vertical space. */}
+      {!embedded && (
+        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+                Trending collections
+              </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                <LiveDot />
+                <span style={{ fontSize: 11, color: '#4fb67d' }}>Feed is live</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Promoted table card */}
       <div style={{

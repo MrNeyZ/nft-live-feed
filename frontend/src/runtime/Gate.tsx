@@ -26,6 +26,17 @@ type GateState =
 
 export function Gate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>({ kind: 'loading' });
+  // Inside multi-tab iframes (?embed=1) the switcher is owned by the
+  // outer page, so we suppress this instance to keep exactly one.
+  // Read window.location.search directly (not useSearchParams) so
+  // Gate stays compatible with Next's static prerender — no Suspense
+  // boundary required.
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams(window.location.search);
+    setEmbedded(p.get('embed') === '1');
+  }, []);
 
   const resolve = useCallback(async () => {
     if (!isAuthed()) { setState({ kind: 'login' }); return; }
@@ -48,10 +59,12 @@ export function Gate({ children }: { children: ReactNode }) {
   // Active app: render children plus the always-on floating layout-mode
   // switcher. It pins to the bottom-right in every mode/resolution and
   // is the only switcher in the app — TopNav no longer carries one.
+  // Suppressed inside multi-tab iframes so the outer page's instance
+  // stays the only one visible.
   return (
     <>
       {children}
-      <FloatingLayoutModeSwitcher />
+      {!embedded && <FloatingLayoutModeSwitcher />}
     </>
   );
 }

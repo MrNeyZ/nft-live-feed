@@ -30,13 +30,17 @@ export default function MultiTabPage() {
   useEffect(() => { document.title = 'VictoryLabs — Multi-tab'; }, []);
 
   return (
-    <div className="feed-root">
+    // Override .feed-root's right padding to 0 so the feed iframe can
+    // sit flush with the viewport edge. Left padding stays so the
+    // dashboard pane doesn't hug the screen edge.
+    <div className="feed-root" style={{ paddingRight: 0 }}>
       <TopNav active="multi" />
 
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
+        // Dashboard column wider than the feed; feed pushed to right edge.
+        gridTemplateColumns: '1.55fr 1fr',
         gridTemplateRows: '1fr 1fr',
         gap: 12,
         padding: '12px 0',

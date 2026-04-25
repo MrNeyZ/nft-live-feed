@@ -4,7 +4,6 @@
 // Snapshot via REST + live updates via SSE; mapped through `fromBackend`.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import {
   FeedEvent, Side,
   rndFloat, shortWallet, timeAgo,
@@ -303,7 +302,14 @@ function getNftBorderColor(nftType: string): string | null {
 }
 
 export default function FeedPage() {
-  const embedded = useSearchParams()?.get('embed') === '1';
+  // Read query directly off window.location to stay compatible with
+  // Next's static prerender (useSearchParams would force a Suspense
+  // boundary). Defaults to false on server, hydrates to the real value.
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, []);
   useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
