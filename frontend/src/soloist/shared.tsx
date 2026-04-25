@@ -12,19 +12,22 @@ import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
 import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 
-// Route http(s) image URLs through the wsrv.nl public proxy so thumbnails
+// Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
-// commonly 2 000×2 000 / ~2 MB). GIFs are forced to static PNG via wsrv's
-// `output=png` flag to prevent animation + scroll jank. irys.xyz hosts are
-// bypassed (wsrv returns HTTP 400 "Domain or TLD blocked by policy" for
-// them — the raw URL renders better than a broken proxy response).
-// Non-http URLs (data URIs, relative paths) pass through untouched.
+// commonly 2 000×2 000 / ~2 MB). `/thumb` is served by nginx in production
+// (proxy_pass to wsrv.nl, with `proxy_cache` + Cloudflare edge cache for
+// cross-user reuse) and by a Next.js rewrite in dev (see next.config.mjs).
+// GIFs are forced to static PNG via wsrv's `output=png` flag to prevent
+// animation + scroll jank. irys.xyz hosts are bypassed (wsrv returns HTTP
+// 400 "Domain or TLD blocked by policy" for them — the raw URL renders
+// better than a broken proxy response). Non-http URLs (data URIs, relative
+// paths) pass through untouched.
 export function compressImage(url: string | null | undefined): string | null {
   if (!url) return null;
   if (!(url.startsWith('http://') || url.startsWith('https://'))) return url;
   if (url.includes('irys.xyz')) return url;
   const isGif = /\.gif(\?|$)/i.test(url);
-  const base = `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover`;
+  const base = `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover`;
   return isGif ? `${base}&output=png` : base;
 }
 
@@ -81,13 +84,23 @@ export function rowLinkHandlers(href: string, onLeftClick: () => void) {
 }
 
 // Reverse of `compressImage` for fallback: extract the upstream URL from a
-// wsrv.nl proxy URL. wsrv blocks many custom hosts by policy (returns HTTP
-// 400 "Domain or TLD blocked") — e.g. sensei.launchifi.xyz. ItemThumb /
-// CollectionIcon retry with this raw URL once before showing the placeholder
-// so those collections don't lose their thumbnails. Non-wsrv inputs pass
-// through untouched.
+// thumbnail proxy URL — both our own `/thumb?url=…` form (production +
+// dev) and the legacy `https://wsrv.nl/?url=…` form (still recognised in
+// case a stale URL was cached somewhere). wsrv blocks many custom hosts
+// by policy (returns HTTP 400 "Domain or TLD blocked") — e.g.
+// sensei.launchifi.xyz. ItemThumb / CollectionIcon retry with this raw
+// URL once before showing the placeholder so those collections don't
+// lose their thumbnails. Non-proxy inputs pass through untouched.
 function rawUpstreamImage(u: string): string {
   try {
+    // Relative `/thumb?url=…` — same-origin proxy. Parse against a dummy
+    // base because URL() refuses bare relative strings.
+    if (u.startsWith('/thumb')) {
+      const parsed = new URL(u, 'http://x');
+      const raw = parsed.searchParams.get('url');
+      if (!raw) return u;
+      return (raw.startsWith('http://') || raw.startsWith('https://')) ? raw : `https://${raw}`;
+    }
     const parsed = new URL(u);
     if (parsed.hostname !== 'wsrv.nl') return u;
     const raw = parsed.searchParams.get('url');
