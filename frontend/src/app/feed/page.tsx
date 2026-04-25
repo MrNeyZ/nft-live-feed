@@ -13,7 +13,7 @@ import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage } from '@/soloist/shared';
 import {
   feedReducer, initFeedState, orderedEvents,
-  type MetaPatch,
+  type MetaPatch, type FeedAction,
 } from '@/soloist/feed-store';
 import { isCnftDust } from '@/soloist/cnft-filter';
 
@@ -250,13 +250,39 @@ export default function FeedPage() {
 
   // Time labels self-tick inside <TimeAgo>; no parent-level tick state needed.
 
-  // Snapshot on mount + live SSE. Paused → close stream; resume → reconnect
-  // and re-fetch snapshot so events that arrived during the pause get merged
-  // in (reducer dedups the overlap by id).
+  // Pause without disconnecting: while `paused` is true, incoming SSE
+  // events are buffered in `pausedBuffer` instead of dispatched. On resume
+  // the buffer drains in order through the reducer (dedup is a property of
+  // the reducer's byId Map, so any overlap with snapshot is harmless).
+  // Capped at PAUSE_BUFFER_MAX so a long pause can't blow up memory; the
+  // oldest entries are dropped first.
+  const pausedRef    = useRef(paused);
+  const pausedBuffer = useRef<FeedAction[]>([]);
+  const PAUSE_BUFFER_MAX = 500;
+
+  // Keep the ref in sync with state. Read from the ref inside the SSE
+  // handlers so the long-lived useEffect closure does not need to remount
+  // when `paused` toggles — the EventSource stays connected.
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  // Drain on resume. captureScroll once before the batch so a user who
+  // scrolled mid-pause keeps their viewport.
+  useEffect(() => {
+    if (paused) return;
+    const buf = pausedBuffer.current;
+    if (buf.length === 0) return;
+    pausedBuffer.current = [];
+    captureScroll();
+    for (const action of buf) dispatch(action);
+  }, [paused]);
+
+  // Snapshot on mount + live SSE. The connection is opened ONCE per mount
+  // and stays open across pause toggles. Pause is implemented inside the
+  // event handlers via the `pausedRef` lookup below.
   //
-  // Currently subscribed: `sale` (live append), `meta` (enrichment patch).
-  // `rawpatch` and `remove` actions exist in the reducer but are not yet
-  // wired here — adding them is one dispatch line each with no state rewire.
+  // Currently subscribed: `sale` (live append), `meta` (enrichment patch),
+  // `remove` (post-enrichment blacklist / cNFT floor-gate). `rawpatch`
+  // exists in the reducer but is not yet wired here.
   useEffect(() => {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -266,38 +292,51 @@ export default function FeedPage() {
     // otherwise hammer the just-rebooted backend on a 3 s grid).
     let attempt = 0;
     const scheduleReconnect = () => {
-      if (cancelled || paused || document.hidden) return;
+      if (cancelled || document.hidden) return;
       const base = Math.min(30_000, 1_000 * 2 ** attempt);
       const jitter = Math.random() * 1_000;
       reconnectTimer = setTimeout(connect, base + jitter);
       attempt++;
     };
 
+    /** Buffer-or-dispatch. Read the pause flag from a ref so the effect
+     *  closure does not need to reinstall on toggle. captureScroll only
+     *  fires for the list-expanding 'live' action; meta/remove never grow
+     *  the list. */
+    const enqueue = (action: FeedAction) => {
+      if (pausedRef.current) {
+        const b = pausedBuffer.current;
+        b.push(action);
+        if (b.length > PAUSE_BUFFER_MAX) {
+          // Drop oldest in one splice — keeps the buffer at the cap.
+          b.splice(0, b.length - PAUSE_BUFFER_MAX);
+        }
+        return;
+      }
+      if (action.type === 'live') captureScroll();
+      dispatch(action);
+    };
+
     const connect = () => {
-      if (cancelled || paused) return;
+      if (cancelled) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
       // Reset backoff once the connection lands so the next disconnect
       // starts from 1 s again instead of inheriting the prior cap.
       es.addEventListener('open', () => { attempt = 0; });
-      // `sale` is the only list-expanding SSE event, so it's also the only
-      // path that captures the scroll snapshot before dispatching.
       es.addEventListener('sale', (e: MessageEvent) => {
         try {
           const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
-          captureScroll();
-          dispatch({ type: 'live', event: ev });
+          enqueue({ type: 'live', event: ev });
         } catch { /* malformed frame — skip */ }
       });
       // Enrichment patches: fill in nftName / collectionName / meCollectionSlug
       // for events previously rendered as "Unknown #?". Matches by signature
       // and by mintAddress (same mint in multiple sales benefits from one fetch).
-      // Patch logic lives in the reducer so this handler stays a pure
-      // JSON → action adapter.
       es.addEventListener('meta', (e: MessageEvent) => {
         try {
           const patch = JSON.parse(e.data) as MetaPatch;
-          dispatch({ type: 'meta', patch });
+          enqueue({ type: 'meta', patch });
         } catch { /* malformed frame — skip */ }
       });
       // Backend fires `remove` for rows deleted after enrichment (blacklisted
@@ -308,7 +347,7 @@ export default function FeedPage() {
       es.addEventListener('remove', (e: MessageEvent) => {
         try {
           const { signature } = JSON.parse(e.data) as { signature: string };
-          if (signature) dispatch({ type: 'remove', signature });
+          if (signature) enqueue({ type: 'remove', signature });
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('error', () => {
@@ -319,7 +358,8 @@ export default function FeedPage() {
 
     // Pull latest snapshot (newest-first) and dispatch as a single `snapshot`
     // action — the reducer handles dedup against any live events that might
-    // have already arrived for the same signatures.
+    // have already arrived for the same signatures. The snapshot is mount-
+    // time only and bypasses the pause buffer.
     fetch(`${API_BASE}/api/events/latest?limit=${SNAPSHOT_LIMIT}`)
       .then(r => r.json())
       .then((data: LatestApiResponse) => {
@@ -335,8 +375,13 @@ export default function FeedPage() {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       es?.close();
+      // Drop any buffered actions on unmount — they belong to the closed
+      // EventSource session and will be replaced by a fresh snapshot the
+      // next time this page mounts.
+      pausedBuffer.current = [];
     };
-  }, [paused]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── cNFT collection-floor filter ────────────────────────────────────────
   // Hide cNFT collections whose CURRENT FLOOR is below 0.002 SOL. Reuses
