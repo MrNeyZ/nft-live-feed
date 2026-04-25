@@ -145,7 +145,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               style={{
                 position: 'absolute', inset: 0,
                 borderRadius: 6,
-                border: `2px solid ${nftBorderColor}`,
+                border: `1px solid ${nftBorderColor}`,
                 pointerEvents: 'none',
               }}
             />
@@ -559,7 +559,7 @@ export default function FeedPage() {
 
       {/* Centered column stage */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
-        <div style={{ width: '100%', maxWidth: 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ width: '100%', maxWidth: 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0, transition: 'max-width 0.28s ease' }}>
 
           {/* Promoted feed card */}
           <div style={{

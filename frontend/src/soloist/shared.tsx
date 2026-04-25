@@ -733,15 +733,15 @@ export function FloatingLayoutModeSwitcher() {
       aria-label="UI layout mode"
       style={{
         position: 'fixed',
-        right: 16,
-        bottom: 56,
+        right: 12,
+        bottom: 32,
         zIndex: 9999,
         display: 'inline-flex', alignItems: 'center',
-        padding: 4, gap: 4, borderRadius: 6,
-        border: '1px solid rgba(168,144,232,0.55)',
-        background: 'rgba(20,14,34,0.96)',
+        padding: 2, gap: 2, borderRadius: 5,
+        border: '1px solid rgba(168,144,232,0.45)',
+        background: 'rgba(20,14,34,0.94)',
         backdropFilter: 'blur(8px)',
-        boxShadow: '0 6px 20px rgba(0,0,0,0.55), 0 0 0 1px rgba(168,144,232,0.18)',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.5), 0 0 0 1px rgba(168,144,232,0.14)',
       }}
     >
       {LAYOUT_MODES.map(m => {
@@ -753,15 +753,15 @@ export function FloatingLayoutModeSwitcher() {
             title={m.title}
             onClick={() => setMode(m.key)}
             style={{
-              padding: '6px 10px', fontSize: 11, fontWeight: 700,
-              letterSpacing: '0.4px', borderRadius: 4,
+              padding: '3px 7px', fontSize: 9.5, fontWeight: 700,
+              letterSpacing: '0.4px', borderRadius: 3,
               border: 'none',
               background: active ? 'rgba(168,144,232,0.22)' : 'transparent',
               color:      active ? '#d0c8e4'                 : '#8f8fa8',
               cursor: 'pointer', textTransform: 'uppercase',
-              transition: 'all 0.12s',
+              transition: 'background 0.18s ease, color 0.18s ease',
               fontFamily: 'inherit',
-              minWidth: 44,
+              minWidth: 32,
             }}
           >{m.label}</button>
         );

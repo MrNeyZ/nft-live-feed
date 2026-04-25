@@ -29,6 +29,18 @@ html[data-layout="phone"] body { font-size: 12px; }
 html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
 html[data-layout="phone"] .feed-thumb { width: 48px; height: 48px; }
 
+/* Smooth transitions when the user switches PC / Laptop / Phone — eases
+   the props that change between modes (feed-root padding, body font, card
+   padding/gap, thumb size) over 280 ms instead of snapping. */
+body         { transition: font-size 0.28s ease; }
+#__next,
+.feed-root   { transition: padding 0.28s ease; }
+.feed-card   { /* preserve existing background/border-color transitions */
+  transition: background 0.12s, border-color 0.12s,
+              padding 0.28s ease, gap 0.28s ease;
+}
+.feed-thumb  { transition: width 0.28s ease, height 0.28s ease; }
+
 /* Phone-mode floating layout switcher is rendered as a separate component
    (PhoneLayoutModeSwitcher in shared.tsx, mounted from Gate). Position +
    chrome live on the component's inline style so the inline TopNav
