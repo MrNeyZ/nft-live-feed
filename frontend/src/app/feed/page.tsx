@@ -145,7 +145,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               style={{
                 position: 'absolute', inset: 0,
                 borderRadius: 6,
-                border: `2px solid ${nftBorderColor}`,
+                border: `1px solid ${nftBorderColor}`,
                 pointerEvents: 'none',
               }}
             />

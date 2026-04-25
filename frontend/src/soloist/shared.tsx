@@ -725,6 +725,10 @@ function LayoutModeSwitcher() {
     <div
       role="group"
       aria-label="UI layout mode"
+      // `layout-mode-switcher` lets globals.css float this pill-group as a
+      // fixed bottom-right control in phone mode. Inline styles below keep
+      // the desktop / laptop appearance unchanged.
+      className="layout-mode-switcher"
       style={{
         display: 'inline-flex', alignItems: 'center',
         padding: 2, gap: 2, borderRadius: 4,
