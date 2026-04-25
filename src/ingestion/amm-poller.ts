@@ -151,6 +151,26 @@ async function fetchSinceCursor(
   }
 
   const all: SigInfo[] = [];
+
+  // Catch-up "always fetch the top" guard. When `startBefore` is set, the
+  // backward-walking loop below begins at that anchor and never queries
+  // anything newer than it — fresh sigs that arrived since the previous
+  // sweep would otherwise depend entirely on the listener WS + pollAll
+  // path for coverage. One extra fetchPage with `before=null` keeps
+  // amm-poller a real safety net for live sigs even mid-catchup. The
+  // existing `markLocalSeen` dedup at sweepTarget skips any rows already
+  // ingested via the WS path, so this never causes duplicate ingest.
+  if (startBefore) {
+    if (getMode() === 'off' || gen !== currentGeneration()) {
+      return { rows: all, saturated: false };
+    }
+    const fresh = await fetchPage(program, until, null, targetName);
+    if (getMode() === 'off' || gen !== currentGeneration()) {
+      return { rows: all, saturated: false };
+    }
+    all.push(...fresh);
+  }
+
   // `startBefore` is the catch-up continuation anchor saved by the previous
   // sweep when it saturated the page budget. In steady state it is null and
   // pagination starts from the top.
