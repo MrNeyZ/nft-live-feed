@@ -355,7 +355,7 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
 
 // ── Top Nav ─────────────────────────────────────────────────────────────────
 
-type Page = 'dashboard' | 'collection' | 'feed';
+type Page = 'dashboard' | 'collection' | 'feed' | 'multi';
 
 /** Search candidate sourced from real recent sales — every entry has a real
  *  ME slug, the only thing the dynamic /collection/[slug] route accepts. */
@@ -420,13 +420,13 @@ export function TopNav({ active }: { active: Page }) {
   const [hi, setHi] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // Note: there is no /collection landing page — it server-redirects to the
-  // dashboard. The COLLECTION nav button therefore points at /dashboard so
-  // it can't take the user to the old static template.
+  // MULTI-TAB replaces the old COLLECTION button (collection details are
+  // already reachable via the search bar / dashboard rows). It opens the
+  // combined dashboard + live-feed page.
   const pages: { key: Page; label: string; href: string }[] = [
     { key: 'dashboard',  label: 'DASHBOARD',  href: '/dashboard' },
-    { key: 'collection', label: 'COLLECTION', href: '/dashboard' },
-    { key: 'feed',       label: 'LIVE FEED',  href: '/feed' },
+    { key: 'multi',      label: 'MULTI-TAB',  href: '/multi'     },
+    { key: 'feed',       label: 'LIVE FEED',  href: '/feed'      },
   ];
 
   // Build a real (name → slug) index from recent sales so search results

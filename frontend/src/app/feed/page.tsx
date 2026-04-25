@@ -4,6 +4,7 @@
 // Snapshot via REST + live updates via SSE; mapped through `fromBackend`.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   FeedEvent, Side,
   rndFloat, shortWallet, timeAgo,
@@ -156,12 +157,28 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
         {/* Middle column */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingTop: 1, paddingBottom: 1 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden' }}>
-            <span style={{
-              fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
-            </span>
+            {thumbSlug ? (
+              <a
+                href={`/collection/${encodeURIComponent(thumbSlug)}`}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  textDecoration: 'none', cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+              >
+                {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
+              </a>
+            ) : (
+              <span style={{
+                fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3 }}>
@@ -286,6 +303,7 @@ function getNftBorderColor(nftType: string): string | null {
 }
 
 export default function FeedPage() {
+  const embedded = useSearchParams()?.get('embed') === '1';
   useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
@@ -549,7 +567,7 @@ export default function FeedPage() {
 
   return (
     <div className="feed-root">
-      <TopNav active="feed" />
+      {!embedded && <TopNav active="feed" />}
 
       {/* Centered column stage */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
@@ -729,8 +747,11 @@ export default function FeedPage() {
 
       {/* Bottom status — mirrors the top nav's gradient/border/shadow so the
           shell reads as two balanced rails instead of top-only. Full-bleed
-          wrapper breaks out of `.feed-root`'s 16 px horizontal padding. */}
-      <div style={{
+          wrapper breaks out of `.feed-root`'s 16 px horizontal padding.
+          Hidden in embed mode (multi-tab) so the parent page can own the
+          chrome; the full-bleed `100vw` would otherwise escape its grid
+          cell. */}
+      {!embedded && <div style={{
         width: '100vw',
         marginLeft: 'calc(50% - 50vw)',
         background: 'linear-gradient(180deg, rgba(10,8,18,0.95) 0%, rgba(20,14,34,0.7) 100%)',
@@ -758,7 +779,7 @@ export default function FeedPage() {
             <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#36b868' }}>${solPrice}</span></span>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Avatar preview — single overlay shared by every FeedCard. Backdrop
        *  click and Escape close it. The <img> stops propagation so clicks on

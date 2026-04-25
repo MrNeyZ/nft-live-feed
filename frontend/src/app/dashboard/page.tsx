@@ -7,6 +7,7 @@
 // event stream where possible, with a deterministic fallback for bid imbalance.
 
 import { useEffect, useMemo, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   COLLECTIONS_DB, Collection, FeedEvent,
   formatSol, timeAgo,
@@ -497,6 +498,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
 // ── Dashboard Page ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const embedded = useSearchParams()?.get('embed') === '1';
   useEffect(() => { document.title = 'VictoryLabs — Dashboard'; }, []);
   const [tf, setTf] = useState<Timeframe>('1H');
   const [tab, setTab] = useState<Tab>('active');
@@ -886,7 +888,7 @@ export default function Dashboard() {
 
   return (
     <div className="feed-root">
-      <TopNav active="dashboard" />
+      {!embedded && <TopNav active="dashboard" />}
 
       {/* Header */}
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>

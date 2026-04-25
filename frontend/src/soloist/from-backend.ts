@@ -91,15 +91,13 @@ export function fromBackend(b: BackendEvent): FeedEvent {
  */
 export function marketplaceUrl(event: FeedEvent): string | null {
   if (event.marketplace === 'tensor') {
-    // `/trade/` on tensor.trade takes a COLLECTION SLUG, not a mint. We
-    // don't carry a dedicated tensor slug on FeedEvent — the ME slug is
-    // the same thing in practice for every collection Tensor indexes, so
-    // use it here. If we have no slug at all, route to `/item/<mint>`
-    // (the NFT page, which does accept a mint) instead of putting the
-    // mint into the collection-slug slot. Bare tensor.trade is the last
-    // resort so the badge always links somewhere on the same marketplace.
-    if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
+    // Prefer the per-NFT page (`/item/<mint>`) — it lands on the exact
+    // token the user clicked. Fall back to the collection page
+    // (`/trade/<slug>`) when we don't have a mint, then to bare
+    // tensor.trade as a last resort so the badge always links somewhere
+    // on the same marketplace.
     if (event.mintAddress)      return `https://www.tensor.trade/item/${event.mintAddress}`;
+    if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
     return 'https://www.tensor.trade';
   }
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
