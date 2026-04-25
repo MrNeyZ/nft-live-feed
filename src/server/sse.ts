@@ -13,16 +13,73 @@ import { saleTypeFromEvent } from '../domain/sale-event-adapters';
  * GET /events/stream — Server-Sent Events endpoint.
  *
  * Each connected client receives a `sale` event as JSON whenever a new
- * NFT sale is ingested (from webhook or poller).
+ * NFT sale is ingested (from webhook or poller). A heartbeat comment is
+ * sent every 25 s to keep the connection alive through proxies and load
+ * balancers.
  *
- * Clients reconnect automatically via the EventSource API.
- * A heartbeat comment is sent every 25s to keep the connection alive
- * through proxies and load balancers.
+ * Architecture: per-event-type bus listeners are registered ONCE at module
+ * init and broadcast a pre-built SSE frame to every connected client. This
+ * replaces the previous "one closure per client per event" pattern, where
+ * the same payload was JSON.stringify'd N times for N clients on every
+ * emit. With ~50 clients × 50 sales/min that was ~2 500 redundant
+ * stringifications per minute.
  *
- * Usage (browser):
- *   const es = new EventSource('/events/stream');
- *   es.addEventListener('sale', e => console.log(JSON.parse(e.data)));
+ * Wire format unchanged.
  */
+
+const sseClients = new Set<Response>();
+
+/** Send a pre-built SSE frame (e.g. `event: sale\ndata: …\n\n`) to every
+ *  connected client. Disconnected clients are removed silently — the
+ *  per-client teardown still runs from req/res close listeners. */
+function broadcast(frame: string): void {
+  if (sseClients.size === 0) return;
+  for (const res of sseClients) {
+    try {
+      res.write(frame);
+    } catch {
+      // Client disconnected mid-write. Drop quietly; teardown handles the rest.
+      sseClients.delete(res);
+    }
+  }
+}
+
+function buildSaleFrame(event: SaleEvent): string {
+  const parser = event.rawData._parser as string | undefined;
+  const source = parser ? 'me_raw' : 'helius';
+  const payload = JSON.stringify({
+    signature:         event.signature,
+    blockTime:         event.blockTime.toISOString(),
+    marketplace:       event.marketplace,
+    nftType:           event.nftType,
+    saleType:          saleTypeFromEvent(event),
+    mintAddress:       event.mintAddress,
+    collectionAddress: event.collectionAddress,
+    seller:            event.seller,
+    buyer:             event.buyer,
+    priceSol:          event.priceSol,
+    currency:          event.currency,
+    nftName:           event.nftName,
+    imageUrl:          event.imageUrl,
+    collectionName:    event.collectionName,
+    magicEdenUrl:      event.magicEdenUrl,
+    meCollectionSlug:  event.meCollectionSlug ?? null,
+    floorDelta:        event.floorDelta        ?? null,
+    offerDelta:        event.offerDelta        ?? null,
+    source,
+  });
+  return `event: sale\ndata: ${payload}\n\n`;
+}
+
+// One bus listener per event type, registered once at module load. The
+// frame is built once per emit and broadcast to all clients in the Set.
+saleEventBus.onSale(           (event)  => broadcast(buildSaleFrame(event)));
+saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
+saleEventBus.onRemove(         (sig)    => broadcast(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
+saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
+saleEventBus.onListingRemove(  (delta)  => broadcast(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
+saleEventBus.onListingSnapshot((delta)  => broadcast(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
+
 export function createSseRouter(): Router {
   const router = Router();
 
@@ -33,99 +90,37 @@ export function createSseRouter(): Router {
     res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if present
     res.flushHeaders();
 
-    // Send initial comment so client knows the connection is live
+    // Initial comment so the client knows the connection is live.
     res.write(': connected\n\n');
 
+    sseClients.add(res);
+
     const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
+      try { res.write(': heartbeat\n\n'); }
+      catch {
+        // Heartbeat write failed — client gone. Cleanup runs via the close
+        // listeners below; we just stop emitting heartbeats from here.
+        clearInterval(heartbeat);
+      }
     }, 25_000);
 
-    function onSale(event: SaleEvent) {
-      // Guard: if the client already disconnected, res.write throws — catch it so
-      // the error cannot propagate back through EventEmitter into insertSaleEvent.
-      try {
-        const parser = event.rawData._parser as string | undefined;
-        const source = parser ? 'me_raw' : 'helius';
-
-        const payload = JSON.stringify({
-          signature:        event.signature,
-          blockTime:        event.blockTime.toISOString(),
-          marketplace:      event.marketplace,
-          nftType:          event.nftType,
-          saleType:         saleTypeFromEvent(event),
-          mintAddress:      event.mintAddress,
-          collectionAddress: event.collectionAddress,
-          seller:           event.seller,
-          buyer:            event.buyer,
-          priceSol:         event.priceSol,
-          currency:         event.currency,
-          nftName:          event.nftName,
-          imageUrl:         event.imageUrl,
-          collectionName:   event.collectionName,
-          magicEdenUrl:     event.magicEdenUrl,
-          meCollectionSlug: event.meCollectionSlug ?? null,
-          floorDelta:       event.floorDelta        ?? null,
-          offerDelta:       event.offerDelta        ?? null,
-          source,
-        });
-        res.write(`event: sale\ndata: ${payload}\n\n`);
-      } catch {
-        // Client disconnected between heartbeat and this write — ignore silently.
-      }
-    }
-
-    function onMetaUpdate(update: MetaUpdate) {
-      try {
-        res.write(`event: meta\ndata: ${JSON.stringify(update)}\n\n`);
-      } catch {
-        // Client disconnected — ignore silently.
-      }
-    }
-
-    function onRemove(signature: string) {
-      try {
-        res.write(`event: remove\ndata: ${JSON.stringify({ signature })}\n\n`);
-      } catch {
-        // Client disconnected — ignore silently.
-      }
-    }
-
-    function onRawPatch(patch: RawPatch) {
-      try {
-        res.write(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`);
-      } catch {
-        // Client disconnected — ignore silently.
-      }
-    }
-
-    function onListingRemove(delta: ListingRemoveDelta) {
-      try {
-        res.write(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`);
-      } catch { /* disconnected */ }
-    }
-
-    function onListingSnapshot(delta: ListingSnapshotDelta) {
-      try {
-        res.write(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`);
-      } catch { /* disconnected */ }
-    }
-
-    saleEventBus.onSale(onSale);
-    saleEventBus.onMetaUpdate(onMetaUpdate);
-    saleEventBus.onRemove(onRemove);
-    saleEventBus.onRawPatch(onRawPatch);
-    saleEventBus.onListingRemove(onListingRemove);
-    saleEventBus.onListingSnapshot(onListingSnapshot);
-
-    req.on('close', () => {
+    // Idempotent teardown — runs on the first of req/res `close`/`error`
+    // /`aborted`, with subsequent triggers no-op. The previous code only
+    // listened on req.close; certain proxy timeouts where the socket
+    // half-closes never fire that, leaking the heartbeat interval and the
+    // entry in sseClients.
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
       clearInterval(heartbeat);
-      saleEventBus.offSale(onSale);
-      saleEventBus.offMetaUpdate(onMetaUpdate);
-      saleEventBus.offRemove(onRemove);
-      saleEventBus.offRawPatch(onRawPatch);
-      saleEventBus.offListingRemove(onListingRemove);
-      saleEventBus.offListingSnapshot(onListingSnapshot);
-    });
+      sseClients.delete(res);
+    };
+    req.on('close',   cleanup);
+    req.on('error',   cleanup);
+    req.on('aborted', cleanup);
+    res.on('close',   cleanup);
+    res.on('error',   cleanup);
   });
 
   return router;

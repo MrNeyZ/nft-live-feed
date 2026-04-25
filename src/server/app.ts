@@ -94,12 +94,15 @@ export function createApp() {
   app.use('/api', runtimeRouter);
 
   const buyMeRouter = createBuyMeRouter();
-  app.use('/buy',     buyMeRouter);
+  // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
+  // collection/[slug]/page.tsx). The legacy `/buy` mount was a duplicate
+  // route with no callers — removed to shrink the route table and reduce
+  // attack surface.
+  app.use('/api/buy', buyMeRouter);
 
   // Warm the verified-collection catalog in the background (loads persisted
   // rows from Postgres instantly, then fires a background refresh from ME).
   void startCatalogRefreshLoop();
-  app.use('/api/buy', buyMeRouter);
 
   return app;
 }

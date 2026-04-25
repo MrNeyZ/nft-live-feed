@@ -19,7 +19,7 @@
 //
 // Adjust `cwd` if you deploy under a different service-user home.
 
-const HOME = '/home/nftfeed/nft-live-feed';
+const HOME = '/root/nft-live-feed';
 
 module.exports = {
   apps: [

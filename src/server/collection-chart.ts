@@ -22,7 +22,12 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
 import { deriveSaleType } from '../domain/sale-type';
 
-const TTL_MS       = 15_000;
+// Bumped 15 s → 60 s. Chart points come from sale_events aggregates; the
+// resolution at which the dashboard renders (5–60 m bars) is much coarser
+// than 60 s of staleness, so a longer TTL roughly quarters DB load on this
+// endpoint with no visible chart lag. Errors are not cached: `cache.set`
+// runs only after `computeChart` resolves successfully.
+const TTL_MS       = 60_000;
 const MAX_SLUG_LEN = 200;
 /** Hard cap on rows returned per request. Matches the existing collection
  *  history cap so chart + trades can't accidentally ask for more rows than

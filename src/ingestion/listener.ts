@@ -770,16 +770,18 @@ function logPollSummary(): void {
   }
 }
 
-// Same logic as amm-poller: in sales_only we poll only the programs that
-// carry standalone sale activity the prefilter keeps. MMM and TAMM are
-// AMM-pool programs whose non-sale pool-admin txs are shed downstream
-// anyway; double-polling them from both subsystems doubles sigList spend.
-const LISTENER_POLL_SALES_ONLY_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'tcomp']);
+// Same logic as amm-poller: in the lean modes (`sales_only` and `budget`)
+// we poll only the programs that carry standalone sale activity the
+// prefilter keeps. MMM and TAMM are AMM-pool programs whose non-sale
+// pool-admin txs are shed downstream anyway; double-polling them from
+// both subsystems doubles sigList spend.
+const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'tcomp']);
 
 async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off') return;
-  // sales_only: skip MMM/TAMM here — see note above.
-  if (getMode() === 'sales_only' && !LISTENER_POLL_SALES_ONLY_TARGETS.has(target.name)) return;
+  // Lean modes: skip MMM/TAMM here — see note above.
+  const m = getMode();
+  if ((m === 'sales_only' || m === 'budget') && !LISTENER_LEAN_MODE_TARGETS.has(target.name)) return;
   const gen = currentGeneration();
   // Retry once on network/HTTP failure.
   let res: Response | null = null;
@@ -886,7 +888,12 @@ async function pollAll(): Promise<void> {
 }
 
 async function seedSeenSigs(): Promise<void> {
-  for (const target of TARGETS) {
+  // Parallel — each target hits its own program; no inter-target ordering.
+  // Sequentially this added ~2 s to listener boot (4 RPC round-trips back
+  // to back). With Promise.allSettled the wall time is one round-trip, and
+  // any single failure is tolerated by the existing `// Non-fatal` rule:
+  // unfetched sigs just go through the regular poller on the first cycle.
+  await Promise.allSettled(TARGETS.map(async (target) => {
     try {
       incSigListFetch();
       noteSigList('seed', target.name);
@@ -901,7 +908,7 @@ async function seedSeenSigs(): Promise<void> {
         }),
         signal: AbortSignal.timeout(8_000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) return;
       const json = await res.json() as { result?: Array<{ signature: string }> };
       for (const row of json.result ?? []) {
         if (row.signature) markSeen(row.signature);
@@ -909,7 +916,7 @@ async function seedSeenSigs(): Promise<void> {
     } catch {
       // Non-fatal — poller will just process these on the first cycle.
     }
-  }
+  }));
   console.log(`[poller] seeded  seen=${seenSigs.size}`);
 }
 

@@ -17,7 +17,7 @@
  */
 import { ingestMeRaw, rpcLimiterAbortQueued } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
-import { getLastSig, setLastSig } from '../db/poller-state';
+import { getLastSig, setLastSig, clearLastSig } from '../db/poller-state';
 import { trace } from '../trace';
 import { Priority } from './concurrency';
 import { HeliusEnhancedTransaction } from './helius/types';
@@ -125,26 +125,51 @@ async function fetchPage(
  * On first run (`until === null`) we take a single page so startup doesn't
  * walk arbitrarily deep into history.
  */
-async function fetchSinceCursor(program: string, until: string | null, gen: number, targetName: string): Promise<SigInfo[]> {
-  // First run: one page, no pagination — treat "now" as the starting point.
-  if (!until) return fetchPage(program, null, null, targetName);
+interface SweepResult {
+  /** Newest-first concatenation of every page fetched in this sweep. */
+  rows:      SigInfo[];
+  /** True when we exited the page loop without hitting a natural floor —
+   *  i.e., MAX_PAGES_PER_SWEEP was reached and the last page was full. The
+   *  caller uses this to decide between "advance cursor to newest"
+   *  (steady state) and "save a `before` continuation for the next sweep"
+   *  (gap-recovery). False when the loop reached an empty / short page or
+   *  was interrupted by mode flip / generation bump. */
+  saturated: boolean;
+}
+
+async function fetchSinceCursor(
+  program:     string,
+  until:       string | null,
+  startBefore: string | null,
+  gen:         number,
+  targetName:  string,
+): Promise<SweepResult> {
+  // First-ever run for this target: no `until` floor known yet, single page.
+  if (!until) {
+    const rows = await fetchPage(program, null, null, targetName);
+    return { rows, saturated: false };
+  }
 
   const all: SigInfo[] = [];
-  let before: string | null = null;
+  // `startBefore` is the catch-up continuation anchor saved by the previous
+  // sweep when it saturated the page budget. In steady state it is null and
+  // pagination starts from the top.
+  let before: string | null = startBefore;
+  let hitFloor = false;
   for (let i = 0; i < MAX_PAGES_PER_SWEEP; i++) {
     // Bail between pages if mode flipped or this sweep belongs to a prior
     // generation — prevents a deep burst from continuing to page after OFF.
     if (getMode() === 'off' || gen !== currentGeneration()) break;
     const page = await fetchPage(program, until, before, targetName);
     if (getMode() === 'off' || gen !== currentGeneration()) break;
-    if (page.length === 0) break;
+    if (page.length === 0) { hitFloor = true; break; }
     all.push(...page);
     // Short page means we reached the `until` boundary — no gap possible.
-    if (page.length < PAGE_SIZE) break;
+    if (page.length < PAGE_SIZE) { hitFloor = true; break; }
     // Saturated page — page further back in time.
     before = page[page.length - 1].signature;
   }
-  return all;
+  return { rows: all, saturated: !hitFloor };
 }
 
 // ─── Per-target sweep ─────────────────────────────────────────────────────────
@@ -163,6 +188,16 @@ const backlog: BacklogItem[] = [];
 let backlogDraining = false;
 /** Gap between consecutive catch-up ingest calls; keeps rpcLimiter slots available for fresh sigs. */
 const BACKLOG_GAP_MS = 120;
+/** When the remaining backlog is at or above this threshold, dispatch each
+ *  ingest at `medium` priority instead of `low`. Rationale: the rpcLimiter
+ *  drops `low` tasks at admission once their queue wait exceeds STALE_LOW_MS
+ *  (20 s). At BACKLOG_GAP_MS = 120 ms per dispatch, anything past item ~166
+ *  in the queue meets that drop window. Steady-state catch-up (small
+ *  backlogs) wants to keep `low` so live WS work always wins; gap-recovery
+ *  catch-up (large backlogs after downtime) wants `medium` so the work
+ *  actually executes instead of being silently sheared off. Live WS sigs
+ *  enter the rpcLimiter at `high` and are unaffected either way. */
+const BACKLOG_LARGE_THRESHOLD = 200;
 
 function kickBacklogDrain(): void {
   if (backlogDraining) return;
@@ -174,15 +209,16 @@ function kickBacklogDrain(): void {
         // HARD STOP. This loop is the primary source of continuous
         // `getTransaction` traffic after OFF — one ingest call every
         // BACKLOG_GAP_MS, for however many sigs were banked from the last
-        // pre-OFF sweep (1500 max). Bail on mode flip or generation bump.
+        // pre-OFF sweep. Bail on mode flip or generation bump.
         if (getMode() === 'off' || startGen !== currentGeneration()) break;
         const item = backlog.shift()!;
+        // Pick priority based on how much work is still queued. Small
+        // backlogs stay 'low' (live WS keeps priority); large backlogs
+        // promote to 'medium' so STALE_LOW_MS doesn't kill the tail.
+        const priority: Priority =
+          backlog.length >= BACKLOG_LARGE_THRESHOLD ? 'medium' : 'low';
         try {
-          // S4: deep catch-up sigs are low-priority. If the shared rpcLimiter
-          // is busy serving fresh WS/poller work when this finally reaches it,
-          // and the queue wait exceeds STALE_LOW_MS, the limiter drops the
-          // task and fetchRawTx returns null — fine, we wasted zero RPC spend.
-          await item.ingest(item.sig, undefined, 'low');
+          await item.ingest(item.sig, undefined, priority);
         } catch (err: unknown) {
           console.error(`[${item.target}] backlog ingest error  sig=${item.sig.slice(0, 12)}...`, err);
         }
@@ -195,6 +231,27 @@ function kickBacklogDrain(): void {
   })();
 }
 
+/** Catch-up state, persisted in `poller_state` under
+ *  `${target.name}:catchup` as the string `"<frozen_newest>:<before>"`.
+ *
+ *  - `frozen_newest`: the sig that was the very newest at the moment we
+ *    *first* entered catch-up. After the gap walk completes, the
+ *    primary `until` cursor is advanced to this value so steady state
+ *    resumes at the correct timeline anchor (instead of the deep-history
+ *    sig the catch-up walk happened to end at).
+ *  - `before`: the oldest sig of the most recent saturated batch. The
+ *    next sweep passes this to `fetchSinceCursor` as `startBefore`, so
+ *    pagination resumes from where the prior sweep stopped instead of
+ *    restarting at the top. Each saturated continuation sweep advances
+ *    `before` further into history; the walk terminates when a sweep
+ *    returns a non-saturated batch (gap fully consumed). */
+function parseCatchup(raw: string | null): { frozenNewest: string; before: string } | null {
+  if (!raw) return null;
+  const idx = raw.indexOf(':');
+  if (idx <= 0 || idx >= raw.length - 1) return null;
+  return { frozenNewest: raw.slice(0, idx), before: raw.slice(idx + 1) };
+}
+
 async function sweepTarget(target: PollTarget): Promise<void> {
   if (sweepInFlight.get(target.name)) return;
   if (getMode() === 'off') return;
@@ -204,18 +261,37 @@ async function sweepTarget(target: PollTarget): Promise<void> {
   try {
     const lastSig = await getLastSig(target.name);
     if (getMode() === 'off' || gen !== currentGeneration()) return;
-    const page    = await fetchSinceCursor(target.program, lastSig, gen, target.name);
+
+    const catchup = parseCatchup(await getLastSig(`${target.name}:catchup`));
+    if (getMode() === 'off' || gen !== currentGeneration()) return;
+
+    const { rows: page, saturated } = await fetchSinceCursor(
+      target.program, lastSig, catchup?.before ?? null, gen, target.name,
+    );
     if (getMode() === 'off' || gen !== currentGeneration()) return;
     const fetched = page.length;
     if (fetched === 0) {
       console.log(`[${target.name}] fetched=0`);
+      // An empty pull while paginating from a `before` continuation means
+      // the gap has been fully consumed (no sigs older than `before` and
+      // newer than `until`). Promote the frozen newest sig to the primary
+      // `until` cursor and clear the catch-up marker so subsequent sweeps
+      // run as steady state.
+      if (catchup) {
+        await setLastSig(target.name, catchup.frozenNewest);
+        await clearLastSig(`${target.name}:catchup`);
+        console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+      }
       return;
     }
 
     // Priority split: page-1 (the PAGE_SIZE newest sigs) is "fresh" and goes
     // straight to the shared rpcLimiter like before. Pages 2+ are catch-up
     // backlog — they enter a low-priority serial queue so they don't crowd
-    // out fresh sigs arriving on subsequent sweeps.
+    // out fresh sigs arriving on subsequent sweeps. (kickBacklogDrain bumps
+    // priority to medium when the backlog grows past BACKLOG_LARGE_THRESHOLD
+    // so the rpcLimiter's stale-low admission drop doesn't shear off the
+    // tail of a gap-recovery walk.)
     const ordered = page;
     const FRESH_CUTOFF = PAGE_SIZE;
 
@@ -243,12 +319,37 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     }
     if (backlogged > 0) kickBacklogDrain();
 
-    // Advance cursor to the newest sig in this page.
-    await setLastSig(target.name, page[0].signature);
+    // Cursor advance — saturation-aware.
+    //
+    //   saturated + no prior catchup:  enter catch-up. Capture page[0] as
+    //     frozen_newest (the timeline anchor for post-catchup steady state),
+    //     save before = oldest of batch. Leave `until` untouched.
+    //   saturated + prior catchup:     continue catch-up. Keep prior
+    //     frozen_newest, advance before to the new oldest.
+    //   non-saturated + prior catchup: catch-up just finished on this
+    //     sweep. Promote frozen_newest to `until`, clear the marker.
+    //   non-saturated + no catchup:    steady state. Advance until to
+    //     newest of this batch (existing behaviour).
+    if (saturated) {
+      const newBefore = page[page.length - 1].signature;
+      const fn        = catchup?.frozenNewest ?? page[0].signature;
+      await setLastSig(`${target.name}:catchup`, `${fn}:${newBefore}`);
+      console.log(
+        `[${target.name}] sweep saturated  ${catchup ? 'continuing' : 'entering'} catchup  ` +
+        `frozen_newest=${fn.slice(0, 12)}…  before=${newBefore.slice(0, 12)}…`
+      );
+    } else if (catchup) {
+      await setLastSig(target.name, catchup.frozenNewest);
+      await clearLastSig(`${target.name}:catchup`);
+      console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+    } else {
+      await setLastSig(target.name, page[0].signature);
+    }
 
     console.log(
       `[${target.name}] fetched=${fetched} unseen=${unseen} ingested=${ingested}` +
-      `  fresh=${ingested - backlogged}  backlog=${backlogged}  skipped=${skipped}`
+      `  fresh=${ingested - backlogged}  backlog=${backlogged}  skipped=${skipped}` +
+      (catchup || saturated ? `  catchup=${saturated ? 'active' : 'completing'}` : '')
     );
   } catch (err: unknown) {
     console.error(`[${target.name}] sweep error`, err);
@@ -259,23 +360,35 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 
-// In `sales_only` the MMM and TAMM AMM-pool programs are deliberately NOT
-// polled here: the listener's own pollAll already sweeps the same four
-// programs on a WS-health-gated cadence, and sales_only widens the
-// prefilter deny-list to shed MMM pool-admin / liquidity txs before
-// fetchRawTx anyway. Polling them from two subsystems doubles the
+// In the lean modes (`sales_only` and `budget`) the MMM and TAMM AMM-pool
+// programs are deliberately NOT polled here: the listener's own pollAll
+// already sweeps the same four programs on a WS-health-gated cadence, and
+// the lean prefilter deny-list sheds MMM pool-admin / liquidity txs
+// before fetchRawTx anyway. Polling them from two subsystems doubles the
 // getSignaturesForAddress spend for zero added sale coverage. Full mode
 // keeps the behaviour unchanged — pool / reprice latency matters there.
-const SALES_ONLY_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:tcomp']);
+const LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:tcomp']);
+function isLeanMode(mode: ReturnType<typeof getMode>): boolean {
+  return mode === 'sales_only' || mode === 'budget';
+}
 
 function tick(): void {
   const mode = getMode();
   if (mode === 'off') return;
+  // Resume any backlog preserved across an OFF cycle. `kickBacklogDrain`
+  // is a no-op when the previous drain hasn't yet flipped `backlogDraining`
+  // back to false (it might still be unwinding from its own mode-off bail
+  // when `startAmmPoller` ran), so we re-attempt on every tick — the next
+  // tick (≤ INTERVAL_MS later) self-corrects the race.
+  if (backlog.length > 0 && !backlogDraining) {
+    console.log(`[poller] resuming preserved backlog  size=${backlog.length}`);
+    kickBacklogDrain();
+  }
   // Fire enabled targets in parallel — each has its own re-entrancy guard,
   // so overlap between ticks for the same target is prevented without
   // blocking other targets.
   for (const t of TARGETS) {
-    if (mode === 'sales_only' && !SALES_ONLY_TARGETS.has(t.name)) continue;
+    if (isLeanMode(mode) && !LEAN_MODE_TARGETS.has(t.name)) continue;
     sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
   }
 }
@@ -304,25 +417,40 @@ export function startAmmPoller(): void {
 
 /** Stop the AMM gap-healer. Idempotent.
  *
- *  Hard kill: clear the interval, drop every sig still waiting in the
- *  backlog queue, reset the per-target re-entrancy guards, and also
- *  dump every task currently queued in the shared rpcLimiter. In-flight
- *  awaits re-check `getMode() === 'off'` on return and bail before
- *  issuing another RPC. Combined with the generation-token check in
- *  every async boundary, this drops ingestion to 0 req/sec within the
- *  round-trip of whatever is currently mid-fetch. */
+ *  Stops new RPC activity within the round-trip of whatever is mid-fetch:
+ *  clears the tick interval, aborts the rpcLimiter queue (so queued
+ *  fetchRawTx tasks resolve null at admission instead of firing
+ *  `getTransaction`), and resets the per-target re-entrancy guards. The
+ *  backlog drainer's while loop re-checks `getMode() === 'off'` on its
+ *  next iteration and unwinds without issuing another RPC. Combined with
+ *  the generation-token check in every async boundary, this drops
+ *  ingestion to 0 req/sec within seconds of OFF.
+ *
+ *  Intentionally PRESERVED across OFF / ON cycles:
+ *    - `backlog` — already-discovered historical sigs awaiting ingest.
+ *      Wiping these on OFF would silently lose every gap-recovery sig
+ *      enqueued during catch-up. Items remain in memory and the next
+ *      `startAmmPoller()`'s first `tick()` re-kicks the drain under the
+ *      new generation.
+ *    - `localSeen` / `localSeenQueue` — per-process discovery dedup.
+ *      Preserving them prevents a re-sweep on ON from re-pushing the
+ *      same sigs into backlog (fetchRawTx's `recentSigs` would still
+ *      dedup at the RPC layer, but skipping the push is cheaper).
+ *
+ *  In-flight backlog item at the moment of OFF: if mode flips while
+ *  `backlog.shift()` has just occurred and `await item.ingest(…)` is
+ *  pending, the rpcLimiter's mode gate causes ingest to resolve null
+ *  and that one shifted item is lost. Worst-case loss is O(1) per OFF
+ *  event, not O(backlog.length). */
 export function stopAmmPoller(): void {
   if (tickHandle) {
     clearInterval(tickHandle);
     tickHandle = null;
   }
-  const droppedBacklog  = backlog.length;
-  backlog.length = 0;
-  const droppedLimiter = rpcLimiterAbortQueued();
+  const preservedBacklog = backlog.length;
+  const droppedLimiter   = rpcLimiterAbortQueued();
   sweepInFlight.clear();
-  localSeen.clear();
-  localSeenQueue.length = 0;
   console.log(
-    `[poller] stopped  backlog_dropped=${droppedBacklog}  rpcLimiter_dropped=${droppedLimiter}`
+    `[poller] stopped  backlog_preserved=${preservedBacklog}  rpcLimiter_dropped=${droppedLimiter}`
   );
 }

@@ -19,3 +19,14 @@ export async function setLastSig(cursorKey: string, sig: string): Promise<void> 
     [cursorKey, sig]
   );
 }
+
+/** Delete a cursor row. Used by the catch-up logic to clear the
+ *  `${name}:catchup` continuation marker once a saturated gap-recovery
+ *  walk has reached the original gap floor. */
+export async function clearLastSig(cursorKey: string): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    'DELETE FROM poller_state WHERE cursor_key = $1',
+    [cursorKey]
+  );
+}

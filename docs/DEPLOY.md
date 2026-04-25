@@ -196,8 +196,39 @@ server {
 
   location /api/      { proxy_pass http://127.0.0.1:3000; }
   location /webhooks/ { proxy_pass http://127.0.0.1:3000; }
+
+  # NFT thumbnail proxy. The frontend's compressImage() helper rewrites
+  # every NFT image URL to /thumb?url=<upstream>&w=200&h=200&fit=cover so
+  # images are served from our own origin, get cached at the nginx layer
+  # (cross-tab on this host) AND at Cloudflare's edge (cross-user
+  # globally). Without this every browser would hit wsrv.nl directly and
+  # we'd never amortise the upstream fetch.
+  proxy_cache_path /var/cache/nginx/thumb levels=1:2 keys_zone=thumb_cache:20m
+                   max_size=2g inactive=7d use_temp_path=off;
+
+  location /thumb {
+    proxy_pass https://wsrv.nl;
+    proxy_ssl_server_name on;
+    proxy_set_header Host wsrv.nl;
+    proxy_cache thumb_cache;
+    proxy_cache_valid 200 7d;
+    proxy_cache_valid 404 1m;
+    proxy_cache_use_stale error timeout updating;
+    proxy_cache_lock on;
+    add_header X-Cache-Status $upstream_cache_status always;
+    add_header Cache-Control "public, max-age=86400" always;
+  }
+
   location /          { proxy_pass http://127.0.0.1:3001; }
 }
+```
+
+Create the cache directory once on the VPS so nginx can write to it:
+
+```bash
+sudo mkdir -p /var/cache/nginx/thumb
+sudo chown -R www-data:www-data /var/cache/nginx/thumb
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 Enable and obtain a cert:
@@ -224,6 +255,17 @@ those paths.
    (e.g. 10 requests / 5 min / IP → block 10 min) as a second line of
    defense in front of the backend's own 5-per-5-min limiter.
 7. WAF → leave managed rules on.
+8. **Caching → Cache Rule for thumbnail proxy.** The frontend serves NFT
+   images via `/thumb?url=…&w=200&h=200&fit=cover` (rewritten by nginx
+   to wsrv.nl). Cache them at the edge so cross-user views never reach
+   the origin or wsrv:
+     - **If incoming requests match:** `URI Path` `starts with` `/thumb`
+     - **Then:** `Cache eligibility = Eligible for cache`,
+                 `Edge TTL = 1 day`,
+                 `Browser TTL = 1 day`.
+   Combined with the nginx `proxy_cache thumb_cache` block, the first
+   request from any user warms both caches; subsequent views (from any
+   user, any tab) served from Cloudflare without touching the origin.
 
 ## 7. Firewall
 
