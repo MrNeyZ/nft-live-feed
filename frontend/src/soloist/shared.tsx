@@ -717,18 +717,19 @@ export function TopNav({ active }: { active: Page }) {
 /**
  * Tri-state UI scale switcher (PC / Laptop / Phone). Persists in
  * localStorage via useLayoutMode and toggles a `data-layout` attribute on
- * <html>. Compact pill-group, sized to slot into the TopNav stats row.
+ * <html>. Inline pill-group sized for the TopNav stats row.
+ *
+ * Phone mode renders a separate `<PhoneLayoutModeSwitcher>` mounted at the
+ * app root (Gate) instead — see that component below. We early-return null
+ * here in phone mode to guarantee exactly one switcher exists at a time.
  */
 function LayoutModeSwitcher() {
   const [mode, setMode] = useLayoutMode();
+  if (mode === 'phone') return null;
   return (
     <div
       role="group"
       aria-label="UI layout mode"
-      // `layout-mode-switcher` lets globals.css float this pill-group as a
-      // fixed bottom-right control in phone mode. Inline styles below keep
-      // the desktop / laptop appearance unchanged.
-      className="layout-mode-switcher"
       style={{
         display: 'inline-flex', alignItems: 'center',
         padding: 2, gap: 2, borderRadius: 4,
@@ -753,6 +754,59 @@ function LayoutModeSwitcher() {
               cursor: 'pointer', textTransform: 'uppercase',
               transition: 'all 0.12s',
               fontFamily: 'inherit',
+            }}
+          >{m.label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Floating layout-mode switcher for phone layouts. Mounted at the app root
+ * (Gate) so it survives independent of TopNav, and returns null in any
+ * non-phone mode — guarantees only one switcher renders at a time. Bigger
+ * tap targets than the inline desktop pill.
+ */
+export function PhoneLayoutModeSwitcher() {
+  const [mode, setMode] = useLayoutMode();
+  if (mode !== 'phone') return null;
+  return (
+    <div
+      role="group"
+      aria-label="UI layout mode"
+      style={{
+        position: 'fixed',
+        right: 'max(12px, env(safe-area-inset-right))',
+        bottom: 'max(80px, calc(env(safe-area-inset-bottom) + 64px))',
+        zIndex: 1000,
+        display: 'inline-flex', alignItems: 'center',
+        padding: 4, gap: 4, borderRadius: 6,
+        border: '1px solid rgba(168,144,232,0.32)',
+        background: 'rgba(20,14,34,0.92)',
+        backdropFilter: 'blur(8px)',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+      }}
+    >
+      {LAYOUT_MODES.map(m => {
+        const active = mode === m.key;
+        return (
+          <button
+            key={m.key}
+            type="button"
+            title={m.title}
+            onClick={() => setMode(m.key)}
+            style={{
+              // Bumped padding + font for comfortable touch targets.
+              padding: '6px 10px', fontSize: 11, fontWeight: 700,
+              letterSpacing: '0.4px', borderRadius: 4,
+              border: 'none',
+              background: active ? 'rgba(168,144,232,0.22)' : 'transparent',
+              color:      active ? '#d0c8e4'                 : '#8f8fa8',
+              cursor: 'pointer', textTransform: 'uppercase',
+              transition: 'all 0.12s',
+              fontFamily: 'inherit',
+              minWidth: 44,
             }}
           >{m.label}</button>
         );

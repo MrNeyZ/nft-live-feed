@@ -29,19 +29,10 @@ html[data-layout="phone"] body { font-size: 12px; }
 html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
 html[data-layout="phone"] .feed-thumb { width: 48px; height: 48px; }
 
-/* Phone mode: the TopNav stats row gets clipped on a narrow viewport, so
-   detach the layout switcher and float it bottom-right where it can't be
-   covered by content. Bottom offset clears the bottom status bar; right
-   offset hugs the safe-area edge on any resolution. */
-html[data-layout="phone"] .layout-mode-switcher {
-  position: fixed;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(76px, calc(env(safe-area-inset-bottom) + 60px));
-  z-index: 1000;
-  background: rgba(20, 14, 34, 0.92);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-}
+/* Phone-mode floating layout switcher is rendered as a separate component
+   (PhoneLayoutModeSwitcher in shared.tsx, mounted from Gate). Position +
+   chrome live on the component's inline style so the inline TopNav
+   instance and the floating phone instance can never collide via CSS. */
 
 /* Hide Next.js dev-only overlay indicators (the red "N errors" badge and
    build-activity pip). Not part of the product; user-facing toast UI has
