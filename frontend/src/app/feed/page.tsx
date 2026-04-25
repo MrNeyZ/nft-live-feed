@@ -33,29 +33,53 @@ const FEED_SLUG_BLACKLIST = new Set<string>([
   'staratlascrew',
 ]);
 
+// ── Time-ago leaf ────────────────────────────────────────────────────────────
+// Self-ticking time label. Each instance owns its own 3 s interval, so a
+// 200-card feed only re-renders the 200 small <span>s instead of every
+// FeedCard root (the previous "tick" prop pattern invalidated React.memo
+// on every card every 3 s). Color tier and "just now" copy match the
+// previous inline logic exactly to keep the visual contract.
+function TimeAgo({ ts }: { ts: number }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force(n => n + 1), 3000);
+    return () => clearInterval(id);
+  }, []);
+  const now       = Date.now();
+  const isNew     = ts > now - 6000;
+  const ageMs     = now - ts;
+  const isJustNow = ageMs < 5000;
+  const isRecent  = !isJustNow && ageMs < 60000;
+  const color     = isJustNow ? '#e87ab0' : isRecent ? '#c7b479' : '#877496';
+  const weight    = isJustNow ? 600 : 500;
+  const text      = isNew ? 'just now' : timeAgo(ts);
+  return <span style={{ fontSize: 11, color, fontWeight: weight }}>{text}</span>;
+}
+
 // ── Feed Card ────────────────────────────────────────────────────────────────
 // Memoized: existing cards skip render when new events are prepended.
-// Re-renders only when `event` or `tick` changes (tick drives time-label refresh).
+// Re-renders only when `event` changes — the time label has been hoisted
+// into the <TimeAgo> leaf above, so card bodies are stable after first paint.
 
 interface FeedCardProps {
   event: FeedEvent;
-  tick: number;
   /** LMB on avatar → open a small centered image preview. */
   onPreview: (url: string) => void;
 }
 
 const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
-  const isNew = event.ts > Date.now() - 6000;
-  const ago = isNew ? 'just now' : timeAgo(event.ts);
-  // Recency color tiers for the time label — font size/weight/position unchanged.
-  //   0–5s   : pink (just-now emphasis)
-  //   5–60s  : pastel yellow (recent-but-fading)
-  //   60s+   : muted lavender (previous 5–60s tone, slightly dimmed)
-  const ageMs = Date.now() - event.ts;
-  const isJustNow = ageMs < 5000;
-  const isRecent  = !isJustNow && ageMs < 60000;
-  const timeColor  = isJustNow ? '#e87ab0' : isRecent ? '#c7b479' : '#877496';
-  const timeWeight = isJustNow ? 600 : 500;
+  // Row-flash class lasts 6 s from event.ts. Computed once at mount with a
+  // one-shot setTimeout to flip false — no per-tick recompute needed since
+  // every card mounts at most once per event.
+  const [isNew, setIsNew] = useState(() => event.ts > Date.now() - 6000);
+  useEffect(() => {
+    if (!isNew) return;
+    const remaining = 6000 - (Date.now() - event.ts);
+    if (remaining <= 0) { setIsNew(false); return; }
+    const t = setTimeout(() => setIsNew(false), remaining);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const cardClass = `feed-card ${event.side === 'buy' ? 'buy-card' : 'sell-card'}`;
   const typeLabel = event.side === 'buy' ? 'Buy' : 'Sell';
   const typeBg = event.side === 'buy' ? 'rgba(79,209,144,0.18)' : 'rgba(229,133,133,0.18)';
@@ -134,7 +158,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: 11, color: timeColor, fontWeight: timeWeight }}>{ago}</span>
+            <TimeAgo ts={event.ts} />
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -183,7 +207,6 @@ export default function FeedPage() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
-  const [tick, setTick] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [solPrice] = useState(() => rndFloat(38, 42).toFixed(2));
 
@@ -225,11 +248,7 @@ export default function FeedPage() {
     }
   }, [feedState]);
 
-  // Shared tick so timeAgo refreshes on all visible cards without per-card timers.
-  useEffect(() => {
-    const id = setInterval(() => setTick(n => n + 1), 3000);
-    return () => clearInterval(id);
-  }, []);
+  // Time labels self-tick inside <TimeAgo>; no parent-level tick state needed.
 
   // Snapshot on mount + live SSE. Paused → close stream; resume → reconnect
   // and re-fetch snapshot so events that arrived during the pause get merged
@@ -242,11 +261,25 @@ export default function FeedPage() {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    // Exponential backoff with jitter on reconnect — caps the herd-thunder
+    // pattern when the backend restarts (every connected tab would
+    // otherwise hammer the just-rebooted backend on a 3 s grid).
+    let attempt = 0;
+    const scheduleReconnect = () => {
+      if (cancelled || paused || document.hidden) return;
+      const base = Math.min(30_000, 1_000 * 2 ** attempt);
+      const jitter = Math.random() * 1_000;
+      reconnectTimer = setTimeout(connect, base + jitter);
+      attempt++;
+    };
 
     const connect = () => {
       if (cancelled || paused) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
+      // Reset backoff once the connection lands so the next disconnect
+      // starts from 1 s again instead of inheriting the prior cap.
+      es.addEventListener('open', () => { attempt = 0; });
       // `sale` is the only list-expanding SSE event, so it's also the only
       // path that captures the scroll snapshot before dispatching.
       es.addEventListener('sale', (e: MessageEvent) => {
@@ -280,9 +313,7 @@ export default function FeedPage() {
       });
       es.addEventListener('error', () => {
         es?.close();
-        if (!cancelled && !paused && !document.hidden) {
-          reconnectTimer = setTimeout(connect, 3000);
-        }
+        scheduleReconnect();
       });
     };
 
@@ -470,7 +501,7 @@ export default function FeedPage() {
                     No events match current filters
                   </div>
                 )}
-                {filtered.map(e => <FeedCard key={e.id} event={e} tick={tick} onPreview={setPreview} />)}
+                {filtered.map(e => <FeedCard key={e.id} event={e} onPreview={setPreview} />)}
               </div>
             </div>
           </div>

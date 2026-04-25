@@ -576,11 +576,25 @@ export default function Dashboard() {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    // Exponential backoff with jitter on reconnect — caps the herd-thunder
+    // pattern when the backend restarts (every connected tab would
+    // otherwise hammer the just-rebooted backend on a 3 s grid).
+    let attempt = 0;
+    const scheduleReconnect = () => {
+      if (cancelled || document.hidden) return;
+      const base = Math.min(30_000, 1_000 * 2 ** attempt);
+      const jitter = Math.random() * 1_000;
+      reconnectTimer = setTimeout(connect, base + jitter);
+      attempt++;
+    };
 
     const connect = () => {
       if (cancelled) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
+      // Reset backoff once the connection lands so the next disconnect
+      // starts from 1 s again instead of inheriting the prior cap.
+      es.addEventListener('open', () => { attempt = 0; });
       es.addEventListener('sale', (e: MessageEvent) => {
         try { addEvent(fromBackend(JSON.parse(e.data) as BackendEvent)); }
         catch { /* malformed frame — skip */ }
@@ -622,9 +636,7 @@ export default function Dashboard() {
       });
       es.addEventListener('error', () => {
         es?.close();
-        if (!cancelled && !document.hidden) {
-          reconnectTimer = setTimeout(connect, 3000);
-        }
+        scheduleReconnect();
       });
     };
 
