@@ -733,15 +733,15 @@ export function FloatingLayoutModeSwitcher() {
       aria-label="UI layout mode"
       style={{
         position: 'fixed',
-        right: 'max(12px, env(safe-area-inset-right))',
-        bottom: 'max(80px, calc(env(safe-area-inset-bottom) + 64px))',
-        zIndex: 1000,
+        right: 16,
+        bottom: 56,
+        zIndex: 9999,
         display: 'inline-flex', alignItems: 'center',
         padding: 4, gap: 4, borderRadius: 6,
-        border: '1px solid rgba(168,144,232,0.32)',
-        background: 'rgba(20,14,34,0.92)',
+        border: '1px solid rgba(168,144,232,0.55)',
+        background: 'rgba(20,14,34,0.96)',
         backdropFilter: 'blur(8px)',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+        boxShadow: '0 6px 20px rgba(0,0,0,0.55), 0 0 0 1px rgba(168,144,232,0.18)',
       }}
     >
       {LAYOUT_MODES.map(m => {
