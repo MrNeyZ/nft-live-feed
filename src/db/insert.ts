@@ -92,6 +92,24 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     return null;
   }
 
+  // Pre-insert blacklist gate. Only fires when one of collectionAddress /
+  // meCollectionSlug / collectionName is populated at parse time — true for
+  // some legacy/Core paths but not for cNFT (whose collection identity only
+  // resolves via DAS enrichment). For cNFT-shaped rows that fall through,
+  // the post-enrichment gate below DELETEs the row and emits `remove`.
+  if (isBlacklistedCollection({
+    collectionAddress: event.collectionAddress,
+    meCollectionSlug:  event.meCollectionSlug,
+    collectionName:    null,
+  })) {
+    console.log(
+      `[blacklist] dropped at insert  ` +
+      `addr=${(event.collectionAddress ?? event.meCollectionSlug ?? '?').slice(0, 24)}  ` +
+      `sig=${event.signature.slice(0, 12)}...`,
+    );
+    return null;
+  }
+
   // Tensor cNFT sales have their assetId derived locally in the tensor-raw
   // parser from the Bubblegum `transfer` inner CPI (see extractCnftAssetId).
   // When that derivation fails, mintAddress stays '' — enrichment's empty-mint

@@ -9,14 +9,22 @@
  *                        DAS/ME name lookup did. All comparisons are
  *                        case-insensitive.
  *
- * Matched after enrichment in insert.ts: row is deleted from DB and a
- * `remove` SSE event is emitted.
+ * Matched at two points in insert.ts:
+ *   1. Pre-insert (fast-path): when collectionAddress / meCollectionSlug /
+ *      collectionName are populated at parse time, the row is dropped before
+ *      the INSERT and no SSE is emitted at all.
+ *   2. Post-enrichment: covers cNFT and other raw paths where the collection
+ *      identity only resolves via DAS/ME lookup. The row is DELETEd and a
+ *      `remove` SSE event tells clients to drop the card.
  *
- * All three lists must agree for every blacklisted collection.
- * To add a collection: append to all three sets with the same comment.
+ * Add identifiers to whichever set(s) are known. For cNFT collections only
+ * the on-chain collection address is typically known up front — that single
+ * entry suffices for the post-enrichment gate. Add slug/name entries too if
+ * available, for defense in depth.
  */
 export const COLLECTION_BLACKLIST = new Set<string>([
   'CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf', // collector_crypt — fake/wash sales
+  '12TCHn5MB1TnyWC8dmUThgVHYPSQNVbG7mj6fxV1KhwR', // cNFT collection — Tensor-heavy spam, hide from Live Feed
 ]);
 
 export const SLUG_BLACKLIST = new Set<string>([

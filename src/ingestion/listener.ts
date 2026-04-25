@@ -18,6 +18,7 @@ import { ingestTensorRaw } from './tensor-raw/ingest';
 import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
+import { dispatchMmmDeferred } from './mmm-prefilter';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
 import { getMode, currentGeneration } from '../runtime/mode';
@@ -864,11 +865,26 @@ async function pollTarget(target: Target): Promise<void> {
     trace(sig, 'poll:ingest', `target=${target.name}`);
     ingested++;
 
-    pollerLimiter
-      .run(() => target.ingest(sig))
-      .catch((err: unknown) => {
-        console.error(`[poll/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
-      });
+    // Lean-mode MMM exception: poller has no log access (`getSignaturesForAddress`
+    // doesn't return logs) so it can't run shouldSkipMmmLogsSalesOnly itself.
+    // Defer 5 s and re-check whether the WS path's prefilter / successful
+    // fetch has already marked the sig — if yes, skip without RPC; if no,
+    // dispatch normally so WS-missed sigs are still recovered. Other targets
+    // (or full mode) dispatch immediately as before.
+    const m = getMode();
+    if (target.name === 'mmm' && (m === 'sales_only' || m === 'budget')) {
+      dispatchMmmDeferred(
+        sig,
+        (s) => pollerLimiter.run(() => target.ingest(s)),
+        `poll/${target.name}`,
+      );
+    } else {
+      pollerLimiter
+        .run(() => target.ingest(sig))
+        .catch((err: unknown) => {
+          console.error(`[poll/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
+        });
+    }
   }
 
   // Accumulate into the 60s summary.

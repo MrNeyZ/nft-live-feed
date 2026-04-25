@@ -24,6 +24,7 @@ import { HeliusEnhancedTransaction } from './helius/types';
 import { incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
+import { dispatchMmmDeferred } from './mmm-prefilter';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -237,8 +238,25 @@ function kickBacklogDrain(): void {
         // promote to 'medium' so STALE_LOW_MS doesn't kill the tail.
         const priority: Priority =
           backlog.length >= BACKLOG_LARGE_THRESHOLD ? 'medium' : 'low';
+        // Lean-mode MMM exception (same rationale as the fresh-path
+        // branch in sweepTarget): the poller has no log access so it
+        // can't shed noise pre-RPC. Hand the sig to the deferred-and-
+        // recheck shim instead of dispatching directly. The shim's
+        // 5 s wait gives WS time to mark the sig; on resolution we
+        // skip the RPC entirely. WS-missed sigs still flow through.
+        const m = getMode();
+        const isMmmLean =
+          item.target === 'poll:mmm' && (m === 'sales_only' || m === 'budget');
         try {
-          await item.ingest(item.sig, undefined, priority);
+          if (isMmmLean) {
+            dispatchMmmDeferred(
+              item.sig,
+              (s) => item.ingest(s, undefined, priority),
+              item.target,
+            );
+          } else {
+            await item.ingest(item.sig, undefined, priority);
+          }
         } catch (err: unknown) {
           console.error(`[${item.target}] backlog ingest error  sig=${item.sig.slice(0, 12)}...`, err);
         }
@@ -327,9 +345,20 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 
       if (i < FRESH_CUTOFF) {
         // Fresh path — fire and forget through the shared rpcLimiter.
-        target.ingest(info.signature).catch((err: unknown) =>
-          console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err)
-        );
+        // Lean-mode MMM exception: poller has no log access so it can't
+        // run shouldSkipMmmLogsSalesOnly. Defer 5 s and re-check whether
+        // the WS path has marked the sig (recentSigs / inFlight). If yes,
+        // skip without RPC; if no, dispatch normally so WS-missed sigs
+        // are still recovered. Other targets (or full mode) dispatch
+        // immediately as before.
+        const m = getMode();
+        if (target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget')) {
+          dispatchMmmDeferred(info.signature, target.ingest, target.name);
+        } else {
+          target.ingest(info.signature).catch((err: unknown) =>
+            console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err)
+          );
+        }
       } else {
         // Catch-up path — enqueue for serial drain so it doesn't starve fresh.
         backlog.push({ sig: info.signature, ingest: target.ingest, target: target.name });

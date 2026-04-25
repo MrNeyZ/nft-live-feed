@@ -5,7 +5,7 @@
 
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
-  COLLECTIONS_DB, FeedEvent, Side,
+  FeedEvent, Side,
   rndFloat, shortWallet, timeAgo,
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
@@ -80,10 +80,22 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const cardClass = `feed-card ${event.side === 'buy' ? 'buy-card' : 'sell-card'}`;
-  const typeLabel = event.side === 'buy' ? 'Buy' : 'Sell';
-  const typeBg = event.side === 'buy' ? 'rgba(79,209,144,0.18)' : 'rgba(229,133,133,0.18)';
-  const typeFg = event.side === 'buy' ? '#4fd190' : '#e58585';
+  const kind  = saleKind(event.saleTypeRaw);
+  const style = KIND_STYLES[kind];
+  // Border tint: buy/buyAmm → green border, sell/sellAmm → red border.
+  // Falls back to the existing buy-card class for unknown so neutral rows
+  // still look familiar.
+  const borderClass =
+    style.borderTone === 'sell' ? 'sell-card' :
+    style.borderTone === 'buy'  ? 'buy-card'  : 'buy-card';
+  const cardClass = `feed-card ${borderClass}`;
+  // Native-title debug payload. parser/direction are not currently exposed in
+  // the SSE/REST payload; surface what we have plus a hint for missing fields.
+  const debugTitle =
+    `sale_type: ${event.saleTypeRaw ?? '—'}\n` +
+    `marketplace: ${event.marketplace}\n` +
+    `nft_type: ${event.nftType}\n` +
+    `signature: ${event.signature.slice(0, 16)}…`;
   const m = event.nftName.match(/^(.*?)\s*#?(\d+)$/);
   const baseName = m ? m[1] : event.nftName;
   const num = m ? m[2] : '';
@@ -98,8 +110,9 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
   // image-native default (open-image-in-new-tab, drag-to-tab, extension
   // middle-click-open-URL) without an absolute overlay. Parent handlers
   // still fire because events fall through to `.feed-thumb`.
-  const thumbImg  = compressImage(event.imageUrl);
-  const thumbSlug = event.meCollectionSlug;
+  const thumbImg       = compressImage(event.imageUrl);
+  const thumbSlug      = event.meCollectionSlug;
+  const nftBorderColor = getNftBorderColor(event.nftType);
   const handleThumbClick = () => { if (thumbImg) onPreview(thumbImg); };
   const handleThumbMouseDown = (e: React.MouseEvent) => {
     if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
@@ -121,11 +134,22 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
           onClick={handleThumbClick}
           onMouseDown={handleThumbMouseDown}
           onAuxClick={handleThumbAuxClick}
-          style={{ cursor: thumbImg ? 'pointer' : 'default' }}
+          style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}
         >
           <div draggable={false} style={{ pointerEvents: 'none', userSelect: 'none' }}>
             <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={56} />
           </div>
+          {nftBorderColor && (
+            <span
+              aria-hidden
+              style={{
+                position: 'absolute', inset: 0,
+                borderRadius: 6,
+                border: `1px solid ${nftBorderColor}`,
+                pointerEvents: 'none',
+              }}
+            />
+          )}
         </div>
 
         {/* Middle column */}
@@ -159,13 +183,28 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <TimeAgo ts={event.ts} />
+            <span style={{
+              fontSize: 9.5, fontWeight: 700, color: '#7a7a94', letterSpacing: '0.3px',
+              textTransform: 'uppercase',
+            }}>{MARKETPLACE_LABEL[event.marketplace]}</span>
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              title={debugTitle}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 13, height: 13, borderRadius: '50%',
+                fontSize: 9, fontWeight: 700, lineHeight: 1,
+                color: '#6a6a84', border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.02)', cursor: 'help', userSelect: 'none',
+              }}
+              aria-label="Debug info"
+            >i</span>
             <span style={{
               padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 4,
-              background: typeBg, color: typeFg, letterSpacing: '0.2px',
-            }}>{typeLabel}</span>
+              background: style.bg, color: style.fg, letterSpacing: '0.2px',
+            }}>{style.label}</span>
             <span style={{ fontSize: 11, color: '#6a6a84' }}>for</span>
             <span style={{
               fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
@@ -183,20 +222,83 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
 
 // ── Feed App ─────────────────────────────────────────────────────────────────
 
-type FilterKey = 'all' | Side | 'listing' | 'me' | 'tensor';
+type FilterKey = 'all' | Side | 'buyAmm' | 'sellAmm' | 'listing';
 
 const FILTERS: { key: FilterKey; label: string; color: string }[] = [
   { key: 'all',     label: 'All',        color: '#a890e8' },
-  { key: 'buy',     label: 'Buys',       color: '#4fd190' },
-  { key: 'sell',    label: 'Sells',      color: '#e58585' },
+  { key: 'buy',     label: 'Buy',        color: '#4fd190' },
+  { key: 'sell',    label: 'Sell',       color: '#e58585' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: '#4fd190' },
+  { key: 'sellAmm', label: 'Sell AMM',   color: '#e58585' },
   { key: 'listing', label: 'Listings',   color: '#a890e8' },
-  { key: 'me',      label: 'Magic Eden', color: '#e87ab0' },
-  { key: 'tensor',  label: 'Tensor',     color: '#a890e8' },
 ];
+
+/** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
+ *  Listings is intentionally absent — the backend does not yet emit listing
+ *  events, so the Listings filter is wired but renders empty. */
+const SALE_TYPE_BUY      = 'normal_sale'; // default buy / list buy
+const SALE_TYPE_SELL     = 'bid_sell';    // sell into bid
+const SALE_TYPE_BUY_AMM  = 'pool_buy';    // buy from AMM/pool
+const SALE_TYPE_SELL_AMM = 'pool_sale';   // sell into AMM/pool
+
+type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'unknown';
+
+interface KindStyle {
+  label: string;
+  /** Foreground / accent color for the badge text + border tint. */
+  fg: string;
+  /** Translucent background tint for the badge. */
+  bg: string;
+  /** 'buy' tone or 'sell' tone — drives the card's left/right border color. */
+  borderTone: 'buy' | 'sell' | 'neutral';
+}
+
+const KIND_STYLES: Record<SaleKind, KindStyle> = {
+  buy:     { label: 'BUY',      fg: '#4fd190', bg: 'rgba(79,209,144,0.18)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL',     fg: '#e58585', bg: 'rgba(229,133,133,0.18)', borderTone: 'sell' },
+  // Spec: Buy AMM = blue, Sell AMM = orange.
+  buyAmm:  { label: 'AMM BUY',  fg: '#5fa8e6', bg: 'rgba(95,168,230,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM SELL', fg: '#e6a04f', bg: 'rgba(230,160,79,0.18)',  borderTone: 'sell' },
+  unknown: { label: '—',        fg: '#8f8fa8', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+};
+
+function saleKind(saleTypeRaw: string | null): SaleKind {
+  switch (saleTypeRaw) {
+    case SALE_TYPE_BUY:      return 'buy';
+    case SALE_TYPE_SELL:     return 'sell';
+    case SALE_TYPE_BUY_AMM:  return 'buyAmm';
+    case SALE_TYPE_SELL_AMM: return 'sellAmm';
+    default:                 return 'unknown';
+  }
+}
+
+const MARKETPLACE_LABEL: Record<'me' | 'tensor', string> = {
+  me:     'ME',
+  tensor: 'Tensor',
+};
+
+/**
+ * NFT-type → thin border color for the card thumbnail. Backend values:
+ *   legacy / pnft        → pale yellow
+ *   metaplex_core / core → pale pink
+ *   cnft                 → pale purple (visibly distinct from pink)
+ *   anything else        → null (no border)
+ */
+function getNftBorderColor(nftType: string): string | null {
+  switch (nftType) {
+    case 'legacy':
+    case 'pnft':          return 'rgba(255, 230, 150, 0.6)';
+    case 'metaplex_core':
+    case 'core':          return 'rgba(255, 170, 190, 0.6)';
+    case 'cnft':          return 'rgba(200, 160, 255, 0.7)';
+    default:              return null;
+  }
+}
 
 export default function FeedPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
+  const [collInput, setCollInput] = useState('');
   const [paused, setPaused] = useState(false);
   // Avatar-preview overlay state. One modal per page; clicking another thumb
   // just replaces the URL. Cleared on backdrop click or Escape key.
@@ -439,12 +541,18 @@ export default function FeedPage() {
     // Lowercase comparison matches NAME_BLACKLIST in src/db/blacklist.ts.
     if (e.collectionName && FEED_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) return false;
     if (e.meCollectionSlug && FEED_SLUG_BLACKLIST.has(e.meCollectionSlug)) return false;
-    if (collFilter && e.collectionName !== collFilter) return false;
-    if (filter === 'buy')     return e.side === 'buy';
-    if (filter === 'sell')    return e.side === 'sell';
+    if (collFilter) {
+      const target = collFilter.toLowerCase();
+      const slug = e.meCollectionSlug?.toLowerCase() ?? '';
+      const name = e.collectionName?.toLowerCase() ?? '';
+      if (slug !== target && name !== target) return false;
+    }
+    const t = e.saleTypeRaw;
+    if (filter === 'buy')     return t === SALE_TYPE_BUY;
+    if (filter === 'sell')    return t === SALE_TYPE_SELL;
+    if (filter === 'buyAmm')  return t === SALE_TYPE_BUY_AMM;
+    if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
     if (filter === 'listing') return false; // backend does not emit listings in v1
-    if (filter === 'me')      return e.marketplace === 'me';
-    if (filter === 'tensor')  return e.marketplace === 'tensor';
     return true;
   }), [events, filter, collFilter, floorBySlug]);
 
@@ -481,6 +589,28 @@ export default function FeedPage() {
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8068d8', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
+                {(filter !== 'all' || collFilter) && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    marginLeft: 6, padding: '2px 8px', fontSize: 10, fontWeight: 600,
+                    borderRadius: 4, letterSpacing: '0.2px',
+                    border: '1px solid rgba(168,144,232,0.28)',
+                    background: 'rgba(168,144,232,0.08)',
+                    color: '#a890e8',
+                  }}>
+                    {filter !== 'all' && (FILTERS.find(f => f.key === filter)?.label ?? filter)}
+                    {filter !== 'all' && collFilter && (
+                      <span style={{ color: '#56566e' }}>•</span>
+                    )}
+                    {collFilter && (
+                      <span style={{
+                        fontFamily: "'SF Mono','Fira Code',monospace",
+                        maxWidth: 200, overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{collFilter}</span>
+                    )}
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Pill
@@ -505,35 +635,88 @@ export default function FeedPage() {
                 <div style={{ padding: '10px 4px 12px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Type:</span>
-                    {FILTERS.map(f => (
-                      <Pill
-                        key={f.key}
-                        active={filter === f.key}
-                        color={f.color}
-                        onClick={() => setFilter(f.key)}
-                        label={f.label}
-                        size="sm"
-                      />
-                    ))}
+                    {FILTERS.map(f => {
+                      const isActive = filter === f.key;
+                      return (
+                        <Pill
+                          key={f.key}
+                          active={isActive}
+                          color={f.color}
+                          onClick={() => setFilter(f.key)}
+                          label={f.label}
+                          size="sm"
+                          // Stronger highlight on the active filter — bumped
+                          // background opacity, full-color border, subtle glow
+                          // — so the current selection reads at a glance.
+                          style={isActive ? {
+                            background:  `${f.color}38`,
+                            border:      `1px solid ${f.color}`,
+                            boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
+                            fontWeight:  700,
+                          } : undefined}
+                        />
+                      );
+                    })}
                   </div>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Collection:</span>
-                    {COLLECTIONS_DB.slice(0, 8).map(c => (
-                      <Pill
-                        key={c.name}
-                        active={collFilter === c.name}
-                        color={c.color}
-                        onClick={() => setCollFilter(collFilter === c.name ? null : c.name)}
-                        label={c.abbr}
-                        size="sm"
-                      />
-                    ))}
+                    <input
+                      value={collInput}
+                      onChange={(e) => setCollInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const v = collInput.trim();
+                          if (v) { setCollFilter(v); setCollInput(''); }
+                        }
+                      }}
+                      placeholder="collection slug…"
+                      spellCheck={false}
+                      autoComplete="off"
+                      style={{
+                        padding: '3px 8px', fontSize: 10.5, borderRadius: 4,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.03)',
+                        color: '#e8e6f2', outline: 'none',
+                        minWidth: 180, fontFamily: "'SF Mono','Fira Code',monospace",
+                        letterSpacing: '0.2px',
+                      }}
+                    />
+                    <Pill
+                      active
+                      color="#a890e8"
+                      onClick={() => {
+                        const v = collInput.trim();
+                        if (v) { setCollFilter(v); setCollInput(''); }
+                      }}
+                      label="Add"
+                      size="sm"
+                    />
                     {collFilter && (
-                      <button onClick={() => setCollFilter(null)} style={{
-                        padding: '2px 8px', fontSize: 10, borderRadius: 4,
-                        border: '1px solid #bf5f5f40', background: '#bf5f5f15',
-                        color: '#e58585', cursor: 'pointer',
-                      }}>✕ clear</button>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
+                        borderRadius: 4, letterSpacing: '0.2px',
+                        border: '1px solid #a890e866',
+                        background: '#a890e822',
+                        color: '#a890e8',
+                        fontFamily: "'SF Mono','Fira Code',monospace",
+                        maxWidth: 240, overflow: 'hidden',
+                      }}>
+                        <span style={{
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>{collFilter}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCollFilter(null)}
+                          title="Clear collection filter"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 14, height: 14, padding: 0, borderRadius: 3,
+                            border: 'none', background: 'transparent',
+                            color: '#a890e8', cursor: 'pointer', fontSize: 11, lineHeight: 1,
+                          }}
+                        >✕</button>
+                      </span>
                     )}
                   </div>
                 </div>

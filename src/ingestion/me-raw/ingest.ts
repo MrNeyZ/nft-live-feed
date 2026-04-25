@@ -106,6 +106,19 @@ export function markSigFetched(sig: string): void {
   recentSigs.set(sig, Date.now() + SIG_TTL_MS);
 }
 
+/**
+ * Read-only probe: has this sig been fetched OR pre-filtered (markSigFetched)
+ * within the dedup TTL window, OR is it currently in-flight? True ⇒ a
+ * subsequent `fetchRawTx(sig)` would dedup-skip without firing RPC. Used by
+ * the MMM lean-mode prefilter shim (mmm-prefilter.ts) to drop poller-discovered
+ * sigs that the WS log-prefilter has already handled.
+ */
+export function wasRecentlyFetched(sig: string): boolean {
+  if (inFlight.has(sig)) return true;
+  const exp = recentSigs.get(sig);
+  return exp !== undefined && Date.now() < exp;
+}
+
 // ─── Retry parameters ─────────────────────────────────────────────────────────
 
 // Timeout retries only — 429s are never retried (they release the slot immediately).

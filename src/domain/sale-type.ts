@@ -37,7 +37,9 @@ export function deriveSaleType(input: SaleTypeInput): SaleType {
     return 'pool_sale';
   }
   if (parser === 'tamm_raw') {
-    return dir === 'takeBid' ? 'bid_sell' : 'pool_sale';
+    if (dir === 'takeBid') return 'bid_sell';
+    if (dir === 'buy')     return 'pool_buy';
+    return 'pool_sale';
   }
   if (parser === 'tensor_raw') {
     return dir === 'takeBid' ? 'bid_sell' : 'normal_sale';
