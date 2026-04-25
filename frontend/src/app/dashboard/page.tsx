@@ -400,7 +400,7 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
       </td>
       <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#4fd190', opacity: 0.9 }}>↑</span>}
+        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
       <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
@@ -468,7 +468,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
       </td>
       <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#4fd190', opacity: 0.9 }}>↑</span>}
+        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
       <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
@@ -497,6 +497,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
 // ── Dashboard Page ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  useEffect(() => { document.title = 'VictoryLabs — Dashboard'; }, []);
   const [tf, setTf] = useState<Timeframe>('1H');
   const [tab, setTab] = useState<Tab>('active');
   const [selected, setSelected] = useState<string | null>(null);
@@ -981,8 +982,8 @@ export default function Dashboard() {
               <div style={{ flex: 1 }} />
               <button style={{
                 padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-                border: '1px solid rgba(79,209,144,0.4)', background: 'rgba(79,209,144,0.12)',
-                color: '#4fd190', cursor: 'pointer',
+                border: '1px solid rgba(92,224,160,0.4)', background: 'rgba(92,224,160,0.12)',
+                color: '#5ce0a0', cursor: 'pointer',
               }}>+ Watchlist</button>
             </div>
           </div>

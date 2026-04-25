@@ -11,6 +11,7 @@ import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
 import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
+import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -273,7 +274,7 @@ export function TypeBadge({ type }: { type: 'buy' | 'sell' }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
       padding: '1px 6px', borderRadius: 3, border: '1px solid #36b86848',
-      background: '#36b86820', color: '#4fd190', letterSpacing: '0.3px',
+      background: '#36b86820', color: '#5ce0a0', letterSpacing: '0.3px',
       flexShrink: 0, lineHeight: '14px',
     }}>BUY</span>
   );
@@ -281,7 +282,7 @@ export function TypeBadge({ type }: { type: 'buy' | 'sell' }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
       padding: '1px 6px', borderRadius: 3, border: '1px solid #bf5f5f48',
-      background: '#bf5f5f20', color: '#e58585', letterSpacing: '0.3px',
+      background: '#bf5f5f20', color: '#ef7878', letterSpacing: '0.3px',
       flexShrink: 0, lineHeight: '14px',
     }}>SELL</span>
   );
@@ -561,7 +562,7 @@ export function TopNav({ active }: { active: Page }) {
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '0 18px', height: 40,
-      maxWidth: 1400, margin: '0 auto',
+      maxWidth: 'var(--topnav-max, 1400px)', margin: '0 auto',
       gap: 10,
     }}>
       {/* alignItems: 'baseline' pins the logo's text baseline to the nav
@@ -705,9 +706,53 @@ export function TopNav({ active }: { active: Page }) {
           <span style={{ color: '#4fb67d', fontSize: 11 }}>live</span>
         </div>
         <ModeBadge />
+        <LayoutModeSwitcher />
         <OffButton />
       </div>
     </div>
+    </div>
+  );
+}
+
+/**
+ * Tri-state UI scale switcher (PC / Laptop / Phone). Persists in
+ * localStorage via useLayoutMode and toggles a `data-layout` attribute on
+ * <html>. Compact pill-group, sized to slot into the TopNav stats row.
+ */
+function LayoutModeSwitcher() {
+  const [mode, setMode] = useLayoutMode();
+  return (
+    <div
+      role="group"
+      aria-label="UI layout mode"
+      style={{
+        display: 'inline-flex', alignItems: 'center',
+        padding: 2, gap: 2, borderRadius: 4,
+        border: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(255,255,255,0.02)',
+      }}
+    >
+      {LAYOUT_MODES.map(m => {
+        const active = mode === m.key;
+        return (
+          <button
+            key={m.key}
+            type="button"
+            title={m.title}
+            onClick={() => setMode(m.key)}
+            style={{
+              padding: '2px 7px', fontSize: 9.5, fontWeight: 700,
+              letterSpacing: '0.4px', borderRadius: 3,
+              border: 'none',
+              background: active ? 'rgba(168,144,232,0.18)' : 'transparent',
+              color:      active ? '#d0c8e4'                 : '#6a6a82',
+              cursor: 'pointer', textTransform: 'uppercase',
+              transition: 'all 0.12s',
+              fontFamily: 'inherit',
+            }}
+          >{m.label}</button>
+        );
+      })}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import './globals.css';
 import { Gate } from '@/runtime/Gate';
 
 export const metadata: Metadata = {
-  title: 'Soloist — Live Feed',
+  title: 'VictoryLabs — Live Feed',
   description: 'Solana-wide NFT sales in real time',
 };
 
@@ -11,6 +11,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
+        {/* Apply persisted UI layout-mode before first paint so PC/Phone
+            users don't flash the default laptop layout on hydrate. Mirrors
+            readLayoutMode() in @/soloist/layout-mode. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var m=localStorage.getItem('vl.layoutMode');if(m==='pc'||m==='laptop'||m==='phone')document.documentElement.dataset.layout=m;}catch(e){}`,
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link

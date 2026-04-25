@@ -1,5 +1,34 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Layout-mode tokens ─────────────────────────────────────────────────────
+   Three modes drive a small set of layout knobs (root padding, feed column
+   width, top-nav max width, base font). Default = laptop (the design
+   target). PC widens the feed column and gives a touch more breathing
+   room; phone collapses padding and lets the feed column fill the
+   viewport so cards stay readable on a narrow screen.
+   Applied via `data-layout` on <html>, set by useLayoutMode(). */
+:root {
+  --feed-root-padding-x: 16px;
+  --feed-column-max:     640px;
+  --topnav-max:          1400px;
+  --status-max:          1400px;
+}
+html[data-layout="pc"] {
+  --feed-root-padding-x: 24px;
+  --feed-column-max:     820px;
+  --topnav-max:          1700px;
+  --status-max:          1700px;
+}
+html[data-layout="phone"] {
+  --feed-root-padding-x: 8px;
+  --feed-column-max:     100%;
+  --topnav-max:          100%;
+  --status-max:          100%;
+}
+html[data-layout="phone"] body { font-size: 12px; }
+html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
+html[data-layout="phone"] .feed-thumb { width: 48px; height: 48px; }
+
 /* Hide Next.js dev-only overlay indicators (the red "N errors" badge and
    build-activity pip). Not part of the product; user-facing toast UI has
    never been added here. Dev tooling still reports issues in the terminal. */
@@ -28,7 +57,7 @@ body { display: block; height: 100vh; }
   margin: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 16px;
+  padding: 0 var(--feed-root-padding-x);
   min-height: 0;
 }
 
@@ -51,14 +80,14 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes flashBuy {
-  0%   { background: rgba(79, 209, 144, 0.28); }
-  40%  { background: rgba(79, 209, 144, 0.14); }
+  0%   { background: rgba(92, 224, 160, 0.28); }
+  40%  { background: rgba(92, 224, 160, 0.14); }
   100% { background: rgba(255, 255, 255, 0.02); }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(229, 133, 133, 0.28); }
-  40%  { background: rgba(229, 133, 133, 0.14); }
+  0%   { background: rgba(239, 120, 120, 0.28); }
+  40%  { background: rgba(239, 120, 120, 0.14); }
   100% { background: rgba(255, 255, 255, 0.02); }
 }
 
@@ -75,12 +104,18 @@ a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar-thumb       { background: rgba(128, 104, 216, 0.16); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128, 104, 216, 0.32); }
 
-.feed-list::-webkit-scrollbar             { width: 5px; }
-.feed-list::-webkit-scrollbar-thumb       { background: rgba(168, 144, 232, 0.22); border-radius: 3px; }
-.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.4);  }
+/* Live Feed list — always-visible scrollbar so the user can grab/scrub it
+   without first hovering the feed area. Resting thumb opacity bumped from
+   0.22 → 0.45, hover from 0.4 → 0.65; faint track tint reserves the rail
+   visually even when idle. Width nudged 5 → 7 px for a comfortable hit
+   target without crowding the cards. */
+.feed-list::-webkit-scrollbar             { width: 7px; }
+.feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.025); border-radius: 3px; }
+.feed-list::-webkit-scrollbar-thumb       { background: rgba(168, 144, 232, 0.45); border-radius: 3px; }
+.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.65); }
 .feed-list {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.22) transparent;
+  scrollbar-color: rgba(168, 144, 232, 0.45) rgba(255, 255, 255, 0.025);
   scrollbar-gutter: stable;
   /* Let JS manage scroll compensation on prepend; browser anchoring would
      fight our pin-to-top behavior when the user is at scrollTop=0. */
@@ -112,7 +147,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .feed-card.buy-card     { border-left: 3px solid rgba(79,  209, 144, 0.65); border-right: 3px solid rgba(79,  209, 144, 0.65); }
-.feed-card.sell-card    { border-left: 3px solid rgba(229, 133, 133, 0.65); border-right: 3px solid rgba(229, 133, 133, 0.65); }
+.feed-card.sell-card    { border-left: 3px solid rgba(239, 120, 120, 0.65); border-right: 3px solid rgba(239, 120, 120, 0.65); }
 .feed-card.listing-card { border-left: 3px solid rgba(168, 144, 232, 0.65); border-right: 3px solid rgba(168, 144, 232, 0.65); }
 
 .feed-thumb {
@@ -132,8 +167,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes flashTrade {
-  0%   { background: rgba(79, 209, 144, 0.32); }
-  40%  { background: rgba(79, 209, 144, 0.18); }
+  0%   { background: rgba(92, 224, 160, 0.32); }
+  40%  { background: rgba(92, 224, 160, 0.18); }
   100% { background: transparent; }
 }
 
@@ -144,7 +179,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes statFlicker {
-  0%   { color: #4fd190; text-shadow: 0 0 8px rgba(79, 209, 144, 0.6); }
+  0%   { color: #5ce0a0; text-shadow: 0 0 8px rgba(92, 224, 160, 0.6); }
   100% { color: inherit; text-shadow: none; }
 }
 
@@ -174,14 +209,14 @@ a { color: inherit; text-decoration: none; }
 /* ── Dashboard page ──────────────────────────────────────────────────────── */
 
 @keyframes flashUp {
-  0%   { background: rgba(79, 209, 144, 0.22); }
-  40%  { background: rgba(79, 209, 144, 0.12); }
+  0%   { background: rgba(92, 224, 160, 0.22); }
+  40%  { background: rgba(92, 224, 160, 0.12); }
   100% { background: transparent; }
 }
 
 @keyframes flashDown {
-  0%   { background: rgba(229, 133, 133, 0.22); }
-  40%  { background: rgba(229, 133, 133, 0.12); }
+  0%   { background: rgba(239, 120, 120, 0.22); }
+  40%  { background: rgba(239, 120, 120, 0.12); }
   100% { background: transparent; }
 }
 

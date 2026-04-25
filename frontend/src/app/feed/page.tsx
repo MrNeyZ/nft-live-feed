@@ -145,7 +145,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               style={{
                 position: 'absolute', inset: 0,
                 borderRadius: 6,
-                border: `1px solid ${nftBorderColor}`,
+                border: `2px solid ${nftBorderColor}`,
                 pointerEvents: 'none',
               }}
             />
@@ -183,10 +183,6 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <TimeAgo ts={event.ts} />
-            <span style={{
-              fontSize: 9.5, fontWeight: 700, color: '#7a7a94', letterSpacing: '0.3px',
-              textTransform: 'uppercase',
-            }}>{MARKETPLACE_LABEL[event.marketplace]}</span>
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -226,10 +222,10 @@ type FilterKey = 'all' | Side | 'buyAmm' | 'sellAmm' | 'listing';
 
 const FILTERS: { key: FilterKey; label: string; color: string }[] = [
   { key: 'all',     label: 'All',        color: '#a890e8' },
-  { key: 'buy',     label: 'Buy',        color: '#4fd190' },
-  { key: 'sell',    label: 'Sell',       color: '#e58585' },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: '#4fd190' },
-  { key: 'sellAmm', label: 'Sell AMM',   color: '#e58585' },
+  { key: 'buy',     label: 'Buy',        color: '#5ce0a0' },
+  { key: 'sell',    label: 'Sell',       color: '#ef7878' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: '#5ce0a0' },
+  { key: 'sellAmm', label: 'Sell AMM',   color: '#ef7878' },
   { key: 'listing', label: 'Listings',   color: '#a890e8' },
 ];
 
@@ -253,13 +249,18 @@ interface KindStyle {
   borderTone: 'buy' | 'sell' | 'neutral';
 }
 
+// All four kinds share the BUY/SELL text — color alone distinguishes
+// AMM vs normal so the badge stays compact and the eye reads side first.
+//   buy     — green
+//   sell    — red
+//   buyAmm  — turquoise (green-blue)
+//   sellAmm — orange-red (between the yellow and red)
 const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',      fg: '#4fd190', bg: 'rgba(79,209,144,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL',     fg: '#e58585', bg: 'rgba(229,133,133,0.18)', borderTone: 'sell' },
-  // Spec: Buy AMM = blue, Sell AMM = orange.
-  buyAmm:  { label: 'AMM BUY',  fg: '#5fa8e6', bg: 'rgba(95,168,230,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM SELL', fg: '#e6a04f', bg: 'rgba(230,160,79,0.18)',  borderTone: 'sell' },
-  unknown: { label: '—',        fg: '#8f8fa8', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  buy:     { label: 'BUY',  fg: '#5ce0a0', bg: 'rgba(92,224,160,0.18)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: '#ef7878', bg: 'rgba(239,120,120,0.18)', borderTone: 'sell' },
+  buyAmm:  { label: 'BUY',  fg: '#4fd1bf', bg: 'rgba(79,209,191,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'SELL', fg: '#e87a5e', bg: 'rgba(232,122,94,0.18)',  borderTone: 'sell' },
+  unknown: { label: '—',    fg: '#8f8fa8', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 function saleKind(saleTypeRaw: string | null): SaleKind {
@@ -272,11 +273,6 @@ function saleKind(saleTypeRaw: string | null): SaleKind {
   }
 }
 
-const MARKETPLACE_LABEL: Record<'me' | 'tensor', string> = {
-  me:     'ME',
-  tensor: 'Tensor',
-};
-
 /**
  * NFT-type → thin border color for the card thumbnail. Backend values:
  *   legacy / pnft        → pale yellow
@@ -287,15 +283,16 @@ const MARKETPLACE_LABEL: Record<'me' | 'tensor', string> = {
 function getNftBorderColor(nftType: string): string | null {
   switch (nftType) {
     case 'legacy':
-    case 'pnft':          return 'rgba(255, 230, 150, 0.6)';
+    case 'pnft':          return 'rgba(255, 224, 130, 0.95)';  // pale yellow
     case 'metaplex_core':
-    case 'core':          return 'rgba(255, 170, 190, 0.6)';
-    case 'cnft':          return 'rgba(200, 160, 255, 0.7)';
+    case 'core':          return 'rgba(255, 158, 184, 0.95)';  // pale pink
+    case 'cnft':          return 'rgba(186, 138, 255, 0.95)';  // pale purple — clearly cooler than pink
     default:              return null;
   }
 }
 
 export default function FeedPage() {
+  useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
@@ -562,7 +559,7 @@ export default function FeedPage() {
 
       {/* Centered column stage */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
-        <div style={{ width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ width: '100%', maxWidth: 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
           {/* Promoted feed card */}
           <div style={{
@@ -622,7 +619,7 @@ export default function FeedPage() {
                 />
                 <Pill
                   active
-                  color={paused ? '#c9a820' : '#4fd190'}
+                  color={paused ? '#c9a820' : '#5ce0a0'}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -751,7 +748,7 @@ export default function FeedPage() {
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '6px 18px',
-          maxWidth: 1400, margin: '0 auto',
+          maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
           fontSize: 11,
         }}>
           <div style={{ display: 'flex', gap: 16 }}>

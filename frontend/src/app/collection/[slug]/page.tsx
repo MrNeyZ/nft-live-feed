@@ -316,11 +316,11 @@ const ListingRowItem = memo(function ListingRowItem({
   }
   const dealStyle: React.CSSProperties =
     dealLevel === 'strong' ? {
-      boxShadow:  'inset 0 0 0 1px rgba(79,209,144,0.45)',
-      background: 'rgba(79,209,144,0.06)',
+      boxShadow:  'inset 0 0 0 1px rgba(92,224,160,0.45)',
+      background: 'rgba(92,224,160,0.06)',
     }
     : dealLevel === 'good' ? {
-      background: 'rgba(79,209,144,0.025)',
+      background: 'rgba(92,224,160,0.025)',
     }
     : {};
   return (
@@ -352,7 +352,7 @@ const ListingRowItem = memo(function ListingRowItem({
                 padding:'1px 6px', borderRadius:3,
                 border:`1px solid ${errored ? '#bf5f5f48' : '#36b86848'}`,
                 background: errored ? '#bf5f5f20' : '#36b86820',
-                color: errored ? '#e58585' : '#4fd190',
+                color: errored ? '#ef7878' : '#5ce0a0',
                 letterSpacing:'0.3px', flexShrink:0, lineHeight:'14px',
                 cursor: disabled ? 'default' : 'pointer',
                 opacity: disabled && !busy ? 0.55 : 1,
@@ -424,7 +424,7 @@ const TradeRowItem = memo(function TradeRowItem({
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
           <span style={{ fontSize:10, color:'#56566e' }}>{shortWallet(event.buyer)}</span>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ fontSize:11, fontWeight:700, color: event.side === 'buy' ? '#4fd190' : '#e58585' }}>{formatSol(event.price)}</span>
+            <span style={{ fontSize:11, fontWeight:700, color: event.side === 'buy' ? '#5ce0a0' : '#ef7878' }}>{formatSol(event.price)}</span>
             <TypeBadge type={event.side} />
             <MktBadge mp={event.marketplace} href={tradeItemUrl(event)} />
           </div>
@@ -572,6 +572,10 @@ const GlobeGlyph = () => (
 export default function CollectionPage() {
   const params = useParams<{ slug: string }>();
   const slug = decodeURIComponent(params.slug);
+
+  useEffect(() => {
+    document.title = slug ? `VictoryLabs — ${slug}` : 'VictoryLabs — Collection';
+  }, [slug]);
 
   // Tab + chart selectors (verbatim from original)
   const [tab, setTab] = useState<'live' | 'summary'>('live');
@@ -1331,9 +1335,9 @@ export default function CollectionPage() {
               <span style={{ color:'#2c2c44', cursor:'pointer', fontSize:14 }}>☆</span>
               {marketSignal && (() => {
                 const cfg = marketSignal === 'sell'
-                  ? { label: 'SELL PRESSURE',   border: '1px solid #bf5f5f80', background: '#bf5f5f22', color: '#e58585' }
+                  ? { label: 'SELL PRESSURE',   border: '1px solid #bf5f5f80', background: '#bf5f5f22', color: '#ef7878' }
                   : marketSignal === 'buy'
-                  ? { label: 'BUY OPPORTUNITY', border: '1px solid #36b86880', background: '#36b86822', color: '#4fd190' }
+                  ? { label: 'BUY OPPORTUNITY', border: '1px solid #36b86880', background: '#36b86822', color: '#5ce0a0' }
                   : { label: 'MIXED',           border: '1px solid #8068d880', background: '#8068d822', color: '#b8a8f0' };
                 return (
                   <span
@@ -1408,7 +1412,7 @@ export default function CollectionPage() {
             {walletPubkey ? (
               <button onClick={onDisconnectWallet} style={{
                 padding:'4px 10px', fontSize:11, borderRadius:4,
-                border:'1px solid #36b86855', background:'#36b86818', color:'#4fd190', cursor:'pointer',
+                border:'1px solid #36b86855', background:'#36b86818', color:'#5ce0a0', cursor:'pointer',
               }} title={walletPubkey}>{shortWallet(walletPubkey)} · disconnect</button>
             ) : (
               <button onClick={onConnectWallet} style={{
@@ -1489,14 +1493,14 @@ export default function CollectionPage() {
                 <FilterBtn label="Max rank" />
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#4fd190', cursor:'pointer' }}>◎</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#5ce0a0', cursor:'pointer' }}>◎</span>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#56566e', cursor:'pointer' }}>↓</span>
                 <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'#8f8fa8', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
-                  <span style={{ color:'#4fd190' }}>+</span> Trait filter
+                  <span style={{ color:'#5ce0a0' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
                 <span style={{ fontSize:10, color:'#56566e', marginRight:6 }}>0/0 ACTIVE</span>
-                <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#4fd190', cursor:'pointer' }}>+ Rule</button>
+                <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#5ce0a0', cursor:'pointer' }}>+ Rule</button>
               </div>
             </div>
           )}
@@ -1561,7 +1565,7 @@ export default function CollectionPage() {
                   ? { border: '1px solid #e05858a8', background: '#e0585830', color: '#ff9b9b' }
                   : bidDumpSeverity === 'strong'
                   ? { border: '1px solid #d06a6a90', background: '#d06a6a28', color: '#f08080' }
-                  : { border: '1px solid #bf5f5f60', background: '#bf5f5f22', color: '#e58585' };
+                  : { border: '1px solid #bf5f5f60', background: '#bf5f5f22', color: '#ef7878' };
                 const tooltip =
                   `${bidDumpStats.count} bid-sells in 60s`
                   + ` · ${formatSol(bidDumpStats.volume)} total`
@@ -1605,14 +1609,14 @@ export default function CollectionPage() {
                 <FilterBtn label="Max rank" />
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#4fd190', cursor:'pointer' }}>◎</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#5ce0a0', cursor:'pointer' }}>◎</span>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#56566e', cursor:'pointer' }}>↓</span>
                 <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'#8f8fa8', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
-                  <span style={{ color:'#4fd190' }}>+</span> Trait filter
+                  <span style={{ color:'#5ce0a0' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
                 <span style={{ fontSize:10, color:'#56566e', marginRight:6 }}>0/0 ACTIVE</span>
-                <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#4fd190', cursor:'pointer' }}>+ Rule</button>
+                <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#5ce0a0', cursor:'pointer' }}>+ Rule</button>
               </div>
             </div>
           )}
