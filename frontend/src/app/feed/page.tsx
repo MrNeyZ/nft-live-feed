@@ -529,6 +529,8 @@ export default function FeedPage() {
           <img
             src={preview}
             alt=""
+            loading="lazy"
+            decoding="async"
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 200, height: 200, objectFit: 'contain',
