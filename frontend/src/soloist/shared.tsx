@@ -706,7 +706,10 @@ export function TopNav({ active }: { active: Page }) {
           <span style={{ color: '#4fb67d', fontSize: 11 }}>live</span>
         </div>
         <ModeBadge />
-        <LayoutModeSwitcher />
+        {/* Layout-mode switcher is rendered as a floating bottom-right pill
+            in every mode (see FloatingLayoutModeSwitcher mounted in Gate),
+            so the TopNav row no longer carries it — keeps the stats row
+            from clipping at narrow widths. */}
         <OffButton />
       </div>
     </div>
@@ -715,62 +718,15 @@ export function TopNav({ active }: { active: Page }) {
 }
 
 /**
- * Tri-state UI scale switcher (PC / Laptop / Phone). Persists in
+ * Floating tri-state UI scale switcher (PC / Laptop / Phone). Persists in
  * localStorage via useLayoutMode and toggles a `data-layout` attribute on
- * <html>. Inline pill-group sized for the TopNav stats row.
- *
- * Phone mode renders a separate `<PhoneLayoutModeSwitcher>` mounted at the
- * app root (Gate) instead — see that component below. We early-return null
- * here in phone mode to guarantee exactly one switcher exists at a time.
+ * <html>. Always rendered as a fixed bottom-right pill — same placement
+ * regardless of layout mode or viewport size — and mounted once at the
+ * app root (Gate) so it lives independent of TopNav and stays visible on
+ * any page. Comfortable tap targets sized for phone use.
  */
-function LayoutModeSwitcher() {
+export function FloatingLayoutModeSwitcher() {
   const [mode, setMode] = useLayoutMode();
-  if (mode === 'phone') return null;
-  return (
-    <div
-      role="group"
-      aria-label="UI layout mode"
-      style={{
-        display: 'inline-flex', alignItems: 'center',
-        padding: 2, gap: 2, borderRadius: 4,
-        border: '1px solid rgba(255,255,255,0.06)',
-        background: 'rgba(255,255,255,0.02)',
-      }}
-    >
-      {LAYOUT_MODES.map(m => {
-        const active = mode === m.key;
-        return (
-          <button
-            key={m.key}
-            type="button"
-            title={m.title}
-            onClick={() => setMode(m.key)}
-            style={{
-              padding: '2px 7px', fontSize: 9.5, fontWeight: 700,
-              letterSpacing: '0.4px', borderRadius: 3,
-              border: 'none',
-              background: active ? 'rgba(168,144,232,0.18)' : 'transparent',
-              color:      active ? '#d0c8e4'                 : '#6a6a82',
-              cursor: 'pointer', textTransform: 'uppercase',
-              transition: 'all 0.12s',
-              fontFamily: 'inherit',
-            }}
-          >{m.label}</button>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Floating layout-mode switcher for phone layouts. Mounted at the app root
- * (Gate) so it survives independent of TopNav, and returns null in any
- * non-phone mode — guarantees only one switcher renders at a time. Bigger
- * tap targets than the inline desktop pill.
- */
-export function PhoneLayoutModeSwitcher() {
-  const [mode, setMode] = useLayoutMode();
-  if (mode !== 'phone') return null;
   return (
     <div
       role="group"
@@ -797,7 +753,6 @@ export function PhoneLayoutModeSwitcher() {
             title={m.title}
             onClick={() => setMode(m.key)}
             style={{
-              // Bumped padding + font for comfortable touch targets.
               padding: '6px 10px', fontSize: 11, fontWeight: 700,
               letterSpacing: '0.4px', borderRadius: 4,
               border: 'none',

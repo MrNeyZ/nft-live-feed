@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { isAuthed, login, clearAuth } from './auth';
 import { fetchMode, setMode, SELECTABLE_MODES, type RuntimeMode } from './mode';
-import { PhoneLayoutModeSwitcher } from '@/soloist/shared';
+import { FloatingLayoutModeSwitcher } from '@/soloist/shared';
 
 type GateState =
   | { kind: 'loading' }
@@ -45,14 +45,13 @@ export function Gate({ children }: { children: ReactNode }) {
   if (state.kind === 'mode-select') {
     return <GateShell><ModeSelectScreen onSelected={() => { window.location.href = '/dashboard'; }} /></GateShell>;
   }
-  // Active app: render children plus the floating phone-mode switcher.
-  // PhoneLayoutModeSwitcher self-gates on `data-layout="phone"` and returns
-  // null otherwise, so desktop/laptop pay nothing and only one switcher
-  // exists at a time (TopNav's inline one self-gates the opposite way).
+  // Active app: render children plus the always-on floating layout-mode
+  // switcher. It pins to the bottom-right in every mode/resolution and
+  // is the only switcher in the app — TopNav no longer carries one.
   return (
     <>
       {children}
-      <PhoneLayoutModeSwitcher />
+      <FloatingLayoutModeSwitcher />
     </>
   );
 }

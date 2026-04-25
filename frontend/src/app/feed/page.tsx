@@ -253,13 +253,13 @@ interface KindStyle {
 // AMM vs normal so the badge stays compact and the eye reads side first.
 //   buy     — green
 //   sell    — red
-//   buyAmm  — turquoise (green-blue)
-//   sellAmm — orange-red (between the yellow and red)
+//   buyAmm  — blue (clearly bluer than green so AMM reads as a different bucket)
+//   sellAmm — yellow-orange (noticeably yellow vs the red SELL)
 const KIND_STYLES: Record<SaleKind, KindStyle> = {
   buy:     { label: 'BUY',  fg: '#5ce0a0', bg: 'rgba(92,224,160,0.18)',  borderTone: 'buy'  },
   sell:    { label: 'SELL', fg: '#ef7878', bg: 'rgba(239,120,120,0.18)', borderTone: 'sell' },
-  buyAmm:  { label: 'BUY',  fg: '#4fd1bf', bg: 'rgba(79,209,191,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'SELL', fg: '#e87a5e', bg: 'rgba(232,122,94,0.18)',  borderTone: 'sell' },
+  buyAmm:  { label: 'BUY',  fg: '#4faee8', bg: 'rgba(79,174,232,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'SELL', fg: '#e8c14a', bg: 'rgba(232,193,74,0.18)',  borderTone: 'sell' },
   unknown: { label: '—',    fg: '#8f8fa8', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
