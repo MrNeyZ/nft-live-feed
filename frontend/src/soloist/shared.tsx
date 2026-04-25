@@ -3,7 +3,7 @@
 // Shared presentational primitives used across the Soloist design.
 // Port of soloist-shared.jsx — kept visually identical.
 
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -727,6 +727,21 @@ export function TopNav({ active }: { active: Page }) {
  */
 export function FloatingLayoutModeSwitcher() {
   const [mode, setMode] = useLayoutMode();
+  // Sliding active-indicator: a single absolute pill that animates `left` /
+  // `width` between the buttons instead of each button toggling its own
+  // background. Refs measure the active button on every mode change; a flag
+  // suppresses the very first transition so the indicator doesn't slide in
+  // from {0,0} on initial mount.
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [pill, setPill] = useState<{ left: number; width: number; primed: boolean }>({
+    left: 0, width: 0, primed: false,
+  });
+  useLayoutEffect(() => {
+    const idx = LAYOUT_MODES.findIndex(m => m.key === mode);
+    const el  = buttonRefs.current[idx];
+    if (!el) return;
+    setPill(prev => ({ left: el.offsetLeft, width: el.offsetWidth, primed: prev.primed || true }));
+  }, [mode]);
   return (
     <div
       role="group"
@@ -744,22 +759,43 @@ export function FloatingLayoutModeSwitcher() {
         boxShadow: '0 4px 14px rgba(0,0,0,0.5), 0 0 0 1px rgba(168,144,232,0.14)',
       }}
     >
-      {LAYOUT_MODES.map(m => {
+      {/* Sliding indicator. zIndex: 0 so button text reads on top.
+          `transition` only kicks in after the first measurement so the
+          pill doesn't visibly slide from {0,0} into place on mount. */}
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: 2, bottom: 2,
+          left: pill.left, width: pill.width,
+          background: 'rgba(168,144,232,0.22)',
+          border: '1px solid rgba(168,144,232,0.35)',
+          borderRadius: 3,
+          transition: pill.primed
+            ? 'left 0.22s cubic-bezier(0.4, 0.0, 0.2, 1), width 0.22s cubic-bezier(0.4, 0.0, 0.2, 1)'
+            : 'none',
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+      {LAYOUT_MODES.map((m, i) => {
         const active = mode === m.key;
         return (
           <button
             key={m.key}
+            ref={el => { buttonRefs.current[i] = el; }}
             type="button"
             title={m.title}
             onClick={() => setMode(m.key)}
             style={{
+              position: 'relative', zIndex: 1,
               padding: '3px 7px', fontSize: 9.5, fontWeight: 700,
               letterSpacing: '0.4px', borderRadius: 3,
               border: 'none',
-              background: active ? 'rgba(168,144,232,0.22)' : 'transparent',
-              color:      active ? '#d0c8e4'                 : '#8f8fa8',
+              background: 'transparent',
+              color: active ? '#d0c8e4' : '#8f8fa8',
               cursor: 'pointer', textTransform: 'uppercase',
-              transition: 'background 0.18s ease, color 0.18s ease',
+              transition: 'color 0.18s ease',
               fontFamily: 'inherit',
               minWidth: 32,
             }}

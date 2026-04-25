@@ -89,13 +89,6 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
     style.borderTone === 'sell' ? 'sell-card' :
     style.borderTone === 'buy'  ? 'buy-card'  : 'buy-card';
   const cardClass = `feed-card ${borderClass}`;
-  // Native-title debug payload. parser/direction are not currently exposed in
-  // the SSE/REST payload; surface what we have plus a hint for missing fields.
-  const debugTitle =
-    `sale_type: ${event.saleTypeRaw ?? '—'}\n` +
-    `marketplace: ${event.marketplace}\n` +
-    `nft_type: ${event.nftType}\n` +
-    `signature: ${event.signature.slice(0, 16)}…`;
   const m = event.nftName.match(/^(.*?)\s*#?(\d+)$/);
   const baseName = m ? m[1] : event.nftName;
   const num = m ? m[2] : '';
@@ -145,7 +138,15 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               style={{
                 position: 'absolute', inset: 0,
                 borderRadius: 6,
+                // Layered border — colored hairline (1px) for type identity
+                // plus a faint dark inset line just inside it. The dark
+                // ring cuts through bright pixels on light/colorful NFTs;
+                // the colored line keeps full opacity so it stays visible
+                // against dark NFTs and the dark feed background. Total
+                // visual band = 2 px, but only 1 px of it is colored, so
+                // the rim doesn't read as "thick".
                 border: `1px solid ${nftBorderColor}`,
+                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45)',
                 pointerEvents: 'none',
               }}
             />
@@ -186,17 +187,6 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span
-              title={debugTitle}
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 13, height: 13, borderRadius: '50%',
-                fontSize: 9, fontWeight: 700, lineHeight: 1,
-                color: '#6a6a84', border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.02)', cursor: 'help', userSelect: 'none',
-              }}
-              aria-label="Debug info"
-            >i</span>
             <span style={{
               padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
@@ -281,12 +271,16 @@ function saleKind(saleTypeRaw: string | null): SaleKind {
  *   anything else        → null (no border)
  */
 function getNftBorderColor(nftType: string): string | null {
+  // Full-opacity colors — the inset dark ring (applied at the call site)
+  // gives contrast against light NFTs, so we don't need translucency to
+  // soften the colored line; full saturation keeps it readable on dark
+  // NFTs and against the feed background.
   switch (nftType) {
     case 'legacy':
-    case 'pnft':          return 'rgba(255, 224, 130, 0.95)';  // pale yellow
+    case 'pnft':          return '#ffe082';  // pale yellow
     case 'metaplex_core':
-    case 'core':          return 'rgba(255, 158, 184, 0.95)';  // pale pink
-    case 'cnft':          return 'rgba(186, 138, 255, 0.95)';  // pale purple — clearly cooler than pink
+    case 'core':          return '#ff9eb8';  // pale pink
+    case 'cnft':          return '#ba8aff';  // pale purple — clearly cooler than pink
     default:              return null;
   }
 }

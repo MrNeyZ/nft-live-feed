@@ -163,9 +163,12 @@ a { color: inherit; text-decoration: none; }
   border-color: rgba(168, 144, 232, 0.22);
 }
 
-.feed-card.buy-card     { border-left: 3px solid rgba(79,  209, 144, 0.65); border-right: 3px solid rgba(79,  209, 144, 0.65); }
-.feed-card.sell-card    { border-left: 3px solid rgba(239, 120, 120, 0.65); border-right: 3px solid rgba(239, 120, 120, 0.65); }
-.feed-card.listing-card { border-left: 3px solid rgba(168, 144, 232, 0.65); border-right: 3px solid rgba(168, 144, 232, 0.65); }
+/* Card side-frames — bumped to full opacity + slightly more saturated RGB
+   so the buy/sell tone reads as a vivid edge against the dark feed,
+   not a muted tint. */
+.feed-card.buy-card     { border-left: 3px solid rgba( 80, 235, 160, 1);    border-right: 3px solid rgba( 80, 235, 160, 1);    }
+.feed-card.sell-card    { border-left: 3px solid rgba(250, 100, 105, 1);    border-right: 3px solid rgba(250, 100, 105, 1);    }
+.feed-card.listing-card { border-left: 3px solid rgba(168, 144, 232, 0.95); border-right: 3px solid rgba(168, 144, 232, 0.95); }
 
 .feed-thumb {
   width: 56px;
