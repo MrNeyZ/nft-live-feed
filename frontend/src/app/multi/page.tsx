@@ -31,13 +31,14 @@ export default function MultiTabPage() {
   useEffect(() => { document.title = 'VictoryLabs — Multi-tab'; }, []);
 
   return (
-    // Multi-tab outer follows the standard PC scale (1.10) — the user
-    // spec says "Multi-tab PC = 1.10 unless otherwise constrained". The
-    // iframe content opts itself out via the `embedded` flag handled in
-    // /dashboard and /feed (data-embedded="1" sets internal zoom = 1
-    // so the panes don't double-scale on top of the outer's 1.10).
-    // Right padding 0 so the feed iframe sits flush with the viewport edge.
-    <div className="feed-root" style={{ paddingRight: 0 }}>
+    // Multi-tab outer follows the standard PC scale (1.10). The iframe
+    // content opts itself out via the `embedded` flag (data-embedded="1"
+    // sets internal zoom = 1 so panes don't double-scale).
+    // Outer .feed-root padding (var(--feed-root-padding-x), 16 px on
+    // laptop) supplies the horizontal gutters; the grid's own padding
+    // supplies the matching vertical gutters — same on all four sides
+    // so panes are framed uniformly.
+    <div className="feed-root">
       <TopNav active="multi" />
 
       <div style={{
@@ -46,7 +47,12 @@ export default function MultiTabPage() {
         gridTemplateColumns: '1.55fr 1fr',
         gridTemplateRows: '1fr 1fr',
         gap: 12,
-        padding: '12px 0',
+        // Vertical padding matches the .feed-root's horizontal padding
+        // for a uniform 16 px frame around the panes (left, right, top,
+        // bottom). Phone mode (--feed-root-padding-x = 8 px) keeps its
+        // tighter horizontal gutter; the 16 px vertical here is small
+        // enough that the asymmetry is negligible at narrow viewports.
+        padding: '16px 0',
         minHeight: 0,
       }}>
         {/* Top-left: actual Dashboard interface, embedded */}
