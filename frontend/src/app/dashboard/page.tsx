@@ -893,7 +893,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="feed-root">
+    <div className="feed-root" data-embedded={embedded ? '1' : undefined}>
       {!embedded && <TopNav active="dashboard" />}
 
       {/* Header — hidden in multi-tab embed mode so the iframe can fit

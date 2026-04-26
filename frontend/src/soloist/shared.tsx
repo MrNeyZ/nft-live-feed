@@ -569,8 +569,8 @@ export function TopNav({ active }: { active: Page }) {
           tab's text baseline — fixes the "floating" offset that `center`
           alignment produced because the serif/cursive logo has more ascender
           headroom than the sans nav tabs. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-        <a href="/dashboard" style={{
+      <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+        <a href="/dashboard" className="topnav-logo" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6,
         }}>
@@ -584,9 +584,9 @@ export function TopNav({ active }: { active: Page }) {
             style={{ display: 'block' }}
           />
         </a>
-        <div style={{ display: 'flex', gap: 2 }}>
+        <div className="topnav-tabs" style={{ display: 'flex', gap: 2 }}>
           {pages.map(p => (
-            <a key={p.key} href={p.href} style={{
+            <a key={p.key} href={p.href} className="topnav-tab" style={{
               padding: '5px 16px', fontSize: 12, fontWeight: 600,
               color: active === p.key ? '#d0c8e4' : '#55556e',
               letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',

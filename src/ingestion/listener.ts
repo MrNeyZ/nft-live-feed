@@ -761,6 +761,14 @@ const pollAccum = new Map<string, PollAccum>(
   TARGETS.map((t) => [t.name, { fetched: 0, unseen: 0, ingested: 0, skipped: 0 }]),
 );
 
+/** Global per-program in-memory cursor: the newest signature this listener
+ *  has observed via `getSignaturesForAddress`. Passed back as `until` on the
+ *  next poll so the response is bounded to genuinely new sigs instead of
+ *  re-pulling the latest 100 every cycle. Updated only on success and only
+ *  with the page's newest signature. Memory-only by design — amm-poller
+ *  retains the persisted DB cursor for catch-up after restarts. */
+const lastSigByProgram = new Map<string, string>();
+
 function logPollSummary(): void {
   for (const [name, a] of pollAccum) {
     console.log(
@@ -797,6 +805,16 @@ async function pollTarget(target: Target): Promise<void> {
     try {
       incSigListFetch();
       noteSigList('listener', target.name);
+      // Live forward feed: lastSig is the newest signature we've already
+      // processed; `until` makes the RPC return ONLY signatures newer than
+      // it (RPC walks newest→older and stops when it reaches `until`).
+      // Each poll therefore covers a strictly newer, non-overlapping
+      // window — no refetch of the same sig, no overlap with the previous
+      // call's range.
+      const lastSig = lastSigByProgram.get(target.program);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const params: any = { limit: POLL_LIMIT, commitment: 'confirmed' };
+      if (lastSig) params.until = lastSig;
       const r = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -804,7 +822,7 @@ async function pollTarget(target: Target): Promise<void> {
           jsonrpc: '2.0',
           id:      1,
           method:  'getSignaturesForAddress',
-          params:  [target.program, { limit: POLL_LIMIT, commitment: 'confirmed' }],
+          params:  [target.program, params],
         }),
         signal: AbortSignal.timeout(8_000),
       });
@@ -827,6 +845,19 @@ async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
   const rows = json.result;
   if (!Array.isArray(rows)) return;
+
+  // Advance the global per-program cursor on success ONLY. Newest sig is
+  // first in the array (RPC returns newest-first). Skipped on empty pages
+  // so a transient zero-row response doesn't roll the cursor back. Also
+  // skipped when the newest sig is identical to the stored cursor — guards
+  // against tight loops on RPC lag / race conditions where the same head
+  // sig is returned twice.
+  if (rows.length > 0 && rows[0].signature) {
+    const prev = lastSigByProgram.get(target.program);
+    if (rows[0].signature !== prev) {
+      lastSigByProgram.set(target.program, rows[0].signature);
+    }
+  }
 
   const accum = pollAccum.get(target.name)!;
   let fetched  = 0;

@@ -32,8 +32,10 @@ export default function MultiTabPage() {
   return (
     // Override .feed-root's right padding to 0 so the feed iframe can
     // sit flush with the viewport edge. Left padding stays so the
-    // dashboard pane doesn't hug the screen edge.
-    <div className="feed-root" style={{ paddingRight: 0 }}>
+    // dashboard pane doesn't hug the screen edge. `data-no-scale` opts
+    // this page out of the PC-mode +15% zoom — multi-tab is sized
+    // exactly and shouldn't be scaled with the rest of the app shell.
+    <div className="feed-root" data-no-scale="1" style={{ paddingRight: 0 }}>
       <TopNav active="multi" />
 
       <div style={{

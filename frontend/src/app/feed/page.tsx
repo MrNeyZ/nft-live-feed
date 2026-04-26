@@ -572,7 +572,7 @@ export default function FeedPage() {
   }), [events, filter, collFilter, floorBySlug]);
 
   return (
-    <div className="feed-root">
+    <div className="feed-root" data-embedded={embedded ? '1' : undefined}>
       {!embedded && <TopNav active="feed" />}
 
       {/* Centered column stage */}
