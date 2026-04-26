@@ -6,10 +6,13 @@ import {
   ListingRemoveDelta,
   ListingSnapshotDelta,
   type SourceStatusWire,
+  type MintEventWire,
+  type MintStatusWire,
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
+import { currentMintStatuses } from '../mints/accumulator';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -81,6 +84,13 @@ function buildStatusFrame(s: SourceStatusWire): string {
   })}\n\n`;
 }
 
+function buildMintFrame(m: MintEventWire): string {
+  return `event: mint\ndata: ${JSON.stringify(m)}\n\n`;
+}
+function buildMintStatusFrame(s: MintStatusWire): string {
+  return `event: mint_status\ndata: ${JSON.stringify(s)}\n\n`;
+}
+
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
 saleEventBus.onSale(           (event)  => broadcast(buildSaleFrame(event)));
@@ -90,6 +100,8 @@ saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${J
 saleEventBus.onListingRemove(  (delta)  => broadcast(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => broadcast(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onSourceStatus(   (s)      => broadcast(buildStatusFrame(s)));
+saleEventBus.onMint(           (m)      => broadcast(buildMintFrame(m)));
+saleEventBus.onMintStatus(     (s)      => broadcast(buildMintStatusFrame(s)));
 
 export function createSseRouter(): Router {
   const router = Router();
@@ -109,6 +121,12 @@ export function createSseRouter(): Router {
     // Tensor is stale.
     for (const s of currentStatuses()) {
       try { res.write(buildStatusFrame(s)); } catch { /* client gone */ }
+    }
+
+    // Same for the mint-tracker trending snapshot — populates the
+    // /mints page on connect without per-client polling.
+    for (const ms of currentMintStatuses()) {
+      try { res.write(buildMintStatusFrame(ms)); } catch { /* client gone */ }
     }
 
     sseClients.add(res);

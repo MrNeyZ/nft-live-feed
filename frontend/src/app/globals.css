@@ -35,6 +35,7 @@ html[data-layout="phone"] .feed-thumb { width: 48px; height: 48px; }
    DASHBOARD + LIVE FEED fit on a 390 px iPhone viewport without wrapping. */
 html[data-layout="phone"] .topnav-logo,
 html[data-layout="phone"] .topnav-tab[data-tab="multi"],
+html[data-layout="phone"] .topnav-tab[data-tab="mints"],
 html[data-layout="phone"] .topnav-stat-tps,
 html[data-layout="phone"] .topnav-stat-sol,
 html[data-layout="phone"] .topnav-stat-live,
@@ -56,6 +57,7 @@ html[data-layout="phone"] .topnav-tab  {
 @media (max-width: 600px) {
   .topnav-logo,
   .topnav-tab[data-tab="multi"],
+  .topnav-tab[data-tab="mints"],
   .topnav-stat-tps,
   .topnav-stat-sol,
   .topnav-stat-live,
@@ -105,18 +107,21 @@ html[data-layout="phone"] .collections-table td:first-child {
 html[data-layout="phone"] .collections-table th:nth-child(2),
 html[data-layout="phone"] .collections-table td:nth-child(2) {
   width: 60px !important;
-  text-align: center !important;
-  padding-right: 10px !important;
+  text-align: right !important;
+  padding-right: 14px !important;
+  padding-left: 4px !important;
 }
 html[data-layout="phone"] .collections-table th:nth-child(3),
 html[data-layout="phone"] .collections-table td:nth-child(3) {
   width: 70px !important;
-  text-align: center !important;
-  padding-left: 10px !important;
+  text-align: right !important;
+  padding-right: 8px !important;
+  padding-left: 4px !important;
 }
 html[data-layout="phone"] .collections-table th:first-child,
 html[data-layout="phone"] .collections-table td:first-child {
   max-width: 55% !important;
+  text-align: left !important;
 }
 html[data-layout="phone"] .collections-table td:first-child > div { min-width: 0 !important; }
 html[data-layout="phone"] .collections-table td:first-child > div > span:last-child {
@@ -156,18 +161,21 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   .collections-table th:nth-child(2),
   .collections-table td:nth-child(2) {
     width: 60px !important;
-    text-align: center !important;
-    padding-right: 10px !important;
+    text-align: right !important;
+    padding-right: 14px !important;
+    padding-left: 4px !important;
   }
   .collections-table th:nth-child(3),
   .collections-table td:nth-child(3) {
     width: 70px !important;
-    text-align: center !important;
-    padding-left: 10px !important;
+    text-align: right !important;
+    padding-right: 8px !important;
+    padding-left: 4px !important;
   }
   .collections-table th:first-child,
   .collections-table td:first-child {
     max-width: 55% !important;
+    text-align: left !important;
   }
   .collections-table td:first-child > div { min-width: 0 !important; }
   .collections-table td:first-child > div > span:last-child {

@@ -15,6 +15,12 @@
 import WebSocket from 'ws';
 import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
+import {
+  ingestMintRaw,
+  hasMintInstructionLog,
+  MPL_CORE_PROGRAM,
+  TOKEN_METADATA_PROGRAM,
+} from './mint-raw';
 import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
@@ -59,7 +65,52 @@ const TARGETS: Target[] = [
     program: 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg',
     ingest:  ingestTensorRaw,
   },
+  // ─── Mint targets ─────────────────────────────────────────────────────────
+  // MPL Core: low-volume, allow both WS + cursor poll like sales programs.
+  {
+    name:    'mpl_core',
+    program: MPL_CORE_PROGRAM,
+    ingest:  ingestMintRaw,
+  },
+  // MPL Token Metadata: very high-volume program (everything from PFP
+  // updates to NFT badges). Subscribed to WS only — `MINT_NO_POLL_TARGETS`
+  // (below) excludes it from the `getSignaturesForAddress` poller so we
+  // don't blow the RPC budget. The aggressive log prefilter
+  // (`hasMintInstructionLog`) sheds non-mint txs before fetchRawTx.
+  {
+    name:    'token_metadata',
+    program: TOKEN_METADATA_PROGRAM,
+    ingest:  ingestMintRaw,
+  },
 ];
+
+/** Targets that handle their own log shape — drop on the listener side
+ *  before fetchRawTx. Same pattern as TENSOR_PREFILTER_TARGETS / the ME v2
+ *  deny-list, but additive: the listener checks them in order. */
+const MINT_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+
+/** Targets that must never enter the `getSignaturesForAddress` poll loop.
+ *  Token Metadata's volume is too high for cursor polling to keep up
+ *  meaningfully. MPL Core is intentionally WS-only too for now — cheaper
+ *  and sufficient because the WS firehose covers the full mint stream
+ *  and the lean-mode poller in sales_only/budget would have skipped it
+ *  anyway (`LISTENER_LEAN_MODE_TARGETS` excludes it). Promoting Core to
+ *  cursor-polled later is a one-line change if WS misses ever become a
+ *  real signal. */
+const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+
+/** Mint-prefilter pass counter. Logs the first hit per target (so we
+ *  immediately see the wiring is alive) and then samples 1-in-50 to
+ *  show ongoing volume without flooding. Reset is deliberate-never:
+ *  total counts since process start are useful in retro debugging. */
+const mintPrefilterPassCount = new Map<string, number>();
+function noteMintPrefilterPass(targetName: string): void {
+  const n = (mintPrefilterPassCount.get(targetName) ?? 0) + 1;
+  mintPrefilterPassCount.set(targetName, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(`[mints/prefilter] target=${targetName} pass=${n}`);
+  }
+}
 
 // ─── Concurrency limiters ─────────────────────────────────────────────────────
 //
@@ -585,6 +636,24 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       return;
     }
 
+    // Mint-target prefilter — only fetch txs whose logs mention one of
+    // the recognized mint instruction discriminators. This is the
+    // largest knob keeping Token Metadata's firehose under control;
+    // without it we would burn `getTransaction` on every metadata
+    // update / verify / pNFT badge tx the program produces.
+    if (MINT_PREFILTER_TARGETS.has(target.name)) {
+      if (!hasMintInstructionLog(value.logs)) {
+        stats.filtered++;
+        incPrefilterSkip();
+        markSeen(sig);
+        markSigFetched(sig);
+        return;
+      }
+      // Sampled debug: log first hit per target then every 50th hit so
+      // we can see the prefilter is wired but don't spam under volume.
+      noteMintPrefilterPass(target.name);
+    }
+
     stats.fired++;
     // Do NOT call markSeen here. Cross-path dedup is handled inside fetchRawTx:
     //   inFlight   — blocks concurrent double-fetch while the listener fetch is live
@@ -791,6 +860,12 @@ const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm',
 
 async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off') return;
+  // High-volume mint targets (Token Metadata) opt out of cursor polling
+  // entirely — WS subscription is the only path. Cursor polling at
+  // 1.5 s × the program's volume would explode getSignaturesForAddress
+  // usage; the prefilter wouldn't help because the cost is at the sig-
+  // list level, not getTransaction.
+  if (MINT_NO_POLL_TARGETS.has(target.name)) return;
   // Lean modes: skip MMM/TAMM here — see note above.
   const m = getMode();
   if ((m === 'sales_only' || m === 'budget') && !LISTENER_LEAN_MODE_TARGETS.has(target.name)) return;

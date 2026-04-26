@@ -125,6 +125,65 @@ export interface SourceStatusWire {
   state:  'ok' | 'stale';
 }
 
+// ─── Mint tracker ────────────────────────────────────────────────────────────
+
+export type MintProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
+export type MintType          = 'free' | 'paid' | 'unknown';
+export type MintDisplayState  = 'incubating' | 'shown' | 'cooled';
+
+/** Best-effort launchpad / source label. Detection is conservative: a
+ *  curated allowlist of known launchpad program IDs maps to specific
+ *  labels; everything else falls back to a friendly programSource
+ *  string. Operator can extend the allowlist over time. */
+export type MintSourceLabel =
+  | 'LaunchMyNFT'
+  | 'VVV'
+  | 'ME'
+  | 'Metaplex Candy Machine'
+  | 'Metaplex Core'
+  | 'Metaplex'
+  | 'Bubblegum'
+  | 'Unknown';
+
+/** Per-mint event, fired once on detection. */
+export interface MintEventWire {
+  signature:         string;
+  blockTime:         string;
+  programSource:     MintProgramSource;
+  mintAddress:       string | null;
+  collectionAddress: string | null;
+  groupingKey:       string;
+  groupingKind:      'collection' | 'updateAuthority' | 'creator' | 'mintAuthority' | 'merkleTree' | 'programSource';
+  mintType:          MintType;
+  priceLamports:     number | null;
+  minter:            string | null;
+  sourceLabel:       MintSourceLabel;
+}
+
+/** Per-collection rollup snapshot, fired every time the accumulator
+ *  recomputes a collection's stats. Frontend keeps a rolling map keyed
+ *  by `groupingKey` and re-renders the trending table on each tick. */
+export interface MintStatusWire {
+  groupingKey:       string;
+  groupingKind:      MintEventWire['groupingKind'];
+  programSource:     MintProgramSource;
+  collectionAddress: string | null;
+  displayState:      MintDisplayState;
+  shownReason?:      'threshold' | 'burst';
+  observedMints:     number;
+  /** Mints in the last 60 s window. */
+  v60:               number;
+  /** Average mints/min over the last 5 min window. */
+  v5m:               number;
+  lastMintAt:        number;
+  mintType:          MintType | 'mixed';
+  priceLamports:     number | null;
+  sourceLabel:       MintSourceLabel;
+  /** Soft metadata, populated lazily (may be undefined for many ticks). */
+  name?:             string;
+  imageUrl?:         string;
+}
+
 /**
  * In-process event bus. insertSaleEvent emits 'sale' here;
  * the SSE endpoint subscribes and fans out to connected clients.
@@ -255,6 +314,16 @@ class SaleEventBus extends EventEmitter {
   offSourceStatus(listener: (s: SourceStatusWire) => void): this {
     return this.off('source_status', listener);
   }
+
+  /** Per-NFT mint event (fired once per detected mint tx). */
+  emitMint(m: MintEventWire): void { this.emit('mint', m); }
+  onMint(listener: (m: MintEventWire) => void): this { return this.on('mint', listener); }
+  offMint(listener: (m: MintEventWire) => void): this { return this.off('mint', listener); }
+
+  /** Per-collection rollup, fired on every accumulator recompute. */
+  emitMintStatus(s: MintStatusWire): void { this.emit('mint_status', s); }
+  onMintStatus(listener: (s: MintStatusWire) => void): this { return this.on('mint_status', listener); }
+  offMintStatus(listener: (s: MintStatusWire) => void): this { return this.off('mint_status', listener); }
 }
 
 export const saleEventBus = new SaleEventBus();

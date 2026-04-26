@@ -314,19 +314,17 @@ const ListingRowItem = memo(function ListingRowItem({
     if      (ratio <= 1.05) dealLevel = 'strong';
     else if (ratio <= 1.10) dealLevel = 'good';
   }
+  // Deal-level highlighting kept as a subtle background tint only — the
+  // earlier inset green ring was reading as a hard "outline/border"
+  // around every strong-deal card and overpowering the card chrome.
   const dealStyle: React.CSSProperties =
-    dealLevel === 'strong' ? {
-      boxShadow:  'inset 0 0 0 1px rgba(92,224,160,0.45)',
-      background: 'rgba(92,224,160,0.06)',
-    }
-    : dealLevel === 'good' ? {
-      background: 'rgba(92,224,160,0.025)',
-    }
+    dealLevel === 'strong' ? { background: 'rgba(92,224,160,0.06)' }
+    : dealLevel === 'good' ? { background: 'rgba(92,224,160,0.025)' }
     : {};
   return (
     <div className="listing-row"
       style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', cursor:'pointer', ...dealStyle }}>
-      <ItemThumb imageUrl={image} color={color} abbr={abbr} size={32} />
+      <ItemThumb imageUrl={image} color={color} abbr={abbr} size={48} />
       <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
         {/* Line 1: unified `{stem} #{num}` + listedAt on the right */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
@@ -412,7 +410,7 @@ const TradeRowItem = memo(function TradeRowItem({
   return (
     <div className={`trade-row${isNew ? ' new-row-trade' : ''}`}
       style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', cursor:'pointer' }}>
-      <ItemThumb imageUrl={image} color={event.color} abbr={event.abbr} size={32} />
+      <ItemThumb imageUrl={image} color={event.color} abbr={event.abbr} size={48} />
       <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
           <span style={{ fontSize:11, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>

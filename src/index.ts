@@ -8,6 +8,10 @@ import { validateEnv } from './runtime/env-validation';
 // Side-effect import: source-health subscribes to the sale event bus and
 // starts its 15s staleness tick. Must load before any SSE client connects.
 import './health/source-health';
+// Side-effect import: mint accumulator runs its 30s sweep timer. Detector
+// is started below in main() once the bus is wired.
+import './mints/accumulator';
+import { startMintDetector } from './mints/detector';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -47,6 +51,11 @@ async function main() {
     console.log(`[server] webhook:  POST /webhooks/helius (standby)`);
     console.log(`[server] ingestion: idle — POST /api/runtime/mode to start`);
   });
+
+  // Mint detector is bus-listener-only (zero RPC cost), so we start it
+  // unconditionally at boot — it'll only see events once a runtime mode
+  // is selected and the listener begins emitting.
+  startMintDetector();
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
   // and calls /api/runtime/mode to pick FULL / BUDGET / SALES_ONLY. Previous
