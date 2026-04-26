@@ -34,8 +34,11 @@ export default function MultiTabPage() {
     // Multi-tab outer follows the standard PC scale (1.10). The iframe
     // content opts itself out via the `embedded` flag (data-embedded="1"
     // sets internal zoom = 1 so panes don't double-scale).
-    // Right padding 0 so the feed iframe sits flush with the viewport edge.
-    <div className="feed-root" style={{ paddingRight: 0 }}>
+    // No paddingRight override — the .feed-root's `var(--feed-root-padding-x)`
+    // supplies the same gutter on both sides (16 px laptop / 24 px PC /
+    // 8 px phone) so the right pane no longer anchors to the viewport
+    // edge.
+    <div className="feed-root">
       <TopNav active="multi" />
 
       <div style={{
@@ -44,9 +47,11 @@ export default function MultiTabPage() {
         gridTemplateColumns: '1.55fr 1fr',
         gridTemplateRows: '1fr 1fr',
         gap: 12,
-        // Top breathing room kept; bottom padding dropped so the panes
-        // extend flush to the viewport bottom edge.
-        padding: '12px 0 0',
+        // Vertical breathing room mirrors the horizontal gutter on the
+        // outer .feed-root so the grid is framed evenly on all four
+        // sides — no panel border touches a viewport edge. The 12 px
+        // inter-panel gap stays the same as before.
+        padding: '16px 0',
         minHeight: 0,
       }}>
         {/* Top-left: actual Dashboard interface, embedded */}
