@@ -85,6 +85,14 @@ function shortKey(k: string): string {
 }
 
 export default function MintsPage() {
+  // Embed mode (`?embed=1`) suppresses TopNav so multi-tab can iframe
+  // the real /mints page without a duplicated chrome row, mirroring
+  // the existing /dashboard and /feed embed plumbing.
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, []);
   useEffect(() => { document.title = 'VictoryLabs — Mints'; }, []);
   const [rows, setRows]       = useState<Map<string, MintStatus>>(new Map());
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
@@ -134,8 +142,8 @@ export default function MintsPage() {
   }, [rows, sortKey]);
 
   return (
-    <div className="feed-root" data-page="mints">
-      <TopNav active="mints" />
+    <div className="feed-root" data-page="mints" data-embedded={embedded ? '1' : undefined}>
+      {!embedded && <TopNav active="mints" />}
 
       {/* Header */}
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>

@@ -193,13 +193,18 @@ function findMintInstruction(
 
 /** Listener-compatible IngestFn. Fetches the tx, parses it for a
  *  mint, and forwards into the in-memory accumulator. No DB write
- *  in this MVP — the accumulator is the source of truth. */
+ *  in this MVP — the accumulator is the source of truth.
+ *
+ *  Priority pinned to 'low' regardless of caller: mint ingestion must
+ *  never starve the sales path at the shared `rpcLimiter`. Under a
+ *  hot Token Metadata launch this lets sale fetches stay snappy even
+ *  if mint fetches queue up or get stale-dropped. */
 export async function ingestMintRaw(
   sig: string,
   _heliusTx?: unknown,                // unused; we always fetch raw
-  priority: Priority = 'medium',
+  _priority: Priority = 'medium',     // intentionally ignored — see above
 ): Promise<void> {
-  const tx = await fetchRawTx(sig, false, priority);
+  const tx = await fetchRawTx(sig, false, 'low');
   if (!tx) return;
   const hit = detectProgramSource(tx);
   if (!hit) return;

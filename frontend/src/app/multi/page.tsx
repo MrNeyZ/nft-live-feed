@@ -1,10 +1,10 @@
 'use client';
 
 // VictoryLabs — Multi-tab.
-// Composite layout that hosts the REAL existing /dashboard and /feed
-// pages (not custom approximations) via iframes with `?embed=1`. Same
-// origin → localStorage / cookies / runtime-mode are all shared. Each
-// iframe's Gate auth, layout-mode dataset, and SSE connection run
+// Composite layout that hosts the REAL existing /dashboard, /feed and
+// /mints pages (not custom approximations) via iframes with `?embed=1`.
+// Same origin → localStorage / cookies / runtime-mode are all shared.
+// Each iframe's Gate auth, layout-mode dataset, and SSE connection run
 // inside its own document; the outer page just owns the chrome.
 //
 // Layout:
@@ -12,7 +12,7 @@
 //   │ DASHBOARD   │              │
 //   │ (top-left)  │   LIVE FEED  │
 //   ├─────────────┤  (full right)│
-//   │ (reserved)  │              │
+//   │   MINTS     │              │
 //   │ (bottom-left)              │
 //   └─────────────┴──────────────┘
 
@@ -59,17 +59,9 @@ export default function MultiTabPage() {
           <iframe src="/feed?embed=1" title="Live Feed" style={IFRAME_STYLE} />
         </div>
 
-        {/* Bottom-left: reserved placeholder for a future tool */}
-        <div style={{
-          gridColumn: '1 / 2', gridRow: '2 / 3',
-          minWidth: 0, minHeight: 0,
-          border: '1px dashed rgba(168,144,232,0.22)',
-          borderRadius: 10,
-          background: 'rgba(20,14,34,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#55556e', fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase',
-        }}>
-          reserved · future tool
+        {/* Bottom-left: actual Mints interface, embedded */}
+        <div style={{ ...paneStyle, gridColumn: '1 / 2', gridRow: '2 / 3' }}>
+          <iframe src="/mints?embed=1" title="Mints" style={IFRAME_STYLE} />
         </div>
       </div>
     </div>

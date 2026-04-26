@@ -641,12 +641,19 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // largest knob keeping Token Metadata's firehose under control;
     // without it we would burn `getTransaction` on every metadata
     // update / verify / pNFT badge tx the program produces.
+    //
+    // IMPORTANT: do NOT markSeen / markSigFetched on a mint-prefilter
+    // skip — Token Metadata is invoked as an inner program by virtually
+    // every NFT sale on ME / Tensor (NFT transfer + collection verify).
+    // If we poisoned the shared dedup state here, the sales WS path
+    // would see fetchRawTx return null on the very same sig and the
+    // sale would silently fail to ingest. Cursor polling for these
+    // targets is already disabled (MINT_NO_POLL_TARGETS), so there is
+    // no other path to suppress.
     if (MINT_PREFILTER_TARGETS.has(target.name)) {
       if (!hasMintInstructionLog(value.logs)) {
         stats.filtered++;
         incPrefilterSkip();
-        markSeen(sig);
-        markSigFetched(sig);
         return;
       }
       // Sampled debug: log first hit per target then every 50th hit so
