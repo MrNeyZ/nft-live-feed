@@ -815,6 +815,15 @@ async function pollTarget(target: Target): Promise<void> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const params: any = { limit: POLL_LIMIT, commitment: 'confirmed' };
       if (lastSig) params.until = lastSig;
+      // Diagnostic: per-call line so the actual cursor + response pattern
+      // is visible from logs. Watch for "until=null" or "len=100" repeating
+      // — the first means cursor never advanced, the second means the
+      // response is saturated and we're missing newer sigs.
+      console.log(
+        `[sig/listener] target=${target.name}  ` +
+        `until=${lastSig ? lastSig.slice(0, 8) + '…' : 'null'}  ` +
+        `limit=${POLL_LIMIT}  attempt=${attempt}`,
+      );
       const r = await fetch(rpcHttpUrl(), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -845,6 +854,11 @@ async function pollTarget(target: Target): Promise<void> {
   if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
   const rows = json.result;
   if (!Array.isArray(rows)) return;
+
+  // Diagnostic: response size per call. Persistent len≈100 means the
+  // until-cursor isn't bounding the response — either lastSigByProgram
+  // is empty or the cursor sig has aged out of the RPC's sig window.
+  console.log(`[sig/listener] target=${target.name}  resp_len=${rows.length}`);
 
   // Advance the global per-program cursor on success ONLY. Newest sig is
   // first in the array (RPC returns newest-first). Skipped on empty pages
@@ -933,7 +947,10 @@ async function pollTarget(target: Target): Promise<void> {
   }
 }
 
+let pollAllSeq = 0;
 async function pollAll(): Promise<void> {
+  pollAllSeq++;
+  console.log(`[sig/listener/pollAll] seq=${pollAllSeq}  ts=${new Date().toISOString()}`);
   await Promise.allSettled(TARGETS.map(pollTarget));
 }
 

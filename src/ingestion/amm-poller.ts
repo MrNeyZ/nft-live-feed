@@ -101,6 +101,17 @@ async function fetchPage(
 
   incSigListFetch();
   noteSigList('amm', targetName);
+  // Diagnostic: every fetchPage logs its inputs. Run a 5-min capture and
+  // check the log for repeated `before=…` lines from the same target —
+  // that's the catch-up loop paginating deep, the most likely cause of
+  // the spike. `until=null` here means first run (cold cursor), which is
+  // expected exactly once per target after a restart.
+  console.log(
+    `[sig/amm] target=${targetName}  ` +
+    `until=${until ? until.slice(0, 8) + '…' : 'null'}  ` +
+    `before=${before ? before.slice(0, 8) + '…' : 'null'}  ` +
+    `limit=${PAGE_SIZE}`,
+  );
   const res = await fetch(rpcUrl(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,7 +124,9 @@ async function fetchPage(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const json = await res.json() as { result?: SigInfo[]; error?: { message: string } };
   if (json.error) throw new Error(`getSignaturesForAddress: ${json.error.message}`);
-  return json.result ?? [];
+  const rows = json.result ?? [];
+  console.log(`[sig/amm] target=${targetName}  resp_len=${rows.length}`);
+  return rows;
 }
 
 /**
@@ -177,11 +190,13 @@ async function fetchSinceCursor(
   // pagination starts from the top.
   let before: string | null = startBefore;
   let hitFloor = false;
+  let pages = 0;
   for (let i = 0; i < MAX_PAGES_PER_SWEEP; i++) {
     // Bail between pages if mode flipped or this sweep belongs to a prior
     // generation — prevents a deep burst from continuing to page after OFF.
     if (getMode() === 'off' || gen !== currentGeneration()) break;
     const page = await fetchPage(program, until, before, targetName);
+    pages++;
     if (getMode() === 'off' || gen !== currentGeneration()) break;
     if (page.length === 0) { hitFloor = true; break; }
     all.push(...page);
@@ -190,6 +205,15 @@ async function fetchSinceCursor(
     // Saturated page — page further back in time.
     before = page[page.length - 1].signature;
   }
+  // Diagnostic: how many pages this sweep consumed and whether it bailed
+  // on the MAX_PAGES_PER_SWEEP ceiling. `pages=75 saturated=true` repeating
+  // for the same target is the catch-up loop locked in saturation —
+  // each tick spends 75×4=300 RPC calls just on this one path.
+  console.log(
+    `[sig/amm/sweep] target=${targetName}  ` +
+    `pages=${pages}  rows=${all.length}  saturated=${!hitFloor}  ` +
+    `entered_with_before=${startBefore ? startBefore.slice(0, 8) + '…' : 'null'}`,
+  );
   return { rows: all, saturated: !hitFloor };
 }
 
@@ -423,9 +447,12 @@ function isLeanMode(mode: ReturnType<typeof getMode>): boolean {
   return mode === 'sales_only' || mode === 'budget';
 }
 
+let tickSeq = 0;
 function tick(): void {
   const mode = getMode();
   if (mode === 'off') return;
+  tickSeq++;
+  console.log(`[sig/amm/tick] seq=${tickSeq}  ts=${new Date().toISOString()}  mode=${mode}`);
   // Resume any backlog preserved across an OFF cycle. `kickBacklogDrain`
   // is a no-op when the previous drain hasn't yet flipped `backlogDraining`
   // back to false (it might still be unwinding from its own mode-off bail

@@ -55,6 +55,26 @@ export function useLayoutMode(): [LayoutMode, (m: LayoutMode) => void] {
     const initial = readLayoutMode();
     setMode(initial);
     applyLayoutMode(initial);
+    // Diagnostic: confirm what's actually live in the DOM after mount.
+    // Open DevTools console and look for `[layout-mode] mounted …`.
+    // - `applied` should equal `initial`.
+    // - `htmlAttr` should equal `initial`.
+    // - `feedRootZoom` should be 1.15 in PC mode on a non-multi page,
+    //   and 1 (or empty) in laptop / phone / multi / embedded contexts.
+    if (typeof document !== 'undefined') {
+      const root = document.querySelector('.feed-root') as HTMLElement | null;
+      const z = root ? getComputedStyle(root).zoom : '(no .feed-root)';
+      const t = root ? getComputedStyle(root).transform : '(no .feed-root)';
+      const ds = root?.dataset;
+      console.log(
+        `[layout-mode] mounted  initial=${initial}  ` +
+        `htmlAttr=${document.documentElement.dataset.layout ?? '(unset)'}  ` +
+        `feedRootZoom=${z}  feedRootTransform=${t}  ` +
+        `data-embedded=${ds?.embedded ?? '(unset)'}  ` +
+        `data-no-scale=${ds?.noScale ?? '(unset)'}  ` +
+        `url=${window.location.pathname}${window.location.search}`,
+      );
+    }
     const onChange = (e: Event) => {
       const next = (e as CustomEvent<LayoutMode>).detail;
       if (isLayoutMode(next)) setMode(next);
