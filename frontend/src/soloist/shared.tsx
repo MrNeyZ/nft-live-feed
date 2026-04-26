@@ -586,7 +586,7 @@ export function TopNav({ active }: { active: Page }) {
         </a>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2 }}>
           {pages.map(p => (
-            <a key={p.key} href={p.href} className="topnav-tab" style={{
+            <a key={p.key} href={p.href} className="topnav-tab" data-tab={p.key} style={{
               padding: '5px 16px', fontSize: 12, fontWeight: 600,
               color: active === p.key ? '#d0c8e4' : '#55556e',
               letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
@@ -699,9 +699,9 @@ export function TopNav({ active }: { active: Page }) {
         fontSize: 12, color: '#4a4a62',
         fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
-        <span><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc', textShadow: '0 0 8px rgba(128,104,216,0.3)' }}>{tps.toLocaleString()}</span></span>
-        <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d', textShadow: '0 0 8px rgba(52,180,96,0.2)' }}>${sol}</span></span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <span className="topnav-stat-tps"><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc', textShadow: '0 0 8px rgba(128,104,216,0.3)' }}>{tps.toLocaleString()}</span></span>
+        <span className="topnav-stat-sol"><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d', textShadow: '0 0 8px rgba(52,180,96,0.2)' }}>${sol}</span></span>
+        <div className="topnav-stat-live" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <LiveDot />
           <span style={{ color: '#4fb67d', fontSize: 11 }}>live</span>
         </div>
