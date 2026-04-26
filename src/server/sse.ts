@@ -5,9 +5,11 @@ import {
   RawPatch,
   ListingRemoveDelta,
   ListingSnapshotDelta,
+  type SourceStatusWire,
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
+import { currentStatuses } from '../health/source-health';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -71,6 +73,14 @@ function buildSaleFrame(event: SaleEvent): string {
   return `event: sale\ndata: ${payload}\n\n`;
 }
 
+function buildStatusFrame(s: SourceStatusWire): string {
+  return `event: status\ndata: ${JSON.stringify({
+    type:   'status',
+    source: s.source,
+    state:  s.state,
+  })}\n\n`;
+}
+
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
 saleEventBus.onSale(           (event)  => broadcast(buildSaleFrame(event)));
@@ -79,6 +89,7 @@ saleEventBus.onRemove(         (sig)    => broadcast(`event: remove\ndata: ${JSO
 saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onListingRemove(  (delta)  => broadcast(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => broadcast(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
+saleEventBus.onSourceStatus(   (s)      => broadcast(buildStatusFrame(s)));
 
 export function createSseRouter(): Router {
   const router = Router();
@@ -92,6 +103,13 @@ export function createSseRouter(): Router {
 
     // Initial comment so the client knows the connection is live.
     res.write(': connected\n\n');
+
+    // Send the current source-health snapshot so a freshly-mounted client
+    // doesn't have to wait for the next state flip to know whether ME or
+    // Tensor is stale.
+    for (const s of currentStatuses()) {
+      try { res.write(buildStatusFrame(s)); } catch { /* client gone */ }
+    }
 
     sseClients.add(res);
 

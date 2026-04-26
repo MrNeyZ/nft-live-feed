@@ -315,6 +315,12 @@ export default function FeedPage() {
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
   const [paused, setPaused] = useState(false);
+  // Per-source data health (defaults to 'ok' before the backend's first
+  // `status` frame lands so a brand-new mount doesn't show a false alert).
+  const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale' }>(
+    { magiceden: 'ok', tensor: 'ok' },
+  );
+  const meStale = sourceState.magiceden === 'stale';
   // Avatar-preview overlay state. One modal per page; clicking another thumb
   // just replaces the URL. Cleared on backdrop click or Escape key.
   const [preview, setPreview] = useState<string | null>(null);
@@ -467,6 +473,18 @@ export default function FeedPage() {
           if (signature) enqueue({ type: 'remove', signature });
         } catch { /* malformed frame — skip */ }
       });
+      // Per-source health: backend emits one `status` frame on connect for
+      // each known source plus a fresh frame on every state flip. Bypass
+      // the pause buffer — operator status info should always be live.
+      es.addEventListener('status', (e: MessageEvent) => {
+        try {
+          const { source, state } = JSON.parse(e.data) as {
+            source: 'magiceden' | 'tensor';
+            state:  'ok' | 'stale';
+          };
+          setSourceState(prev => ({ ...prev, [source]: state }));
+        } catch { /* malformed frame — skip */ }
+      });
       es.addEventListener('error', () => {
         es?.close();
         scheduleReconnect();
@@ -604,6 +622,30 @@ export default function FeedPage() {
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8068d8', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
+                {/* Source-health indicator. Green = both sources fresh.
+                    Red = Magic Eden stale (most common: ME API stalls
+                    while Tensor keeps producing events). */}
+                <span
+                  title={meStale
+                    ? 'Magic Eden API appears stale — no events received recently. Tensor data still flowing.'
+                    : 'All data sources flowing normally.'}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    marginLeft: 4, padding: '2px 6px', borderRadius: 4,
+                    fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
+                    border: meStale ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.4)',
+                    background: meStale ? 'rgba(239,120,120,0.14)' : 'rgba(92,224,160,0.10)',
+                    color: meStale ? '#ef7878' : '#5ce0a0',
+                    cursor: 'help',
+                  }}
+                >
+                  <span style={{
+                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                    background: meStale ? '#ef7878' : '#5ce0a0',
+                    boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 6px #5ce0a080',
+                  }} />
+                  ME {meStale ? 'STALE' : 'OK'}
+                </span>
                 {(filter !== 'all' || collFilter) && (
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -740,9 +782,26 @@ export default function FeedPage() {
               {/* Feed list */}
               <div ref={listRef} className="feed-list" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
                 {filtered.length === 0 && (
-                  <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
-                    No events match current filters
-                  </div>
+                  meStale ? (
+                    <div style={{
+                      textAlign: 'center', padding: '40px 16px', fontSize: 13,
+                      color: '#ef7878',
+                      border: '1px solid rgba(239,120,120,0.28)',
+                      background: 'rgba(239,120,120,0.06)',
+                      borderRadius: 8, margin: '24px 8px',
+                    }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4, letterSpacing: '0.3px' }}>
+                        ⚠ Magic Eden data is stale
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#c98787', fontWeight: 500 }}>
+                        No events received from Magic Eden recently. Tensor data still flowing.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
+                      No events match current filters
+                    </div>
+                  )
                 )}
                 {filtered.map(e => <FeedCard key={e.id} event={e} onPreview={setPreview} />)}
               </div>

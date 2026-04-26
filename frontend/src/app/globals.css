@@ -65,6 +65,94 @@ html[data-layout="phone"] .topnav-tab  {
   }
 }
 
+/* Phone Dashboard table — collapse the 8-column desktop layout to a
+   3-column phone strip: COLLECTION (rank+icon+name+age) · SALES · FLOOR.
+   AVG (4), ME BID (5), TNSR BID (6), 7D FLOOR sparkline (7), AND
+   7D VOLUME sparkline (8) all hide. SALES and FLOOR get fixed numeric
+   widths; COLLECTION takes the remainder with ellipsis on the name span.
+   Applies via either the data-layout attribute OR a narrow viewport so
+   the trim fires even before the layout-mode dataset propagates. */
+
+html[data-layout="phone"] .collections-table th:nth-child(4),
+html[data-layout="phone"] .collections-table th:nth-child(5),
+html[data-layout="phone"] .collections-table th:nth-child(6),
+html[data-layout="phone"] .collections-table th:nth-child(7),
+html[data-layout="phone"] .collections-table th:nth-child(8),
+html[data-layout="phone"] .collections-table td:nth-child(4),
+html[data-layout="phone"] .collections-table td:nth-child(5),
+html[data-layout="phone"] .collections-table td:nth-child(6),
+html[data-layout="phone"] .collections-table td:nth-child(7),
+html[data-layout="phone"] .collections-table td:nth-child(8) { display: none !important; }
+html[data-layout="phone"] .collections-table {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+html[data-layout="phone"] .collections-table th,
+html[data-layout="phone"] .collections-table td {
+  padding: 8px 4px !important;
+  font-size: 11.5px !important;
+}
+html[data-layout="phone"] .collections-table th:first-child,
+html[data-layout="phone"] .collections-table td:first-child {
+  padding-left: 6px !important;
+  width: auto !important;
+  overflow: hidden !important;
+}
+html[data-layout="phone"] .collections-table th:nth-child(2),
+html[data-layout="phone"] .collections-table td:nth-child(2) { width: 56px !important; }
+html[data-layout="phone"] .collections-table th:nth-child(3),
+html[data-layout="phone"] .collections-table td:nth-child(3) { width: 64px !important; }
+html[data-layout="phone"] .collections-table td:first-child > div { min-width: 0 !important; }
+html[data-layout="phone"] .collections-table td:first-child > div > span:last-child {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 600px) {
+  .collections-table th:nth-child(4),
+  .collections-table th:nth-child(5),
+  .collections-table th:nth-child(6),
+  .collections-table th:nth-child(7),
+  .collections-table th:nth-child(8),
+  .collections-table td:nth-child(4),
+  .collections-table td:nth-child(5),
+  .collections-table td:nth-child(6),
+  .collections-table td:nth-child(7),
+  .collections-table td:nth-child(8) { display: none !important; }
+  .collections-table {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .collections-table th,
+  .collections-table td {
+    padding: 8px 4px !important;
+    font-size: 11.5px !important;
+  }
+  .collections-table th:first-child,
+  .collections-table td:first-child {
+    padding-left: 6px !important;
+    width: auto !important;
+    overflow: hidden !important;
+  }
+  .collections-table th:nth-child(2),
+  .collections-table td:nth-child(2) { width: 56px !important; }
+  .collections-table th:nth-child(3),
+  .collections-table td:nth-child(3) { width: 64px !important; }
+  .collections-table td:first-child > div { min-width: 0 !important; }
+  .collections-table td:first-child > div > span:last-child {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+  /* Prevent the dashboard pane from overflowing horizontally. */
+  .feed-root { overflow-x: hidden !important; }
+}
+
 /* PC — true +15 % visual scale on the entire app shell. `zoom` scales
    geometry, fonts, and layout simultaneously without breaking flexbox /
    grid measurements (unlike `transform: scale`, which leaves the layout

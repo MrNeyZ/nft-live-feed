@@ -118,6 +118,13 @@ export interface ListingRefreshHint {
   poolKeys?: string[];
 }
 
+/** Per-marketplace data-source health flip. Emitted by source-health.ts
+ *  when a source transitions ok ↔ stale. Forwarded over SSE as `status`. */
+export interface SourceStatusWire {
+  source: 'magiceden' | 'tensor';
+  state:  'ok' | 'stale';
+}
+
 /**
  * In-process event bus. insertSaleEvent emits 'sale' here;
  * the SSE endpoint subscribes and fans out to connected clients.
@@ -234,6 +241,19 @@ class SaleEventBus extends EventEmitter {
   }
   offListingRefreshHint(listener: (evt: ListingRefreshHint) => void): this {
     return this.off('listing_refresh_hint', listener);
+  }
+
+  /** Per-marketplace data-source health flip (ok ↔ stale). Forwarded by
+   *  the SSE layer as a `status` event so connected clients can render a
+   *  degraded-state indicator. */
+  emitSourceStatus(s: SourceStatusWire): void {
+    this.emit('source_status', s);
+  }
+  onSourceStatus(listener: (s: SourceStatusWire) => void): this {
+    return this.on('source_status', listener);
+  }
+  offSourceStatus(listener: (s: SourceStatusWire) => void): this {
+    return this.off('source_status', listener);
   }
 }
 

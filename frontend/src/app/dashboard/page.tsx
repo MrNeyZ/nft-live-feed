@@ -1009,7 +1009,7 @@ export default function Dashboard() {
           flex: 1, overflow: 'auto', padding: '0 10px 8px',
           opacity: tfFading ? 0.6 : 1, transition: 'opacity 140ms ease',
         }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '41%' }} />
               <col style={{ width: '7%' }} />

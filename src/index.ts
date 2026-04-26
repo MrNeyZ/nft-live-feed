@@ -5,6 +5,9 @@ import { getPool } from './db/client';
 import { trimStartupLog } from './startup-log-trim';
 import { acquireSingleton } from './runtime/lock';
 import { validateEnv } from './runtime/env-validation';
+// Side-effect import: source-health subscribes to the sale event bus and
+// starts its 15s staleness tick. Must load before any SSE client connects.
+import './health/source-health';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
