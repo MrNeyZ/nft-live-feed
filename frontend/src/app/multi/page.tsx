@@ -70,7 +70,11 @@ export default function MultiTabPage() {
 
 const paneStyle: React.CSSProperties = {
   minWidth: 0, minHeight: 0,
-  border: '1px solid rgba(168,144,232,0.18)',
+  // Same 1 px thickness as before, but bumped opacity so the frame is
+  // visible around every pane without depending on the inner card's
+  // stronger 0.65-alpha border. All three panes now share an identical
+  // chrome — outer purple frame at 0.55, no per-pane variation.
+  border: '1px solid rgba(168,144,232,0.55)',
   borderRadius: 10,
   overflow: 'hidden',
   background: 'linear-gradient(180deg, rgba(32,26,58,0.55) 0%, rgba(26,21,48,0.55) 100%)',
