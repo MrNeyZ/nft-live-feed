@@ -53,7 +53,15 @@ const TARGETS: PollTarget[] = [
 const INTERVAL_MS = 2_500;
 const PAGE_SIZE   = 20;
 /** Hard ceiling on catch-up pages per sweep — protects against runaway loops. */
-const MAX_PAGES_PER_SWEEP = 75; // up to 1500 sigs per sweep during bursts
+// Per-sweep page budget. The catch-up loop walks back from `before`
+// until the floor (`until` cursor) is reached or this many pages are
+// consumed; whichever fires first. Lowered 75 → 20 so a sustained
+// catch-up burst caps RPC at ≈ 21 calls × 24 sweeps/min × N targets
+// instead of 76 × 24 × N. Steady-state cost (no catch-up) is unaffected
+// because non-saturated sweeps make at most 1 call per target. Total
+// drain time grows ~4× during a long-idle reconnect — acceptable
+// because the gap is finite and the RPC ceiling is now bounded.
+const MAX_PAGES_PER_SWEEP = 20;
 
 // Local bounded FIFO to dedupe sigs across consecutive polls for the same
 // target — keeps the skipped/unseen counters meaningful and avoids re-dispatch
