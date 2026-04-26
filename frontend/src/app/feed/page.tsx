@@ -613,14 +613,16 @@ export default function FeedPage() {
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>
         <div style={{ width: '100%', maxWidth: embedded ? 'none' : 'var(--feed-column-max, 640px)', display: 'flex', flexDirection: 'column', minHeight: 0, transition: 'max-width 0.28s ease' }}>
 
-          {/* Promoted feed card */}
+          {/* Promoted feed card. In embed mode (multi-tab pane) the
+              top margin is dropped so the embedded card top aligns
+              flush with the embedded /dashboard table card top. */}
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
             border: '1px solid rgba(168,144,232,0.65)',
             borderRadius: 12,
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
-            margin: '14px 0 3px',
+            margin: embedded ? 0 : '14px 0 3px',
             minHeight: 0,
           }}>
 

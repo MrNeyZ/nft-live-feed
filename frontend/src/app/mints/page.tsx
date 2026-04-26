@@ -145,35 +145,42 @@ export default function MintsPage() {
     <div className="feed-root" data-page="mints" data-embedded={embedded ? '1' : undefined}>
       {!embedded && <TopNav active="mints" />}
 
-      {/* Header */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
-              Live mint tracker
-            </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <LiveDot />
-              <span style={{ fontSize: 11, color: '#4fb67d' }}>
-                {sorted.length === 0 ? 'No active mints' : `${sorted.length} active collection${sorted.length === 1 ? '' : 's'}`}
-              </span>
+      {/* Header — hidden in embed mode so the multi-tab pane chrome
+          owns the title context. Mirrors the same pattern used by
+          /dashboard's "Trending collections" header. */}
+      {!embedded && (
+        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+                Live mint tracker
+              </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                <LiveDot />
+                <span style={{ fontSize: 11, color: '#4fb67d' }}>
+                  {sorted.length === 0 ? 'No active mints' : `${sorted.length} active collection${sorted.length === 1 ? '' : 's'}`}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Table card (mirrors dashboard chrome) */}
+      {/* Table card (mirrors dashboard chrome). In embed mode the
+          maxWidth cap is removed so the card fills the iframe edge-
+          to-edge, matching how /dashboard and /feed render in their
+          multi-tab panes; bottom margin is dropped for the same reason. */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%',
-        maxWidth: 1000,
+        maxWidth: embedded ? 'none' : 1000,
         margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden',
-        marginBottom: 16,
+        marginBottom: embedded ? 0 : 16,
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>

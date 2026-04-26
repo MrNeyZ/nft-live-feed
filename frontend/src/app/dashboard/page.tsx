@@ -931,7 +931,9 @@ export default function Dashboard() {
         borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden',
-        marginBottom: 16,
+        // No bottom margin in embed mode so the card sits flush with
+        // the iframe edge — multi-tab pane chrome owns the spacing.
+        marginBottom: embedded ? 0 : 16,
       }}>
 
         {/* Card header: tabs + filters + timeframe */}
