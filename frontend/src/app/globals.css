@@ -45,6 +45,26 @@ html[data-layout="phone"] .topnav-tab  {
   letter-spacing: 0.3px !important;
 }
 
+/* Viewport-width safety net — same trim, but triggered by physical
+   narrow viewport instead of the data-layout attribute. Catches the case
+   where the user is on a phone but the data-layout dataset hasn't
+   propagated (browser cache, first paint before hydrate, or the user
+   hasn't opened the floating switcher yet). 600 px threshold covers
+   every modern phone viewport. */
+@media (max-width: 600px) {
+  .topnav-logo,
+  .topnav-tab[data-tab="multi"],
+  .topnav-stat-tps,
+  .topnav-stat-sol,
+  .topnav-stat-live { display: none !important; }
+  .topnav-left { gap: 8px !important; }
+  .topnav-tab  {
+    padding: 4px 8px !important;
+    font-size: 10.5px !important;
+    letter-spacing: 0.3px !important;
+  }
+}
+
 /* PC — true +15 % visual scale on the entire app shell. `zoom` scales
    geometry, fonts, and layout simultaneously without breaking flexbox /
    grid measurements (unlike `transform: scale`, which leaves the layout
