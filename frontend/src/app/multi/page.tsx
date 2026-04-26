@@ -44,7 +44,9 @@ export default function MultiTabPage() {
         gridTemplateColumns: '1.55fr 1fr',
         gridTemplateRows: '1fr 1fr',
         gap: 12,
-        padding: '12px 0',
+        // Top breathing room kept; bottom padding dropped so the panes
+        // extend flush to the viewport bottom edge.
+        padding: '12px 0 0',
         minHeight: 0,
       }}>
         {/* Top-left: actual Dashboard interface, embedded */}
