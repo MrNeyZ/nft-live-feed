@@ -21,6 +21,7 @@
 
 import { RawSolanaTx } from './types';
 import { SaleEvent, NftType } from '../../models/sale-event';
+import { computeSellerNetLamports } from '../seller-net';
 import {
   isMeTransaction,
   findMeV2SaleIx,
@@ -125,6 +126,7 @@ function parseMeV2Sale(
     return { ok: false, reason: `me_v2(${match.instructionName}): zero price` };
   }
 
+  const sellerNet = computeSellerNetLamports(tx, seller);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -136,6 +138,8 @@ function parseMeV2Sale(
     buyer,
     priceLamports:     payment.priceLamports,
     priceSol:          Number(payment.priceLamports) / 1e9,
+    sellerNetLamports: sellerNet,
+    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
     rawData:           {
       _parser:     'me_v2_raw',
@@ -244,6 +248,7 @@ function parseMmmSale(
 
   // ── Build event ───────────────────────────────────────────────────────────
 
+  const sellerNet = computeSellerNetLamports(tx, seller);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -255,6 +260,8 @@ function parseMmmSale(
     buyer,
     priceLamports:     payment.priceLamports,
     priceSol:          Number(payment.priceLamports) / 1e9,
+    sellerNetLamports: sellerNet,
+    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
     rawData:           {
       _parser:      'mmm_raw',

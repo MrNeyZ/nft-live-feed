@@ -28,9 +28,15 @@ export function compressImage(url: string | null | undefined): string | null {
   if (!url) return null;
   if (!(url.startsWith('http://') || url.startsWith('https://'))) return url;
   if (url.includes('irys.xyz')) return url;
-  const isGif = /\.gif(\?|$)/i.test(url);
-  const base = `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover`;
-  return isGif ? `${base}&output=png` : base;
+  // Always force `output=png`. The proxy / wsrv decodes animated inputs
+  // (GIF, animated WebP/AVIF) and emits only the first frame as PNG, so
+  // every NFT thumbnail renders as a static 200×200 image with no
+  // animation regardless of the upstream format. Previously this was
+  // gated on a `.gif` URL extension check, which missed CDN-hashed URLs
+  // (Tensor / Magic Eden often serve animated GIFs from URLs without a
+  // visible `.gif` suffix). PNG keeps transparency intact (vs JPEG)
+  // which matters for NFTs rendered against the dark theme.
+  return `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=png`;
 }
 
 // Row-as-link helpers — used by navigable rows that cannot nest inside an

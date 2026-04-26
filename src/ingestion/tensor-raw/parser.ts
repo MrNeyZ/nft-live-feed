@@ -15,6 +15,7 @@
 
 import { RawSolanaTx } from './types';
 import { SaleEvent, NftType, CNFT_MIN_PRICE_LAMPORTS } from '../../models/sale-event';
+import { computeSellerNetLamports } from '../seller-net';
 import {
   isTensorTransaction,
   findTcompSaleIx,
@@ -141,6 +142,7 @@ function parseTcompSale(
 
   // ── Build event ────────────────────────────────────────────────────────────
 
+  const sellerNet = computeSellerNetLamports(tx, seller);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -152,6 +154,8 @@ function parseTcompSale(
     buyer,
     priceLamports:     payment.priceLamports,
     priceSol:          Number(payment.priceLamports) / 1e9,
+    sellerNetLamports: sellerNet,
+    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
     rawData: {
       _parser:      'tensor_raw',
@@ -231,6 +235,7 @@ function parseTammSale(
 
   // ── Build event ────────────────────────────────────────────────────────────
 
+  const sellerNet = computeSellerNetLamports(tx, seller);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -242,6 +247,8 @@ function parseTammSale(
     buyer,
     priceLamports:     payment.priceLamports,
     priceSol:          Number(payment.priceLamports) / 1e9,
+    sellerNetLamports: sellerNet,
+    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
     rawData: {
       _parser:      'tamm_raw',

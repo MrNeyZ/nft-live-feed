@@ -16,6 +16,11 @@ export interface FeedEvent {
   seller: string;
   buyer: string;
   priceSol: number;
+  /** Best-effort net SOL the seller actually received (after fees +
+   *  royalties), computed server-side from the tx's pre/post balance
+   *  delta. Null when not extractable. UI prefers this when present
+   *  and falls back to `priceSol` (gross). */
+  sellerNetPriceSol?: number | null;
   currency: string;
   nftName: string | null;
   imageUrl: string | null;

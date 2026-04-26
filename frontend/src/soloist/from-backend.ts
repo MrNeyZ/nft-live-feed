@@ -70,8 +70,14 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     nftName,
     num: numFromName(b.nftName),
     rank: 0,
-    price: b.priceSol,
+    // Display price prefers seller-net (actual proceeds) when available,
+    // gross priceSol as fallback. `grossPrice` always carries the raw
+    // sale figure for consumers (chart, summaries) that need it.
+    // `sellerNetPrice` is propagated separately so any UI surface can
+    // render both side-by-side via tooltip / hover when desired.
+    price: (b.sellerNetPriceSol ?? null) != null ? (b.sellerNetPriceSol as number) : b.priceSol,
     grossPrice: b.priceSol,
+    sellerNetPrice: b.sellerNetPriceSol ?? null,
     floorDelta: b.floorDelta ?? 0,
     marketplace: mapMarketplace(b.marketplace),
     ts: Date.parse(b.blockTime),

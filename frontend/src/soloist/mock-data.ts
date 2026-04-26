@@ -35,8 +35,14 @@ export interface FeedEvent {
   nftName: string;
   num: number;
   rank: number;
+  /** Display price — prefers seller-net (actual proceeds after fees +
+   *  royalties) when the backend extracted it; falls back to `grossPrice`. */
   price: number;
+  /** Raw gross sale price extracted from the instruction. Always set. */
   grossPrice: number;
+  /** Server-computed net the seller actually received. Null when the
+   *  backend couldn't extract it (e.g. cNFT, missing balance delta). */
+  sellerNetPrice?: number | null;
   floorDelta: number;
   marketplace: Marketplace;
   ts: number;
@@ -81,11 +87,24 @@ export function timeAgo(ms: number): string {
   return `${Math.floor(diff / 86400000)}d ago`;
 }
 
+/**
+ * Canonical SOL price formatter used everywhere prices render.
+ * Decimal precision tiers:
+ *   ≥ 1000  → 1.2K-style abbreviation
+ *   ≥ 100   → 0 decimals
+ *   ≥ 10    → 1 decimal
+ *   ≥ 0.1   → 2 decimals  (e.g. 1.35, 0.27)
+ *   < 0.1   → 3 decimals  (e.g. 0.099, 0.045) so sub-floor values stay legible
+ * The 0.1 boundary is the only place this differs from "1.0 boundary"
+ * — moved deliberately so 0.27 / 0.45 display as 2 decimals (cleaner)
+ * while 0.099 / 0.045 keep the third digit (otherwise they'd round to
+ * 0.10 / 0.05 and lose meaningful precision).
+ */
 export function formatSol(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   if (n >= 100)  return `${n.toFixed(0)}`;
   if (n >= 10)   return `${n.toFixed(1)}`;
-  if (n >= 1)    return `${n.toFixed(2)}`;
+  if (n >= 0.1)  return `${n.toFixed(2)}`;
   return `${n.toFixed(3)}`;
 }
 

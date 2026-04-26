@@ -63,6 +63,7 @@ function buildSaleFrame(event: SaleEvent): string {
     seller:            event.seller,
     buyer:             event.buyer,
     priceSol:          event.priceSol,
+    sellerNetPriceSol: event.sellerNetPriceSol ?? null,
     currency:          event.currency,
     nftName:           event.nftName,
     imageUrl:          event.imageUrl,

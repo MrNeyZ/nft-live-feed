@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { LiveDot, TopNav, CollectionIcon, compressImage } from '@/soloist/shared';
+import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -58,7 +59,8 @@ type SortKey = 'velocity' | 'mints';
 function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
   if (lamports === 0)   return 'FREE';
-  return (lamports / 1e9).toFixed(3);
+  // Shared formatter: ≥0.1 → 2 decimals, <0.1 → 3 decimals.
+  return formatSol(lamports / 1e9);
 }
 
 function fmtAge(ts: number): string {

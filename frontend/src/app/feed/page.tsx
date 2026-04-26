@@ -6,7 +6,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   FeedEvent, Side,
-  rndFloat, shortWallet, timeAgo,
+  formatSol, rndFloat, shortWallet, timeAgo,
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
@@ -212,7 +212,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
               fontFamily: "'SF Mono','Fira Code',monospace",
             }}>
-              {event.price.toFixed(2)}{' '}
+              {formatSol(event.price)}{' '}
               <span style={{ color: '#8a8aa6', fontWeight: 600, fontSize: 11 }}>SOL</span>
             </span>
           </div>

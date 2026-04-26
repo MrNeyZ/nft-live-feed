@@ -22,10 +22,21 @@ export interface SaleEvent {
   collectionAddress: string | null;
   seller: string;
   buyer: string;
-  /** Price in lamports (canonical). 1 SOL = 1_000_000_000 lamports. */
+  /** Price in lamports (canonical, gross). 1 SOL = 1_000_000_000 lamports.
+   *  This is the price the parser extracted from the instruction data —
+   *  the gross sale figure before marketplace fees / royalties. */
   priceLamports: bigint;
   /** Derived: priceLamports / 1e9 */
   priceSol: number;
+  /** Best-effort net amount the seller actually received, computed
+   *  directly from the transaction's SOL balance delta on the seller
+   *  account (`postBalances[i] - preBalances[i]`). Captures the real
+   *  proceeds after marketplace fees + royalties. Falls back to null
+   *  when the seller wallet isn't found in the tx's accountKeys or the
+   *  delta is non-positive. The frontend prefers this when present and
+   *  falls back to `priceLamports` / `priceSol`. */
+  sellerNetLamports?: bigint | null;
+  sellerNetPriceSol?: number | null;
   currency: Currency;
   rawData: Record<string, unknown>;
   // Enrichment fields — populated best-effort via Helius DAS after parsing.

@@ -20,8 +20,13 @@ import { useEffect } from 'react';
 import { TopNav } from '@/soloist/shared';
 
 const IFRAME_STYLE: React.CSSProperties = {
+  // `flex: 1 1 auto` + `min-height: 0` (on the parent paneStyle) lets the
+  // iframe stretch to the full grid-cell height across browsers without
+  // depending on the height-percentage chain. Width still 100 % via flex.
+  flex: '1 1 auto',
   width: '100%',
   height: '100%',
+  minHeight: 0,
   border: 'none',
   background: 'transparent',
   display: 'block',
@@ -75,6 +80,12 @@ export default function MultiTabPage() {
 
 const paneStyle: React.CSSProperties = {
   minWidth: 0, minHeight: 0,
+  // Flex column so the iframe child stretches to fill the cell. Without
+  // this the iframe's `height: 100%` was inconsistent across browsers
+  // when the parent was a CSS-grid track — the feed pane visually
+  // ended above the grid-cell bottom.
+  display: 'flex',
+  flexDirection: 'column',
   border: '1px solid rgba(168,144,232,0.18)',
   borderRadius: 10,
   overflow: 'hidden',

@@ -27,7 +27,57 @@ html[data-layout="phone"] {
 }
 html[data-layout="phone"] body { font-size: 12px; }
 html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
-html[data-layout="phone"] .feed-thumb { width: 48px; height: 48px; }
+/* Phone thumb — force a rigid 48 px square that never shrinks, never
+   stretches, and centres any inner content. The inline ItemThumb uses
+   size={56} on the JSX side; on phone we override the actual rendered
+   img/div to fit the 48 px wrapper exactly with object-fit: cover so
+   nothing shifts vertically inside the card. Live Feed only — does not
+   touch dashboard / mints / collection thumbs. */
+html[data-layout="phone"] .feed-thumb {
+  width:  48px !important;
+  height: 48px !important;
+  flex-shrink: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+html[data-layout="phone"] .feed-thumb,
+html[data-layout="phone"] .feed-thumb > div {
+  overflow: hidden;
+}
+html[data-layout="phone"] .feed-thumb > div,
+html[data-layout="phone"] .feed-thumb > div > div {
+  width: 100% !important;
+  height: 100% !important;
+}
+html[data-layout="phone"] .feed-thumb img {
+  width:  100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
+@media (max-width: 600px) {
+  .feed-thumb {
+    width:  48px !important;
+    height: 48px !important;
+    flex-shrink: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .feed-thumb > div,
+  .feed-thumb > div > div {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .feed-thumb img {
+    width:  100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    display: block;
+  }
+}
 
 /* Phone TopNav — drop the logo, the MULTI-TAB tab, and the TPS / SOL /
    live stats to free horizontal space. Search box, Mode badge and OFF

@@ -6,6 +6,7 @@ import { isBlacklistedCollection } from './blacklist';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
+import { logSellerNetDiff } from '../ingestion/seller-net';
 import { slugForMint } from '../server/listings-store';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
@@ -160,6 +161,13 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   const resolvedSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
   const blockAgeSec = ((Date.now() - event.blockTime.getTime()) / 1000).toFixed(1);
   console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}`);
+  // Sampled debug: log when seller-net differs from gross (1st + every 25th).
+  logSellerNetDiff({
+    signature:         event.signature,
+    marketplace:       event.marketplace,
+    priceLamports:     event.priceLamports,
+    sellerNetLamports: event.sellerNetLamports,
+  });
   saleEventBus.emitSale({
     ...event,
     nftName: null,

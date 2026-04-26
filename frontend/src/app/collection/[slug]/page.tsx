@@ -304,7 +304,7 @@ const ListingRowItem = memo(function ListingRowItem({
     : !isMe             ? 'Tensor buy flow not yet implemented'
     : serverDisabled    ? 'Buy unavailable: ME_API_KEY not set on server'
     : !walletConnected  ? 'Connect Phantom to buy'
-    :                     `Buy ${listing.priceSol.toFixed(3)} SOL`;
+    :                     `Buy ${formatSol(listing.priceSol)} SOL`;
   // Deal classification — purely cosmetic. `strong` = within +5 % of floor;
   // `good` = within +10 %. Uses inset box-shadow + tinted background so
   // there's zero layout shift (no border / outline / extra DOM nodes).
@@ -1663,8 +1663,8 @@ export default function CollectionPage() {
           </div>
           {/* Stats row 2 */}
           <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'transparent' }}>
-            <StatItem value={vol7dSol  != null ? `${vol7dSol.toFixed(1)}`  : '—'} label="7D Vol" />
-            <StatItem value={vol24hSol != null ? `${vol24hSol.toFixed(2)}` : '—'} label="24H Vol" />
+            <StatItem value={vol7dSol  != null ? formatSol(vol7dSol)  : '—'} label="7D Vol" />
+            <StatItem value={vol24hSol != null ? formatSol(vol24hSol) : '—'} label="24H Vol" />
             <StatItem value={volumeAllSol != null ? `${(volumeAllSol/1000).toFixed(1)}K` : '—'} label="Total Volume" />
             <StatItem value={events.length.toLocaleString()} label="Buffer" />
           </div>
