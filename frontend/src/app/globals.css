@@ -229,52 +229,52 @@ html[data-layout="pc"] .feed-root[data-no-scale="1"]            { zoom: 1; }
    page-root scale. Phone mode stays untouched.
 
    Math notes (zoom compounds across ancestor → descendant):
-     LAPTOP  – page root NOT scaled; rows scale 1.5× directly. Chart untouched.
-     PC      – page root scales 1.5×. Listing/trade rows additionally
-               scale by 4/3 so net = 1.5 × 4/3 = 2.0×. Chart is dezoomed
-               by 2/3 so net = 1.5 × 2/3 = 1.0×. */
+     LAPTOP  – page root NOT scaled; rows scale 1.25× directly. Chart untouched.
+     PC      – page root scales 1.25×. Listing/trade rows additionally
+               scale by 1.2 so net = 1.25 × 1.2 = 1.5×. Chart is dezoomed
+               by 0.8 so net = 1.25 × 0.8 = 1.0×. */
 html[data-layout="laptop"] [data-page="collection"] .listing-row,
 html[data-layout="laptop"] [data-page="collection"] .trade-row {
-  zoom: 1.5;
+  zoom: 1.25;
 }
 
 html[data-layout="pc"] [data-page="collection"] {
-  zoom: 1.5;
+  zoom: 1.25;
 }
 html[data-layout="pc"] [data-page="collection"] .listing-row,
 html[data-layout="pc"] [data-page="collection"] .trade-row {
-  zoom: 1.3333;        /* 4/3 → 1.5 × 4/3 = 2.0 effective */
+  zoom: 1.2;           /* 1.25 × 1.2 = 1.5 effective */
 }
 html[data-layout="pc"] [data-page="collection"] .collection-chart {
-  zoom: 0.6667;        /* 2/3 → 1.5 × 2/3 = 1.0 effective */
+  zoom: 0.8;           /* 1.25 × 0.8 = 1.0 effective */
 }
 
 /* Fallback for browsers without `zoom` support — same intent, transform
    compensation. Page root in PC scales via transform; chart undoes it
    with an inverse scale so its visual size stays at 1.0×. Rows compound
-   to 2.0× in PC and 1.5× in laptop. */
+   to 1.5× in PC and 1.25× in laptop. */
 @supports not (zoom: 1) {
   html[data-layout="laptop"] [data-page="collection"] .listing-row,
   html[data-layout="laptop"] [data-page="collection"] .trade-row {
-    transform: scale(1.5);
+    transform: scale(1.25);
     transform-origin: top left;
   }
   html[data-layout="pc"] [data-page="collection"] {
-    transform: scale(1.5);
+    transform: scale(1.25);
     transform-origin: top left;
-    width:  calc(100% / 1.5);
-    height: calc(100vh / 1.5);
+    width:  calc(100% / 1.25);
+    height: calc(100vh / 1.25);
   }
   html[data-layout="pc"] [data-page="collection"] .listing-row,
   html[data-layout="pc"] [data-page="collection"] .trade-row {
-    transform: scale(1.3333);
+    transform: scale(1.2);
     transform-origin: top left;
   }
   html[data-layout="pc"] [data-page="collection"] .collection-chart {
-    transform: scale(0.6667);
+    transform: scale(0.8);
     transform-origin: top left;
-    width:  calc(100% / 0.6667);
-    height: calc(100% / 0.6667);
+    width:  calc(100% / 0.8);
+    height: calc(100% / 0.8);
   }
 }
 
@@ -532,12 +532,36 @@ html[data-layout="phone"] [data-page="collection"] .collection-header-right {
 html[data-layout="phone"] [data-page="collection"] {
   overflow-x: hidden !important;
 }
-/* Suppress the laptop/PC per-row 1.5×/2× zoom on phone — phone uses raw
-   sizing so cards fit without horizontal overflow. (The previous rules
-   are gated to laptop/pc but this is defence in depth.) */
+/* Suppress the laptop/PC per-row zoom AND any transform fallback on
+   phone — phone uses raw sizing so cards fit without horizontal
+   overflow. The previous rules are gated to laptop/pc but this is
+   defence in depth in case the data-layout attribute lags. */
+html[data-layout="phone"] [data-page="collection"] .listing-row,
+html[data-layout="phone"] [data-page="collection"] .trade-row,
+html[data-layout="phone"] [data-page="collection"] .collection-chart,
+html[data-layout="phone"] [data-page="collection"] {
+  zoom: 1 !important;
+  transform: none !important;
+}
+/* Force every grid child to take the full pane width and stack
+   vertically as a list of cards (image + text column). `display: flex`
+   keeps the existing in-row layout (image | content) but
+   `flex-wrap: nowrap` + `width: 100%` + `min-width: 0` guarantees the
+   row never tries to be wider than the viewport. */
+html[data-layout="phone"] [data-page="collection"] .collection-grid > * {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
 html[data-layout="phone"] [data-page="collection"] .listing-row,
 html[data-layout="phone"] [data-page="collection"] .trade-row {
-  zoom: 1 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 @media (max-width: 600px) {
@@ -568,7 +592,25 @@ html[data-layout="phone"] [data-page="collection"] .trade-row {
     overflow-x: hidden !important;
   }
   [data-page="collection"] .listing-row,
-  [data-page="collection"] .trade-row {
+  [data-page="collection"] .trade-row,
+  [data-page="collection"] .collection-chart,
+  [data-page="collection"] {
     zoom: 1 !important;
+    transform: none !important;
+  }
+  [data-page="collection"] .collection-grid > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  [data-page="collection"] .listing-row,
+  [data-page="collection"] .trade-row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 }
