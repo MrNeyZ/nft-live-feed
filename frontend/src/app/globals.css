@@ -37,7 +37,9 @@ html[data-layout="phone"] .topnav-logo,
 html[data-layout="phone"] .topnav-tab[data-tab="multi"],
 html[data-layout="phone"] .topnav-stat-tps,
 html[data-layout="phone"] .topnav-stat-sol,
-html[data-layout="phone"] .topnav-stat-live { display: none !important; }
+html[data-layout="phone"] .topnav-stat-live,
+html[data-layout="phone"] .topnav-search,
+html[data-layout="phone"] .topnav-mode-badge { display: none !important; }
 html[data-layout="phone"] .topnav-left { gap: 8px !important; }
 html[data-layout="phone"] .topnav-tab  {
   padding: 4px 8px !important;
@@ -56,7 +58,9 @@ html[data-layout="phone"] .topnav-tab  {
   .topnav-tab[data-tab="multi"],
   .topnav-stat-tps,
   .topnav-stat-sol,
-  .topnav-stat-live { display: none !important; }
+  .topnav-stat-live,
+  .topnav-search,
+  .topnav-mode-badge { display: none !important; }
   .topnav-left { gap: 8px !important; }
   .topnav-tab  {
     padding: 4px 8px !important;
@@ -193,10 +197,24 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
    Last rule wins on equal specificity, so the data-embedded /
    data-no-scale opt-outs keep working even when the dashboard's
    data-page="dashboard" attribute is also present. */
-html[data-layout="pc"] .feed-root                               { zoom: 1.10; }
-html[data-layout="pc"] .feed-root[data-page="dashboard"]        { zoom: 1.20; }
+html[data-layout="pc"] .feed-root                               { zoom: 1.10; height: calc(100vh / 1.10); }
+html[data-layout="pc"] .feed-root[data-page="dashboard"]        { zoom: 1.20; height: calc(100vh / 1.20); }
 html[data-layout="pc"] .feed-root[data-embedded="1"],
-html[data-layout="pc"] .feed-root[data-no-scale="1"]            { zoom: 1; }
+html[data-layout="pc"] .feed-root[data-no-scale="1"]            { zoom: 1; height: 100vh; }
+
+/* PC TopNav uniformity — every page should render the TopNav at the
+   same visual size (1.20×, the dashboard reference). Pages have
+   different page-root zoom, so the TopNav inherits a different scale
+   on each. We compensate via an inverse zoom on `.topnav-root` that
+   re-targets the visible scale to 1.20× regardless of the parent.
+     dashboard parent 1.20  → topnav 1.0  → 1.20 × 1.0 = 1.20 ✓
+     feed/multi parent 1.10 → topnav 1.0909 → 1.10 × 1.0909 ≈ 1.20 ✓
+     collection parent 1.25 → topnav 0.96 → 1.25 × 0.96 = 1.20 ✓
+   Embedded iframes don't render the TopNav (it's hidden in embed
+   mode), so no rule needed for them. */
+html[data-layout="pc"] .feed-root .topnav-root                          { zoom: calc(1.20 / 1.10); }
+html[data-layout="pc"] .feed-root[data-page="dashboard"] .topnav-root   { zoom: 1; }
+html[data-layout="pc"] [data-page="collection"] .topnav-root            { zoom: calc(1.20 / 1.25); }
 
 /* Fallback for browsers without `zoom` support (older Firefox <126,
    exotic engines). `@supports not (zoom: 1)` evaluates true only when

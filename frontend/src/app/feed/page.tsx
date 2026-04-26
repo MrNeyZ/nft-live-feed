@@ -589,8 +589,24 @@ export default function FeedPage() {
     return true;
   }), [events, filter, collFilter, floorBySlug]);
 
+  // Page-level wheel forwarding: when the user scrolls anywhere on the
+  // page (including the empty "black" margins outside the centered 640 px
+  // column), forward the wheel delta to the feed list. Skipped when the
+  // event already targets an element inside `listRef` so the native scroll
+  // chain isn't double-stepped, and skipped when the target is a
+  // genuinely-scrollable inner element (search dropdown, etc.) so we
+  // don't hijack their natural scroll.
+  const handleRootWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const list = listRef.current;
+    if (!list) return;
+    const target = e.target as Node | null;
+    if (target && list.contains(target)) return;            // native chain handles it
+    if (e.deltaY === 0) return;
+    list.scrollTop += e.deltaY;
+  };
+
   return (
-    <div className="feed-root" data-embedded={embedded ? '1' : undefined}>
+    <div className="feed-root" data-embedded={embedded ? '1' : undefined} onWheel={handleRootWheel}>
       {!embedded && <TopNav active="feed" />}
 
       {/* Centered column stage */}

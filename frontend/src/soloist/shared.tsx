@@ -550,7 +550,7 @@ export function TopNav({ active }: { active: Page }) {
     // Full-bleed chrome wrapper: breaks out of `.feed-root`'s 16 px horizontal
     // padding so the header background extends edge-to-edge regardless of
     // ancestor padding. Inner container keeps the existing centered layout.
-    <div style={{
+    <div className="topnav-root" style={{
       width: '100vw',
       marginLeft: 'calc(50% - 50vw)',
       background: 'linear-gradient(180deg, rgba(20,14,34,0.7) 0%, rgba(10,8,18,0.95) 100%)',
@@ -560,11 +560,11 @@ export function TopNav({ active }: { active: Page }) {
       flexShrink: 0,
       position: 'relative', zIndex: 100,
     }}>
-    <div style={{
+    <div className="topnav-inner" style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 18px', height: 40,
+      padding: '0 20px', height: 44,
       maxWidth: 'var(--topnav-max, 1400px)', margin: '0 auto',
-      gap: 10,
+      gap: 12,
     }}>
       {/* alignItems: 'baseline' pins the logo's text baseline to the nav
           tab's text baseline — fixes the "floating" offset that `center`
@@ -609,7 +609,7 @@ export function TopNav({ active }: { active: Page }) {
       </div>
 
       {/* Center: search collections */}
-      <div ref={searchRef} style={{ position: 'relative', flex: '0 1 360px', maxWidth: 360, marginLeft: 18 }}>
+      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 360px', maxWidth: 360, marginLeft: 18 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '4px 10px 4px 12px', height: 28,
@@ -827,7 +827,7 @@ function ModeBadge() {
   }, []);
   if (!mode || mode === 'off') return null;
   return (
-    <span style={{ color: '#9683dc', fontSize: 10, letterSpacing: '1px', fontWeight: 600 }}>
+    <span className="topnav-mode-badge" style={{ color: '#9683dc', fontSize: 10, letterSpacing: '1px', fontWeight: 600 }}>
       MODE: {mode.replace('_', ' ').toUpperCase()}
     </span>
   );
