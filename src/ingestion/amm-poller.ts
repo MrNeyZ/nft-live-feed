@@ -50,18 +50,33 @@ const TARGETS: PollTarget[] = [
 // Tightened back to 2.5 s so that right after a mode switch there is at
 // most a ~2.5 s wait before the first catch-up sweep lands. `startAmmPoller`
 // also fires an immediate `tick()` so the very first sweep runs at t≈0.
-const INTERVAL_MS = 2_500;
+const INTERVAL_MS      = 2_500;
+/** Slow tick cadence applied when at least one target is in catch-up
+ *  (saturated). Caps RPC during gap-recovery so a sustained backlog
+ *  drain can't spam getSignaturesForAddress at full 2.5 s rate. */
+const SLOW_INTERVAL_MS = 10_000;
 const PAGE_SIZE   = 20;
 /** Hard ceiling on catch-up pages per sweep — protects against runaway loops. */
-// Per-sweep page budget. The catch-up loop walks back from `before`
-// until the floor (`until` cursor) is reached or this many pages are
-// consumed; whichever fires first. Lowered 75 → 20 so a sustained
-// catch-up burst caps RPC at ≈ 21 calls × 24 sweeps/min × N targets
-// instead of 76 × 24 × N. Steady-state cost (no catch-up) is unaffected
-// because non-saturated sweeps make at most 1 call per target. Total
-// drain time grows ~4× during a long-idle reconnect — acceptable
-// because the gap is finite and the RPC ceiling is now bounded.
-const MAX_PAGES_PER_SWEEP = 20;
+// Per-sweep page budget — mode-dependent.
+//   Full mode      : up to 20 pages (catch-up ceiling for backlog drain)
+//   Lean modes     : hard cap at 5 pages so a sustained catch-up burst
+//                    in sales_only / budget can never push RPC above
+//                    ~5 calls × 24 sweeps/min × 3 targets ≈ 360/min.
+// Combined with the new "low-page = not saturated" rule below, ordinary
+// near-realtime operation makes 1–2 pages per sweep, well under cap.
+const MAX_PAGES_FULL = 20;
+const MAX_PAGES_LEAN = 5;
+function maxPagesForMode(): number {
+  const m = getMode();
+  return (m === 'sales_only' || m === 'budget') ? MAX_PAGES_LEAN : MAX_PAGES_FULL;
+}
+/** Below this page count, a sweep is treated as near-realtime and never
+ *  flagged as `saturated` even if every page returned full. Ordinary
+ *  bursts of 4–5 full-page responses no longer trigger catch-up. */
+const LOW_PAGE_THRESHOLD = 5;
+/** After this many consecutive low-page sweeps, any active catch-up
+ *  marker for the target is cleared so steady-state mode resumes. */
+const LOW_PAGE_STREAK_TO_EXIT = 3;
 
 // Local bounded FIFO to dedupe sigs across consecutive polls for the same
 // target — keeps the skipped/unseen counters meaningful and avoids re-dispatch
@@ -150,13 +165,17 @@ async function fetchPage(
 interface SweepResult {
   /** Newest-first concatenation of every page fetched in this sweep. */
   rows:      SigInfo[];
-  /** True when we exited the page loop without hitting a natural floor —
-   *  i.e., MAX_PAGES_PER_SWEEP was reached and the last page was full. The
-   *  caller uses this to decide between "advance cursor to newest"
-   *  (steady state) and "save a `before` continuation for the next sweep"
-   *  (gap-recovery). False when the loop reached an empty / short page or
-   *  was interrupted by mode flip / generation bump. */
+  /** True when this sweep walked the full per-mode page budget AND
+   *  consumed strictly more than LOW_PAGE_THRESHOLD pages. The caller
+   *  uses this to decide between "advance cursor to newest" (steady
+   *  state) and "save a `before` continuation for the next sweep"
+   *  (gap-recovery). Ordinary bursts of 4–5 full-page responses fall
+   *  below the threshold and do NOT trigger catch-up. */
   saturated: boolean;
+  /** Page count actually consumed this sweep (≤ maxPagesForMode()).
+   *  Used by sweepTarget to track the low-page streak and exit any
+   *  stale catch-up after a few quiet sweeps. */
+  pages: number;
 }
 
 async function fetchSinceCursor(
@@ -169,7 +188,7 @@ async function fetchSinceCursor(
   // First-ever run for this target: no `until` floor known yet, single page.
   if (!until) {
     const rows = await fetchPage(program, null, null, targetName);
-    return { rows, saturated: false };
+    return { rows, saturated: false, pages: 1 };
   }
 
   const all: SigInfo[] = [];
@@ -184,11 +203,11 @@ async function fetchSinceCursor(
   // ingested via the WS path, so this never causes duplicate ingest.
   if (startBefore) {
     if (getMode() === 'off' || gen !== currentGeneration()) {
-      return { rows: all, saturated: false };
+      return { rows: all, saturated: false, pages: 0 };
     }
     const fresh = await fetchPage(program, until, null, targetName);
     if (getMode() === 'off' || gen !== currentGeneration()) {
-      return { rows: all, saturated: false };
+      return { rows: all, saturated: false, pages: 0 };
     }
     all.push(...fresh);
   }
@@ -196,10 +215,12 @@ async function fetchSinceCursor(
   // `startBefore` is the catch-up continuation anchor saved by the previous
   // sweep when it saturated the page budget. In steady state it is null and
   // pagination starts from the top.
+  const maxPages = maxPagesForMode();
   let before: string | null = startBefore;
   let hitFloor = false;
   let pages = 0;
-  for (let i = 0; i < MAX_PAGES_PER_SWEEP; i++) {
+  let lastBefore: string | null = startBefore;
+  for (let i = 0; i < maxPages; i++) {
     // Bail between pages if mode flipped or this sweep belongs to a prior
     // generation — prevents a deep burst from continuing to page after OFF.
     if (getMode() === 'off' || gen !== currentGeneration()) break;
@@ -212,17 +233,21 @@ async function fetchSinceCursor(
     if (page.length < PAGE_SIZE) { hitFloor = true; break; }
     // Saturated page — page further back in time.
     before = page[page.length - 1].signature;
+    lastBefore = before;
   }
-  // Diagnostic: how many pages this sweep consumed and whether it bailed
-  // on the MAX_PAGES_PER_SWEEP ceiling. `pages=75 saturated=true` repeating
-  // for the same target is the catch-up loop locked in saturation —
-  // each tick spends 75×4=300 RPC calls just on this one path.
+  // Saturation is now strict: only true when we hit the page ceiling
+  // AND the sweep walked more than LOW_PAGE_THRESHOLD pages. Ordinary
+  // near-realtime bursts of 4–5 full-page responses no longer flip
+  // catch-up mode and no longer cause RPC spam.
+  const saturated = !hitFloor && pages === maxPages && pages > LOW_PAGE_THRESHOLD;
+  const sweepMode = saturated ? 'catchup' : 'normal';
   console.log(
     `[sig/amm/sweep] target=${targetName}  ` +
-    `pages=${pages}  rows=${all.length}  saturated=${!hitFloor}  ` +
-    `entered_with_before=${startBefore ? startBefore.slice(0, 8) + '…' : 'null'}`,
+    `pages=${pages}  rows=${all.length}  saturated=${saturated}  mode=${sweepMode}  ` +
+    `entered_with_before=${startBefore ? startBefore.slice(0, 8) + '…' : 'null'}  ` +
+    `last_before=${lastBefore ? lastBefore.slice(0, 8) + '…' : 'null'}`,
   );
-  return { rows: all, saturated: !hitFloor };
+  return { rows: all, saturated, pages };
 }
 
 // ─── Per-target sweep ─────────────────────────────────────────────────────────
@@ -322,6 +347,19 @@ function parseCatchup(raw: string | null): { frozenNewest: string; before: strin
   return { frozenNewest: raw.slice(0, idx), before: raw.slice(idx + 1) };
 }
 
+/** Per-target consecutive low-page streak tracker. Bumped on every
+ *  sweep that consumes ≤ LOW_PAGE_THRESHOLD pages; reset on every
+ *  larger sweep. When the streak reaches LOW_PAGE_STREAK_TO_EXIT, any
+ *  active catch-up marker is force-cleared so steady-state mode
+ *  resumes. Memory-only, in-process. */
+const lowPageStreak: Map<string, number> = new Map();
+
+/** Set of targets whose most recent sweep returned `saturated=true`.
+ *  When non-empty, the next tick is delayed (see SLOW_INTERVAL_MS) so
+ *  catch-up doesn't burn 24 sweeps/min × N targets × full page budget.
+ *  Targets remove themselves once they return non-saturated. */
+const saturatedTargets: Set<string> = new Set();
+
 async function sweepTarget(target: PollTarget): Promise<void> {
   if (sweepInFlight.get(target.name)) return;
   if (getMode() === 'off') return;
@@ -335,9 +373,27 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     const catchup = parseCatchup(await getLastSig(`${target.name}:catchup`));
     if (getMode() === 'off' || gen !== currentGeneration()) return;
 
-    const { rows: page, saturated } = await fetchSinceCursor(
+    const { rows: page, saturated, pages } = await fetchSinceCursor(
       target.program, lastSig, catchup?.before ?? null, gen, target.name,
     );
+
+    // Track low-page streak per target. Three quiet sweeps in a row
+    // force-exit any stale catch-up — covers the case where the
+    // saturated detection happened to flicker on a one-shot burst.
+    let forceExitCatchup = false;
+    if (pages <= LOW_PAGE_THRESHOLD) {
+      const streak = (lowPageStreak.get(target.name) ?? 0) + 1;
+      lowPageStreak.set(target.name, streak);
+      if (catchup && streak >= LOW_PAGE_STREAK_TO_EXIT) {
+        forceExitCatchup = true;
+      }
+    } else {
+      lowPageStreak.set(target.name, 0);
+    }
+    // Track saturation per-target so the tick scheduler can slow down
+    // the sweep cadence when at least one target is in catch-up.
+    if (saturated) saturatedTargets.add(target.name);
+    else           saturatedTargets.delete(target.name);
     if (getMode() === 'off' || gen !== currentGeneration()) return;
     const fetched = page.length;
     if (fetched === 0) {
@@ -419,6 +475,15 @@ async function sweepTarget(target: PollTarget): Promise<void> {
         `[${target.name}] sweep saturated  ${catchup ? 'continuing' : 'entering'} catchup  ` +
         `frozen_newest=${fn.slice(0, 12)}…  before=${newBefore.slice(0, 12)}…`
       );
+    } else if (catchup && forceExitCatchup) {
+      // Streak exit — three consecutive low-page sweeps with a stale
+      // catch-up marker. Promote frozen_newest to `until` and clear.
+      await setLastSig(target.name, catchup.frozenNewest);
+      await clearLastSig(`${target.name}:catchup`);
+      console.log(
+        `[${target.name}] catchup force-exit (low-page streak)  ` +
+        `until=${catchup.frozenNewest.slice(0, 12)}…`,
+      );
     } else if (catchup) {
       await setLastSig(target.name, catchup.frozenNewest);
       await clearLastSig(`${target.name}:catchup`);
@@ -492,13 +557,25 @@ export function startAmmPoller(): void {
   if (tickHandle) { console.log('[poller] already running — skip'); return; }
   console.log(
     `[poller] starting  targets=${TARGETS.map(t => t.name).join(',')}` +
-    `  interval=${INTERVAL_MS / 1000}s  page=${PAGE_SIZE}`
+    `  interval=${INTERVAL_MS / 1000}s/${SLOW_INTERVAL_MS / 1000}s  page=${PAGE_SIZE}`
   );
+  // Self-rescheduling tick. Picks the next delay based on saturation
+  // state: fast (2.5 s) in steady state, slow (10 s) when at least one
+  // target reported `saturated=true` on its last sweep. setTimeout +
+  // re-arm rather than setInterval so the cadence can flex tick-by-tick
+  // without a separate timer-management state machine.
+  const arm = (delay: number): void => {
+    tickHandle = setTimeout(() => {
+      tick();
+      const next = saturatedTargets.size > 0 ? SLOW_INTERVAL_MS : INTERVAL_MS;
+      arm(next);
+    }, delay);
+    if (typeof tickHandle.unref === 'function') tickHandle.unref();
+  };
   // Fire the first sweep immediately so startup latency is bounded by the
   // RPC round-trip, not by `INTERVAL_MS`.
   tick();
-  tickHandle = setInterval(tick, INTERVAL_MS);
-  tickHandle.unref();
+  arm(INTERVAL_MS);
 }
 
 /** Stop the AMM gap-healer. Idempotent.
@@ -530,7 +607,9 @@ export function startAmmPoller(): void {
  *  event, not O(backlog.length). */
 export function stopAmmPoller(): void {
   if (tickHandle) {
-    clearInterval(tickHandle);
+    // tickHandle is now a setTimeout handle (self-rescheduling cadence);
+    // clearTimeout is the matching teardown.
+    clearTimeout(tickHandle);
     tickHandle = null;
   }
   const preservedBacklog = backlog.length;
