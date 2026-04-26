@@ -99,9 +99,21 @@ html[data-layout="phone"] .collections-table td:first-child {
   overflow: hidden !important;
 }
 html[data-layout="phone"] .collections-table th:nth-child(2),
-html[data-layout="phone"] .collections-table td:nth-child(2) { width: 56px !important; }
+html[data-layout="phone"] .collections-table td:nth-child(2) {
+  width: 60px !important;
+  text-align: center !important;
+  padding-right: 10px !important;
+}
 html[data-layout="phone"] .collections-table th:nth-child(3),
-html[data-layout="phone"] .collections-table td:nth-child(3) { width: 64px !important; }
+html[data-layout="phone"] .collections-table td:nth-child(3) {
+  width: 70px !important;
+  text-align: center !important;
+  padding-left: 10px !important;
+}
+html[data-layout="phone"] .collections-table th:first-child,
+html[data-layout="phone"] .collections-table td:first-child {
+  max-width: 55% !important;
+}
 html[data-layout="phone"] .collections-table td:first-child > div { min-width: 0 !important; }
 html[data-layout="phone"] .collections-table td:first-child > div > span:last-child {
   flex: 1 1 auto !important;
@@ -138,9 +150,21 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
     overflow: hidden !important;
   }
   .collections-table th:nth-child(2),
-  .collections-table td:nth-child(2) { width: 56px !important; }
+  .collections-table td:nth-child(2) {
+    width: 60px !important;
+    text-align: center !important;
+    padding-right: 10px !important;
+  }
   .collections-table th:nth-child(3),
-  .collections-table td:nth-child(3) { width: 64px !important; }
+  .collections-table td:nth-child(3) {
+    width: 70px !important;
+    text-align: center !important;
+    padding-left: 10px !important;
+  }
+  .collections-table th:first-child,
+  .collections-table td:first-child {
+    max-width: 55% !important;
+  }
   .collections-table td:first-child > div { min-width: 0 !important; }
   .collections-table td:first-child > div > span:last-child {
     flex: 1 1 auto !important;
@@ -162,17 +186,22 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
    Multi-tab and embedded iframes opt out via the [data-no-scale="1"]
    and [data-embedded="1"] attributes so the multi-tab grid stays at
    laptop scale regardless of the user's PC choice. */
-html[data-layout="pc"] .feed-root { zoom: 1.10; }
+/* PC scaling — per-page differentiation:
+   - Default (Live Feed, Multi-tab outer, Collection page, etc.) = 1.10
+   - Dashboard standalone                                          = 1.20
+   - Embedded panes inside Multi-tab iframes / explicit no-scale   = 1.0
+   Last rule wins on equal specificity, so the data-embedded /
+   data-no-scale opt-outs keep working even when the dashboard's
+   data-page="dashboard" attribute is also present. */
+html[data-layout="pc"] .feed-root                               { zoom: 1.10; }
+html[data-layout="pc"] .feed-root[data-page="dashboard"]        { zoom: 1.20; }
 html[data-layout="pc"] .feed-root[data-embedded="1"],
-html[data-layout="pc"] .feed-root[data-no-scale="1"] { zoom: 1; }
+html[data-layout="pc"] .feed-root[data-no-scale="1"]            { zoom: 1; }
 
 /* Fallback for browsers without `zoom` support (older Firefox <126,
    exotic engines). `@supports not (zoom: 1)` evaluates true only when
    the engine doesn't recognise the property, so this block is dormant
-   on every modern browser the primary path already covers. The
-   compensating width / height keep the scaled box inside the viewport
-   so flex/grid parents still see expected dimensions; transform-origin
-   pins the top-left corner so layout anchors don't drift. */
+   on every modern browser the primary path already covers. */
 @supports not (zoom: 1) {
   html[data-layout="pc"] .feed-root {
     transform: scale(1.10);
@@ -180,11 +209,72 @@ html[data-layout="pc"] .feed-root[data-no-scale="1"] { zoom: 1; }
     width:  calc(100% / 1.10);
     height: calc(100vh / 1.10);
   }
+  html[data-layout="pc"] .feed-root[data-page="dashboard"] {
+    transform: scale(1.20);
+    width:  calc(100% / 1.20);
+    height: calc(100vh / 1.20);
+  }
   html[data-layout="pc"] .feed-root[data-embedded="1"],
   html[data-layout="pc"] .feed-root[data-no-scale="1"] {
     transform: none;
     width:  100%;
     height: 100vh;
+  }
+}
+
+/* Collection detail page — per-mode scaling, scoped strictly via the
+   data-page="collection" attribute on the page root so dashboard /
+   live-feed / multi-tab are untouched. The scatter chart is pinned to
+   1.0× in both modes via an inverse `zoom` so it never inherits the
+   page-root scale. Phone mode stays untouched.
+
+   Math notes (zoom compounds across ancestor → descendant):
+     LAPTOP  – page root NOT scaled; rows scale 1.5× directly. Chart untouched.
+     PC      – page root scales 1.5×. Listing/trade rows additionally
+               scale by 4/3 so net = 1.5 × 4/3 = 2.0×. Chart is dezoomed
+               by 2/3 so net = 1.5 × 2/3 = 1.0×. */
+html[data-layout="laptop"] [data-page="collection"] .listing-row,
+html[data-layout="laptop"] [data-page="collection"] .trade-row {
+  zoom: 1.5;
+}
+
+html[data-layout="pc"] [data-page="collection"] {
+  zoom: 1.5;
+}
+html[data-layout="pc"] [data-page="collection"] .listing-row,
+html[data-layout="pc"] [data-page="collection"] .trade-row {
+  zoom: 1.3333;        /* 4/3 → 1.5 × 4/3 = 2.0 effective */
+}
+html[data-layout="pc"] [data-page="collection"] .collection-chart {
+  zoom: 0.6667;        /* 2/3 → 1.5 × 2/3 = 1.0 effective */
+}
+
+/* Fallback for browsers without `zoom` support — same intent, transform
+   compensation. Page root in PC scales via transform; chart undoes it
+   with an inverse scale so its visual size stays at 1.0×. Rows compound
+   to 2.0× in PC and 1.5× in laptop. */
+@supports not (zoom: 1) {
+  html[data-layout="laptop"] [data-page="collection"] .listing-row,
+  html[data-layout="laptop"] [data-page="collection"] .trade-row {
+    transform: scale(1.5);
+    transform-origin: top left;
+  }
+  html[data-layout="pc"] [data-page="collection"] {
+    transform: scale(1.5);
+    transform-origin: top left;
+    width:  calc(100% / 1.5);
+    height: calc(100vh / 1.5);
+  }
+  html[data-layout="pc"] [data-page="collection"] .listing-row,
+  html[data-layout="pc"] [data-page="collection"] .trade-row {
+    transform: scale(1.3333);
+    transform-origin: top left;
+  }
+  html[data-layout="pc"] [data-page="collection"] .collection-chart {
+    transform: scale(0.6667);
+    transform-origin: top left;
+    width:  calc(100% / 0.6667);
+    height: calc(100% / 0.6667);
   }
 }
 
@@ -224,6 +314,14 @@ html, body {
     radial-gradient(ellipse 140% 55% at 65% -5%, rgba(80, 50, 150, 0.10) 0%, transparent 65%),
     radial-gradient(ellipse 70%  40% at  5% 90%, rgba(50, 30, 100, 0.07) 0%, transparent 60%);
 }
+
+/* Belt-and-suspenders against the navigation black flash. If the
+   browser ever needs to paint an empty frame (e.g. system color-scheme
+   default during a hard navigation), `html` carries the same dark base
+   color as `body` so what the user sees is the theme background, not
+   a black/white system default. The `color-scheme` hint also tells
+   the UA to use dark form-control / scrollbar defaults. */
+html { background-color: #050308; color-scheme: dark; }
 
 body { display: block; height: 100vh; }
 
@@ -401,3 +499,76 @@ a { color: inherit; text-decoration: none; }
 
 .row-flash-up   { animation: flashUp   3.6s ease-out; }
 .row-flash-down { animation: flashDown 3.6s ease-out; }
+
+/* Collection detail — phone layout. Scoped to [data-page="collection"]
+   so /dashboard, /feed, /multi are untouched. Two parallel gates:
+   `html[data-layout="phone"]` (deliberate phone pick from the floating
+   switcher) and `@media (max-width: 600px)` (physical narrow viewport)
+   so the trim fires even before the dataset attribute propagates.
+   Laptop / PC / multi-tab behaviour preserved. */
+html[data-layout="phone"] [data-page="collection"] .collection-grid {
+  grid-template-columns: 1fr !important;
+  grid-template-rows: 1fr 1fr !important;
+  gap: 8px !important;
+  padding: 8px 4px !important;
+}
+html[data-layout="phone"] [data-page="collection"] .collection-pane-listings {
+  grid-column: 1 / 2 !important;
+  grid-row: 1 / 2 !important;
+  min-height: 0 !important;
+}
+html[data-layout="phone"] [data-page="collection"] .collection-pane-trades {
+  grid-column: 1 / 2 !important;
+  grid-row: 2 / 3 !important;
+  min-height: 0 !important;
+}
+html[data-layout="phone"] [data-page="collection"] .collection-pane-stats,
+html[data-layout="phone"] [data-page="collection"] .collection-chart {
+  display: none !important;
+}
+html[data-layout="phone"] [data-page="collection"] .collection-header-right {
+  display: none !important;
+}
+html[data-layout="phone"] [data-page="collection"] {
+  overflow-x: hidden !important;
+}
+/* Suppress the laptop/PC per-row 1.5×/2× zoom on phone — phone uses raw
+   sizing so cards fit without horizontal overflow. (The previous rules
+   are gated to laptop/pc but this is defence in depth.) */
+html[data-layout="phone"] [data-page="collection"] .listing-row,
+html[data-layout="phone"] [data-page="collection"] .trade-row {
+  zoom: 1 !important;
+}
+
+@media (max-width: 600px) {
+  [data-page="collection"] .collection-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 8px !important;
+    padding: 8px 4px !important;
+  }
+  [data-page="collection"] .collection-pane-listings {
+    grid-column: 1 / 2 !important;
+    grid-row: 1 / 2 !important;
+    min-height: 0 !important;
+  }
+  [data-page="collection"] .collection-pane-trades {
+    grid-column: 1 / 2 !important;
+    grid-row: 2 / 3 !important;
+    min-height: 0 !important;
+  }
+  [data-page="collection"] .collection-pane-stats,
+  [data-page="collection"] .collection-chart {
+    display: none !important;
+  }
+  [data-page="collection"] .collection-header-right {
+    display: none !important;
+  }
+  [data-page="collection"] {
+    overflow-x: hidden !important;
+  }
+  [data-page="collection"] .listing-row,
+  [data-page="collection"] .trade-row {
+    zoom: 1 !important;
+  }
+}

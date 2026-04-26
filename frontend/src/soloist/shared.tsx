@@ -4,6 +4,7 @@
 // Port of soloist-shared.jsx — kept visually identical.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -570,7 +571,12 @@ export function TopNav({ active }: { active: Page }) {
           alignment produced because the serif/cursive logo has more ascender
           headroom than the sans nav tabs. */}
       <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-        <a href="/dashboard" className="topnav-logo" style={{
+        {/* Logo + tabs use next/link for client-side routing. Plain
+            <a href> would do a full document navigation, tearing down
+            the layout shell and showing a brief empty frame between
+            documents (the "black flash" symptom). With <Link>, the
+            layout shell stays mounted and only the route segment swaps. */}
+        <Link href="/dashboard" className="topnav-logo" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6,
         }}>
@@ -583,10 +589,10 @@ export function TopNav({ active }: { active: Page }) {
             draggable={false}
             style={{ display: 'block' }}
           />
-        </a>
+        </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2 }}>
           {pages.map(p => (
-            <a key={p.key} href={p.href} className="topnav-tab" data-tab={p.key} style={{
+            <Link key={p.key} href={p.href} className="topnav-tab" data-tab={p.key} style={{
               padding: '5px 16px', fontSize: 12, fontWeight: 600,
               color: active === p.key ? '#d0c8e4' : '#55556e',
               letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
@@ -597,7 +603,7 @@ export function TopNav({ active }: { active: Page }) {
                 ? '0 0 12px rgba(128,104,216,0.15), inset 0 0 0 1px rgba(128,104,216,0.12)'
                 : 'none',
               transition: 'all 0.2s',
-            }}>{p.label}</a>
+            }}>{p.label}</Link>
           ))}
         </div>
       </div>

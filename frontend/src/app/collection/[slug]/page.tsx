@@ -1312,7 +1312,7 @@ export default function CollectionPage() {
   void tick;  // retained for TradeRowItem timeAgo refresh
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+    <div data-page="collection" style={{ display:'flex', flexDirection:'column', height:'100%' }}>
       <TopNav active="collection" />
 
       {/* Collection header (verbatim layout from collection.html) */}
@@ -1395,7 +1395,7 @@ export default function CollectionPage() {
             </div>
           </div>
         </div>
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
+        <div className="collection-header-right" style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:10, color:'#3a3a52' }}>
             <span>Metadata fetched</span>
             <div style={{ width:60, height:3, borderRadius:2, background:'#ffffff08', overflow:'hidden' }}>
@@ -1445,10 +1445,10 @@ export default function CollectionPage() {
       </div>
 
       {/* Main 3-column grid (verbatim ratios + gap + radius) */}
-      <div style={{ flex:1, display:'grid', gridTemplateColumns:'1.35fr 1.35fr 2fr', gap:10, padding:'10px 4px', minHeight:0, overflow:'hidden' }}>
+      <div className="collection-grid" style={{ flex:1, display:'grid', gridTemplateColumns:'1.35fr 1.35fr 2fr', gap:10, padding:'10px 4px', minHeight:0, overflow:'hidden' }}>
 
         {/* LEFT: Listings */}
-        <div style={{
+        <div className="collection-pane-listings" style={{
           display:'flex', flexDirection:'column', overflow:'hidden',
           background:'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border:'1px solid rgba(168,144,232,0.28)',
@@ -1540,7 +1540,7 @@ export default function CollectionPage() {
         </div>
 
         {/* MIDDLE: Trades */}
-        <div style={{
+        <div className="collection-pane-trades" style={{
           display:'flex', flexDirection:'column', overflow:'hidden',
           background:'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border:'1px solid rgba(168,144,232,0.28)',
@@ -1642,7 +1642,7 @@ export default function CollectionPage() {
         </div>
 
         {/* RIGHT: Stats + Chart (verbatim layout) */}
-        <div style={{
+        <div className="collection-pane-stats" style={{
           display:'flex', flexDirection:'column', overflow:'hidden',
           background:'linear-gradient(180deg, #13102a 0%, #0f0c22 100%)',
           border:'1px solid rgba(255,255,255,0.05)',
@@ -1730,7 +1730,7 @@ export default function CollectionPage() {
           </div>
 
           {/* Scatter chart (verbatim wrapper) */}
-          <div style={{
+          <div className="collection-chart" style={{
             flex:1, display:'flex', minHeight:0,
             margin:'4px 10px 10px',
             background:'#0a0714',
