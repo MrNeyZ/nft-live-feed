@@ -115,7 +115,11 @@
       "Bash(ps -p 20340 -o command=)",
       "Bash(curl -sS \"http://localhost:3001/\" -o /tmp/root.json -w \"http=%{http_code}\\\\n\")",
       "Bash(curl -sS -o /tmp/health.json -w \"backend\\(3000\\) http=%{http_code}\\\\n\" \"http://localhost:3000/health\")",
-      "Bash(curl -sS -o /tmp/next.html -w \"next\\(3001\\) http=%{http_code}\\\\n\" \"http://localhost:3001/\")"
+      "Bash(curl -sS -o /tmp/next.html -w \"next\\(3001\\) http=%{http_code}\\\\n\" \"http://localhost:3001/\")",
+      "Bash(lsof -nP -iTCP:3000 -sTCP:LISTEN)",
+      "Bash(lsof -nP -iTCP:3001 -sTCP:LISTEN)",
+      "Bash(git -C /Users/victory/nft-live-feed remote -v)",
+      "Bash(git -C /Users/victory/nft-live-feed status --short)"
     ]
   }
 }
