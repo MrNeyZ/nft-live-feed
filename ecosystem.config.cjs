@@ -1,8 +1,8 @@
 // PM2 ecosystem — production process manifest for the nft-live-feed VPS.
 //
 // Two apps, one host:
-//   - nft-backend   (Express + ingestion + control plane, bound to 127.0.0.1:3000)
-//   - nft-frontend  (Next.js production server, bound to 127.0.0.1:3001)
+//   - nft-backend   (Express + ingestion + control plane, bound to 127.0.0.1:3001)
+//   - nft-frontend  (Next.js production server, bound to 127.0.0.1:3000)
 //
 // Both are fronted by nginx on :443. See docs/DEPLOY.md for the full plan.
 //
@@ -42,7 +42,7 @@ module.exports = {
       name:               'nft-frontend',
       cwd:                `${HOME}/frontend`,
       script:             'node_modules/.bin/next',
-      args:               'start -p 3001',
+      args:               'start -p 3000',
       env:                { NODE_ENV: 'production' },
       instances:          1,
       exec_mode:          'fork',

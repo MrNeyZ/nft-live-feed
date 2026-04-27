@@ -1,4 +1,4 @@
-const API_URL = process.env.API_URL ?? 'http://localhost:3000';
+const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 /** @type {import('next').NextConfig} */
