@@ -255,18 +255,19 @@ interface KindStyle {
   borderTone: 'buy' | 'sell' | 'neutral';
 }
 
-// All four kinds share the BUY/SELL text — color alone distinguishes
-// AMM vs normal so the badge stays compact and the eye reads side first.
-//   buy     — green
-//   sell    — red
-//   buyAmm  — blue (clearly bluer than green so AMM reads as a different bucket)
-//   sellAmm — yellow-orange (noticeably yellow vs the red SELL)
+// Two colors only — reuse the exact card-border tones from globals.css
+// (.feed-card.buy-card uses rgba(79,200,142,0.78); .feed-card.sell-card
+// uses rgba(250,100,105,1)). AMM trades reuse the same side color and
+// say "AMM" instead of BUY/SELL so the eye distinguishes by label, not
+// by an extra hue. No yellow, no blue.
+//   buy / buyAmm   → GREEN (border-green)   labels: "BUY" / "AMM"
+//   sell / sellAmm → RED   (border-red)     labels: "SELL" / "AMM"
 const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: '#5ce0a0', bg: 'rgba(92,224,160,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: '#ef7878', bg: 'rgba(239,120,120,0.18)', borderTone: 'sell' },
-  buyAmm:  { label: 'BUY',  fg: '#4faee8', bg: 'rgba(79,174,232,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'SELL', fg: '#e8c14a', bg: 'rgba(232,193,74,0.18)',  borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#8f8fa8', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  buy:     { label: 'BUY',  fg: 'rgb(79,200,142)',  bg: 'rgba(79,200,142,0.18)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: 'rgb(250,100,105)', bg: 'rgba(250,100,105,0.18)', borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: 'rgb(79,200,142)',  bg: 'rgba(79,200,142,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: 'rgb(250,100,105)', bg: 'rgba(250,100,105,0.18)', borderTone: 'sell' },
+  unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 function saleKind(saleTypeRaw: string | null): SaleKind {
