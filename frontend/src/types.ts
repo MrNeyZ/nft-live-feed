@@ -61,6 +61,10 @@ export interface RestRow {
   magic_eden_url: string | null;
   me_collection_slug: string | null;
   parser_source: string | null;
+  /** Optional. Backend's /latest handler retro-attaches this from the
+   *  in-process floor cache when the slug has been seen in the last
+   *  2 minutes. Absent on stale snapshots — frontend hides the chip. */
+  floor_delta?: number | null;
 }
 
 export function fromRow(row: RestRow): FeedEvent {
@@ -82,5 +86,6 @@ export function fromRow(row: RestRow): FeedEvent {
     magicEdenUrl: row.magic_eden_url,
     source: row.parser_source ? 'me_raw' : 'helius',
     meCollectionSlug: row.me_collection_slug,
+    floorDelta: row.floor_delta ?? null,
   };
 }

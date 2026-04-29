@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { spawn } from 'child_process';
 import { getLatestEvents, getEventsByCollection } from '../db/queries';
 import { getPool } from '../db/client';
+import { peekCachedFloorLamports } from '../enrichment/enrich';
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
@@ -60,7 +61,21 @@ export function createEventsRouter(): Router {
 
     try {
       const events = await getLatestEvents(limit);
-      res.json({ events, count: events.length });
+      // Retro-attach floor_delta from the in-process floor cache so the
+      // FloorChip on the frontend survives a page refresh / tab switch.
+      // floor_delta isn't persisted to the DB (only emitted on the SSE
+      // `meta` channel for live events); recomputing here from the cache
+      // covers any slug that's been touched in the last 2 minutes — which
+      // is virtually every slug present in the most recent N rows.
+      const enriched = events.map(r => {
+        const floor = peekCachedFloorLamports(r.me_collection_slug);
+        if (floor == null) return r;
+        const priceLam = Number(r.price_lamports);
+        if (!Number.isFinite(priceLam) || floor <= 0) return r;
+        const fd = (priceLam - floor) / floor;
+        return { ...r, floor_delta: fd };
+      });
+      res.json({ events: enriched, count: enriched.length });
     } catch (err) {
       console.error('[events] query error', err);
       res.status(500).json({ error: 'internal server error' });

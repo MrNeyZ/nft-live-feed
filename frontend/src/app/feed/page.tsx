@@ -97,6 +97,12 @@ function WalletLink({ wallet }: { wallet: string | null }) {
         rel="noopener noreferrer"
         title={`Solscan · ${wallet}`}
         style={isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
+        // Match the NFT-name link's hover treatment: no underline by
+        // default, solid underline on hover. Skip the YOU badge — that
+        // pill already has its own visual affordance and an underline
+        // would clash with the rounded background.
+        onMouseEnter={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+        onMouseLeave={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
       >
         {isMe ? 'YOU' : shortWallet(wallet)}
       </a>
@@ -117,8 +123,9 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 const WALLET_LINK_STYLE: React.CSSProperties = {
   color: '#7a7a94', fontWeight: 500,
   fontFamily: "'SF Mono','Fira Code',monospace",
+  // No persistent decoration — matches the NFT-name link's behavior.
+  // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
   textDecoration: 'none',
-  borderBottom: '1px dotted rgba(122,122,148,0.35)',
 };
 /** "YOU" pill — cyan/blue, distinct from the buy/sell badge palette so
  *  it doesn't conflict visually with the existing kind tokens. */
@@ -146,30 +153,47 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 
 // ── Floor delta chip ────────────────────────────────────────────────────────
 //
-// Re-added per spec: shows sale price vs. collection floor as a percentage
-// next to the time + marketplace icon in the right column's top row, so
-// no extra row is added to the card (cards stay the same height).
-// Backend `floorDelta` is a fractional ratio (+0.12 = +12%); rendered
-// here as `+12%` / `-8%` with green/red tone.
+// Shows sale price vs. collection floor as a percentage next to the
+// time + marketplace icon in the right column's top row, so no extra
+// row is added to the card (cards stay the same height). Backend
+// `floorDelta` is a fractional ratio (+0.12 = +12%).
+//
+// Two-tier palette so the eye locks onto outliers:
+//   • |Δ| <  50 %  → MUTED  (dim grey-tinted text/border, no fill).
+//                    Routine sales near floor blend into the row.
+//   • |Δ| >= 50 %  → BRIGHT (saturated green / red, faint fill).
+//                    Big-mover sales stand out at a glance.
+const FLOOR_BRIGHT_THRESHOLD = 0.5;
 function FloorChip({ delta }: { delta: number }) {
-  const above = delta >= 0;
-  const pct   = delta * 100;
-  const sign  = above ? '+' : '';
-  const fg    = above ? '#5ce0a0' : '#ef7878';
-  const bg    = above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)';
-  const bd    = above ? 'rgba(92,224,160,0.32)' : 'rgba(239,120,120,0.32)';
+  const above  = delta >= 0;
+  const pct    = delta * 100;
+  const sign   = above ? '+' : '';
+  const bright = Math.abs(delta) >= FLOOR_BRIGHT_THRESHOLD;
+  // Bright tier: original saturated palette.
+  // Muted tier: same hue family but ~40 % the saturation so the chip
+  // still reads as green-or-red (preserves directional cue) without
+  // competing with the price/badge for attention.
+  const fg = bright
+    ? (above ? '#5ce0a0' : '#ef7878')
+    : (above ? '#7a9a85' : '#9a7878');
+  const bg = bright
+    ? (above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)')
+    : 'transparent';
+  const bd = bright
+    ? (above ? 'rgba(92,224,160,0.32)' : 'rgba(239,120,120,0.32)')
+    : (above ? 'rgba(122,154,133,0.22)' : 'rgba(154,120,120,0.22)');
   return (
     <span
       title={`${sign}${pct.toFixed(1)}% vs collection floor`}
       style={{
-        fontSize: 10, fontWeight: 700,
+        fontSize: 10, fontWeight: bright ? 700 : 600,
         color: fg, background: bg, border: `1px solid ${bd}`,
         padding: '1px 5px', borderRadius: 3, letterSpacing: '0.2px',
         lineHeight: 1.1, fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
       }}
     >
-      {sign}{Math.abs(pct) >= 100 ? pct.toFixed(0) : pct.toFixed(0)}% floor
+      {sign}{pct.toFixed(0)}%
     </span>
   );
 }
@@ -779,7 +803,6 @@ export default function FeedPage() {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
-                <span style={{ fontSize: 13 }}>⚡</span>
                 <LiveDot />
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#8068d8', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})

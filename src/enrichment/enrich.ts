@@ -87,6 +87,19 @@ async function getTensorMetadata(
  * Result is cached for FLOOR_TTL_MS (2 minutes).
  * Returns null on any failure; never throws.
  */
+/** Synchronous, fetch-free read of the floor cache. Returns the cached
+ *  lamport floor for `slug` if present and unexpired, or `null` otherwise.
+ *  Callers (e.g. the /latest snapshot endpoint) use this to retro-attach
+ *  a `floor_delta` to events on REST replies — the SSE `meta` channel
+ *  delivers floor updates for live events but the REST snapshot has no
+ *  way to carry them otherwise. Never triggers a network call; cache
+ *  miss = no chip on the frontend, same UX as before. */
+export function peekCachedFloorLamports(slug: string | null | undefined): number | null {
+  if (!slug) return null;
+  if (!floorCache.has(slug)) return null;
+  return floorCache.get(slug) ?? null;
+}
+
 async function getCollectionFloorLamports(slug: string): Promise<number | null> {
   if (floorCache.has(slug)) return floorCache.get(slug)!;
   try {
