@@ -61,13 +61,26 @@ interface MeOffer {
   blockTime?:     number;       // alternate name on some ME endpoints
 }
 
-/** Active = `expiry` is a number AND in the future. Returns false for
- *  missing / zero / past expiry. Conservative by design — a stale offer
- *  in our results is a worse UX than a dropped one. */
-function isOfferActive(o: MeOffer, nowSec: number): boolean {
+/** Per-offer status — every offer ME returns is kept; this label tells
+ *  the UI how to dim/sort it.
+ *    AVAILABLE  — `expiry` is a future-dated number (offer is fillable).
+ *    EXPIRED    — `expiry` is a past-dated number (offer has lapsed).
+ *    EXPECTED   — `expiry` missing / zero / non-finite (open-ended bid
+ *                 or a payload variant ME doesn't expose expiry on;
+ *                 worth surfacing because the offer is still in ME's
+ *                 active set, just not validatable from our side). */
+export type OfferStatus = 'AVAILABLE' | 'EXPIRED' | 'EXPECTED';
+
+function classifyOfferStatus(o: MeOffer, nowSec: number): OfferStatus {
   const exp = o.expiry;
-  if (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= 0) return false;
-  return exp > nowSec;
+  if (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= 0) return 'EXPECTED';
+  return exp > nowSec ? 'AVAILABLE' : 'EXPIRED';
+}
+
+/** Lower rank = better. Drives both best-offer selection per listing
+ *  and the default sort on the frontend. */
+function statusRank(s: OfferStatus): number {
+  return s === 'AVAILABLE' ? 0 : s === 'EXPECTED' ? 1 : 2;
 }
 
 export interface ScanRow {
@@ -82,6 +95,8 @@ export interface ScanRow {
    *  and mark newly-appeared offers as NEW. Falls back to a synthetic
    *  `${mint}:${buyer}:${price}` composite when ME omitted pda. */
   bestOfferId:      string;
+  /** Status of the best offer for this listing — see OfferStatus. */
+  bestOfferStatus:  OfferStatus;
   /** Unix timestamp seconds when the best offer was placed. Null when
    *  ME didn't provide a createdAt / blockTime. UI renders this as a
    *  human "AGE" string. */
@@ -95,10 +110,10 @@ export interface ScanResult {
   slug:         string;
   scanned:      number;         // listings checked
   listedTotal:  number;         // total listings from ME (may exceed `scanned`)
-  /** Total raw offers seen across all listings before the active filter. */
+  /** Total raw offers seen across all listings (all statuses). */
   offersFetched: number;
-  /** Count of offers that passed the active (future-expiry) filter. */
-  offersActive:  number;
+  /** Count of offers classified AVAILABLE (future-dated expiry). */
+  offersAvailable: number;
   withOffers:   ScanRow[];
   cachedAt:     number;         // epoch ms
   ttlMs:        number;
@@ -146,8 +161,8 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
   const out: ScanRow[] = [];
 
   const nowSec = Math.floor(Date.now() / 1000);
-  let totalFetched = 0;
-  let totalActive  = 0;
+  let totalFetched   = 0;
+  let totalAvailable = 0;
 
   for (const l of sliced) {
     const mint = l.tokenMint ?? l.tokenAddress;
@@ -157,20 +172,28 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     await sleep(REQUEST_GAP_MS);
     if (offers.length === 0) continue;
 
-    // Active filter: expiry must be a future-dated number. Missing /
-    // zero / past expiry → drop. Sorted active offers desc by price.
-    const active = offers
-      .filter(o => isOfferActive(o, nowSec))
+    // Keep ALL priced offers; classify status per spec. Best-of-listing
+    // is picked by (status rank, price desc) so an AVAILABLE offer
+    // always beats EXPECTED, which always beats EXPIRED — within a
+    // status tier we still prefer the highest price.
+    const priced = offers
       .filter(o => typeof o.price === 'number' && (o.price as number) > 0)
-      .sort((a, b) => (b.price as number) - (a.price as number));
+      .map(o => ({ offer: o, status: classifyOfferStatus(o, nowSec) }))
+      .sort((a, b) => {
+        const ra = statusRank(a.status);
+        const rb = statusRank(b.status);
+        if (ra !== rb) return ra - rb;
+        return (b.offer.price as number) - (a.offer.price as number);
+      });
 
-    totalFetched += offers.length;
-    totalActive  += active.length;
+    totalFetched   += offers.length;
+    totalAvailable += priced.filter(p => p.status === 'AVAILABLE').length;
 
-    if (active.length === 0) continue;
+    if (priced.length === 0) continue;
 
-    const best = active[0];
-    const bestPrice = best.price as number;
+    const best       = priced[0].offer;
+    const bestStatus = priced[0].status;
+    const bestPrice  = best.price as number;
     if (bestPrice < minOfferSol) continue;
 
     // Pick whichever timestamp field ME populated. Both are seconds.
@@ -184,31 +207,39 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
 
     out.push({
       mint,
-      nftName:           l.token?.name ?? null,
-      imageUrl:          l.extra?.img ?? l.token?.image ?? null,
-      listingPrice:      l.price,
-      bestOfferPrice:    bestPrice,
-      spreadSol:         bestPrice - l.price,
+      nftName:            l.token?.name ?? null,
+      imageUrl:           l.extra?.img ?? l.token?.image ?? null,
+      listingPrice:       l.price,
+      bestOfferPrice:     bestPrice,
+      spreadSol:          bestPrice - l.price,
       bestOfferId,
+      bestOfferStatus:    bestStatus,
       bestOfferCreatedAt: createdAt,
-      meUrl:             `https://magiceden.io/item-details/${mint}`,
-      tensorUrl:         `https://www.tensor.trade/item/${mint}`,
+      meUrl:              `https://magiceden.io/item-details/${mint}`,
+      tensorUrl:          `https://www.tensor.trade/item/${mint}`,
     });
   }
 
-  // Highest best-offer first; tie-break by spread.
-  out.sort((a, b) => b.bestOfferPrice - a.bestOfferPrice || b.spreadSol - a.spreadSol);
+  // Default order: status priority first (AVAILABLE > EXPECTED > EXPIRED),
+  // then highest best-offer price, then spread. Frontend can re-sort by
+  // any column on click.
+  out.sort((a, b) => {
+    const ra = statusRank(a.bestOfferStatus);
+    const rb = statusRank(b.bestOfferStatus);
+    if (ra !== rb) return ra - rb;
+    return b.bestOfferPrice - a.bestOfferPrice || b.spreadSol - a.spreadSol;
+  });
 
   return {
-    ok:           true,
+    ok:              true,
     slug,
-    scanned:      sliced.length,
-    listedTotal:  listings.length,
-    offersFetched: totalFetched,
-    offersActive:  totalActive,
-    withOffers:   out,
-    cachedAt:     Date.now(),
-    ttlMs:        CACHE_TTL_MS,
+    scanned:         sliced.length,
+    listedTotal:     listings.length,
+    offersFetched:   totalFetched,
+    offersAvailable: totalAvailable,
+    withOffers:      out,
+    cachedAt:        Date.now(),
+    ttlMs:           CACHE_TTL_MS,
   };
 }
 
@@ -235,7 +266,7 @@ export function createRetardioOffersRouter(): Router {
       console.log(
         `[tools/retardio-me-offer-scan] slug=${slug} scanned=${result.scanned} ` +
         `withOffers=${result.withOffers.length} ` +
-        `offersFetched=${result.offersFetched} offersActive=${result.offersActive} ` +
+        `offersFetched=${result.offersFetched} offersAvailable=${result.offersAvailable} ` +
         `took=${Date.now() - startedAt}ms`,
       );
       return res.json({ ...result, fromCache: false });

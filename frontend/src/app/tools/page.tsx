@@ -10,6 +10,17 @@ import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
+/** Collections the scanner can target. Order here drives the dropdown
+ *  order; first entry is the default selection. */
+const COLLECTIONS: ReadonlyArray<{ slug: string; label: string }> = [
+  { slug: 'retardio_cousins', label: 'Retardio Cousins' },
+  { slug: 'nub',              label: 'NUB'              },
+  { slug: 'webkidz',          label: 'Webkidz'          },
+  { slug: 'trncha',           label: 'Trencher'         },
+];
+
+type OfferStatus = 'AVAILABLE' | 'EXPIRED' | 'EXPECTED';
+
 interface ScanRow {
   mint:               string;
   nftName:            string | null;
@@ -18,6 +29,7 @@ interface ScanRow {
   bestOfferPrice:     number;
   spreadSol:          number;
   bestOfferId:        string;
+  bestOfferStatus:    OfferStatus;
   bestOfferCreatedAt: number | null;     // seconds since epoch
   meUrl:              string;
   tensorUrl:          string;
@@ -25,6 +37,18 @@ interface ScanRow {
    *  previous cached scan. Set at scan-merge time, persisted in
    *  localStorage, cleared on the next scan. */
   isNew?:             boolean;
+}
+
+function statusRank(s: OfferStatus): number {
+  return s === 'AVAILABLE' ? 0 : s === 'EXPECTED' ? 1 : 2;
+}
+function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
+  // Match site palette: green for active, amber for unclear, dim red
+  // for expired. Same opacity tier as the existing FREE/PAID/MIXED
+  // badges on /mints.
+  if (s === 'AVAILABLE') return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
+  if (s === 'EXPECTED')  return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
+  return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
 }
 
 type SortKey = 'nft' | 'listing' | 'offer' | 'spread' | 'age';
@@ -40,16 +64,16 @@ function fmtAge(createdAtSec: number | null): string {
   return `${Math.floor(diffSec / 86_400)}d ago`;
 }
 interface ScanResult {
-  ok:            true;
-  slug:          string;
-  scanned:       number;
-  listedTotal:   number;
-  offersFetched: number;
-  offersActive:  number;
-  withOffers:    ScanRow[];
-  cachedAt:      number;
-  ttlMs:         number;
-  fromCache?:    boolean;
+  ok:              true;
+  slug:            string;
+  scanned:         number;
+  listedTotal:     number;
+  offersFetched:   number;
+  offersAvailable: number;
+  withOffers:      ScanRow[];
+  cachedAt:        number;
+  ttlMs:           number;
+  fromCache?:      boolean;
 }
 
 function shortAddr(s: string | null): string {
@@ -57,10 +81,11 @@ function shortAddr(s: string | null): string {
   return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
 }
 
-/** localStorage key for the persisted scan result. Survives navigation
- *  away from /tools and full page reloads so the table doesn't reset
- *  to "click Scan" on every visit. */
-const STORAGE_KEY = 'vl.tools.retardioMeOfferScan';
+/** localStorage key — separate entry per slug so changing collections
+ *  loads that collection's cached result instead of clobbering it. */
+function storageKey(slug: string): string {
+  return `vl.tools.meOfferScan:${slug}`;
+}
 
 /** NEW flags auto-expire after this many minutes so a long absence
  *  doesn't leave the ribbon stuck. The next scan also clears them
@@ -68,14 +93,12 @@ const STORAGE_KEY = 'vl.tools.retardioMeOfferScan';
  *  bound — operator never sees a "NEW" badge older than 10 minutes. */
 const NEW_FLAG_TTL_MS = 10 * 60_000;
 
-function loadPersisted(): ScanResult | null {
+function loadPersisted(slug: string): ScanResult | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(slug));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ScanResult;
-    // Sanity-check the shape — reject anything that doesn't smell like
-    // a v1 scan result so a stale schema can't crash render.
     if (!parsed || !Array.isArray(parsed.withOffers)) return null;
     // Expire NEW flags older than the TTL.
     const ageMs = Date.now() - (parsed.cachedAt ?? 0);
@@ -91,24 +114,28 @@ function loadPersisted(): ScanResult | null {
   }
 }
 
-function savePersisted(result: ScanResult): void {
+function savePersisted(slug: string, result: ScanResult): void {
   if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(result)); } catch { /* quota / private mode — ignore */ }
+  try { window.localStorage.setItem(storageKey(slug), JSON.stringify(result)); } catch { /* quota / private mode */ }
 }
 
 export default function ToolsPage() {
   useEffect(() => { document.title = 'VictoryLabs — Tools'; }, []);
-  const [busy, setBusy]         = useState(false);
-  // result is hydrated from localStorage on first mount so the table
-  // is populated immediately on navigation back to /tools without
-  // requiring a fresh scan.
-  const [result, setResult]     = useState<ScanResult | null>(null);
-  useEffect(() => { setResult(loadPersisted()); }, []);
-  const [error, setError]       = useState<string | null>(null);
-  const [minOffer, setMinOffer] = useState<string>('');
-  // Default sort: highest BEST OFFER first; tie-break highest SPREAD.
-  const [sortKey, setSortKey]   = useState<SortKey>('offer');
-  const [sortDir, setSortDir]   = useState<SortDir>('desc');
+  const [busy, setBusy]                 = useState(false);
+  // Selected collection drives the scan request body, the localStorage
+  // key, and the displayed result. Changing it loads that slug's
+  // cached scan if one exists.
+  const [selectedSlug, setSelectedSlug] = useState<string>(COLLECTIONS[0].slug);
+  const [result, setResult]             = useState<ScanResult | null>(null);
+  // Hydrate from localStorage whenever the selected collection changes
+  // (initial mount + any subsequent dropdown pick).
+  useEffect(() => { setResult(loadPersisted(selectedSlug)); }, [selectedSlug]);
+  const [error, setError]               = useState<string | null>(null);
+  // Default sort: status priority + highest BEST OFFER first; tie-break
+  // highest SPREAD. The status priority is enforced inside the offer
+  // case below so AVAILABLE always groups above EXPECTED above EXPIRED.
+  const [sortKey, setSortKey]           = useState<SortKey>('offer');
+  const [sortDir, setSortDir]           = useState<SortDir>('desc');
 
   const sortedRows = useMemo(() => {
     if (!result) return [] as ScanRow[];
@@ -125,7 +152,15 @@ export default function ToolsPage() {
           if (va > vb) return  1 * dir;
           return 0;
         case 'listing': va = a.listingPrice;   vb = b.listingPrice;   break;
-        case 'offer':   va = a.bestOfferPrice; vb = b.bestOfferPrice; break;
+        case 'offer': {
+          // Status takes priority over price: AVAILABLE > EXPECTED >
+          // EXPIRED, regardless of sort direction. Within a status
+          // tier, price respects the user's chosen direction.
+          const ra = statusRank(a.bestOfferStatus);
+          const rb = statusRank(b.bestOfferStatus);
+          if (ra !== rb) return ra - rb;
+          return (a.bestOfferPrice - b.bestOfferPrice) * dir;
+        }
         case 'spread':  va = a.spreadSol;      vb = b.spreadSol;      break;
         case 'age':
           // Newer first when desc; "—" (null createdAt) sinks to the
@@ -169,9 +204,7 @@ export default function ToolsPage() {
     setBusy(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = {};
-      const min = parseFloat(minOffer);
-      if (Number.isFinite(min) && min > 0) body.minOfferSol = min;
+      const body: Record<string, unknown> = { slug: selectedSlug };
       const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -194,7 +227,7 @@ export default function ToolsPage() {
         })),
       };
       setResult(merged);
-      savePersisted(merged);
+      savePersisted(selectedSlug, merged);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -221,20 +254,24 @@ export default function ToolsPage() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={minOffer}
-              onChange={(e) => setMinOffer(e.target.value)}
-              placeholder="min offer (SOL)"
-              style={{
-                width: 140, padding: '6px 10px', fontSize: 12,
-                borderRadius: 4, border: '1px solid rgba(168,144,232,0.28)',
-                background: 'rgba(20,14,34,0.5)', color: '#e8e6f2', outline: 'none',
-              }}
+            <select
+              value={selectedSlug}
+              onChange={(e) => setSelectedSlug(e.target.value)}
               disabled={busy}
-            />
+              style={{
+                padding: '6px 10px', fontSize: 12, fontWeight: 600,
+                borderRadius: 4, border: '1px solid rgba(168,144,232,0.55)',
+                background: 'rgba(20,14,34,0.85)', color: '#d4d4e8',
+                outline: 'none', cursor: busy ? 'wait' : 'pointer',
+                minWidth: 180, fontFamily: 'inherit',
+              }}
+            >
+              {COLLECTIONS.map(c => (
+                <option key={c.slug} value={c.slug} style={{ background: '#1a1530', color: '#d4d4e8' }}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={runScan}
@@ -267,8 +304,8 @@ export default function ToolsPage() {
           <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94' }}>
             slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span>
             {' · '}scanned <span style={{ color: '#d4d4e8' }}>{result.scanned}</span> / {result.listedTotal} listings
-            {' · '}offers <span style={{ color: '#5ce0a0' }}>{result.offersActive}</span> active / {result.offersFetched} fetched
-            {' · '}<span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> with active offers
+            {' · '}offers <span style={{ color: '#5ce0a0' }}>{result.offersAvailable}</span> available / {result.offersFetched} fetched
+            {' · '}rows <span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> shown
             {result.fromCache && <span style={{ color: '#c9a820' }}> · cached</span>}
           </div>
         )}
@@ -303,31 +340,37 @@ export default function ToolsPage() {
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
                   AGE {sortArrow('age') && <span style={{ color: '#8068d8' }}>{sortArrow('age')}</span>}
                 </th>
+                <th style={thStyleSmall}>STATUS</th>
                 <th style={thStyleSmall}>LINKS</th>
               </tr>
             </thead>
             <tbody>
               {!result && !busy && (
-                <tr><td colSpan={6} style={emptyCell}>
-                  Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch active Retardio listings and their personal offers from Magic Eden.
+                <tr><td colSpan={7} style={emptyCell}>
+                  Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
                 </td></tr>
               )}
-              {busy && (
-                <tr><td colSpan={6} style={emptyCell}>
+              {busy && !result && (
+                <tr><td colSpan={7} style={emptyCell}>
                   Scanning… fetching listings + offers from Magic Eden.
                 </td></tr>
               )}
               {result && sortedRows.length === 0 && !busy && (
-                <tr><td colSpan={6} style={emptyCell}>
-                  No active Retardio listings have personal offers right now.
+                <tr><td colSpan={7} style={emptyCell}>
+                  No listings with personal offers right now.
                 </td></tr>
               )}
               {sortedRows.map((row) => {
                 const name = row.nftName ?? row.mint.slice(0, 6);
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol > 0;
+                // Dim expired rows so they read as background context
+                // rather than actionable rows. AVAILABLE / EXPECTED at
+                // full opacity; EXPIRED at 0.5.
+                const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1;
+                const sb = statusBadgeStyle(row.bestOfferStatus);
                 return (
-                  <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
                     <td style={{ padding: '10px 8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* Thumbnail wrapper carries `position: relative`
@@ -364,6 +407,14 @@ export default function ToolsPage() {
                     </td>
                     <td style={{ ...tdStyleNum, color: '#aaaabf', fontWeight: 500 }}>
                       {fmtAge(row.bestOfferCreatedAt)}
+                    </td>
+                    <td style={tdStyleSmall}>
+                      <span style={{
+                        display: 'inline-block', padding: '2px 7px',
+                        fontSize: 9.5, fontWeight: 700, borderRadius: 3,
+                        letterSpacing: '0.4px', textTransform: 'uppercase',
+                        ...sb,
+                      }}>{row.bestOfferStatus}</span>
                     </td>
                     <td style={tdStyleSmall}>
                       <div style={{ display: 'flex', gap: 6 }}>
