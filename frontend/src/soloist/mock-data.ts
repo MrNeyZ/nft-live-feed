@@ -43,7 +43,11 @@ export interface FeedEvent {
   /** Server-computed net the seller actually received. Null when the
    *  backend couldn't extract it (e.g. cNFT, missing balance delta). */
   sellerNetPrice?: number | null;
-  floorDelta: number;
+  /** Sale price vs. collection floor as a fractional ratio
+   *  (+0.12 = +12% above floor, -0.08 = 8% below floor). `null` when
+   *  the backend couldn't resolve a floor for this collection — render
+   *  consumers must hide the indicator in that case. */
+  floorDelta: number | null;
   marketplace: Marketplace;
   ts: number;
   side: Side;

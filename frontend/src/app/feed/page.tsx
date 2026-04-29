@@ -35,26 +35,143 @@ const FEED_SLUG_BLACKLIST = new Set<string>([
 ]);
 
 // ── Time-ago leaf ────────────────────────────────────────────────────────────
-// Self-ticking time label. Each instance owns its own 3 s interval, so a
-// 200-card feed only re-renders the 200 small <span>s instead of every
-// FeedCard root (the previous "tick" prop pattern invalidated React.memo
-// on every card every 3 s). Color tier and "just now" copy match the
-// previous inline logic exactly to keep the visual contract.
+// Self-ticking time label. 1 s interval gives smooth seconds in the
+// 5–15 s pink window (per UX spec); the work per tick is one Date.now()
+// + a small <span> rerender, comfortably cheap even with 200 cards.
+// Each instance owns its own interval so React.memo on FeedCard isn't
+// invalidated every tick.
+//
+// Color tiers (per spec):
+//   1–5 s:        pink + "just now"
+//   6–15 s:       pink + "Xs ago"        (still in the "hot" window)
+//   16 s – 3 min: yellow                 (recent but cooling)
+//   > 3 min:      muted                  (background/historical)
 function TimeAgo({ ts }: { ts: number }) {
   const [, force] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => force(n => n + 1), 3000);
+    const id = setInterval(() => force(n => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
-  const now       = Date.now();
-  const isNew     = ts > now - 6000;
-  const ageMs     = now - ts;
-  const isJustNow = ageMs < 5000;
-  const isRecent  = !isJustNow && ageMs < 60000;
-  const color     = isJustNow ? '#e87ab0' : isRecent ? '#c7b479' : '#877496';
-  const weight    = isJustNow ? 600 : 500;
-  const text      = isNew ? 'just now' : timeAgo(ts);
+  const ageMs = Date.now() - ts;
+  let color: string;
+  let weight: 500 | 600 = 500;
+  if (ageMs < 15000) {
+    color  = '#e87ab0'; // pink — covers both "just now" (<5s) and 6-15s
+    weight = 600;
+  } else if (ageMs < 180000) {
+    color  = '#c7b479'; // yellow — 16s to 3min
+  } else {
+    color  = '#877496'; // muted — older than 3min
+  }
+  const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   return <span style={{ fontSize: 11, color, fontWeight: weight }}>{text}</span>;
+}
+
+// ── Wallet links + "YOU" badge ──────────────────────────────────────────────
+//
+// Operator's own wallet — sales involving this address render "YOU" in a
+// small cyan pill instead of the truncated address. Stays clickable to
+// Solscan (same as any other wallet); the tiny ME icon next to it links
+// to the wallet's Magic Eden profile. Hard-coded for v1 — promote to a
+// per-user setting via localStorage when multi-wallet support lands.
+const MY_WALLET = 'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE';
+
+/** Inline wallet link: address (or "YOU" badge) → Solscan, plus a tiny
+ *  ME icon → magiceden.io/u/<wallet>. The 11×11 icon matches the seller/
+ *  buyer text height (11 px line) so the row's vertical metric is
+ *  unchanged — no layout shift when the icon image arrives.
+ *  `flexShrink: 0` on the icon keeps it inline-aligned even when the
+ *  parent row gets squeezed on narrow viewports. */
+function WalletLink({ wallet }: { wallet: string | null }) {
+  if (!wallet) {
+    return <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
+  }
+  const isMe = wallet === MY_WALLET;
+  const solscanUrl = `https://solscan.io/account/${wallet}`;
+  const meUrl      = `https://magiceden.io/u/${wallet}`;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <a
+        href={solscanUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Solscan · ${wallet}`}
+        style={isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
+      >
+        {isMe ? 'YOU' : shortWallet(wallet)}
+      </a>
+      <a
+        href={meUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Magic Eden · ${wallet}`}
+        style={ME_ICON_LINK_STYLE}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/me.png" alt="ME" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+      </a>
+    </span>
+  );
+}
+
+const WALLET_LINK_STYLE: React.CSSProperties = {
+  color: '#7a7a94', fontWeight: 500,
+  fontFamily: "'SF Mono','Fira Code',monospace",
+  textDecoration: 'none',
+  borderBottom: '1px dotted rgba(122,122,148,0.35)',
+};
+/** "YOU" pill — cyan/blue, distinct from the buy/sell badge palette so
+ *  it doesn't conflict visually with the existing kind tokens. */
+const YOU_BADGE_STYLE: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '0px 6px',
+  fontSize: 9.5,
+  fontWeight: 800,
+  letterSpacing: '0.5px',
+  borderRadius: 3,
+  background: 'rgba(95,168,230,0.18)',
+  color: '#5fa8e6',
+  border: '1px solid rgba(95,168,230,0.45)',
+  textDecoration: 'none',
+  lineHeight: '14px',
+};
+const ME_ICON_LINK_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  lineHeight: 0,
+  flexShrink: 0,
+  opacity: 0.85,
+  textDecoration: 'none',
+};
+
+// ── Floor delta chip ────────────────────────────────────────────────────────
+//
+// Re-added per spec: shows sale price vs. collection floor as a percentage
+// next to the time + marketplace icon in the right column's top row, so
+// no extra row is added to the card (cards stay the same height).
+// Backend `floorDelta` is a fractional ratio (+0.12 = +12%); rendered
+// here as `+12%` / `-8%` with green/red tone.
+function FloorChip({ delta }: { delta: number }) {
+  const above = delta >= 0;
+  const pct   = delta * 100;
+  const sign  = above ? '+' : '';
+  const fg    = above ? '#5ce0a0' : '#ef7878';
+  const bg    = above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)';
+  const bd    = above ? 'rgba(92,224,160,0.32)' : 'rgba(239,120,120,0.32)';
+  return (
+    <span
+      title={`${sign}${pct.toFixed(1)}% vs collection floor`}
+      style={{
+        fontSize: 10, fontWeight: 700,
+        color: fg, background: bg, border: `1px solid ${bd}`,
+        padding: '1px 5px', borderRadius: 3, letterSpacing: '0.2px',
+        lineHeight: 1.1, fontFamily: "'SF Mono','Fira Code',monospace",
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {sign}{Math.abs(pct) >= 100 ? pct.toFixed(0) : pct.toFixed(0)}% floor
+    </span>
+  );
 }
 
 // ── Feed Card ────────────────────────────────────────────────────────────────
@@ -186,26 +303,33 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
             )}
           </div>
 
+          {/* Seller/buyer rows — wallets clickable to Solscan; tiny ME
+              icon next to each links to the wallet's Magic Eden profile.
+              Operator's own wallet renders as a "YOU" pill instead of the
+              shortened address (still clickable to Solscan + ME). Row
+              height stays at 11 px (lineHeight: '14px' on the YOU pill +
+              11×11 ME icon match the underlying text metric). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3 }}>
-            <div style={{ fontSize: 10.5, color: '#55556e' }}>
-              <span style={{ marginRight: 6 }}>seller:</span>
-              <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>
-                {event.seller ? shortWallet(event.seller) : 'N/A'}
-              </span>
+            <div style={{ fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>seller:</span>
+              <WalletLink wallet={event.seller} />
             </div>
-            <div style={{ fontSize: 10.5, color: '#55556e' }}>
-              <span style={{ marginRight: 6 }}>buyer:</span>
-              <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>
-                {event.buyer ? shortWallet(event.buyer) : 'N/A'}
-              </span>
+            <div style={{ fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>buyer:</span>
+              <WalletLink wallet={event.buyer} />
             </div>
           </div>
         </div>
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
+          {/* Top-right cluster: time + (optional) floor chip + marketplace
+              icon. Floor chip lives here (not as a third column row) so
+              card height stays unchanged. Hidden when backend couldn't
+              resolve a floor for the collection. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <TimeAgo ts={event.ts} />
+            {event.floorDelta != null && <FloorChip delta={event.floorDelta} />}
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           {/* price-row: fixed badge slot + min-width tabular-num price keeps

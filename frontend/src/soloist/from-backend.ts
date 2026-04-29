@@ -78,7 +78,11 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     price: (b.sellerNetPriceSol ?? null) != null ? (b.sellerNetPriceSol as number) : b.priceSol,
     grossPrice: b.priceSol,
     sellerNetPrice: b.sellerNetPriceSol ?? null,
-    floorDelta: b.floorDelta ?? 0,
+    // Pass null through when the backend couldn't compute a floor delta
+    // (no slug, blacklisted collection, ME/Tensor floor lookup failed).
+    // The Live Feed hides the indicator on null; rendering 0 would be
+    // misleading (= "exactly at floor", a meaningful, distinct state).
+    floorDelta: b.floorDelta ?? null,
     marketplace: mapMarketplace(b.marketplace),
     ts: Date.parse(b.blockTime),
     side,

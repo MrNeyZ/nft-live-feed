@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useState } from 'react';
-import { LiveDot, TopNav, BottomStatusBar, CollectionIcon, compressImage } from '@/soloist/shared';
+import { LiveDot, TopNav, BottomStatusBar, ItemThumb } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -39,6 +39,48 @@ interface MintStatus {
   sourceLabel:       SourceLabel;
   name?:             string;
   imageUrl?:         string;
+}
+
+/** Individual mint event — one fired per detected mint, before
+ *  aggregation. Backend broadcasts these on the existing `event: mint`
+ *  SSE channel (see src/events/emitter.ts MintEventWire); we mirror
+ *  the shape here. Per-mint `nftName` / `imageUrl` are intentionally
+ *  not on the wire — those are resolved per-`groupingKey` by the
+ *  backend enricher and arrive via `mint_status`. The live feed
+ *  uses the group-level imageUrl (looked up from `rows`) as the
+ *  row thumbnail, with a placeholder when not yet resolved. */
+interface MintEvent {
+  signature:         string;
+  blockTime:         string;          // ISO 8601
+  programSource:     ProgramSource;
+  mintAddress:       string | null;
+  collectionAddress: string | null;
+  groupingKey:       string;
+  groupingKind:      string;
+  mintType:          'free' | 'paid' | 'unknown';
+  priceLamports:     number | null;
+  minter:            string | null;
+  sourceLabel:       SourceLabel;
+  /** Wall-clock receive time (ms). Drives the "Xs ago" column without
+   *  re-parsing blockTime on every tick. */
+  receivedAt:        number;
+}
+
+/** Live-feed retention. Older events are dropped from the head when
+ *  this is exceeded. Memory-only — never persisted. */
+const LIVE_FEED_MAX = 150;
+/** Proxy size for live-feed thumbnails — 64×64, matches the spec's
+ *  /thumb URL form. compressImage() defaults to 200×200; the live
+ *  feed uses this smaller size to halve bandwidth on rolling rows. */
+function thumb64(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
+  return `/thumb?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=png`;
+}
+function shortMint(addr: string | null): string {
+  if (!addr) return '—';
+  return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
 }
 
 function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } {
@@ -86,6 +128,92 @@ function shortKey(k: string): string {
   return clean.length > 14 ? `${clean.slice(0, 6)}…${clean.slice(-4)}` : clean;
 }
 
+/** Per-row external links cluster: Solscan + Magic Eden.
+ *  Solscan path branches on programSource — MPL Core assets/collections
+ *  are first-class accounts (`/account/`), Token Metadata mints are SPL
+ *  token mints (`/token/`). Magic Eden's `/item-details/<addr>` resolves
+ *  both Core asset addresses and TM mint addresses, so a single URL form
+ *  covers both. Renders a muted dash when no on-chain anchor is known
+ *  yet (groupingKind is `authority` / `programSource`). */
+function RowLinks({
+  collectionAddress,
+  programSource,
+}: {
+  collectionAddress: string | null;
+  programSource: ProgramSource;
+}) {
+  if (!collectionAddress) {
+    return <span style={{ color: '#3a3a52', fontSize: 11 }}>—</span>;
+  }
+  const solscanPath = programSource === 'mpl_core' ? 'account' : 'token';
+  const solscanUrl  = `https://solscan.io/${solscanPath}/${collectionAddress}`;
+  const meUrl       = `https://magiceden.io/item-details/${collectionAddress}`;
+  return (
+    <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
+      <a
+        href={solscanUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Solscan · ${collectionAddress}`}
+        style={solscanChipStyle}
+      >SOL</a>
+      <a
+        href={meUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Magic Eden · ${collectionAddress}`}
+        style={logoChipStyle}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/me.png" alt="Magic Eden" width={20} height={20} draggable={false} style={logoImgStyle} />
+      </a>
+    </div>
+  );
+}
+
+/** Square chrome shared with /tools — 22×22 logo button. */
+const logoChipStyle: React.CSSProperties = {
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  width:          22,
+  height:         22,
+  borderRadius:   4,
+  overflow:       'hidden',
+  border:         '1px solid rgba(255,255,255,0.08)',
+  cursor:         'pointer',
+  textDecoration: 'none',
+  flexShrink:     0,
+  lineHeight:     0,
+};
+const logoImgStyle: React.CSSProperties = {
+  display:      'block',
+  width:        '100%',
+  height:       '100%',
+  objectFit:    'cover',
+  pointerEvents: 'none',
+};
+/** Text-only chip used for Solscan since we don't ship a brand asset
+ *  for it. Same 22×22 footprint as the logo chips so the LINKS column
+ *  stays a uniform width regardless of which links are present. */
+const solscanChipStyle: React.CSSProperties = {
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  width:          22,
+  height:         22,
+  fontSize:       9,
+  fontWeight:     800,
+  letterSpacing:  '0.3px',
+  borderRadius:   4,
+  border:         '1px solid rgba(168,144,232,0.45)',
+  background:     'rgba(168,144,232,0.12)',
+  color:          '#a890e8',
+  textDecoration: 'none',
+  cursor:         'pointer',
+  flexShrink:     0,
+};
+
 export default function MintsPage() {
   // Embed mode (`?embed=1`) suppresses TopNav so multi-tab can iframe
   // the real /mints page without a duplicated chrome row, mirroring
@@ -97,6 +225,9 @@ export default function MintsPage() {
   }, []);
   useEffect(() => { document.title = 'VictoryLabs — Mints'; }, []);
   const [rows, setRows]       = useState<Map<string, MintStatus>>(new Map());
+  /** Rolling buffer of individual mint events for the bottom Live Feed.
+   *  Newest at index 0; capped at LIVE_FEED_MAX. */
+  const [events, setEvents]   = useState<MintEvent[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   const [, force]             = useState(0);
 
@@ -136,15 +267,26 @@ export default function MintsPage() {
           }
           setRows(prev => {
             const next = new Map(prev);
-            // Keep ALL states now — the page renders shown rows in the
-            // main table and incubating/cooled rows in a debug section
-            // below so the operator can see what the threshold/burst
-            // gates are dropping. `cooled` rows still get evicted from
-            // the map after the backend drops them (next status frame
-            // never comes for an evicted row, so the page reflects the
-            // backend's set on each refresh).
+            // Keep all states in the rolling map — the table renders
+            // only `shown` rows; incubating/cooled rows aren't surfaced
+            // in this UI but stay in the map so a `mint` event can look
+            // up its group's lazily-resolved imageUrl/name for the
+            // Live Feed thumbnail without re-fetching.
             next.set(s.groupingKey, s);
             return next;
+          });
+        } catch { /* malformed frame — skip */ }
+      });
+      // Per-mint live feed channel. Already broadcast by the backend
+      // (sse.ts → buildMintFrame); this is the first consumer. We keep
+      // the latest LIVE_FEED_MAX events in memory only — never persist.
+      es.addEventListener('mint', (e: MessageEvent) => {
+        try {
+          const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
+          const ev: MintEvent = { ...m, receivedAt: Date.now() };
+          setEvents(prev => {
+            const next = [ev, ...prev];
+            return next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
           });
         } catch { /* malformed frame — skip */ }
       });
@@ -171,16 +313,11 @@ export default function MintsPage() {
     return arr;
   }, [rows, sortKey]);
 
-  /** Debug surface — incubating + cooled rows so the operator can see
-   *  what the threshold/burst gates have so far rejected. Sorted by
-   *  observedMints desc to surface the closest-to-promotion candidates
-   *  first. Capped at 25 rows to keep the page readable under load. */
-  const debugRows = useMemo(() => {
-    return Array.from(rows.values())
-      .filter(r => r.displayState !== 'shown')
-      .sort((a, b) => b.observedMints - a.observedMints || b.v60 - a.v60)
-      .slice(0, 25);
-  }, [rows]);
+  /** Live mint feed — events array drives the bottom panel directly,
+   *  newest first (already maintained by the SSE handler). The group
+   *  imageUrl/name is looked up from `rows` at render time so freshly
+   *  enriched groups update their feed thumbnails on the next React
+   *  re-render without re-fetching anything. */
 
   return (
     <div className="feed-root" data-page="mints" data-embedded={embedded ? '1' : undefined}>
@@ -240,19 +377,20 @@ export default function MintsPage() {
                 <th style={thStyle}>PRICE</th>
                 <th style={thStyle}>SOURCE</th>
                 <th style={thStyle}>TYPE</th>
+                <th style={thStyle}>LINKS</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
+                  <td colSpan={8} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
                     Waiting for active mints…
                   </td>
                 </tr>
               )}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
+                  <td colSpan={8} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
                     Collections appear after burst activity (≥ 8 mints in 60 s)
                     or 50 observed mints. Until then they incubate silently in
                     the backend.
@@ -271,7 +409,26 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 6px 12px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
-                        <CollectionIcon imageUrl={compressImage(r.imageUrl ?? null)} color="#8068d8" abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()} size={32} />
+                        {/* Single collection preview image — same component
+                            (ItemThumb) the Live Feed below uses, so the
+                            multi-tab embed and the standalone page render a
+                            consistent NFT-style square thumbnail in both
+                            surfaces. Source URL is routed through the 64×64
+                            variant of the /thumb proxy (vs. the 200×200
+                            compressImage default) — at a 40 px DOM render
+                            size, the smaller proxy fetch is ~3× cheaper
+                            on bandwidth without visible quality loss.
+                            ItemThumb already sets width/height attrs on
+                            the <img>, so layout doesn't shift when the
+                            image arrives. Falls back to the initials
+                            placeholder on missing / errored images,
+                            mirroring /feed's thumbnail behaviour. */}
+                        <ItemThumb
+                          imageUrl={thumb64(r.imageUrl ?? null)}
+                          color="#8068d8"
+                          abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
+                          size={40}
+                        />
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {displayName}
                           {isBurst && (
@@ -309,6 +466,17 @@ export default function MintsPage() {
                         background: tb.bg, color: tb.fg, letterSpacing: '0.3px',
                       }}>{tb.label}</span>
                     </td>
+                    {/* LINKS column — Solscan + Magic Eden item page for the
+                        collection asset. Both keyed off `collectionAddress`
+                        which is the only stable on-chain anchor available
+                        on the per-collection rollup (no individual mint
+                        address is exposed at this aggregation level). */}
+                    <td style={{ padding: '12px 8px 12px 4px', textAlign: 'right' }}>
+                      <RowLinks
+                        collectionAddress={r.collectionAddress}
+                        programSource={r.programSource}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -317,58 +485,98 @@ export default function MintsPage() {
         </div>
       </div>
 
-      {/* Debug — incubating / cooled.
-          Rendered ONLY when the main table has nothing to show OR there
-          is at least one incubating row, AND we are not in embed mode.
-          Lets the operator confirm "the backend IS detecting mints, the
-          gates are filtering them" vs "the backend isn't even detecting
-          anything" without changing thresholds. */}
-      {!embedded && debugRows.length > 0 && (
+      {/* ── Live Mint Feed ──────────────────────────────────────────────
+          Per-mint stream (one row = one detected mint), independent of
+          the aggregation gate that drives the table above. Renders
+          regardless of whether any collection has reached `shown` state
+          — useful as the always-active heartbeat for the page. Image
+          + name are looked up from the per-group `rows` map (populated
+          by `mint_status` frames) so freshly-enriched groups upgrade
+          their thumbnails in-place; new mints from un-enriched groups
+          render the placeholder until the backend's enricher catches
+          up. No per-NFT metadata fetching anywhere on the client. */}
+      {!embedded && (
         <div style={{
           width: '100%', maxWidth: 1000, margin: '0 auto 16px',
-          background: 'rgba(28,22,50,0.5)',
-          border: '1px dashed rgba(168,144,232,0.35)', borderRadius: 8,
-          padding: '10px 14px',
+          background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+          border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+          // Fixed-height pane: the feed must never grow with content —
+          // it sits below the active-collections table as a scrollable
+          // panel, not a page-expanding block. height + maxHeight pin
+          // the box; the inner scroll-area below handles overflow.
+          overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 360, maxHeight: 360,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
-              DEBUG — INCUBATING / COOLED ({debugRows.length})
-            </span>
+          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <LiveDot />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
+                LIVE MINT FEED
+              </span>
+            </div>
             <span style={{ fontSize: 10, color: '#55556e' }}>
-              shown after burst (≥ {/* match BURST_V60 default */}8/min) or 50 cumulative
+              {events.length === 0 ? 'waiting…' : `${events.length} recent · max ${LIVE_FEED_MAX}`}
             </span>
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace" }}>
-            <thead>
-              <tr style={{ color: '#56566e', textAlign: 'left' }}>
-                <th style={{ padding: '4px 6px', fontWeight: 600 }}>STATE</th>
-                <th style={{ padding: '4px 6px', fontWeight: 600 }}>KEY</th>
-                <th style={{ padding: '4px 6px', fontWeight: 600 }}>SOURCE</th>
-                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>OBS</th>
-                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>v60</th>
-                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>v5m</th>
-                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>LAST</th>
-              </tr>
-            </thead>
-            <tbody>
-              {debugRows.map(r => {
-                const stateColor = r.displayState === 'cooled' ? '#7a7a94' : '#c9a820';
-                return (
-                  <tr key={r.groupingKey} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#aaaabf' }}>
-                    <td style={{ padding: '3px 6px', color: stateColor, fontWeight: 700 }}>{r.displayState}</td>
-                    <td style={{ padding: '3px 6px', color: '#d4d4e8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
-                      {r.name ?? shortKey(r.groupingKey)}
-                    </td>
-                    <td style={{ padding: '3px 6px' }}>{r.programSource}</td>
-                    <td style={{ padding: '3px 6px', textAlign: 'right', color: '#f0eef8' }}>{r.observedMints}</td>
-                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.v60}</td>
-                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.v5m}</td>
-                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmtAge(r.lastMintAt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="scroll-area" style={{ flex: 1, overflowY: 'auto' }}>
+            {events.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
+                Waiting for individual mint events…
+              </div>
+            )}
+            {events.map(ev => {
+              const group       = rows.get(ev.groupingKey);
+              const displayName = group?.name ?? shortMint(ev.mintAddress);
+              const abbr        = (displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase();
+              const sb          = sourceBadge(ev.sourceLabel);
+              const priceText   = ev.priceLamports == null
+                ? '—'
+                : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
+              const priceColor  = ev.priceLamports == null
+                ? '#55556e'
+                : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
+              return (
+                <div key={ev.signature} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '8px 14px',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                }}>
+                  {/* 64×64 NFT thumbnail. ItemThumb renders the placeholder
+                      tile (initials + group color) until the group's
+                      imageUrl is enriched, at which point this re-renders
+                      with the proxied image. */}
+                  <ItemThumb
+                    imageUrl={thumb64(group?.imageUrl ?? null)}
+                    color="#8068d8"
+                    abbr={abbr}
+                    size={64}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {displayName}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2 }}>
+                      {shortMint(ev.mintAddress)}
+                    </div>
+                  </div>
+                  <span style={{
+                    display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+                    background: sb.bg, color: sb.fg, letterSpacing: '0.3px', flexShrink: 0,
+                  }}>{sb.label}</span>
+                  <span style={{
+                    minWidth: 64, textAlign: 'right',
+                    fontSize: 13, fontWeight: 700, color: priceColor,
+                    fontFamily: "'SF Mono','Fira Code',monospace",
+                    fontVariantNumeric: 'tabular-nums',
+                    flexShrink: 0,
+                  }}>{priceText}</span>
+                  <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: '#5e5e78', fontWeight: 500, flexShrink: 0 }}>
+                    {fmtAge(ev.receivedAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

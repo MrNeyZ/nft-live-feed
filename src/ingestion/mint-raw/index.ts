@@ -119,16 +119,29 @@ const MIN_PAID_LAMPORTS = 1_000_000;
 
 interface ProgramHit { programSource: MintProgramSource; needle: string; }
 
-/** Identify which mint program shows up in this tx's logs. First match wins. */
+/** Identify which mint program shows up in this tx's logs. Needle-driven:
+ *  the instruction-name string in the program log is the strongest signal
+ *  and uniquely identifies Core vs. Token Metadata for the unambiguous
+ *  needles. Falls back to program-address sighting only for the two
+ *  ambiguous needles (`Instruction: Create` / `Instruction: Mint`) which
+ *  are also emitted by SPL Token (`MintTo`) and ATA (`Create`) and so
+ *  need a positive TM-mention to disambiguate.
+ *
+ *  Why the previous `sawCore && needle === ...` requirement was wrong:
+ *  for inner-CPI mints (launchpad → mpl_core CreateV1), the outer program
+ *  is the launchpad and its log lines mention the launchpad's address;
+ *  Core's address appears only on the inner `Program CoREENx... invoke [2]`
+ *  line. That line IS in `logMessages`, so `sawCore` should be true — but
+ *  any condition that gates on log-address sighting is fragile to
+ *  truncation / format changes. The needle alone is enough for the two
+ *  Core-unique instruction names. */
 function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
   const logs = tx.meta?.logMessages;
   if (!Array.isArray(logs)) return null;
-  let sawCore     = false;
   let sawMetadata = false;
   let mintNeedle  = '';
   for (const line of logs) {
     if (typeof line !== 'string') continue;
-    if (line.includes(MPL_CORE_PROGRAM))       sawCore     = true;
     if (line.includes(TOKEN_METADATA_PROGRAM)) sawMetadata = true;
     if (!mintNeedle) {
       for (const n of MINT_LOG_NEEDLES) {
@@ -136,10 +149,18 @@ function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
       }
     }
   }
-  if (sawCore     && (mintNeedle === 'Instruction: CreateV1' || mintNeedle === 'Instruction: CreateCollectionV1')) {
+  if (!mintNeedle) return null;
+  // Core-unique needles → mpl_core (no other program emits these names).
+  if (mintNeedle === 'Instruction: CreateV1' || mintNeedle === 'Instruction: CreateCollectionV1') {
     return { programSource: 'mpl_core', needle: mintNeedle };
   }
-  if (sawMetadata && mintNeedle.length > 0) {
+  // TM-unique needle → mpl_token_metadata.
+  if (mintNeedle === 'Instruction: CreateMetadataAccountV3') {
+    return { programSource: 'mpl_token_metadata', needle: mintNeedle };
+  }
+  // Ambiguous needles (`Create` / `Mint`): require TM in the log to
+  // distinguish from SPL-Token / ATA noise that also matches.
+  if (sawMetadata) {
     return { programSource: 'mpl_token_metadata', needle: mintNeedle };
   }
   return null;
@@ -164,13 +185,25 @@ function classifyMintType(priceLamports: number | null): MintType {
   return 'unknown';
 }
 
-/** First top-level instruction whose `programIdIndex` resolves to one of
- *  our two watched programs. Returns the instruction + its resolved
- *  account-key strings for downstream account-index lookups. */
+/** First instruction whose `programIdIndex` resolves to one of our two
+ *  watched programs. Top-level instructions are checked first; if the
+ *  match isn't there, we descend into `tx.meta.innerInstructions[*].instructions`.
+ *
+ *  Why inner CPIs matter: candy-machine / launchpad mints invoke
+ *  `mpl_token_metadata.create_metadata_account_v3` (or `mpl_core.create_v1`)
+ *  as a CPI from the launchpad's outer instruction. The top-level
+ *  program is the launchpad — only the inner CPI carries the
+ *  TM/Core instruction we need to extract the asset/mint from.
+ *
+ *  Inner instructions use the SAME accountKeys array as the outer
+ *  message (already merged with loaded addresses by fetchRawTx), so
+ *  the existing `accounts[i]` → `accountKeys[a[i]]` indirection works
+ *  unchanged. Returns `viaInner` so the caller can sample-log the
+ *  inner-path success rate to gauge the fix's impact. */
 function findMintInstruction(
   tx: RawSolanaTx,
   programSource: MintProgramSource,
-): { ix: { accounts: number[] }; accountKeys: string[] } | null {
+): { ix: { accounts: number[] }; accountKeys: string[]; viaInner: boolean } | null {
   const message = tx.transaction?.message;
   if (!message) return null;
   // accountKeys after fetchRawTx's merge are objects with .pubkey.
@@ -179,12 +212,32 @@ function findMintInstruction(
   if (!Array.isArray(rawKeys)) return null;
   const accountKeys = rawKeys.map(k => typeof k === 'string' ? k : k?.pubkey ?? '');
   const target = programSource === 'mpl_core' ? MPL_CORE_PROGRAM : TOKEN_METADATA_PROGRAM;
+
+  // 1. Top-level instructions — original path, unchanged.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ixs = (message as any).instructions as Array<{ programIdIndex: number; accounts: number[] }> | undefined;
-  if (!Array.isArray(ixs)) return null;
-  for (const ix of ixs) {
-    const programId = accountKeys[ix.programIdIndex];
-    if (programId === target) return { ix, accountKeys };
+  if (Array.isArray(ixs)) {
+    for (const ix of ixs) {
+      const programId = accountKeys[ix.programIdIndex];
+      if (programId === target) return { ix, accountKeys, viaInner: false };
+    }
+  }
+
+  // 2. Inner-instruction CPIs — required to catch launchpad / candy-
+  //    machine wrappers where the outer program isn't TM/Core. Each
+  //    `RawInnerInstructionGroup` belongs to one outer instruction
+  //    (`grp.index`); its `instructions` list contains the CPI calls
+  //    that outer instruction made. We only care about the programId,
+  //    not which outer ix triggered it.
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      for (const ix of grp.instructions) {
+        const programId = accountKeys[ix.programIdIndex];
+        if (programId === target) return { ix, accountKeys, viaInner: true };
+      }
+    }
   }
   return null;
 }
@@ -217,11 +270,21 @@ export async function ingestMintRaw(
 
   const found = findMintInstruction(tx, hit.programSource);
   if (!found) {
-    // Most likely cause: top-level program is a launchpad / candy machine
-    // and the actual TM/Core mint is an inner CPI. Sampled so operators
-    // can see this is the dominant drop reason without log flooding.
-    noteParseStep('ix_not_found_top_level', hit.programSource, sig);
+    // Both the top-level scan AND the inner-CPI scan came up empty.
+    // Possible causes (in rough order of likelihood):
+    //   - prefilter let in a non-mint tx whose log substrings collide
+    //     (e.g. SPL `MintTo` or ATA `Create`)
+    //   - account-key merge missed an ALT-loaded program (rare; logs
+    //     would still show the program address but accountKeys[i]
+    //     wouldn't resolve to it)
+    noteParseStep('ix_not_found_anywhere', hit.programSource, sig);
     return;
+  }
+  if (found.viaInner) {
+    // First inner-CPI hit per (step, source) + every 25th. Lets us
+    // confirm in production logs that the inner-instruction extension
+    // is firing and how often vs. the top-level path.
+    noteParseStep('inner_ix_found', hit.programSource, sig);
   }
   const { ix, accountKeys } = found;
 
