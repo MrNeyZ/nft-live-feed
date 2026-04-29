@@ -574,18 +574,12 @@ export function TopNav({ active }: { active: Page }) {
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/V-logo.png"
+            src="/brand/victorylabs.png"
             alt="VictoryLabs"
-            width={32}
-            height={32}
+            width={125}
+            height={38}
             draggable={false}
-            // object-fit: contain preserves the V-mark's aspect ratio
-            // inside the 32×32 box if the source isn't perfectly square.
-            // width/height attributes reserve the layout space so there's
-            // no shift when the image arrives. Other places that render a
-            // brand mark (Gate splash, marketplace icons, mints/feed
-            // thumbnails, Tools logos) are intentionally untouched.
-            style={{ display: 'block', objectFit: 'contain' }}
+            style={{ display: 'block' }}
           />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2 }}>

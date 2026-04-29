@@ -50,6 +50,12 @@ export interface MetaPatch {
   imageUrl:         string | null;
   collectionName:   string | null;
   meCollectionSlug: string | null;
+  /** Backend computes these post-enrichment (when slug + floor lookup
+   *  resolve), so they're typically null on the first `sale` frame and
+   *  arrive on the follow-up `meta` frame. Reducer below applies them
+   *  to the existing FeedEvent so the FloorChip can render. */
+  floorDelta?:      number | null;
+  offerDelta?:      number | null;
 }
 
 export interface RawPatch {
@@ -143,6 +149,12 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
             meCollectionSlug: patch.meCollectionSlug ?? ev.meCollectionSlug,
             abbr:             patch.collectionName ? vis.abbr  : ev.abbr,
             color:            patch.collectionName ? vis.color : ev.color,
+            // Floor / offer deltas are computed by the backend during
+            // enrichment and arrive on the meta frame — propagate so the
+            // FloorChip in FeedCard renders once the value is known.
+            // `??` semantics keep any previously-applied non-null value
+            // when a later patch arrives without one.
+            floorDelta:       patch.floorDelta      ?? ev.floorDelta,
           };
         },
       );

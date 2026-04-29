@@ -642,6 +642,25 @@ html[data-layout="phone"] [data-page="collection"] .trade-row {
   overflow: hidden !important;
 }
 
+/* /mints — phone layout: stack the 2-column grid (LEFT collections /
+   RIGHT live feed) into a single column. Inline style on the grid
+   div sets the PC/laptop split via `grid-template-columns:
+   minmax(0,2fr) minmax(320px,0.9fr)`; this rule overrides it only
+   when data-layout="phone" so panels read one above the other on
+   narrow viewports. The grid keeps its flex: 1 + minHeight: 0 so
+   the two stacked rows still fill the viewport without growing
+   the page. */
+html[data-layout="phone"] [data-page="mints"] .mints-grid {
+  grid-template-columns: 1fr !important;
+}
+/* Same fallback for narrow widths even when layout-mode hasn't been
+   explicitly set to phone — covers PC users who shrink the window. */
+@media (max-width: 720px) {
+  [data-page="mints"] .mints-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 @media (max-width: 600px) {
   [data-page="collection"] .collection-grid {
     grid-template-columns: 1fr !important;

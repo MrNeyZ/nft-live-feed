@@ -5,6 +5,12 @@ import { Gate } from '@/runtime/Gate';
 export const metadata: Metadata = {
   title: 'VictoryLabs — Live Feed',
   description: 'Solana-wide NFT sales in real time',
+  // Favicon ONLY — the header brand mark stays the wordmark
+  // (`/brand/victorylabs.png` rendered by TopNav). V-logo PNG is
+  // surfaced exclusively as the browser tab icon. Next renders this
+  // metadata.icons declaration as `<link rel="icon" href="…">` and
+  // overrides the convention-based `app/icon.svg` pickup.
+  icons: { icon: '/brand/V-logo.png' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

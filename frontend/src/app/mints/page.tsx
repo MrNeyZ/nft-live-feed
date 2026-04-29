@@ -344,21 +344,43 @@ export default function MintsPage() {
         </div>
       )}
 
-      {/* Table card (mirrors dashboard chrome). In embed mode the
-          maxWidth cap is removed so the card fills the iframe edge-
-          to-edge, matching how /dashboard and /feed render in their
-          multi-tab panes; bottom margin is dropped for the same reason. */}
-      <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
+      {/* 2-column grid: LEFT (large) Mint Collections + RIGHT (narrow)
+          Live Mint Feed.
+            • PC / Laptop: ~68 / 32 split via
+              `minmax(0, 2fr) minmax(320px, 0.9fr)`.
+              The 320px floor on the right keeps the compact feed
+              readable when the viewport gets squeezed; `minmax(0,…)`
+              on the left lets it shrink instead of overflowing when
+              the right hits its floor.
+            • Phone: globals.css `html[data-layout="phone"]` rule
+              flips this to a single column (`grid-template-columns:
+              1fr`) so the panels stack vertically — the className
+              `mints-grid` is the hook for that selector.
+            • Embed mode (multi-tab): single column inline since the
+              Live Feed isn't rendered there.
+          Both panels fill the remaining viewport via `flex: 1` on
+          this grid + `minHeight: 0` on each cell; internal scroll
+          stays inside each panel so the page never grows. */}
+      <div className="mints-grid" style={{
+        flex: 1,
+        display: 'grid',
+        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 2fr) minmax(320px, 0.9fr)',
+        gap: 16,
         width: '100%',
-        maxWidth: embedded ? 'none' : 1000,
+        maxWidth: embedded ? 'none' : 1400,
         margin: '0 auto',
+        minHeight: 0,
+        paddingBottom: embedded ? 0 : 16,
+        boxSizing: 'border-box',
+      }}>
+      {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', minHeight: 0,
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden',
-        marginBottom: embedded ? 0 : 16,
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
@@ -485,27 +507,28 @@ export default function MintsPage() {
         </div>
       </div>
 
-      {/* ── Live Mint Feed ──────────────────────────────────────────────
+      {/* ── RIGHT: Live Mint Feed ────────────────────────────────────
           Per-mint stream (one row = one detected mint), independent of
-          the aggregation gate that drives the table above. Renders
-          regardless of whether any collection has reached `shown` state
-          — useful as the always-active heartbeat for the page. Image
-          + name are looked up from the per-group `rows` map (populated
-          by `mint_status` frames) so freshly-enriched groups upgrade
-          their thumbnails in-place; new mints from un-enriched groups
-          render the placeholder until the backend's enricher catches
-          up. No per-NFT metadata fetching anywhere on the client. */}
+          the aggregation gate that drives the LEFT collections table.
+          Now sits in the right grid cell so both panels share the same
+          vertical space and the page never grows past one viewport.
+          Image + name are looked up from the per-group `rows` map
+          (populated by `mint_status` frames) so freshly-enriched groups
+          upgrade their thumbnails in-place; new mints from un-enriched
+          groups render the placeholder until the backend's enricher
+          catches up. No per-NFT metadata fetching anywhere on the
+          client. Hidden in embed mode (multi-tab) — the grid collapses
+          to a single column there. */}
       {!embedded && (
         <div style={{
-          width: '100%', maxWidth: 1000, margin: '0 auto 16px',
           background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
-          // Fixed-height pane: the feed must never grow with content —
-          // it sits below the active-collections table as a scrollable
-          // panel, not a page-expanding block. height + maxHeight pin
-          // the box; the inner scroll-area below handles overflow.
-          overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 360, maxHeight: 360,
+          // Pane fills its grid cell vertically — minHeight: 0 lets the
+          // inner scroll-area shrink to fit; overflow: hidden + the
+          // inner overflowY: 'auto' keep all scrolling internal so the
+          // page itself never grows with feed content.
+          overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
           <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -579,6 +602,7 @@ export default function MintsPage() {
           </div>
         </div>
       )}
+      </div>
 
       {!embedded && <BottomStatusBar />}
     </div>
