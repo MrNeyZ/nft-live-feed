@@ -106,3 +106,37 @@ export function logSellerNetDiff(opts: {
     );
   }
 }
+
+/** Per-saleType audit. Lets the operator see, for each canonical
+ *  saleType (`normal_sale` = LIST_BUY, `bid_sell` = BID_SELL,
+ *  `pool_buy` = AMM_BUY, `pool_sale` = AMM_SELL), whether seller-net
+ *  was recovered or fell back to gross — and whether net actually
+ *  differs from gross. Sampled per-saleType (1st + every 25th) so a
+ *  burst on one path doesn't mask the others. */
+const _auditCounts = new Map<string, number>();
+export function logSellerNetAudit(opts: {
+  signature:          string;
+  saleType:           string;
+  marketplace:        string;
+  priceLamports:      bigint;
+  sellerNetLamports?: bigint | null;
+  mint?:              string | null;
+  seller?:            string | null;
+}): void {
+  const n = (_auditCounts.get(opts.saleType) ?? 0) + 1;
+  _auditCounts.set(opts.saleType, n);
+  if (n !== 1 && n % 25 !== 0) return;
+
+  const fallback   = opts.sellerNetLamports == null;
+  const grossSol   = Number(opts.priceLamports) / 1e9;
+  const netSol     = !fallback ? Number(opts.sellerNetLamports!) / 1e9 : null;
+  const sigShort   = opts.signature.slice(0, 12) + '…';
+  const mintShort  = opts.mint   ? opts.mint.slice(0, 8)   + '…' : '—';
+  const sellerShort = opts.seller ? opts.seller.slice(0, 8) + '…' : '—';
+  console.log(
+    `[seller-net/audit] saleType=${opts.saleType}  ` +
+    `gross=${grossSol.toFixed(4)} net=${netSol != null ? netSol.toFixed(4) : '—'}  ` +
+    `fallback=${fallback}  ` +
+    `seller=${sellerShort}  mint=${mintShort}  sig=${sigShort}  n=${n}`,
+  );
+}

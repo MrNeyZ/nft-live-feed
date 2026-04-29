@@ -49,7 +49,25 @@ interface MeOffer {
   buyer?:         string;       // bidder
   price?:         number;       // SOL
   auctionHouse?:  string;
+  /** Unix timestamp seconds when the offer expires. ME often returns 0
+   *  for offers without an explicit expiry (open-ended bids); per spec
+   *  we treat missing/zero as inactive unless ME explicitly marks it.
+   *  Ground truth: only offers with `expiry > now` are kept. */
   expiry?:        number;
+  /** Unix timestamp seconds when the offer was placed. ME returns this
+   *  on most offers_received responses; absent on a few legacy rows.
+   *  Used by the UI to render an "AGE" column. */
+  createdAt?:     number;
+  blockTime?:     number;       // alternate name on some ME endpoints
+}
+
+/** Active = `expiry` is a number AND in the future. Returns false for
+ *  missing / zero / past expiry. Conservative by design — a stale offer
+ *  in our results is a worse UX than a dropped one. */
+function isOfferActive(o: MeOffer, nowSec: number): boolean {
+  const exp = o.expiry;
+  if (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= 0) return false;
+  return exp > nowSec;
 }
 
 export interface ScanRow {
@@ -59,20 +77,31 @@ export interface ScanRow {
   listingPrice:     number;     // SOL
   bestOfferPrice:   number;     // SOL
   spreadSol:        number;     // bestOffer - listing  (positive = offer above ask)
-  seller:           string | null;
-  buyer:            string | null;
+  /** Stable identity for the best active offer. ME returns its
+   *  `pdaAddress` per offer; the frontend uses this to compare scans
+   *  and mark newly-appeared offers as NEW. Falls back to a synthetic
+   *  `${mint}:${buyer}:${price}` composite when ME omitted pda. */
+  bestOfferId:      string;
+  /** Unix timestamp seconds when the best offer was placed. Null when
+   *  ME didn't provide a createdAt / blockTime. UI renders this as a
+   *  human "AGE" string. */
+  bestOfferCreatedAt: number | null;
   meUrl:            string;
   tensorUrl:        string;
 }
 
 export interface ScanResult {
-  ok:        true;
-  slug:      string;
-  scanned:   number;            // listings checked
-  listedTotal: number;          // total listings from ME (may exceed `scanned`)
-  withOffers: ScanRow[];
-  cachedAt:  number;            // epoch ms
-  ttlMs:     number;
+  ok:           true;
+  slug:         string;
+  scanned:      number;         // listings checked
+  listedTotal:  number;         // total listings from ME (may exceed `scanned`)
+  /** Total raw offers seen across all listings before the active filter. */
+  offersFetched: number;
+  /** Count of offers that passed the active (future-expiry) filter. */
+  offersActive:  number;
+  withOffers:   ScanRow[];
+  cachedAt:     number;         // epoch ms
+  ttlMs:        number;
 }
 
 let cached: { key: string; result: ScanResult } | null = null;
@@ -116,6 +145,10 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
   const sliced   = listings.slice(0, scanLimit);
   const out: ScanRow[] = [];
 
+  const nowSec = Math.floor(Date.now() / 1000);
+  let totalFetched = 0;
+  let totalActive  = 0;
+
   for (const l of sliced) {
     const mint = l.tokenMint ?? l.tokenAddress;
     if (!mint || typeof l.price !== 'number') continue;
@@ -124,26 +157,42 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     await sleep(REQUEST_GAP_MS);
     if (offers.length === 0) continue;
 
-    const priced = offers
+    // Active filter: expiry must be a future-dated number. Missing /
+    // zero / past expiry → drop. Sorted active offers desc by price.
+    const active = offers
+      .filter(o => isOfferActive(o, nowSec))
       .filter(o => typeof o.price === 'number' && (o.price as number) > 0)
       .sort((a, b) => (b.price as number) - (a.price as number));
-    if (priced.length === 0) continue;
 
-    const best = priced[0];
+    totalFetched += offers.length;
+    totalActive  += active.length;
+
+    if (active.length === 0) continue;
+
+    const best = active[0];
     const bestPrice = best.price as number;
     if (bestPrice < minOfferSol) continue;
 
+    // Pick whichever timestamp field ME populated. Both are seconds.
+    const createdAt =
+      typeof best.createdAt === 'number' && best.createdAt > 0 ? best.createdAt :
+      typeof best.blockTime === 'number' && best.blockTime > 0 ? best.blockTime :
+      null;
+
+    const bestOfferId = best.pdaAddress
+      ?? `${mint}:${best.buyer ?? '?'}:${bestPrice}`;
+
     out.push({
       mint,
-      nftName:        l.token?.name ?? null,
-      imageUrl:       l.extra?.img ?? l.token?.image ?? null,
-      listingPrice:   l.price,
-      bestOfferPrice: bestPrice,
-      spreadSol:      bestPrice - l.price,
-      seller:         l.seller ?? null,
-      buyer:          best.buyer ?? null,
-      meUrl:          `https://magiceden.io/item-details/${mint}`,
-      tensorUrl:      `https://www.tensor.trade/item/${mint}`,
+      nftName:           l.token?.name ?? null,
+      imageUrl:          l.extra?.img ?? l.token?.image ?? null,
+      listingPrice:      l.price,
+      bestOfferPrice:    bestPrice,
+      spreadSol:         bestPrice - l.price,
+      bestOfferId,
+      bestOfferCreatedAt: createdAt,
+      meUrl:             `https://magiceden.io/item-details/${mint}`,
+      tensorUrl:         `https://www.tensor.trade/item/${mint}`,
     });
   }
 
@@ -151,13 +200,15 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
   out.sort((a, b) => b.bestOfferPrice - a.bestOfferPrice || b.spreadSol - a.spreadSol);
 
   return {
-    ok:          true,
+    ok:           true,
     slug,
-    scanned:     sliced.length,
-    listedTotal: listings.length,
-    withOffers:  out,
-    cachedAt:    Date.now(),
-    ttlMs:       CACHE_TTL_MS,
+    scanned:      sliced.length,
+    listedTotal:  listings.length,
+    offersFetched: totalFetched,
+    offersActive:  totalActive,
+    withOffers:   out,
+    cachedAt:     Date.now(),
+    ttlMs:        CACHE_TTL_MS,
   };
 }
 
@@ -183,7 +234,9 @@ export function createRetardioOffersRouter(): Router {
       cached = { key: cacheKey, result };
       console.log(
         `[tools/retardio-me-offer-scan] slug=${slug} scanned=${result.scanned} ` +
-        `withOffers=${result.withOffers.length} took=${Date.now() - startedAt}ms`,
+        `withOffers=${result.withOffers.length} ` +
+        `offersFetched=${result.offersFetched} offersActive=${result.offersActive} ` +
+        `took=${Date.now() - startedAt}ms`,
       );
       return res.json({ ...result, fromCache: false });
     } catch (err) {

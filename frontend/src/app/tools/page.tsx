@@ -4,33 +4,52 @@
 // Manual, on-demand scanners. v1: Retardio listings with Magic Eden
 // personal offers.
 
-import { useEffect, useState } from 'react';
-import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
+import { useEffect, useMemo, useState } from 'react';
+import { TopNav, LiveDot, BottomStatusBar, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 interface ScanRow {
-  mint:           string;
-  nftName:        string | null;
-  imageUrl:       string | null;
-  listingPrice:   number;
-  bestOfferPrice: number;
-  spreadSol:      number;
-  seller:         string | null;
-  buyer:          string | null;
-  meUrl:          string;
-  tensorUrl:      string;
+  mint:               string;
+  nftName:            string | null;
+  imageUrl:           string | null;
+  listingPrice:       number;
+  bestOfferPrice:     number;
+  spreadSol:          number;
+  bestOfferId:        string;
+  bestOfferCreatedAt: number | null;     // seconds since epoch
+  meUrl:              string;
+  tensorUrl:          string;
+  /** Frontend-only flag: row's `bestOfferId` was not present in the
+   *  previous cached scan. Set at scan-merge time, persisted in
+   *  localStorage, cleared on the next scan. */
+  isNew?:             boolean;
+}
+
+type SortKey = 'nft' | 'listing' | 'offer' | 'spread' | 'age';
+type SortDir = 'asc' | 'desc';
+
+function fmtAge(createdAtSec: number | null): string {
+  if (createdAtSec == null) return '—';
+  const diffSec = Math.floor(Date.now() / 1000) - createdAtSec;
+  if (diffSec < 0)        return 'just now';
+  if (diffSec < 60)       return `${diffSec}s ago`;
+  if (diffSec < 3_600)    return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86_400)   return `${Math.floor(diffSec / 3_600)}h ago`;
+  return `${Math.floor(diffSec / 86_400)}d ago`;
 }
 interface ScanResult {
-  ok:           true;
-  slug:         string;
-  scanned:      number;
-  listedTotal:  number;
-  withOffers:   ScanRow[];
-  cachedAt:     number;
-  ttlMs:        number;
-  fromCache?:   boolean;
+  ok:            true;
+  slug:          string;
+  scanned:       number;
+  listedTotal:   number;
+  offersFetched: number;
+  offersActive:  number;
+  withOffers:    ScanRow[];
+  cachedAt:      number;
+  ttlMs:         number;
+  fromCache?:    boolean;
 }
 
 function shortAddr(s: string | null): string {
@@ -38,15 +57,115 @@ function shortAddr(s: string | null): string {
   return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
 }
 
+/** localStorage key for the persisted scan result. Survives navigation
+ *  away from /tools and full page reloads so the table doesn't reset
+ *  to "click Scan" on every visit. */
+const STORAGE_KEY = 'vl.tools.retardioMeOfferScan';
+
+/** NEW flags auto-expire after this many minutes so a long absence
+ *  doesn't leave the ribbon stuck. The next scan also clears them
+ *  organically (they'll appear in prevIds), so this is the worst-case
+ *  bound — operator never sees a "NEW" badge older than 10 minutes. */
+const NEW_FLAG_TTL_MS = 10 * 60_000;
+
+function loadPersisted(): ScanResult | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ScanResult;
+    // Sanity-check the shape — reject anything that doesn't smell like
+    // a v1 scan result so a stale schema can't crash render.
+    if (!parsed || !Array.isArray(parsed.withOffers)) return null;
+    // Expire NEW flags older than the TTL.
+    const ageMs = Date.now() - (parsed.cachedAt ?? 0);
+    if (ageMs > NEW_FLAG_TTL_MS) {
+      return {
+        ...parsed,
+        withOffers: parsed.withOffers.map(r => ({ ...r, isNew: false })),
+      };
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function savePersisted(result: ScanResult): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(result)); } catch { /* quota / private mode — ignore */ }
+}
+
 export default function ToolsPage() {
   useEffect(() => { document.title = 'VictoryLabs — Tools'; }, []);
-  const [busy, setBusy]       = useState(false);
-  const [result, setResult]   = useState<ScanResult | null>(null);
-  const [error, setError]     = useState<string | null>(null);
+  const [busy, setBusy]         = useState(false);
+  // result is hydrated from localStorage on first mount so the table
+  // is populated immediately on navigation back to /tools without
+  // requiring a fresh scan.
+  const [result, setResult]     = useState<ScanResult | null>(null);
+  useEffect(() => { setResult(loadPersisted()); }, []);
+  const [error, setError]       = useState<string | null>(null);
   const [minOffer, setMinOffer] = useState<string>('');
+  // Default sort: highest BEST OFFER first; tie-break highest SPREAD.
+  const [sortKey, setSortKey]   = useState<SortKey>('offer');
+  const [sortDir, setSortDir]   = useState<SortDir>('desc');
+
+  const sortedRows = useMemo(() => {
+    if (!result) return [] as ScanRow[];
+    const arr = [...result.withOffers];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    arr.sort((a, b) => {
+      let va: number | string;
+      let vb: number | string;
+      switch (sortKey) {
+        case 'nft':
+          va = (a.nftName ?? a.mint).toLowerCase();
+          vb = (b.nftName ?? b.mint).toLowerCase();
+          if (va < vb) return -1 * dir;
+          if (va > vb) return  1 * dir;
+          return 0;
+        case 'listing': va = a.listingPrice;   vb = b.listingPrice;   break;
+        case 'offer':   va = a.bestOfferPrice; vb = b.bestOfferPrice; break;
+        case 'spread':  va = a.spreadSol;      vb = b.spreadSol;      break;
+        case 'age':
+          // Newer first when desc; "—" (null createdAt) sinks to the
+          // bottom regardless of dir so unknown-age rows don't pollute
+          // the visible top.
+          va = a.bestOfferCreatedAt ?? -Infinity;
+          vb = b.bestOfferCreatedAt ?? -Infinity;
+          break;
+      }
+      const primary = (va as number) - (vb as number);
+      if (primary !== 0) return primary * dir;
+      // Stable tie-break by spread desc to match the spec's default.
+      return b.spreadSol - a.spreadSol;
+    });
+    return arr;
+  }, [result, sortKey, sortDir]);
+
+  const onHeaderClick = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      // First click on a numeric column: descending feels right
+      // (largest first); on the alphabetic NFT column: ascending.
+      setSortDir(key === 'nft' ? 'asc' : 'desc');
+    }
+  };
+  const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? '↑' : '↓') : '';
 
   const runScan = async () => {
     if (busy) return;
+    // Capture old offer IDs BEFORE issuing the request so the diff is
+    // computed against what was visible when the user clicked Scan.
+    // `result` is left in place during the fetch so the table stays
+    // visible while busy=true (incremental refresh, not flash-clear).
+    const prevIds = new Set<string>(
+      (result?.withOffers ?? [])
+        .map(r => r.bestOfferId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    );
     setBusy(true);
     setError(null);
     try {
@@ -63,7 +182,19 @@ export default function ToolsPage() {
         throw new Error(`HTTP ${r.status}${txt ? ` — ${txt.slice(0, 80)}` : ''}`);
       }
       const data = await r.json() as ScanResult;
-      setResult(data);
+      // Mark rows whose bestOfferId wasn't in the previous scan as NEW.
+      // Skip the first scan (empty prevIds) so we don't paint everything
+      // NEW on first visit.
+      const isFirstScan = prevIds.size === 0;
+      const merged: ScanResult = {
+        ...data,
+        withOffers: data.withOffers.map(row => ({
+          ...row,
+          isNew: !isFirstScan && !prevIds.has(row.bestOfferId),
+        })),
+      };
+      setResult(merged);
+      savePersisted(merged);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -136,7 +267,8 @@ export default function ToolsPage() {
           <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94' }}>
             slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span>
             {' · '}scanned <span style={{ color: '#d4d4e8' }}>{result.scanned}</span> / {result.listedTotal} listings
-            {' · '}<span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> with offers
+            {' · '}offers <span style={{ color: '#5ce0a0' }}>{result.offersActive}</span> active / {result.offersFetched} fetched
+            {' · '}<span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> with active offers
             {result.fromCache && <span style={{ color: '#c9a820' }}> · cached</span>}
           </div>
         )}
@@ -156,32 +288,41 @@ export default function ToolsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
-                <th style={thStyle}>NFT</th>
-                <th style={thStyleNum}>LISTING</th>
-                <th style={thStyleNum}>BEST OFFER</th>
-                <th style={thStyleNum}>SPREAD</th>
-                <th style={thStyleSmall}>SELLER</th>
-                <th style={thStyleSmall}>BUYER</th>
+                <th style={{ ...thStyle,    cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
+                  NFT {sortArrow('nft')     && <span style={{ color: '#8068d8' }}>{sortArrow('nft')}</span>}
+                </th>
+                <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('listing')}>
+                  LISTING {sortArrow('listing') && <span style={{ color: '#8068d8' }}>{sortArrow('listing')}</span>}
+                </th>
+                <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('offer')}>
+                  BEST OFFER {sortArrow('offer') && <span style={{ color: '#8068d8' }}>{sortArrow('offer')}</span>}
+                </th>
+                <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('spread')}>
+                  SPREAD {sortArrow('spread') && <span style={{ color: '#8068d8' }}>{sortArrow('spread')}</span>}
+                </th>
+                <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
+                  AGE {sortArrow('age') && <span style={{ color: '#8068d8' }}>{sortArrow('age')}</span>}
+                </th>
                 <th style={thStyleSmall}>LINKS</th>
               </tr>
             </thead>
             <tbody>
               {!result && !busy && (
-                <tr><td colSpan={7} style={emptyCell}>
+                <tr><td colSpan={6} style={emptyCell}>
                   Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch active Retardio listings and their personal offers from Magic Eden.
                 </td></tr>
               )}
               {busy && (
-                <tr><td colSpan={7} style={emptyCell}>
+                <tr><td colSpan={6} style={emptyCell}>
                   Scanning… fetching listings + offers from Magic Eden.
                 </td></tr>
               )}
-              {result && result.withOffers.length === 0 && !busy && (
-                <tr><td colSpan={7} style={emptyCell}>
+              {result && sortedRows.length === 0 && !busy && (
+                <tr><td colSpan={6} style={emptyCell}>
                   No active Retardio listings have personal offers right now.
                 </td></tr>
               )}
-              {result?.withOffers.map((row) => {
+              {sortedRows.map((row) => {
                 const name = row.nftName ?? row.mint.slice(0, 6);
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol > 0;
@@ -189,7 +330,27 @@ export default function ToolsPage() {
                   <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                     <td style={{ padding: '10px 8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={32} />
+                        {/* Thumbnail wrapper carries `position: relative`
+                            so the NEW pill can corner-anchor over the
+                            top-right of the icon without affecting flex
+                            layout. Pointer-events:none on the badge so
+                            future click handlers on the icon still work. */}
+                        <div style={{ position: 'relative', flexShrink: 0, width: 32, height: 32 }}>
+                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={32} />
+                          {row.isNew && (
+                            <span style={{
+                              position: 'absolute', top: -4, right: -4,
+                              padding: '1px 5px', fontSize: 8, fontWeight: 800,
+                              letterSpacing: '0.4px', textTransform: 'uppercase',
+                              borderRadius: 3, lineHeight: 1.1,
+                              border: '1px solid rgba(168,144,232,0.7)',
+                              background: 'linear-gradient(180deg, rgba(168,144,232,0.95) 0%, rgba(128,104,216,0.95) 100%)',
+                              color: '#0e0b22',
+                              boxShadow: '0 0 0 1px rgba(20,14,34,0.7), 0 1px 4px rgba(0,0,0,0.5)',
+                              pointerEvents: 'none', userSelect: 'none',
+                            }}>NEW</span>
+                          )}
+                        </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
                           <div style={{ fontSize: 10, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
@@ -201,8 +362,9 @@ export default function ToolsPage() {
                     <td style={{ ...tdStyleNum, color: positiveSpread ? '#5ce0a0' : '#ef7878', fontWeight: 700 }}>
                       {positiveSpread ? '+' : ''}{formatSol(Math.abs(row.spreadSol))}
                     </td>
-                    <td style={tdStyleSmall}>{shortAddr(row.seller)}</td>
-                    <td style={tdStyleSmall}>{shortAddr(row.buyer)}</td>
+                    <td style={{ ...tdStyleNum, color: '#aaaabf', fontWeight: 500 }}>
+                      {fmtAge(row.bestOfferCreatedAt)}
+                    </td>
                     <td style={tdStyleSmall}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <a href={row.meUrl} target="_blank" rel="noopener noreferrer" style={linkChipStyle('#e87ab0')}>ME</a>
@@ -216,6 +378,7 @@ export default function ToolsPage() {
           </table>
         </div>
       </div>
+      <BottomStatusBar />
     </div>
   );
 }

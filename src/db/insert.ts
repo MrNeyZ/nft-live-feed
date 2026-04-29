@@ -6,7 +6,7 @@ import { isBlacklistedCollection } from './blacklist';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
-import { logSellerNetDiff } from '../ingestion/seller-net';
+import { logSellerNetDiff, logSellerNetAudit } from '../ingestion/seller-net';
 import { slugForMint } from '../server/listings-store';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
@@ -166,6 +166,20 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // (item page / wallet activities) for direct ground-truth verification.
   logSellerNetDiff({
     signature:         event.signature,
+    marketplace:       event.marketplace,
+    priceLamports:     event.priceLamports,
+    sellerNetLamports: event.sellerNetLamports,
+    mint:              event.mintAddress,
+    seller:            event.seller,
+  });
+  // Per-saleType audit so each path's behaviour is visible independently
+  // (fixes the "LIST_BUY shows gross" investigation — if those rows show
+  // fallback=true the seller wallet isn't in accountKeys and we need to
+  // patch seller detection on the parser side; if fallback=false but
+  // net == gross, the auction-house simply didn't deduct from the seller).
+  logSellerNetAudit({
+    signature:         event.signature,
+    saleType:          saleTypeFromEvent(event),
     marketplace:       event.marketplace,
     priceLamports:     event.priceLamports,
     sellerNetLamports: event.sellerNetLamports,

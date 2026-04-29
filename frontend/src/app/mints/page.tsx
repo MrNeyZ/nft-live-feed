@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useState } from 'react';
-import { LiveDot, TopNav, CollectionIcon, compressImage } from '@/soloist/shared';
+import { LiveDot, TopNav, BottomStatusBar, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -277,6 +277,7 @@ export default function MintsPage() {
           </table>
         </div>
       </div>
+      {!embedded && <BottomStatusBar />}
     </div>
   );
 }

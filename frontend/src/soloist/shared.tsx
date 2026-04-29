@@ -390,26 +390,9 @@ function colorOf(name: string): string {
 }
 
 export function TopNav({ active }: { active: Page }) {
-  // Live market header stats — fetched once on mount + every 20 min from the
-  // backend /api/market/header (server-side cached). Fall back to the old
-  // visual placeholders only until the first fetch resolves so nothing flashes
-  // as null while the request is in flight.
-  const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
-  const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => fetch(`${API_BASE}/api/market/header`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { tps?: number | null; solUsd?: number | null } | null) => {
-        if (cancelled || !data) return;
-        if (typeof data.tps    === 'number') setTps(data.tps);
-        if (typeof data.solUsd === 'number') setSol(data.solUsd.toFixed(2));
-      })
-      .catch(() => { /* keep prior value */ });
-    load();
-    const id = setInterval(load, 20 * 60_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  // TPS / SOL price / live indicator moved to the bottom status bar
+  // (`<BottomStatusBar />`). The fetch lives there now — TopNav stays
+  // clean for nav tabs + search + mode + OFF only.
 
   // Frontend-tab liveness ping. Only main app pages render TopNav, so mounting
   // the heartbeat here gives it exactly the scope the backend expects —
@@ -431,11 +414,11 @@ export function TopNav({ active }: { active: Page }) {
   // already reachable via the search bar / dashboard rows). It opens the
   // combined dashboard + live-feed page.
   const pages: { key: Page; label: string; href: string }[] = [
-    { key: 'dashboard',  label: 'DASHBOARD',  href: '/dashboard' },
-    { key: 'multi',      label: 'MULTI-TAB',  href: '/multi'     },
+    { key: 'dashboard',  label: 'BOARD',      href: '/dashboard' },
+    { key: 'multi',      label: 'MULTI',      href: '/multi'     },
     { key: 'mints',      label: 'MINTS',      href: '/mints'     },
     { key: 'tools',      label: 'TOOLS',      href: '/tools'     },
-    { key: 'feed',       label: 'LIVE FEED',  href: '/feed'      },
+    { key: 'feed',       label: 'FEED',       href: '/feed'      },
   ];
 
   // Build a real (name → slug) index from recent sales so search results
@@ -713,12 +696,6 @@ export function TopNav({ active }: { active: Page }) {
         fontSize: 12, color: '#4a4a62',
         fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
-        <span className="topnav-stat-tps"><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc', textShadow: '0 0 8px rgba(128,104,216,0.3)' }}>{tps.toLocaleString()}</span></span>
-        <span className="topnav-stat-sol"><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d', textShadow: '0 0 8px rgba(52,180,96,0.2)' }}>${sol}</span></span>
-        <div className="topnav-stat-live" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          <LiveDot />
-          <span style={{ color: '#4fb67d', fontSize: 11 }}>live</span>
-        </div>
         <ModeBadge />
         {/* Layout-mode switcher is rendered as a floating bottom-right pill
             in every mode (see FloatingLayoutModeSwitcher mounted in Gate),
@@ -727,6 +704,74 @@ export function TopNav({ active }: { active: Page }) {
         <OffButton />
       </div>
     </div>
+    </div>
+  );
+}
+
+/**
+ * Shared bottom status bar.
+ *
+ * Single source of TPS / SOL price / live-indicator + Discord/Twitter/
+ * alerts/EVENTS counts. Mounted at the bottom of every main page so the
+ * chrome reads as a balanced top + bottom rail. Pages pass `eventsCount`
+ * when they have one (e.g. Live Feed); otherwise the EVENTS slot is
+ * omitted. Full-bleed wrapper breaks out of `.feed-root`'s 16 px
+ * horizontal padding so the gradient extends edge-to-edge regardless
+ * of ancestor padding.
+ */
+export function BottomStatusBar({ eventsCount }: { eventsCount?: number }) {
+  const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
+  const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => fetch(`${API_BASE}/api/market/header`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { tps?: number | null; solUsd?: number | null } | null) => {
+        if (cancelled || !data) return;
+        if (typeof data.tps    === 'number') setTps(data.tps);
+        if (typeof data.solUsd === 'number') setSol(data.solUsd.toFixed(2));
+      })
+      .catch(() => { /* keep prior value */ });
+    load();
+    const id = setInterval(load, 20 * 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+  return (
+    <div className="bottom-status" style={{
+      width: '100vw',
+      marginLeft: 'calc(50% - 50vw)',
+      background: 'linear-gradient(180deg, rgba(10,8,18,0.95) 0%, rgba(20,14,34,0.7) 100%)',
+      borderTop: '1px solid rgba(255,255,255,0.04)',
+      boxShadow: '0 -1px 0 rgba(128,104,216,0.04), 0 -8px 24px rgba(0,0,0,0.4)',
+      backdropFilter: 'blur(12px)',
+      flexShrink: 0,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '6px 18px',
+        maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
+        fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
+      }}>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <span style={{ color: '#55556e', fontFamily: 'inherit' }}>Discord</span>
+          <span style={{ color: '#55556e', fontFamily: 'inherit' }}>Twitter</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
+            <span style={{ color: '#55556e' }}>alerts</span>
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <span><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc' }}>{tps.toLocaleString()}</span></span>
+          <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d' }}>${sol}</span></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <LiveDot />
+            <span style={{ color: '#4fb67d' }}>live</span>
+          </span>
+          {typeof eventsCount === 'number' && (
+            <span><span style={{ color: '#55556e' }}>EVENTS </span><span style={{ color: '#56566e' }}>{eventsCount}</span></span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

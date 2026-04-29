@@ -6,11 +6,11 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   FeedEvent, Side,
-  formatSol, rndFloat, shortWallet, timeAgo,
+  formatSol, shortWallet, timeAgo,
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage } from '@/soloist/shared';
+import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, BottomStatusBar, compressImage } from '@/soloist/shared';
 import {
   feedReducer, initFeedState, orderedEvents,
   type MetaPatch, type FeedAction,
@@ -332,7 +332,7 @@ export default function FeedPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [solPrice] = useState(() => rndFloat(38, 42).toFixed(2));
+  // solPrice state removed — `<BottomStatusBar />` now fetches its own SOL/TPS.
 
   // Normalized feed state: dedup + ordering + patching live inside the reducer,
   // so every SSE/REST path below just dispatches a typed action instead of
@@ -829,41 +829,10 @@ export default function FeedPage() {
         </div>
       </div>
 
-      {/* Bottom status — mirrors the top nav's gradient/border/shadow so the
-          shell reads as two balanced rails instead of top-only. Full-bleed
-          wrapper breaks out of `.feed-root`'s 16 px horizontal padding.
-          Hidden in embed mode (multi-tab) so the parent page can own the
-          chrome; the full-bleed `100vw` would otherwise escape its grid
-          cell. */}
-      {!embedded && <div style={{
-        width: '100vw',
-        marginLeft: 'calc(50% - 50vw)',
-        background: 'linear-gradient(180deg, rgba(10,8,18,0.95) 0%, rgba(20,14,34,0.7) 100%)',
-        borderTop: '1px solid rgba(255,255,255,0.04)',
-        boxShadow: '0 -1px 0 rgba(128,104,216,0.04), 0 -8px 24px rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(12px)',
-        flexShrink: 0,
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '6px 18px',
-          maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
-          fontSize: 11,
-        }}>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <span style={{ color: '#55556e' }}>Discord</span>
-            <span style={{ color: '#55556e' }}>Twitter</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-              <span style={{ color: '#55556e' }}>alerts</span>
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 16, fontFamily: "'SF Mono','Fira Code',monospace" }}>
-            <span><span style={{ color: '#55556e' }}>EVENTS </span><span style={{ color: '#56566e' }}>{events.length}</span></span>
-            <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#36b868' }}>${solPrice}</span></span>
-          </div>
-        </div>
-      </div>}
+      {/* Bottom status — shared component. Hidden in embed mode (multi-tab)
+          so the parent page can own the chrome; the full-bleed `100vw`
+          would otherwise escape its grid cell. */}
+      {!embedded && <BottomStatusBar eventsCount={events.length} />}
 
       {/* Avatar preview — single overlay shared by every FeedCard. Backdrop
        *  click and Escape close it. The <img> stops propagation so clicks on
