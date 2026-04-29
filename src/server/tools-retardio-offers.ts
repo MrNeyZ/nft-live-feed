@@ -49,16 +49,54 @@ interface MeOffer {
   buyer?:         string;       // bidder
   price?:         number;       // SOL
   auctionHouse?:  string;
-  /** Unix timestamp seconds when the offer expires. ME often returns 0
-   *  for offers without an explicit expiry (open-ended bids); per spec
-   *  we treat missing/zero as inactive unless ME explicitly marks it.
-   *  Ground truth: only offers with `expiry > now` are kept. */
   expiry?:        number;
-  /** Unix timestamp seconds when the offer was placed. ME returns this
-   *  on most offers_received responses; absent on a few legacy rows.
-   *  Used by the UI to render an "AGE" column. */
+  // ME has shipped these timestamp fields under several different names
+  // across endpoints / endpoint versions; we accept any of them and use
+  // the first one that contains a positive number. extractCreatedAt()
+  // below handles selection + ms-vs-seconds normalisation. The
+  // `[key: string]: unknown` index lets us look up snake-case variants
+  // without TypeScript narrowing rejecting them.
   createdAt?:     number;
-  blockTime?:     number;       // alternate name on some ME endpoints
+  created_at?:    number;
+  createdTime?:   number;
+  created_time?:  number;
+  blockTime?:     number;
+  block_time?:    number;
+  timestamp?:     number;
+  [key: string]:  unknown;
+}
+
+const CREATED_AT_KEYS = [
+  'createdAt', 'created_at', 'createdTime', 'created_time',
+  'blockTime', 'block_time', 'timestamp',
+] as const;
+
+/** Pick the first populated timestamp field. ME returns most timestamps
+ *  in seconds, but a handful of endpoints return ms — we detect by
+ *  magnitude (anything ≥ 1e12 is unambiguously ms after 2001) and
+ *  normalise to seconds. Returns `null` when none of the known field
+ *  names carry a positive number. */
+function extractCreatedAt(o: MeOffer): number | null {
+  for (const k of CREATED_AT_KEYS) {
+    const v = o[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
+    return v >= 1e12 ? Math.floor(v / 1000) : v;
+  }
+  return null;
+}
+
+/** One-shot diagnostic: dump the keys ME actually populated on the
+ *  first offer we see. Helps pin down which timestamp field name ME
+ *  is using on the current endpoint without digging through their
+ *  docs. Logs at most once per process. */
+let _loggedSampleKeys = false;
+function maybeLogSampleKeys(offer: MeOffer): void {
+  if (_loggedSampleKeys) return;
+  _loggedSampleKeys = true;
+  console.log(
+    `[tools/retardio-me-offer-scan/sample] ME offer keys = ` +
+    JSON.stringify(Object.keys(offer).sort()),
+  );
 }
 
 /** Per-offer status — every offer ME returns is kept; this label tells
@@ -171,6 +209,7 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     const offers = await fetchOffersReceived(mint);
     await sleep(REQUEST_GAP_MS);
     if (offers.length === 0) continue;
+    if (offers[0]) maybeLogSampleKeys(offers[0]);
 
     // Keep ALL priced offers; classify status per spec. Best-of-listing
     // is picked by (status rank, price desc) so an AVAILABLE offer
@@ -196,11 +235,9 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     const bestPrice  = best.price as number;
     if (bestPrice < minOfferSol) continue;
 
-    // Pick whichever timestamp field ME populated. Both are seconds.
-    const createdAt =
-      typeof best.createdAt === 'number' && best.createdAt > 0 ? best.createdAt :
-      typeof best.blockTime === 'number' && best.blockTime > 0 ? best.blockTime :
-      null;
+    // Pick whichever timestamp field ME actually populated — see
+    // extractCreatedAt for the full alias list and ms→s normalisation.
+    const createdAt = extractCreatedAt(best);
 
     const bestOfferId = best.pdaAddress
       ?? `${mint}:${best.buyer ?? '?'}:${bestPrice}`;

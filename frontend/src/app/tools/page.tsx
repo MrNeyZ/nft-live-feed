@@ -418,8 +418,14 @@ export default function ToolsPage() {
                     </td>
                     <td style={tdStyleSmall}>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <a href={row.meUrl} target="_blank" rel="noopener noreferrer" style={linkChipStyle('#e87ab0')}>ME</a>
-                        <a href={row.tensorUrl} target="_blank" rel="noopener noreferrer" style={linkChipStyle('#a890e8')}>T</a>
+                        <a href={row.meUrl} target="_blank" rel="noopener noreferrer" style={logoChipStyle}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/brand/me.png" alt="Magic Eden" width={20} height={20} draggable={false} style={logoImgStyle} />
+                        </a>
+                        <a href={row.tensorUrl} target="_blank" rel="noopener noreferrer" style={logoChipStyle}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/brand/tensor.png" alt="Tensor" width={20} height={20} draggable={false} style={logoImgStyle} />
+                        </a>
                       </div>
                     </td>
                   </tr>
@@ -460,3 +466,28 @@ function linkChipStyle(color: string): React.CSSProperties {
     border: `1px solid ${color}48`, background: `${color}1a`, color,
   };
 }
+
+/** Square chrome for the marketplace-logo links — same compact size as
+ *  the prior text chips (22×22) so the LINKS column keeps its width.
+ *  Mirrors `MktIconBadge` chrome exactly. */
+const logoChipStyle: React.CSSProperties = {
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  width:          22,
+  height:         22,
+  borderRadius:   4,
+  overflow:       'hidden',
+  border:         '1px solid rgba(255,255,255,0.08)',
+  cursor:         'pointer',
+  textDecoration: 'none',
+  flexShrink:     0,
+  lineHeight:     0,
+};
+const logoImgStyle: React.CSSProperties = {
+  display:      'block',
+  width:        '100%',
+  height:       '100%',
+  objectFit:    'cover',
+  pointerEvents: 'none',
+};
