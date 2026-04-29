@@ -11,6 +11,7 @@ import {
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, BottomStatusBar, compressImage } from '@/soloist/shared';
+import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
 import {
   feedReducer, initFeedState, orderedEvents,
   type MetaPatch, type FeedAction,
@@ -65,9 +66,14 @@ interface FeedCardProps {
   event: FeedEvent;
   /** LMB on avatar → open a small centered image preview. */
   onPreview: (url: string) => void;
+  /** Current "Inclusive fees" toggle state from BottomStatusBar. Only
+   *  AMM_SELL rows actually branch on this; passed down to every card
+   *  so the price re-renders the moment the toggle flips. */
+  inclusiveFees: boolean;
 }
 
-const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
+const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: FeedCardProps) {
+  const renderPrice = displayPrice(event, inclusiveFees);
   // Row-flash class lasts 6 s from event.ts. Computed once at mount with a
   // one-shot setTimeout to flip false — no per-tick recompute needed since
   // every card mounts at most once per event.
@@ -212,7 +218,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview }: FeedCardProps) {
               fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
               fontFamily: "'SF Mono','Fira Code',monospace",
             }}>
-              {formatSol(event.price)}{' '}
+              {formatSol(renderPrice)}{' '}
               <span style={{ color: '#8a8aa6', fontWeight: 600, fontSize: 11 }}>SOL</span>
             </span>
           </div>
@@ -332,6 +338,10 @@ export default function FeedPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Inclusive-fees toggle (bottom bar). Affects only AMM_SELL price display
+  // — see `displayPrice()` in src/soloist/price-mode.ts. Persisted in
+  // localStorage; updates here propagate via the 'vl:priceMode' event.
+  const [inclusiveFees] = useInclusiveFees();
   // solPrice state removed — `<BottomStatusBar />` now fetches its own SOL/TPS.
 
   // Normalized feed state: dedup + ordering + patching live inside the reducer,
@@ -822,7 +832,7 @@ export default function FeedPage() {
                     </div>
                   )
                 )}
-                {filtered.map(e => <FeedCard key={e.id} event={e} onPreview={setPreview} />)}
+                {filtered.map(e => <FeedCard key={e.id} event={e} onPreview={setPreview} inclusiveFees={inclusiveFees} />)}
               </div>
             </div>
           </div>

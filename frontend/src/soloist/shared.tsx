@@ -13,6 +13,7 @@ import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
 import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
+import { useInclusiveFees } from './price-mode';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -722,6 +723,7 @@ export function TopNav({ active }: { active: Page }) {
 export function BottomStatusBar({ eventsCount }: { eventsCount?: number }) {
   const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
   const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
+  const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
   useEffect(() => {
     let cancelled = false;
     const load = () => fetch(`${API_BASE}/api/market/header`)
@@ -761,6 +763,37 @@ export function BottomStatusBar({ eventsCount }: { eventsCount?: number }) {
           </span>
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          {/* Pricing-mode toggle. Affects only AMM_SELL display
+              (pool_sale events) — see displayPrice() in
+              `@/soloist/price-mode`. Default OFF. */}
+          <button
+            type="button"
+            onClick={() => setInclusiveFees(!inclusiveFees)}
+            title={inclusiveFees
+              ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price'
+              : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '2px 8px', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.4px', textTransform: 'uppercase',
+              borderRadius: 3, cursor: 'pointer',
+              border: inclusiveFees
+                ? '1px solid rgba(168,144,232,0.55)'
+                : '1px solid rgba(255,255,255,0.08)',
+              background: inclusiveFees
+                ? 'rgba(168,144,232,0.18)'
+                : 'rgba(255,255,255,0.03)',
+              color:      inclusiveFees ? '#d0c8e4' : '#7a7a94',
+              fontFamily: 'inherit',
+              transition: 'all 0.12s',
+            }}
+          >
+            <span style={{
+              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+              background: inclusiveFees ? '#a890e8' : '#3a3a52',
+            }} />
+            Incl. fees
+          </button>
           <span><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc' }}>{tps.toLocaleString()}</span></span>
           <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d' }}>${sol}</span></span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>

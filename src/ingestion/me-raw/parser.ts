@@ -32,6 +32,7 @@ import {
   extractPaymentInfo,
   extractNftMint,
   extractPartiesFromTokenFlow,
+  balanceDeltas,
 } from './price';
 
 /** Derive NFT type from the matched instruction name — more precise than program-presence heuristic. */
@@ -246,6 +247,35 @@ function parseMmmSale(
     }
   }
 
+  // ── Price selection ───────────────────────────────────────────────────────
+  //
+  // For MMM AMM buys (`fulfillSell`: user pulls NFT from a sell-side pool)
+  // the buyer's gross SOL outflow ≠ the listing price. Outflow includes
+  // LP fee (~1%) + a fresh ATA's rent (~0.002 SOL) + tx fee, so naively
+  // using `abs(buyer.delta)` overstates the displayed price by ~2.4
+  // milli-SOL on a small purchase, which is visible to the user and
+  // doesn't match the on-chain `total_price` shown on ME's listing page.
+  //
+  // The MMM `post_sol_fulfill_sell` event log emits the canonical
+  //   `total_price` (= curve price the buyer agreed to). Empirically this
+  // equals the largest positive SOL delta in the tx — the pool wallet
+  // / pool state PDA receiving the curve proceeds. Royalty + LP fee
+  // are always smaller fractions of the price, so the largest gainer
+  // is the correct disambiguation without parsing the program log.
+  //
+  // Scope: ONLY `fulfillSell` (= pool_buy). All other MMM directions
+  // (`fulfillBuy` = pool_sale, `takeBid` = bid_sell) keep the existing
+  // buyer-outflow path — for those the buyer is the pool and the
+  // distinction doesn't apply the same way.
+  let priceLamports = payment.priceLamports;
+  if (effectiveDirection === 'fulfillSell') {
+    const deltas = balanceDeltas(tx);
+    if (deltas.length > 0) {
+      const topGain = deltas.reduce((a, b) => (a.delta > b.delta ? a : b));
+      if (topGain.delta > 0) priceLamports = BigInt(topGain.delta);
+    }
+  }
+
   // ── Build event ───────────────────────────────────────────────────────────
 
   const sellerNet = computeSellerNetLamports(tx, seller);
@@ -258,8 +288,8 @@ function parseMmmSale(
     collectionAddress: null,
     seller,
     buyer,
-    priceLamports:     payment.priceLamports,
-    priceSol:          Number(payment.priceLamports) / 1e9,
+    priceLamports:     priceLamports,
+    priceSol:          Number(priceLamports) / 1e9,
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',

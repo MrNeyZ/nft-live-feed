@@ -6,7 +6,7 @@ import { isBlacklistedCollection } from './blacklist';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
-import { logSellerNetDiff, logSellerNetAudit } from '../ingestion/seller-net';
+import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ingestion/seller-net';
 import { slugForMint } from '../server/listings-store';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
@@ -186,6 +186,46 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     mint:              event.mintAddress,
     seller:            event.seller,
   });
+  // AMM_SELL only — sampled mirror of what the per-user "Inclusive fees"
+  // toggle will surface in the UI. Useful for spot-checking pool-sale
+  // gross vs. seller-net realism across MMM and TAMM.
+  if (saleTypeFromEvent(event) === 'pool_sale') {
+    logAmmSellPriceMode({
+      signature:         event.signature,
+      priceLamports:     event.priceLamports,
+      sellerNetLamports: event.sellerNetLamports,
+      mint:              event.mintAddress,
+      seller:            event.seller,
+    });
+  }
+  // Targeted one-shot debug for a specific signature under investigation
+  // (price mismatch: UI showed ~0.018 vs listing 0.0125 — see
+  // src/ingestion/me-raw/parser.ts "Price selection" block for the fix).
+  // Always logs both the OFF (default) and ON branches of the inclusive-fees
+  // toggle so the displayed value can be eyeballed against the listing.
+  if (event.signature === '5xh4fVqsq5ErmsHz9a9HqJBkWKpWYCWjK4nnPwMTPRjktUbni5v9fUC7Z7jLH2wssvzqydbsizPHectAM1Y4FbeP') {
+    const saleType  = saleTypeFromEvent(event);
+    const grossSol  = Number(event.priceLamports) / 1e9;
+    const netSol    = event.sellerNetLamports != null ? Number(event.sellerNetLamports) / 1e9 : null;
+    // Mirror frontend `displayPrice()` semantics in price-mode.ts:
+    //   pool_sale + ON  → gross
+    //   pool_sale + OFF → sellerNet ?? gross
+    //   bid_sell        → gross
+    //   anything else   → sellerNet ?? gross   (= event.priceSol effectively)
+    const dpOff = saleType === 'pool_sale'
+      ? (netSol ?? grossSol)
+      : saleType === 'bid_sell'
+        ? grossSol
+        : (netSol ?? grossSol);
+    const dpOn  = saleType === 'pool_sale' ? grossSol : dpOff;
+    console.log(
+      `[price-trace/5xh4] sig=${event.signature}  saleType=${saleType}  ` +
+      `marketplace=${event.marketplace}  ` +
+      `grossSol=${grossSol.toFixed(6)}  netSol=${netSol != null ? netSol.toFixed(6) : 'null'}  ` +
+      `displayPriceOFF=${dpOff.toFixed(6)}  displayPriceON=${dpOn.toFixed(6)}  ` +
+      `seller=${event.seller}  buyer=${event.buyer}  mint=${event.mintAddress}`,
+    );
+  }
   saleEventBus.emitSale({
     ...event,
     nftName: null,

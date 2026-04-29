@@ -107,6 +107,39 @@ export function logSellerNetDiff(opts: {
   }
 }
 
+/** Sampled log for AMM_SELL (`pool_sale`) only — mirror of what the
+ *  frontend's `displayPrice()` will surface depending on the per-user
+ *  "Inclusive fees" toggle. The server doesn't see the toggle, so we
+ *  log both numbers + the *default-OFF* displayedMode (`sellerNet`
+ *  when present, otherwise `gross`). Lets the operator eyeball
+ *  whether AMM pool sales are surfacing realistic seller-net values
+ *  vs. gross / pool prices. Sampled (1st + every 25th). */
+let _ammSellLogCount = 0;
+export function logAmmSellPriceMode(opts: {
+  signature:          string;
+  priceLamports:      bigint;
+  sellerNetLamports?: bigint | null;
+  mint?:              string | null;
+  seller?:            string | null;
+}): void {
+  _ammSellLogCount++;
+  if (_ammSellLogCount !== 1 && _ammSellLogCount % 25 !== 0) return;
+  const net          = opts.sellerNetLamports ?? null;
+  const grossSol     = Number(opts.priceLamports) / 1e9;
+  const netSol       = net != null ? Number(net) / 1e9 : null;
+  const displayedOff = net != null ? 'sellerNet' : 'gross'; // default-OFF UI
+  const sigShort     = opts.signature.slice(0, 12) + '…';
+  const mintShort    = opts.mint   ? opts.mint.slice(0, 8)   + '…' : '—';
+  const sellerShort  = opts.seller ? opts.seller.slice(0, 8) + '…' : '—';
+  console.log(
+    `[price-mode/amm-sell] gross=${grossSol.toFixed(4)} ` +
+    `net=${netSol != null ? netSol.toFixed(4) : '—'} ` +
+    `displayedMode=${displayedOff}  ` +
+    `seller=${sellerShort}  mint=${mintShort}  sig=${sigShort}  ` +
+    `n=${_ammSellLogCount}`,
+  );
+}
+
 /** Per-saleType audit. Lets the operator see, for each canonical
  *  saleType (`normal_sale` = LIST_BUY, `bid_sell` = BID_SELL,
  *  `pool_buy` = AMM_BUY, `pool_sale` = AMM_SELL), whether seller-net
