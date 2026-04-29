@@ -362,7 +362,7 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
 
 // ── Top Nav ─────────────────────────────────────────────────────────────────
 
-type Page = 'dashboard' | 'collection' | 'feed' | 'multi' | 'mints';
+type Page = 'dashboard' | 'collection' | 'feed' | 'multi' | 'mints' | 'tools';
 
 /** Search candidate sourced from real recent sales — every entry has a real
  *  ME slug, the only thing the dynamic /collection/[slug] route accepts. */
@@ -434,6 +434,7 @@ export function TopNav({ active }: { active: Page }) {
     { key: 'dashboard',  label: 'DASHBOARD',  href: '/dashboard' },
     { key: 'multi',      label: 'MULTI-TAB',  href: '/multi'     },
     { key: 'mints',      label: 'MINTS',      href: '/mints'     },
+    { key: 'tools',      label: 'TOOLS',      href: '/tools'     },
     { key: 'feed',       label: 'LIVE FEED',  href: '/feed'      },
   ];
 

@@ -48,28 +48,61 @@ export function computeSellerNetLamports(
   return delta > 0n ? delta : null;
 }
 
-/** Sampled debug: log when seller-net differs from gross (i.e. fees +
- *  royalties were taken). First event + every 25th event. Same cadence
- *  as the other ingestion sample logs in this codebase. */
-let _sellerNetDiffCount = 0;
+/** Sampled debug for cross-checking against the Magic Eden UI.
+ *
+ * Two log streams, both sampled (1st event + every 25th):
+ *   [seller-net]          status=net      → seller-net was extracted
+ *   [seller-net/fallback] status=fallback → couldn't compute seller-net,
+ *                                           UI will display gross
+ *
+ * Each line carries enough context to open ME side-by-side and verify:
+ *   - signature → click through on /feed → ME item page
+ *   - mint     → direct ME item URL
+ *   - seller   → ME wallet activities page
+ *   - gross    → expected when ME's "Inclusive of all fees" is ON
+ *   - net      → expected when ME's "Inclusive of all fees" is OFF
+ *
+ * The `feePct` is computed live from the actual SOL deltas — no fixed
+ * royalty / marketplace-fee percentages anywhere in this code. */
+let _sellerNetUsedCount     = 0;
+let _sellerNetFallbackCount = 0;
 export function logSellerNetDiff(opts: {
-  signature:        string;
-  marketplace:      string;
-  priceLamports:    bigint;
+  signature:          string;
+  marketplace:        string;
+  priceLamports:      bigint;
   sellerNetLamports?: bigint | null;
+  mint?:              string | null;
+  seller?:            string | null;
 }): void {
   const net = opts.sellerNetLamports ?? null;
-  if (net == null) return;
-  if (net === opts.priceLamports) return;
-  _sellerNetDiffCount++;
-  if (_sellerNetDiffCount === 1 || _sellerNetDiffCount % 25 === 0) {
+  const sigShort    = opts.signature.slice(0, 12) + '…';
+  const mintShort   = opts.mint   ? opts.mint.slice(0, 8)   + '…' : '—';
+  const sellerShort = opts.seller ? opts.seller.slice(0, 8) + '…' : '—';
+
+  if (net == null) {
+    _sellerNetFallbackCount++;
+    if (_sellerNetFallbackCount === 1 || _sellerNetFallbackCount % 25 === 0) {
+      console.log(
+        `[seller-net/fallback] status=fallback  mp=${opts.marketplace}  ` +
+        `gross=${(Number(opts.priceLamports) / 1e9).toFixed(4)}  ` +
+        `mint=${mintShort}  seller=${sellerShort}  sig=${sigShort}  ` +
+        `n=${_sellerNetFallbackCount}`,
+      );
+    }
+    return;
+  }
+  if (net === opts.priceLamports) return;        // no diff to report
+
+  _sellerNetUsedCount++;
+  if (_sellerNetUsedCount === 1 || _sellerNetUsedCount % 25 === 0) {
     const grossSol = Number(opts.priceLamports) / 1e9;
     const netSol   = Number(net) / 1e9;
     const feePct   = grossSol > 0 ? ((1 - netSol / grossSol) * 100).toFixed(2) : '—';
     console.log(
-      `[seller-net] mp=${opts.marketplace}  ` +
+      `[seller-net] status=net  mp=${opts.marketplace}  ` +
       `gross=${grossSol.toFixed(4)} net=${netSol.toFixed(4)} feePct=${feePct}%  ` +
-      `n=${_sellerNetDiffCount}  sig=${opts.signature.slice(0, 12)}…`,
+      `mint=${mintShort}  seller=${sellerShort}  sig=${sigShort}  ` +
+      `n=${_sellerNetUsedCount}`,
     );
   }
 }

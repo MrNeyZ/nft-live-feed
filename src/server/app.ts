@@ -17,6 +17,7 @@ import { createCollectionIconRouter } from './collection-icon';
 import { createCollectionMetaRouter } from './collection-meta';
 import { createMarketRouter } from './market';
 import { createRuntimeRouter } from './runtime';
+import { createRetardioOffersRouter } from './tools-retardio-offers';
 import { corsMiddleware } from './cors';
 
 export function createApp() {
@@ -92,6 +93,10 @@ export function createApp() {
   // as every other /api/* route.
   const runtimeRouter = createRuntimeRouter();
   app.use('/api', runtimeRouter);
+
+  // Manual on-demand tools — Retardio personal-offer scanner.
+  // POST /api/tools/retardio-me-offer-scan
+  app.use('/api', createRetardioOffersRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is

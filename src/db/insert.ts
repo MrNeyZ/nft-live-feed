@@ -162,11 +162,15 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   const blockAgeSec = ((Date.now() - event.blockTime.getTime()) / 1000).toFixed(1);
   console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}`);
   // Sampled debug: log when seller-net differs from gross (1st + every 25th).
+  // Includes mint + seller so the operator can paste these into ME's UI
+  // (item page / wallet activities) for direct ground-truth verification.
   logSellerNetDiff({
     signature:         event.signature,
     marketplace:       event.marketplace,
     priceLamports:     event.priceLamports,
     sellerNetLamports: event.sellerNetLamports,
+    mint:              event.mintAddress,
+    seller:            event.seller,
   });
   saleEventBus.emitSale({
     ...event,
