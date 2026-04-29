@@ -266,15 +266,19 @@ const summaryTimer = setInterval(logDebugSummary, 60_000);
 if (typeof summaryTimer.unref === 'function') summaryTimer.unref();
 
 /** Public: snapshot for SSE bootstrap. New clients receive this on
- *  connect so the trending table is populated immediately. */
+ *  connect so the trending table is populated immediately. Returns
+ *  ALL display states — clients filter to `shown` for the main table
+ *  and may render incubating/cooled rows in a debug surface. Incubating
+ *  rows with zero observed mints are skipped so we don't ship empty
+ *  shells. */
 export function currentMintStatuses(): MintStatusWire[] {
   const now = Date.now();
   const out: MintStatusWire[] = [];
   for (const a of map.values()) {
-    if (a.displayState !== 'shown') continue;
+    if (a.observedMints === 0) continue;
     out.push(buildStatus(a, now));
   }
-  // Sort by velocity descending — most active first.
+  // Sort by velocity descending — most active first; clients re-sort.
   out.sort((x, y) => y.v60 - x.v60 || y.observedMints - x.observedMints);
   return out;
 }

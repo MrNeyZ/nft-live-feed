@@ -205,12 +205,24 @@ export async function ingestMintRaw(
   _priority: Priority = 'medium',     // intentionally ignored — see above
 ): Promise<void> {
   const tx = await fetchRawTx(sig, false, 'low');
-  if (!tx) return;
+  if (!tx) {
+    noteParseStep('fetch_null', null, sig);
+    return;
+  }
   const hit = detectProgramSource(tx);
-  if (!hit) return;
+  if (!hit) {
+    noteParseStep('program_source_null', null, sig);
+    return;
+  }
 
   const found = findMintInstruction(tx, hit.programSource);
-  if (!found) return;
+  if (!found) {
+    // Most likely cause: top-level program is a launchpad / candy machine
+    // and the actual TM/Core mint is an inner CPI. Sampled so operators
+    // can see this is the dominant drop reason without log flooding.
+    noteParseStep('ix_not_found_top_level', hit.programSource, sig);
+    return;
+  }
   const { ix, accountKeys } = found;
 
   // Conservative account extraction. Both Core CreateV1 and Token
@@ -307,6 +319,23 @@ function noteMintRecorded(programSource: string): void {
   mintRecordCount.set(programSource, n);
   if (n === 1 || n % 25 === 0) {
     console.log(`[mints/record] source=${programSource} count=${n}`);
+  }
+}
+
+/** Per-step counters for the parse pipeline. Emits one line on the first
+ *  occurrence of each (step, source) pair and then every 25th. Lets the
+ *  operator see at a glance which step is shedding the most txs without
+ *  flooding the log under a hot launch. */
+const parseStepCount = new Map<string, number>();
+function noteParseStep(step: string, programSource: MintProgramSource | null, sig: string): void {
+  const key = `${step}:${programSource ?? '—'}`;
+  const n   = (parseStepCount.get(key) ?? 0) + 1;
+  parseStepCount.set(key, n);
+  if (n === 1 || n % 25 === 0) {
+    console.log(
+      `[mints/parse] step=${step} source=${programSource ?? '—'} ` +
+      `count=${n} sig=${sig.slice(0, 12)}…`,
+    );
   }
 }
 

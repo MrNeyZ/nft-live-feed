@@ -107,6 +107,15 @@ export default function MintsPage() {
     return () => clearInterval(id);
   }, []);
 
+  // Sampled console logger for `mint_status` frames. First N frames
+  // emit verbatim (to confirm the wiring); after that every 25th to
+  // avoid devtools spam under a hot launch. Intentionally noisy at
+  // boot — we want the operator to see the SSE lifecycle in console
+  // when debugging an "empty page" report.
+  const dbgCountRef = (typeof window !== 'undefined')
+    ? ((window as unknown as { __mintsDbg?: { n: number } }).__mintsDbg ??=
+        { n: 0 })
+    : { n: 0 };
   useEffect(() => {
     let es: EventSource | null = null;
     let cancelled = false;
@@ -116,10 +125,25 @@ export default function MintsPage() {
       es.addEventListener('mint_status', (e: MessageEvent) => {
         try {
           const s = JSON.parse(e.data) as MintStatus;
+          dbgCountRef.n++;
+          if (dbgCountRef.n <= 5 || dbgCountRef.n % 25 === 0) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[mints/sse] n=${dbgCountRef.n} state=${s.displayState} ` +
+              `key=${s.groupingKey.slice(0, 32)} observed=${s.observedMints} ` +
+              `v60=${s.v60} v5m=${s.v5m} type=${s.mintType}`,
+            );
+          }
           setRows(prev => {
             const next = new Map(prev);
-            if (s.displayState === 'shown') next.set(s.groupingKey, s);
-            else next.delete(s.groupingKey);
+            // Keep ALL states now — the page renders shown rows in the
+            // main table and incubating/cooled rows in a debug section
+            // below so the operator can see what the threshold/burst
+            // gates are dropping. `cooled` rows still get evicted from
+            // the map after the backend drops them (next status frame
+            // never comes for an evicted row, so the page reflects the
+            // backend's set on each refresh).
+            next.set(s.groupingKey, s);
             return next;
           });
         } catch { /* malformed frame — skip */ }
@@ -131,10 +155,14 @@ export default function MintsPage() {
     };
     connect();
     return () => { cancelled = true; es?.close(); };
+  // dbgCountRef is a stable mutable ref — exclude from deps to avoid the
+  // effect re-running on every render and re-opening the SSE stream.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Main table — only `shown` rows (the production view). */
   const sorted = useMemo(() => {
-    const arr = Array.from(rows.values());
+    const arr = Array.from(rows.values()).filter(r => r.displayState === 'shown');
     if (sortKey === 'velocity') {
       arr.sort((a, b) => b.v60 - a.v60 || b.observedMints - a.observedMints);
     } else {
@@ -142,6 +170,17 @@ export default function MintsPage() {
     }
     return arr;
   }, [rows, sortKey]);
+
+  /** Debug surface — incubating + cooled rows so the operator can see
+   *  what the threshold/burst gates have so far rejected. Sorted by
+   *  observedMints desc to surface the closest-to-promotion candidates
+   *  first. Capped at 25 rows to keep the page readable under load. */
+  const debugRows = useMemo(() => {
+    return Array.from(rows.values())
+      .filter(r => r.displayState !== 'shown')
+      .sort((a, b) => b.observedMints - a.observedMints || b.v60 - a.v60)
+      .slice(0, 25);
+  }, [rows]);
 
   return (
     <div className="feed-root" data-page="mints" data-embedded={embedded ? '1' : undefined}>
@@ -277,6 +316,62 @@ export default function MintsPage() {
           </table>
         </div>
       </div>
+
+      {/* Debug — incubating / cooled.
+          Rendered ONLY when the main table has nothing to show OR there
+          is at least one incubating row, AND we are not in embed mode.
+          Lets the operator confirm "the backend IS detecting mints, the
+          gates are filtering them" vs "the backend isn't even detecting
+          anything" without changing thresholds. */}
+      {!embedded && debugRows.length > 0 && (
+        <div style={{
+          width: '100%', maxWidth: 1000, margin: '0 auto 16px',
+          background: 'rgba(28,22,50,0.5)',
+          border: '1px dashed rgba(168,144,232,0.35)', borderRadius: 8,
+          padding: '10px 14px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
+              DEBUG — INCUBATING / COOLED ({debugRows.length})
+            </span>
+            <span style={{ fontSize: 10, color: '#55556e' }}>
+              shown after burst (≥ {/* match BURST_V60 default */}8/min) or 50 cumulative
+            </span>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+            <thead>
+              <tr style={{ color: '#56566e', textAlign: 'left' }}>
+                <th style={{ padding: '4px 6px', fontWeight: 600 }}>STATE</th>
+                <th style={{ padding: '4px 6px', fontWeight: 600 }}>KEY</th>
+                <th style={{ padding: '4px 6px', fontWeight: 600 }}>SOURCE</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>OBS</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>v60</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>v5m</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 600 }}>LAST</th>
+              </tr>
+            </thead>
+            <tbody>
+              {debugRows.map(r => {
+                const stateColor = r.displayState === 'cooled' ? '#7a7a94' : '#c9a820';
+                return (
+                  <tr key={r.groupingKey} style={{ borderTop: '1px solid rgba(255,255,255,0.04)', color: '#aaaabf' }}>
+                    <td style={{ padding: '3px 6px', color: stateColor, fontWeight: 700 }}>{r.displayState}</td>
+                    <td style={{ padding: '3px 6px', color: '#d4d4e8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>
+                      {r.name ?? shortKey(r.groupingKey)}
+                    </td>
+                    <td style={{ padding: '3px 6px' }}>{r.programSource}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right', color: '#f0eef8' }}>{r.observedMints}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.v60}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.v5m}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right' }}>{fmtAge(r.lastMintAt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {!embedded && <BottomStatusBar />}
     </div>
   );

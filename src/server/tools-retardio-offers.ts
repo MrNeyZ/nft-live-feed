@@ -99,6 +99,94 @@ function maybeLogSampleKeys(offer: MeOffer): void {
   );
 }
 
+// ─── Bid creation-time resolver (RPC fallback) ─────────────────────────────
+// ME's offers_received payload carries no timestamp at all (verified live:
+// the only fields are pdaAddress / tokenMint / auctionHouse / buyer /
+// buyerReferral / tokenSize / price / expiry). To populate AGE we derive
+// the creation time on-chain: the offer's `pdaAddress` is a bid escrow PDA,
+// and its very first transaction is the bid creation. `getSignaturesForAddress`
+// returns signatures newest-first; the last entry of that array is the
+// creation tx → its `blockTime` is the bid timestamp.
+//
+// Cached by pdaAddress for the process lifetime — bid PDAs are short-lived
+// (cancel or fill closes them) so the map does not grow unboundedly in
+// practice. A negative-cache set skips repeat RPCs for PDAs that didn't
+// resolve (defensive for ME PDAs that have somehow lost history).
+const offerAgeCache:     Map<string, number> = new Map();   // pda → unix sec
+const offerAgeMissCache: Set<string>         = new Set();   // pda we gave up on
+/** Bounded parallelism for RPC. Higher = faster scan, but we want to stay
+ *  polite — typical scans need 5-15 PDA resolutions, so 5 in flight at a
+ *  time keeps wall time well under 1 s of overhead beyond the existing
+ *  ME listing/offer fetches. */
+const AGE_RESOLVE_CONCURRENCY = 5;
+const AGE_RPC_TIMEOUT_MS      = 5_000;
+
+function rpcUrl(): string {
+  const key = process.env.HELIUS_API_KEY;
+  return key
+    ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+    : 'https://api.mainnet-beta.solana.com';
+}
+
+async function fetchOfferCreationTime(pda: string): Promise<number | null> {
+  try {
+    const r = await fetch(rpcUrl(), {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        jsonrpc: '2.0',
+        id:      1,
+        method:  'getSignaturesForAddress',
+        // limit: 1000 returns the full history for a typical bid PDA in
+        // one call (bid PDAs see ≤ a handful of txs in their lifetime).
+        params:  [pda, { limit: 1000 }],
+      }),
+      signal: AbortSignal.timeout(AGE_RPC_TIMEOUT_MS),
+    });
+    if (!r.ok) return null;
+    const data = await r.json() as { result?: Array<{ blockTime?: number | null }> };
+    const sigs = data.result;
+    if (!Array.isArray(sigs) || sigs.length === 0) return null;
+    // Newest-first → the LAST element is the oldest = bid creation tx.
+    const oldest    = sigs[sigs.length - 1];
+    const blockTime = oldest?.blockTime;
+    return typeof blockTime === 'number' ? blockTime : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve ages for many PDAs in parallel, capped concurrency. Returns
+ *  a map of pda → unix sec (omits PDAs that didn't resolve). Hits the
+ *  in-process cache before issuing any RPC. */
+async function resolveOfferAges(pdas: readonly string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const todo: string[] = [];
+  for (const pda of pdas) {
+    if (!pda) continue;
+    if (offerAgeCache.has(pda))     { result.set(pda, offerAgeCache.get(pda)!); continue; }
+    if (offerAgeMissCache.has(pda)) continue;
+    todo.push(pda);
+  }
+  if (todo.length === 0) return result;
+
+  let i = 0;
+  const workers: Promise<void>[] = [];
+  const work = async () => {
+    while (i < todo.length) {
+      const pda = todo[i++];
+      const t   = await fetchOfferCreationTime(pda);
+      if (t != null) { offerAgeCache.set(pda, t); result.set(pda, t); }
+      else           { offerAgeMissCache.add(pda); }
+    }
+  };
+  for (let w = 0; w < Math.min(AGE_RESOLVE_CONCURRENCY, todo.length); w++) {
+    workers.push(work());
+  }
+  await Promise.all(workers);
+  return result;
+}
+
 /** Per-offer status — every offer ME returns is kept; this label tells
  *  the UI how to dim/sort it.
  *    AVAILABLE  — `expiry` is a future-dated number (offer is fillable).
@@ -237,6 +325,9 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
 
     // Pick whichever timestamp field ME actually populated — see
     // extractCreatedAt for the full alias list and ms→s normalisation.
+    // ME's `offers_received` historically has shipped ZERO timestamp
+    // fields, so this nearly always returns null and we fall back to
+    // the on-chain creation-tx lookup below.
     const createdAt = extractCreatedAt(best);
 
     const bestOfferId = best.pdaAddress
@@ -255,6 +346,37 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       meUrl:              `https://magiceden.io/item-details/${mint}`,
       tensorUrl:          `https://www.tensor.trade/item/${mint}`,
     });
+  }
+
+  // ── Age backfill via on-chain bid PDA history ─────────────────────────
+  // For rows whose `bestOfferStatus` is AVAILABLE or EXPECTED and where
+  // ME didn't ship a timestamp, derive the bid creation time from the
+  // offer's pdaAddress. EXPIRED is intentionally skipped (the user's
+  // workflow doesn't act on expired bids and they may be numerous on
+  // popular collections). Cached by pdaAddress for the process lifetime
+  // so repeated scans of the same listing don't re-hit RPC.
+  const pdasToResolve: string[] = [];
+  for (const row of out) {
+    if (row.bestOfferCreatedAt != null)        continue;
+    if (row.bestOfferStatus === 'EXPIRED')     continue;
+    // bestOfferId is the pdaAddress when ME provided one; the synthetic
+    // fallback contains ':' so it's easy to discriminate.
+    if (row.bestOfferId.includes(':'))         continue;
+    pdasToResolve.push(row.bestOfferId);
+  }
+  if (pdasToResolve.length > 0) {
+    const ageStarted = Date.now();
+    const ages = await resolveOfferAges(pdasToResolve);
+    for (const row of out) {
+      if (row.bestOfferCreatedAt == null && ages.has(row.bestOfferId)) {
+        row.bestOfferCreatedAt = ages.get(row.bestOfferId)!;
+      }
+    }
+    console.log(
+      `[tools/retardio-me-offer-scan/age] resolved=${ages.size}/` +
+      `${pdasToResolve.length} cached=${offerAgeCache.size} ` +
+      `miss=${offerAgeMissCache.size} took=${Date.now() - ageStarted}ms`,
+    );
   }
 
   // Default order: status priority first (AVAILABLE > EXPECTED > EXPIRED),

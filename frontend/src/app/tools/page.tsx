@@ -51,7 +51,7 @@ function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
   return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
 }
 
-type SortKey = 'nft' | 'listing' | 'offer' | 'spread' | 'age';
+type SortKey = 'nft' | 'listing' | 'offer' | 'spread' | 'age' | 'status';
 type SortDir = 'asc' | 'desc';
 
 function fmtAge(createdAtSec: number | null): string {
@@ -74,6 +74,12 @@ interface ScanResult {
   cachedAt:        number;
   ttlMs:           number;
   fromCache?:      boolean;
+  /** Frontend-only: number of rows whose `bestOfferId` was not present
+   *  in the previous scan (i.e. count of `isNew=true` rows after merge).
+   *  Persisted alongside the rows so the summary line keeps showing
+   *  "added N" between page loads until the next scan. Undefined on
+   *  the very first scan (no baseline to diff against). */
+  addedCount?:     number;
 }
 
 function shortAddr(s: string | null): string {
@@ -169,6 +175,16 @@ export default function ToolsPage() {
           va = a.bestOfferCreatedAt ?? -Infinity;
           vb = b.bestOfferCreatedAt ?? -Infinity;
           break;
+        case 'status':
+          // Pure status ordering (asc: AVAILABLE → EXPECTED → EXPIRED).
+          // Different from the implicit status priority inside `offer`,
+          // which still groups by status but tie-breaks within a tier
+          // by price; here, status is the primary key and the secondary
+          // tie-break (spread desc) at the bottom of this comparator
+          // takes over within a tier.
+          va = statusRank(a.bestOfferStatus);
+          vb = statusRank(b.bestOfferStatus);
+          break;
       }
       const primary = (va as number) - (vb as number);
       if (primary !== 0) return primary * dir;
@@ -184,8 +200,9 @@ export default function ToolsPage() {
     } else {
       setSortKey(key);
       // First click on a numeric column: descending feels right
-      // (largest first); on the alphabetic NFT column: ascending.
-      setSortDir(key === 'nft' ? 'asc' : 'desc');
+      // (largest first); on the alphabetic NFT column: ascending; on
+      // STATUS, ascending so AVAILABLE (the actionable tier) leads.
+      setSortDir(key === 'nft' || key === 'status' ? 'asc' : 'desc');
     }
   };
   const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? '↑' : '↓') : '';
@@ -217,14 +234,21 @@ export default function ToolsPage() {
       const data = await r.json() as ScanResult;
       // Mark rows whose bestOfferId wasn't in the previous scan as NEW.
       // Skip the first scan (empty prevIds) so we don't paint everything
-      // NEW on first visit.
+      // NEW on first visit. `addedCount` is the count of NEW rows in
+      // this scan — undefined on first scan (no baseline) so the summary
+      // can distinguish "we don't know yet" from "we checked, 0 added".
       const isFirstScan = prevIds.size === 0;
+      const mergedRows = data.withOffers.map(row => ({
+        ...row,
+        isNew: !isFirstScan && !prevIds.has(row.bestOfferId),
+      }));
+      const addedCount = isFirstScan
+        ? undefined
+        : mergedRows.reduce((n, r) => n + (r.isNew ? 1 : 0), 0);
       const merged: ScanResult = {
         ...data,
-        withOffers: data.withOffers.map(row => ({
-          ...row,
-          isNew: !isFirstScan && !prevIds.has(row.bestOfferId),
-        })),
+        withOffers: mergedRows,
+        addedCount,
       };
       setResult(merged);
       savePersisted(selectedSlug, merged);
@@ -306,6 +330,22 @@ export default function ToolsPage() {
             {' · '}scanned <span style={{ color: '#d4d4e8' }}>{result.scanned}</span> / {result.listedTotal} listings
             {' · '}offers <span style={{ color: '#5ce0a0' }}>{result.offersAvailable}</span> available / {result.offersFetched} fetched
             {' · '}rows <span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> shown
+            {/* Persisted across reloads via localStorage; cleared/recomputed
+                on every Scan click. Undefined = first-ever scan for this
+                slug (no baseline yet); 0 = scanned but nothing new; >0 =
+                highlight in the same purple as the NEW corner ribbon. */}
+            {result.addedCount !== undefined && (
+              <>
+                {' · '}
+                {result.addedCount > 0 ? (
+                  <span style={{ color: '#a890e8', fontWeight: 700 }}>
+                    added {result.addedCount} new
+                  </span>
+                ) : (
+                  <span>added 0</span>
+                )}
+              </>
+            )}
             {result.fromCache && <span style={{ color: '#c9a820' }}> · cached</span>}
           </div>
         )}
@@ -340,7 +380,9 @@ export default function ToolsPage() {
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
                   AGE {sortArrow('age') && <span style={{ color: '#8068d8' }}>{sortArrow('age')}</span>}
                 </th>
-                <th style={thStyleSmall}>STATUS</th>
+                <th style={{ ...thStyleSmall, cursor: 'pointer' }} onClick={() => onHeaderClick('status')}>
+                  STATUS {sortArrow('status') && <span style={{ color: '#8068d8' }}>{sortArrow('status')}</span>}
+                </th>
                 <th style={thStyleSmall}>LINKS</th>
               </tr>
             </thead>

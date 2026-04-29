@@ -208,21 +208,24 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
             <TimeAgo ts={event.ts} />
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
-          {/* price-row: fixed badge width + min-width price keeps badges
-              vertically aligned across all rows and prices anchored to a
-              shared right column, regardless of label text length
-              ("BUY" / "SELL" / "AMM" all occupy the same 56px slot). */}
+          {/* price-row: fixed badge slot + min-width tabular-num price keeps
+              badges vertically aligned across rows and prices anchored to a
+              shared right column. The badge's marginLeft simulates the
+              spacing the removed "for" connector used to provide so the
+              price column doesn't jump leftward. tabular-nums prevents
+              digit-width jitter between values like "0.40" / "0.085". */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{
               width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
+              marginLeft: 14,
               padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
             }}>{style.label}</span>
-            <span style={{ fontSize: 11, color: '#6a6a84' }}>for</span>
             <span style={{
-              minWidth: 72, textAlign: 'right',
-              fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
+              minWidth: 80, textAlign: 'right',
+              fontSize: 16, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.3px',
               fontFamily: "'SF Mono','Fira Code',monospace",
+              fontVariantNumeric: 'tabular-nums',
             }}>
               {formatSol(renderPrice)}{' '}
               <span style={{ color: '#8a8aa6', fontWeight: 600, fontSize: 11 }}>SOL</span>
