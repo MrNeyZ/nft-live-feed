@@ -208,13 +208,19 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
             <TimeAgo ts={event.ts} />
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* price-row: fixed badge width + min-width price keeps badges
+              vertically aligned across all rows and prices anchored to a
+              shared right column, regardless of label text length
+              ("BUY" / "SELL" / "AMM" all occupy the same 56px slot). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{
-              padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 4,
+              width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
+              padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
             }}>{style.label}</span>
             <span style={{ fontSize: 11, color: '#6a6a84' }}>for</span>
             <span style={{
+              minWidth: 72, textAlign: 'right',
               fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
               fontFamily: "'SF Mono','Fira Code',monospace",
             }}>
