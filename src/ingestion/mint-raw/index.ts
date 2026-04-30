@@ -85,6 +85,22 @@ function detectSourceLabel(
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
 
+/** Hard reject: any mint-address extraction that lands on one of these
+ *  program / canonical-account IDs is a parser misextraction (typically
+ *  an inner-CPI whose account layout differs from the top-level Anchor
+ *  layout). Blocking at the address level is bulletproof regardless of
+ *  what shape signals follow. Includes both watched mint programs +
+ *  the SPL Token / Token-2022 program addresses so a misextraction
+ *  pointing at any of them is caught here, not later. */
+const MINT_ADDRESS_BLACKLIST: ReadonlySet<string> = new Set([
+  MPL_CORE_PROGRAM,
+  TOKEN_METADATA_PROGRAM,
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token
+  'TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy', // SPL Token-2022
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // Associated Token
+  '11111111111111111111111111111111',             // System Program
+]);
+
 // ─── Log prefilter ───────────────────────────────────────────────────────────
 
 /** Substrings that, when present in a tx's program logs, are strong
@@ -331,13 +347,23 @@ export async function ingestMintRaw(
   }
 
   // ── NFT-only filter ──────────────────────────────────────────────
-  // MPL Core assets are inherently non-fungible by program design,
-  // so we always accept them. For Token Metadata we additionally
-  // verify the mint is NFT-shaped (decimals=0, post-balance amount
-  // not >1) by inspecting the tx's post-token-balance entry for the
-  // mint we identified above. This rejects fungible / SPL-token
-  // metadata creations (decimals > 0) and FT-with-metadata edge
-  // cases, leaving only legacy NFT, pNFT, and Core asset mints.
+  // Tier 0: hard reject if the extracted "mint" landed on a known
+  // program/canonical address (parser misextraction from inner-CPI
+  // account layouts). This is the bulletproof guard against rows
+  // like `metaqbxx…` (the Token Metadata program) showing up.
+  if (mintAddress && MINT_ADDRESS_BLACKLIST.has(mintAddress)) {
+    noteFilterReject('program_account', sig, mintAddress);
+    return;
+  }
+
+  // Tier 1: shape verification. MPL Core assets are inherently
+  // non-fungible by program design — always accept. For Token
+  // Metadata mints, require the post-token-balance entry to show
+  // decimals=0 AND amount==='1' (i.e. exactly one token minted in
+  // this tx). Rejects fungibles (decimals > 0) and metadata-only
+  // / lazy-mint flows (amount === '0' — supply not yet established).
+  // The DAS verifier in src/mints/enricher.ts catches anything that
+  // sneaks past this with NFT-shape but actually-fungible later.
   if (hit.programSource !== 'mpl_core') {
     const verdict = checkTokenMetadataNftShape(tx, mintAddress);
     if (!verdict.ok) {
@@ -454,15 +480,20 @@ function checkTokenMetadataNftShape(tx: RawSolanaTx, mintAddress: string | null)
     // sparse drop-only metadata-creation flows we don't care about.
     return { ok: false, reason: 'no_post_balance' };
   }
+  // Strict shape: decimals === 0 AND amount === '1' on EVERY post
+  // entry for this mint. Rejects:
+  //   • decimals > 0     → fungible (e.g. SPL token with metadata)
+  //   • amount  === '0'  → metadata exists but no supply minted yet;
+  //                        we can't prove NFT-ness without supply, and
+  //                        this is the gap fungibles slip through
+  //                        (later MintTo creates 10^9 supply offline).
+  //   • amount  > '1'    → fungible-style supply.
   for (const e of entries) {
     if (e.uiTokenAmount.decimals !== 0) {
       return { ok: false, reason: `decimals=${e.uiTokenAmount.decimals}` };
     }
-    // amount can be "0" (created but not yet minted-to) or "1" (mint
-    // landed in this tx). Anything > 1 is a fungible-style supply.
-    const amt = e.uiTokenAmount.amount;
-    if (amt !== '0' && amt !== '1') {
-      return { ok: false, reason: `amount=${amt}` };
+    if (e.uiTokenAmount.amount !== '1') {
+      return { ok: false, reason: `supply=${e.uiTokenAmount.amount}` };
     }
   }
   // Kind discrimination by matched instruction needle. mip1 = pNFT;
