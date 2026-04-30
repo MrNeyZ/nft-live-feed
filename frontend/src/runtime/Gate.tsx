@@ -446,25 +446,35 @@ const GATE_CSS = `
   transform: none;
 }
 
-/* Block variant — mode rows. */
+/* Block variant — mode rows.
+ * 3-column grid: [fixed-width index] [flexible centered content] [fixed-width chev].
+ * Replaces the previous flex+space-between layout, where the centre block's
+ * position drifted with label width ("FULL" vs "SALES ONLY"). With the grid
+ * the index always anchors left, the chev anchors right, and the middle
+ * column is identical width across all rows — so the label/description
+ * column is visually balanced regardless of label text length. */
 .vl-cta.vl-cta--block {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
   width: 100%;
   min-width: 0;
   height: 64px;
   padding: 0 20px;
-  justify-content: space-between;
   letter-spacing: 1.8px;
   font-size: 12px;
   text-align: left;
 }
 .vl-cta.vl-cta--block .vl-cta-body {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  /* Centre the label+desc stack within the middle column so all rows
+   * share the same horizontal anchor regardless of label length. */
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
   text-transform: none; letter-spacing: 0;
 }
 .vl-cta.vl-cta--block .vl-cta-num {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 10px; font-weight: 700; color: rgba(12, 10, 26, 0.55);
   letter-spacing: 1px;
+  text-align: left;
 }
 .vl-cta.vl-cta--block .vl-cta-label {
   font-size: 13px; font-weight: 700; letter-spacing: 1.8px; color: #0c0a1a;
@@ -476,7 +486,7 @@ const GATE_CSS = `
 }
 .vl-cta.vl-cta--block .vl-cta-chev {
   font-size: 20px; font-weight: 400; color: rgba(12, 10, 26, 0.7);
-  margin-left: 12px; transition: transform 0.16s ease;
+  margin-left: 0; text-align: right; transition: transform 0.16s ease;
 }
 .vl-cta.vl-cta--block:hover:not([disabled]) .vl-cta-chev { transform: translateX(3px); }
 .vl-cta.vl-cta--block[disabled] .vl-cta-num,

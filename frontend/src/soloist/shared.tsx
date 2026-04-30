@@ -15,6 +15,7 @@ import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeM
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
+import { playUiTick, useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -235,7 +236,15 @@ export function Pill({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(e) => {
+        // UI tick — no-op when disabled (the toggle in BottomStatusBar
+        // gates everything; default OFF). Fires before the user's
+        // onClick so the audible feedback isn't blocked by any heavy
+        // handler work.
+        if (!disabled) playUiTick();
+        onClick?.(e);
+      }}
+      onPointerEnter={() => { if (!disabled) playUiTick(); }}
       disabled={disabled}
       title={title}
       style={{
@@ -841,6 +850,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
   const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
   const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
   const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
+  const uiSoundEnabled = useUiSoundEnabled();
   // Listen for cross-route EVENTS-count signals from /feed. Falls back
   // to the optional `eventsCount` prop for backward compat with any
   // call site that still passes it directly.
@@ -924,6 +934,40 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
               background: inclusiveFees ? '#a890e8' : '#3a3a52',
             }} />
             Incl. fees
+          </button>
+          {/* UI Sound toggle — synthesised hover/click ticks via WebAudio.
+              Default OFF; enabling persists to localStorage `vl.uiSound`.
+              Visual mirror of the "Incl. fees" pill so the bar looks
+              uniform; behavior gated inside `playUiTick` (no-op when off,
+              when prefers-reduced-motion is set, or before first user
+              gesture has primed the AudioContext). */}
+          <button
+            type="button"
+            onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
+            title={uiSoundEnabled
+              ? 'UI sound ON — subtle hover/click ticks'
+              : 'UI sound OFF — click to enable subtle hover/click ticks'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '2px 8px', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.4px', textTransform: 'uppercase',
+              borderRadius: 3, cursor: 'pointer',
+              border: uiSoundEnabled
+                ? '1px solid rgba(168,144,232,0.55)'
+                : '1px solid rgba(255,255,255,0.08)',
+              background: uiSoundEnabled
+                ? 'rgba(168,144,232,0.18)'
+                : 'rgba(255,255,255,0.03)',
+              color:      uiSoundEnabled ? '#d0c8e4' : '#7a7a94',
+              fontFamily: 'inherit',
+              transition: 'all 0.12s',
+            }}
+          >
+            <span style={{
+              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+              background: uiSoundEnabled ? '#a890e8' : '#3a3a52',
+            }} />
+            Sound
           </button>
           <span><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc' }}>{tps.toLocaleString()}</span></span>
           <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d' }}>${sol}</span></span>

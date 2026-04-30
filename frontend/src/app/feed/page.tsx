@@ -16,7 +16,7 @@ import {
   feedReducer, initFeedState, orderedEvents,
   type MetaPatch, type FeedAction,
 } from '@/soloist/feed-store';
-import { isCnftDust } from '@/soloist/cnft-filter';
+import { isCnftDust, CNFT_FLOOR_MIN_SOL } from '@/soloist/cnft-filter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
