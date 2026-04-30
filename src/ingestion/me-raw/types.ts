@@ -37,6 +37,12 @@ export interface RawTokenBalance {
     uiAmount: number | null;
   };
   owner?: string;         // token account owner (present when fetchedWith commitment)
+  /** SPL Token program that owns this token account. RPC populates this
+   *  on `getTransaction` with `encoding: 'json'`. Used by the mint
+   *  parser to distinguish standard SPL Token NFTs (Tokenkeg…) from
+   *  Token-2022 mints (Tokenz…), which the /mints product rule
+   *  excludes. */
+  programId?: string;
 }
 
 /**

@@ -85,6 +85,13 @@ function detectSourceLabel(
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
 
+/** SPL Token-2022 program ID. NFT product rules (Metaplex Core / pNFT /
+ *  legacy NFT) are all served by the original SPL Token program; any
+ *  mint owned by Token-2022 is treated as fungible / non-NFT for /mints
+ *  purposes, even when its initial supply happens to be 1 with decimals 0
+ *  (later `MintTo` calls grow supply). */
+const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy';
+
 /** Hard reject: any mint-address extraction that lands on one of these
  *  program / canonical-account IDs is a parser misextraction (typically
  *  an inner-CPI whose account layout differs from the top-level Anchor
@@ -96,7 +103,7 @@ const MINT_ADDRESS_BLACKLIST: ReadonlySet<string> = new Set([
   MPL_CORE_PROGRAM,
   TOKEN_METADATA_PROGRAM,
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token
-  'TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy', // SPL Token-2022
+  TOKEN_2022_PROGRAM,                            // SPL Token-2022
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // Associated Token
   '11111111111111111111111111111111',             // System Program
 ]);
@@ -488,12 +495,21 @@ function checkTokenMetadataNftShape(tx: RawSolanaTx, mintAddress: string | null)
   //                        this is the gap fungibles slip through
   //                        (later MintTo creates 10^9 supply offline).
   //   • amount  > '1'    → fungible-style supply.
+  //   • programId === Token-2022 → out of scope for the /mints rule
+  //                        (Core / pNFT / legacy all run on the original
+  //                        SPL Token program). Token-2022 mints with an
+  //                        initial 1-unit MintTo would otherwise pass
+  //                        the decimals/amount check and slip through
+  //                        before the async DAS verifier evicts them.
   for (const e of entries) {
     if (e.uiTokenAmount.decimals !== 0) {
       return { ok: false, reason: `decimals=${e.uiTokenAmount.decimals}` };
     }
     if (e.uiTokenAmount.amount !== '1') {
       return { ok: false, reason: `supply=${e.uiTokenAmount.amount}` };
+    }
+    if (e.programId && e.programId === TOKEN_2022_PROGRAM) {
+      return { ok: false, reason: 'token_2022' };
     }
   }
   // Kind discrimination by matched instruction needle. mip1 = pNFT;
