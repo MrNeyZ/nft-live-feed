@@ -78,6 +78,13 @@ interface Accum {
 
 const map = new Map<string, Accum>();
 
+/** Sticky reject set: groupingKeys the enricher classified as non-NFT
+ *  via DAS. Future `recordMint` calls for these keys are silently
+ *  dropped so a fungible's continuing MintTo / metadata-update stream
+ *  can't re-resurrect the row. Process-lifetime — small set in
+ *  practice (rejects accumulate slowly relative to NFT volume). */
+const evictedNonNft = new Set<string>();
+
 function trimWindow(arr: RingItem[], cutoff: number): RingItem[] {
   let i = 0;
   while (i < arr.length && arr[i].ts < cutoff) i++;
@@ -132,6 +139,11 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
  *  tracked gate (i.e. should be persisted by the caller — though we
  *  don't persist in this MVP). Always emits `mint` + `mint_status`. */
 export function recordMint(ev: MintEventWire): void {
+  // Sticky non-NFT skip — once the enricher's DAS check rejected this
+  // group, every subsequent mint for the same key is dropped before it
+  // hits the accumulator / SSE bus. Without this, a fungible's
+  // continuing MintTo activity would just re-promote the row.
+  if (evictedNonNft.has(ev.groupingKey)) return;
   const now = Date.now();
   let a = map.get(ev.groupingKey);
   if (!a) {
@@ -293,4 +305,25 @@ export function patchAccumulatorMeta(
   if (patch.name)     a.name     = patch.name;
   if (patch.imageUrl) a.imageUrl = patch.imageUrl;
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
+/** Permanently remove a group from /mints. Used by the enricher when
+ *  DAS classifies the group as a non-NFT (fungible / SPL token).
+ *
+ *  Effect:
+ *    1. Marks the entry `cooled` and emits one final `mint_status`
+ *       frame so any connected client immediately stops surfacing the
+ *       row (the frontend's table memo filters out cooled rows).
+ *    2. Deletes the entry from the in-memory map so subsequent
+ *       `currentMintStatuses()` snapshots don't replay it on connect.
+ *    3. Adds the groupingKey to `evictedNonNft` so any further
+ *       `recordMint` calls for the same key are dropped before they
+ *       can re-promote the row. */
+export function evictMintGroup(groupingKey: string): void {
+  evictedNonNft.add(groupingKey);
+  const a = map.get(groupingKey);
+  if (!a) return;
+  a.displayState = 'cooled';
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+  map.delete(groupingKey);
 }

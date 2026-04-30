@@ -5,7 +5,7 @@
 // personal offers.
 
 import { useEffect, useMemo, useState } from 'react';
-import { TopNav, LiveDot, BottomStatusBar, CollectionIcon, compressImage } from '@/soloist/shared';
+import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -385,9 +385,25 @@ export default function ToolsPage() {
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            {/* Explicit column widths so the table reads as a balanced
+                trading layout — without these, browser auto-distribution
+                pushed LINKS to the far edge and crowded NFT against the
+                left border. NFT is widest (30 %) but not glued to the
+                edge thanks to thStyleNft's 14 px left padding; metric
+                columns sit at 12–14 % each; STATUS / LINKS stay
+                compact. Total = 100 %. */}
+            <colgroup>
+              <col style={{ width: '30%' }} />{/* NFT        */}
+              <col style={{ width: '12%' }} />{/* LISTING    */}
+              <col style={{ width: '14%' }} />{/* BEST OFFER */}
+              <col style={{ width: '14%' }} />{/* SPREAD     */}
+              <col style={{ width: '10%' }} />{/* AGE        */}
+              <col style={{ width: '12%' }} />{/* STATUS     */}
+              <col style={{ width:  '8%' }} />{/* LINKS      */}
+            </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
-                <th style={{ ...thStyle,    cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
+                <th style={{ ...thStyleNft,  cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
                   NFT {sortArrow('nft')     && <span style={{ color: '#8068d8' }}>{sortArrow('nft')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('listing')}>
@@ -435,7 +451,7 @@ export default function ToolsPage() {
                 const sb = statusBadgeStyle(row.bestOfferStatus);
                 return (
                   <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
-                    <td style={{ padding: '10px 8px' }}>
+                    <td style={{ padding: '10px 8px 10px 14px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* Thumbnail wrapper carries `position: relative`
                             so the NEW pill can corner-anchor over the
@@ -499,7 +515,6 @@ export default function ToolsPage() {
           </table>
         </div>
       </div>
-      <BottomStatusBar />
     </div>
   );
 }
@@ -512,6 +527,10 @@ const thStyle: React.CSSProperties = {
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
 const thStyleSmall: React.CSSProperties = { ...thStyle, textAlign: 'left', fontSize: 9.5 };
+/** First column header — extra left padding so the NFT label doesn't
+ *  press against the card border. Mirrored on the row's NFT cell
+ *  (`padding: '10px 8px 10px 14px'`) below. */
+const thStyleNft: React.CSSProperties = { ...thStyle, padding: '10px 8px 10px 14px' };
 const tdStyleNum: React.CSSProperties = {
   padding: '10px 8px', textAlign: 'right', fontSize: 13, fontWeight: 600,
   color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",

@@ -12,8 +12,8 @@
  *     ensure for the worker.
  */
 
-import { getAsset } from '../enrichment/helius-das';
-import { patchAccumulatorMeta } from './accumulator';
+import { verifyAndFetchAsset } from '../enrichment/helius-das';
+import { patchAccumulatorMeta, evictMintGroup } from './accumulator';
 
 const REQUEST_GAP_MS    = 500;
 const PENDING_MAX       = 200;
@@ -46,7 +46,18 @@ async function runWorker(): Promise<void> {
   while (pending.length > 0) {
     const next = pending.shift()!;
     try {
-      const meta = await getAsset(next.mintAddress);
+      // One DAS call per group — returns both the NFT-vs-fungible
+      // verdict and the metadata fields. Non-NFT groups are evicted
+      // from the accumulator so the row never reaches /mints (or
+      // disappears from the table mid-flight if the cheap parse-
+      // time filter let it through).
+      const { verdict, meta } = await verifyAndFetchAsset(next.mintAddress);
+      if (!verdict.ok) {
+        evictMintGroup(next.groupingKey);
+        noteFilterReject(verdict.reason ?? 'unknown', next.mintAddress);
+        continue;
+      }
+      noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
       if (meta.imageUrl || meta.nftName || meta.collectionName) {
         patchAccumulatorMeta(next.groupingKey, {
           name:     meta.collectionName ?? meta.nftName ?? undefined,
@@ -65,4 +76,31 @@ async function runWorker(): Promise<void> {
     await new Promise<void>(r => setTimeout(r, REQUEST_GAP_MS));
   }
   workerScheduled = false;
+}
+
+// ── Sampled DAS-verdict logs ─────────────────────────────────────────
+//
+// One line per (kind|reason) on the first occurrence + every 50th.
+// Lets the operator confirm the filter is acting on real data and see
+// reject reasons by category (fungible interface, decimals, etc.)
+// without flooding the log under a hot launch.
+const _filterAcceptCount = new Map<string, number>();
+function noteFilterAccept(kind: string, mint: string): void {
+  const n = (_filterAcceptCount.get(kind) ?? 0) + 1;
+  _filterAcceptCount.set(kind, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/filter] accept_nft type=${kind} count=${n} mint=${mint.slice(0, 8)}…`,
+    );
+  }
+}
+const _filterRejectCount = new Map<string, number>();
+function noteFilterReject(reason: string, mint: string): void {
+  const n = (_filterRejectCount.get(reason) ?? 0) + 1;
+  _filterRejectCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/filter] reject_non_nft reason=${reason} count=${n} mint=${mint.slice(0, 8)}…`,
+    );
+  }
 }

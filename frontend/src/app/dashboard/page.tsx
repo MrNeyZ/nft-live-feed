@@ -13,7 +13,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { CollectionIcon, LiveDot, Pill, TopNav, BottomStatusBar, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
+import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { isCnftDust } from '@/soloist/cnft-filter';
 
@@ -1082,7 +1082,6 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
-      {!embedded && <BottomStatusBar />}
     </div>
   );
 }

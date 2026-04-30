@@ -13,10 +13,14 @@ export interface NftMetadata {
   meCollectionSlug: string | null;
 }
 
-// Minimal shape of the Helius DAS getAsset response we care about
+// Minimal shape of the Helius DAS getAsset response we care about.
+// Extended with `interface`, `token_info`, and `content.metadata.token_standard`
+// so the mints pipeline can authoritatively classify NFT-vs-fungible
+// before surfacing a row on /mints.
 interface DasAsset {
+  interface?: string;
   content?: {
-    metadata?: { name?: string };
+    metadata?: { name?: string; token_standard?: string };
     links?: { image?: string };
   };
   grouping?: Array<{
@@ -24,6 +28,10 @@ interface DasAsset {
     group_value: string;
     collection_metadata?: { name?: string };
   }>;
+  token_info?: {
+    decimals?: number;
+    supply?: number;
+  };
 }
 
 interface DasResponse {
@@ -69,4 +77,116 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
     collectionAddress: collection?.group_value ?? null,
     meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
   };
+}
+
+// ── NFT classifier (used by the mints pipeline) ────────────────────────────
+//
+// `getAsset` above returns metadata even for fungible tokens — sales path
+// uses it that way. The mints pipeline however must reject fungibles
+// outright; this helper packages the DAS classification rules and runs
+// them alongside the metadata fetch so we make exactly one DAS call per
+// group. Returns both the verdict (`ok / reason / kind`) and the
+// metadata so the enricher can use them in a single round-trip.
+
+export type NftKind = 'core' | 'pnft' | 'legacy';
+export interface NftVerdict {
+  ok:      boolean;
+  kind?:   NftKind;
+  reason?: string;
+}
+export interface AssetVerifyResult {
+  verdict: NftVerdict;
+  meta:    NftMetadata;
+}
+
+function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
+  if (!asset) return { ok: false, reason: 'no_asset' };
+  const iface         = asset.interface ?? '';
+  const tokenStandard = asset.content?.metadata?.token_standard ?? '';
+  const decimals      = asset.token_info?.decimals;
+  const fSupply       = asset.token_info?.supply;
+
+  // ── Hard rejects ──
+  if (iface === 'FungibleToken' || iface === 'FungibleAsset') {
+    return { ok: false, reason: `interface=${iface}` };
+  }
+  if (tokenStandard === 'Fungible' || tokenStandard === 'FungibleAsset') {
+    return { ok: false, reason: `tokenStandard=${tokenStandard}` };
+  }
+  if (typeof decimals === 'number' && decimals > 0) {
+    return { ok: false, reason: `decimals=${decimals}` };
+  }
+  if (typeof fSupply === 'number' && fSupply > 1) {
+    return { ok: false, reason: `supply=${fSupply}` };
+  }
+
+  // ── Accepts ──
+  if (iface === 'MplCoreAsset')                      return { ok: true, kind: 'core' };
+  if (iface === 'ProgrammableNFT')                   return { ok: true, kind: 'pnft' };
+  if (iface === 'V1_NFT')                            return { ok: true, kind: 'legacy' };
+  if (tokenStandard === 'NonFungible')               return { ok: true, kind: 'legacy' };
+  if (tokenStandard === 'ProgrammableNonFungible')   return { ok: true, kind: 'pnft' };
+
+  // ── Permissive fallback ──
+  // Unknown interface but NFT-shaped (decimals 0, supply ≤ 1) — accept
+  // as legacy. Conservative: rejects anything ambiguous beyond this.
+  if ((decimals === 0 || decimals === undefined)
+      && (fSupply == null || fSupply <= 1)) {
+    return { ok: true, kind: 'legacy' };
+  }
+  return { ok: false, reason: `unknown_interface=${iface || '—'}` };
+}
+
+export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVerifyResult> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) {
+    return {
+      verdict: { ok: false, reason: 'no_api_key' },
+      meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
+    };
+  }
+  try {
+    const res = await fetch(
+      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'mint-verify',
+          method: 'getAsset',
+          params: { id: mintAddress },
+        }),
+        signal: AbortSignal.timeout(8_000),
+      }
+    );
+    if (!res.ok) {
+      return {
+        verdict: { ok: false, reason: `http_${res.status}` },
+        meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
+      };
+    }
+    const json = (await res.json()) as DasResponse;
+    if (json.error) {
+      return {
+        verdict: { ok: false, reason: `das_${json.error.code}` },
+        meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
+      };
+    }
+    const asset      = json.result;
+    const collection = asset?.grouping?.find((g) => g.group_key === 'collection');
+    const meta: NftMetadata = {
+      nftName:           asset?.content?.metadata?.name        ?? null,
+      imageUrl:          asset?.content?.links?.image           ?? null,
+      collectionName:    collection?.collection_metadata?.name  ?? null,
+      collectionAddress: collection?.group_value                ?? null,
+      meCollectionSlug:  null,
+    };
+    return { verdict: classifyDasAsset(asset), meta };
+  } catch {
+    return {
+      verdict: { ok: false, reason: 'fetch_error' },
+      meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
+    };
+  }
 }

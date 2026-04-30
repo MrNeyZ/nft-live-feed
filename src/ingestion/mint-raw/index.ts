@@ -330,6 +330,25 @@ export async function ingestMintRaw(
     collectionAddress = mintAddress; // self-collection
   }
 
+  // ── NFT-only filter ──────────────────────────────────────────────
+  // MPL Core assets are inherently non-fungible by program design,
+  // so we always accept them. For Token Metadata we additionally
+  // verify the mint is NFT-shaped (decimals=0, post-balance amount
+  // not >1) by inspecting the tx's post-token-balance entry for the
+  // mint we identified above. This rejects fungible / SPL-token
+  // metadata creations (decimals > 0) and FT-with-metadata edge
+  // cases, leaving only legacy NFT, pNFT, and Core asset mints.
+  if (hit.programSource !== 'mpl_core') {
+    const verdict = checkTokenMetadataNftShape(tx, mintAddress);
+    if (!verdict.ok) {
+      noteFilterReject(verdict.reason, sig, mintAddress);
+      return;
+    }
+    noteFilterAccept(verdict.kind, sig, mintAddress);
+  } else {
+    noteFilterAccept('core', sig, mintAddress);
+  }
+
   const priceLamports = extractSignerLamportsPaid(tx);
   const mintType      = classifyMintType(priceLamports);
 
@@ -398,6 +417,82 @@ function noteParseStep(step: string, programSource: MintProgramSource | null, si
     console.log(
       `[mints/parse] step=${step} source=${programSource ?? '—'} ` +
       `count=${n} sig=${sig.slice(0, 12)}…`,
+    );
+  }
+}
+
+// ── NFT-only filter helpers ─────────────────────────────────────────
+//
+// /mints aggregates per collection of NFT mints and is intentionally
+// blind to fungible-token creation events. The Token Metadata program
+// is used by both NFTs (legacy / pNFT, decimals=0) and fungibles
+// (decimals>0); we filter post-parse so only true NFT mints reach
+// `recordMint`.
+//
+// MPL Core: assets are non-fungible by program design — always
+// accepted (no extra check needed).
+//
+// Token Metadata: we inspect the tx's post-token-balance entry for
+// the mint we identified. If decimals > 0, it's a fungible mint and
+// we reject. If decimals === 0 and the supply state looks NFT-like
+// (post amount is "0" pre-mint-to, or "1" if the same tx mints to a
+// holder), we accept and label legacy / pnft based on the matched
+// instruction name.
+
+interface NftCheckOk   { ok: true;  kind: 'core' | 'pnft' | 'legacy'; }
+interface NftCheckBad  { ok: false; reason: string; }
+type NftCheck = NftCheckOk | NftCheckBad;
+
+function checkTokenMetadataNftShape(tx: RawSolanaTx, mintAddress: string | null): NftCheck {
+  if (!mintAddress) return { ok: false, reason: 'no_mint_address' };
+  const post = tx.meta?.postTokenBalances ?? [];
+  const entries = post.filter(b => b.mint === mintAddress);
+  if (entries.length === 0) {
+    // Some flows (lazy mint / metadata-only Create with no MintTo) leave
+    // postTokenBalances empty for the freshly-created mint. Reject so
+    // we don't surface unverifiable rows. False negatives here are
+    // sparse drop-only metadata-creation flows we don't care about.
+    return { ok: false, reason: 'no_post_balance' };
+  }
+  for (const e of entries) {
+    if (e.uiTokenAmount.decimals !== 0) {
+      return { ok: false, reason: `decimals=${e.uiTokenAmount.decimals}` };
+    }
+    // amount can be "0" (created but not yet minted-to) or "1" (mint
+    // landed in this tx). Anything > 1 is a fungible-style supply.
+    const amt = e.uiTokenAmount.amount;
+    if (amt !== '0' && amt !== '1') {
+      return { ok: false, reason: `amount=${amt}` };
+    }
+  }
+  // Kind discrimination by matched instruction needle. mip1 = pNFT;
+  // CreateMetadataAccountV3 = legacy. The generic `Instruction: Create`
+  // can be either — fall back to 'legacy' as the most common case.
+  const logs = tx.meta?.logMessages ?? [];
+  const sawMip1 = logs.some(l => typeof l === 'string' && l.includes('mip1'));
+  const kind: NftCheckOk['kind'] = sawMip1 ? 'pnft' : 'legacy';
+  return { ok: true, kind };
+}
+
+const filterAcceptCount = new Map<string, number>();
+function noteFilterAccept(kind: string, sig: string, mint: string | null): void {
+  const n = (filterAcceptCount.get(kind) ?? 0) + 1;
+  filterAcceptCount.set(kind, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/filter] accept_nft type=${kind} count=${n} ` +
+      `sig=${sig.slice(0, 12)}… mint=${mint ? mint.slice(0, 8) + '…' : '—'}`,
+    );
+  }
+}
+const filterRejectCount = new Map<string, number>();
+function noteFilterReject(reason: string, sig: string, mint: string | null): void {
+  const n = (filterRejectCount.get(reason) ?? 0) + 1;
+  filterRejectCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/filter] reject_non_nft reason=${reason} count=${n} ` +
+      `sig=${sig.slice(0, 12)}… mint=${mint ? mint.slice(0, 8) + '…' : '—'}`,
     );
   }
 }

@@ -16,7 +16,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { isAuthed, login, clearAuth } from './auth';
 import { fetchMode, setMode, SELECTABLE_MODES, type RuntimeMode } from './mode';
-import { FloatingLayoutModeSwitcher } from '@/soloist/shared';
+import { FloatingLayoutModeSwitcher, BottomStatusBar } from '@/soloist/shared';
+import { usePathname } from 'next/navigation';
 
 type GateState =
   | { kind: 'loading' }
@@ -64,8 +65,60 @@ export function Gate({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
+      {!embedded && <PersistentBottomStatusBar />}
       {!embedded && <FloatingLayoutModeSwitcher />}
     </>
+  );
+}
+
+// ── Persistent BottomStatusBar ────────────────────────────────────────────
+//
+// One mounted instance for the whole app — survives client-side route
+// changes between /dashboard, /mints, /tools, /feed (and any other
+// non-embed page) so the bar's internal state (TPS / SOL price fetch
+// loop, "Incl. fees" toggle, EVENTS counter from /feed) doesn't reset
+// on navigation. Hidden on /multi and on /access (no business showing
+// status chrome behind the auth gate / outer multi-tab page).
+//
+// Position: fixed at bottom so feed-root's existing flex height math
+// (`height: 100vh`, PC zoom calc) stays untouched. The companion CSS
+// rule `body[data-bottombar="1"] .feed-root { padding-bottom: 36px }`
+// reserves space inside the page so content doesn't scroll behind the
+// bar — the same 36 px previously occupied by the in-flex bar.
+function PersistentBottomStatusBar() {
+  const pathname = usePathname() ?? '';
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, [pathname]);
+
+  // Routes that never show the bar:
+  //   /multi      — multi-tab page owns its own grid layout edge-to-edge.
+  //   /access     — auth screen has its own chrome.
+  //   embed mode  — multi-tab iframes; outer page owns the bar.
+  const hidden =
+    pathname.startsWith('/multi')  ||
+    pathname.startsWith('/access') ||
+    embedded;
+
+  // Mark the body so the CSS rule reserves 36 px of bottom padding on
+  // .feed-root only when the bar is actually present. Cleared on
+  // unmount + on every route that doesn't show the bar.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (hidden) document.body.removeAttribute('data-bottombar');
+    else        document.body.setAttribute('data-bottombar', '1');
+    return () => { document.body.removeAttribute('data-bottombar'); };
+  }, [hidden]);
+
+  if (hidden) return null;
+  return (
+    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90, pointerEvents: 'none' }}>
+      <div style={{ pointerEvents: 'auto' }}>
+        <BottomStatusBar />
+      </div>
+    </div>
   );
 }
 

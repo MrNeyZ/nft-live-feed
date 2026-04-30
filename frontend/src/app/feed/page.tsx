@@ -10,7 +10,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, BottomStatusBar, compressImage } from '@/soloist/shared';
+import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage, EVENTS_COUNT_EVENT } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
 import {
   feedReducer, initFeedState, orderedEvents,
@@ -504,13 +504,21 @@ export default function FeedPage() {
   // — see `displayPrice()` in src/soloist/price-mode.ts. Persisted in
   // localStorage; updates here propagate via the 'vl:priceMode' event.
   const [inclusiveFees] = useInclusiveFees();
-  // solPrice state removed — `<BottomStatusBar />` now fetches its own SOL/TPS.
 
   // Normalized feed state: dedup + ordering + patching live inside the reducer,
   // so every SSE/REST path below just dispatches a typed action instead of
   // splicing a flat array by hand.
   const [feedState, dispatch] = useReducer(feedReducer, undefined, () => initFeedState(MAX_EVENTS));
   const events = useMemo(() => orderedEvents(feedState), [feedState]);
+  // Push the live event count to the persistent BottomStatusBar in
+  // Gate. Window-event channel — the bar is no longer this page's
+  // child, so prop drilling isn't possible. Consumer ignores stale
+  // values when this page unmounts; the last dispatched count remains
+  // visible until the next /feed visit refreshes it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent<number>(EVENTS_COUNT_EVENT, { detail: events.length }));
+  }, [events.length]);
 
   // Scrollable list element + scroll snapshot captured before list-expanding
   // dispatches. Layout effect consumes the snapshot post-commit and either
@@ -1003,7 +1011,6 @@ export default function FeedPage() {
       {/* Bottom status — shared component. Hidden in embed mode (multi-tab)
           so the parent page can own the chrome; the full-bleed `100vw`
           would otherwise escape its grid cell. */}
-      {!embedded && <BottomStatusBar eventsCount={events.length} />}
 
       {/* Avatar preview — single overlay shared by every FeedCard. Backdrop
        *  click and Escape close it. The <img> stops propagation so clicks on

@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useState } from 'react';
-import { LiveDot, TopNav, BottomStatusBar, ItemThumb } from '@/soloist/shared';
+import { LiveDot, TopNav, ItemThumb } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -73,11 +73,53 @@ const LIVE_FEED_MAX     = 150;
 /** localStorage key for the live-feed buffer. Per-user, single key
  *  (no multi-account variants for now). */
 const FEED_STORAGE_KEY  = 'vl.mints.liveFeed';
-/** Hard expiry for stored events. Anything older than this is dropped
- *  on load (and trimmed on save) so the buffer doesn't carry stale
- *  rows across long absences — the persistent feed is for "I just
- *  refreshed", not "I came back tomorrow". */
-const FEED_TTL_MS       = 45 * 60_000; // 45 minutes
+/** Hard expiry for stored individual mint events. Bumped to 6 hours
+ *  per spec so the persistent feed survives longer absences ("came
+ *  back from lunch") while still aging out genuinely stale rows. */
+const FEED_TTL_MS         = 6 * 60 * 60_000;       // 6 hours
+/** Per-collection rollup cache. Persists the active-collections
+ *  table across reloads so the operator doesn't see an empty table
+ *  while waiting for the next mint_status frame. Longer TTL (24 h)
+ *  because incubating/active groups can be silent for a while
+ *  between traffic spikes. */
+const COLLECTIONS_STORAGE_KEY = 'vl.mints.collections';
+const COLLECTIONS_TTL_MS      = 24 * 60 * 60_000;  // 24 hours
+
+interface PersistedCollections {
+  savedAt: number;
+  rows:    MintStatus[];
+}
+
+function loadPersistedCollections(): Map<string, MintStatus> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(COLLECTIONS_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as PersistedCollections | null;
+    if (!parsed || typeof parsed.savedAt !== 'number') return new Map();
+    if (Date.now() - parsed.savedAt > COLLECTIONS_TTL_MS) return new Map();
+    if (!Array.isArray(parsed.rows)) return new Map();
+    const out = new Map<string, MintStatus>();
+    for (const r of parsed.rows) {
+      if (!r || typeof r.groupingKey !== 'string') continue;
+      out.set(r.groupingKey, r);
+    }
+    return out;
+  } catch { return new Map(); }
+}
+
+function savePersistedCollections(rows: Map<string, MintStatus>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // Cap to 200 most-recently-touched so a long-running session can't
+    // bloat the stored payload past the localStorage quota.
+    const arr = Array.from(rows.values())
+      .sort((a, b) => b.lastMintAt - a.lastMintAt)
+      .slice(0, 200);
+    const payload: PersistedCollections = { savedAt: Date.now(), rows: arr };
+    window.localStorage.setItem(COLLECTIONS_STORAGE_KEY, JSON.stringify(payload));
+  } catch { /* quota / private mode — fail silent */ }
+}
 
 function loadPersistedFeed(): MintEvent[] {
   if (typeof window === 'undefined') return [];
@@ -269,7 +311,7 @@ export default function MintsPage() {
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
   useEffect(() => { document.title = 'VictoryLabs — Mints'; }, []);
-  const [rows, setRows]       = useState<Map<string, MintStatus>>(new Map());
+  const [rows, setRows]       = useState<Map<string, MintStatus>>(() => loadPersistedCollections());
   /** Rolling buffer of individual mint events for the bottom Live Feed.
    *  Newest at index 0; capped at LIVE_FEED_MAX. Hydrated synchronously
    *  from localStorage on first render via the lazy initializer so a
@@ -340,11 +382,14 @@ export default function MintsPage() {
           setRows(prev => {
             const next = new Map(prev);
             // Keep all states in the rolling map — the table renders
-            // only `shown` rows; incubating/cooled rows aren't surfaced
-            // in this UI but stay in the map so a `mint` event can look
-            // up its group's lazily-resolved imageUrl/name for the
-            // Live Feed thumbnail without re-fetching.
+            // shown + incubating; cooled rows aren't surfaced but stay
+            // available so a `mint` event can look up its group's
+            // lazily-resolved imageUrl/name without re-fetching.
             next.set(s.groupingKey, s);
+            // Mirror to localStorage so the active-collections table
+            // survives page reload / tab switch (24 h TTL gated inside
+            // savePersistedCollections / loadPersistedCollections).
+            savePersistedCollections(next);
             return next;
           });
         } catch { /* malformed frame — skip */ }
@@ -556,30 +601,20 @@ export default function MintsPage() {
                     transition: 'background 0.12s',
                     opacity: isActive ? 1 : 0.78,
                   }}>
-                    <td style={{ padding: '8px 6px 8px 10px' }}>
+                    {/* COLLECTION cell — matches Dashboard rows:
+                        12px vertical padding (up from /mints' previous
+                        compact 8px to align with /dashboard rhythm),
+                        38 px ItemThumb, 15 px name. */}
+                    <td style={{ padding: '12px 6px 12px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
-                        {/* Single collection preview image — same component
-                            (ItemThumb) the Live Feed below uses, so the
-                            multi-tab embed and the standalone page render a
-                            consistent NFT-style square thumbnail in both
-                            surfaces. Source URL is routed through the 64×64
-                            variant of the /thumb proxy (vs. the 200×200
-                            compressImage default) — at a 40 px DOM render
-                            size, the smaller proxy fetch is ~3× cheaper
-                            on bandwidth without visible quality loss.
-                            ItemThumb already sets width/height attrs on
-                            the <img>, so layout doesn't shift when the
-                            image arrives. Falls back to the initials
-                            placeholder on missing / errored images,
-                            mirroring /feed's thumbnail behaviour. */}
                         <ItemThumb
                           imageUrl={thumb64(r.imageUrl ?? null)}
                           color="#8068d8"
                           abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
-                          size={40}
+                          size={38}
                         />
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 15, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                           {/* Status pill: ACTIVE (saturated green) for
                               promoted rows, WATCH (muted amber) for
                               incubating rows. Inline before the name so
@@ -619,19 +654,19 @@ export default function MintsPage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
                       {r.observedMints.toLocaleString()}
                     </td>
-                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px' }}>
+                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px' }}>
                       {r.v60.toFixed(0)}
                     </td>
-                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+                    <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 12, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                    <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 12, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace" }}>
                       {fmtSol(r.priceLamports)}
                     </td>
-                    <td style={{ padding: '8px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '10px 4px', textAlign: 'right' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);
                         return (
@@ -642,7 +677,7 @@ export default function MintsPage() {
                         );
                       })()}
                     </td>
-                    <td style={{ padding: '8px 8px 8px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '10px 8px 10px 4px', textAlign: 'right' }}>
                       <span style={{
                         display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
                         background: tb.bg, color: tb.fg, letterSpacing: '0.3px',
@@ -708,20 +743,30 @@ export default function MintsPage() {
                 ? '#55556e'
                 : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
               return (
-                <div key={ev.signature} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '8px 14px',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
-                }}>
-                  {/* 64×64 NFT thumbnail. ItemThumb renders the placeholder
-                      tile (initials + group color) until the group's
-                      imageUrl is enriched, at which point this re-renders
-                      with the proxied image. */}
+                <div
+                  key={ev.signature}
+                  className="mints-feed-row"
+                  style={{
+                    // Match /feed `.feed-card` rhythm: 10/12 padding, 12 gap,
+                    // 56 px thumb, subtle 1 px row separator. Hover tint via
+                    // the className rule in globals.css mirrors the feed-card
+                    // hover state (rgba 0.04). No per-row border-radius —
+                    // the parent panel border carries the rounded chrome.
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 12px',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    transition: 'background 0.12s',
+                  }}
+                >
+                  {/* 56×56 NFT thumbnail — same size as /feed cards.
+                      Source still routed through the 64×64 /thumb proxy
+                      (downscale-on-render is cheap; matches Live Feed
+                      bandwidth profile). */}
                   <ItemThumb
                     imageUrl={thumb64(group?.imageUrl ?? null)}
                     color="#8068d8"
                     abbr={abbr}
-                    size={64}
+                    size={56}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {/* Clickable name → Solscan token page when we have
@@ -772,7 +817,6 @@ export default function MintsPage() {
       )}
       </div>
 
-      {!embedded && <BottomStatusBar />}
     </div>
   );
 }

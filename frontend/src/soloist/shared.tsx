@@ -828,10 +828,33 @@ export function TopNav({ active }: { active?: Page } = {}) {
  * horizontal padding so the gradient extends edge-to-edge regardless
  * of ancestor padding.
  */
-export function BottomStatusBar({ eventsCount }: { eventsCount?: number }) {
+/** Cross-route channel for /feed → BottomStatusBar.
+ *  Now that the bar lives in the persistent shell (Gate), it can't
+ *  receive `eventsCount` as a prop anymore. Instead /feed dispatches
+ *  this window event whenever its event count changes; the bar
+ *  listens and renders. The last value persists when /feed unmounts
+ *  (operator navigates away), which is the desired UX.
+ *  Exported as a constant so producer + consumer can't drift. */
+export const EVENTS_COUNT_EVENT = 'vl:eventsCount';
+
+export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?: number } = {}) {
   const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
   const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
   const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
+  // Listen for cross-route EVENTS-count signals from /feed. Falls back
+  // to the optional `eventsCount` prop for backward compat with any
+  // call site that still passes it directly.
+  const [busEventsCount, setBusEventsCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<number>;
+      if (typeof ce.detail === 'number') setBusEventsCount(ce.detail);
+    };
+    window.addEventListener(EVENTS_COUNT_EVENT, handler as EventListener);
+    return () => window.removeEventListener(EVENTS_COUNT_EVENT, handler as EventListener);
+  }, []);
+  const eventsCount = propEventsCount ?? busEventsCount ?? undefined;
   useEffect(() => {
     let cancelled = false;
     const load = () => fetch(`${API_BASE}/api/market/header`)

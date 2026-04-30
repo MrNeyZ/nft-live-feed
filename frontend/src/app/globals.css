@@ -744,3 +744,22 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   .topnav-active-indicator,
   .topnav-tab { transition: none !important; }
 }
+
+/* Persistent BottomStatusBar — when the shell renders the bar, mark
+   the body so any `.feed-root` reserves 36 px of bottom padding to
+   keep page content from sliding behind the fixed bar. The 36 px
+   matches the bar's previous in-flex height (Discord/Twitter row +
+   6 px vertical padding). On routes where the bar is hidden (/multi,
+   /access, embed-mode iframes) the attribute is absent and pages
+   render edge-to-edge as before. */
+body[data-bottombar="1"] .feed-root {
+  padding-bottom: 36px;
+}
+
+/* /mints Live Mint Feed rows — mirror the .feed-card hover state so the
+   right-panel rhythm matches /feed's visual language. Subtle background
+   tint on hover; no border/shadow change. */
+.mints-feed-row { cursor: default; }
+.mints-feed-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
