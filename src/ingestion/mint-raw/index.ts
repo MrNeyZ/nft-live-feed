@@ -115,11 +115,24 @@ const MINT_ADDRESS_BLACKLIST: ReadonlySet<string> = new Set([
  *  Match is case-sensitive and order-insensitive. Anything else is
  *  shed before fetchRawTx — this is the single biggest knob keeping
  *  Token Metadata's firehose under control. */
-/** MPL Core needles — the program is non-fungible by design and its
- *  CreateV1 / CreateCollectionV1 instruction names are unambiguous. */
+/** MPL Core needles — the program is non-fungible by design. Both the
+ *  V1-suffixed and bare `CreateCollection` variants are observed in
+ *  live txs (newer Core program versions emit the bare form), so we
+ *  whitelist both to avoid silently dropping real Core NFTs.
+ *
+ *  Note: bare `Instruction: Create` is intentionally NOT included —
+ *  it would substring-match `Instruction: CreateTokenAccount`,
+ *  `Instruction: CreatePosition`, etc. and re-introduce the
+ *  launchpad / DEX false positives the strict prefilter just fixed.
+ *  Add specific Core variants here if observed in future txs.
+ *
+ *  Confirmed live (2026-04-28) — tx 2F5zPDSTfJqW…
+ *  emitted `Program log: Instruction: CreateCollection` (no V1) for
+ *  Core asset `3YSxXHVXbbR3oHEELPBGKbCXwfuFgqs8ESYjiQHg7Q6T`. */
 const CORE_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: CreateV1',
   'Instruction: CreateCollectionV1',
+  'Instruction: CreateCollection',
 ];
 
 /** MPL Token Metadata "create metadata account" needles. Covers both
@@ -421,32 +434,97 @@ export async function ingestMintRaw(
   }
 
   // ── NFT-only filter ──────────────────────────────────────────────
-  // Tier 0: hard reject if the extracted "mint" landed on a known
-  // program/canonical address (parser misextraction from inner-CPI
-  // account layouts). This is the bulletproof guard against rows
-  // like `metaqbxx…` (the Token Metadata program) showing up.
-  if (mintAddress && MINT_ADDRESS_BLACKLIST.has(mintAddress)) {
-    noteFilterReject('program_account', sig, mintAddress);
+  // Tier 0a: hard reject if no mintAddress was extracted. The strict
+  // instruction filter above keeps this rare (TM CreateMetadataAccountV3
+  // and Core CreateV1 always have the mint at a fixed account index),
+  // but a malformed inner-CPI from a launchpad could leave it null.
+  if (!mintAddress) {
+    noteFilterReject('no_mint_address', sig, null);
+    logRejectMintLevel('no_mint_address', sig, null);
+    logRejectNonNft('no_mint_address', null);
     return;
   }
 
-  // Tier 1: shape verification. MPL Core assets are inherently
-  // non-fungible by program design — always accept. For Token
-  // Metadata mints, require the post-token-balance entry to show
-  // decimals=0 AND amount==='1' (i.e. exactly one token minted in
-  // this tx). Rejects fungibles (decimals > 0) and metadata-only
-  // / lazy-mint flows (amount === '0' — supply not yet established).
-  // The DAS verifier in src/mints/enricher.ts catches anything that
-  // sneaks past this with NFT-shape but actually-fungible later.
+  // Tier 0b: hard reject if the extracted "mint" landed on a known
+  // program/canonical address (parser misextraction from inner-CPI
+  // account layouts). This is the bulletproof guard against rows
+  // like `metaqbxx…` (the Token Metadata program) showing up.
+  if (MINT_ADDRESS_BLACKLIST.has(mintAddress)) {
+    noteFilterReject('program_account', sig, mintAddress);
+    logRejectMintLevel('program_account', sig, mintAddress);
+    logRejectNonNft('program_account', mintAddress);
+    return;
+  }
+
+  // Tier 0c: NFT program presence in accountKeys. `detectProgramSource`
+  // already gates on this via log scanning, but a tx whose logs mention
+  // the program ID without the program actually being in accountKeys
+  // would slip through there. Defense-in-depth — keeps pool / authority
+  // / system-account txs from ever reaching the accumulator.
+  const txHasNftProgram = accountKeys.some(
+    k => k === TOKEN_METADATA_PROGRAM || k === MPL_CORE_PROGRAM,
+  );
+  if (!txHasNftProgram) {
+    noteFilterReject('not_metadata_mint', sig, mintAddress);
+    logRejectMintLevel('not_metadata_mint', sig, mintAddress);
+    logRejectNonNft('not_metadata_mint', mintAddress);
+    return;
+  }
+
+  // Tier 1: shape verification.
+  //
+  // Two distinct NFT families need to be allowed here, both legitimate:
+  //   • Token Metadata path (legacy NFT + pNFT) — mint owner is the
+  //     SPL Token program (`TokenkegQ…`), confirmed via the
+  //     post-token-balance entry: `programId === TokenkegQ…`,
+  //     `decimals === 0`, `amount === '1'`. Token-2022
+  //     (`TokenzQ…`) is the ONLY token program rejected — original
+  //     SPL Token ownership is REQUIRED for legacy/pNFT and remains
+  //     fully accepted. Master Edition / Update / Verify metadata
+  //     ops downstream don't change this verdict.
+  //   • MPL Core path — assets aren't SPL tokens, so they have no
+  //     post-token-balance. Validated separately below by the
+  //     freshly-created-account check.
+  //
+  // The /mints rule is "Core / pNFT / legacy NFT only" — DO NOT
+  // require Core ownership; Token Program ownership is valid and
+  // expected for legacy/pNFT. Rejects fungibles (decimals > 0),
+  // metadata-only / lazy-mint flows (amount === '0'), and any
+  // post-balance ≥ 2 (fungible-style supply). The DAS verifier in
+  // src/mints/enricher.ts catches anything that sneaks past this
+  // with NFT-shape but actually-fungible later (interface or
+  // tokenStandard from DAS resolves the ambiguity).
   if (hit.programSource !== 'mpl_core') {
     const verdict = checkTokenMetadataNftShape(tx, mintAddress);
     if (!verdict.ok) {
       noteFilterReject(verdict.reason, sig, mintAddress);
+      logRejectNonNft(verdict.reason, mintAddress);
+      // `no_post_balance` from the shape check means the address has
+      // no SPL token account in this tx → it's not a mint at all
+      // (likely an authority / pool / wallet that the parser picked
+      // up by accident). Surface with the user-spec'd reason.
+      if (verdict.reason === 'no_post_balance') {
+        logRejectMintLevel('not_mint_account', sig, mintAddress);
+      }
       return;
     }
     noteFilterAccept(verdict.kind, sig, mintAddress);
+    logAcceptNft(verdict.kind, mintAddress);
   } else {
+    // Tier 1 (Core path): assets aren't SPL tokens, so post-token-
+    // balance can't validate them. Instead require the address to be
+    // freshly created in this tx — Core `CreateV1` allocates the
+    // asset account via SystemProgram, so its lamport delta moves
+    // pre=0 → post>0. Pre-existing addresses (pool authorities,
+    // wallets, program accounts) have pre>0 and fail this check.
+    if (!isFreshlyCreatedAccount(tx, accountKeys, mintAddress)) {
+      noteFilterReject('not_mint_account', sig, mintAddress);
+      logRejectMintLevel('not_mint_account', sig, mintAddress);
+      logRejectNonNft('not_mint_account', mintAddress);
+      return;
+    }
     noteFilterAccept('core', sig, mintAddress);
+    logAcceptNft('core', mintAddress);
   }
 
   const priceLamports = extractSignerLamportsPaid(tx);
@@ -501,6 +579,71 @@ function noteMintRecorded(programSource: string): void {
   mintRecordCount.set(programSource, n);
   if (n === 1 || n % 25 === 0) {
     console.log(`[mints/record] source=${programSource} count=${n}`);
+  }
+}
+
+/** Per-spec [mints/reject] log line for the new mint-level guards.
+ *  Sampled (1st + every 50th) per reason so a bursty source doesn't
+ *  flood. Distinct from `noteFilterReject` so the operator can grep
+ *  for `[mints/reject]` to see the strict mint-presence verdicts
+ *  separately from the broader filter chain. */
+const _rejectMintLevelCount = new Map<string, number>();
+function logRejectMintLevel(reason: string, sig: string, mint: string | null): void {
+  const n = (_rejectMintLevelCount.get(reason) ?? 0) + 1;
+  _rejectMintLevelCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/reject] reason=${reason} count=${n} sig=${sig.slice(0, 12)}… ` +
+      `mint=${mint ? mint.slice(0, 8) + '…' : '—'}`,
+    );
+  }
+}
+
+/** Verify the extracted address was freshly created in this tx —
+ *  i.e. the account didn't exist before and was allocated by some
+ *  inner instruction (typically a SystemProgram CPI from the Core
+ *  CreateV1 path). Pre-balance 0 + post-balance > 0 is the
+ *  cheapest signal in the existing tx data; no extra RPC call. */
+function isFreshlyCreatedAccount(
+  tx: RawSolanaTx,
+  accountKeys: string[],
+  address: string,
+): boolean {
+  const idx = accountKeys.indexOf(address);
+  if (idx < 0) return false;
+  const pre  = tx.meta?.preBalances?.[idx];
+  const post = tx.meta?.postBalances?.[idx];
+  if (typeof pre !== 'number' || typeof post !== 'number') return false;
+  return pre === 0 && post > 0;
+}
+
+/** Operator-facing accept log per the /mints filter spec.
+ *  Format: `[mints/accept-nft] kind=core|pnft|legacy mint=…`.
+ *  Sampled (1st + every 50th per kind) so a hot launch doesn't
+ *  flood the console. Distinct from `noteFilterAccept` so the
+ *  operator can grep for `[mints/accept-nft]` to see only the
+ *  parse-time positive verdicts. */
+const _acceptNftCount = new Map<string, number>();
+function logAcceptNft(kind: string, mint: string): void {
+  const n = (_acceptNftCount.get(kind) ?? 0) + 1;
+  _acceptNftCount.set(kind, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(`[mints/accept-nft] kind=${kind} count=${n} mint=${mint.slice(0, 8)}…`);
+  }
+}
+
+/** Operator-facing reject log per the /mints filter spec.
+ *  Format: `[mints/reject-non-nft] reason=… mint=…`. Same
+ *  sampling pattern as `logAcceptNft`. */
+const _rejectNonNftCount = new Map<string, number>();
+function logRejectNonNft(reason: string, mint: string | null): void {
+  const n = (_rejectNonNftCount.get(reason) ?? 0) + 1;
+  _rejectNonNftCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/reject-non-nft] reason=${reason} count=${n} ` +
+      `mint=${mint ? mint.slice(0, 8) + '…' : '—'}`,
+    );
   }
 }
 
