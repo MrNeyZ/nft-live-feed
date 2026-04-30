@@ -52,6 +52,13 @@ function TimeAgo({ ts }: { ts: number }) {
     const id = setInterval(() => force(n => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
+  // Defensive: invalid timestamp renders an em-dash so a malformed /
+  // missing blockTime can't surface as "NaNd ago". Future-leaning and
+  // negative ages already collapse into the `ageMs < 5000` branch
+  // below ("just now") since `<` evaluates true for any negative.
+  if (!Number.isFinite(ts)) {
+    return <span style={{ fontSize: 11, color: '#877496', fontWeight: 500 }}>—</span>;
+  }
   const ageMs = Date.now() - ts;
   let color: string;
   let weight: 500 | 600 = 500;
@@ -163,6 +170,13 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 //                    Routine sales near floor blend into the row.
 //   • |Δ| >= 25 %  → BRIGHT (saturated green / red, faint fill).
 //                    Big-mover sales stand out at a glance.
+/** Display-time guard against NaN / Infinity / non-numeric inputs from
+ *  malformed wire frames. Returns the value when it's a usable finite
+ *  number, else null so render sites can substitute a placeholder. */
+function safeFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 const FLOOR_BRIGHT_THRESHOLD = 0.25;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -214,8 +228,65 @@ interface FeedCardProps {
   inclusiveFees: boolean;
 }
 
+// Static FeedCard inline styles hoisted to module scope. These objects
+// are byte-identical across every render and every card instance, so
+// referencing the same object lets React.memo bail out on shallow
+// equality checks without recreating the literals each render. Keep
+// dynamic styles (thumb cursor, NFT-type border, BUY/SELL bg+fg)
+// inline at the call site since they depend on event/runtime state.
+const FC_THUMB_INNER_STYLE: React.CSSProperties = {
+  pointerEvents: 'none', userSelect: 'none',
+};
+const FC_MIDDLE_COL_STYLE: React.CSSProperties = {
+  flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
+  justifyContent: 'space-between', paddingTop: 1, paddingBottom: 1,
+};
+const FC_NAME_ROW_STYLE: React.CSSProperties = {
+  display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden',
+};
+const FC_NAME_LINK_STYLE: React.CSSProperties = {
+  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  textDecoration: 'none', cursor: 'pointer',
+};
+const FC_NAME_SPAN_STYLE: React.CSSProperties = {
+  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#e8e6f2' };
+const FC_PARTIES_COL_STYLE: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3,
+};
+const FC_PARTY_ROW_STYLE: React.CSSProperties = {
+  fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6,
+};
+const FC_RIGHT_COL_STYLE: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+  alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1,
+};
+const FC_TOP_RIGHT_CLUSTER_STYLE: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 5,
+};
+const FC_PRICE_ROW_STYLE: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8,
+};
+const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
+  minWidth: 80, textAlign: 'right',
+  fontSize: 16, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.3px',
+  fontFamily: "'SF Mono','Fira Code',monospace",
+  fontVariantNumeric: 'tabular-nums',
+};
+const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
+  color: '#8a8aa6', fontWeight: 600, fontSize: 11,
+};
+
 const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: FeedCardProps) {
   const renderPrice = displayPrice(event, inclusiveFees);
+  // Display-only guard — keeps the formatter from producing "NaN" /
+  // "Infinity" text if a malformed event slips past upstream validation.
+  // Backend remains the source of truth for valid prices; this is the
+  // last-mile defensive rendering path.
+  const safePrice   = safeFiniteNumber(renderPrice);
   // Row-flash class lasts 6 s from event.ts. Computed once at mount with a
   // one-shot setTimeout to flip false — no per-tick recompute needed since
   // every card mounts at most once per event.
@@ -277,7 +348,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
           onAuxClick={handleThumbAuxClick}
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}
         >
-          <div draggable={false} style={{ pointerEvents: 'none', userSelect: 'none' }}>
+          <div draggable={false} style={FC_THUMB_INNER_STYLE}>
             <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={56} />
           </div>
           {nftBorderColor && (
@@ -302,28 +373,21 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
         </div>
 
         {/* Middle column */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingTop: 1, paddingBottom: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden' }}>
+        <div style={FC_MIDDLE_COL_STYLE}>
+          <div style={FC_NAME_ROW_STYLE}>
             {thumbSlug ? (
               <a
                 href={`/collection/${encodeURIComponent(thumbSlug)}`}
                 onClick={(e) => e.stopPropagation()}
-                style={{
-                  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  textDecoration: 'none', cursor: 'pointer',
-                }}
+                style={FC_NAME_LINK_STYLE}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               >
-                {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
+                {baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}
               </a>
             ) : (
-              <span style={{
-                fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              }}>
-                {baseName}{num && <span style={{ color: '#e8e6f2' }}> #{num}</span>}
+              <span style={FC_NAME_SPAN_STYLE}>
+                {baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}
               </span>
             )}
           </div>
@@ -334,12 +398,12 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
               shortened address (still clickable to Solscan + ME). Row
               height stays at 11 px (lineHeight: '14px' on the YOU pill +
               11×11 ME icon match the underlying text metric). */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3 }}>
-            <div style={{ fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={FC_PARTIES_COL_STYLE}>
+            <div style={FC_PARTY_ROW_STYLE}>
               <span>seller:</span>
               <WalletLink wallet={event.seller} />
             </div>
-            <div style={{ fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={FC_PARTY_ROW_STYLE}>
               <span>buyer:</span>
               <WalletLink wallet={event.buyer} />
             </div>
@@ -347,12 +411,12 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
         </div>
 
         {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
+        <div style={FC_RIGHT_COL_STYLE}>
           {/* Top-right cluster: post-sale "X ago" counter + marketplace
               icon. Stays in its original position. Floor chip moved out
               of this row (now lives next to the BUY/SELL/AMM badge so
               the discount reads alongside the action it modifies). */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
             <TimeAgo ts={event.ts} />
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
@@ -368,21 +432,16 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
               the badge sits closer to the price, which is the cleaner
               look anyway since the chip was the dominant left-side
               element in this row. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={FC_PRICE_ROW_STYLE}>
             {event.floorDelta != null && <FloorChip delta={event.floorDelta} />}
             <span style={{
               width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
               padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
             }}>{style.label}</span>
-            <span style={{
-              minWidth: 80, textAlign: 'right',
-              fontSize: 16, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.3px',
-              fontFamily: "'SF Mono','Fira Code',monospace",
-              fontVariantNumeric: 'tabular-nums',
-            }}>
-              {formatSol(renderPrice)}{' '}
-              <span style={{ color: '#8a8aa6', fontWeight: 600, fontSize: 11 }}>SOL</span>
+            <span style={FC_PRICE_TEXT_STYLE}>
+              {safePrice == null ? '—' : formatSol(safePrice)}{' '}
+              <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>
         </div>
@@ -490,6 +549,12 @@ export default function FeedPage() {
   const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale' }>(
     { magiceden: 'ok', tensor: 'ok' },
   );
+  // SSE socket-level status — distinct from `sourceState` (which reflects
+  // backend-reported upstream API freshness). Surfaced via console only;
+  // no UI slot exists for connection state and the existing meStale chip
+  // is reserved for source health, not connection. Held in a ref instead
+  // of useState so transitions don't trigger re-renders nobody reads.
+  const sseStatusRef = useRef<'connecting' | 'open' | 'error'>('connecting');
   const meStale = sourceState.magiceden === 'stale';
   // Avatar-preview overlay state. One modal per page; clicking another thumb
   // just replaces the URL. Cleared on backdrop click or Escape key.
@@ -625,10 +690,15 @@ export default function FeedPage() {
     const connect = () => {
       if (cancelled) return;
       es?.close();
+      sseStatusRef.current = 'connecting';
       es = new EventSource(`${API_BASE}/api/events/stream`);
       // Reset backoff once the connection lands so the next disconnect
       // starts from 1 s again instead of inheriting the prior cap.
-      es.addEventListener('open', () => { attempt = 0; });
+      es.addEventListener('open', () => {
+        attempt = 0;
+        sseStatusRef.current = 'open';
+        console.debug('[sse/feed] connected');
+      });
       es.addEventListener('sale', (e: MessageEvent) => {
         try {
           const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
@@ -668,6 +738,8 @@ export default function FeedPage() {
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('error', () => {
+        sseStatusRef.current = 'error';
+        console.warn('[sse/feed] connection error — scheduling reconnect');
         es?.close();
         scheduleReconnect();
       });

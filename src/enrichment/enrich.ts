@@ -15,8 +15,11 @@ const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster t
 
 const successCache = new TtlCache<string, NftMetadata>(SUCCESS_TTL_MS);
 const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS);
-/** Keyed by ME collection slug → floor price in lamports. */
-const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS);
+/** Keyed by ME collection slug → floor price in lamports. Active sweep
+ *  on a 60 s cadence — slugs we've populated but never re-read should
+ *  not pin memory. Lazy expiry inside `get()` still applies for fast
+ *  reads. */
+const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS, 60_000);
 /** Keyed by slug → marker that recent ME+Tensor floor lookups both failed.
  *  Prevents per-event refresh storms for slugs with no resolvable floor. */
 const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS);

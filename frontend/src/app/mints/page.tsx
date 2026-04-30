@@ -10,7 +10,7 @@
 // `.collections-table` className for phone CSS reuse, same flex shell,
 // same scroll containment.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, TopNav, ItemThumb } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
@@ -66,10 +66,41 @@ interface MintEvent {
   receivedAt:        number;
 }
 
+/** Defensive client-side guard against fungible / SPL / program-account
+ *  events leaking into the live feed. The backend already filters these
+ *  via NFT-shape checks + a program-account blacklist — this safety net
+ *  only triggers when the wire frame carries an *explicit* fungible
+ *  signal, so a frame without these fields is still passed through
+ *  (the function returns false). Mirrors the /mints product rule:
+ *  show only Core / pNFT / legacy NFTs. */
+function isClearlyNonNftMintEvent(ev: unknown): boolean {
+  if (!ev || typeof ev !== 'object') return false;
+  const r = ev as Record<string, unknown>;
+  if (typeof r.decimals === 'number' && r.decimals > 0) return true;
+  if (typeof r.supply === 'number' && r.supply > 1) return true;
+  if (typeof r.supply === 'string') {
+    const n = Number(r.supply);
+    if (Number.isFinite(n) && n > 1) return true;
+  }
+  const ts = typeof r.tokenStandard === 'string' ? r.tokenStandard.toLowerCase() : '';
+  if (ts === 'fungible' || ts === 'fungibleasset' || ts === 'fungible_asset') return true;
+  const iface = typeof r.interface === 'string' ? r.interface.toLowerCase() : '';
+  if (iface === 'fungibletoken' || iface === 'fungibleasset') return true;
+  const at = typeof r.assetType === 'string' ? r.assetType.toLowerCase() : '';
+  if (at === 'fungible' || at === 'fungibletoken' || at === 'fungible_token'
+   || at === 'token' || at === 'program' || at === 'programaccount' || at === 'program_account') return true;
+  return false;
+}
+
 /** Live-feed retention. Older events are dropped from the head when
  *  this is exceeded. Persisted in localStorage so a page reload /
  *  tab-switch doesn't wipe the recent stream. */
 const LIVE_FEED_MAX     = 150;
+/** Defensive ceiling on rows loaded from the persisted collections
+ *  store. `savePersistedCollections` already trims writes to 200, so
+ *  a value above that bounds damage from out-of-band corruption (e.g.
+ *  a manual DevTools edit) while still tolerating legitimate writes. */
+const COLLECTIONS_LOAD_MAX = 500;
 
 /** Cache version for /mints localStorage entries. Bump this constant
  *  whenever the backend filter rules change so already-cached rows
@@ -94,9 +125,19 @@ function migratePersistedCachesIfNeeded(): void {
     window.localStorage.setItem(MINTS_CACHE_VERSION_KEY, MINTS_CACHE_VERSION);
   } catch { /* quota / private mode — fail silent */ }
 }
-// Run once at module import — before useState lazy initializers fire,
-// so the load helpers below see an empty store on a version mismatch.
-migratePersistedCachesIfNeeded();
+
+/** Idempotent guard — invoked at the top of every persisted-store
+ *  loader so the version migration runs exactly once, on the first
+ *  loader call (which lands inside React's first useState lazy
+ *  initializer). This keeps migration off module-import while
+ *  guaranteeing the first localStorage read sees a clean store
+ *  on a version bump. */
+let didRunCacheMigration = false;
+function ensureCacheMigration(): void {
+  if (didRunCacheMigration) return;
+  didRunCacheMigration = true;
+  migratePersistedCachesIfNeeded();
+}
 /** localStorage key for the live-feed buffer. Per-user, single key
  *  (no multi-account variants for now). */
 const FEED_STORAGE_KEY  = 'vl.mints.liveFeed';
@@ -119,20 +160,30 @@ interface PersistedCollections {
 
 function loadPersistedCollections(): Map<string, MintStatus> {
   if (typeof window === 'undefined') return new Map();
+  ensureCacheMigration();
   try {
     const raw = window.localStorage.getItem(COLLECTIONS_STORAGE_KEY);
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as PersistedCollections | null;
-    if (!parsed || typeof parsed.savedAt !== 'number') return new Map();
+    // Corrupt root / missing fields / non-array rows → drop the key so
+    // the next legitimate save lands cleanly instead of layering on
+    // top of garbage.
+    if (!parsed || typeof parsed.savedAt !== 'number' || !Array.isArray(parsed.rows)) {
+      try { window.localStorage.removeItem(COLLECTIONS_STORAGE_KEY); } catch { /* fail silent */ }
+      return new Map();
+    }
     if (Date.now() - parsed.savedAt > COLLECTIONS_TTL_MS) return new Map();
-    if (!Array.isArray(parsed.rows)) return new Map();
     const out = new Map<string, MintStatus>();
     for (const r of parsed.rows) {
       if (!r || typeof r.groupingKey !== 'string') continue;
       out.set(r.groupingKey, r);
+      if (out.size >= COLLECTIONS_LOAD_MAX) break;
     }
     return out;
-  } catch { return new Map(); }
+  } catch {
+    try { window.localStorage.removeItem(COLLECTIONS_STORAGE_KEY); } catch { /* fail silent */ }
+    return new Map();
+  }
 }
 
 function savePersistedCollections(rows: Map<string, MintStatus>): void {
@@ -150,11 +201,15 @@ function savePersistedCollections(rows: Map<string, MintStatus>): void {
 
 function loadPersistedFeed(): MintEvent[] {
   if (typeof window === 'undefined') return [];
+  ensureCacheMigration();
   try {
     const raw = window.localStorage.getItem(FEED_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      try { window.localStorage.removeItem(FEED_STORAGE_KEY); } catch { /* fail silent */ }
+      return [];
+    }
     const cutoff = Date.now() - FEED_TTL_MS;
     const out: MintEvent[] = [];
     const seen = new Set<string>();
@@ -170,7 +225,10 @@ function loadPersistedFeed(): MintEvent[] {
       if (out.length >= LIVE_FEED_MAX) break;
     }
     return out;
-  } catch { return []; }
+  } catch {
+    try { window.localStorage.removeItem(FEED_STORAGE_KEY); } catch { /* fail silent */ }
+    return [];
+  }
 }
 
 function savePersistedFeed(events: MintEvent[]): void {
@@ -220,6 +278,11 @@ function fmtSol(lamports: number | null): string {
 }
 
 function fmtAge(ts: number): string {
+  // Defensive: invalid timestamp → em-dash; future / negative ages
+  // collapse into the "just now" branch via the `< 5_000` check
+  // below so a clock skew between client and server can't render
+  // absurd labels like "-3s ago".
+  if (!Number.isFinite(ts)) return '—';
   const diff = Date.now() - ts;
   if (diff < 5_000)     return 'just now';
   if (diff < 60_000)    return `${Math.floor(diff / 1_000)}s ago`;
@@ -388,12 +451,21 @@ export default function MintsPage() {
     ? ((window as unknown as { __mintsDbg?: { n: number } }).__mintsDbg ??=
         { n: 0 })
     : { n: 0 };
+  // SSE socket status — surfaced via console only; the /mints page has
+  // no header status slot for connection state. Held in a ref so
+  // transitions don't trigger re-renders nobody reads.
+  const sseStatusRef = useRef<'connecting' | 'open' | 'error'>('connecting');
   useEffect(() => {
     let es: EventSource | null = null;
     let cancelled = false;
     const connect = () => {
       if (cancelled) return;
+      sseStatusRef.current = 'connecting';
       es = new EventSource(`${API_BASE}/api/events/stream`);
+      es.addEventListener('open', () => {
+        sseStatusRef.current = 'open';
+        console.debug('[sse/mints] connected');
+      });
       es.addEventListener('mint_status', (e: MessageEvent) => {
         try {
           const s = JSON.parse(e.data) as MintStatus;
@@ -430,6 +502,17 @@ export default function MintsPage() {
       es.addEventListener('mint', (e: MessageEvent) => {
         try {
           const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
+          if (isClearlyNonNftMintEvent(m)) {
+            // Backend regression check — surface caught events so a
+            // filter drift on the server is visible in the browser
+            // console without flooding it (this should be ~zero rate).
+            // Dev-only so a runaway regression in prod doesn't dump
+            // signatures into every operator's console.
+            if (process.env.NODE_ENV !== 'production') {
+              console.debug('[mints/sse] dropped non-nft event', m.signature);
+            }
+            return;
+          }
           const ev: MintEvent = { ...m, receivedAt: Date.now() };
           setEvents(prev => {
             if (prev.some(p => p.signature === ev.signature)) return prev;
@@ -445,6 +528,8 @@ export default function MintsPage() {
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('error', () => {
+        sseStatusRef.current = 'error';
+        console.warn('[sse/mints] connection error — retrying in 2s');
         es?.close();
         if (!cancelled) setTimeout(connect, 2_000);
       });

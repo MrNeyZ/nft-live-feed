@@ -489,7 +489,25 @@ export default function ToolsPage() {
                       </div>
                     </td>
                     <td style={tdStyleNum}>{formatSol(row.listingPrice)}</td>
-                    <td style={{ ...tdStyleNum, color: '#5ce0a0' }}>{formatSol(row.bestOfferPrice)}</td>
+                    <td style={{ ...tdStyleNum, color: '#5ce0a0' }}>
+                      {row.bestOfferStatus === 'EXPIRED' && (
+                        // Inline EXPIRED tag — kept here in addition to the
+                        // STATUS column so the offer-price reading itself
+                        // is unambiguous even when the row's 0.5 opacity
+                        // mutes the right-side badge. Reuses the shared
+                        // expired palette via statusBadgeStyle for visual
+                        // consistency with the column at the row's end.
+                        <span style={{
+                          display: 'inline-block', marginRight: 6,
+                          padding: '1px 5px', fontSize: 8.5, fontWeight: 700,
+                          letterSpacing: '0.4px', textTransform: 'uppercase',
+                          borderRadius: 3, lineHeight: 1.2,
+                          verticalAlign: 'middle',
+                          ...statusBadgeStyle('EXPIRED'),
+                        }}>EXPIRED</span>
+                      )}
+                      {formatSol(row.bestOfferPrice)}
+                    </td>
                     <td style={{ ...tdStyleNum, color: positiveSpread ? '#5ce0a0' : '#ef7878', fontWeight: 700 }}>
                       {positiveSpread ? '+' : ''}{formatSol(Math.abs(row.spreadSol))}
                     </td>
