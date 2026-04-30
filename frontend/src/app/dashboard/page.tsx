@@ -894,7 +894,7 @@ export default function Dashboard() {
 
   return (
     <div
-      className="feed-root"
+      className="feed-root page-transition"
       data-page="dashboard"
       data-embedded={embedded ? '1' : undefined}
     >

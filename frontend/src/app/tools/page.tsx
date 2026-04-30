@@ -209,14 +209,27 @@ export default function ToolsPage() {
 
   const runScan = async () => {
     if (busy) return;
-    // Capture old offer IDs BEFORE issuing the request so the diff is
-    // computed against what was visible when the user clicked Scan.
-    // `result` is left in place during the fetch so the table stays
-    // visible while busy=true (incremental refresh, not flash-clear).
-    const prevIds = new Set<string>(
+    // Capture two baseline sets BEFORE issuing the request so the
+    // diff is computed against what was visible when the user clicked
+    // Scan. `result` is left in place during the fetch so the table
+    // stays visible while busy=true (incremental refresh, not
+    // flash-clear).
+    //   prevOfferIds — bestOfferId per row from the last scan.
+    //                  A row keeping the same listing but landing
+    //                  a different best offer (different pdaAddress)
+    //                  reads as a "new offer on a known listing".
+    //   prevMints    — mint addresses from the last scan.
+    //                  A row whose mint is brand-new is a "new
+    //                  listing".
+    const prevOfferIds = new Set<string>(
       (result?.withOffers ?? [])
         .map(r => r.bestOfferId)
         .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    );
+    const prevMints = new Set<string>(
+      (result?.withOffers ?? [])
+        .map(r => r.mint)
+        .filter((m): m is string => typeof m === 'string' && m.length > 0),
     );
     setBusy(true);
     setError(null);
@@ -232,16 +245,25 @@ export default function ToolsPage() {
         throw new Error(`HTTP ${r.status}${txt ? ` — ${txt.slice(0, 80)}` : ''}`);
       }
       const data = await r.json() as ScanResult;
-      // Mark rows whose bestOfferId wasn't in the previous scan as NEW.
-      // Skip the first scan (empty prevIds) so we don't paint everything
-      // NEW on first visit. `addedCount` is the count of NEW rows in
-      // this scan — undefined on first scan (no baseline) so the summary
-      // can distinguish "we don't know yet" from "we checked, 0 added".
-      const isFirstScan = prevIds.size === 0;
-      const mergedRows = data.withOffers.map(row => ({
-        ...row,
-        isNew: !isFirstScan && !prevIds.has(row.bestOfferId),
-      }));
+      // NEW badge rules (per spec):
+      //   - new offer on a known listing  → NEW
+      //   - brand-new listing whose best offer is AVAILABLE/EXPECTED
+      //                                       → NEW
+      //   - brand-new listing but bestOfferStatus === 'EXPIRED'
+      //                                       → NOT NEW (silent surface)
+      //   - already-known offer (same bestOfferId)
+      //                                       → NOT NEW
+      // Skip the first-ever scan (empty prevMints) so we don't paint
+      // every row NEW on first visit. `addedCount` then counts only
+      // rows that actually got the badge — expired rows never bump it.
+      const isFirstScan = prevMints.size === 0 && prevOfferIds.size === 0;
+      const mergedRows = data.withOffers.map(row => {
+        if (isFirstScan) return { ...row, isNew: false };
+        const isNewOffer   = !!row.bestOfferId && !prevOfferIds.has(row.bestOfferId);
+        const isNewListing = !prevMints.has(row.mint);
+        const eligible     = row.bestOfferStatus !== 'EXPIRED';
+        return { ...row, isNew: eligible && (isNewOffer || isNewListing) };
+      });
       const addedCount = isFirstScan
         ? undefined
         : mergedRows.reduce((n, r) => n + (r.isNew ? 1 : 0), 0);
@@ -260,7 +282,7 @@ export default function ToolsPage() {
   };
 
   return (
-    <div className="feed-root" data-page="tools">
+    <div className="feed-root page-transition" data-page="tools">
       <TopNav active="tools" />
 
       {/* Header */}

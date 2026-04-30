@@ -67,8 +67,53 @@ interface MintEvent {
 }
 
 /** Live-feed retention. Older events are dropped from the head when
- *  this is exceeded. Memory-only — never persisted. */
-const LIVE_FEED_MAX = 150;
+ *  this is exceeded. Persisted in localStorage so a page reload /
+ *  tab-switch doesn't wipe the recent stream. */
+const LIVE_FEED_MAX     = 150;
+/** localStorage key for the live-feed buffer. Per-user, single key
+ *  (no multi-account variants for now). */
+const FEED_STORAGE_KEY  = 'vl.mints.liveFeed';
+/** Hard expiry for stored events. Anything older than this is dropped
+ *  on load (and trimmed on save) so the buffer doesn't carry stale
+ *  rows across long absences — the persistent feed is for "I just
+ *  refreshed", not "I came back tomorrow". */
+const FEED_TTL_MS       = 45 * 60_000; // 45 minutes
+
+function loadPersistedFeed(): MintEvent[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(FEED_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - FEED_TTL_MS;
+    const out: MintEvent[] = [];
+    const seen = new Set<string>();
+    for (const v of parsed) {
+      if (!v || typeof v !== 'object')                     continue;
+      const ev = v as MintEvent;
+      if (typeof ev.signature !== 'string')                continue;
+      if (typeof ev.receivedAt !== 'number')               continue;
+      if (ev.receivedAt < cutoff)                          continue;
+      if (seen.has(ev.signature))                          continue;
+      seen.add(ev.signature);
+      out.push(ev);
+      if (out.length >= LIVE_FEED_MAX) break;
+    }
+    return out;
+  } catch { return []; }
+}
+
+function savePersistedFeed(events: MintEvent[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // Defensive: trim again on write so a spec drift in the in-memory
+    // cap can't blow up the stored payload.
+    const cutoff = Date.now() - FEED_TTL_MS;
+    const slice  = events.filter(e => e.receivedAt >= cutoff).slice(0, LIVE_FEED_MAX);
+    window.localStorage.setItem(FEED_STORAGE_KEY, JSON.stringify(slice));
+  } catch { /* quota / private mode — fail silent */ }
+}
 /** Proxy size for live-feed thumbnails — 64×64, matches the spec's
  *  /thumb URL form. compressImage() defaults to 200×200; the live
  *  feed uses this smaller size to halve bandwidth on rolling rows. */
@@ -226,8 +271,12 @@ export default function MintsPage() {
   useEffect(() => { document.title = 'VictoryLabs — Mints'; }, []);
   const [rows, setRows]       = useState<Map<string, MintStatus>>(new Map());
   /** Rolling buffer of individual mint events for the bottom Live Feed.
-   *  Newest at index 0; capped at LIVE_FEED_MAX. */
-  const [events, setEvents]   = useState<MintEvent[]>([]);
+   *  Newest at index 0; capped at LIVE_FEED_MAX. Hydrated synchronously
+   *  from localStorage on first render via the lazy initializer so a
+   *  page reload doesn't flash an empty feed before the SSE reconnects.
+   *  Stored payload is filtered by FEED_TTL_MS + deduped by signature
+   *  inside loadPersistedFeed(). */
+  const [events, setEvents]   = useState<MintEvent[]>(() => loadPersistedFeed());
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   const [, force]             = useState(0);
 
@@ -235,6 +284,29 @@ export default function MintsPage() {
   // backend status frames (every 5s here vs. 30s sweep on backend).
   useEffect(() => {
     const id = setInterval(() => force(n => n + 1), 5_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Periodic TTL eviction for the persisted live feed. Without this,
+  // an idle tab whose user comes back after >45 min would still show
+  // events from before the absence — load() filters them on mount but
+  // an already-mounted page wouldn't rotate them out otherwise. 60 s
+  // cadence is fine: events go quiet visually via the row's "Xs ago"
+  // tier well before the eviction; this just clears the buffer.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setEvents(prev => {
+        if (prev.length === 0) return prev;
+        const cutoff = Date.now() - FEED_TTL_MS;
+        // Cheap path: tail is freshest? skip filter. (events are stored
+        // newest-first, so the LAST element is the oldest.)
+        if (prev[prev.length - 1].receivedAt >= cutoff) return prev;
+        const next = prev.filter(e => e.receivedAt >= cutoff);
+        if (next.length === prev.length) return prev;
+        savePersistedFeed(next);
+        return next;
+      });
+    }, 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -278,15 +350,25 @@ export default function MintsPage() {
         } catch { /* malformed frame — skip */ }
       });
       // Per-mint live feed channel. Already broadcast by the backend
-      // (sse.ts → buildMintFrame); this is the first consumer. We keep
-      // the latest LIVE_FEED_MAX events in memory only — never persist.
+      // (sse.ts → buildMintFrame). We keep the latest LIVE_FEED_MAX
+      // events in memory AND mirror them into localStorage so a tab
+      // refresh / browser restart doesn't wipe the recent stream.
+      // Dedupe by `signature` so an SSE reconnect that replays a sig
+      // we already have doesn't duplicate the row.
       es.addEventListener('mint', (e: MessageEvent) => {
         try {
           const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
           const ev: MintEvent = { ...m, receivedAt: Date.now() };
           setEvents(prev => {
+            if (prev.some(p => p.signature === ev.signature)) return prev;
             const next = [ev, ...prev];
-            return next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
+            const trimmed = next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
+            // Persist on every write — payload is small (≤150 mint
+            // events, each ~400 B JSON ≈ 60 KB max). localStorage
+            // writes here are off the SSE hot path; React batches
+            // sub-16 ms anyway.
+            savePersistedFeed(trimmed);
+            return trimmed;
           });
         } catch { /* malformed frame — skip */ }
       });
@@ -302,14 +384,33 @@ export default function MintsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Main table — only `shown` rows (the production view). */
+  /** Main table — `shown` (ACTIVE) rows plus `incubating` (WATCH) rows
+   *  so collections being minted show up here even before they reach
+   *  the burst/threshold gate. `cooled` is excluded — those are
+   *  dormant. Sort key:
+   *    1. ACTIVE before WATCH (`shown` first)
+   *    2. Within each tier:
+   *         WATCH  → newest mint first (lastMintAt desc), then v60
+   *         ACTIVE → user's chosen sort (velocity / mints) so the
+   *                  existing UX is preserved for promoted rows
+   *  This keeps the previous active-only behaviour as a strict subset
+   *  while surfacing pre-burst activity at the bottom of the table. */
   const sorted = useMemo(() => {
-    const arr = Array.from(rows.values()).filter(r => r.displayState === 'shown');
-    if (sortKey === 'velocity') {
-      arr.sort((a, b) => b.v60 - a.v60 || b.observedMints - a.observedMints);
-    } else {
-      arr.sort((a, b) => b.observedMints - a.observedMints || b.v60 - a.v60);
-    }
+    const arr = Array.from(rows.values()).filter(r => r.displayState !== 'cooled');
+    arr.sort((a, b) => {
+      const aShown = a.displayState === 'shown' ? 0 : 1;
+      const bShown = b.displayState === 'shown' ? 0 : 1;
+      if (aShown !== bShown) return aShown - bShown;
+      // Same tier:
+      if (a.displayState === 'shown') {
+        if (sortKey === 'velocity') {
+          return b.v60 - a.v60 || b.observedMints - a.observedMints;
+        }
+        return b.observedMints - a.observedMints || b.v60 - a.v60;
+      }
+      // WATCH tier — newest mint first, then v60.
+      return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
+    });
     return arr;
   }, [rows, sortKey]);
 
@@ -320,14 +421,15 @@ export default function MintsPage() {
    *  re-render without re-fetching anything. */
 
   return (
-    <div className="feed-root" data-page="mints" data-embedded={embedded ? '1' : undefined}>
+    <div className="feed-root page-transition" data-page="mints" data-embedded={embedded ? '1' : undefined}>
       {!embedded && <TopNav active="mints" />}
 
       {/* Header — hidden in embed mode so the multi-tab pane chrome
-          owns the title context. Mirrors the same pattern used by
-          /dashboard's "Trending collections" header. */}
+          owns the title context. Compact vertical padding (16/8 instead
+          of 20/14) to tighten the gap between the title and the table
+          grid below — matches /tools' denser feel. */}
       {!embedded && (
-        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 1400, margin: '0 auto', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
               <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -336,7 +438,14 @@ export default function MintsPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <LiveDot />
                 <span style={{ fontSize: 11, color: '#4fb67d' }}>
-                  {sorted.length === 0 ? 'No active mints' : `${sorted.length} active collection${sorted.length === 1 ? '' : 's'}`}
+                  {(() => {
+                    if (sorted.length === 0) return 'No active mints';
+                    const active = sorted.filter(r => r.displayState === 'shown').length;
+                    const watch  = sorted.length - active;
+                    if (watch === 0) return `${active} active`;
+                    if (active === 0) return `${watch} watch`;
+                    return `${active} active · ${watch} watch`;
+                  })()}
                 </span>
               </div>
             </div>
@@ -348,28 +457,26 @@ export default function MintsPage() {
           Live Mint Feed.
             • PC / Laptop: ~68 / 32 split via
               `minmax(0, 2fr) minmax(320px, 0.9fr)`.
-              The 320px floor on the right keeps the compact feed
-              readable when the viewport gets squeezed; `minmax(0,…)`
-              on the left lets it shrink instead of overflowing when
-              the right hits its floor.
-            • Phone: globals.css `html[data-layout="phone"]` rule
-              flips this to a single column (`grid-template-columns:
-              1fr`) so the panels stack vertically — the className
-              `mints-grid` is the hook for that selector.
-            • Embed mode (multi-tab): single column inline since the
-              Live Feed isn't rendered there.
-          Both panels fill the remaining viewport via `flex: 1` on
-          this grid + `minHeight: 0` on each cell; internal scroll
-          stays inside each panel so the page never grows. */}
+            • Phone (globals.css rule): single column.
+            • Embed mode (multi-tab): single column.
+          Fixed height (~460 px) so the two panels read like one
+          dense workspace — same density as the /tools offers table.
+          `flexShrink: 0` keeps the panel from being squeezed when
+          the parent .feed-root flex column has other shorter
+          children. Internal scroll inside each panel handles
+          overflow; the page itself never grows. Embed mode keeps
+          the legacy `flex: 1` behaviour so multi-tab iframes still
+          fill their cell. */}
       <div className="mints-grid" style={{
-        flex: 1,
+        ...(embedded
+          ? { flex: 1, minHeight: 0 }
+          : { height: 460, flexShrink: 0 }),
         display: 'grid',
         gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 2fr) minmax(320px, 0.9fr)',
         gap: 16,
         width: '100%',
         maxWidth: embedded ? 'none' : 1400,
         margin: '0 auto',
-        minHeight: 0,
         paddingBottom: embedded ? 0 : 16,
         boxSizing: 'border-box',
       }}>
@@ -384,9 +491,24 @@ export default function MintsPage() {
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            {/* Explicit column widths so the COLLECTION cell stays
+                wide and the right-hand metrics columns stay tight —
+                without these, `tableLayout: fixed` was distributing
+                the surplus width evenly and producing the spread-out
+                layout. COLLECTION is auto (no width = takes the
+                remainder); the others are pinned. */}
+            <colgroup>
+              <col />
+              <col style={{ width: 70 }}  />{/* MINTS    */}
+              <col style={{ width: 90 }}  />{/* MINT/MIN */}
+              <col style={{ width: 90 }}  />{/* LAST     */}
+              <col style={{ width: 80 }}  />{/* PRICE    */}
+              <col style={{ width: 100 }} />{/* SOURCE   */}
+              <col style={{ width: 80 }}  />{/* TYPE     */}
+            </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
-                <th style={thStyle} onClick={() => setSortKey('mints')}>
+                <th style={{ ...thStyle, textAlign: 'left' }} onClick={() => setSortKey('mints')}>
                   COLLECTION
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('mints')}>
@@ -399,23 +521,22 @@ export default function MintsPage() {
                 <th style={thStyle}>PRICE</th>
                 <th style={thStyle}>SOURCE</th>
                 <th style={thStyle}>TYPE</th>
-                <th style={thStyle}>LINKS</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
+                  <td colSpan={7} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
                     Waiting for active mints…
                   </td>
                 </tr>
               )}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
-                    Collections appear after burst activity (≥ 8 mints in 60 s)
-                    or 50 observed mints. Until then they incubate silently in
-                    the backend.
+                  <td colSpan={7} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
+                    Collections appear here as soon as a mint is detected
+                    (WATCH); they upgrade to ACTIVE on burst (≥ 8 mints / 60 s)
+                    or 50 cumulative mints.
                   </td>
                 </tr>
               )}
@@ -423,12 +544,19 @@ export default function MintsPage() {
                 const tb = typeBadge(r.mintType);
                 const displayName = r.name ?? shortKey(r.groupingKey);
                 const isBurst = r.shownReason === 'burst';
+                // ACTIVE = promoted (`shown`), WATCH = pre-burst
+                // (`incubating`). Drives the inline status pill below
+                // and a faint row dim on WATCH so ACTIVE rows stay
+                // visually dominant. Threshold/burst logic in the
+                // backend accumulator is unchanged.
+                const isActive = r.displayState === 'shown';
                 return (
                   <tr key={r.groupingKey} style={{
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
                     transition: 'background 0.12s',
+                    opacity: isActive ? 1 : 0.78,
                   }}>
-                    <td style={{ padding: '12px 6px 12px 10px' }}>
+                    <td style={{ padding: '8px 6px 8px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         {/* Single collection preview image — same component
@@ -451,27 +579,59 @@ export default function MintsPage() {
                           abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
                           size={40}
                         />
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {displayName}
-                          {isBurst && (
-                            <span title="Burst-detected — recent velocity spike" style={{ marginLeft: 6, fontSize: 10, color: '#e87a5e' }}>🔥</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          {/* Status pill: ACTIVE (saturated green) for
+                              promoted rows, WATCH (muted amber) for
+                              incubating rows. Inline before the name so
+                              it doesn't add a column / change the table
+                              layout. */}
+                          {isActive ? (
+                            <span title={r.shownReason === 'burst' ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} style={STATUS_BADGE_ACTIVE}>ACTIVE</span>
+                          ) : (
+                            <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
+                          )}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                            {displayName}
+                            {isBurst && (
+                              <span title="Burst-detected — recent velocity spike" style={{ marginLeft: 6, fontSize: 10, color: '#e87a5e' }}>🔥</span>
+                            )}
+                          </span>
+                          {/* Tiny ME icon — replaces the removed LINKS
+                              column. Only renders when we have a stable
+                              on-chain anchor (collectionAddress); when
+                              null (e.g. groupingKind = `authority`),
+                              the icon is hidden so the row doesn't
+                              show a dead link. Same visual as ME icons
+                              elsewhere (/feed wallet rows, /tools). */}
+                          {r.collectionAddress && (
+                            <a
+                              href={`https://magiceden.io/item-details/${r.collectionAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Magic Eden · ${r.collectionAddress}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/me.png" alt="ME" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
                           )}
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
                       {r.observedMints.toLocaleString()}
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px' }}>
+                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px' }}>
                       {r.v60.toFixed(0)}
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 12, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                    <td style={{ padding: '8px 4px', textAlign: 'right', fontSize: 12, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace" }}>
                       {fmtSol(r.priceLamports)}
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '8px 4px', textAlign: 'right' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);
                         return (
@@ -482,22 +642,11 @@ export default function MintsPage() {
                         );
                       })()}
                     </td>
-                    <td style={{ padding: '12px 8px 12px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '8px 8px 8px 4px', textAlign: 'right' }}>
                       <span style={{
                         display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
                         background: tb.bg, color: tb.fg, letterSpacing: '0.3px',
                       }}>{tb.label}</span>
-                    </td>
-                    {/* LINKS column — Solscan + Magic Eden item page for the
-                        collection asset. Both keyed off `collectionAddress`
-                        which is the only stable on-chain anchor available
-                        on the per-collection rollup (no individual mint
-                        address is exposed at this aggregation level). */}
-                    <td style={{ padding: '12px 8px 12px 4px', textAlign: 'right' }}>
-                      <RowLinks
-                        collectionAddress={r.collectionAddress}
-                        programSource={r.programSource}
-                      />
                     </td>
                   </tr>
                 );
@@ -575,8 +724,27 @@ export default function MintsPage() {
                     size={64}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* Clickable name → Solscan token page when we have
+                        a mint address. Hover toggles a solid underline
+                        (same affordance pattern as /feed FeedCard's
+                        title link). When mintAddress is null we keep
+                        plain text so the row still renders. */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {displayName}
+                      {ev.mintAddress ? (
+                        <a
+                          href={`https://solscan.io/token/${ev.mintAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Solscan · ${ev.mintAddress}`}
+                          style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                        >
+                          {displayName}
+                        </a>
+                      ) : (
+                        displayName
+                      )}
                     </div>
                     <div style={{ fontSize: 10.5, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2 }}>
                       {shortMint(ev.mintAddress)}
@@ -620,4 +788,32 @@ const thStyle: React.CSSProperties = {
   borderBottom: '1px solid rgba(168,144,232,0.12)',
   textTransform: 'uppercase',
   userSelect: 'none',
+};
+
+/** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
+ *  (`displayState === 'shown'`); WATCH = incubating (pre-burst,
+ *  surfaced here so the table isn't empty when traffic is sparse).
+ *  Compact 9 px font + flexShrink: 0 so it never wraps off the row. */
+const STATUS_BADGE_BASE: React.CSSProperties = {
+  display:        'inline-block',
+  padding:        '1px 5px',
+  fontSize:       9,
+  fontWeight:     800,
+  letterSpacing:  '0.5px',
+  borderRadius:   3,
+  textTransform:  'uppercase',
+  flexShrink:     0,
+  lineHeight:     '13px',
+};
+const STATUS_BADGE_ACTIVE: React.CSSProperties = {
+  ...STATUS_BADGE_BASE,
+  color:      '#5ce0a0',
+  background: 'rgba(92,224,160,0.14)',
+  border:     '1px solid rgba(92,224,160,0.42)',
+};
+const STATUS_BADGE_WATCH: React.CSSProperties = {
+  ...STATUS_BADGE_BASE,
+  color:      '#c9a820',
+  background: 'rgba(201,168,32,0.10)',
+  border:     '1px solid rgba(201,168,32,0.32)',
 };

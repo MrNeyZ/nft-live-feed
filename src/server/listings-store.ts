@@ -812,3 +812,39 @@ export function getByCollection(slug: string): Listing[] {
   }
   return out;
 }
+
+/**
+ * Lightweight, fetch-free floor lookup.
+ *
+ * Returns the minimum `priceSol` across all in-memory listings for
+ * `slug`, expressed in lamports. The listings store is already
+ * populated as a side effect of normal ingestion (LIST/cancel/sale
+ * events feed it via deltas + periodic snapshots), so this is O(N)
+ * over the slug's listings — typically small (≤ a few hundred) and
+ * always cheap relative to a network round-trip.
+ *
+ * Trade-off: derived floor may be slightly stale (TTL-bounded by the
+ * listings-store's own snapshot cadence), but it is always available
+ * for any actively-traded collection and never costs an API/RPC call.
+ * That matches the product preference: "slightly stale but always-
+ * present" floor over "perfect but missing".
+ *
+ * Returns null when the slug has zero in-memory listings (collection
+ * we've never indexed) — caller hides the floor chip in that case.
+ *
+ * Does NOT call `touch(slug)` — the listings-store's freshness loop
+ * is driven by user navigation; a passive floor read shouldn't
+ * trigger refetches for every event passing through enrichment.
+ */
+export function getDerivedFloorLamports(slug: string): number | null {
+  const ids = byCollection.get(slug);
+  if (!ids || ids.size === 0) return null;
+  let minSol = Infinity;
+  for (const id of ids) {
+    const l = byId.get(id);
+    if (!l) continue;
+    if (l.priceSol > 0 && l.priceSol < minSol) minSol = l.priceSol;
+  }
+  if (!Number.isFinite(minSol)) return null;
+  return Math.round(minSol * 1e9);
+}

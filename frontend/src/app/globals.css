@@ -711,3 +711,36 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
     overflow: hidden !important;
   }
 }
+
+/* ── Page transitions ──────────────────────────────────────────────────────
+   Subtle fade + 6 px translate-up applied when a route's content mounts.
+   Each main page (/dashboard, /multi, /mints, /tools, /feed) renders a
+   fresh `<div class="feed-root page-transition">` on navigation, so the
+   keyframe fires once per route change.
+   TopNav (`.topnav-root`) and BottomStatusBar (`.bottom-status`) are
+   skipped via the `:not(...)` selector so chrome stays static — only
+   page-specific content animates.
+   Duration 160 ms / ease-out is fast enough to feel instant on a hot
+   cache yet smooth on cold; `both` keeps the start frame (opacity 0,
+   translate 6px) before the animation runs to prevent a flash.
+*/
+.page-transition > *:not(.topnav-root):not(.bottom-status) {
+  animation: pageIn 160ms ease-out both;
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-transition > *:not(.topnav-root):not(.bottom-status) {
+    animation: none;
+  }
+}
+
+/* TopNav sliding indicator — disable transitions when the user has
+   asked the OS to reduce motion. The indicator still snaps to the
+   active tab; only the slide animation is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  .topnav-active-indicator,
+  .topnav-tab { transition: none !important; }
+}

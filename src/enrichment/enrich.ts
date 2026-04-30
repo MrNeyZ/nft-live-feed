@@ -4,6 +4,7 @@ import { getMetaplexOnchainMetadata } from './metaplex-onchain';
 import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
+import { getDerivedFloorLamports } from '../server/listings-store';
 
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
@@ -87,15 +88,22 @@ async function getTensorMetadata(
  * Result is cached for FLOOR_TTL_MS (2 minutes).
  * Returns null on any failure; never throws.
  */
-/** Synchronous, fetch-free read of the floor cache. Returns the cached
- *  lamport floor for `slug` if present and unexpired, or `null` otherwise.
- *  Callers (e.g. the /latest snapshot endpoint) use this to retro-attach
- *  a `floor_delta` to events on REST replies — the SSE `meta` channel
- *  delivers floor updates for live events but the REST snapshot has no
- *  way to carry them otherwise. Never triggers a network call; cache
- *  miss = no chip on the frontend, same UX as before. */
+/** Synchronous, fetch-free floor lookup. Used by the /latest snapshot
+ *  endpoint to retro-attach `floor_delta` to events on REST replies —
+ *  the SSE `meta` channel delivers floor updates for live events but
+ *  the REST snapshot has no way to carry them otherwise.
+ *
+ *  Source order:
+ *    1. listings-store derived floor (min observed listing priceSol)
+ *       — always present for actively-traded collections, no network.
+ *    2. legacy ME-API floor cache — kept as a safety net for the
+ *       brief window after boot before snapshots populate, and for
+ *       slugs that don't have indexed listings yet.
+ *  Cache miss on both → null → frontend hides the chip. */
 export function peekCachedFloorLamports(slug: string | null | undefined): number | null {
   if (!slug) return null;
+  const derived = getDerivedFloorLamports(slug);
+  if (derived != null) return derived;
   if (!floorCache.has(slug)) return null;
   return floorCache.get(slug) ?? null;
 }
@@ -361,13 +369,27 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
   return { ...enriched, floorDelta, offerDelta };
 }
 
+/**
+ * Derived floor from the in-process listings store: minimum priceSol
+ * across the slug's known active listings. Always synchronous, never
+ * fetches anything — no ME / Helius / RPC traffic. May be slightly
+ * stale (bounded by the listings store's own snapshot cadence) but
+ * is virtually always present for any actively-traded collection.
+ *
+ * Falls back to the legacy ME-API floor cache only when the listings
+ * store has nothing for this slug — preserves coverage during the
+ * brief window after process boot before snapshots populate. The ME
+ * cache itself is only filled by the legacy code path; in steady
+ * state both lookups should agree closely.
+ */
 async function computeFloorDelta(
   slug: string | null | undefined,
   priceLamports: bigint,
 ): Promise<number | null> {
   if (!slug) return null;
-  const floorLamports = await getCollectionFloorLamports(slug);
-  if (floorLamports == null) return null;
+  const derived = getDerivedFloorLamports(slug);
+  const floorLamports = derived ?? floorCache.get(slug) ?? null;
+  if (floorLamports == null || floorLamports <= 0) return null;
   return (Number(priceLamports) - floorLamports) / floorLamports;
 }
 

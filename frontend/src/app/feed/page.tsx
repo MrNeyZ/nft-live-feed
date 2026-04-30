@@ -159,11 +159,11 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // `floorDelta` is a fractional ratio (+0.12 = +12%).
 //
 // Two-tier palette so the eye locks onto outliers:
-//   • |Δ| <  50 %  → MUTED  (dim grey-tinted text/border, no fill).
+//   • |Δ| <  25 %  → MUTED  (dim grey-tinted text/border, no fill).
 //                    Routine sales near floor blend into the row.
-//   • |Δ| >= 50 %  → BRIGHT (saturated green / red, faint fill).
+//   • |Δ| >= 25 %  → BRIGHT (saturated green / red, faint fill).
 //                    Big-mover sales stand out at a glance.
-const FLOOR_BRIGHT_THRESHOLD = 0.5;
+const FLOOR_BRIGHT_THRESHOLD = 0.25;
 function FloorChip({ delta }: { delta: number }) {
   const above  = delta >= 0;
   const pct    = delta * 100;
@@ -347,25 +347,30 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1 }}>
-          {/* Top-right cluster: time + (optional) floor chip + marketplace
-              icon. Floor chip lives here (not as a third column row) so
-              card height stays unchanged. Hidden when backend couldn't
-              resolve a floor for the collection. */}
+          {/* Top-right cluster: post-sale "X ago" counter + marketplace
+              icon. Stays in its original position. Floor chip moved out
+              of this row (now lives next to the BUY/SELL/AMM badge so
+              the discount reads alongside the action it modifies). */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <TimeAgo ts={event.ts} />
-            {event.floorDelta != null && <FloorChip delta={event.floorDelta} />}
             <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
           </div>
           {/* price-row: fixed badge slot + min-width tabular-num price keeps
               badges vertically aligned across rows and prices anchored to a
-              shared right column. The badge's marginLeft simulates the
-              spacing the removed "for" connector used to provide so the
-              price column doesn't jump leftward. tabular-nums prevents
-              digit-width jitter between values like "0.40" / "0.085". */}
+              shared right column. tabular-nums prevents digit-width jitter
+              between values like "0.40" / "0.085".
+              FloorChip sits IMMEDIATELY before the BUY/SELL/AMM badge so
+              the % discount/premium reads next to the action it qualifies.
+              The previous `marginLeft: 14` on the badge (which simulated
+              the removed "for" spacing) is dropped — the chip + 8 px gap
+              now provide that visual spacing when present; when absent
+              the badge sits closer to the price, which is the cleaner
+              look anyway since the chip was the dominant left-side
+              element in this row. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {event.floorDelta != null && <FloorChip delta={event.floorDelta} />}
             <span style={{
               width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-              marginLeft: 14,
               padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
             }}>{style.label}</span>
@@ -774,7 +779,7 @@ export default function FeedPage() {
   };
 
   return (
-    <div className="feed-root" data-embedded={embedded ? '1' : undefined} onWheel={handleRootWheel}>
+    <div className="feed-root page-transition" data-embedded={embedded ? '1' : undefined} onWheel={handleRootWheel}>
       {!embedded && <TopNav active="feed" />}
 
       {/* Centered column stage */}

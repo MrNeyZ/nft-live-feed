@@ -5,6 +5,7 @@
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -390,7 +391,19 @@ function colorOf(name: string): string {
   return palette[Math.abs(h) % palette.length];
 }
 
-export function TopNav({ active }: { active: Page }) {
+/** Module-level cache for the sliding tab indicator's geometry.
+ *  Survives TopNav remounts (which happen on every route change in
+ *  Next App Router because pages aren't wrapped in a shared layout
+ *  here). When a fresh TopNav mounts after a navigation, it seeds
+ *  its initial state from this cache → the indicator paints at the
+ *  PREVIOUS active tab's position for one frame → the resize/effect
+ *  callback then sets the new position → CSS transition smoothly
+ *  slides between them. Net effect: visual continuity equivalent to
+ *  a truly persistent TopNav, without the structural refactor.
+ *  null until the first computation. */
+let _topnavLastIndicator: { left: number; width: number } | null = null;
+
+export function TopNav({ active }: { active?: Page } = {}) {
   // TPS / SOL price / live indicator moved to the bottom status bar
   // (`<BottomStatusBar />`). The fetch lives there now — TopNav stays
   // clean for nav tabs + search + mode + OFF only.
@@ -421,6 +434,70 @@ export function TopNav({ active }: { active: Page }) {
     { key: 'tools',      label: 'TOOLS',      href: '/tools'     },
     { key: 'feed',       label: 'FEED',       href: '/feed'      },
   ];
+
+  // ── Active tab + sliding indicator ─────────────────────────────────
+  // Active key is derived from `usePathname()` so navigations between
+  // routes update the indicator without callers having to keep the
+  // `active` prop in sync. The optional prop is kept as a fallback for
+  // backward compatibility with existing call sites that still pass it
+  // (e.g. before they're migrated to the persistent layout).
+  const pathname = usePathname() ?? '';
+  const activeKey: Page = (() => {
+    if (pathname.startsWith('/dashboard')) return 'dashboard';
+    if (pathname.startsWith('/multi'))     return 'multi';
+    if (pathname.startsWith('/mints'))     return 'mints';
+    if (pathname.startsWith('/tools'))     return 'tools';
+    if (pathname.startsWith('/feed'))      return 'feed';
+    return active ?? 'dashboard';
+  })();
+
+  // Refs to the rendered <a> for each tab — used to measure offsetLeft
+  // / offsetWidth of the active tab so the indicator can position
+  // itself behind it. The Map shape lets us look up by Page key
+  // directly, regardless of render order.
+  const tabRefs = useRef(new Map<Page, HTMLAnchorElement>());
+  const setTabRef = (key: Page) => (el: HTMLAnchorElement | null) => {
+    if (el) tabRefs.current.set(key, el);
+    else    tabRefs.current.delete(key);
+  };
+
+  // Lazy initial state from the module-level cache. On the very first
+  // visit, the cache is null — we fall through to computing it on
+  // mount in the useEffect below (indicator opacity stays 0 until
+  // computed, fading in to avoid a 0,0-positioned flash).
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(
+    () => _topnavLastIndicator,
+  );
+
+  // Recompute on activeKey change. useEffect (not useLayoutEffect) so
+  // the browser commits one paint frame at the previous indicator
+  // position (from the module cache) BEFORE the state update — that
+  // intermediate paint is what kicks the CSS transition into life.
+  // Without it, React would batch the two state values into a single
+  // commit and the browser would paint only the final position,
+  // skipping the slide animation.
+  useEffect(() => {
+    const el = tabRefs.current.get(activeKey);
+    if (!el) return;
+    const next = { left: el.offsetLeft, width: el.offsetWidth };
+    setIndicator(next);
+    _topnavLastIndicator = next;
+  }, [activeKey]);
+
+  // Resize listener — re-measures when the viewport (and thus the tab
+  // widths via font hinting / responsive padding) changes. Cheap; runs
+  // at most once per resize debounce frame.
+  useEffect(() => {
+    const onResize = () => {
+      const el = tabRefs.current.get(activeKey);
+      if (!el) return;
+      const next = { left: el.offsetLeft, width: el.offsetWidth };
+      setIndicator(next);
+      _topnavLastIndicator = next;
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [activeKey]);
 
   // Build a real (name → slug) index from recent sales so search results
   // always carry a slug suitable for /collection/[slug]. One snapshot fetch
@@ -582,20 +659,51 @@ export function TopNav({ active }: { active: Page }) {
             style={{ display: 'block' }}
           />
         </Link>
-        <div className="topnav-tabs" style={{ display: 'flex', gap: 2 }}>
+        <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
+          {/* Sliding pill — replaces the per-tab background/box-shadow.
+              `position: absolute` over the tab row, sized to the active
+              tab via the indicator state computed in the effects above.
+              CSS transitions on `left` and `width` produce the slide
+              animation; opacity fades from 0 on the very first paint
+              before geometry is known. zIndex 0 keeps it visually
+              behind the labels (which sit at zIndex 1). */}
+          <span
+            className="topnav-active-indicator"
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 0, bottom: 0,
+              left:  indicator?.left  ?? 0,
+              width: indicator?.width ?? 0,
+              opacity: indicator ? 1 : 0,
+              borderRadius: 4,
+              background: 'linear-gradient(180deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.04) 100%)',
+              boxShadow: '0 0 12px rgba(128,104,216,0.15), inset 0 0 0 1px rgba(128,104,216,0.12)',
+              transition:
+                'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
+                'width 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
+                'opacity 180ms ease-out',
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
           {pages.map(p => (
-            <Link key={p.key} href={p.href} className="topnav-tab" data-tab={p.key} style={{
-              padding: '5px 16px', fontSize: 12, fontWeight: 600,
-              color: active === p.key ? '#d0c8e4' : '#55556e',
-              letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
-              background: active === p.key
-                ? 'linear-gradient(180deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.04) 100%)'
-                : 'transparent',
-              boxShadow: active === p.key
-                ? '0 0 12px rgba(128,104,216,0.15), inset 0 0 0 1px rgba(128,104,216,0.12)'
-                : 'none',
-              transition: 'all 0.2s',
-            }}>{p.label}</Link>
+            <Link
+              key={p.key}
+              ref={setTabRef(p.key)}
+              href={p.href}
+              className="topnav-tab"
+              data-tab={p.key}
+              style={{
+                position: 'relative', zIndex: 1,
+                padding: '5px 16px', fontSize: 12, fontWeight: 600,
+                color: activeKey === p.key ? '#d0c8e4' : '#55556e',
+                letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+                // Background + box-shadow removed — handled by the
+                // sliding indicator behind the labels.
+                transition: 'color 180ms ease-out',
+              }}
+            >{p.label}</Link>
           ))}
         </div>
       </div>

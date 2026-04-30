@@ -43,7 +43,7 @@ export default function MultiTabPage() {
     // supplies the same gutter on both sides (16 px laptop / 24 px PC /
     // 8 px phone) so the right pane no longer anchors to the viewport
     // edge.
-    <div className="feed-root">
+    <div className="feed-root page-transition">
       <TopNav active="multi" />
 
       <div style={{
