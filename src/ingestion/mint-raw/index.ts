@@ -770,6 +770,14 @@ function noteFilterReject(reason: string, sig: string, mint: string | null): voi
       `sig=${sig.slice(0, 12)}… mint=${mint ? mint.slice(0, 8) + '…' : '—'}`,
     );
   }
+  // TEMPORARY hard diagnostic: every reject in ingestMintRaw fires this
+  // unsampled line. Pairs with `[mints/INSERT]` in accumulator.recordMint
+  // so the operator can spot the path that lets Pump.fun / Meteora
+  // authority rows reach /mints. Remove once the bypass is identified.
+  console.log(
+    `[mints/REJECT] reason=${reason} sig=${sig.slice(0, 20)}… ` +
+    `mint=${mint ?? '—'}`,
+  );
 }
 
 const sourceLabelCount = new Map<string, number>();

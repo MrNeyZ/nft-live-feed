@@ -157,7 +157,31 @@ export function recordMint(ev: MintEventWire): void {
   // group, every subsequent mint for the same key is dropped before it
   // hits the accumulator / SSE bus. Without this, a fungible's
   // continuing MintTo activity would just re-promote the row.
-  if (evictedNonNft.has(ev.groupingKey)) return;
+  if (evictedNonNft.has(ev.groupingKey)) {
+    // TEMPORARY hard diagnostic: every blocked-by-prior-eviction call
+    // is logged so the operator can see whether sticky rejection is
+    // actually firing for the live-leaking groups.
+    console.log(
+      `[mints/REJECT] reason=evicted_group_replay groupingKey=${ev.groupingKey} ` +
+      `mint=${ev.mintAddress ?? '—'} sig=${ev.signature.slice(0, 20)}…`,
+    );
+    return;
+  }
+  // TEMPORARY hard diagnostic: every accepted row hitting the accumulator
+  // is logged unsampled. Lets the operator pair `[mints/INSERT]` lines
+  // (every accept) against `[mints/REJECT]` lines (every drop in
+  // ingestMintRaw + this function) and locate the bypass that put the
+  // visible Pump.fun / Meteora authority rows in /mints.
+  // Remove this log once the leak source is confirmed.
+  const isFirst = !map.has(ev.groupingKey);
+  console.log(
+    `[mints/INSERT] groupingKey=${ev.groupingKey} mint=${ev.mintAddress ?? '—'} ` +
+    `name=${'name' in ev ? '—' : '—'} source=${ev.sourceLabel} ` +
+    `programSource=${ev.programSource} groupingKind=${ev.groupingKind} ` +
+    `priceLamports=${ev.priceLamports ?? '—'} mintType=${ev.mintType} ` +
+    `collectionAddress=${ev.collectionAddress ?? '—'} ` +
+    `path=${isFirst ? 'first_insert' : 'subsequent'} sig=${ev.signature.slice(0, 20)}…`,
+  );
   const now = Date.now();
   let a = map.get(ev.groupingKey);
   if (!a) {
