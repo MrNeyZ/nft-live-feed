@@ -32,8 +32,15 @@ const CLICK_THROTTLE_MS = 40;
 
 const HOVER_URL  = '/sounds/ui-hover.m4a';
 const CLICK_URL  = '/sounds/ui-click.m4a';
-const HOVER_GAIN = 0.55;
-const CLICK_GAIN = 0.85;
+// Gain 1.0 — the underlying clips were extracted at the original
+// recording's natural amplitude (peak ~0.008 hover, ~0.028 click) with
+// NO normalization, so playing at full element volume reproduces what
+// the operator heard in sample.mp3. Don't raise these casually — going
+// above 1.0 isn't allowed by HTMLMediaElement.volume anyway, and
+// boosting via Web Audio would re-introduce the harshness the previous
+// (over-normalized) version had.
+const HOVER_GAIN = 1.0;
+const CLICK_GAIN = 1.0;
 
 // ── Persisted preference ────────────────────────────────────────────────────
 
