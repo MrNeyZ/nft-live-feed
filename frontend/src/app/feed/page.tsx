@@ -226,6 +226,12 @@ interface FeedCardProps {
    *  AMM_SELL rows actually branch on this; passed down to every card
    *  so the price re-renders the moment the toggle flips. */
   inclusiveFees: boolean;
+  /** Frontend fallback floor (SOL) for this card's slug. Used only
+   *  when `event.floorDelta` is missing — backend's value always wins
+   *  when present. Sourced from the existing `floorBySlug` cache (the
+   *  cNFT-dust resolver), so the fallback fires for slugs that cache
+   *  has already populated; no new fetches are added on this path. */
+  slugFloor?: number | null;
 }
 
 // Static FeedCard inline styles hoisted to module scope. These objects
@@ -280,13 +286,22 @@ const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
   color: '#8a8aa6', fontWeight: 600, fontSize: 11,
 };
 
-const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: FeedCardProps) {
+const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugFloor }: FeedCardProps) {
   const renderPrice = displayPrice(event, inclusiveFees);
   // Display-only guard — keeps the formatter from producing "NaN" /
   // "Infinity" text if a malformed event slips past upstream validation.
   // Backend remains the source of truth for valid prices; this is the
   // last-mile defensive rendering path.
   const safePrice   = safeFiniteNumber(renderPrice);
+  // Effective floor delta: prefer the backend value when present; fall
+  // back to a locally-derived delta from `slugFloor` only when the
+  // backend left it null AND we have a cached floor + a finite price.
+  // Same fractional shape (price/floor − 1) the backend produces, so
+  // `FloorChip` renders identically.
+  let effectiveFloorDelta: number | null | undefined = event.floorDelta;
+  if (effectiveFloorDelta == null && slugFloor != null && slugFloor > 0 && safePrice != null) {
+    effectiveFloorDelta = (safePrice - slugFloor) / slugFloor;
+  }
   // Row-flash class lasts 6 s from event.ts. Computed once at mount with a
   // one-shot setTimeout to flip false — no per-tick recompute needed since
   // every card mounts at most once per event.
@@ -433,7 +448,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees }: Fee
               look anyway since the chip was the dominant left-side
               element in this row. */}
           <div style={FC_PRICE_ROW_STYLE}>
-            {event.floorDelta != null && <FloorChip delta={event.floorDelta} />}
+            {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             <span style={{
               width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
               padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
@@ -772,12 +787,18 @@ export default function FeedPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── cNFT collection-floor filter ────────────────────────────────────────
-  // Hide cNFT collections whose CURRENT FLOOR is below 0.002 SOL. Reuses
-  // /api/collections/bids (same endpoint the Dashboard uses; backend caches
-  // per slug for 60s). Floor is fetched once per newly-seen cNFT slug,
-  // batched with a small debounce so bursts don't turn into 1-per-event
-  // calls. Shared predicate (`isCnftDust`) keeps Dashboard in lockstep.
+  // ── Collection-floor lookup ─────────────────────────────────────────────
+  // Dual-purpose cache populated from /api/collections/bids:
+  //   1. cNFT dust filter — hide cNFT collections whose CURRENT FLOOR is
+  //      below 0.002 SOL via the shared `isCnftDust` predicate (Dashboard
+  //      uses the same predicate so the two surfaces stay in lockstep).
+  //   2. % floor fallback — when the backend didn't compute `floorDelta`
+  //      for an event but its slug landed in this cache, FeedCard derives
+  //      the chip locally from price/floor.
+  // Floor is fetched once per newly-seen slug, batched with a small
+  // debounce so bursts don't turn into 1-per-event calls. Backend caches
+  // per slug for 60 s, frontend bounds with a 500-entry cap and a 5-min
+  // per-slug request TTL.
   const [floorBySlug, setFloorBySlug] = useState<Record<string, number | null>>({});
   // Slug → timestamp of last request. After FLOOR_REQUEST_TTL_MS the slug is
   // eligible for a refresh so a long-running tab doesn't keep stale floors.
@@ -793,7 +814,7 @@ export default function FeedPage() {
   useEffect(() => {
     const now = Date.now();
     for (const e of events) {
-      if (e.nftType !== 'cnft' || !e.meCollectionSlug) continue;
+      if (!e.meCollectionSlug) continue;
       const last = requestedFloorRef.current.get(e.meCollectionSlug);
       if (last != null && now - last < FLOOR_REQUEST_TTL_MS) continue;
       pendingFloorRef.current.add(e.meCollectionSlug);
@@ -1092,7 +1113,14 @@ export default function FeedPage() {
                     </div>
                   )
                 )}
-                {filtered.map(e => <FeedCard key={e.id} event={e} onPreview={setPreview} inclusiveFees={inclusiveFees} />)}
+                {filtered.map(e => {
+                  // Per-card slug-floor lookup. `floorBySlug` is keyed
+                  // by ME slug; cards without a slug or without a
+                  // cached floor pass `null` and fall back to backend
+                  // floorDelta only inside the card.
+                  const slugFloor = e.meCollectionSlug ? floorBySlug[e.meCollectionSlug] ?? null : null;
+                  return <FeedCard key={e.id} event={e} onPreview={setPreview} inclusiveFees={inclusiveFees} slugFloor={slugFloor} />;
+                })}
               </div>
             </div>
           </div>
