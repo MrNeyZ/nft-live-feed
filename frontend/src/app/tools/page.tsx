@@ -440,15 +440,7 @@ export default function ToolsPage() {
                   No listings with personal offers right now.
                 </td></tr>
               )}
-              {(() => {
-                // Render-time TTL guard: a stale cached scan should not keep
-                // the NEW pill alive forever. `loadPersisted` clears flags on
-                // mount, but in-memory `result` would otherwise show the
-                // pill until the next scan; this gate suppresses it once
-                // `cachedAt` is older than NEW_FLAG_TTL_MS.
-                const newBadgesActive = !!result &&
-                  Date.now() - (result.cachedAt ?? 0) < NEW_FLAG_TTL_MS;
-                return sortedRows.map((row) => {
+              {sortedRows.map((row) => {
                 const name = row.nftName ?? row.mint.slice(0, 6);
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol > 0;
@@ -457,6 +449,16 @@ export default function ToolsPage() {
                 // full opacity; EXPIRED at 0.5.
                 const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1;
                 const sb = statusBadgeStyle(row.bestOfferStatus);
+                // NEW pill: surfaces fresh offers based on the offer's own
+                // age (the same `bestOfferCreatedAt` that powers the AGE
+                // column), not on scan time. Self-expires after 24 h and
+                // never fires for expired offers.
+                const offerAgeSec = row.bestOfferCreatedAt != null
+                  ? Math.floor(Date.now() / 1000) - row.bestOfferCreatedAt
+                  : null;
+                const showNewBadge = offerAgeSec != null
+                  && offerAgeSec < 24 * 60 * 60
+                  && row.bestOfferStatus !== 'EXPIRED';
                 return (
                   <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
                     <td style={{ padding: '10px 8px 10px 14px' }}>
@@ -466,24 +468,31 @@ export default function ToolsPage() {
                             top-right of the icon without affecting flex
                             layout. Pointer-events:none on the badge so
                             future click handlers on the icon still work. */}
-                        <div style={{ position: 'relative', flexShrink: 0, width: 32, height: 32 }}>
-                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={32} />
-                          {row.isNew && newBadgesActive && (
-                            <span style={{
-                              position: 'absolute', top: -4, right: -4,
-                              padding: '1px 5px', fontSize: 8, fontWeight: 800,
-                              letterSpacing: '0.4px', textTransform: 'uppercase',
-                              borderRadius: 3, lineHeight: 1.1,
-                              border: '1px solid rgba(168,144,232,0.7)',
-                              background: 'linear-gradient(180deg, rgba(168,144,232,0.95) 0%, rgba(128,104,216,0.95) 100%)',
-                              color: '#0e0b22',
-                              boxShadow: '0 0 0 1px rgba(20,14,34,0.7), 0 1px 4px rgba(0,0,0,0.5)',
-                              pointerEvents: 'none', userSelect: 'none',
-                            }}>NEW</span>
-                          )}
+                        <div style={{ flexShrink: 0, width: 40, height: 40 }}>
+                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={40} />
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                            {showNewBadge && (
+                              // Compact NEW pill, inline next to the NFT
+                              // title. Same purple-gradient chrome as the
+                              // prior corner-anchored variant so the dark
+                              // UI palette stays consistent. Fires on the
+                              // 24 h offer-age rule (see showNewBadge).
+                              <span style={{
+                                flexShrink: 0,
+                                padding: '1px 5px', fontSize: 8.5, fontWeight: 800,
+                                letterSpacing: '0.4px', textTransform: 'uppercase',
+                                borderRadius: 3, lineHeight: 1.2,
+                                border: '1px solid rgba(168,144,232,0.7)',
+                                background: 'linear-gradient(180deg, rgba(168,144,232,0.95) 0%, rgba(128,104,216,0.95) 100%)',
+                                color: '#0e0b22',
+                                boxShadow: '0 0 0 1px rgba(20,14,34,0.7), 0 1px 4px rgba(0,0,0,0.5)',
+                                pointerEvents: 'none', userSelect: 'none',
+                              }}>NEW</span>
+                            )}
+                          </div>
                           <div style={{ fontSize: 10, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
                         </div>
                       </div>
@@ -536,8 +545,7 @@ export default function ToolsPage() {
                     </td>
                   </tr>
                 );
-              });
-              })()}
+              })}
             </tbody>
           </table>
         </div>

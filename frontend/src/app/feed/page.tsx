@@ -405,6 +405,17 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
                 {baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}
               </span>
             )}
+            {event.saleTypeRaw === 'lucky_buy' && (
+              // Lucky Buy marker — small inline emoji after the NFT
+              // name, no extra column or layout shift. Tooltip explains
+              // what the icon means for operators unfamiliar with the
+              // raffle product.
+              <span
+                title="Magic Eden Lucky Buy — winner received this NFT via raffle settlement"
+                aria-label="Lucky Buy"
+                style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none' }}
+              >🍀</span>
+            )}
           </div>
 
           {/* Seller/buyer rows — wallets clickable to Solscan; tiny ME
@@ -485,6 +496,7 @@ const SALE_TYPE_BUY      = 'normal_sale'; // default buy / list buy
 const SALE_TYPE_SELL     = 'bid_sell';    // sell into bid
 const SALE_TYPE_BUY_AMM  = 'pool_buy';    // buy from AMM/pool
 const SALE_TYPE_SELL_AMM = 'pool_sale';   // sell into AMM/pool
+const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settlement
 
 type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'unknown';
 
@@ -519,6 +531,10 @@ function saleKind(saleTypeRaw: string | null): SaleKind {
     case SALE_TYPE_SELL:     return 'sell';
     case SALE_TYPE_BUY_AMM:  return 'buyAmm';
     case SALE_TYPE_SELL_AMM: return 'sellAmm';
+    // Lucky Buy is still a buy from the seller's perspective; the
+    // 🍀 marker rendered next to the NFT name communicates the
+    // raffle origin separately.
+    case SALE_TYPE_LUCKY:    return 'buy';
     default:                 return 'unknown';
   }
 }

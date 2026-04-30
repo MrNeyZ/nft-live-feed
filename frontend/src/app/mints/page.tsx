@@ -213,16 +213,26 @@ function loadPersistedFeed(): MintEvent[] {
     const cutoff = Date.now() - FEED_TTL_MS;
     const out: MintEvent[] = [];
     const seen = new Set<string>();
+    let staleSkipped = 0;
     for (const v of parsed) {
       if (!v || typeof v !== 'object')                     continue;
       const ev = v as MintEvent;
       if (typeof ev.signature !== 'string')                continue;
       if (typeof ev.receivedAt !== 'number')               continue;
-      if (ev.receivedAt < cutoff)                          continue;
+      if (ev.receivedAt < cutoff)                          { staleSkipped++; continue; }
       if (seen.has(ev.signature))                          continue;
       seen.add(ev.signature);
       out.push(ev);
       if (out.length >= LIVE_FEED_MAX) break;
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      // Diagnostic for the "feed disappears after refresh" report.
+      // `parsedLen` shows what was on disk; `count` is what survived
+      // shape + TTL filtering; `staleSkipped` distinguishes a wiped
+      // store (parsedLen=0) from a 6h-aged-out store (staleSkipped>0).
+      console.debug('[mints/cache] restored feed', out.length, {
+        parsedLen: parsed.length, staleSkipped,
+      });
     }
     return out;
   } catch {
@@ -419,6 +429,21 @@ export default function MintsPage() {
     return () => clearInterval(id);
   }, []);
 
+  // Persist the live feed whenever `events` changes. This was previously
+  // called inside the setState updater for the SSE handler and the
+  // eviction interval, but updaters must be pure — React 18 may invoke
+  // them multiple times during concurrent rendering and strict-mode
+  // checks, so a side-effecting `savePersistedFeed(...)` inside the
+  // updater could write intermediate values that don't match the
+  // committed state. A `useEffect` keyed on `events` always runs after
+  // commit with the actual state, fixing the asymmetry where mint
+  // collections persisted (their save path is similar but saves often
+  // enough that any stray bad write gets corrected on the next frame)
+  // but the live-feed buffer didn't.
+  useEffect(() => {
+    savePersistedFeed(events);
+  }, [events]);
+
   // Periodic TTL eviction for the persisted live feed. Without this,
   // an idle tab whose user comes back after >45 min would still show
   // events from before the absence — load() filters them on mount but
@@ -435,8 +460,8 @@ export default function MintsPage() {
         if (prev[prev.length - 1].receivedAt >= cutoff) return prev;
         const next = prev.filter(e => e.receivedAt >= cutoff);
         if (next.length === prev.length) return prev;
-        savePersistedFeed(next);
         return next;
+        // Persistence handled by the events-watcher effect above.
       });
     }, 60_000);
     return () => clearInterval(id);
@@ -518,12 +543,10 @@ export default function MintsPage() {
             if (prev.some(p => p.signature === ev.signature)) return prev;
             const next = [ev, ...prev];
             const trimmed = next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
-            // Persist on every write — payload is small (≤150 mint
-            // events, each ~400 B JSON ≈ 60 KB max). localStorage
-            // writes here are off the SSE hot path; React batches
-            // sub-16 ms anyway.
-            savePersistedFeed(trimmed);
             return trimmed;
+            // Persistence handled by the events-watcher effect above —
+            // pure updater so React's strict-mode / concurrent-render
+            // double-invocations can't write intermediate values.
           });
         } catch { /* malformed frame — skip */ }
       });
@@ -735,12 +758,47 @@ export default function MintsPage() {
                           ) : (
                             <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
                           )}
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                            {displayName}
-                            {isBurst && (
-                              <span title="Burst-detected — recent velocity spike" style={{ marginLeft: 6, fontSize: 10, color: '#e87a5e' }}>🔥</span>
-                            )}
-                          </span>
+                          {(() => {
+                            // Title is clickable → Solscan when we have
+                            // an on-chain anchor. Path branches the same
+                            // way as RowLinks below: Core assets are
+                            // first-class accounts (`/account/`), Token
+                            // Metadata mints land on `/token/`. No
+                            // anchor → render plain text (matches the
+                            // existing groupingKind === 'programSource'
+                            // / 'authority' fallback used by RowLinks).
+                            const titleAnchor = r.collectionAddress;
+                            const titleSolPath = r.programSource === 'mpl_core' ? 'account' : 'token';
+                            const titleHref = titleAnchor
+                              ? `https://solscan.io/${titleSolPath}/${titleAnchor}`
+                              : null;
+                            const titleInner = (
+                              <>
+                                {displayName}
+                                {isBurst && (
+                                  <span title="Burst-detected — recent velocity spike" style={{ marginLeft: 6, fontSize: 10, color: '#e87a5e' }}>🔥</span>
+                                )}
+                              </>
+                            );
+                            const titleStyle: React.CSSProperties = {
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                              color: '#f0eef8', textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
+                            };
+                            return titleHref ? (
+                              <a
+                                href={titleHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Solscan · ${titleAnchor}`}
+                                style={titleStyle}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                              >{titleInner}</a>
+                            ) : (
+                              <span style={titleStyle}>{titleInner}</span>
+                            );
+                          })()}
                           {/* Tiny ME icon — replaces the removed LINKS
                               column. Only renders when we have a stable
                               on-chain anchor (collectionAddress); when

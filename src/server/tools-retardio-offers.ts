@@ -31,6 +31,12 @@ const SCAN_LIMIT_DFLT  = 60;
 const CACHE_TTL_MS     = 45_000;
 /** Largest single ME listings page; v2 endpoint accepts up to 100. */
 const LISTINGS_PAGE    = 100;
+/** Bounded parallelism for per-listing offer fetches. K=2 gives ~2×
+ *  speedup vs. the prior fully-sequential loop while keeping the
+ *  per-worker 120 ms gap; effective rate ≈ 3 req/s, comfortably under
+ *  ME's public-API tolerance for 5–15 s scan windows. Raise only after
+ *  observing 429 logs over a longer baseline. */
+const SCAN_CONCURRENCY = 2;
 
 interface MeListing {
   pdaAddress?:    string;
@@ -257,7 +263,7 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
   // Up to SCAN_LIMIT_MAX listings via single LISTINGS_PAGE pages.
   while (out.length < SCAN_LIMIT_MAX) {
     const url = `${ME_API_BASE}/collections/${encodeURIComponent(slug)}/listings?offset=${offset}&limit=${LISTINGS_PAGE}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(6_000) });
     if (!r.ok) break;
     const page = await r.json() as MeListing[];
     if (!Array.isArray(page) || page.length === 0) break;
@@ -272,7 +278,7 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
 async function fetchOffersReceived(mint: string): Promise<MeOffer[]> {
   const url = `${ME_API_BASE}/tokens/${encodeURIComponent(mint)}/offers_received?limit=20`;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(5_000) });
     if (!r.ok) return [];
     const data = await r.json() as MeOffer[];
     return Array.isArray(data) ? data : [];
@@ -290,15 +296,21 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
   let totalFetched   = 0;
   let totalAvailable = 0;
 
-  for (const l of sliced) {
+  // Per-listing handler — extracted from the original sequential loop
+  // body so a worker pool can run several in parallel. Body, ordering of
+  // checks, and emitted row shape are unchanged; only the surrounding
+  // dispatch is concurrent. Mutations to `out` / `totalFetched` /
+  // `totalAvailable` are safe because Node's event loop serializes them.
+  const processListing = async (l: MeListing): Promise<void> => {
     const mint = l.tokenMint ?? l.tokenAddress;
-    if (!mint || typeof l.price !== 'number') continue;
+    if (!mint || typeof l.price !== 'number') return;
 
     const offers = await fetchOffersReceived(mint);
-    if (offers.length === 0) continue;
+    if (offers.length === 0) return;
     // Pace only between mints that actually carry an offer to process —
     // empty mints don't add ME load, so no need to throttle them. Real
-    // offer-processing calls below still see the gap between iterations.
+    // offer-processing calls below still see the gap between iterations
+    // (per worker — the pool naturally interleaves across both workers).
     await sleep(REQUEST_GAP_MS);
     if (offers[0]) maybeLogSampleKeys(offers[0]);
 
@@ -319,12 +331,12 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     totalFetched   += offers.length;
     totalAvailable += priced.filter(p => p.status === 'AVAILABLE').length;
 
-    if (priced.length === 0) continue;
+    if (priced.length === 0) return;
 
     const best       = priced[0].offer;
     const bestStatus = priced[0].status;
     const bestPrice  = best.price as number;
-    if (bestPrice < minOfferSol) continue;
+    if (bestPrice < minOfferSol) return;
 
     // Pick whichever timestamp field ME actually populated — see
     // extractCreatedAt for the full alias list and ms→s normalisation.
@@ -353,7 +365,24 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       meUrl:              `https://magiceden.io/item-details/${mint}`,
       tensorUrl:          `https://www.tensor.trade/item/${mint}`,
     });
+  };
+
+  // Worker pool: SCAN_CONCURRENCY workers consume listings via a shared
+  // index (mirror of `resolveOfferAges` at line ~173). The final sort
+  // below is order-independent, so insertion order from concurrent
+  // workers does not affect the result.
+  let cursor = 0;
+  const work = async (): Promise<void> => {
+    while (cursor < sliced.length) {
+      const idx = cursor++;
+      await processListing(sliced[idx]);
+    }
+  };
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < Math.min(SCAN_CONCURRENCY, sliced.length); w++) {
+    workers.push(work());
   }
+  await Promise.all(workers);
 
   // ── Age backfill via on-chain bid PDA history ─────────────────────────
   // For rows whose `bestOfferStatus` is AVAILABLE or EXPECTED and where

@@ -37,12 +37,14 @@ export interface SaleEventRow {
 const SALE_TYPE_EXTRACTS = `
   raw_data->>'_parser'    AS _parser_extract,
   raw_data->>'_direction' AS _direction_extract,
+  raw_data->>'_subtype'   AS _subtype_extract,
   raw_data->'events'->'nft'->>'saleType' AS _helius_sale_type_extract
 `.trim();
 
 interface SaleEventRowRaw extends SaleEventRow {
   _parser_extract:           string | null;
   _direction_extract:        string | null;
+  _subtype_extract:          string | null;
   _helius_sale_type_extract: string | null;
 }
 
@@ -52,10 +54,12 @@ function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
       parser:         r._parser_extract,
       direction:      r._direction_extract,
       heliusSaleType: r._helius_sale_type_extract,
+      subtype:        r._subtype_extract,
     });
     // Scrub scratch columns before returning to callers.
     delete (r as Partial<SaleEventRowRaw>)._parser_extract;
     delete (r as Partial<SaleEventRowRaw>)._direction_extract;
+    delete (r as Partial<SaleEventRowRaw>)._subtype_extract;
     delete (r as Partial<SaleEventRowRaw>)._helius_sale_type_extract;
     return r;
   });

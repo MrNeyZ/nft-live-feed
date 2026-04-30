@@ -34,6 +34,36 @@ import {
   extractPartiesFromTokenFlow,
   balanceDeltas,
 } from './price';
+import { LUCKY_BUY_PROGRAM } from './programs';
+
+/** Deterministic Lucky Buy detector. Scans the tx's account-keys list
+ *  (static + loaded-address tables) for the dedicated lucky-buy raffle
+ *  program. Combined with a matched ME v2 sale instruction at the call
+ *  site, the signal is unambiguous: the lucky-buy program is single-
+ *  purpose and only ever appears in raffle-fulfilment transactions. */
+function isLuckyBuyTx(tx: RawSolanaTx): boolean {
+  const msg = tx.transaction?.message;
+  if (!msg) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawKeys = (msg as any).accountKeys as Array<string | { pubkey: string }> | undefined;
+  if (Array.isArray(rawKeys)) {
+    for (const k of rawKeys) {
+      const pk = typeof k === 'string' ? k : k?.pubkey;
+      if (pk === LUCKY_BUY_PROGRAM) return true;
+    }
+  }
+  // loadedAddresses (v0 tx address-lookup-table expansions) — also checked
+  // because the lucky-buy program could in principle appear via ALT,
+  // although in practice it lands in the static keys.
+  const loaded = tx.meta?.loadedAddresses;
+  if (loaded) {
+    for (const list of [loaded.writable, loaded.readonly]) {
+      if (!Array.isArray(list)) continue;
+      for (const k of list) if (k === LUCKY_BUY_PROGRAM) return true;
+    }
+  }
+  return false;
+}
 
 /** Derive NFT type from the matched instruction name — more precise than program-presence heuristic. */
 function nftTypeFromInstruction(name: string): NftType {
@@ -128,6 +158,23 @@ function parseMeV2Sale(
   }
 
   const sellerNet = computeSellerNetLamports(tx, seller);
+
+  // Lucky Buy override. The default price extraction picks the largest
+  // SOL decrease as the buyer's spend, but on a lucky-buy raffle the
+  // largest decrease is the raffle escrow (~entry-fee + reshuffles),
+  // not the listing settlement. The seller's positive delta — the same
+  // signal computeSellerNetLamports already returns — captures the
+  // actual NFT purchase value (listing price + small rent reclaim from
+  // the closed NFT-token account). When available we use it as both
+  // gross and net for lucky-buy rows. Falls back to the original
+  // payment.priceLamports when sellerNet is null (defensive — would
+  // require seller absent from accountKeys, which doesn't happen for
+  // the SPL paths Lucky Buy operates on).
+  const luckyBuy = isLuckyBuyTx(tx);
+  const priceLamports = luckyBuy && sellerNet != null
+    ? sellerNet
+    : payment.priceLamports;
+
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -137,8 +184,8 @@ function parseMeV2Sale(
     collectionAddress: null,
     seller,
     buyer,
-    priceLamports:     payment.priceLamports,
-    priceSol:          Number(payment.priceLamports) / 1e9,
+    priceLamports,
+    priceSol:          Number(priceLamports) / 1e9,
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
@@ -146,6 +193,7 @@ function parseMeV2Sale(
       _parser:     'me_v2_raw',
       _instruction: match.instructionName,
       _verified:   match.verified,
+      ...(luckyBuy ? { _subtype: 'lucky_buy' as const } : {}),
     },
     nftName:           null,
     imageUrl:          null,

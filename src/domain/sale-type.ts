@@ -17,17 +17,27 @@
  * with a known `_parser` ignores `heliusSaleType` even if present.
  */
 
-export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy';
+export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy' | 'lucky_buy';
 
 export interface SaleTypeInput {
   parser?:         string | null;
   direction?:      string | null;
   heliusSaleType?: string | null;
+  /** Raw-parser-set tag (e.g. raw_data._subtype === 'lucky_buy').
+   *  Takes precedence over `parser` so a Lucky-Buy ME v2 row resolves
+   *  to `'lucky_buy'` instead of the default `'normal_sale'`. */
+  subtype?:        string | null;
 }
 
 export function deriveSaleType(input: SaleTypeInput): SaleType {
-  const parser = input.parser ?? undefined;
-  const dir    = input.direction ?? undefined;
+  const parser  = input.parser  ?? undefined;
+  const dir     = input.direction ?? undefined;
+  const subtype = input.subtype ?? undefined;
+
+  // ── Subtype overrides (raw-parser-set, parser-agnostic tag) ─────────────
+  // Subtype wins over parser-only mapping when it carries a recognised
+  // value, so a Lucky-Buy ME v2 row doesn't fall back to normal_sale.
+  if (subtype === 'lucky_buy') return 'lucky_buy';
 
   // ── Raw-parser branches (program address is authoritative) ──────────────
   if (parser === 'me_v2_raw') return 'normal_sale';

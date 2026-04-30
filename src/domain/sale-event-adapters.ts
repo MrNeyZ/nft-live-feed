@@ -15,6 +15,7 @@ export function saleTypeFromRawData(rawData: Record<string, unknown>): SaleType 
     parser:         rawData._parser    as string | undefined,
     direction:      rawData._direction as string | undefined,
     heliusSaleType: nft?.saleType      as string | undefined,
+    subtype:        rawData._subtype   as string | undefined,
   });
 }
 

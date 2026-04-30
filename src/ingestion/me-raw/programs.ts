@@ -22,6 +22,20 @@ export const ATA_PROGRAM             = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe
  */
 export const ME_TREASURY = 'NTYeYJ1wr4bpM5xo6zx5En44SvJFAd35zTxxNoERYqd';
 
+/**
+ * Magic Eden "Lucky Buy" raffle program. Wraps a normal ME v2 sale ix
+ * (Mip1ExecuteSaleV2 etc.) inside a `FulfillM2Mip1` top-level call: the
+ * winner receives the NFT but only paid a small entry fee, while the
+ * lucky-buy pool covers the listing settlement. Detected by presence
+ * of this program in the tx's account keys; combined with a matched
+ * ME v2 sale instruction, the signal is deterministic.
+ *
+ * Confirmed live (2026-04-30): tx
+ * zqFqu45Xc...wM has LUCK57… as the only top-level instruction and
+ * CPIs into ME v2's BuyV2 + Mip1ExecuteSaleV2.
+ */
+export const LUCKY_BUY_PROGRAM = 'LUCK57mxzZiRGF2PdHAY79P6tZ8Apsi381tKvBrTdqk';
+
 // ─── Anchor discriminator helper ─────────────────────────────────────────────
 
 /** Computes the 8-byte Anchor instruction discriminator: sha256("global:<name>")[0..8]. */
