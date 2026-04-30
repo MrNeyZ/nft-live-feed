@@ -32,14 +32,13 @@ const CLICK_THROTTLE_MS = 40;
 
 const HOVER_URL  = '/sounds/ui-hover.m4a?v=2';
 const CLICK_URL  = '/sounds/ui-click.m4a?v=2';
-// Gains tuned to dial the operator-recorded clips down to subtle
-// website levels. Source clips are intentionally loud (peak ~0.033
-// hover, ~0.108 click — recorded that way for editing convenience);
-// these multipliers bring the in-page playback to roughly:
-//   hover effective ≈ 0.007  (very quiet — barely-there UI tick)
-//   click effective ≈ 0.032  (a touch louder, clear confirmation)
-const HOVER_GAIN = 0.20;
-const CLICK_GAIN = 0.30;
+// HTMLMediaElement.volume — multiplies the asset's recorded amplitude
+// at playback time. Source clips: raw peak ~0.033 hover, ~0.108 click
+// (intentionally loud during editing). Hover is kept quieter than
+// click so the click reads as a clear confirmation distinct from the
+// hover whisper.
+const HOVER_GAIN = 0.15;
+const CLICK_GAIN = 0.28;
 
 // ── Persisted preference ────────────────────────────────────────────────────
 
