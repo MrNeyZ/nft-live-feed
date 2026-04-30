@@ -440,7 +440,15 @@ export default function ToolsPage() {
                   No listings with personal offers right now.
                 </td></tr>
               )}
-              {sortedRows.map((row) => {
+              {(() => {
+                // Render-time TTL guard: a stale cached scan should not keep
+                // the NEW pill alive forever. `loadPersisted` clears flags on
+                // mount, but in-memory `result` would otherwise show the
+                // pill until the next scan; this gate suppresses it once
+                // `cachedAt` is older than NEW_FLAG_TTL_MS.
+                const newBadgesActive = !!result &&
+                  Date.now() - (result.cachedAt ?? 0) < NEW_FLAG_TTL_MS;
+                return sortedRows.map((row) => {
                 const name = row.nftName ?? row.mint.slice(0, 6);
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol > 0;
@@ -460,7 +468,7 @@ export default function ToolsPage() {
                             future click handlers on the icon still work. */}
                         <div style={{ position: 'relative', flexShrink: 0, width: 32, height: 32 }}>
                           <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={32} />
-                          {row.isNew && (
+                          {row.isNew && newBadgesActive && (
                             <span style={{
                               position: 'absolute', top: -4, right: -4,
                               padding: '1px 5px', fontSize: 8, fontWeight: 800,
@@ -510,7 +518,8 @@ export default function ToolsPage() {
                     </td>
                   </tr>
                 );
-              })}
+              });
+              })()}
             </tbody>
           </table>
         </div>

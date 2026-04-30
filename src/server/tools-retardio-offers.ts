@@ -295,8 +295,11 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     if (!mint || typeof l.price !== 'number') continue;
 
     const offers = await fetchOffersReceived(mint);
-    await sleep(REQUEST_GAP_MS);
     if (offers.length === 0) continue;
+    // Pace only between mints that actually carry an offer to process —
+    // empty mints don't add ME load, so no need to throttle them. Real
+    // offer-processing calls below still see the gap between iterations.
+    await sleep(REQUEST_GAP_MS);
     if (offers[0]) maybeLogSampleKeys(offers[0]);
 
     // Keep ALL priced offers; classify status per spec. Best-of-listing
@@ -330,8 +333,12 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     // the on-chain creation-tx lookup below.
     const createdAt = extractCreatedAt(best);
 
+    // Synthetic fallback keys must NOT include price — the same buyer
+    // adjusting their bid would otherwise produce a fresh ID and trip
+    // the frontend's NEW-badge "new offer" check. Use auctionHouse to
+    // disambiguate when the same buyer holds offers across markets.
     const bestOfferId = best.pdaAddress
-      ?? `${mint}:${best.buyer ?? '?'}:${bestPrice}`;
+      ?? `${mint}:${best.buyer ?? '?'}:${best.auctionHouse ?? '?'}`;
 
     out.push({
       mint,

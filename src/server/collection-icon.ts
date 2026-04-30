@@ -25,6 +25,20 @@ const MAX_SLUGS        = 80;
 interface CacheEntry { url: string | null; expiresAt: number; lastKnown: string | null }
 const cache = new Map<string, CacheEntry>();
 
+// Active sweep for cold entries — prevents the map from growing unboundedly
+// across long uptime when slugs are requested once and never again. Only
+// entries past expiry AND without a `lastKnown` fallback are removed; the
+// flicker-prevention path (returning stale `lastKnown` after expiry) is
+// preserved for any slug that ever resolved to an image.
+const SWEEP_INTERVAL_MS = 60_000;
+const sweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [slug, entry] of cache) {
+    if (now > entry.expiresAt && !entry.lastKnown) cache.delete(slug);
+  }
+}, SWEEP_INTERVAL_MS);
+if (typeof sweepTimer.unref === 'function') sweepTimer.unref();
+
 async function fetchIcon(slug: string): Promise<string | null> {
   const hit = cache.get(slug);
   const now = Date.now();

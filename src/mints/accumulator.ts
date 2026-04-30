@@ -81,9 +81,23 @@ const map = new Map<string, Accum>();
 /** Sticky reject set: groupingKeys the enricher classified as non-NFT
  *  via DAS. Future `recordMint` calls for these keys are silently
  *  dropped so a fungible's continuing MintTo / metadata-update stream
- *  can't re-resurrect the row. Process-lifetime — small set in
- *  practice (rejects accumulate slowly relative to NFT volume). */
+ *  can't re-resurrect the row. Bounded with FIFO eviction so it can't
+ *  grow without limit across long uptime. Sets preserve insertion
+ *  order in JS, so iterating `.values()` yields the oldest first. */
+const EVICTED_NON_NFT_MAX = 50_000;
 const evictedNonNft = new Set<string>();
+function rememberNonNft(key: string): void {
+  if (evictedNonNft.has(key)) return;
+  evictedNonNft.add(key);
+  if (evictedNonNft.size <= EVICTED_NON_NFT_MAX) return;
+  const overflow = evictedNonNft.size - EVICTED_NON_NFT_MAX;
+  const it = evictedNonNft.values();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    evictedNonNft.delete(r.value);
+  }
+}
 
 function trimWindow(arr: RingItem[], cutoff: number): RingItem[] {
   let i = 0;
@@ -320,7 +334,7 @@ export function patchAccumulatorMeta(
  *       `recordMint` calls for the same key are dropped before they
  *       can re-promote the row. */
 export function evictMintGroup(groupingKey: string): void {
-  evictedNonNft.add(groupingKey);
+  rememberNonNft(groupingKey);
   const a = map.get(groupingKey);
   if (!a) return;
   a.displayState = 'cooled';

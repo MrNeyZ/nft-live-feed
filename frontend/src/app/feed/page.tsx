@@ -165,6 +165,7 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 //                    Big-mover sales stand out at a glance.
 const FLOOR_BRIGHT_THRESHOLD = 0.25;
 function FloorChip({ delta }: { delta: number }) {
+  if (!Number.isFinite(delta)) return null;
   const above  = delta >= 0;
   const pct    = delta * 100;
   const sign   = above ? '+' : '';
@@ -706,14 +707,23 @@ export default function FeedPage() {
   // batched with a small debounce so bursts don't turn into 1-per-event
   // calls. Shared predicate (`isCnftDust`) keeps Dashboard in lockstep.
   const [floorBySlug, setFloorBySlug] = useState<Record<string, number | null>>({});
-  const requestedFloorRef = useRef<Set<string>>(new Set());
+  // Slug → timestamp of last request. After FLOOR_REQUEST_TTL_MS the slug is
+  // eligible for a refresh so a long-running tab doesn't keep stale floors.
+  const requestedFloorRef = useRef<Map<string, number>>(new Map());
   const pendingFloorRef   = useRef<Set<string>>(new Set());
   const floorFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Keep the cNFT floor map bounded — avoids unbounded growth across long
+   *  sessions without changing filter behavior. Insertion-order eviction. */
+  const FLOOR_BY_SLUG_MAX = 500;
+  /** How long a fetched floor is considered fresh enough to skip a refresh. */
+  const FLOOR_REQUEST_TTL_MS = 5 * 60_000;
 
   useEffect(() => {
+    const now = Date.now();
     for (const e of events) {
       if (e.nftType !== 'cnft' || !e.meCollectionSlug) continue;
-      if (requestedFloorRef.current.has(e.meCollectionSlug)) continue;
+      const last = requestedFloorRef.current.get(e.meCollectionSlug);
+      if (last != null && now - last < FLOOR_REQUEST_TTL_MS) continue;
       pendingFloorRef.current.add(e.meCollectionSlug);
     }
     if (pendingFloorRef.current.size === 0 || floorFetchTimerRef.current) return;
@@ -721,7 +731,8 @@ export default function FeedPage() {
       floorFetchTimerRef.current = null;
       const batch = Array.from(pendingFloorRef.current).slice(0, 80);
       pendingFloorRef.current.clear();
-      for (const s of batch) requestedFloorRef.current.add(s);
+      const fetchedAt = Date.now();
+      for (const s of batch) requestedFloorRef.current.set(s, fetchedAt);
       try {
         const res = await fetch(
           `${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(batch.join(','))}`,
@@ -735,6 +746,14 @@ export default function FeedPage() {
           const next = { ...prev };
           for (const [slug, v] of Object.entries(data.bids!)) {
             next[slug] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
+          }
+          // Bound the map. Object iteration is insertion-order in modern
+          // engines; drop the oldest keys until under the cap. Cheap because
+          // it only runs when we've genuinely overflowed.
+          const keys = Object.keys(next);
+          if (keys.length > FLOOR_BY_SLUG_MAX) {
+            const drop = keys.length - FLOOR_BY_SLUG_MAX;
+            for (let i = 0; i < drop; i++) delete next[keys[i]];
           }
           return next;
         });
