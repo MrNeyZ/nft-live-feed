@@ -19,6 +19,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { getMeStats } from '../enrichment/me-stats';
 
 const BID_TTL_MS = 60_000;
 const MAX_SLUGS_PER_REQUEST = 80;
@@ -34,11 +35,6 @@ interface CachedBids {
 
 const cache = new Map<string, CachedBids>();
 
-interface MeStats {
-  floorPrice?: number;     // lamports
-  listedCount?: number;
-  volumeAll?: number;      // lamports
-}
 interface MeStatsOut {
   floorLamports:     number | null;
   listedCount:       number | null;
@@ -52,21 +48,13 @@ interface MmmPool {
 interface MmmPoolsResponse { results?: MmmPool[] }
 
 async function fetchMeStats(slug: string): Promise<MeStatsOut> {
-  try {
-    const res = await fetch(
-      `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
-      { signal: AbortSignal.timeout(4_000) },
-    );
-    if (!res.ok) return { floorLamports: null, listedCount: null, volumeAllLamports: null };
-    const json = await res.json() as MeStats;
-    return {
-      floorLamports: typeof json.floorPrice === 'number' && json.floorPrice > 0 ? json.floorPrice : null,
-      listedCount:   typeof json.listedCount === 'number' && json.listedCount >= 0 ? json.listedCount : null,
-      volumeAllLamports: typeof json.volumeAll === 'number' && json.volumeAll >= 0 ? json.volumeAll : null,
-    };
-  } catch {
-    return { floorLamports: null, listedCount: null, volumeAllLamports: null };
-  }
+  const json = await getMeStats(slug);
+  if (!json) return { floorLamports: null, listedCount: null, volumeAllLamports: null };
+  return {
+    floorLamports: typeof json.floorPrice === 'number' && json.floorPrice > 0 ? json.floorPrice : null,
+    listedCount:   typeof json.listedCount === 'number' && json.listedCount >= 0 ? json.listedCount : null,
+    volumeAllLamports: typeof json.volumeAll === 'number' && json.volumeAll >= 0 ? json.volumeAll : null,
+  };
 }
 
 async function fetchMmmTopBid(slug: string): Promise<number | null> {

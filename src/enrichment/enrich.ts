@@ -5,6 +5,7 @@ import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
 import { getDerivedFloorLamports } from '../server/listings-store';
+import { getMeStats } from './me-stats';
 
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
@@ -116,19 +117,11 @@ export function peekCachedFloorLamports(slug: string | null | undefined): number
 }
 
 async function fetchMeFloorLamports(slug: string): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
-      { signal: AbortSignal.timeout(4000) },
-    );
-    if (!res.ok) return null;
-    const json = await res.json() as { floorPrice?: number };
-    return typeof json.floorPrice === 'number' && json.floorPrice > 0
-      ? json.floorPrice
-      : null;
-  } catch {
-    return null;
-  }
+  const json = await getMeStats(slug);
+  if (!json) return null;
+  return typeof json.floorPrice === 'number' && json.floorPrice > 0
+    ? json.floorPrice
+    : null;
 }
 
 /** Tensor floor fallback. Uses `buyNowPrice` (lowest listing) from the
