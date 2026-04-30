@@ -109,7 +109,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = '3';
+const MINTS_CACHE_VERSION     = '4';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;

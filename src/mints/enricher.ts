@@ -21,12 +21,19 @@ const PENDING_MAX       = 200;
 interface PendingEntry { groupingKey: string; mintAddress: string; }
 
 const pending: PendingEntry[]  = [];
-const enriched                 = new Set<string>();   // groupingKeys already attempted
+/** Per-MINT dedup (was per-grouping-key). Keying by mintAddress means
+ *  every distinct mint gets a DAS verdict at least once, even when a
+ *  fungible later joins a group whose first mint was a real NFT — the
+ *  prior per-group dedup let those slip through unchallenged.
+ *  Bounded indirectly: same population as the accumulator's mint set,
+ *  which the rolling-window sweep already prunes.  */
+const verifiedMints            = new Set<string>();
 let workerScheduled            = false;
 
 export function enqueueMintEnrichment(groupingKey: string, mintAddress: string): void {
-  if (enriched.has(groupingKey)) return;            // already attempted
-  enriched.add(groupingKey);
+  if (!mintAddress) return;
+  if (verifiedMints.has(mintAddress)) return;       // already attempted
+  verifiedMints.add(mintAddress);
   pending.push({ groupingKey, mintAddress });
   if (pending.length > PENDING_MAX) {
     // Drop oldest — under a hot launch the freshest entries are the
@@ -55,6 +62,10 @@ async function runWorker(): Promise<void> {
       if (!verdict.ok) {
         evictMintGroup(next.groupingKey);
         noteFilterReject(verdict.reason ?? 'unknown', next.mintAddress);
+        // Operator-facing line per the /mints filter spec — sampled
+        // via the same counter map so a single noisy reason doesn't
+        // flood the console under a hot launch.
+        noteEvictNonNft(verdict.reason ?? 'unknown', next.groupingKey, next.mintAddress);
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
@@ -101,6 +112,16 @@ function noteFilterReject(reason: string, mint: string): void {
   if (n === 1 || n % 50 === 0) {
     console.log(
       `[mints/filter] reject_non_nft reason=${reason} count=${n} mint=${mint.slice(0, 8)}…`,
+    );
+  }
+}
+const _evictNonNftCount = new Map<string, number>();
+function noteEvictNonNft(reason: string, groupingKey: string, mint: string): void {
+  const n = (_evictNonNftCount.get(reason) ?? 0) + 1;
+  _evictNonNftCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/evict-non-nft] reason=${reason} groupingKey=${groupingKey.slice(0, 32)}… mint=${mint.slice(0, 8)}…`,
     );
   }
 }
