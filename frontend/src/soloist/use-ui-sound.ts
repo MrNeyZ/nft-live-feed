@@ -30,17 +30,16 @@ const STORAGE_KEY = 'vl.uiSound';
 const HOVER_THROTTLE_MS = 80;
 const CLICK_THROTTLE_MS = 40;
 
-const HOVER_URL  = '/sounds/ui-hover.m4a';
-const CLICK_URL  = '/sounds/ui-click.m4a';
-// Gain 1.0 — the underlying clips were extracted at the original
-// recording's natural amplitude (peak ~0.008 hover, ~0.028 click) with
-// NO normalization, so playing at full element volume reproduces what
-// the operator heard in sample.mp3. Don't raise these casually — going
-// above 1.0 isn't allowed by HTMLMediaElement.volume anyway, and
-// boosting via Web Audio would re-introduce the harshness the previous
-// (over-normalized) version had.
-const HOVER_GAIN = 1.0;
-const CLICK_GAIN = 1.0;
+const HOVER_URL  = '/sounds/ui-hover.m4a?v=2';
+const CLICK_URL  = '/sounds/ui-click.m4a?v=2';
+// Gains tuned to dial the operator-recorded clips down to subtle
+// website levels. Source clips are intentionally loud (peak ~0.033
+// hover, ~0.108 click — recorded that way for editing convenience);
+// these multipliers bring the in-page playback to roughly:
+//   hover effective ≈ 0.007  (very quiet — barely-there UI tick)
+//   click effective ≈ 0.032  (a touch louder, clear confirmation)
+const HOVER_GAIN = 0.20;
+const CLICK_GAIN = 0.30;
 
 // ── Persisted preference ────────────────────────────────────────────────────
 
@@ -121,6 +120,61 @@ function installFirstGestureInit(): void {
   window.addEventListener('keydown',     init, { once: true });
 }
 if (typeof window !== 'undefined') installFirstGestureInit();
+
+// ── Global delegation: every clickable surface gets sounds ────────────────
+//
+// Walks up the DOM from the event target to find the nearest interactive
+// element (button, anchor with href, or role=button). Hover sound fires
+// only when the pointer ENTERS a new clickable ancestor (i.e. the
+// relatedTarget's clickable ancestor differs) — moving within the same
+// button doesn't re-tick. Click fires on every click of a clickable.
+//
+// This is what enables the spec rule "all clickable objects tick;
+// non-clickable bubbles in tables don't" — table badges / value cells
+// are spans without role=button, so they're naturally excluded.
+//
+// Disabled buttons (HTMLButtonElement.disabled or aria-disabled="true"
+// on a role=button surface) are silenced too. play* functions still
+// gate on `enabled` / reduced-motion / throttle internally, so the
+// listeners are cheap to leave installed even when sound is OFF.
+function findClickableAncestor(target: EventTarget | null): HTMLElement | null {
+  let el = target as HTMLElement | null;
+  while (el && el !== document.body) {
+    if (el instanceof HTMLButtonElement) {
+      return el.disabled ? null : el;
+    }
+    if (el instanceof HTMLAnchorElement && el.href) {
+      return el;
+    }
+    if (el.getAttribute && el.getAttribute('role') === 'button') {
+      return el.getAttribute('aria-disabled') === 'true' ? null : el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+let globalListenersInstalled = false;
+function installGlobalUiSoundListeners(): void {
+  if (globalListenersInstalled || typeof document === 'undefined') return;
+  globalListenersInstalled = true;
+
+  document.addEventListener('pointerover', (e) => {
+    if (!enabled) return;                        // cheap pre-gate
+    const target = findClickableAncestor(e.target);
+    if (!target) return;
+    const from = findClickableAncestor(e.relatedTarget);
+    if (from === target) return;                 // moved within same clickable
+    playUiHover();
+  }, { passive: true });
+
+  document.addEventListener('click', (e) => {
+    if (!enabled) return;
+    if (!findClickableAncestor(e.target)) return;
+    playUiClick();
+  }, { passive: true });
+}
+if (typeof document !== 'undefined') installGlobalUiSoundListeners();
 
 // ── Reduced-motion respect ─────────────────────────────────────────────────
 
