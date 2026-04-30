@@ -713,23 +713,29 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
 }
 
 /* ── Page transitions ──────────────────────────────────────────────────────
-   Subtle fade + 6 px translate-up applied when a route's content mounts.
-   Each main page (/dashboard, /multi, /mints, /tools, /feed) renders a
-   fresh `<div class="feed-root page-transition">` on navigation, so the
-   keyframe fires once per route change.
+   Soft opacity-only fade applied when a route's content mounts. Each
+   main page (/dashboard, /multi, /mints, /tools, /feed) renders a
+   fresh `<div class="feed-root page-transition">` on navigation, so
+   the keyframe fires once per route change.
    TopNav (`.topnav-root`) and BottomStatusBar (`.bottom-status`) are
    skipped via the `:not(...)` selector so chrome stays static — only
    page-specific content animates.
-   Duration 160 ms / ease-out is fast enough to feel instant on a hot
-   cache yet smooth on cold; `both` keeps the start frame (opacity 0,
-   translate 6px) before the animation runs to prevent a flash.
+   Tweaks vs. earlier version:
+     • dropped the 6 px translate-up — the slight slide produced a
+       visible reflow flicker against the stable nav chrome above.
+     • opacity start raised from 0 → 0.35 so the fade-in never goes
+       fully blank between routes.
+     • duration trimmed 160 ms → 140 ms for a snappier feel.
+     • `body[data-app="1"]` carries the dark base color so the
+       half-second between unmount and remount paints on a stable
+       background, never on white.
 */
 .page-transition > *:not(.topnav-root):not(.bottom-status) {
-  animation: pageIn 160ms ease-out both;
+  animation: pageFadeIn 140ms ease-out both;
 }
-@keyframes pageIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes pageFadeIn {
+  from { opacity: 0.35; }
+  to   { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-transition > *:not(.topnav-root):not(.bottom-status) {
@@ -762,4 +768,5 @@ body[data-bottombar="1"] .feed-root {
 .mints-feed-row { cursor: default; }
 .mints-feed-row:hover {
   background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(168, 144, 232, 0.22);
 }

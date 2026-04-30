@@ -70,6 +70,33 @@ interface MintEvent {
  *  this is exceeded. Persisted in localStorage so a page reload /
  *  tab-switch doesn't wipe the recent stream. */
 const LIVE_FEED_MAX     = 150;
+
+/** Cache version for /mints localStorage entries. Bump this constant
+ *  whenever the backend filter rules change so already-cached rows
+ *  that no longer pass the filter (e.g. fungible tokens) get evicted
+ *  on the next page load. The version is checked in
+ *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
+ *  the live-feed and collections stores, then write the new version. */
+const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
+const MINTS_CACHE_VERSION     = '2';
+
+function migratePersistedCachesIfNeeded(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const have = window.localStorage.getItem(MINTS_CACHE_VERSION_KEY);
+    if (have === MINTS_CACHE_VERSION) return;
+    // Mismatch (or first run) → drop the persisted /mints stores so
+    // any rows produced by an older filter regime disappear. Other
+    // localStorage entries (auth, layout-mode, price-mode, /tools
+    // scan caches) are intentionally untouched.
+    window.localStorage.removeItem('vl.mints.liveFeed');
+    window.localStorage.removeItem('vl.mints.collections');
+    window.localStorage.setItem(MINTS_CACHE_VERSION_KEY, MINTS_CACHE_VERSION);
+  } catch { /* quota / private mode — fail silent */ }
+}
+// Run once at module import — before useState lazy initializers fire,
+// so the load helpers below see an empty store on a version mismatch.
+migratePersistedCachesIfNeeded();
 /** localStorage key for the live-feed buffer. Per-user, single key
  *  (no multi-account variants for now). */
 const FEED_STORAGE_KEY  = 'vl.mints.liveFeed';
@@ -504,25 +531,23 @@ export default function MintsPage() {
               `minmax(0, 2fr) minmax(320px, 0.9fr)`.
             • Phone (globals.css rule): single column.
             • Embed mode (multi-tab): single column.
-          Fixed height (~460 px) so the two panels read like one
-          dense workspace — same density as the /tools offers table.
-          `flexShrink: 0` keeps the panel from being squeezed when
-          the parent .feed-root flex column has other shorter
-          children. Internal scroll inside each panel handles
-          overflow; the page itself never grows. Embed mode keeps
-          the legacy `flex: 1` behaviour so multi-tab iframes still
-          fill their cell. */}
+          `flex: 1` + `minHeight: 0` lets the grid fill all the height
+          left over by `.feed-root`'s flex column (TopNav + header are
+          its other children; the persistent BottomStatusBar reserves
+          its own 36 px via `body[data-bottombar="1"]`'s padding-bottom
+          rule on .feed-root). Both panels stretch to that full
+          height; internal scroll inside each handles overflow so the
+          page itself never grows. */}
       <div className="mints-grid" style={{
-        ...(embedded
-          ? { flex: 1, minHeight: 0 }
-          : { height: 460, flexShrink: 0 }),
+        flex: 1,
+        minHeight: 0,
         display: 'grid',
         gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 2fr) minmax(320px, 0.9fr)',
         gap: 16,
         width: '100%',
         maxWidth: embedded ? 'none' : 1400,
         margin: '0 auto',
-        paddingBottom: embedded ? 0 : 16,
+        paddingBottom: embedded ? 0 : 8,
         boxSizing: 'border-box',
       }}>
       {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
@@ -725,7 +750,15 @@ export default function MintsPage() {
               {events.length === 0 ? 'waiting…' : `${events.length} recent · max ${LIVE_FEED_MAX}`}
             </span>
           </div>
-          <div className="scroll-area" style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="scroll-area" style={{
+            flex: 1, overflowY: 'auto',
+            // Card-stack rhythm (mirrors /feed): inner column with a 6 px
+            // gap between rows + 8 px padding so the first/last cards
+            // breathe inside the panel chrome. Each row is itself a
+            // bordered card via the .feed-card-style rules below.
+            display: 'flex', flexDirection: 'column', gap: 6,
+            padding: '8px 8px',
+          }}>
             {events.length === 0 && (
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
                 Waiting for individual mint events…
@@ -747,15 +780,17 @@ export default function MintsPage() {
                   key={ev.signature}
                   className="mints-feed-row"
                   style={{
-                    // Match /feed `.feed-card` rhythm: 10/12 padding, 12 gap,
-                    // 56 px thumb, subtle 1 px row separator. Hover tint via
-                    // the className rule in globals.css mirrors the feed-card
-                    // hover state (rgba 0.04). No per-row border-radius —
-                    // the parent panel border carries the rounded chrome.
+                    // Card chrome — exact mirror of /feed `.feed-card`:
+                    // 10/12 padding, 12 px gap, 56 px thumb, 1 px hairline
+                    // border, 7 px radius, faint background. Hover tint
+                    // via the className rule in globals.css (matches
+                    // .feed-card:hover at rgba 0.04).
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    transition: 'background 0.12s',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 7,
+                    background: 'rgba(255,255,255,0.02)',
+                    transition: 'background 0.12s, border-color 0.12s',
                   }}
                 >
                   {/* 56×56 NFT thumbnail — same size as /feed cards.
