@@ -760,17 +760,20 @@ export default function MintsPage() {
                           )}
                           {(() => {
                             // Title is clickable → Solscan when we have
-                            // an on-chain anchor. Path branches the same
-                            // way as RowLinks below: Core assets are
-                            // first-class accounts (`/account/`), Token
-                            // Metadata mints land on `/token/`. No
-                            // anchor → render plain text (matches the
-                            // existing groupingKind === 'programSource'
-                            // / 'authority' fallback used by RowLinks).
-                            const titleAnchor = r.collectionAddress;
-                            const titleSolPath = r.programSource === 'mpl_core' ? 'account' : 'token';
+                            // an on-chain anchor. Always uses `/account/`
+                            // per the unified spec (works for Core
+                            // assets, collection NFTs, mint authorities,
+                            // creators, merkle trees). Falls back to
+                            // `groupingKey` when no `collectionAddress`,
+                            // unless the grouping kind is the synthetic
+                            // `programSource` label ('mpl_core', etc.)
+                            // which isn't a real address. No anchor →
+                            // plain text (matches RowLinks fallback).
+                            const titleAnchor =
+                              r.collectionAddress ??
+                              (r.groupingKind !== 'programSource' ? r.groupingKey : null);
                             const titleHref = titleAnchor
-                              ? `https://solscan.io/${titleSolPath}/${titleAnchor}`
+                              ? `https://solscan.io/account/${titleAnchor}`
                               : null;
                             const titleInner = (
                               <>
