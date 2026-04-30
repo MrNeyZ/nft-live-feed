@@ -9,12 +9,19 @@ import { getDerivedFloorLamports } from '../server/listings-store';
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
+const FLOOR_MISS_TTL_MS = 5 * 60 * 1000; // 5 min — backoff after a total floor lookup miss
 const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster than floor
 
 const successCache = new TtlCache<string, NftMetadata>(SUCCESS_TTL_MS);
 const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS);
 /** Keyed by ME collection slug → floor price in lamports. */
 const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS);
+/** Keyed by slug → marker that recent ME+Tensor floor lookups both failed.
+ *  Prevents per-event refresh storms for slugs with no resolvable floor. */
+const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS);
+/** Slugs with an in-flight background floor refresh — dedup so concurrent
+ *  events don't fan out into duplicate ME/Tensor calls. */
+const floorRefreshInFlight = new Set<string>();
 /** Keyed by ME collection slug → top offer price in lamports. */
 const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS);
 
@@ -108,8 +115,7 @@ export function peekCachedFloorLamports(slug: string | null | undefined): number
   return floorCache.get(slug) ?? null;
 }
 
-async function getCollectionFloorLamports(slug: string): Promise<number | null> {
-  if (floorCache.has(slug)) return floorCache.get(slug)!;
+async function fetchMeFloorLamports(slug: string): Promise<number | null> {
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
@@ -117,14 +123,60 @@ async function getCollectionFloorLamports(slug: string): Promise<number | null> 
     );
     if (!res.ok) return null;
     const json = await res.json() as { floorPrice?: number };
-    const floor = typeof json.floorPrice === 'number' && json.floorPrice > 0
+    return typeof json.floorPrice === 'number' && json.floorPrice > 0
       ? json.floorPrice
       : null;
-    if (floor != null) floorCache.set(slug, floor);
-    return floor;
   } catch {
     return null;
   }
+}
+
+/** Tensor floor fallback. Uses `buyNowPrice` (lowest listing) from the
+ *  authenticated `tensordev.io` collections endpoint. Returns null when
+ *  TENSOR_API_KEY is unset or the slug isn't on Tensor. */
+async function fetchTensorFloorLamports(slug: string): Promise<number | null> {
+  const key = process.env.TENSOR_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://api.mainnet.tensordev.io/api/v1/collections?slug=${encodeURIComponent(slug)}`,
+      {
+        headers: { 'x-tensor-api-key': key },
+        signal: AbortSignal.timeout(4_000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = await res.json() as { stats?: { buyNowPrice?: string } };
+    const raw = json?.stats?.buyNowPrice;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fire-and-forget background floor refresh. Tries ME first (public),
+ *  Tensor second (key-gated). Populates `floorCache` on success so the
+ *  NEXT event for this slug carries floorDelta. Logs `[floor-miss]` on
+ *  total failure so coverage gaps are visible. Deduped via in-flight Set
+ *  + miss TTL so we never fan out per-event. */
+function kickFloorRefresh(slug: string): void {
+  if (floorCache.has(slug)) return;
+  if (floorMissCache.has(slug)) return;
+  if (floorRefreshInFlight.has(slug)) return;
+  floorRefreshInFlight.add(slug);
+  (async () => {
+    try {
+      const me = await fetchMeFloorLamports(slug);
+      if (me != null) { floorCache.set(slug, me); return; }
+      const tnsr = await fetchTensorFloorLamports(slug);
+      if (tnsr != null) { floorCache.set(slug, tnsr); return; }
+      floorMissCache.set(slug, true);
+      console.log(`[floor-miss] collection=${slug} source=ME/Tensor`);
+    } finally {
+      floorRefreshInFlight.delete(slug);
+    }
+  })().catch(() => { floorRefreshInFlight.delete(slug); });
 }
 
 /**
@@ -389,7 +441,13 @@ async function computeFloorDelta(
   if (!slug) return null;
   const derived = getDerivedFloorLamports(slug);
   const floorLamports = derived ?? floorCache.get(slug) ?? null;
-  if (floorLamports == null || floorLamports <= 0) return null;
+  if (floorLamports == null || floorLamports <= 0) {
+    // Background populate so the next event for this slug carries a delta.
+    // Never blocks — the current event ships without a floor chip.
+    kickFloorRefresh(slug);
+    return null;
+  }
+  if (Number(priceLamports) <= 0) return null;
   return (Number(priceLamports) - floorLamports) / floorLamports;
 }
 
