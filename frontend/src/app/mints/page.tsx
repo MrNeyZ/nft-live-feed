@@ -109,7 +109,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = '2';
+const MINTS_CACHE_VERSION     = '3';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -769,9 +769,20 @@ export default function MintsPage() {
                             // `programSource` label ('mpl_core', etc.)
                             // which isn't a real address. No anchor →
                             // plain text (matches RowLinks fallback).
-                            const titleAnchor =
+                            const rawAnchor =
                               r.collectionAddress ??
                               (r.groupingKind !== 'programSource' ? r.groupingKey : null);
+                            // Backend prefixes groupingKey with the kind
+                            // tag (`collection:…`, `authority:…`, etc.)
+                            // so a Solscan URL needs to strip it before
+                            // hitting the route. Split on ':' and take
+                            // the last segment — works for both prefixed
+                            // and bare collectionAddress inputs.
+                            const titleAnchor = rawAnchor
+                              ? rawAnchor.includes(':')
+                                ? rawAnchor.slice(rawAnchor.lastIndexOf(':') + 1)
+                                : rawAnchor
+                              : null;
                             const titleHref = titleAnchor
                               ? `https://solscan.io/account/${titleAnchor}`
                               : null;
