@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { isAuthed, login, clearAuth } from './auth';
 import { fetchMode, setMode, SELECTABLE_MODES, type RuntimeMode } from './mode';
 import { FloatingLayoutModeSwitcher, BottomStatusBar } from '@/soloist/shared';
+import { playUiHover, playUiClick } from '@/soloist/use-ui-sound';
 import { usePathname } from 'next/navigation';
 
 type GateState =
@@ -316,7 +317,8 @@ function ModeSelectScreen({ onSelected }: { onSelected: () => void }) {
             <button
               key={m}
               className="vl-cta vl-cta--block"
-              onClick={() => pick(m)}
+              onPointerEnter={() => { if (busy == null) playUiHover(); }}
+              onClick={() => { if (busy == null) playUiClick(); pick(m); }}
               disabled={busy != null}
               data-busy={isBusy ? 'true' : undefined}
             >

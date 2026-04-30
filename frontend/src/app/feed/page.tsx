@@ -323,9 +323,20 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
     style.borderTone === 'sell' ? 'sell-card' :
     style.borderTone === 'buy'  ? 'buy-card'  : 'buy-card';
   const cardClass = `feed-card ${borderClass}`;
-  const m = event.nftName.match(/^(.*?)\s*#?(\d+)$/);
-  const baseName = m ? m[1] : event.nftName;
+  const m = event.nftName?.match(/^(.*?)\s*#?(\d+)$/);
+  const baseName = m ? m[1] : (event.nftName ?? '');
   const num = m ? m[2] : '';
+  // Cap the displayed title length (collection name + " #<num>") so very
+  // long names don't crowd the right column. The cap is checked against
+  // the full visible string so the number counts toward the budget;
+  // when truncated we fall back to a single string (loses the styled
+  // `#…` color) and append an ellipsis.
+  const NAME_MAX_LEN = 18;
+  const fullName     = (baseName + (num ? ` #${num}` : '')).trim();
+  const isTruncated  = fullName.length > NAME_MAX_LEN;
+  const shortName    = isTruncated
+    ? fullName.slice(0, NAME_MAX_LEN).trim() + '...'
+    : null;
 
   // Avatar click routing, local to the Live Feed card:
   //   LMB  → centered image preview (onPreview callback).
@@ -395,25 +406,32 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
                 href={`/collection/${encodeURIComponent(thumbSlug)}`}
                 onClick={(e) => e.stopPropagation()}
                 style={FC_NAME_LINK_STYLE}
+                title={isTruncated ? fullName : undefined}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               >
-                {baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}
+                {isTruncated
+                  ? shortName
+                  : <>{baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}</>}
               </a>
             ) : (
-              <span style={FC_NAME_SPAN_STYLE}>
-                {baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}
+              <span style={FC_NAME_SPAN_STYLE} title={isTruncated ? fullName : undefined}>
+                {isTruncated
+                  ? shortName
+                  : <>{baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}</>}
               </span>
             )}
             {event.saleTypeRaw === 'lucky_buy' && (
               // Lucky Buy marker — small inline emoji after the NFT
               // name, no extra column or layout shift. Tooltip explains
               // what the icon means for operators unfamiliar with the
-              // raffle product.
+              // raffle product. Negative `marginLeft` cancels the
+              // parent flex container's `gap: 8` so the emoji sits
+              // flush against the name rather than spaced 8 px apart.
               <span
                 title="Magic Eden Lucky Buy — winner received this NFT via raffle settlement"
                 aria-label="Lucky Buy"
-                style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none' }}
+                style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
               >🍀</span>
             )}
           </div>

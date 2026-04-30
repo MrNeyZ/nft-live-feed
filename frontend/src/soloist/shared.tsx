@@ -15,7 +15,7 @@ import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeM
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { playUiTick, useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
+import { playUiHover, playUiClick, useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -237,14 +237,14 @@ export function Pill({
     <button
       type="button"
       onClick={(e) => {
-        // UI tick — no-op when disabled (the toggle in BottomStatusBar
-        // gates everything; default OFF). Fires before the user's
-        // onClick so the audible feedback isn't blocked by any heavy
-        // handler work.
-        if (!disabled) playUiTick();
+        // Click tick — disabled buttons stay silent (toggle in
+        // BottomStatusBar still gates everything; default OFF).
+        // Fires BEFORE the user's onClick so the audible feedback
+        // isn't blocked by any heavy handler work.
+        if (!disabled) playUiClick();
         onClick?.(e);
       }}
-      onPointerEnter={() => { if (!disabled) playUiTick(); }}
+      onPointerEnter={() => { if (!disabled) playUiHover(); }}
       disabled={disabled}
       title={title}
       style={{
@@ -703,6 +703,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
               href={p.href}
               className="topnav-tab"
               data-tab={p.key}
+              onPointerEnter={() => playUiHover()}
+              onClick={() => playUiClick()}
               style={{
                 position: 'relative', zIndex: 1,
                 padding: '5px 16px', fontSize: 12, fontWeight: 600,
