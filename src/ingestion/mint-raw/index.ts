@@ -115,23 +115,72 @@ const MINT_ADDRESS_BLACKLIST: ReadonlySet<string> = new Set([
  *  Match is case-sensitive and order-insensitive. Anything else is
  *  shed before fetchRawTx — this is the single biggest knob keeping
  *  Token Metadata's firehose under control. */
-const MINT_LOG_NEEDLES: readonly string[] = [
-  // MPL Core
+/** MPL Core needles — the program is non-fungible by design and its
+ *  CreateV1 / CreateCollectionV1 instruction names are unambiguous. */
+const CORE_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: CreateV1',
   'Instruction: CreateCollectionV1',
-  // MPL Token Metadata
-  'Instruction: CreateMetadataAccountV3',
-  'Instruction: Create',     // Token Metadata "Create" (V1.5+)
-  'Instruction: Mint',       // Token Metadata "Mint" (pNFT)
 ];
 
+/** MPL Token Metadata "create metadata account" needles. Covers both
+ *  the older `Instruction: …` log format and the newer `IX: …` format
+ *  emitted by Token Metadata V1.5+. These strings are TM-specific and
+ *  do NOT collide with SPL Token, ATA, or launchpad logs. */
+const TM_CREATE_INSTRUCTION_NEEDLES: readonly string[] = [
+  // Older "Instruction: …" format
+  'Instruction: CreateMetadataAccountV3',
+  'Instruction: CreateMetadataAccountV2',
+  'Instruction: CreateMetadataAccount',
+  // Newer "IX: …" format (Token Metadata V1.5+)
+  'IX: Create Metadata Accounts v3',
+  'IX: Create Metadata Accounts v2',
+  'IX: Create Metadata Accounts',
+];
+
+/** Combined list — used as a fast pre-screen by both `hasMintInstructionLog`
+ *  and `detectProgramSource`. Note the previous loose `Instruction: Create`
+ *  and `Instruction: Mint` needles were removed: they matched
+ *  `Instruction: CreateTokenAccount` / `Instruction: CreatePosition` /
+ *  `Instruction: MintTo` and let SPL fungible / launchpad / DEX txs through
+ *  the prefilter, costing RPC fetches and occasionally polluting /mints. */
+const MINT_LOG_NEEDLES: readonly string[] = [
+  ...CORE_INSTRUCTION_NEEDLES,
+  ...TM_CREATE_INSTRUCTION_NEEDLES,
+];
+
+/** Strict word-boundary regex for the MPL Token Metadata `Mint`
+ *  instruction (pNFT mint path). Anchored end-of-token so the SPL
+ *  Token `Instruction: MintTo` log line can't substring-match. */
+const TM_MINT_INSTRUCTION_REGEX = /Instruction: Mint(?:\s|$)/;
+
+/** Strict prefilter — requires BOTH:
+ *    1. At least one log line contains the TM or Core program ID
+ *       (anchors the tx to an actual NFT-creating program), AND
+ *    2. At least one log line matches a strict NFT instruction needle
+ *       (or the anchored TM-Mint regex for the pNFT path).
+ *
+ *  Rationale: previously the prefilter only checked needles, so SPL
+ *  fungible / launchpad / DEX txs with logs like `Instruction: MintTo`
+ *  or `Instruction: CreateTokenAccount` slipped through and burned
+ *  `getTransaction` credits (and occasionally polluted the accumulator
+ *  before downstream filters caught up). */
 export function hasMintInstructionLog(logs: unknown): boolean {
   if (!Array.isArray(logs)) return false;
+  let hasNftProgram = false;
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    if (line.includes(TOKEN_METADATA_PROGRAM) || line.includes(MPL_CORE_PROGRAM)) {
+      hasNftProgram = true;
+      break;
+    }
+  }
+  if (!hasNftProgram) return false;
   for (const line of logs) {
     if (typeof line !== 'string') continue;
     for (const needle of MINT_LOG_NEEDLES) {
       if (line.includes(needle)) return true;
     }
+    if (TM_MINT_INSTRUCTION_REGEX.test(line)) return true;
   }
   return false;
 }
@@ -161,30 +210,42 @@ interface ProgramHit { programSource: MintProgramSource; needle: string; }
 function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
   const logs = tx.meta?.logMessages;
   if (!Array.isArray(logs)) return null;
-  let sawMetadata = false;
-  let mintNeedle  = '';
+  let sawTokenMetadata = false;
+  let sawMplCore       = false;
+  let coreNeedle       = '';
+  let tmCreateNeedle   = '';
+  let sawTmMintLine    = false;
   for (const line of logs) {
     if (typeof line !== 'string') continue;
-    if (line.includes(TOKEN_METADATA_PROGRAM)) sawMetadata = true;
-    if (!mintNeedle) {
-      for (const n of MINT_LOG_NEEDLES) {
-        if (line.includes(n)) { mintNeedle = n; break; }
+    if (line.includes(TOKEN_METADATA_PROGRAM)) sawTokenMetadata = true;
+    if (line.includes(MPL_CORE_PROGRAM))       sawMplCore       = true;
+    if (!coreNeedle) {
+      for (const n of CORE_INSTRUCTION_NEEDLES) {
+        if (line.includes(n)) { coreNeedle = n; break; }
       }
     }
+    if (!tmCreateNeedle) {
+      for (const n of TM_CREATE_INSTRUCTION_NEEDLES) {
+        if (line.includes(n)) { tmCreateNeedle = n; break; }
+      }
+    }
+    if (!sawTmMintLine && TM_MINT_INSTRUCTION_REGEX.test(line)) {
+      sawTmMintLine = true;
+    }
   }
-  if (!mintNeedle) return null;
-  // Core-unique needles → mpl_core (no other program emits these names).
-  if (mintNeedle === 'Instruction: CreateV1' || mintNeedle === 'Instruction: CreateCollectionV1') {
-    return { programSource: 'mpl_core', needle: mintNeedle };
+  // Strict gate: NFT program ID must appear AND a strict instruction
+  // needle of the matching family must be present. Reject everything
+  // else as `not_metadata_mint` (logged at the call site).
+  if (sawMplCore && coreNeedle) {
+    return { programSource: 'mpl_core', needle: coreNeedle };
   }
-  // TM-unique needle → mpl_token_metadata.
-  if (mintNeedle === 'Instruction: CreateMetadataAccountV3') {
-    return { programSource: 'mpl_token_metadata', needle: mintNeedle };
+  if (sawTokenMetadata && tmCreateNeedle) {
+    return { programSource: 'mpl_token_metadata', needle: tmCreateNeedle };
   }
-  // Ambiguous needles (`Create` / `Mint`): require TM in the log to
-  // distinguish from SPL-Token / ATA noise that also matches.
-  if (sawMetadata) {
-    return { programSource: 'mpl_token_metadata', needle: mintNeedle };
+  // pNFT path: `Instruction: Mint` exact (anchored to exclude MintTo)
+  // is only a valid signal when Token Metadata is also in the logs.
+  if (sawTokenMetadata && sawTmMintLine) {
+    return { programSource: 'mpl_token_metadata', needle: 'Instruction: Mint' };
   }
   return null;
 }
@@ -287,7 +348,13 @@ export async function ingestMintRaw(
   }
   const hit = detectProgramSource(tx);
   if (!hit) {
+    // Strict prefilter caught a tx with an NFT-shaped log line but
+    // either no NFT program ID alongside it, or a non-TM/Core
+    // matching needle. Logged separately so SPL-fungible / launchpad /
+    // DEX false-positives are visible without diluting the
+    // `program_source_null` parse-step counter.
     noteParseStep('program_source_null', null, sig);
+    noteFilterReject('not_metadata_mint', sig, null);
     return;
   }
 
@@ -502,11 +569,29 @@ function checkTokenMetadataNftShape(tx: RawSolanaTx, mintAddress: string | null)
   //                        the decimals/amount check and slip through
   //                        before the async DAS verifier evicts them.
   for (const e of entries) {
+    // Primary hard reject: any positive decimals → fungible by
+    // definition (SPL tokens with metadata, multi-decimal coin-like
+    // assets). Explicit `> 0` is the main rule the /mints product
+    // depends on; the `!== 0` fallback below fails closed on the
+    // rare undefined / NaN / negative-decimals cases.
+    if (e.uiTokenAmount.decimals > 0) {
+      return { ok: false, reason: `decimals=${e.uiTokenAmount.decimals}` };
+    }
     if (e.uiTokenAmount.decimals !== 0) {
       return { ok: false, reason: `decimals=${e.uiTokenAmount.decimals}` };
     }
     if (e.uiTokenAmount.amount !== '1') {
       return { ok: false, reason: `supply=${e.uiTokenAmount.amount}` };
+    }
+    // Defensive numeric supply guard — catches amount strings that
+    // pass the literal `!== '1'` test but parse as > 1 (e.g. '1.0',
+    // ' 1', '01'). Decimals=0 fungibles whose first MintTo creates
+    // exactly 1 unit still pass parse-time (their later MintTo grows
+    // supply offline); the async DAS verifier in mints/enricher.ts
+    // is the deeper safety net for that edge case.
+    const amtNum = Number(e.uiTokenAmount.amount);
+    if (Number.isFinite(amtNum) && amtNum > 1) {
+      return { ok: false, reason: `supply_num=${e.uiTokenAmount.amount}` };
     }
     if (e.programId && e.programId === TOKEN_2022_PROGRAM) {
       return { ok: false, reason: 'token_2022' };
