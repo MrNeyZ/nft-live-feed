@@ -30,8 +30,13 @@ const STORAGE_KEY = 'vl.uiSound';
 const HOVER_THROTTLE_MS = 80;
 const CLICK_THROTTLE_MS = 40;
 
-const HOVER_URL  = '/sounds/ui-hover.m4a?v=3';
-const CLICK_URL  = '/sounds/ui-click.m4a?v=3';
+const HOVER_URL  = '/sounds/ui-hover.m4a?v=4';
+const CLICK_URL  = '/sounds/ui-click.m4a?v=4';
+/** Per-sound pool size — multiple preloaded HTMLAudioElement
+ *  instances rotated round-robin so a rapid retrigger doesn't wait
+ *  for the previous play() to finish or for a `currentTime = 0`
+ *  reset round-trip. Three is enough for typical hover sweeps. */
+const POOL_SIZE = 3;
 // HTMLMediaElement.volume kept at 1.0 — the assets themselves now
 // carry full perceived loudness (3x amplified in-place: hover post-peak
 // ~0.099, click post-peak ~0.324, both well below the 0.99 ceiling so
@@ -82,27 +87,44 @@ export function useUiSoundEnabled(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-// ── Audio elements (lazy, primed after first user gesture) ─────────────────
+// ── Audio pools (lazy, primed after first user gesture) ───────────────────
+//
+// Per-sound pool of POOL_SIZE preloaded HTMLAudioElement instances.
+// Rotated round-robin per play() so a rapid retrigger uses a fresh
+// instance instead of waiting for the previous play to settle (the
+// `currentTime = 0; play()` round-trip can introduce a few-ms gap on
+// some browsers; rotating eliminates it entirely).
 
-let hoverEl: HTMLAudioElement | null = null;
-let clickEl: HTMLAudioElement | null = null;
+let hoverPool: HTMLAudioElement[] = [];
+let clickPool: HTMLAudioElement[] = [];
+let hoverIdx = 0;
+let clickIdx = 0;
 let lastHoverAt = 0;
 let lastClickAt = 0;
 let primed = false;
+
+function buildPool(url: string, gain: number): HTMLAudioElement[] {
+  const out: HTMLAudioElement[] = [];
+  for (let i = 0; i < POOL_SIZE; i++) {
+    try {
+      const a = new Audio(url);
+      a.preload = 'auto';
+      a.volume  = gain;
+      out.push(a);
+    } catch { /* skip — partially filled pool still works */ }
+  }
+  return out;
+}
 
 function primeAudio(): void {
   if (primed || typeof window === 'undefined') return;
   primed = true;
   try {
-    hoverEl = new Audio(HOVER_URL);
-    hoverEl.preload = 'auto';
-    hoverEl.volume  = HOVER_GAIN;
-    clickEl = new Audio(CLICK_URL);
-    clickEl.preload = 'auto';
-    clickEl.volume  = CLICK_GAIN;
+    hoverPool = buildPool(HOVER_URL, HOVER_GAIN);
+    clickPool = buildPool(CLICK_URL, CLICK_GAIN);
   } catch {
-    hoverEl = null;
-    clickEl = null;
+    hoverPool = [];
+    clickPool = [];
   }
 }
 
@@ -184,14 +206,23 @@ function reducedMotion(): boolean {
 
 // ── Internal play helper ───────────────────────────────────────────────────
 
-function play(el: HTMLAudioElement | null, throttleMs: number, lastAt: number): number {
+interface PoolState { idx: number; }
+
+function playFromPool(
+  pool: HTMLAudioElement[],
+  state: PoolState,
+  throttleMs: number,
+  lastAt: number,
+): number {
   if (!enabled) return lastAt;
   if (reducedMotion()) return lastAt;
-  if (!el) return lastAt;
+  if (pool.length === 0) return lastAt;
   const now = performance.now();
   if (now - lastAt < throttleMs) return lastAt;
-  // Rewind to start so rapid retriggers (within throttle) play cleanly
-  // without drift. `play()` returns a Promise — swallow any rejection
+  const el = pool[state.idx];
+  state.idx = (state.idx + 1) % pool.length;
+  // currentTime = 0 still cheap; on a fresh pool instance it's usually
+  // already 0 anyway. play() returns a Promise — swallow rejections
   // (browsers reject when invoked before the first user gesture).
   try {
     el.currentTime = 0;
@@ -202,12 +233,15 @@ function play(el: HTMLAudioElement | null, throttleMs: number, lastAt: number): 
 
 // ── Public play surface ────────────────────────────────────────────────────
 
+const _hoverState: PoolState = { get idx() { return hoverIdx; }, set idx(v) { hoverIdx = v; } };
+const _clickState: PoolState = { get idx() { return clickIdx; }, set idx(v) { clickIdx = v; } };
+
 /** Soft pointer-enter tick. Independent throttle from click. */
 export function playUiHover(): void {
-  lastHoverAt = play(hoverEl, HOVER_THROTTLE_MS, lastHoverAt);
+  lastHoverAt = playFromPool(hoverPool, _hoverState, HOVER_THROTTLE_MS, lastHoverAt);
 }
 
 /** Click / activation tick — slightly louder + longer than hover. */
 export function playUiClick(): void {
-  lastClickAt = play(clickEl, CLICK_THROTTLE_MS, lastClickAt);
+  lastClickAt = playFromPool(clickPool, _clickState, CLICK_THROTTLE_MS, lastClickAt);
 }
