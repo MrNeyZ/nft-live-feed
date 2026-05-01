@@ -15,7 +15,7 @@ import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeM
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { playUiHover, playUiClick, useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
+import { useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at 200×200 instead of the full-size upstream asset (PFP originals
@@ -236,15 +236,7 @@ export function Pill({
   return (
     <button
       type="button"
-      onClick={(e) => {
-        // Click tick — disabled buttons stay silent (toggle in
-        // BottomStatusBar still gates everything; default OFF).
-        // Fires BEFORE the user's onClick so the audible feedback
-        // isn't blocked by any heavy handler work.
-        if (!disabled) playUiClick();
-        onClick?.(e);
-      }}
-      onPointerEnter={() => { if (!disabled) playUiHover(); }}
+      onClick={onClick}
       disabled={disabled}
       title={title}
       style={{
@@ -412,6 +404,38 @@ function colorOf(name: string): string {
  *  null until the first computation. */
 let _topnavLastIndicator: { left: number; width: number } | null = null;
 
+// Hover-dropdown item styles, hoisted to module scope so the same
+// object reference is shared across renders (also keeps the JSX
+// inside the TOPNAV map readable).
+const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
+  display:        'flex',
+  flexDirection:  'column',
+  gap:            1,
+  padding:        '6px 10px',
+  fontSize:       12,
+  fontWeight:     600,
+  letterSpacing:  '0.3px',
+  color:          '#aaaabf',
+  textDecoration: 'none',
+  borderRadius:   4,
+  transition:     'background 0.12s, color 0.12s',
+  cursor:         'pointer',
+};
+const DROPDOWN_LABEL_STYLE: React.CSSProperties = {
+  fontSize:       11.5,
+  fontWeight:     700,
+  letterSpacing:  '0.5px',
+  textTransform:  'uppercase',
+  lineHeight:     1.1,
+};
+const DROPDOWN_DESC_STYLE: React.CSSProperties = {
+  fontSize:       9.5,
+  fontWeight:     500,
+  color:          '#55556e',
+  letterSpacing:  '0.3px',
+  lineHeight:     1.2,
+};
+
 export function TopNav({ active }: { active?: Page } = {}) {
   // TPS / SOL price / live indicator moved to the bottom status bar
   // (`<BottomStatusBar />`). The fetch lives there now — TopNav stays
@@ -464,6 +488,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // / offsetWidth of the active tab so the indicator can position
   // itself behind it. The Map shape lets us look up by Page key
   // directly, regardless of render order.
+  // Hover-dropdown state for the TOOLS tab. The Burner / Offers menu
+  // appears under TOOLS when the operator hovers either the tab or
+  // the dropdown itself; closes when the pointer leaves both.
+  const [toolsOpen, setToolsOpen] = useState(false);
+
   const tabRefs = useRef(new Map<Page, HTMLAnchorElement>());
   const setTabRef = (key: Page) => (el: HTMLAnchorElement | null) => {
     if (el) tabRefs.current.set(key, el);
@@ -696,26 +725,84 @@ export function TopNav({ active }: { active?: Page } = {}) {
               zIndex: 0,
             }}
           />
-          {pages.map(p => (
-            <Link
-              key={p.key}
-              ref={setTabRef(p.key)}
-              href={p.href}
-              className="topnav-tab"
-              data-tab={p.key}
-              onPointerEnter={() => playUiHover()}
-              onClick={() => playUiClick()}
-              style={{
-                position: 'relative', zIndex: 1,
-                padding: '5px 16px', fontSize: 12, fontWeight: 600,
-                color: activeKey === p.key ? '#d0c8e4' : '#55556e',
-                letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
-                // Background + box-shadow removed — handled by the
-                // sliding indicator behind the labels.
-                transition: 'color 180ms ease-out',
-              }}
-            >{p.label}</Link>
-          ))}
+          {pages.map(p => {
+            const tabLink = (
+              <Link
+                key={p.key}
+                ref={setTabRef(p.key)}
+                href={p.href}
+                className="topnav-tab"
+                data-tab={p.key}
+                style={{
+                  position: 'relative', zIndex: 1,
+                  padding: '5px 16px', fontSize: 12, fontWeight: 600,
+                  color: activeKey === p.key ? '#d0c8e4' : '#55556e',
+                  letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+                  // Background + box-shadow removed — handled by the
+                  // sliding indicator behind the labels.
+                  transition: 'color 180ms ease-out',
+                }}
+              >{p.label}</Link>
+            );
+            // Tools gets a hover dropdown (Burner / Offers). Other tabs
+            // render unchanged. The wrapper handles enter/leave so the
+            // dropdown stays open when the operator moves from the tab
+            // into the menu and only closes when they leave both.
+            if (p.key !== 'tools') return tabLink;
+            return (
+              <div
+                key={p.key}
+                style={{ position: 'relative', display: 'inline-block' }}
+                onPointerEnter={() => setToolsOpen(true)}
+                onPointerLeave={() => setToolsOpen(false)}
+              >
+                {tabLink}
+                {toolsOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Tools menu"
+                    style={{
+                      position: 'absolute', top: '100%', left: 0,
+                      marginTop: 4,
+                      minWidth: 180,
+                      padding: 4,
+                      background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
+                      border: '1px solid rgba(168,144,232,0.28)',
+                      borderRadius: 6,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.18)',
+                      backdropFilter: 'blur(8px)',
+                      zIndex: 1000,
+                      display: 'flex', flexDirection: 'column', gap: 2,
+                    }}
+                  >
+                    <a
+                      role="menuitem"
+                      href="https://wallet.victorylabs.app/burner"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
+                    >
+                      <span style={DROPDOWN_LABEL_STYLE}>Burner</span>
+                      <span style={DROPDOWN_DESC_STYLE}>Wallet cleanup</span>
+                    </a>
+                    <Link
+                      role="menuitem"
+                      href="/tools"
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
+                      onClick={() => setToolsOpen(false)}
+                    >
+                      <span style={DROPDOWN_LABEL_STYLE}>Offers</span>
+                      <span style={DROPDOWN_DESC_STYLE}>ME personal offers</span>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
