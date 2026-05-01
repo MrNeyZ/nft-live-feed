@@ -94,11 +94,19 @@ function buildMintStatusFrame(s: MintStatusWire): string {
 }
 
 // Sell-type sale_types we surface a "seller still holds N" badge for.
-// Buys are never decorated — the buyer's wallet is the *receiver* and
-// the count would describe their position post-acquisition rather than
-// "what's left" after a sell. Mirrors `from-backend.ts mapSide`'s sell
-// list so the frontend's badge gate aligns with the backend trigger.
+// Authoritative list comes from `deriveSaleType` (src/domain/sale-type.ts):
+//   bid_sell  ← UI: SELL / BID SELL  (instant sell into a collection bid)
+//   pool_sale ← UI: AMM (red, sell side)  (seller dumped into an AMM/pool)
+// `pool_sell` / `amm_sell` are kept for forward-compat with `mapSide` in
+// from-backend.ts — `deriveSaleType` does not currently emit them, so
+// they're harmless extras here.
 const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'pool_sale', 'pool_sell', 'amm_sell']);
+
+// Startup confirmation — proves this module loaded and the seller-count
+// onSale listener is attached. Look for this exact line in `pm2 logs
+// nft-backend` immediately after restart to verify the binary in use
+// includes the seller-count diagnostic.
+console.log('[seller-count-init] listener attached');
 
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
@@ -112,10 +120,38 @@ saleEventBus.onSale(           (event)  => {
   // without the badge, which matches the spec ("if count unknown, do
   // not show badge").
   const saleType = saleTypeFromEvent(event);
+  // TEMPORARY hard diagnostic: UNSAMPLED log of EVERY sale before the
+  // sell-type gate. Confirms onSale is firing for every live event and
+  // exposes the saleType / seller / collection fields the gate reads.
+  // Remove once the seller-count badge is verified working in prod.
+  {
+    const isSellKind = SELL_TYPES_FOR_BADGE.has(saleType);
+    const parser = (event.rawData as Record<string, unknown> | null | undefined)?._parser
+      ? String((event.rawData as Record<string, unknown>)._parser)
+      : 'helius';
+    console.log(
+      `[seller-count-debug] sig=${event.signature.slice(0,12)}… ` +
+      `saleType=${saleType} kind=${isSellKind ? 'sell' : 'buy/other'} ` +
+      `source=${parser} ` +
+      `seller=${event.seller ? event.seller.slice(0,8) + '…' : '—'} ` +
+      `buyer=${event.buyer ? event.buyer.slice(0,8) + '…' : '—'} ` +
+      `mintAddress=${event.mintAddress ? event.mintAddress.slice(0,8) + '…' : '—'} ` +
+      `collectionAddress=${event.collectionAddress ? event.collectionAddress.slice(0,8) + '…' : '—'}`,
+    );
+  }
   if (!SELL_TYPES_FOR_BADGE.has(saleType))   return;
-  if (!event.collectionAddress || !event.seller) {
-    if (Math.random() < 0.05) {
-      console.log(`[seller-count-miss] reason=no_collection_or_seller sig=${event.signature.slice(0,12)}…`);
+  if (!event.collectionAddress) {
+    if (Math.random() < 0.20) {
+      console.log(
+        `[seller-count-miss] reason=missing_collection sig=${event.signature.slice(0,12)}… ` +
+        `saleType=${saleType} seller=${event.seller ? event.seller.slice(0,8) + '…' : '—'}`,
+      );
+    }
+    return;
+  }
+  if (!event.seller) {
+    if (Math.random() < 0.20) {
+      console.log(`[seller-count-miss] reason=missing_seller sig=${event.signature.slice(0,12)}… saleType=${saleType}`);
     }
     return;
   }
