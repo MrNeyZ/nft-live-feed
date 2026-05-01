@@ -60,6 +60,11 @@ export interface FeedEvent {
   /** NFT thumbnail URL. Null when backend had no image_url for the row;
    *  frontend falls back to the abbr/color placeholder. */
   imageUrl: string | null;
+  /** Seller's remaining holdings in the same collection (post-sale).
+   *  Resolved async via the `seller_count` SSE patch frame for sell-
+   *  type events; undefined until that frame arrives, null when the
+   *  backend lookup failed. */
+  sellerRemainingCount?: number | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [

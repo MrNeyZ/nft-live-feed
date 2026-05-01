@@ -13,6 +13,7 @@ import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses } from '../mints/accumulator';
+import { getSellerCollectionCount } from '../enrichment/seller-collection-count';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -92,9 +93,48 @@ function buildMintStatusFrame(s: MintStatusWire): string {
   return `event: mint_status\ndata: ${JSON.stringify(s)}\n\n`;
 }
 
+// Sell-type sale_types we surface a "seller still holds N" badge for.
+// Buys are never decorated — the buyer's wallet is the *receiver* and
+// the count would describe their position post-acquisition rather than
+// "what's left" after a sell. Mirrors `from-backend.ts mapSide`'s sell
+// list so the frontend's badge gate aligns with the backend trigger.
+const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'pool_sale', 'pool_sell', 'amm_sell']);
+
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
-saleEventBus.onSale(           (event)  => broadcast(buildSaleFrame(event)));
+saleEventBus.onSale(           (event)  => {
+  broadcast(buildSaleFrame(event));
+  // Async, fire-and-forget: for sell-type sales with a known
+  // collectionAddress, look up the seller's remaining holdings via DAS
+  // (cached + deduped) and broadcast a `seller_count` patch frame so
+  // the FeedCard can render a small badge. Failures (no API key, DAS
+  // miss, no collection address) silently skip — the card just renders
+  // without the badge, which matches the spec ("if count unknown, do
+  // not show badge").
+  const saleType = saleTypeFromEvent(event);
+  if (!SELL_TYPES_FOR_BADGE.has(saleType))   return;
+  if (!event.collectionAddress || !event.seller) {
+    if (Math.random() < 0.05) {
+      console.log(`[seller-count-miss] reason=no_collection_or_seller sig=${event.signature.slice(0,12)}…`);
+    }
+    return;
+  }
+  const seller     = event.seller;
+  const collection = event.collectionAddress;
+  const signature  = event.signature;
+  void getSellerCollectionCount(seller, collection).then(count => {
+    if (count == null) {
+      if (Math.random() < 0.05) {
+        console.log(`[seller-count-miss] reason=lookup_null seller=${seller.slice(0,8)}… coll=${collection.slice(0,8)}…`);
+      }
+      return;
+    }
+    if (Math.random() < 0.05) {
+      console.log(`[seller-count] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… count=${count}`);
+    }
+    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, count })}\n\n`);
+  });
+});
 saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
 saleEventBus.onRemove(         (sig)    => broadcast(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));

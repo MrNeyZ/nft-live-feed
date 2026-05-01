@@ -407,12 +407,16 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 // Hover-dropdown item styles, hoisted to module scope so the same
 // object reference is shared across renders (also keeps the JSX
 // inside the TOPNAV map readable).
+// Font size / weight / letter-spacing match the TopNav tab labels
+// (BOARD, FEED, TOOLS, …) at line ~743: `fontSize: 12, fontWeight: 600,
+// letterSpacing: '0.5px'`. Kept in sync so the dropdown text reads as
+// part of the same nav surface.
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
   display:        'block',
   padding:        '5px 6px',
   textAlign:      'center',
-  fontSize:       12.5,
-  fontWeight:     700,
+  fontSize:       12,
+  fontWeight:     600,
   letterSpacing:  '0.5px',
   textTransform:  'uppercase',
   lineHeight:     1.2,
@@ -1010,8 +1014,18 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
         <div style={{ display: 'flex', gap: 16 }}>
-          <span style={{ color: '#55556e', fontFamily: 'inherit' }}>Discord</span>
-          <span style={{ color: '#55556e', fontFamily: 'inherit' }}>Twitter</span>
+          <a
+            href="https://discord.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#55556e', fontFamily: 'inherit', textDecoration: 'none' }}
+          >Discord</a>
+          <a
+            href="https://x.com/VictoryHell_"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#55556e', fontFamily: 'inherit', textDecoration: 'none' }}
+          >Twitter</a>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
             <span style={{ color: '#55556e' }}>alerts</span>
@@ -1047,7 +1061,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
               display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
               background: inclusiveFees ? '#a890e8' : '#3a3a52',
             }} />
-            Incl. fees
+            Fees
           </button>
           {/* UI Sound toggle — synthesised hover/click ticks via WebAudio.
               Default OFF; enabling persists to localStorage `vl.uiSound`.

@@ -190,3 +190,50 @@ export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVer
     };
   }
 }
+
+// ── Wallet-collection holdings count (for /feed seller badge) ─────────────
+//
+// `searchAssets` with both ownerAddress + grouping=[collection,<addr>] returns
+// a paginated list AND a `total` field. We only need the total, so we ask
+// for `limit: 1` (DAS still computes the unfiltered total). Returns null on
+// any error / missing total so callers can render a non-link fallback.
+interface DasSearchResponse {
+  result?: { total?: number; items?: unknown[] };
+  error?:  { code: number; message: string };
+}
+export async function getOwnerCollectionCount(
+  owner: string,
+  collectionAddress: string,
+): Promise<number | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'seller-count',
+          method: 'searchAssets',
+          params: {
+            ownerAddress: owner,
+            grouping:     ['collection', collectionAddress],
+            page:         1,
+            limit:        1,
+            burnt:        false,
+          },
+        }),
+        signal: AbortSignal.timeout(6_000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as DasSearchResponse;
+    if (json.error) return null;
+    const total = json.result?.total;
+    return typeof total === 'number' && total >= 0 ? total : null;
+  } catch {
+    return null;
+  }
+}

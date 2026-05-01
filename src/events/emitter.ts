@@ -168,6 +168,12 @@ export interface MintStatusWire {
   groupingKind:      MintEventWire['groupingKind'];
   programSource:     MintProgramSource;
   collectionAddress: string | null;
+  /** Last accepted MintEventWire.mintAddress for this group. Used by the
+   *  frontend as the only safe Solscan link target — never link to
+   *  collectionAddress / groupingKey, which can be a collection account,
+   *  update authority, or merkle tree (not a viewable NFT). May be null
+   *  for cNFT groups whose first sample didn't carry a leaf address. */
+  lastMintAddress:   string | null;
   displayState:      MintDisplayState;
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;

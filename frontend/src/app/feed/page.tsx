@@ -454,6 +454,33 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
           </div>
         </div>
 
+        {/* Seller-remaining badge — only on instant sell-type events
+            (SELL / SELL AMM / BID SELL). Round, sized like the BUY/SELL
+            pill cluster, positioned between the parties column and the
+            right-side price column so it visually sits "next to" the
+            seller line without altering the existing layout grid.
+            Hidden when the count is unknown (null/undefined). */}
+        {(kind === 'sell' || kind === 'sellAmm') && Number.isFinite(event.sellerRemainingCount as number) && (
+          <div
+            title={`Seller still holds ${event.sellerRemainingCount} from this collection`}
+            style={{
+              flexShrink: 0,
+              width: 30, height: 30, borderRadius: '50%',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(250,100,105,0.12)',
+              border:     '1px solid rgba(250,100,105,0.55)',
+              boxShadow:  '0 0 8px rgba(250,100,105,0.18), inset 0 0 0 1px rgba(0,0,0,0.35)',
+              color:      '#ffd6d6',
+              fontSize:    11,
+              fontWeight:  700,
+              letterSpacing: '0.2px',
+              fontFamily:  "'SF Mono','Fira Code',monospace",
+              fontVariantNumeric: 'tabular-nums',
+              userSelect:  'none',
+            }}
+          >{event.sellerRemainingCount}</div>
+        )}
+
         {/* Right column */}
         <div style={FC_RIGHT_COL_STYLE}>
           {/* Top-right cluster: post-sale "X ago" counter + marketplace
@@ -768,6 +795,14 @@ export default function FeedPage() {
       // painted from the earlier `sale` frame would linger forever because
       // `collectionName` is null at sale time and never gets patched (no
       // `meta` frame is emitted for blacklisted rows).
+      es.addEventListener('seller_count', (e: MessageEvent) => {
+        try {
+          const { signature, count } = JSON.parse(e.data) as { signature: string; count: number };
+          if (signature && Number.isFinite(count)) {
+            enqueue({ type: 'seller_count', patch: { signature, count } });
+          }
+        } catch { /* malformed frame — skip */ }
+      });
       es.addEventListener('remove', (e: MessageEvent) => {
         try {
           const { signature } = JSON.parse(e.data) as { signature: string };

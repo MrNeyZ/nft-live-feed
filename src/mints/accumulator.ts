@@ -55,6 +55,11 @@ interface Accum {
   groupingKind:      MintEventWire['groupingKind'];
   programSource:     MintProgramSource;
   collectionAddress: string | null;
+  /** Most-recent accepted mintAddress. Updated on every recordMint;
+   *  surfaced in MintStatusWire so the frontend has a safe Solscan
+   *  link target that points at an actual NFT (never the collection
+   *  / authority / merkle-tree pubkey used as the groupingKey). */
+  lastMintAddress:   string | null;
   sourceLabel:       MintSourceLabel;
 
   observedMints: number;
@@ -135,6 +140,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     groupingKind:      a.groupingKind,
     programSource:     a.programSource,
     collectionAddress: a.collectionAddress,
+    lastMintAddress:   a.lastMintAddress,
     displayState:      a.displayState,
     shownReason:       a.shownReason,
     observedMints:     a.observedMints,
@@ -190,6 +196,7 @@ export function recordMint(ev: MintEventWire): void {
       groupingKind:      ev.groupingKind,
       programSource:     ev.programSource,
       collectionAddress: ev.collectionAddress,
+      lastMintAddress:   ev.mintAddress,
       sourceLabel:       ev.sourceLabel,
       observedMints:     0,
       events60s:         [],
@@ -207,6 +214,10 @@ export function recordMint(ev: MintEventWire): void {
     a.collectionAddress = ev.collectionAddress;
     a.groupingKind      = 'collection';
   }
+  // Track the most-recent valid mintAddress so the frontend has
+  // something safe to link to (collectionAddress / groupingKey can
+  // be a non-NFT pubkey).
+  if (ev.mintAddress) a.lastMintAddress = ev.mintAddress;
   a.observedMints++;
   a.lastMintAt = now;
   const item: RingItem = { ts: now, priceLamports: ev.priceLamports };

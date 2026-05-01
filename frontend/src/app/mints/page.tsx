@@ -28,6 +28,10 @@ interface MintStatus {
   groupingKind:      string;
   programSource:     ProgramSource;
   collectionAddress: string | null;
+  /** Latest mintAddress seen for this group — the only safe Solscan
+   *  link target. May be null until the first event arrives or for
+   *  cNFT groups whose first sample didn't carry a leaf address. */
+  lastMintAddress?:  string | null;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -178,7 +182,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = '6';
+const MINTS_CACHE_VERSION     = '7';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -386,6 +390,15 @@ function shortKey(k: string): string {
   // Display-friendly truncation when no name is available.
   const clean = k.replace(/^[a-z]+:/, '');
   return clean.length > 14 ? `${clean.slice(0, 6)}…${clean.slice(-4)}` : clean;
+}
+
+/** Strict Solana pubkey check (base58, 32–44 chars). Used as a final
+ *  guard before linking to Solscan so we never emit a URL pointing at
+ *  a prefix-tagged groupingKey ('authority:…', 'pool:…') or any other
+ *  non-pubkey value the wire might carry. */
+const SOL_PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+function isSolPubkey(s: string | null | undefined): s is string {
+  return typeof s === 'string' && SOL_PUBKEY_RE.test(s);
 }
 
 /** Per-row external links cluster: Solscan + Magic Eden.
@@ -842,32 +855,19 @@ export default function MintsPage() {
                             <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
                           )}
                           {(() => {
-                            // Title is clickable → Solscan when we have
-                            // an on-chain anchor. Always uses `/account/`
-                            // per the unified spec (works for Core
-                            // assets, collection NFTs, mint authorities,
-                            // creators, merkle trees). Falls back to
-                            // `groupingKey` when no `collectionAddress`,
-                            // unless the grouping kind is the synthetic
-                            // `programSource` label ('mpl_core', etc.)
-                            // which isn't a real address. No anchor →
-                            // plain text (matches RowLinks fallback).
-                            const rawAnchor =
-                              r.collectionAddress ??
-                              (r.groupingKind !== 'programSource' ? r.groupingKey : null);
-                            // Backend prefixes groupingKey with the kind
-                            // tag (`collection:…`, `authority:…`, etc.)
-                            // so a Solscan URL needs to strip it before
-                            // hitting the route. Split on ':' and take
-                            // the last segment — works for both prefixed
-                            // and bare collectionAddress inputs.
-                            const titleAnchor = rawAnchor
-                              ? rawAnchor.includes(':')
-                                ? rawAnchor.slice(rawAnchor.lastIndexOf(':') + 1)
-                                : rawAnchor
-                              : null;
+                            // Title is clickable → Solscan ONLY when we
+                            // have a real NFT mint address from the wire
+                            // (`lastMintAddress` — set by the accumulator
+                            // from the most recent accepted MintEvent).
+                            // We deliberately do NOT fall back to
+                            // collectionAddress / groupingKey: those can
+                            // be a collection account, update authority,
+                            // creator, or merkle tree — none of which
+                            // open a viewable NFT page on Solscan.
+                            // No mint address → plain text (no link).
+                            const titleAnchor = isSolPubkey(r.lastMintAddress) ? r.lastMintAddress : null;
                             const titleHref = titleAnchor
-                              ? `https://solscan.io/account/${titleAnchor}`
+                              ? `https://solscan.io/token/${titleAnchor}`
                               : null;
                             const titleInner = (
                               <>
@@ -1050,7 +1050,7 @@ export default function MintsPage() {
                         title link). When mintAddress is null we keep
                         plain text so the row still renders. */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {ev.mintAddress ? (
+                      {isSolPubkey(ev.mintAddress) ? (
                         <a
                           href={`https://solscan.io/token/${ev.mintAddress}`}
                           target="_blank"

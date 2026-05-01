@@ -67,12 +67,21 @@ export interface RawPatch {
   priceSol?:   number;
 }
 
+/** Seller-collection-count patch — late-arriving async result keyed by
+ *  signature. Backend emits one per accepted sell-type sale once the
+ *  DAS lookup resolves (or skips silently when it fails). */
+export interface SellerCountPatch {
+  signature: string;
+  count:     number;
+}
+
 export type FeedAction =
-  | { type: 'snapshot'; events: FeedEvent[] }
-  | { type: 'live';     event:  FeedEvent }
-  | { type: 'meta';     patch:  MetaPatch }
-  | { type: 'rawpatch'; patch:  RawPatch }
-  | { type: 'remove';   signature: string }
+  | { type: 'snapshot';     events: FeedEvent[] }
+  | { type: 'live';         event:  FeedEvent }
+  | { type: 'meta';         patch:  MetaPatch }
+  | { type: 'rawpatch';     patch:  RawPatch }
+  | { type: 'seller_count'; patch:  SellerCountPatch }
+  | { type: 'remove';       signature: string }
   | { type: 'reset' };
 
 // ─── internal helpers ────────────────────────────────────────────────────────
@@ -173,6 +182,16 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           price:       patch.priceSol    ?? ev.price,
           grossPrice:  patch.priceSol    ?? ev.grossPrice,
         }),
+      );
+    }
+    case 'seller_count': {
+      const { patch } = action;
+      return patchWhere(
+        state,
+        ev => ev.signature === patch.signature,
+        ev => ev.sellerRemainingCount === patch.count
+          ? ev
+          : { ...ev, sellerRemainingCount: patch.count },
       );
     }
     case 'remove': {
