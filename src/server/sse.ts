@@ -13,7 +13,7 @@ import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses } from '../mints/accumulator';
-import { getSellerCollectionCount } from '../enrichment/seller-collection-count';
+import { getSellerCollectionCount, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -140,25 +140,47 @@ saleEventBus.onSale(           (event)  => {
     );
   }
   if (!SELL_TYPES_FOR_BADGE.has(saleType))   return;
-  if (!event.collectionAddress) {
-    if (Math.random() < 0.20) {
-      console.log(
-        `[seller-count-miss] reason=missing_collection sig=${event.signature.slice(0,12)}… ` +
-        `saleType=${saleType} seller=${event.seller ? event.seller.slice(0,8) + '…' : '—'}`,
-      );
-    }
-    return;
-  }
   if (!event.seller) {
     if (Math.random() < 0.20) {
       console.log(`[seller-count-miss] reason=missing_seller sig=${event.signature.slice(0,12)}… saleType=${saleType}`);
     }
     return;
   }
-  const seller     = event.seller;
-  const collection = event.collectionAddress;
-  const signature  = event.signature;
-  void getSellerCollectionCount(seller, collection).then(count => {
+  const seller    = event.seller;
+  const signature = event.signature;
+  const mint      = event.mintAddress;
+  const initialCollection = event.collectionAddress;
+  // Async path — never blocks the sale SSE frame.
+  // Step 1: resolve collection. Use parser-provided value when present;
+  //         otherwise fall back to a cached DAS getAsset(mintAddress)
+  //         lookup. Both paths return string | null and never throw.
+  // Step 2: with a real collection, run the cached owner-count lookup.
+  // Step 3: broadcast `seller_count` SSE patch on success; log + skip
+  //         on null at any step (badge simply doesn't render).
+  void (async () => {
+    let collection: string | null = initialCollection;
+    if (!collection) {
+      if (!mint) {
+        if (Math.random() < 0.20) {
+          console.log(
+            `[seller-count-miss] reason=missing_collection_and_mint sig=${signature.slice(0,12)}… saleType=${saleType}`,
+          );
+        }
+        return;
+      }
+      collection = await resolveCollectionForMint(mint);
+      if (!collection) {
+        if (Math.random() < 0.20) {
+          console.log(
+            `[seller-count-miss] reason=missing_collection_after_das sig=${signature.slice(0,12)}… ` +
+            `saleType=${saleType} mint=${mint.slice(0,8)}…`,
+          );
+        }
+        return;
+      }
+      console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=${collection.slice(0,8)}…`);
+    }
+    const count = await getSellerCollectionCount(seller, collection);
     if (count == null) {
       if (Math.random() < 0.05) {
         console.log(`[seller-count-miss] reason=lookup_null seller=${seller.slice(0,8)}… coll=${collection.slice(0,8)}…`);
@@ -169,7 +191,7 @@ saleEventBus.onSale(           (event)  => {
       console.log(`[seller-count] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… count=${count}`);
     }
     broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, count })}\n\n`);
-  });
+  })();
 });
 saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
 saleEventBus.onRemove(         (sig)    => broadcast(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));

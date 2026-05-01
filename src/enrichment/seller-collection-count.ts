@@ -14,7 +14,7 @@
  */
 
 import { TtlCache } from './cache';
-import { getOwnerCollectionCount } from './helius-das';
+import { getAsset, getOwnerCollectionCount } from './helius-das';
 
 const TTL_MS         = 45_000;
 const SWEEP_INTERVAL = 60_000;
@@ -22,8 +22,48 @@ const SWEEP_INTERVAL = 60_000;
 const cache    = new TtlCache<string, number | null>(TTL_MS, SWEEP_INTERVAL);
 const inflight = new Map<string, Promise<number | null>>();
 
+// Mint → collectionAddress resolver. Live sale events often arrive with
+// `collectionAddress = null` (parser couldn't extract a verified group on
+// the fly). DAS `getAsset` resolves it; we cache the answer for 15 min
+// since a mint's collection grouping never changes after creation. Null
+// values cached too — repeated misses (cNFT without grouping, dust mint)
+// shouldn't burn DAS calls.
+const COLL_TTL_MS         = 15 * 60_000;
+const COLL_SWEEP_INTERVAL = 60_000;
+const collectionCache    = new TtlCache<string, string | null>(COLL_TTL_MS, COLL_SWEEP_INTERVAL);
+const collectionInflight = new Map<string, Promise<string | null>>();
+
 function key(owner: string, collection: string): string {
   return `${owner}|${collection}`;
+}
+
+/** Resolve `mintAddress` → on-chain collection group address via DAS.
+ *  Cached + single-flight. Returns null when DAS doesn't carry a
+ *  collection grouping (cNFT without verified collection, partial
+ *  index, or any RPC failure). Never throws. */
+export async function resolveCollectionForMint(mintAddress: string): Promise<string | null> {
+  const cached = collectionCache.get(mintAddress);
+  if (cached !== undefined) return cached;
+  const live = collectionInflight.get(mintAddress);
+  if (live) return live;
+  const p = (async () => {
+    try {
+      const meta = await getAsset(mintAddress);
+      const addr = meta.collectionAddress ?? null;
+      collectionCache.set(mintAddress, addr);
+      return addr;
+    } catch {
+      // Transient DAS failure — cache null so the immediate retry
+      // doesn't fan out, but the entry will expire on the standard
+      // TTL and a future sale for this mint can try again.
+      collectionCache.set(mintAddress, null);
+      return null;
+    } finally {
+      collectionInflight.delete(mintAddress);
+    }
+  })();
+  collectionInflight.set(mintAddress, p);
+  return p;
 }
 
 /**
