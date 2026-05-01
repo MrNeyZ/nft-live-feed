@@ -483,7 +483,12 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // appears under TOOLS when the operator hovers either the tab or
   // the dropdown itself; closes when the pointer leaves both.
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [toolsHover, setToolsHover] = useState(false);
+  // Single hover key for the entire nav row — set on mouse enter of any
+  // tab, cleared on leave. Drives a subtle highlight on the hovered tab
+  // (suppressed when that tab is also active so it doesn't double up
+  // with the sliding indicator). Single state instead of one boolean
+  // per tab keeps the render cheap and the close-out trivial.
+  const [hoverKey, setHoverKey] = useState<Page | null>(null);
 
   // Stored as HTMLElement (not HTMLAnchorElement) because the TOOLS tab
   // is wrapped in a `position: relative` <div> for its dropdown — the
@@ -726,22 +731,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
           {pages.map(p => {
             const isTools = p.key === 'tools';
             const isActive = activeKey === p.key;
-            // Subtle hover highlight on the TOOLS link only (other tabs
-            // are untouched). Suppressed when active so it doesn't
-            // double up with the sliding indicator behind the label.
-            const showToolsHover = isTools && toolsHover && !isActive;
+            // Subtle hover highlight on every tab. Suppressed when the
+            // tab is also active so it doesn't double up with the
+            // sliding indicator behind the label (active stays the
+            // strongest visual state).
+            const isHover = hoverKey === p.key && !isActive;
             // Shared visual style for both the <Link> nav tabs and the
             // TOOLS <button> trigger so both render pixel-identically.
             const tabStyle: React.CSSProperties = {
               position: 'relative', zIndex: 1,
               padding: '5px 16px', fontSize: 12, fontWeight: 600,
-              color: isActive ? '#d0c8e4' : (showToolsHover ? '#aaaabf' : '#55556e'),
+              color: isActive ? '#d0c8e4' : (isHover ? '#aaaabf' : '#55556e'),
               letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
               // Background + box-shadow removed — handled by the
               // sliding indicator behind the labels (except for the
-              // TOOLS hover-highlight, which paints its own subtle
-              // tint when not already active).
-              background: showToolsHover ? 'rgba(168,144,232,0.07)' : 'transparent',
+              // hover-highlight, which paints its own subtle tint when
+              // the tab isn't already active).
+              background: isHover ? 'rgba(168,144,232,0.07)' : 'transparent',
               transition: 'color 180ms ease-out, background 180ms ease-out',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
@@ -755,6 +761,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   href={p.href}
                   className="topnav-tab"
                   data-tab={p.key}
+                  onMouseEnter={() => setHoverKey(p.key)}
+                  onMouseLeave={() => setHoverKey(prev => prev === p.key ? null : prev)}
                   style={tabStyle}
                 >{p.label}</Link>
               );
@@ -777,8 +785,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   data-tab={p.key}
                   aria-haspopup="menu"
                   aria-expanded={toolsOpen}
-                  onMouseEnter={() => setToolsHover(true)}
-                  onMouseLeave={() => setToolsHover(false)}
+                  onMouseEnter={() => setHoverKey(p.key)}
+                  onMouseLeave={() => setHoverKey(prev => prev === p.key ? null : prev)}
                   // No onClick — TOOLS is a dropdown trigger only.
                   // Hover (handled by the wrapper) opens the menu;
                   // navigation happens via Burner / Offers items.
