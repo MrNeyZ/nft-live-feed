@@ -409,8 +409,9 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 // inside the TOPNAV map readable).
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
   display:        'block',
-  padding:        '5px 10px',
-  fontSize:       11.5,
+  padding:        '5px 6px',
+  textAlign:      'center',
+  fontSize:       12.5,
   fontWeight:     700,
   letterSpacing:  '0.5px',
   textTransform:  'uppercase',
@@ -478,9 +479,16 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // appears under TOOLS when the operator hovers either the tab or
   // the dropdown itself; closes when the pointer leaves both.
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolsHover, setToolsHover] = useState(false);
 
-  const tabRefs = useRef(new Map<Page, HTMLAnchorElement>());
-  const setTabRef = (key: Page) => (el: HTMLAnchorElement | null) => {
+  // Stored as HTMLElement (not HTMLAnchorElement) because the TOOLS tab
+  // is wrapped in a `position: relative` <div> for its dropdown — the
+  // link's offsetLeft would then be 0 (relative to the wrapper) and
+  // break the sliding indicator. We register the wrapper for tools and
+  // the <a> for everything else; both expose offsetLeft/offsetWidth in
+  // the topnav-tabs frame, which is what the indicator needs.
+  const tabRefs = useRef(new Map<Page, HTMLElement>());
+  const setTabRef = (key: Page) => (el: HTMLElement | null) => {
     if (el) tabRefs.current.set(key, el);
     else    tabRefs.current.delete(key);
   };
@@ -712,37 +720,70 @@ export function TopNav({ active }: { active?: Page } = {}) {
             }}
           />
           {pages.map(p => {
-            const tabLink = (
-              <Link
-                key={p.key}
-                ref={setTabRef(p.key)}
-                href={p.href}
-                className="topnav-tab"
-                data-tab={p.key}
-                style={{
-                  position: 'relative', zIndex: 1,
-                  padding: '5px 16px', fontSize: 12, fontWeight: 600,
-                  color: activeKey === p.key ? '#d0c8e4' : '#55556e',
-                  letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
-                  // Background + box-shadow removed — handled by the
-                  // sliding indicator behind the labels.
-                  transition: 'color 180ms ease-out',
-                }}
-              >{p.label}</Link>
-            );
-            // Tools gets a hover dropdown (Burner / Offers). Other tabs
-            // render unchanged. The wrapper handles enter/leave so the
-            // dropdown stays open when the operator moves from the tab
-            // into the menu and only closes when they leave both.
-            if (p.key !== 'tools') return tabLink;
+            const isTools = p.key === 'tools';
+            const isActive = activeKey === p.key;
+            // Subtle hover highlight on the TOOLS link only (other tabs
+            // are untouched). Suppressed when active so it doesn't
+            // double up with the sliding indicator behind the label.
+            const showToolsHover = isTools && toolsHover && !isActive;
+            // Shared visual style for both the <Link> nav tabs and the
+            // TOOLS <button> trigger so both render pixel-identically.
+            const tabStyle: React.CSSProperties = {
+              position: 'relative', zIndex: 1,
+              padding: '5px 16px', fontSize: 12, fontWeight: 600,
+              color: isActive ? '#d0c8e4' : (showToolsHover ? '#aaaabf' : '#55556e'),
+              letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+              // Background + box-shadow removed — handled by the
+              // sliding indicator behind the labels (except for the
+              // TOOLS hover-highlight, which paints its own subtle
+              // tint when not already active).
+              background: showToolsHover ? 'rgba(168,144,232,0.07)' : 'transparent',
+              transition: 'color 180ms ease-out, background 180ms ease-out',
+            };
+            // Non-tools tabs render the regular Link. TOOLS itself does
+            // NOT navigate — it's purely a dropdown trigger; navigation
+            // happens via the Burner / Offers items inside the menu.
+            if (!isTools) {
+              return (
+                <Link
+                  key={p.key}
+                  ref={setTabRef(p.key)}
+                  href={p.href}
+                  className="topnav-tab"
+                  data-tab={p.key}
+                  style={tabStyle}
+                >{p.label}</Link>
+              );
+            }
+            // TOOLS trigger: a non-navigating <button> styled to match
+            // a nav tab. Active styling still derives from `pathname`,
+            // which the dropdown's Offers item updates by linking to
+            // /tools — so opening Offers still highlights TOOLS.
             return (
               <div
                 key={p.key}
+                ref={setTabRef(p.key)}
                 style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
                 onPointerEnter={() => setToolsOpen(true)}
                 onPointerLeave={() => setToolsOpen(false)}
               >
-                {tabLink}
+                <button
+                  type="button"
+                  className="topnav-tab"
+                  data-tab={p.key}
+                  aria-haspopup="menu"
+                  aria-expanded={toolsOpen}
+                  onMouseEnter={() => setToolsHover(true)}
+                  onMouseLeave={() => setToolsHover(false)}
+                  // No onClick — TOOLS is a dropdown trigger only.
+                  // Hover (handled by the wrapper) opens the menu;
+                  // navigation happens via Burner / Offers items.
+                  style={{
+                    ...tabStyle,
+                    border: 'none', outline: 'none',
+                    font: 'inherit', cursor: 'pointer',
+                  }}
+                >{p.label}</button>
                 {toolsOpen && (
                   <div
                     role="menu"
@@ -750,7 +791,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     style={{
                       position: 'absolute', top: '100%', left: 0,
                       marginTop: 0,
-                      minWidth: 150,
+                      width: '100%',
                       padding: 3,
                       background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
                       border: '1px solid rgba(168,144,232,0.28)',
