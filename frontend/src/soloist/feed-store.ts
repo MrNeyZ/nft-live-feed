@@ -68,11 +68,13 @@ export interface RawPatch {
 }
 
 /** Seller-collection-count patch — late-arriving async result keyed by
- *  signature. Backend emits one per accepted sell-type sale once the
- *  DAS lookup resolves (or skips silently when it fails). */
+ *  seller + collection (NOT signature). One backend lookup populates
+ *  every existing row that shares the same seller+collection pair so
+ *  rapid back-to-back dumps from the same wallet update in lockstep. */
 export interface SellerCountPatch {
-  signature: string;
-  count:     number;
+  seller:     string;
+  collection: string;
+  count:      number;
 }
 
 export type FeedAction =
@@ -188,7 +190,7 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
       const { patch } = action;
       return patchWhere(
         state,
-        ev => ev.signature === patch.signature,
+        ev => ev.seller === patch.seller && ev.collectionAddress === patch.collection,
         ev => ev.sellerRemainingCount === patch.count
           ? ev
           : { ...ev, sellerRemainingCount: patch.count },
