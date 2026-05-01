@@ -527,6 +527,32 @@ a { color: inherit; text-decoration: none; }
   100% { background: transparent; }
 }
 
+/* Seller-remaining badge mount animation — small pop-in so the badge
+   doesn't appear with a hard cut when a `seller_count` patch arrives
+   after the row is already on screen. The badge wrapper itself plays
+   this animation only on initial mount (stable React key). */
+@keyframes sellerBadgeIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1);   }
+}
+.seller-remaining-badge {
+  opacity: 0;
+  transform: scale(0.8);
+  animation: sellerBadgeIn 180ms ease-out forwards;
+}
+/* Inner number — re-keyed by `sellerCount`, so React re-mounts only
+   the number element when the count changes. Softer + faster pop than
+   the full-badge mount animation so a count update reads as a value
+   morph, not a full re-appear. */
+@keyframes sellerBadgeNumIn {
+  from { opacity: 0.75; transform: scale(0.9); }
+  to   { opacity: 1;    transform: scale(1);   }
+}
+.seller-remaining-badge-num {
+  display: inline-block;
+  animation: sellerBadgeNumIn 150ms ease-out;
+}
+
 @keyframes flashListing {
   0%   { background: rgba(232, 122, 176, 0.28); }
   40%  { background: rgba(232, 122, 176, 0.14); }

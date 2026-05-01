@@ -21,6 +21,52 @@ import { isCnftDust, CNFT_FLOOR_MIN_SOL } from '@/soloist/cnft-filter';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
 const SNAPSHOT_LIMIT = 100;
+
+// ── Persisted seller-remaining counts ──────────────────────────────────────
+// Map of `${seller}-${collection}` → count, JSON-encoded into localStorage.
+// Backend emits the count asynchronously over SSE (event: seller_count)
+// keyed by the same composite. Storing by seller+collection — instead of
+// the prior signature key — means one resolved value lights up every row
+// from the same wallet+collection (mid-dump or post-reload), and old
+// signature-keyed entries from prior versions are simply ignored on
+// hydration since they don't match the new key shape.
+const SELLER_COUNT_STORAGE_KEY = 'vl.feed.sellerCount.v2';
+const SELLER_COUNT_MAX_ENTRIES = 500;
+
+function sellerCountKey(seller: string | null | undefined, collection: string | null | undefined): string | null {
+  if (!seller || !collection) return null;
+  return `${seller}-${collection}`;
+}
+
+function loadSellerCounts(): Map<string, number> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const raw = window.localStorage.getItem(SELLER_COUNT_STORAGE_KEY);
+    if (!raw) return new Map();
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    if (!obj || typeof obj !== 'object') return new Map();
+    const m = new Map<string, number>();
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof k === 'string' && typeof v === 'number' && Number.isFinite(v)) m.set(k, v);
+    }
+    return m;
+  } catch { return new Map(); }
+}
+
+function persistSellerCounts(map: Map<string, number>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (map.size > SELLER_COUNT_MAX_ENTRIES) {
+      const overflow = map.size - SELLER_COUNT_MAX_ENTRIES;
+      const it = map.keys();
+      for (let i = 0; i < overflow; i++) {
+        const k = it.next().value;
+        if (k != null) map.delete(k);
+      }
+    }
+    window.localStorage.setItem(SELLER_COUNT_STORAGE_KEY, JSON.stringify(Object.fromEntries(map)));
+  } catch { /* quota / serialize error — fail silent */ }
+}
 /** Scroll tolerance (px) for treating the user as "at top". */
 const AT_TOP_THRESHOLD = 4;
 /** Lowercased collection-name blacklist; mirrors src/db/blacklist.ts NAME_BLACKLIST. */
@@ -285,6 +331,30 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
   color: '#8a8aa6', fontWeight: 600, fontSize: 11,
 };
+// Inline seller-remaining badge — sits next to the seller wallet on the
+// FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
+// doesn't expand the row height. Soft yellow on near-black for a readable
+// micro-pill look (no thick border, no glow).
+const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  flexShrink:     0,
+  marginLeft:     4,
+  minWidth:       16,
+  height:         16,
+  padding:        '0 4px',
+  borderRadius:   999,
+  background:     '#e9c44a',
+  color:          '#1a1408',
+  fontSize:       10,
+  fontWeight:     700,
+  lineHeight:     1,
+  letterSpacing:  '0.2px',
+  fontFamily:     "'SF Mono','Fira Code',monospace",
+  fontVariantNumeric: 'tabular-nums',
+  userSelect:     'none',
+};
 
 const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugFloor }: FeedCardProps) {
   const renderPrice = displayPrice(event, inclusiveFees);
@@ -315,6 +385,7 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const kind  = saleKind(event.saleTypeRaw);
+  const sellerCount = event.sellerRemainingCount;
   const style = KIND_STYLES[kind];
   // Border tint: buy/buyAmm → green border, sell/sellAmm → red border.
   // Falls back to the existing buy-card class for unknown so neutral rows
@@ -446,6 +517,32 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
             <div style={FC_PARTY_ROW_STYLE}>
               <span>seller:</span>
               <WalletLink wallet={event.seller} />
+              {/* Seller-remaining badge — small, inline next to the
+                  seller wallet. Renders only on sell-type events when
+                  backend has resolved a finite count (0 is a valid
+                  value). Soft yellow circle on dark text, sized to
+                  the wallet line metric so it doesn't bump row height. */}
+              {/* Seller-remaining badge — visible only for sell-type
+                  rows when backend has resolved a count of 3 or more.
+                  Inline conditional (NOT an early return) so the
+                  enclosing FeedCard keeps rendering and the badge
+                  pops in reactively as soon as a `seller_count`
+                  patch raises the count past the threshold. */}
+              {(kind === 'sell' || kind === 'sellAmm') &&
+                typeof sellerCount === 'number' &&
+                Number.isFinite(sellerCount) &&
+                sellerCount >= 3 && (
+                <span
+                  key={event.id}
+                  className="seller-remaining-badge"
+                  title={`Seller has ${sellerCount} NFTs listed in this collection`}
+                  style={SELLER_REMAINING_BADGE_STYLE}
+                >
+                  <span key={sellerCount} className="seller-remaining-badge-num">
+                    {sellerCount > 9 ? '9+' : sellerCount}
+                  </span>
+                </span>
+              )}
             </div>
             <div style={FC_PARTY_ROW_STYLE}>
               <span>buyer:</span>
@@ -453,33 +550,6 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
             </div>
           </div>
         </div>
-
-        {/* Seller-remaining badge — only on instant sell-type events
-            (SELL / SELL AMM / BID SELL). Round, sized like the BUY/SELL
-            pill cluster, positioned between the parties column and the
-            right-side price column so it visually sits "next to" the
-            seller line without altering the existing layout grid.
-            Hidden when the count is unknown (null/undefined). */}
-        {(kind === 'sell' || kind === 'sellAmm') && Number.isFinite(event.sellerRemainingCount as number) && (
-          <div
-            title={`Seller still holds ${event.sellerRemainingCount} from this collection`}
-            style={{
-              flexShrink: 0,
-              width: 30, height: 30, borderRadius: '50%',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(250,100,105,0.12)',
-              border:     '1px solid rgba(250,100,105,0.55)',
-              boxShadow:  '0 0 8px rgba(250,100,105,0.18), inset 0 0 0 1px rgba(0,0,0,0.35)',
-              color:      '#ffd6d6',
-              fontSize:    11,
-              fontWeight:  700,
-              letterSpacing: '0.2px',
-              fontFamily:  "'SF Mono','Fira Code',monospace",
-              fontVariantNumeric: 'tabular-nums',
-              userSelect:  'none',
-            }}
-          >{event.sellerRemainingCount}</div>
-        )}
 
         {/* Right column */}
         <div style={FC_RIGHT_COL_STYLE}>
@@ -652,6 +722,20 @@ export default function FeedPage() {
   // splicing a flat array by hand.
   const [feedState, dispatch] = useReducer(feedReducer, undefined, () => initFeedState(MAX_EVENTS));
   const events = useMemo(() => orderedEvents(feedState), [feedState]);
+  // Mirror of `feedState` for the SSE listeners (which can't depend on
+  // a state value without re-installing the EventSource on every tick).
+  // Used by the seller_count listener to detect orphan patches.
+  const feedStateRef = useRef(feedState);
+  useEffect(() => { feedStateRef.current = feedState; }, [feedState]);
+  // Persistent seller-remaining counts keyed by signature. Backend
+  // emits `seller_count` SSE patches asynchronously after each sell-
+  // type sale; without persistence the badge would vanish on every
+  // page reload (the REST snapshot doesn't carry the count). Hydrated
+  // once on mount and updated on every patch — the map is also used
+  // to inject counts into late-arriving snapshot/live events that
+  // already had their patch processed in a prior session.
+  const sellerCountRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => { sellerCountRef.current = loadSellerCounts(); }, []);
   // Push the live event count to the persistent BottomStatusBar in
   // Gate. Window-event channel — the bar is no longer this page's
   // child, so prop drilling isn't possible. Consumer ignores stale
@@ -777,7 +861,16 @@ export default function FeedPage() {
       });
       es.addEventListener('sale', (e: MessageEvent) => {
         try {
-          const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
+          const raw = fromBackend(JSON.parse(e.data) as BackendEvent);
+          // Inject any persisted seller-remaining count we already
+          // resolved in a prior session — keyed by seller+collection
+          // so the same wallet+collection lights up all matching rows
+          // immediately, including ones that arrive after a reload.
+          const k = sellerCountKey(raw.seller, raw.collectionAddress);
+          const persisted = k ? sellerCountRef.current.get(k) : undefined;
+          const ev = typeof persisted === 'number'
+            ? { ...raw, sellerRemainingCount: persisted }
+            : raw;
           enqueue({ type: 'live', event: ev });
         } catch { /* malformed frame — skip */ }
       });
@@ -797,10 +890,27 @@ export default function FeedPage() {
       // `meta` frame is emitted for blacklisted rows).
       es.addEventListener('seller_count', (e: MessageEvent) => {
         try {
-          const { signature, count } = JSON.parse(e.data) as { signature: string; count: number };
-          if (signature && Number.isFinite(count)) {
-            enqueue({ type: 'seller_count', patch: { signature, count } });
+          const { seller, collection, count } = JSON.parse(e.data) as { seller: string; collection: string; count: number };
+          if (!seller || !collection || !Number.isFinite(count)) return;
+          // Persist by seller+collection. One backend lookup powers
+          // every row from this wallet+collection now and after reloads.
+          const k = sellerCountKey(seller, collection)!;
+          sellerCountRef.current.set(k, count);
+          persistSellerCounts(sellerCountRef.current);
+          // Diagnostic: warn when the patch arrives but no row in the
+          // current feed matches yet (sale frame in flight, or the row
+          // was evicted by the MAX_EVENTS cap). Persistence still keeps
+          // the value for any future matching arrival.
+          if (process.env.NODE_ENV !== 'production') {
+            let matches = 0;
+            for (const ev of feedStateRef.current.byId.values()) {
+              if (ev.seller === seller && ev.collectionAddress === collection) matches++;
+            }
+            if (matches === 0) {
+              console.debug('[seller_count/orphan] no matching event in state', k.slice(0, 24));
+            }
           }
+          enqueue({ type: 'seller_count', patch: { seller, collection, count } });
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('remove', (e: MessageEvent) => {
@@ -837,7 +947,17 @@ export default function FeedPage() {
       .then(r => r.json())
       .then((data: LatestApiResponse) => {
         if (cancelled) return;
-        const events: FeedEvent[] = data.events.map(r => fromBackend(fromRow(r)));
+        const events: FeedEvent[] = data.events.map(r => {
+          const ev = fromBackend(fromRow(r));
+          // REST snapshot doesn't carry sellerRemainingCount — re-attach
+          // any value we resolved in a prior session, keyed by
+          // seller+collection so the badge survives reloads.
+          const k = sellerCountKey(ev.seller, ev.collectionAddress);
+          const persisted = k ? sellerCountRef.current.get(k) : undefined;
+          return typeof persisted === 'number'
+            ? { ...ev, sellerRemainingCount: persisted }
+            : ev;
+        });
         captureScroll();
         dispatch({ type: 'snapshot', events });
       })
