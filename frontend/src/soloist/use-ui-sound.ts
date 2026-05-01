@@ -30,8 +30,8 @@ const STORAGE_KEY = 'vl.uiSound';
 const HOVER_THROTTLE_MS = 80;
 const CLICK_THROTTLE_MS = 40;
 
-const HOVER_URL  = '/sounds/ui-hover.m4a?v=6';
-const CLICK_URL  = '/sounds/ui-click.m4a?v=6';
+const HOVER_URL  = '/sounds/ui-hover.m4a?v=8';
+const CLICK_URL  = '/sounds/ui-click.m4a?v=8';
 /** Per-sound pool size — multiple preloaded HTMLAudioElement
  *  instances rotated round-robin so a rapid retrigger doesn't wait
  *  for the previous play() to finish or for a `currentTime = 0`

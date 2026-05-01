@@ -66,6 +66,75 @@ interface MintEvent {
   receivedAt:        number;
 }
 
+/** Defensive client-side guard for the COLLECTIONS table — refuses to
+ *  render rows that look like junk (authority / pool / program-bucket
+ *  aggregates, evidence-free Metaplex noise, anything with explicit
+ *  fungible signals). Applied in three places:
+ *    1. localStorage hydration — filter rows on read
+ *    2. SSE `mint_status` handler — filter rows before insert into state
+ *    3. final render path — last-mile safety net
+ *  Strong NFT evidence (image / real name / non-prefixed collection
+ *  address) overrides the soft-reject prefix rule, so legitimate
+ *  authority-grouped NFTs (rare but real for pre-MCC drops) still
+ *  render once metadata resolves.
+ *
+ *  Per spec: a missing price alone is NOT enough to drop a row — some
+ *  legitimate free-mint NFTs lack price until the first paid event. */
+function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
+  if (!row) return false;
+  if (typeof row.groupingKey !== 'string') return false;
+
+  // Defensive: explicit fungible signals on extra wire fields (none today,
+  // but future-proof against backend additions).
+  const r = row as unknown as Record<string, unknown>;
+  if (typeof r.decimals === 'number' && r.decimals > 0) return false;
+  if (typeof r.supply === 'number' && r.supply > 1) return false;
+  const tokenStandard = typeof r.tokenStandard === 'string' ? r.tokenStandard.toLowerCase() : '';
+  if (tokenStandard === 'fungible' || tokenStandard === 'fungibleasset' || tokenStandard === 'fungible_asset') return false;
+  const iface = typeof r.interface === 'string' ? r.interface.toLowerCase() : '';
+  if (iface === 'fungibletoken' || iface === 'fungibleasset') return false;
+
+  // Strong NFT evidence — overrides the soft-reject prefix rule below.
+  const hasImage = !!row.imageUrl && row.imageUrl.length > 0;
+  // Short-address fallback name pattern: e.g. "Fhvo3m…SmFkM". When the
+  // backend can't resolve real metadata it falls back to a shortened
+  // pubkey rendering — that's NOT evidence of a real NFT.
+  const isShortKeyName = !!row.name &&
+    /^[1-9A-HJ-NP-Za-km-z]{4,8}…[1-9A-HJ-NP-Za-km-z]{4,8}$/.test(row.name);
+  const hasRealName = !!row.name && !isShortKeyName;
+  const hasNonPrefixedCollection = !!row.collectionAddress &&
+    !/^(authority|program|owner|pool):/.test(row.collectionAddress);
+  const strongNftEvidence = hasImage || hasRealName || hasNonPrefixedCollection;
+
+  // Soft reject: groupingKey prefix indicates a non-collection bucket
+  // (launchpad / DEX / system grouping). Keep only when strong evidence
+  // proves a real NFT lives behind this aggregate.
+  const gk = row.groupingKey;
+  if (gk.startsWith('authority:') || gk.startsWith('program:') ||
+      gk.startsWith('owner:') || gk.startsWith('pool:')) {
+    if (!strongNftEvidence) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[mints/ui-drop-junk] grouping-prefix-no-evidence', gk);
+      }
+      return false;
+    }
+  }
+
+  // Soft reject: bare 'Metaplex' source label with no image AND no real
+  // name. Generic Token Metadata noise — when both metadata signals are
+  // absent and the launchpad allowlist didn't recognise the source,
+  // there's no NFT-ness left to display. Per spec, missing price alone
+  // does NOT trigger this rule.
+  if (row.sourceLabel === 'Metaplex' && !hasImage && !hasRealName) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[mints/ui-drop-junk] metaplex-no-evidence', gk);
+    }
+    return false;
+  }
+
+  return true;
+}
+
 /** Defensive client-side guard against fungible / SPL / program-account
  *  events leaking into the live feed. The backend already filters these
  *  via NFT-shape checks + a program-account blacklist — this safety net
@@ -109,7 +178,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = '5';
+const MINTS_CACHE_VERSION     = '6';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -176,6 +245,10 @@ function loadPersistedCollections(): Map<string, MintStatus> {
     const out = new Map<string, MintStatus>();
     for (const r of parsed.rows) {
       if (!r || typeof r.groupingKey !== 'string') continue;
+      // Defensive UI-side junk filter — drops authority/pool/program
+      // aggregates and evidence-free Metaplex rows resurrected from
+      // pre-fix localStorage state. See `isRenderableMintStatus`.
+      if (!isRenderableMintStatus(r)) continue;
       out.set(r.groupingKey, r);
       if (out.size >= COLLECTIONS_LOAD_MAX) break;
     }
@@ -503,6 +576,11 @@ export default function MintsPage() {
               `v60=${s.v60} v5m=${s.v5m} type=${s.mintType}`,
             );
           }
+          // UI-side junk filter — refuses to admit obvious non-NFT rows
+          // even when the backend's accumulator is replaying stale
+          // entries via the SSE snapshot or sweep loop. Keeps the
+          // table clean during the post-deploy cache-flush window.
+          if (!isRenderableMintStatus(s)) return;
           setRows(prev => {
             const next = new Map(prev);
             // Keep all states in the rolling map — the table renders
@@ -576,7 +654,12 @@ export default function MintsPage() {
    *  This keeps the previous active-only behaviour as a strict subset
    *  while surfacing pre-burst activity at the bottom of the table. */
   const sorted = useMemo(() => {
-    const arr = Array.from(rows.values()).filter(r => r.displayState !== 'cooled');
+    const arr = Array.from(rows.values())
+      .filter(r => r.displayState !== 'cooled')
+      // Final-render safety net — a row that slipped past load /
+      // SSE filters (e.g. mutated mid-session by patchAccumulatorMeta)
+      // still gets dropped here before it paints.
+      .filter(r => isRenderableMintStatus(r));
     arr.sort((a, b) => {
       const aShown = a.displayState === 'shown' ? 0 : 1;
       const bShown = b.displayState === 'shown' ? 0 : 1;

@@ -49,23 +49,53 @@ function scheduleWorker(): void {
   setImmediate(runWorker).unref();
 }
 
+/** Distinguishes a confirmed non-NFT verdict (DAS positively classified
+ *  the asset as fungible / non-NFT) from a transient infrastructure
+ *  failure (HTTP error, JSON-RPC error, rate limit, timeout, DAS
+ *  not-yet-indexed). Only the former triggers an accumulator eviction;
+ *  transient failures leave the row in place so a real NFT isn't
+ *  dropped because Helius momentarily hiccupped — the parse-time
+ *  filter in `ingestMintRaw` remains the primary NFT gate. */
+function isConfirmedFungibleVerdict(reason: string | undefined): boolean {
+  if (!reason) return false;
+  // Confirmed fungible / non-NFT signals from `classifyDasAsset`:
+  if (reason.startsWith('interface='))         return true;  // FungibleToken / FungibleAsset
+  if (reason.startsWith('tokenStandard='))     return true;  // Fungible / FungibleAsset
+  if (reason.startsWith('decimals='))          return true;  // decimals > 0
+  if (reason.startsWith('supply='))            return true;  // supply > 1
+  if (reason.startsWith('unknown_interface=')) return true;  // asset present but non-NFT shape
+  // Transient (do NOT evict):
+  //   no_api_key   — env missing on this deploy
+  //   no_asset     — DAS hasn't indexed this mint yet (very recent mint)
+  //   http_<n>     — Helius / DAS HTTP error (429 rate limit, 5xx, etc.)
+  //   das_<code>   — DAS JSON-RPC error (e.g. -32000 generic server)
+  //   fetch_error  — network / timeout
+  return false;
+}
+
 async function runWorker(): Promise<void> {
   while (pending.length > 0) {
     const next = pending.shift()!;
     try {
-      // One DAS call per group — returns both the NFT-vs-fungible
-      // verdict and the metadata fields. Non-NFT groups are evicted
-      // from the accumulator so the row never reaches /mints (or
-      // disappears from the table mid-flight if the cheap parse-
-      // time filter let it through).
+      // One DAS call per mint — returns both the NFT-vs-fungible
+      // verdict and the metadata fields. Only CONFIRMED fungible
+      // verdicts evict the group from the accumulator; transient
+      // infrastructure failures (rate limit, JSON-RPC error, DAS
+      // not-yet-indexed) leave the row in place — the parse-time
+      // filter in ingestMintRaw is the primary NFT gate.
       const { verdict, meta } = await verifyAndFetchAsset(next.mintAddress);
       if (!verdict.ok) {
-        evictMintGroup(next.groupingKey);
-        noteFilterReject(verdict.reason ?? 'unknown', next.mintAddress);
-        // Operator-facing line per the /mints filter spec — sampled
-        // via the same counter map so a single noisy reason doesn't
-        // flood the console under a hot launch.
-        noteEvictNonNft(verdict.reason ?? 'unknown', next.groupingKey, next.mintAddress);
+        if (isConfirmedFungibleVerdict(verdict.reason)) {
+          evictMintGroup(next.groupingKey);
+          noteFilterReject(verdict.reason ?? 'unknown', next.mintAddress);
+          // Operator-facing line per the /mints filter spec — sampled
+          // via the same counter map so a single noisy reason doesn't
+          // flood the console under a hot launch.
+          noteEvictNonNft(verdict.reason ?? 'unknown', next.groupingKey, next.mintAddress);
+        } else {
+          // Transient failure — keep the row, log for visibility.
+          noteDasSkipTransient(verdict.reason ?? 'unknown', next.mintAddress);
+        }
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
@@ -122,6 +152,17 @@ function noteEvictNonNft(reason: string, groupingKey: string, mint: string): voi
   if (n === 1 || n % 50 === 0) {
     console.log(
       `[mints/evict-non-nft] reason=${reason} groupingKey=${groupingKey.slice(0, 32)}… mint=${mint.slice(0, 8)}…`,
+    );
+  }
+}
+const _dasSkipCount = new Map<string, number>();
+function noteDasSkipTransient(reason: string, mint: string): void {
+  const n = (_dasSkipCount.get(reason) ?? 0) + 1;
+  _dasSkipCount.set(reason, n);
+  if (n === 1 || n % 50 === 0) {
+    console.log(
+      `[mints/das-skip-transient] reason=${reason} count=${n} mint=${mint.slice(0, 8)}… ` +
+      `(row kept; parse-time filter remains the primary gate)`,
     );
   }
 }

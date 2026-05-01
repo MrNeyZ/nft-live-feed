@@ -408,32 +408,18 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 // object reference is shared across renders (also keeps the JSX
 // inside the TOPNAV map readable).
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
-  display:        'flex',
-  flexDirection:  'column',
-  gap:            1,
-  padding:        '6px 10px',
-  fontSize:       12,
-  fontWeight:     600,
-  letterSpacing:  '0.3px',
-  color:          '#aaaabf',
-  textDecoration: 'none',
-  borderRadius:   4,
-  transition:     'background 0.12s, color 0.12s',
-  cursor:         'pointer',
-};
-const DROPDOWN_LABEL_STYLE: React.CSSProperties = {
+  display:        'block',
+  padding:        '5px 10px',
   fontSize:       11.5,
   fontWeight:     700,
   letterSpacing:  '0.5px',
   textTransform:  'uppercase',
-  lineHeight:     1.1,
-};
-const DROPDOWN_DESC_STYLE: React.CSSProperties = {
-  fontSize:       9.5,
-  fontWeight:     500,
-  color:          '#55556e',
-  letterSpacing:  '0.3px',
   lineHeight:     1.2,
+  color:          '#aaaabf',
+  textDecoration: 'none',
+  borderRadius:   3,
+  transition:     'background 0.12s, color 0.12s',
+  cursor:         'pointer',
 };
 
 export function TopNav({ active }: { active?: Page } = {}) {
@@ -752,7 +738,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             return (
               <div
                 key={p.key}
-                style={{ position: 'relative', display: 'inline-block' }}
+                style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
                 onPointerEnter={() => setToolsOpen(true)}
                 onPointerLeave={() => setToolsOpen(false)}
               >
@@ -763,16 +749,16 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     aria-label="Tools menu"
                     style={{
                       position: 'absolute', top: '100%', left: 0,
-                      marginTop: 4,
-                      minWidth: 180,
-                      padding: 4,
+                      marginTop: 0,
+                      minWidth: 150,
+                      padding: 3,
                       background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
                       border: '1px solid rgba(168,144,232,0.28)',
                       borderRadius: 6,
                       boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.18)',
                       backdropFilter: 'blur(8px)',
                       zIndex: 1000,
-                      display: 'flex', flexDirection: 'column', gap: 2,
+                      display: 'flex', flexDirection: 'column', gap: 1,
                     }}
                   >
                     <a
@@ -784,8 +770,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
                     >
-                      <span style={DROPDOWN_LABEL_STYLE}>Burner</span>
-                      <span style={DROPDOWN_DESC_STYLE}>Wallet cleanup</span>
+                      Burner
                     </a>
                     <Link
                       role="menuitem"
@@ -795,8 +780,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
                       onClick={() => setToolsOpen(false)}
                     >
-                      <span style={DROPDOWN_LABEL_STYLE}>Offers</span>
-                      <span style={DROPDOWN_DESC_STYLE}>ME personal offers</span>
+                      Offers
                     </Link>
                   </div>
                 )}
