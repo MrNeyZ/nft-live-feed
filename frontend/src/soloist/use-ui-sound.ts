@@ -30,15 +30,15 @@ const STORAGE_KEY = 'vl.uiSound';
 const HOVER_THROTTLE_MS = 80;
 const CLICK_THROTTLE_MS = 40;
 
-const HOVER_URL  = '/sounds/ui-hover.m4a?v=2';
-const CLICK_URL  = '/sounds/ui-click.m4a?v=2';
-// HTMLMediaElement.volume — multiplies the asset's recorded amplitude
-// at playback time. Source clips: raw peak ~0.033 hover, ~0.108 click
-// (intentionally loud during editing). Hover is kept quieter than
-// click so the click reads as a clear confirmation distinct from the
-// hover whisper.
-const HOVER_GAIN = 0.15;
-const CLICK_GAIN = 0.28;
+const HOVER_URL  = '/sounds/ui-hover.m4a?v=3';
+const CLICK_URL  = '/sounds/ui-click.m4a?v=3';
+// HTMLMediaElement.volume kept at 1.0 — the assets themselves now
+// carry full perceived loudness (3x amplified in-place: hover post-peak
+// ~0.099, click post-peak ~0.324, both well below the 0.99 ceiling so
+// no clipping). Hover stays quieter than click via the asset amplitude
+// difference, so volume scaling here would only attenuate.
+const HOVER_GAIN = 1.0;
+const CLICK_GAIN = 1.0;
 
 // ── Persisted preference ────────────────────────────────────────────────────
 
