@@ -890,27 +890,33 @@ export default function FeedPage() {
       // `meta` frame is emitted for blacklisted rows).
       es.addEventListener('seller_count', (e: MessageEvent) => {
         try {
-          const { seller, collection, count } = JSON.parse(e.data) as { seller: string; collection: string; count: number };
+          const { signature, seller, collection, count } = JSON.parse(e.data) as {
+            signature?: string;
+            seller:     string;
+            collection: string;
+            count:      number;
+          };
           if (!seller || !collection || !Number.isFinite(count)) return;
-          // Persist by seller+collection. One backend lookup powers
-          // every row from this wallet+collection now and after reloads.
+          // Persist by seller+collection so reloads / future rows from
+          // the same wallet+collection can re-attach the count.
           const k = sellerCountKey(seller, collection)!;
           sellerCountRef.current.set(k, count);
           persistSellerCounts(sellerCountRef.current);
-          // Diagnostic: warn when the patch arrives but no row in the
-          // current feed matches yet (sale frame in flight, or the row
-          // was evicted by the MAX_EVENTS cap). Persistence still keeps
-          // the value for any future matching arrival.
+          // Diagnostic: warn when no row in the current feed matches
+          // either the signature or the seller+collection pair (sale
+          // frame in flight, or row evicted by MAX_EVENTS). Persistence
+          // still keeps the value for any future matching arrival.
           if (process.env.NODE_ENV !== 'production') {
             let matches = 0;
             for (const ev of feedStateRef.current.byId.values()) {
-              if (ev.seller === seller && ev.collectionAddress === collection) matches++;
+              if ((signature && ev.signature === signature) ||
+                  (ev.seller === seller && ev.collectionAddress === collection)) matches++;
             }
             if (matches === 0) {
               console.debug('[seller_count/orphan] no matching event in state', k.slice(0, 24));
             }
           }
-          enqueue({ type: 'seller_count', patch: { seller, collection, count } });
+          enqueue({ type: 'seller_count', patch: { signature, seller, collection, count } });
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('remove', (e: MessageEvent) => {

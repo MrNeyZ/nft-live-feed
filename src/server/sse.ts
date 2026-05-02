@@ -190,7 +190,12 @@ saleEventBus.onSale(           (event)  => {
     if (Math.random() < 0.05) {
       console.log(`[seller-count] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… count=${count}`);
     }
-    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, count })}\n\n`);
+    // Wire payload carries BOTH a signature (primary match key for
+    // the originating sale row, even when its collectionAddress was
+    // null at sale time) AND seller+collection (so the same patch can
+    // light up other rows from the same wallet+collection and persist
+    // across reloads in localStorage under the composite key).
+    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count })}\n\n`);
   })();
 });
 saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));

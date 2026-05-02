@@ -553,6 +553,25 @@ a { color: inherit; text-decoration: none; }
   animation: sellerBadgeNumIn 150ms ease-out;
 }
 
+/* Tools / Offers — per-row hover lift. Scale (not margin) keeps the
+   table layout stable; the slight purple glow + brighter background
+   reads as a "selected/focused" state without competing with the
+   inline opacity dim used for EXPIRED rows. */
+.tools-offer-row {
+  position: relative;
+  transition: transform 180ms ease-out, background 180ms ease-out, box-shadow 180ms ease-out;
+  transform-origin: center;
+  will-change: transform;
+}
+.tools-offer-row:hover {
+  transform: scale(1.012);
+  background: rgba(168,144,232,0.06);
+  box-shadow:
+    0 0 0 1px rgba(168,144,232,0.32) inset,
+    0 0 14px rgba(128,104,216,0.18);
+  z-index: 1;
+}
+
 @keyframes flashListing {
   0%   { background: rgba(232, 122, 176, 0.28); }
   40%  { background: rgba(232, 122, 176, 0.14); }

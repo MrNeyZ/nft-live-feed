@@ -67,11 +67,14 @@ export interface RawPatch {
   priceSol?:   number;
 }
 
-/** Seller-collection-count patch — late-arriving async result keyed by
- *  seller + collection (NOT signature). One backend lookup populates
- *  every existing row that shares the same seller+collection pair so
- *  rapid back-to-back dumps from the same wallet update in lockstep. */
+/** Seller-collection-count patch — late-arriving async result.
+ *  Carries the originating `signature` as the primary match key (works
+ *  even when the row's collectionAddress was null at sale time), plus
+ *  seller+collection so the same patch can fan out to every other row
+ *  from the same wallet+collection and persist across reloads in
+ *  localStorage under the composite key. */
 export interface SellerCountPatch {
+  signature?: string;
   seller:     string;
   collection: string;
   count:      number;
@@ -190,10 +193,23 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
       const { patch } = action;
       return patchWhere(
         state,
-        ev => ev.seller === patch.seller && ev.collectionAddress === patch.collection,
-        ev => ev.sellerRemainingCount === patch.count
-          ? ev
-          : { ...ev, sellerRemainingCount: patch.count },
+        ev =>
+          (!!patch.signature && ev.signature === patch.signature) ||
+          (ev.seller === patch.seller && ev.collectionAddress === patch.collection),
+        ev => {
+          // Backfill collectionAddress when we matched by signature
+          // (the row had it null at sale time but the backend has now
+          // resolved it). That repair lets future seller+collection
+          // patches for the same wallet+collection light up THIS row
+          // too without re-needing a signature match.
+          const nextColl = ev.collectionAddress ?? patch.collection;
+          if (ev.sellerRemainingCount === patch.count && ev.collectionAddress === nextColl) return ev;
+          return {
+            ...ev,
+            sellerRemainingCount: patch.count,
+            collectionAddress:    nextColl,
+          };
+        },
       );
     }
     case 'remove': {

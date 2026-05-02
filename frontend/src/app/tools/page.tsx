@@ -128,6 +128,26 @@ function savePersisted(slug: string, result: ScanResult): void {
 export default function ToolsPage() {
   useEffect(() => { document.title = 'VictoryLabs — Tools'; }, []);
   const [busy, setBusy]                 = useState(false);
+  // 429-driven cooldown. When the backend rate-limits us we soft-warn
+  // (keeping any cached rows visible) and disable the Scan button until
+  // the timestamp passes. `nowMs` ticks once a second only while a
+  // cooldown is active so the countdown text re-renders without an
+  // ever-running interval.
+  const [cooldownUntilMs, setCooldownUntilMs] = useState<number | null>(null);
+  const [is429, setIs429]                     = useState(false);
+  const [nowMs, setNowMs]                     = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (cooldownUntilMs == null) return;
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [cooldownUntilMs]);
+  const cooldownLeftSec = cooldownUntilMs != null
+    ? Math.max(0, Math.ceil((cooldownUntilMs - nowMs) / 1000))
+    : 0;
+  const inCooldown = cooldownLeftSec > 0;
+  useEffect(() => {
+    if (cooldownUntilMs != null && cooldownLeftSec === 0) setCooldownUntilMs(null);
+  }, [cooldownUntilMs, cooldownLeftSec]);
   // Selected collection drives the scan request body, the localStorage
   // key, and the displayed result. Changing it loads that slug's
   // cached scan if one exists.
@@ -208,7 +228,7 @@ export default function ToolsPage() {
   const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? '↑' : '↓') : '';
 
   const runScan = async () => {
-    if (busy) return;
+    if (busy || inCooldown) return;
     // Capture two baseline sets BEFORE issuing the request so the
     // diff is computed against what was visible when the user clicked
     // Scan. `result` is left in place during the fetch so the table
@@ -233,6 +253,7 @@ export default function ToolsPage() {
     );
     setBusy(true);
     setError(null);
+    setIs429(false);
     try {
       const body: Record<string, unknown> = { slug: selectedSlug };
       const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
@@ -240,6 +261,15 @@ export default function ToolsPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(body),
       });
+      if (r.status === 429) {
+        // Soft path: surface a non-fatal warning, keep cached rows in
+        // place, and start a 45 s cooldown so the operator can't
+        // hammer the endpoint right back into another rate-limit.
+        setIs429(true);
+        setError('Rate limited — showing cached results. Try again in ~45s.');
+        setCooldownUntilMs(Date.now() + 45_000);
+        return;
+      }
       if (!r.ok) {
         const txt = await r.text().catch(() => '');
         throw new Error(`HTTP ${r.status}${txt ? ` — ${txt.slice(0, 80)}` : ''}`);
@@ -321,30 +351,43 @@ export default function ToolsPage() {
             <button
               type="button"
               onClick={runScan}
-              disabled={busy}
+              disabled={busy || inCooldown}
               style={{
                 padding: '7px 16px', fontSize: 12, fontWeight: 700,
                 letterSpacing: '0.5px', textTransform: 'uppercase',
-                borderRadius: 5, cursor: busy ? 'wait' : 'pointer',
+                borderRadius: 5, cursor: (busy || inCooldown) ? 'not-allowed' : 'pointer',
                 border: '1px solid rgba(168,144,232,0.55)',
-                background: busy ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-                color: busy ? '#7a7a94' : '#d4d4e8',
-                boxShadow: busy ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
+                background: (busy || inCooldown) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
+                color: (busy || inCooldown) ? '#7a7a94' : '#d4d4e8',
+                boxShadow: (busy || inCooldown) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
                 transition: 'all 0.15s',
               }}
             >
-              {busy ? 'Scanning…' : 'Scan ME Offers'}
+              {busy ? 'Scanning…' : inCooldown ? `Wait ${cooldownLeftSec}s` : 'Scan ME Offers'}
             </button>
           </div>
         </div>
         {error && (
-          <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#ef7878',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
-            borderRadius: 5,
-          }}>
-            scan failed — {error}
-          </div>
+          // Soft amber banner for 429 (cached rows still visible);
+          // hard red banner for any other failure. Both keep `result`
+          // intact — the scan never wipes existing data.
+          is429 ? (
+            <div style={{
+              marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#e0b34a',
+              background: 'rgba(224,179,74,0.08)', border: '1px solid rgba(224,179,74,0.32)',
+              borderRadius: 5,
+            }}>
+              {error}
+            </div>
+          ) : (
+            <div style={{
+              marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#ef7878',
+              background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+              borderRadius: 5,
+            }}>
+              scan failed — {error}
+            </div>
+          )
         )}
         {result && !error && (
           <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94' }}>
@@ -460,7 +503,7 @@ export default function ToolsPage() {
                   && offerAgeSec < 24 * 60 * 60
                   && row.bestOfferStatus !== 'EXPIRED';
                 return (
-                  <tr key={row.mint} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
+                  <tr key={row.mint} className="tools-offer-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
                     <td style={{ padding: '10px 8px 10px 14px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* Thumbnail wrapper carries `position: relative`
