@@ -5,7 +5,7 @@
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -466,6 +466,36 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // backward compatibility with existing call sites that still pass it
   // (e.g. before they're migrated to the persistent layout).
   const pathname = usePathname() ?? '';
+  // Router used for explicit prefetch on hover (App Router prefetches
+  // <Link> in the viewport by default, but tabs pulled from a freshly
+  // mounted nav can still take a beat on the first hover — calling
+  // router.prefetch on pointer-enter primes the chunk before click).
+  const router = useRouter();
+  // One-time pre-warm on TopNav mount: prefetch every internal nav
+  // route so the very first switch after the app boots feels instant.
+  // Cheap — Next.js dedupes prefetches per path so the hover-prefetch
+  // path below is a no-op on already-warmed routes.
+  useEffect(() => {
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/feed'];
+    for (const h of HREFS) router.prefetch(h);
+  }, [router]);
+  // Pathname-change perf log. Pairs with the click-time stamp set in
+  // each Link's onClick to print a one-liner like
+  //   [nav-perf] mounted /feed after 142ms
+  // so the operator can see whether a slow switch is JS-load-bound,
+  // data-fetch-bound, or already fast. Only fires on actual route
+  // changes (skips the initial mount).
+  const prevPathnameRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (prevPathnameRef.current !== null && prevPathnameRef.current !== pathname) {
+      const w = window as unknown as { __navPerfClick?: number };
+      const clickedAt = typeof w.__navPerfClick === 'number' ? w.__navPerfClick : null;
+      const dt = clickedAt != null ? Math.round(performance.now() - clickedAt) : null;
+      console.log(`[nav-perf] mounted ${pathname}${dt != null ? ` after ${dt}ms` : ''}`);
+    }
+    prevPathnameRef.current = pathname;
+  }, [pathname]);
   const activeKey: Page = (() => {
     if (pathname.startsWith('/dashboard')) return 'dashboard';
     if (pathname.startsWith('/multi'))     return 'multi';
@@ -759,10 +789,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   key={p.key}
                   ref={setTabRef(p.key)}
                   href={p.href}
+                  prefetch
                   className="topnav-tab"
                   data-tab={p.key}
-                  onMouseEnter={() => setHoverKey(p.key)}
+                  onMouseEnter={() => { setHoverKey(p.key); router.prefetch(p.href); }}
                   onMouseLeave={() => setHoverKey(prev => prev === p.key ? null : prev)}
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                      console.log(`[nav-perf] click ${p.href}`);
+                    }
+                  }}
                   style={tabStyle}
                 >{p.label}</Link>
               );
@@ -828,10 +865,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     <Link
                       role="menuitem"
                       href="/tools"
+                      prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; router.prefetch('/tools'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
-                      onClick={() => setToolsOpen(false)}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools');
+                        }
+                        setToolsOpen(false);
+                      }}
                     >
                       Offers
                     </Link>

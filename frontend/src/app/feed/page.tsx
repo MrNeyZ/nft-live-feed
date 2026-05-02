@@ -17,6 +17,7 @@ import {
   type MetaPatch, type FeedAction,
 } from '@/soloist/feed-store';
 import { isCnftDust, CNFT_FLOOR_MIN_SOL } from '@/soloist/cnft-filter';
+import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
@@ -687,6 +688,10 @@ export default function FeedPage() {
   }, []);
   useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
   const [filter, setFilter] = useState<FilterKey>('all');
+  // Price-tier quick filter. Independent of `filter` (Type) — both can
+  // be active at once. Only one price tier can be selected at a time;
+  // clicking the active tier flips back to 'all'.
+  const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
   const [paused, setPaused] = useState(false);
@@ -871,6 +876,14 @@ export default function FeedPage() {
           const ev = typeof persisted === 'number'
             ? { ...raw, sellerRemainingCount: persisted }
             : raw;
+          // Deep-discount alert: only fires from the LIVE SSE path
+          // (never from REST snapshot / persisted hydration). Backend
+          // floorDelta = (price - floor) / floor, so price <= floor*0.5
+          // ↔ floorDelta <= -0.5. Null floor (lookup miss) is ignored
+          // by the typeof guard so we never alert on missing data.
+          if (typeof ev.floorDelta === 'number' && ev.floorDelta <= -0.5) {
+            playDeepDiscountAlert(ev.signature);
+          }
           enqueue({ type: 'live', event: ev });
         } catch { /* malformed frame — skip */ }
       });
@@ -896,25 +909,38 @@ export default function FeedPage() {
             collection: string;
             count:      number;
           };
-          if (!seller || !collection || !Number.isFinite(count)) return;
+          // TEMPORARY UNSAMPLED diagnostic per the badge-missing
+          // investigation. Always logs (even in production) so the
+          // operator can confirm SSE patches arrive at all.
+          console.log(
+            `[seller-count-ui] signature=${signature ?? '—'} ` +
+            `seller=${seller} collection=${collection} count=${count}`,
+          );
+          if (!seller || !collection || !Number.isFinite(count)) {
+            console.log('[seller-count-ui-miss] reason=invalid_payload');
+            return;
+          }
           // Persist by seller+collection so reloads / future rows from
           // the same wallet+collection can re-attach the count.
           const k = sellerCountKey(seller, collection)!;
           sellerCountRef.current.set(k, count);
           persistSellerCounts(sellerCountRef.current);
-          // Diagnostic: warn when no row in the current feed matches
-          // either the signature or the seller+collection pair (sale
-          // frame in flight, or row evicted by MAX_EVENTS). Persistence
-          // still keeps the value for any future matching arrival.
-          if (process.env.NODE_ENV !== 'production') {
-            let matches = 0;
-            for (const ev of feedStateRef.current.byId.values()) {
-              if ((signature && ev.signature === signature) ||
-                  (ev.seller === seller && ev.collectionAddress === collection)) matches++;
-            }
-            if (matches === 0) {
-              console.debug('[seller_count/orphan] no matching event in state', k.slice(0, 24));
-            }
+          // UNSAMPLED orphan check — counts how many feed rows the
+          // patch will actually update. 0 means the sale frame either
+          // hasn't arrived yet OR the row was evicted (MAX_EVENTS cap).
+          // Persistence still keeps the value for any future matching
+          // arrival, but a chronic stream of zero-match patches points
+          // at a key-mismatch upstream.
+          let matches = 0;
+          for (const ev of feedStateRef.current.byId.values()) {
+            if ((signature && ev.signature === signature) ||
+                (ev.seller === seller && ev.collectionAddress === collection)) matches++;
+          }
+          if (matches === 0) {
+            console.log(
+              `[seller-count-ui-miss] reason=no_matching_row signature=${signature ?? '—'} ` +
+              `seller=${seller} collection=${collection}`,
+            );
           }
           enqueue({ type: 'seller_count', patch: { signature, seller, collection, count } });
         } catch { /* malformed frame — skip */ }
@@ -1068,6 +1094,17 @@ export default function FeedPage() {
       const name = e.collectionName?.toLowerCase() ?? '';
       if (slug !== target && name !== target) return false;
     }
+    // Price-tier gate (independent of Type). When active, drop events
+    // whose price is missing/invalid OR below the threshold. Display
+    // `price` is the seller-net-preferred figure already in SOL; fall
+    // back to gross when the display value isn't finite (paranoia —
+    // shouldn't happen for normal sales).
+    if (priceFilter !== 'all') {
+      const candidate = Number.isFinite(e.price) ? e.price : e.grossPrice;
+      if (!Number.isFinite(candidate) || candidate <= 0) return false;
+      if (priceFilter === 'p001' && candidate < 0.01) return false;
+      if (priceFilter === 'p01'  && candidate < 0.1)  return false;
+    }
     const t = e.saleTypeRaw;
     if (filter === 'buy')     return t === SALE_TYPE_BUY;
     if (filter === 'sell')    return t === SALE_TYPE_SELL;
@@ -1075,7 +1112,7 @@ export default function FeedPage() {
     if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
     if (filter === 'listing') return false; // backend does not emit listings in v1
     return true;
-  }), [events, filter, collFilter, floorBySlug]);
+  }), [events, filter, priceFilter, collFilter, floorBySlug]);
 
   // Page-level wheel forwarding: when the user scrolls anywhere on the
   // page (including the empty "black" margins outside the centered 640 px
@@ -1214,6 +1251,32 @@ export default function FeedPage() {
                             background:  `${f.color}38`,
                             border:      `1px solid ${f.color}`,
                             boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
+                            fontWeight:  700,
+                          } : undefined}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Price:</span>
+                    {([
+                      { key: 'p001', label: '0.01+' },
+                      { key: 'p01',  label: '0.1+'  },
+                    ] as const).map(p => {
+                      const isActive = priceFilter === p.key;
+                      const color = '#a890e8';
+                      return (
+                        <Pill
+                          key={p.key}
+                          active={isActive}
+                          color={color}
+                          onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
+                          label={p.label}
+                          size="sm"
+                          style={isActive ? {
+                            background:  `${color}38`,
+                            border:      `1px solid ${color}`,
+                            boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
                             fontWeight:  700,
                           } : undefined}
                         />

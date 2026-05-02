@@ -32,6 +32,10 @@ interface MintStatus {
    *  link target. May be null until the first event arrives or for
    *  cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress?:  string | null;
+  /** Total collection supply, when known. Optional — backend may not
+   *  populate it for every launchpad path. UI falls back to "—" when
+   *  null/undefined per the targeted-mode spec. */
+  supply?:           number | null;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -337,9 +341,31 @@ function thumb64(url: string | null | undefined): string | null {
   if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
   return `/thumb?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=png`;
 }
+/** Proxy size for the live-mint card thumbnails — 200×200 source. The
+ *  card display size stays around the existing 56–64 px footprint, so
+ *  the larger source is purely for crisp rendering on hi-DPI displays
+ *  (and matches the spec's "200×200 source if available"). */
+function thumb200(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
+  return `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=png`;
+}
 function shortMint(addr: string | null): string {
   if (!addr) return '—';
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+}
+
+/** Outbound link target for launchpad source badges. Returns null for
+ *  sources without a stable public URL — the badge then renders as a
+ *  plain pill (no anchor). LMNFT + vvv.so are the targeted launchpads
+ *  the backend now actively detects. */
+function sourceHref(s: SourceLabel): string | null {
+  switch (s) {
+    case 'LaunchMyNFT': return 'https://launchmynft.io/';
+    case 'VVV':         return 'https://vvv.so/';
+    default:            return null;
+  }
 }
 
 function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } {
@@ -772,13 +798,12 @@ export default function MintsPage() {
                 layout. COLLECTION is auto (no width = takes the
                 remainder); the others are pinned. */}
             <colgroup>
-              <col />
-              <col style={{ width: 70 }}  />{/* MINTS    */}
-              <col style={{ width: 90 }}  />{/* MINT/MIN */}
-              <col style={{ width: 90 }}  />{/* LAST     */}
-              <col style={{ width: 80 }}  />{/* PRICE    */}
-              <col style={{ width: 100 }} />{/* SOURCE   */}
-              <col style={{ width: 80 }}  />{/* TYPE     */}
+              <col />                        {/* COLLECTION (auto) */}
+              <col style={{ width: 90 }}  /> {/* MINTS    */}
+              <col style={{ width: 100 }} /> {/* SUPPLY   */}
+              <col style={{ width: 110 }} /> {/* LAST     */}
+              <col style={{ width: 90 }}  /> {/* MINT/MIN */}
+              <col style={{ width: 120 }} /> {/* SOURCE   */}
             </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
@@ -788,26 +813,25 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('mints')}>
                   MINTS {sortKey === 'mints' && <span style={{ color: '#8068d8' }}>↓</span>}
                 </th>
+                <th style={thStyle}>SUPPLY</th>
+                <th style={thStyle}>LAST MINT</th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('velocity')}>
                   MINT/MIN {sortKey === 'velocity' && <span style={{ color: '#8068d8' }}>↓</span>}
                 </th>
-                <th style={thStyle}>LAST MINT</th>
-                <th style={thStyle}>PRICE</th>
                 <th style={thStyle}>SOURCE</th>
-                <th style={thStyle}>TYPE</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
+                  <td colSpan={6} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
                     Waiting for active mints…
                   </td>
                 </tr>
               )}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
+                  <td colSpan={6} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
                     Collections appear here as soon as a mint is detected
                     (WATCH); they upgrade to ACTIVE on burst (≥ 8 mints / 60 s)
                     or 50 cumulative mints.
@@ -815,7 +839,6 @@ export default function MintsPage() {
                 </tr>
               )}
               {sorted.map((r, i) => {
-                const tb = typeBadge(r.mintType);
                 const displayName = r.name ?? shortKey(r.groupingKey);
                 const isBurst = r.shownReason === 'burst';
                 // ACTIVE = promoted (`shown`), WATCH = pre-burst
@@ -834,7 +857,7 @@ export default function MintsPage() {
                         12px vertical padding (up from /mints' previous
                         compact 8px to align with /dashboard rhythm),
                         38 px ItemThumb, 15 px name. */}
-                    <td style={{ padding: '12px 6px 12px 10px' }}>
+                    <td style={{ padding: '12px 6px 12px 10px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         <ItemThumb
@@ -919,34 +942,35 @@ export default function MintsPage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                       {r.observedMints.toLocaleString()}
                     </td>
-                    <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px' }}>
-                      {r.v60.toFixed(0)}
+                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                      {typeof r.supply === 'number' && r.supply > 0
+                        ? r.supply.toLocaleString()
+                        : '—'}
                     </td>
-                    <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 11.5, color: '#5e5e78', fontWeight: 500, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 12, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace" }}>
-                      {fmtSol(r.priceLamports)}
+                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                      {r.v60.toFixed(0)}
                     </td>
-                    <td style={{ padding: '10px 4px', textAlign: 'right' }}>
+                    <td style={{ padding: '12px 12px 12px 8px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);
-                        return (
-                          <span style={{
-                            display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                            background: sb.bg, color: sb.fg, letterSpacing: '0.3px',
-                          }}>{sb.label}</span>
+                        const href = sourceHref(r.sourceLabel);
+                        const pillStyle: React.CSSProperties = {
+                          display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+                          background: sb.bg, color: sb.fg, letterSpacing: '0.3px',
+                          textDecoration: 'none', cursor: href ? 'pointer' : 'default',
+                        };
+                        return href ? (
+                          <a href={href} target="_blank" rel="noopener noreferrer" title={r.sourceLabel} style={pillStyle}>{sb.label}</a>
+                        ) : (
+                          <span style={pillStyle}>{sb.label}</span>
                         );
                       })()}
-                    </td>
-                    <td style={{ padding: '10px 8px 10px 4px', textAlign: 'right' }}>
-                      <span style={{
-                        display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                        background: tb.bg, color: tb.fg, letterSpacing: '0.3px',
-                      }}>{tb.label}</span>
                     </td>
                   </tr>
                 );
@@ -1006,15 +1030,32 @@ export default function MintsPage() {
             )}
             {events.map(ev => {
               const group       = rows.get(ev.groupingKey);
-              const displayName = group?.name ?? shortMint(ev.mintAddress);
-              const abbr        = (displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase();
-              const sb          = sourceBadge(ev.sourceLabel);
-              const priceText   = ev.priceLamports == null
+              // NFT name vs. collection name. Per the targeted-mode
+              // spec, these are distinct lines on the card: the NFT's
+              // own name is the prominent first line; the collection
+              // name (when known) sits below in a smaller muted font.
+              // Backend doesn't ship per-mint nftName on the wire today,
+              // so we fall back to the shortened mint address for the
+              // top line and use the group's resolved name for the
+              // collection subtitle.
+              const collectionName = group?.name ?? null;
+              const nftName        = isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT';
+              const collectionLine = collectionName
+                ?? (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
+              const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
+              const priceText      = ev.priceLamports == null
                 ? '—'
                 : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
-              const priceColor  = ev.priceLamports == null
+              const priceColor     = ev.priceLamports == null
                 ? '#55556e'
                 : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
+              // NFT-type pill. We only know `programSource` on the wire
+              // (no separate nftType today), so Core → CORE; everything
+              // else collapses to the spec's "NFT" fallback.
+              const nftTypeLabel: string =
+                ev.programSource === 'mpl_core'   ? 'CORE'   :
+                ev.programSource === 'bubblegum'  ? 'cNFT'   :
+                'NFT';
               return (
                 <div
                   key={ev.signature}
@@ -1023,8 +1064,7 @@ export default function MintsPage() {
                     // Card chrome — exact mirror of /feed `.feed-card`:
                     // 10/12 padding, 12 px gap, 56 px thumb, 1 px hairline
                     // border, 7 px radius, faint background. Hover tint
-                    // via the className rule in globals.css (matches
-                    // .feed-card:hover at rgba 0.04).
+                    // via the className rule in globals.css.
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     border: '1px solid rgba(255,255,255,0.06)',
@@ -1033,22 +1073,19 @@ export default function MintsPage() {
                     transition: 'background 0.12s, border-color 0.12s',
                   }}
                 >
-                  {/* 56×56 NFT thumbnail — same size as /feed cards.
-                      Source still routed through the 64×64 /thumb proxy
-                      (downscale-on-render is cheap; matches Live Feed
-                      bandwidth profile). */}
+                  {/* 56×56 thumbnail rendered from a 200×200 /thumb
+                      source so hi-DPI displays render crisply without
+                      enlarging the card footprint. Falls back to the
+                      shared abbr/color placeholder when no image yet. */}
                   <ItemThumb
-                    imageUrl={thumb64(group?.imageUrl ?? null)}
+                    imageUrl={thumb200(group?.imageUrl ?? null)}
                     color="#8068d8"
                     abbr={abbr}
                     size={56}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Clickable name → Solscan token page when we have
-                        a mint address. Hover toggles a solid underline
-                        (same affordance pattern as /feed FeedCard's
-                        title link). When mintAddress is null we keep
-                        plain text so the row still renders. */}
+                    {/* Top line: NFT name. Clickable → Solscan token
+                        page when a real mint address is present. */}
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {isSolPubkey(ev.mintAddress) ? (
                         <a
@@ -1060,20 +1097,25 @@ export default function MintsPage() {
                           onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
                         >
-                          {displayName}
+                          {nftName}
                         </a>
                       ) : (
-                        displayName
+                        nftName
                       )}
                     </div>
-                    <div style={{ fontSize: 10.5, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2 }}>
-                      {shortMint(ev.mintAddress)}
+                    {/* Bottom line: collection name (smaller, muted)
+                        per the targeted-mode spec. Falls back to the
+                        shortened collection address, then to "—". */}
+                    <div style={{ fontSize: 11, color: '#7a7a94', fontWeight: 500, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {collectionLine}
                     </div>
                   </div>
+                  {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT). */}
                   <span style={{
                     display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                    background: sb.bg, color: sb.fg, letterSpacing: '0.3px', flexShrink: 0,
-                  }}>{sb.label}</span>
+                    background: 'rgba(168,144,232,0.15)', color: '#a890e8',
+                    letterSpacing: '0.3px', flexShrink: 0,
+                  }}>{nftTypeLabel}</span>
                   <span style={{
                     minWidth: 64, textAlign: 'right',
                     fontSize: 13, fontWeight: 700, color: priceColor,
@@ -1097,12 +1139,14 @@ export default function MintsPage() {
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '10px 4px',
+  padding: '10px 8px',
   fontSize: 9.5,
   fontWeight: 700,
   color: '#56566e',
   letterSpacing: '0.6px',
   textAlign: 'right',
+  verticalAlign: 'middle',
+  whiteSpace: 'nowrap',
   background: 'rgba(28,22,50,0.95)',
   borderBottom: '1px solid rgba(168,144,232,0.12)',
   textTransform: 'uppercase',

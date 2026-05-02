@@ -32,6 +32,17 @@ const CLICK_THROTTLE_MS = 40;
 
 const HOVER_URL  = '/sounds/ui-hover.m4a?v=8';
 const CLICK_URL  = '/sounds/ui-click.m4a?v=8';
+// Deep-discount alert — single AAC m4a, hot-loud (peak ~0.987, RMS
+// ~−22 dBFS, ~+14 dB above the source notify.mp3) so the operator
+// won't miss it. Played at most once per signature and rate-limited
+// globally so a flurry of cheap dumps can't turn the page into a slot
+// machine. File missing → fail silent (HTMLAudio play() rejects,
+// swallowed below). Asset extension is .m4a (AAC) because the build
+// host's afconvert can't write MP3; AAC is supported by every modern
+// browser via HTMLAudioElement.
+const DEEP_DISCOUNT_URL = '/sounds/deep-discount-alert.m4a?v=2';
+const DEEP_DISCOUNT_COOLDOWN_MS = 8_000;
+const DEEP_DISCOUNT_SEEN_MAX    = 500;
 /** Per-sound pool size — multiple preloaded HTMLAudioElement
  *  instances rotated round-robin so a rapid retrigger doesn't wait
  *  for the previous play() to finish or for a `currentTime = 0`
@@ -244,4 +255,54 @@ export function playUiHover(): void {
 /** Click / activation tick — slightly louder + longer than hover. */
 export function playUiClick(): void {
   lastClickAt = playFromPool(clickPool, _clickState, CLICK_THROTTLE_MS, lastClickAt);
+}
+
+// ── Deep-discount alert (rare, signature-deduped, throttled) ──────────────
+//
+// Single HTMLAudioElement is enough — the alert fires at most once per
+// ~8 s. Lazy-instantiated so no network request is made until the first
+// trigger. Respects the same `enabled` toggle and reduced-motion check as
+// the hover/click ticks; the per-signature `seen` Set + global cooldown
+// stop the alert from spamming when several deep-discount sales arrive
+// in a single SSE burst.
+let deepDiscountAudio: HTMLAudioElement | null = null;
+let lastDeepDiscountAt = 0;
+const deepDiscountSeen = new Set<string>();
+function rememberDeepDiscount(sig: string): void {
+  if (deepDiscountSeen.has(sig)) return;
+  deepDiscountSeen.add(sig);
+  if (deepDiscountSeen.size <= DEEP_DISCOUNT_SEEN_MAX) return;
+  // Drop the oldest insertion (Set preserves insertion order).
+  const overflow = deepDiscountSeen.size - DEEP_DISCOUNT_SEEN_MAX;
+  const it = deepDiscountSeen.values();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    deepDiscountSeen.delete(r.value);
+  }
+}
+
+/** Play the deep-discount alert once per `signature`, gated by the
+ *  `enabled` toggle, reduced-motion, and a global ~8 s cooldown. Safe
+ *  to call from SSE listeners — no-ops on the server (no `window`),
+ *  on duplicate signatures, or before the first user gesture has
+ *  unlocked autoplay (HTMLAudio play() rejects, swallowed below). */
+export function playDeepDiscountAlert(signature: string): void {
+  if (!enabled) return;
+  if (typeof window === 'undefined') return;
+  if (reducedMotion()) return;
+  if (!signature || deepDiscountSeen.has(signature)) return;
+  const now = performance.now();
+  if (now - lastDeepDiscountAt < DEEP_DISCOUNT_COOLDOWN_MS) return;
+  rememberDeepDiscount(signature);
+  lastDeepDiscountAt = now;
+  try {
+    if (!deepDiscountAudio) {
+      deepDiscountAudio = new Audio(DEEP_DISCOUNT_URL);
+      deepDiscountAudio.preload = 'auto';
+      deepDiscountAudio.volume  = 1.0;
+    }
+    deepDiscountAudio.currentTime = 0;
+    void deepDiscountAudio.play().catch(() => undefined);
+  } catch { /* asset missing or invalid state — silent */ }
 }

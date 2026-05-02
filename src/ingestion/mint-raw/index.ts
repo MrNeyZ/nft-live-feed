@@ -38,6 +38,11 @@ import type {
   MintType,
   MintSourceLabel,
 } from '../../events/emitter';
+import {
+  detectLaunchpadMint,
+  getMintTrackerMode,
+  LAUNCHMYNFT_PROGRAM,
+} from './launchpad-detector';
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
 //
@@ -131,6 +136,7 @@ const MINT_ADDRESS_BLACKLIST: ReadonlySet<string> = new Set([
  *  Core asset `3YSxXHVXbbR3oHEELPBGKbCXwfuFgqs8ESYjiQHg7Q6T`. */
 const CORE_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: CreateV1',
+  'Instruction: CreateV2',           // newer Core mint variant (e.g. vvv.so)
   'Instruction: CreateCollectionV1',
   'Instruction: CreateCollection',
 ];
@@ -179,6 +185,25 @@ const TM_MINT_INSTRUCTION_REGEX = /Instruction: Mint(?:\s|$)/;
  *  before downstream filters caught up). */
 export function hasMintInstructionLog(logs: unknown): boolean {
   if (!Array.isArray(logs)) return false;
+  // Targeted-mode shortcut: LaunchMyNFT's outer ix logs `Instruction:
+  // MintCore` and the LMNFT program ID — admit those even when the
+  // strict TM/Core pre-screen below would reject (the inner CPI to
+  // Core is still present, but the Core program string sometimes only
+  // appears on the inner-program-invoke log line that we trust the
+  // tx-fetch path to surface). vvv.so reuses Core's `CreateV2`
+  // log + program ID directly, so it's already covered by the
+  // existing Core path below — no extra prefilter rule needed.
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    if (line.includes(LAUNCHMYNFT_PROGRAM) && line.includes('Instruction: MintCore')) {
+      return true;
+    }
+    if (line.includes(LAUNCHMYNFT_PROGRAM)) {
+      // LMNFT outer program present but MintCore needle on a different
+      // line — still admit; the per-tx detector resolves accept/reject.
+      return true;
+    }
+  }
   let hasNftProgram = false;
   for (const line of logs) {
     if (typeof line !== 'string') continue;
@@ -359,6 +384,50 @@ export async function ingestMintRaw(
     noteParseStep('fetch_null', null, sig);
     return;
   }
+
+  // Targeted mode (default): run the narrow launchpad detector and
+  // skip the broader TM/Core classifier entirely. Anything that
+  // doesn't match LMNFT or vvv.so is rejected with `unknown_launchpad`.
+  // Set MINT_TRACKER_MODE=legacy to fall back to the original
+  // classifier (kept for diagnostic / one-off backfills).
+  if (getMintTrackerMode() === 'targeted') {
+    const lp = detectLaunchpadMint(tx);
+    if (!lp) {
+      logLaunchpadReject('unknown_launchpad', sig, null);
+      return;
+    }
+    if (!lp.mintAddress) {
+      logLaunchpadReject('no_mint', sig, null);
+      return;
+    }
+    const priceLamports = extractSignerLamportsPaid(tx);
+    const mintType      = classifyMintType(priceLamports);
+    const groupingKey: string =
+      lp.collectionAddress ? `collection:${lp.collectionAddress}` :
+      `program:mpl_core`;
+    const groupingKind: MintEventWire['groupingKind'] =
+      lp.collectionAddress ? 'collection' : 'programSource';
+    const blockTime = tx.blockTime
+      ? new Date((tx.blockTime as number) * 1000).toISOString()
+      : new Date().toISOString();
+    logLaunchpadAccept(lp.source, lp.mintAddress, sig);
+    recordMint({
+      signature:         sig,
+      blockTime,
+      programSource:     'mpl_core',
+      mintAddress:       lp.mintAddress,
+      collectionAddress: lp.collectionAddress,
+      groupingKey,
+      groupingKind,
+      mintType,
+      priceLamports,
+      minter:            lp.minter,
+      sourceLabel:       lp.source,
+    });
+    enqueueMintEnrichment(groupingKey, lp.mintAddress);
+    return;
+  }
+
   const hit = detectProgramSource(tx);
   if (!hit) {
     // Strict prefilter caught a tx with an NFT-shaped log line but
@@ -778,6 +847,28 @@ function noteFilterReject(reason: string, sig: string, mint: string | null): voi
     `[mints/REJECT] reason=${reason} sig=${sig.slice(0, 20)}… ` +
     `mint=${mint ?? '—'}`,
   );
+}
+
+// Targeted-mode launchpad log helpers — unsampled accept lines (rare,
+// signal-rich), sampled reject lines (1st + every 100th per reason)
+// so a quiet day doesn't bury the accepts but a busy day doesn't
+// drown out the actual launchpad mints. Operator can grep for
+// `[mints/launchpad]` to see only this path's verdicts.
+function logLaunchpadAccept(source: 'LaunchMyNFT' | 'VVV', mint: string, sig: string): void {
+  console.log(
+    `[mints/launchpad] accept source=${source} mint=${mint} sig=${sig}`,
+  );
+}
+const _launchpadRejectCount = new Map<string, number>();
+function logLaunchpadReject(reason: 'unknown_launchpad' | 'no_mint', sig: string, mint: string | null): void {
+  const n = (_launchpadRejectCount.get(reason) ?? 0) + 1;
+  _launchpadRejectCount.set(reason, n);
+  if (n === 1 || n % 100 === 0) {
+    console.log(
+      `[mints/launchpad] reject reason=${reason} count=${n} ` +
+      `sig=${sig.slice(0, 12)}… mint=${mint ?? '—'}`,
+    );
+  }
 }
 
 const sourceLabelCount = new Map<string, number>();

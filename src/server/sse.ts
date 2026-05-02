@@ -161,35 +161,39 @@ saleEventBus.onSale(           (event)  => {
     let collection: string | null = initialCollection;
     if (!collection) {
       if (!mint) {
-        if (Math.random() < 0.20) {
-          console.log(
-            `[seller-count-miss] reason=missing_collection_and_mint sig=${signature.slice(0,12)}… saleType=${saleType}`,
-          );
-        }
+        // TEMPORARY UNSAMPLED diagnostic per the badge-missing
+        // investigation. Logs every miss reason without sampling so
+        // the operator can pinpoint why bid_sell badges silently
+        // don't appear. Re-sample once the badge is verified.
+        console.log(
+          `[seller-count-miss] reason=missing_collection_and_mint sig=${signature} saleType=${saleType}`,
+        );
         return;
       }
       collection = await resolveCollectionForMint(mint);
       if (!collection) {
-        if (Math.random() < 0.20) {
-          console.log(
-            `[seller-count-miss] reason=missing_collection_after_das sig=${signature.slice(0,12)}… ` +
-            `saleType=${saleType} mint=${mint.slice(0,8)}…`,
-          );
-        }
+        console.log(
+          `[seller-count-miss] reason=missing_collection_after_das sig=${signature} ` +
+          `saleType=${saleType} mint=${mint}`,
+        );
         return;
       }
-      console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=${collection.slice(0,8)}…`);
+      console.log(`[seller-count-resolve] mint=${mint} collection=${collection}`);
     }
     const count = await getSellerCollectionCount(seller, collection);
     if (count == null) {
-      if (Math.random() < 0.05) {
-        console.log(`[seller-count-miss] reason=lookup_null seller=${seller.slice(0,8)}… coll=${collection.slice(0,8)}…`);
-      }
+      console.log(
+        `[seller-count-miss] reason=lookup_null sig=${signature} ` +
+        `saleType=${saleType} seller=${seller} collection=${collection}`,
+      );
       return;
     }
-    if (Math.random() < 0.05) {
-      console.log(`[seller-count] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… count=${count}`);
-    }
+    // UNSAMPLED — every successful lookup is logged so the operator
+    // can confirm which sales (and counts) actually fan out to the UI.
+    console.log(
+      `[seller-count-result] sig=${signature} saleType=${saleType} ` +
+      `seller=${seller} collection=${collection} count=${count}`,
+    );
     // Wire payload carries BOTH a signature (primary match key for
     // the originating sale row, even when its collectionAddress was
     // null at sale time) AND seller+collection (so the same patch can
