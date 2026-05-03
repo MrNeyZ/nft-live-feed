@@ -189,7 +189,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = 'launchpad.v1';
+const MINTS_CACHE_VERSION     = 'launchpad.v2';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -450,6 +450,34 @@ function shortKey(k: string): string {
   return clean.length > 14 ? `${clean.slice(0, 6)}…${clean.slice(-4)}` : clean;
 }
 
+/** Deterministic accent color per collection. Same address → same
+ *  color across reloads, across collection-row + live-feed-card
+ *  surfaces. Palette stays in the dark VictoryLabs purple-leaning
+ *  family so accents read as "tag", not "alert". FNV-1a over the
+ *  address gives a stable index without per-render allocation. */
+const COLLECTION_PALETTE: readonly string[] = [
+  '#8068d8',  // VL purple (default fallback)
+  '#a890e8',  // light purple
+  '#5fa8e6',  // teal-blue
+  '#36b868',  // green
+  '#e8c14a',  // amber (muted)
+  '#e87ab0',  // pink
+  '#5ce0a0',  // mint
+  '#c084fc',  // lavender
+  '#7a63c4',  // dim purple
+  '#4e8cd4',  // blue
+  '#28a878',  // dark green
+];
+function colorForCollection(addr: string | null | undefined): string {
+  if (!addr) return COLLECTION_PALETTE[0];
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < addr.length; i++) {
+    h ^= addr.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return COLLECTION_PALETTE[h % COLLECTION_PALETTE.length];
+}
+
 /** Strict Solana pubkey check (base58, 32–44 chars). Used as a final
  *  guard before linking to Solscan so we never emit a URL pointing at
  *  a prefix-tagged groupingKey ('authority:…', 'pool:…') or any other
@@ -571,6 +599,17 @@ export default function MintsPage() {
   useEffect(() => {
     const id = setInterval(() => force(n => n + 1), 5_000);
     return () => clearInterval(id);
+  }, []);
+
+  // One-shot mount log — surfaces what hydrated from localStorage
+  // (collection rows + live mint events). Helps confirm the persisted-
+  // feed survives reloads in production. Only fires on first mount.
+  const cacheLoggedRef = useRef(false);
+  useEffect(() => {
+    if (cacheLoggedRef.current) return;
+    cacheLoggedRef.current = true;
+    console.log(`[mints/cache] restored collections=${rows.size} events=${events.length}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist the live feed whenever `events` changes. This was previously
@@ -908,7 +947,7 @@ export default function MintsPage() {
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         <ItemThumb
                           imageUrl={thumb64(r.imageUrl ?? null)}
-                          color="#8068d8"
+                          color={colorForCollection(r.collectionAddress ?? r.groupingKey)}
                           abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
                           size={38}
                         />
@@ -1011,10 +1050,18 @@ export default function MintsPage() {
                           background: sb.bg, color: sb.fg, letterSpacing: '0.3px',
                           textDecoration: 'none', cursor: href ? 'pointer' : 'default',
                         };
+                        // Tooltip explains why the pill isn't clickable for
+                        // LMNFT today (no per-collection URL we can build
+                        // from the wire fields). Avoids the "looks dead"
+                        // perception. Other unlinked sources just show
+                        // their label as the tooltip.
+                        const plainTitle = r.sourceLabel === 'LaunchMyNFT'
+                          ? 'LaunchMyNFT mint page unavailable'
+                          : r.sourceLabel;
                         return href ? (
                           <a href={href} target="_blank" rel="noopener noreferrer" title={r.sourceLabel} style={pillStyle}>{sb.label}</a>
                         ) : (
-                          <span style={pillStyle}>{sb.label}</span>
+                          <span title={plainTitle} style={pillStyle}>{sb.label}</span>
                         );
                       })()}
                     </td>
@@ -1125,7 +1172,7 @@ export default function MintsPage() {
                       shared abbr/color placeholder when no image yet. */}
                   <ItemThumb
                     imageUrl={thumb200(group?.imageUrl ?? null)}
-                    color="#8068d8"
+                    color={colorForCollection(ev.collectionAddress ?? ev.groupingKey)}
                     abbr={abbr}
                     size={56}
                   />

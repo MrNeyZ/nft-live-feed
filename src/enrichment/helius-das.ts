@@ -319,7 +319,15 @@ async function ownerScanForCollectionCount(
 }
 
 /** Verbose variant — returns the source method alongside the count so
- *  the SSE layer can log which path produced the verdict. */
+ *  the SSE layer can log which path produced the verdict.
+ *
+ *  Performance gate: the `getAssetsByOwner` fallback walks up to
+ *  ~5 000 owned assets per call, which is expensive at /feed cadence.
+ *  Disabled by default — set `SELLER_COUNT_DEEP_SCAN=1` to re-enable
+ *  it (operators investigating an undercount can flip the env without
+ *  a code change). With the deep scan off, a `searchAssets`
+ *  null/0 result propagates straight through; the badge silently
+ *  doesn't render for that wallet+collection pair. */
 export async function getOwnerCollectionCountVerbose(
   owner: string,
   collectionAddress: string,
@@ -328,16 +336,16 @@ export async function getOwnerCollectionCountVerbose(
   if (search != null && search > 0) {
     return { count: search, method: 'searchAssets' };
   }
-  // Either DAS returned 0 (possibly because grouping filter excluded
-  // MPL Core / pNFT in this deployment) or the call failed entirely.
-  // Fall back to the owner-scan path which counts grouping matches
-  // client-side — the source of truth used by the wallet explorers.
+  if (process.env.SELLER_COUNT_DEEP_SCAN !== '1') {
+    return { count: search, method: search == null ? 'failed' : 'searchAssets' };
+  }
+  // Deep scan opted in. Walks getAssetsByOwner pages and counts
+  // grouping matches client-side — the source of truth used by
+  // wallet explorers, but heavy.
   const scan = await ownerScanForCollectionCount(owner, collectionAddress);
   if (scan.count != null) {
     return { count: scan.count, method: 'getAssetsByOwner', scanned: scan.scanned };
   }
-  // Both paths failed — report `searchAssets` 0 if we got it,
-  // otherwise propagate null so the caller skips the badge.
   return { count: search, method: search == null ? 'failed' : 'searchAssets' };
 }
 

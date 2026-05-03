@@ -44,6 +44,7 @@ import {
   LAUNCHMYNFT_PROGRAM,
 } from './launchpad-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
+import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
 //
@@ -397,29 +398,79 @@ export async function ingestMintRaw(
       logLaunchpadReject('unknown_launchpad', sig, null);
       return;
     }
+    // cNFT path: no on-chain mint, the Merkle tree (already in
+    // `lp.collectionAddress`) is the collection-equivalent group.
+    // No DAS resolve needed and no standalone-asset gate (the tree
+    // itself proves the row belongs to a collection-like grouping).
+    if (lp.standard === 'cnft') {
+      if (!lp.collectionAddress) {
+        logLaunchpadReject('no_mint', sig, null);
+        return;
+      }
+      const priceLamports = extractSignerLamportsPaid(tx);
+      const mintType      = classifyMintType(priceLamports);
+      const groupingKey   = `collection:${lp.collectionAddress}`;
+      const groupingKind: MintEventWire['groupingKind'] = 'collection';
+      const blockTime = tx.blockTime
+        ? new Date((tx.blockTime as number) * 1000).toISOString()
+        : new Date().toISOString();
+      console.log(
+        `[mints/launchpad] accept source=${lp.source} type=cNFT ix=${lp.matchedNeedle ?? '—'} ` +
+        `tree=${lp.collectionAddress} sig=${sig.slice(0,12)}…`,
+      );
+      recordMint({
+        signature:         sig,
+        blockTime,
+        programSource:     'bubblegum',
+        // cNFTs have no on-chain mint account — emit null so the
+        // frontend renders the row without a Solscan token link.
+        mintAddress:       null,
+        collectionAddress: lp.collectionAddress,
+        groupingKey,
+        groupingKind,
+        mintType,
+        priceLamports,
+        minter:            lp.minter,
+        sourceLabel:       lp.source,
+      });
+      // No `enqueueMintEnrichment` — DAS verification is keyed off a
+      // mintAddress; cNFTs would no-op anyway.
+      return;
+    }
+    // Core path: accept on parser-extracted collection optimistically,
+    // then verify asynchronously via DAS with a 30 s / 120 s / 300 s
+    // retry queue (`scheduleCollectionConfirmation`). DAS lags
+    // freshly-minted assets by seconds-to-minutes, so a synchronous
+    // gate would drop every real LMNFT mint during that index window
+    // (confirmed against fixture
+    //   xtJv8g4TjtFPrcXkayEzzA4fVbgBkd8fo5qj2uYasZxxvMdMumZSTUengVwe7viKJjneaneyHG2es4nmF3g2Uke
+    // ). When DAS later returns a real collection grouping → row
+    // stays. When all 3 retries return null (test / standalone case)
+    // → `evictMintGroup` drops the row and a `mint_status` frame
+    // pushes the eviction to every connected client. When the parser
+    // extracts no collection AT ALL we still try one cached DAS
+    // fallback synchronously (fast in steady-state; null on first
+    // sight of a fresh mint) — only if both come back null is the
+    // row rejected outright.
     if (!lp.mintAddress) {
       logLaunchpadReject('no_mint', sig, null);
       return;
     }
-    // Standalone-asset filter — required for both LMNFT and vvv.so.
-    // The launchpad programs can be invoked to mint single NFTs that
-    // don't belong to any collection (Magic Eden flags those as
-    // "This NFT does not belong to a listed collection"). For /mints
-    // we only want real launchpad COLLECTION mints, so:
-    //   1. Prefer the parser's collectionAddress (already extracted
-    //      from the inner Core CPI's accounts[1]).
-    //   2. If null, do ONE cached DAS getAsset(mintAddress) lookup
-    //      (`resolveCollectionForMint` is single-flight + 15 min TTL,
-    //      so a launch storm shares one round-trip per mint).
-    //   3. If both come back null → standalone asset → reject.
-    let collectionAddress: string | null = lp.collectionAddress;
+    const parserCollection: string | null = lp.collectionAddress;
+    let collectionAddress: string | null = parserCollection;
+    let confirmedBy: 'parser_pending' | 'das' = 'parser_pending';
     if (!collectionAddress) {
       collectionAddress = await resolveCollectionForMint(lp.mintAddress);
+      confirmedBy       = 'das';
     }
     if (!collectionAddress) {
       console.log(
-        `[mints/launchpad] reject reason=standalone_asset sig=${sig.slice(0,12)}… ` +
+        `[mints/launchpad] reject reason=no_confirmed_collection sig=${sig.slice(0,12)}… ` +
         `mint=${lp.mintAddress} source=${lp.source}`,
+      );
+      console.log(
+        `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=MintCore ` +
+        `parserCollection=${parserCollection ?? 'null'} dasCollection=null decision=reject_no_collection`,
       );
       return;
     }
@@ -430,7 +481,16 @@ export async function ingestMintRaw(
     const blockTime = tx.blockTime
       ? new Date((tx.blockTime as number) * 1000).toISOString()
       : new Date().toISOString();
-    logLaunchpadAccept(lp.source, lp.mintAddress, sig);
+    console.log(
+      `[mints/launchpad] accept source=${lp.source} type=Core mint=${lp.mintAddress} ` +
+      `collection=${collectionAddress} confirmedBy=${confirmedBy} sig=${sig}`,
+    );
+    console.log(
+      `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=MintCore ` +
+      `parserCollection=${parserCollection ?? 'null'} ` +
+      `dasCollection=${confirmedBy === 'das' ? collectionAddress : 'pending'} ` +
+      `decision=accept (confirmedBy=${confirmedBy})`,
+    );
     recordMint({
       signature:         sig,
       blockTime,
@@ -445,6 +505,11 @@ export async function ingestMintRaw(
       sourceLabel:       lp.source,
     });
     enqueueMintEnrichment(groupingKey, lp.mintAddress);
+    // Async DAS confirmation only when the accept relied on the
+    // parser-extracted collection (the DAS path is already verified).
+    if (confirmedBy === 'parser_pending') {
+      scheduleCollectionConfirmation(groupingKey, lp.mintAddress, collectionAddress);
+    }
     return;
   }
 
@@ -874,11 +939,6 @@ function noteFilterReject(reason: string, sig: string, mint: string | null): voi
 // so a quiet day doesn't bury the accepts but a busy day doesn't
 // drown out the actual launchpad mints. Operator can grep for
 // `[mints/launchpad]` to see only this path's verdicts.
-function logLaunchpadAccept(source: 'LaunchMyNFT' | 'VVV', mint: string, sig: string): void {
-  console.log(
-    `[mints/launchpad] accept source=${source} mint=${mint} sig=${sig}`,
-  );
-}
 const _launchpadRejectCount = new Map<string, number>();
 function logLaunchpadReject(reason: 'unknown_launchpad' | 'no_mint', sig: string, mint: string | null): void {
   const n = (_launchpadRejectCount.get(reason) ?? 0) + 1;

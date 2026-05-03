@@ -10,7 +10,8 @@
     "migrate": "ts-node src/db/migrate.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",
     "debug:mints:launchpads": "ts-node src/scripts/debug-mints-launchpads.ts",
-    "debug:mints:supply": "ts-node src/scripts/debug-mints-supply.ts"
+    "debug:mints:supply": "ts-node src/scripts/debug-mints-supply.ts",
+    "debug:mints:launchpad-survey": "ts-node src/scripts/debug-mints-launchpad-survey.ts"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",

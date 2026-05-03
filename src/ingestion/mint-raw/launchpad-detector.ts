@@ -28,22 +28,31 @@ import type { RawSolanaTx } from '../me-raw/types';
 
 export const LAUNCHMYNFT_PROGRAM = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';
 export const MPL_CORE_PROGRAM    = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
+export const BUBBLEGUM_PROGRAM   = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
 /** vvv.so platform signer observed on every confirmed vvv.so mint.
  *  Treated as the on-chain fingerprint until a more durable signal
  *  (program, IDL discriminator) is identified. */
 export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZNrn';
 
 export type LaunchpadSource = 'LaunchMyNFT' | 'VVV';
+export type LaunchpadStandard = 'core' | 'cnft';
 
 export interface LaunchpadHit {
   source:            LaunchpadSource;
-  /** The freshly-minted asset / mint pubkey. */
-  mintAddress:       string;
+  /** Underlying NFT standard for this hit. Drives `programSource` on
+   *  the wire (`mpl_core` vs `bubblegum`) and the standalone-asset
+   *  filter at ingest (cNFTs aren't really "standalone" in the same
+   *  sense — they live in a Merkle tree which IS the collection-like
+   *  grouping). Defaults to 'core' for backward compatibility. */
+  standard:          LaunchpadStandard;
+  /** The freshly-minted asset / mint pubkey. Null for cNFT mints —
+   *  cNFTs don't have an on-chain mint account; the asset ID is a
+   *  derivative of (tree, leaf nonce) computed off-chain via DAS. */
+  mintAddress:       string | null;
   /** Buyer / payer wallet (signer at index 0). */
   minter:            string | null;
-  /** On-chain collection group address when extractable from the
-   *  inner Core CPI account layout. Null when the launchpad path
-   *  doesn't carry a collection account in the ix accounts. */
+  /** Core path: collection group address from the inner Core CPI.
+   *  cNFT path: the Merkle tree address (functions as the group). */
   collectionAddress: string | null;
   /** Optional: matched needle for diagnostics. */
   matchedNeedle?:    string;
@@ -77,18 +86,35 @@ function readTxShape(tx: RawSolanaTx): ParsedTxShape | null {
   return { accountKeys, signerKeys, logs };
 }
 
-/** True iff `tx` invoked the LaunchMyNFT mint program. The outer
- *  `Instruction: MintCore` log is the strongest signal — that string
- *  is unique to LMNFT's MintCore handler and never appears in
- *  unrelated programs' logs. Program-id presence in accountKeys is
- *  a secondary check so a tx that merely mentions the LMNFT program
- *  in passing (e.g. as a CPI target without invocation) is rejected. */
-function isLaunchMyNftTx(shape: ParsedTxShape): boolean {
+/** True iff `tx` invoked LMNFT's MintCore handler — the Core path,
+ *  unique log string, never collides with unrelated programs. */
+function isLaunchMyNftCoreTx(shape: ParsedTxShape): boolean {
   if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return false;
   for (const line of shape.logs) {
     if (line.includes('Instruction: MintCore')) return true;
   }
   return false;
+}
+
+/** True iff `tx` is an LMNFT cNFT mint — confirmed dispatcher names
+ *  `Instruction: MintV2` and `Instruction: MintCv3` from the launchpad
+ *  survey (8 of 93 LMNFT txs sampled). Both invoke Bubblegum as an
+ *  inner CPI. Update-style ixs that happen to share a prefix never
+ *  invoke Bubblegum, so the dual gate (LMNFT log + Bubblegum CPI)
+ *  rejects `SetNameCoreWithOldUrl`, `UpdatePhase`, etc. cleanly. */
+const LMNFT_CNFT_NEEDLES: readonly string[] = [
+  'Instruction: MintV2',
+  'Instruction: MintCv3',
+];
+function lmnftCnftNeedleIfPresent(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(BUBBLEGUM_PROGRAM))   return null;
+  for (const line of shape.logs) {
+    for (const n of LMNFT_CNFT_NEEDLES) {
+      if (line.includes(n)) return n;
+    }
+  }
+  return null;
 }
 
 /** True iff `tx` matches the vvv.so direct-Core mint pattern. The
@@ -160,6 +186,50 @@ function extractCoreMintFromInner(
   return null;
 }
 
+/** Pull the Merkle tree (and best-effort collection) from the inner
+ *  Bubblegum CPI of an LMNFT cNFT mint tx. Bubblegum's mint_v1 /
+ *  mint_to_collection_v1 ix accounts:
+ *      accounts[0] = tree config / authority PDA
+ *      accounts[1] = leaf owner (the recipient wallet)
+ *      accounts[2] = leaf delegate
+ *      accounts[3] = merkle tree                       ← the "collection-like" group
+ *      accounts[4] = payer (signer)
+ *      accounts[5] = tree creator/delegate
+ *      ...
+ *  cNFTs have no on-chain mint account; the asset ID is computed
+ *  off-chain from (tree, leaf_nonce). We use the tree address as the
+ *  collection-equivalent and leave `mintAddress = null`. */
+function extractCnftFromInner(
+  tx: RawSolanaTx,
+  shape: ParsedTxShape,
+): { merkleTree: string } | null {
+  const inner = tx.meta?.innerInstructions;
+  if (!Array.isArray(inner)) return null;
+  for (const grp of inner) {
+    if (!Array.isArray(grp.instructions)) continue;
+    for (const ix of grp.instructions) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ixAny = ix as any;
+      const programId: string = typeof ixAny.programId === 'string'
+        ? ixAny.programId
+        : typeof ixAny.programIdIndex === 'number'
+          ? shape.accountKeys[ixAny.programIdIndex]
+          : '';
+      if (programId !== BUBBLEGUM_PROGRAM) continue;
+      const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
+        typeof a === 'string' ? a : shape.accountKeys[a],
+      );
+      // Merkle tree at index 3 across mint_v1 / mint_to_collection_v1.
+      // Defensive: bail if the slot's empty / not a string.
+      const tree = accs.length > 3 ? accs[3] : null;
+      if (typeof tree === 'string' && tree.length > 0) {
+        return { merkleTree: tree };
+      }
+    }
+  }
+  return null;
+}
+
 /** Public: classify a fetched tx against the targeted launchpad set.
  *  Returns the first matching launchpad hit, or null when neither
  *  detector accepts. Caller is responsible for the recordMint side
@@ -168,15 +238,32 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
   const shape = readTxShape(tx);
   if (!shape) return null;
 
-  if (isLaunchMyNftTx(shape)) {
+  if (isLaunchMyNftCoreTx(shape)) {
     const core = extractCoreMintFromInner(tx, shape);
     if (!core) return null;
     return {
       source:            'LaunchMyNFT',
+      standard:          'core',
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     'Instruction: MintCore',
+    };
+  }
+  const cnftNeedle = lmnftCnftNeedleIfPresent(shape);
+  if (cnftNeedle) {
+    const cnft = extractCnftFromInner(tx, shape);
+    if (!cnft) return null;   // gate failed — Bubblegum CPI present but tree slot empty
+    return {
+      source:            'LaunchMyNFT',
+      standard:          'cnft',
+      // cNFTs have no on-chain mint account.
+      mintAddress:       null,
+      // Use the Merkle tree as the collection-equivalent grouping
+      // anchor — every cNFT in this drop shares this tree.
+      collectionAddress: cnft.merkleTree,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     cnftNeedle,
     };
   }
   if (isVvvSoTx(shape)) {
@@ -184,6 +271,7 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
     if (!core) return null;
     return {
       source:            'VVV',
+      standard:          'core',
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       // First signer is buyer; vvv.so platform signer is at index 2.

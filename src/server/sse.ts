@@ -120,11 +120,12 @@ saleEventBus.onSale(           (event)  => {
   // without the badge, which matches the spec ("if count unknown, do
   // not show badge").
   const saleType = saleTypeFromEvent(event);
-  // TEMPORARY hard diagnostic: UNSAMPLED log of EVERY sale before the
-  // sell-type gate. Confirms onSale is firing for every live event and
-  // exposes the saleType / seller / collection fields the gate reads.
-  // Remove once the seller-count badge is verified working in prod.
-  {
+  // Per-event debug log — env-gated. Set SELLER_COUNT_DEBUG=1 (or
+  // unsampled by setting SELLER_COUNT_DEBUG=verbose) when actively
+  // investigating; otherwise this path is silent so the onSale hot
+  // loop stays cheap. Default OFF.
+  if (process.env.SELLER_COUNT_DEBUG === 'verbose'
+      || (process.env.SELLER_COUNT_DEBUG === '1' && Math.random() < 0.05)) {
     const isSellKind = SELL_TYPES_FOR_BADGE.has(saleType);
     const parser = (event.rawData as Record<string, unknown> | null | undefined)?._parser
       ? String((event.rawData as Record<string, unknown>)._parser)
@@ -141,7 +142,7 @@ saleEventBus.onSale(           (event)  => {
   }
   if (!SELL_TYPES_FOR_BADGE.has(saleType))   return;
   if (!event.seller) {
-    if (Math.random() < 0.20) {
+    if (Math.random() < 0.02) {
       console.log(`[seller-count-miss] reason=missing_seller sig=${event.signature.slice(0,12)}… saleType=${saleType}`);
     }
     return;
@@ -161,63 +162,65 @@ saleEventBus.onSale(           (event)  => {
     let collection: string | null = initialCollection;
     if (!collection) {
       if (!mint) {
-        // TEMPORARY UNSAMPLED diagnostic per the badge-missing
-        // investigation. Logs every miss reason without sampling so
-        // the operator can pinpoint why bid_sell badges silently
-        // don't appear. Re-sample once the badge is verified.
-        console.log(
-          `[seller-count-miss] reason=missing_collection_and_mint sig=${signature} saleType=${saleType}`,
-        );
+        if (Math.random() < 0.02) {
+          console.log(
+            `[seller-count-miss] reason=missing_collection_and_mint sig=${signature.slice(0,12)}… saleType=${saleType}`,
+          );
+        }
         return;
       }
       collection = await resolveCollectionForMint(mint);
       if (!collection) {
-        console.log(
-          `[seller-count-miss] reason=missing_collection_after_das sig=${signature} ` +
-          `saleType=${saleType} mint=${mint}`,
-        );
+        if (Math.random() < 0.02) {
+          console.log(
+            `[seller-count-miss] reason=missing_collection_after_das sig=${signature.slice(0,12)}… ` +
+            `saleType=${saleType} mint=${mint.slice(0,8)}…`,
+          );
+        }
         return;
       }
-      console.log(`[seller-count-resolve] mint=${mint} collection=${collection}`);
+      if (process.env.SELLER_COUNT_DEBUG) {
+        console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=${collection.slice(0,8)}…`);
+      }
     }
     const verdict = await getSellerCollectionCountVerbose(seller, collection);
     const count = verdict.count;
-    // [seller-count-verify] per accuracy-investigation spec — always
-    // logged with the resolution method tag so the operator can spot
-    // when DAS searchAssets is undercounting (method=searchAssets +
-    // count=0/1) vs. when the owner-scan fallback rescued it
-    // (method=getAssetsByOwner). `total` mirrors the count for a
-    // direct grep target.
-    console.log(
-      `[seller-count-verify] sig=${signature} seller=${seller} ` +
-      `soldMint=${mint ?? '—'} resolvedCollection=${collection} ` +
-      `total=${count ?? 'null'} method=${verdict.method}` +
-      (verdict.scanned != null ? ` scanned=${verdict.scanned}` : ''),
-    );
-    if (count == null) {
+    // Verify / result / mismatch logs — env-gated to keep the hot
+    // sale path quiet under load. Set SELLER_COUNT_DEBUG=verbose
+    // when actively investigating; SELLER_COUNT_DEBUG=1 samples 5%.
+    const verboseLog = process.env.SELLER_COUNT_DEBUG === 'verbose'
+      || (process.env.SELLER_COUNT_DEBUG === '1' && Math.random() < 0.05);
+    if (verboseLog) {
       console.log(
-        `[seller-count-miss] reason=lookup_null sig=${signature} ` +
-        `saleType=${saleType} seller=${seller} collection=${collection} method=${verdict.method}`,
+        `[seller-count-verify] sig=${signature.slice(0,12)}… seller=${seller.slice(0,8)}… ` +
+        `soldMint=${mint ? mint.slice(0,8) + '…' : '—'} resolvedCollection=${collection.slice(0,8)}… ` +
+        `total=${count ?? 'null'} method=${verdict.method}` +
+        (verdict.scanned != null ? ` scanned=${verdict.scanned}` : ''),
       );
+    }
+    if (count == null) {
+      if (Math.random() < 0.02) {
+        console.log(
+          `[seller-count-miss] reason=lookup_null sig=${signature.slice(0,12)}… ` +
+          `saleType=${saleType} method=${verdict.method}`,
+        );
+      }
       return;
     }
-    // Sanity-mismatch flag — if the fast path returned 0 but the
-    // fallback scan also returned 0 with a meaningful asset count,
-    // the resolved collection probably doesn't match what the seller
-    // actually holds (DAS grouping disagreement). Helps the operator
-    // identify cases worth manual verification.
-    if (count === 0 && verdict.method === 'getAssetsByOwner' && (verdict.scanned ?? 0) > 0) {
+    if (count === 0 && verdict.method === 'getAssetsByOwner' && (verdict.scanned ?? 0) > 0
+        && Math.random() < 0.10) {
       console.log(
         `[seller-count-verify-mismatch] reason=owner_holds_assets_but_no_grouping_match ` +
-        `sig=${signature} seller=${seller} collection=${collection} scanned=${verdict.scanned}`,
+        `sig=${signature.slice(0,12)}… collection=${collection.slice(0,8)}… scanned=${verdict.scanned}`,
       );
     }
-    // UNSAMPLED — every successful lookup is logged so the operator
-    // can confirm which sales (and counts) actually fan out to the UI.
-    console.log(
-      `[seller-count-result] sig=${signature} saleType=${saleType} ` +
-      `seller=${seller} collection=${collection} count=${count} method=${verdict.method}`,
-    );
+    if (verboseLog) {
+      console.log(
+        `[seller-count-result] sig=${signature.slice(0,12)}… saleType=${saleType} ` +
+        `seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… ` +
+        `count=${count} method=${verdict.method}`,
+      );
+    }
     // Wire payload carries BOTH a signature (primary match key for
     // the originating sale row, even when its collectionAddress was
     // null at sale time) AND seller+collection (so the same patch can

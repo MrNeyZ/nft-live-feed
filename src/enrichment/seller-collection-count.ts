@@ -20,8 +20,36 @@ import {
   type OwnerCollectionCountMethod,
 } from './helius-das';
 
-const TTL_MS         = 45_000;
+// Cache lifetimes — bumped from the original short windows to keep
+// the seller-count badge a best-effort signal that doesn't pummel
+// Helius. A wallet's holdings change slowly relative to a /feed tick,
+// so a few minutes of staleness is fine.
+const TTL_MS         = 4 * 60_000;        // owner+collection count: 4 min
 const SWEEP_INTERVAL = 60_000;
+
+// Strict back-pressure on outbound DAS calls. The badge is purely
+// decorative — under load (a hot collection dump or a flurry of MMM
+// trait-bid acceptances) we'd rather drop late lookups than block the
+// rest of the pipeline waiting for them.
+const MAX_ACTIVE = 2;     // concurrent in-flight DAS calls allowed
+const MAX_QUEUED = 20;    // pending lookups beyond this are dropped
+let activeCount  = 0;
+let queuedCount  = 0;
+let droppedCount = 0;
+const waitQueue: Array<() => void> = [];
+function acquireSlot(): Promise<boolean> {
+  if (activeCount < MAX_ACTIVE) { activeCount++; return Promise.resolve(true); }
+  if (queuedCount >= MAX_QUEUED) { droppedCount++; return Promise.resolve(false); }
+  queuedCount++;
+  return new Promise<boolean>(resolve => {
+    waitQueue.push(() => { queuedCount--; activeCount++; resolve(true); });
+  });
+}
+function releaseSlot(): void {
+  activeCount--;
+  const next = waitQueue.shift();
+  if (next) next();
+}
 
 interface CachedCount { count: number | null; method: OwnerCollectionCountMethod | 'cached'; scanned?: number; }
 const cache    = new TtlCache<string, CachedCount>(TTL_MS, SWEEP_INTERVAL);
@@ -29,11 +57,11 @@ const inflight = new Map<string, Promise<CachedCount>>();
 
 // Mint → collectionAddress resolver. Live sale events often arrive with
 // `collectionAddress = null` (parser couldn't extract a verified group on
-// the fly). DAS `getAsset` resolves it; we cache the answer for 15 min
+// the fly). DAS `getAsset` resolves it; we cache the answer for 30 min
 // since a mint's collection grouping never changes after creation. Null
 // values cached too — repeated misses (cNFT without grouping, dust mint)
 // shouldn't burn DAS calls.
-const COLL_TTL_MS         = 15 * 60_000;
+const COLL_TTL_MS         = 30 * 60_000;
 const COLL_SWEEP_INTERVAL = 60_000;
 const collectionCache    = new TtlCache<string, string | null>(COLL_TTL_MS, COLL_SWEEP_INTERVAL);
 const collectionInflight = new Map<string, Promise<string | null>>();
@@ -92,17 +120,38 @@ export async function getSellerCollectionCountVerbose(
   const live = inflight.get(k);
   if (live) return live;
   const p = (async (): Promise<CachedCount> => {
+    // Acquire a slot before any RPC work. If the queue is full the
+    // lookup is dropped — the badge is decorative and we'd rather
+    // skip it than wedge the pipeline behind a backlog.
+    const granted = await acquireSlot();
+    if (!granted) {
+      const entry: CachedCount = { count: null, method: 'failed' };
+      // Negative-cache the drop briefly so a flood of identical
+      // lookups doesn't spin the queue. The full TTL applies — a
+      // dropped lookup is treated like a failed one.
+      cache.set(k, entry);
+      inflight.delete(k);
+      return entry;
+    }
     try {
       const r = await getOwnerCollectionCountVerbose(owner, collectionAddress);
       const entry: CachedCount = { count: r.count, method: r.method, scanned: r.scanned };
       cache.set(k, entry);
       return entry;
     } finally {
+      releaseSlot();
       inflight.delete(k);
     }
   })();
   inflight.set(k, p);
   return p;
+}
+
+/** Counters for the periodic health log. Read-only accessor for any
+ *  diagnostic surface that wants to surface back-pressure without
+ *  importing the internals. */
+export function sellerCountSlotStats(): { active: number; queued: number; dropped: number } {
+  return { active: activeCount, queued: queuedCount, dropped: droppedCount };
 }
 
 /** Backward-compatible wrapper — returns just the count. */
