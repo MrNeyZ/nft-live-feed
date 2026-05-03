@@ -80,6 +80,12 @@ interface MintEvent {
   /** Wall-clock receive time (ms). Drives the "Xs ago" column without
    *  re-parsing blockTime on every tick. */
   receivedAt:        number;
+  /** Per-mint metadata, lazily filled by the SSE `mint_meta` patch
+   *  once DAS surfaces them. Live Mint Feed cards swap a
+   *  shortMint(mintAddress) placeholder for the real NFT name + image
+   *  the moment these arrive. */
+  nftName?:          string | null;
+  nftImageUrl?:      string | null;
 }
 
 /** Defensive client-side guard for the COLLECTIONS table — refuses to
@@ -729,25 +735,53 @@ export default function MintsPage() {
         try {
           const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
           if (isClearlyNonNftMintEvent(m)) {
-            // Backend regression check — surface caught events so a
-            // filter drift on the server is visible in the browser
-            // console without flooding it (this should be ~zero rate).
-            // Dev-only so a runaway regression in prod doesn't dump
-            // signatures into every operator's console.
             if (process.env.NODE_ENV !== 'production') {
               console.debug('[mints/sse] dropped non-nft event', m.signature);
             }
             return;
           }
+          if (!m.signature) {
+            console.log('[mints/live-miss] reason=missing_signature');
+            return;
+          }
           const ev: MintEvent = { ...m, receivedAt: Date.now() };
           setEvents(prev => {
-            if (prev.some(p => p.signature === ev.signature)) return prev;
+            if (prev.some(p => p.signature === ev.signature)) {
+              console.log(`[mints/live-miss] reason=dedupe_signature sig=${ev.signature.slice(0,12)}…`);
+              return prev;
+            }
             const next = [ev, ...prev];
             const trimmed = next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
+            console.log(
+              `[mints/live] inserted sig=${ev.signature.slice(0,12)}… ` +
+              `mint=${ev.mintAddress ?? '—'} name=${ev.nftName ?? '—'}`,
+            );
             return trimmed;
-            // Persistence handled by the events-watcher effect above —
-            // pure updater so React's strict-mode / concurrent-render
-            // double-invocations can't write intermediate values.
+          });
+        } catch { /* malformed frame — skip */ }
+      });
+      // Per-mint metadata patch — backend's collection-confirm DAS
+      // retry surfaces the NFT-level name + image after the mint
+      // event has already landed. Match by signature first
+      // (authoritative); fall back to mintAddress so cNFTs / replays
+      // missing the signature still update.
+      es.addEventListener('mint_meta', (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data) as { signature?: string; mintAddress?: string | null; nftName?: string | null; imageUrl?: string | null };
+          if (!p.signature && !p.mintAddress) return;
+          setEvents(prev => {
+            let changed = false;
+            const next = prev.map(ev => {
+              const match = (p.signature && ev.signature === p.signature)
+                         || (!!p.mintAddress && ev.mintAddress === p.mintAddress);
+              if (!match) return ev;
+              const nextName  = (p.nftName  && p.nftName.length > 0)  ? p.nftName  : (ev.nftName     ?? null);
+              const nextImage = (p.imageUrl && p.imageUrl.length > 0) ? p.imageUrl : (ev.nftImageUrl ?? null);
+              if (ev.nftName === nextName && ev.nftImageUrl === nextImage) return ev;
+              changed = true;
+              return { ...ev, nftName: nextName, nftImageUrl: nextImage };
+            });
+            return changed ? next : prev;
           });
         } catch { /* malformed frame — skip */ }
       });
@@ -1142,10 +1176,23 @@ export default function MintsPage() {
               // top line and use the group's resolved name for the
               // collection subtitle.
               const collectionName = group?.name ?? null;
-              const nftName        = isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT';
+              // NFT name source order:
+              //   1. per-mint `nftName` from the SSE `mint_meta` patch
+              //      (DAS-resolved post-hoc; the live update path).
+              //   2. shortMint(mintAddress) placeholder until the patch
+              //      arrives — at least visually distinct per row.
+              //   3. literal "NFT" as last resort (cNFTs without a
+              //      mint address).
+              const nftName        = (ev.nftName && ev.nftName.length > 0)
+                ? ev.nftName
+                : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
               const collectionLine = collectionName
                 ?? (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
               const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
+              // Per-mint image when the patch surfaced one; otherwise
+              // fall back to the collection-level imageUrl so cards
+              // still render an image instead of the abbr placeholder.
+              const cardImage      = ev.nftImageUrl ?? group?.imageUrl ?? null;
               const priceText      = ev.priceLamports == null
                 ? '—'
                 : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
@@ -1198,7 +1245,7 @@ export default function MintsPage() {
                       enlarging the card footprint. Falls back to the
                       shared abbr/color placeholder when no image yet. */}
                   <ItemThumb
-                    imageUrl={thumb200(group?.imageUrl ?? null)}
+                    imageUrl={thumb200(cardImage)}
                     color={colorForCollection(ev.collectionAddress ?? ev.groupingKey)}
                     abbr={abbr}
                     size={56}
@@ -1229,6 +1276,16 @@ export default function MintsPage() {
                     <div style={{ fontSize: 11, color: '#7a7a94', fontWeight: 500, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {collectionLine}
                     </div>
+                    {/* Minter wallet — same compact styling as the
+                        seller/buyer rows in /feed (mono, 10.5 px,
+                        muted). Hidden when the field isn't on the
+                        wire (some replays / cNFT paths). */}
+                    {ev.minter && (
+                      <div style={{ fontSize: 10.5, color: '#55556e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span>minter:</span>
+                        <span>{shortMint(ev.minter)}</span>
+                      </div>
+                    )}
                   </div>
                   {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT). */}
                   <span style={{
@@ -1243,9 +1300,21 @@ export default function MintsPage() {
                     fontVariantNumeric: 'tabular-nums',
                     flexShrink: 0,
                   }}>{priceText}</span>
-                  <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: '#5e5e78', fontWeight: 500, flexShrink: 0 }}>
-                    {fmtAge(ev.receivedAt)}
-                  </span>
+                  {(() => {
+                    // Age tier coloring — mirrors /feed's TimeAgo
+                    // tiers (pink <15s, amber 15s–3m, muted >3m).
+                    // Re-evaluated on the page-level 5 s force tick;
+                    // boundary precision is fine for this surface
+                    // (avoids a per-card 1 s timer on 150 cards).
+                    const ageMs = Date.now() - ev.receivedAt;
+                    const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : '#877496';
+                    const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
+                    return (
+                      <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>
+                        {fmtAge(ev.receivedAt)}
+                      </span>
+                    );
+                  })()}
                 </div>
               );
             })}

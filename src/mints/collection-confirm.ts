@@ -21,6 +21,7 @@
 import { getAsset } from '../enrichment/helius-das';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft } from './accumulator';
+import { saleEventBus } from '../events/emitter';
 
 // Three increasingly-spaced DAS polls. Caps total wait at ~4 min from
 // mint to confirmation/eviction. Tightened from 30/120/300 to 15/60/180
@@ -29,18 +30,25 @@ import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft } from './a
 const RETRY_DELAYS_MS = [15_000, 60_000, 180_000];
 const MAX_PENDING     = 500;
 
-interface Pending { groupingKey: string; mintAddress: string; parserCollection: string; idx: number; }
+interface Pending {
+  groupingKey:      string;
+  mintAddress:      string;
+  parserCollection: string;
+  signature:        string;   // for `mint_meta` SSE patch routing
+  idx:              number;
+}
 const pending = new Map<string, Pending>();   // key = mintAddress
 
 export function scheduleCollectionConfirmation(
   groupingKey:      string,
   mintAddress:      string,
   parserCollection: string,
+  signature:        string,
 ): void {
   if (!mintAddress || !parserCollection) return;
   if (pending.has(mintAddress))         return;
   if (pending.size >= MAX_PENDING)      return;   // bounded — drop new arrivals on overflow
-  const entry: Pending = { groupingKey, mintAddress, parserCollection, idx: 0 };
+  const entry: Pending = { groupingKey, mintAddress, parserCollection, signature, idx: 0 };
   pending.set(mintAddress, entry);
   scheduleNext(entry);
 }
@@ -95,9 +103,18 @@ async function runAttempt(entry: Pending): Promise<void> {
       name:     finalName,
       imageUrl: imageUrl ?? undefined,
     });
+    // Per-mint patch — fans out to the Live Mint Feed cards on the
+    // frontend, swapping shortMint placeholders for the real NFT
+    // name + image. Distinct from the collection-row patch above.
+    saleEventBus.emitMintMeta({
+      signature:   entry.signature,
+      mintAddress: entry.mintAddress,
+      nftName:     nftName ?? null,
+      imageUrl:    imageUrl ?? null,
+    });
     console.log(
-      `[mints/meta] retry=${entry.idx + 1} mint=${entry.mintAddress} ` +
-      `name=${finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
+      `[mints/meta] patched mint=${entry.mintAddress} ` +
+      `name=${nftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
     );
   }
   if (dasCollection) {

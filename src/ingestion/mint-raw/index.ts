@@ -526,7 +526,7 @@ export async function ingestMintRaw(
     // Async DAS confirmation only when the accept relied on the
     // parser-extracted collection (the DAS path is already verified).
     if (confirmedBy === 'parser_pending') {
-      scheduleCollectionConfirmation(groupingKey, lp.mintAddress, collectionAddress);
+      scheduleCollectionConfirmation(groupingKey, lp.mintAddress, collectionAddress, sig);
     }
     return;
   }

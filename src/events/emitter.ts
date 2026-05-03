@@ -146,6 +146,17 @@ export type MintSourceLabel =
   | 'Unknown';
 
 /** Per-mint event, fired once on detection. */
+/** Per-mint metadata patch — late-arriving DAS resolution surfaces
+ *  the NFT-level name + image after the original `mint` event has
+ *  already been broadcast. Frontend matches by signature, falls back
+ *  to mintAddress for cNFTs / replays where signature isn't carried. */
+export interface MintMetaPatch {
+  signature:   string;
+  mintAddress: string | null;
+  nftName:     string | null;
+  imageUrl:    string | null;
+}
+
 export interface MintEventWire {
   signature:         string;
   blockTime:         string;
@@ -342,6 +353,14 @@ class SaleEventBus extends EventEmitter {
   emitMintStatus(s: MintStatusWire): void { this.emit('mint_status', s); }
   onMintStatus(listener: (s: MintStatusWire) => void): this { return this.on('mint_status', listener); }
   offMintStatus(listener: (s: MintStatusWire) => void): this { return this.off('mint_status', listener); }
+
+  // Per-mint metadata patch — fired when DAS surfaces an NFT-level
+  // name/image AFTER the mint event itself has already been emitted.
+  // Lets the Live Mint Feed cards swap a shortMint placeholder for
+  // the real NFT name without re-emitting the whole event.
+  emitMintMeta(p: MintMetaPatch): void { this.emit('mint_meta', p); }
+  onMintMeta(listener: (p: MintMetaPatch) => void): this { return this.on('mint_meta', listener); }
+  offMintMeta(listener: (p: MintMetaPatch) => void): this { return this.off('mint_meta', listener); }
 }
 
 export const saleEventBus = new SaleEventBus();
