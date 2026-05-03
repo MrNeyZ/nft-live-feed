@@ -386,6 +386,10 @@ export async function ingestMintRaw(
 ): Promise<void> {
   const tx = await fetchRawTx(sig, false, 'low');
   if (!tx) {
+    // One-shot debug breadcrumb for the missing-event investigation.
+    if (sig === '2bh9gtx3ZfG7bBjCkSjCTnH4JD8wShCorLNX4G93JP61az1XCFRNV7aTQcjJPo8posWYQWW9c9mD7W4YruLpLLK1') {
+      console.log(`[mints/debug-sig] sig=${sig} decision=reject reason=fetch_null`);
+    }
     noteParseStep('fetch_null', null, sig);
     return;
   }
@@ -397,7 +401,23 @@ export async function ingestMintRaw(
   // classifier (kept for diagnostic / one-off backfills).
   if (getMintTrackerMode() === 'targeted') {
     const lp = detectLaunchpadMint(tx);
+    // TEMPORARY one-shot debug breadcrumb gated to a specific
+    // missing-event signature. Three checkpoints fire in order:
+    //   1. detector verdict (here)
+    //   2. recordMint about to fire (added below)
+    //   3. ingestMintRaw early-return reason (added per branch)
+    // Remove once the missing-event investigation is closed.
+    const DEBUG_SIG = '2bh9gtx3ZfG7bBjCkSjCTnH4JD8wShCorLNX4G93JP61az1XCFRNV7aTQcjJPo8posWYQWW9c9mD7W4YruLpLLK1';
+    if (sig === DEBUG_SIG) {
+      console.log(
+        `[mints/debug-sig] sig=${sig} decision=detector ` +
+        `result=${lp ? `hit(source=${lp.source},standard=${lp.standard},mint=${lp.mintAddress ?? 'null'},coll=${lp.collectionAddress ?? 'null'},needle=${lp.matchedNeedle ?? '—'})` : 'null'}`,
+      );
+    }
     if (!lp) {
+      if (sig === DEBUG_SIG) {
+        console.log(`[mints/debug-sig] sig=${sig} decision=reject reason=unknown_launchpad`);
+      }
       logLaunchpadReject('unknown_launchpad', sig, null);
       return;
     }
@@ -467,6 +487,12 @@ export async function ingestMintRaw(
       confirmedBy       = 'das';
     }
     if (!collectionAddress) {
+      if (sig === DEBUG_SIG) {
+        console.log(
+          `[mints/debug-sig] sig=${sig} decision=reject reason=no_confirmed_collection ` +
+          `parserCollection=${parserCollection ?? 'null'} dasResolve=null`,
+        );
+      }
       console.log(
         `[mints/launchpad] reject reason=no_confirmed_collection sig=${sig.slice(0,12)}… ` +
         `mint=${lp.mintAddress} source=${lp.source}`,
@@ -484,6 +510,13 @@ export async function ingestMintRaw(
     const blockTime = tx.blockTime
       ? new Date((tx.blockTime as number) * 1000).toISOString()
       : new Date().toISOString();
+    if (sig === DEBUG_SIG) {
+      console.log(
+        `[mints/debug-sig] sig=${sig} decision=accept_core ` +
+        `reason=parser_or_das_resolved mint=${lp.mintAddress} collection=${collectionAddress} ` +
+        `minter=${lp.minter ?? 'null'} confirmedBy=${confirmedBy}`,
+      );
+    }
     console.log(
       `[mints/launchpad] accept source=${lp.source} type=Core mint=${lp.mintAddress} ` +
       `collection=${collectionAddress} confirmedBy=${confirmedBy} sig=${sig}`,
