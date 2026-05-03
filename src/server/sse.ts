@@ -8,11 +8,12 @@ import {
   type SourceStatusWire,
   type MintEventWire,
   type MintStatusWire,
+  type MintMetaPatch,
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
-import { currentMintStatuses, currentRecentMints } from '../mints/accumulator';
+import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../mints/accumulator';
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 
 /**
@@ -91,6 +92,9 @@ function buildMintFrame(m: MintEventWire): string {
 }
 function buildMintStatusFrame(s: MintStatusWire): string {
   return `event: mint_status\ndata: ${JSON.stringify(s)}\n\n`;
+}
+function buildMintMetaFrame(p: MintMetaPatch): string {
+  return `event: mint_meta\ndata: ${JSON.stringify(p)}\n\n`;
 }
 
 // Sell-type sale_types we surface a "seller still holds N" badge for.
@@ -235,8 +239,28 @@ saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${J
 saleEventBus.onListingRemove(  (delta)  => broadcast(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => broadcast(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onSourceStatus(   (s)      => broadcast(buildStatusFrame(s)));
-saleEventBus.onMint(           (m)      => broadcast(buildMintFrame(m)));
+// Audit counter — pairs with the accumulator's accepted/emitted
+// counts. A growing gap (`emitted >> sseSent`) means broadcasts are
+// failing to write; a healthy stream sees all three move together.
+let mintsSseSentCount = 0;
+saleEventBus.onMint(           (m)      => {
+  broadcast(buildMintFrame(m));
+  mintsSseSentCount++;
+  console.log(`[mints/sse] sent mint sig=${m.signature.slice(0, 12)}…`);
+});
 saleEventBus.onMintStatus(     (s)      => broadcast(buildMintStatusFrame(s)));
+saleEventBus.onMintMeta(       (p)      => broadcast(buildMintMetaFrame(p)));
+
+// 60 s audit — cross-checks accumulator's accepted/emitted with
+// our broadcast count. Skips when no activity to keep logs quiet.
+const _mintAuditTimer = setInterval(() => {
+  const { accepted, emitted } = getMintAuditCounts();
+  if (accepted === 0 && emitted === 0 && mintsSseSentCount === 0) return;
+  console.log(
+    `[mints/audit] accepted=${accepted} emitted=${emitted} sseSent=${mintsSseSentCount} clients=${sseClients.size}`,
+  );
+}, 60_000);
+if (typeof _mintAuditTimer.unref === 'function') _mintAuditTimer.unref();
 
 export function createSseRouter(): Router {
   const router = Router();

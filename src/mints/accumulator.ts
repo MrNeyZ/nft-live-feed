@@ -107,6 +107,15 @@ function rememberRecentMint(ev: MintEventWire): void {
     recentMints.splice(0, recentMints.length - RECENT_MINTS_MAX);
   }
 }
+
+// Audit counters — total since process start. Pair with the
+// downstream counter in src/server/sse.ts (sseSent) to spot drops
+// between accept → emit → SSE broadcast. Logged every 60 s.
+let auditAcceptedCount = 0;
+let auditEmittedCount  = 0;
+export function getMintAuditCounts(): { accepted: number; emitted: number } {
+  return { accepted: auditAcceptedCount, emitted: auditEmittedCount };
+}
 /** Public: snapshot of the most-recent mints for SSE bootstrap. Newest
  *  last (chronological order — the frontend's reducer dedups + reverses
  *  to its newest-first display ordering). */
@@ -279,9 +288,21 @@ export function recordMint(ev: MintEventWire): void {
     }
   }
 
+  // EMIT FIRST — never gated on metadata, never debounced. The
+  // per-mint event must be on the wire before any DAS retry queue
+  // touches the row. Metadata comes back later via mint_meta patches.
+  auditAcceptedCount++;
   saleEventBus.emitMint(ev);
   rememberRecentMint(ev);
+  auditEmittedCount++;
   saleEventBus.emitMintStatus(buildStatus(a, now));
+  console.log(
+    `[mints/emit] sig=${ev.signature.slice(0, 12)}… ` +
+    `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
+  );
+  console.log(
+    `[mints/recent] size=${recentMints.length}`,
+  );
   console.log(
     `[mints/live] inserted sig=${ev.signature.slice(0, 12)}… ` +
     `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
