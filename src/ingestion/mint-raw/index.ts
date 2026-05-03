@@ -45,6 +45,8 @@ import {
 } from './launchpad-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
+import { getLmnftInfoByMint } from '../../enrichment/lmnft';
+import { patchAccumulatorLmnft } from '../../mints/accumulator';
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
 //
@@ -505,6 +507,22 @@ export async function ingestMintRaw(
       sourceLabel:       lp.source,
     });
     enqueueMintEnrichment(groupingKey, lp.mintAddress);
+    // LMNFT featured-set lookup. Synchronous cache read — hits surface
+    // owner/collectionId on the wire immediately so the source pill
+    // becomes clickable on the very first row, not after the 15 s DAS
+    // retry. Parser-pending rows also get rechecked from
+    // collection-confirm.ts in case the cache was empty here.
+    if (lp.source === 'LaunchMyNFT') {
+      const lmntf = getLmnftInfoByMint(collectionAddress);
+      if (lmntf) {
+        patchAccumulatorLmnft(groupingKey, {
+          owner:        lmntf.owner,
+          collectionId: lmntf.collectionId,
+          maxSupply:    lmntf.maxSupply,
+          name:         lmntf.collectionName,
+        });
+      }
+    }
     // Async DAS confirmation only when the accept relied on the
     // parser-extracted collection (the DAS path is already verified).
     if (confirmedBy === 'parser_pending') {

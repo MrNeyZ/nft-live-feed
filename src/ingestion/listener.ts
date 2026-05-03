@@ -27,7 +27,7 @@ import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred } from './mmm-prefilter';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
-import { getMode, currentGeneration } from '../runtime/mode';
+import { getMode, currentGeneration, isMintTrackerEnabled, isAnyIngestActive } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +89,21 @@ const TARGETS: Target[] = [
  *  deny-list, but additive: the listener checks them in order. */
 const MINT_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
 
+/** Targets that belong to the mint tracker. These keep flowing even
+ *  when trade runtime mode is OFF as long as `MINT_TRACKER_ENABLED`
+ *  isn't '0'. Sales-program targets (me_v2, mmm, tcomp, tamm) are
+ *  always gated on `getMode() !== 'off'`. */
+const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+
+/** Per-target activity gate — replaces the global `getMode() !== 'off'`
+ *  check at every WS / poll entry point. Sales targets stop with mode
+ *  off; mint targets stop only when both mode is off AND the env-gated
+ *  mint tracker is disabled. */
+function isTargetActive(targetName: string): boolean {
+  if (getMode() !== 'off') return true;
+  return MINT_TARGET_NAMES.has(targetName) && isMintTrackerEnabled();
+}
+
 /** Targets that must never enter the `getSignaturesForAddress` poll loop.
  *  Token Metadata's volume is too high for cursor polling to keep up
  *  meaningfully. MPL Core is intentionally WS-only too for now — cheaper
@@ -122,8 +137,8 @@ function noteMintPrefilterPass(targetName: string): void {
 // Gate: both limiters short-circuit the moment runtime mode flips to off,
 // so queued ingest tasks from the last active window don't fire a second
 // `getTransaction` after the stop.
-const limiter       = new Limiter(4, 25, 0, () => getMode() !== 'off');  // listener path — 4 concurrent, 25ms gap
-const pollerLimiter = new Limiter(4, 25, 0, () => getMode() !== 'off');  // poller path   — same budget
+const limiter       = new Limiter(4, 25, 0, () => isAnyIngestActive());  // listener path — 4 concurrent, 25ms gap
+const pollerLimiter = new Limiter(4, 25, 0, () => isAnyIngestActive());  // poller path   — same budget
 
 // ─── Seen-signature dedup (shared by listener + poller) ──────────────────────
 
@@ -567,8 +582,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
 
   ws.on('message', (raw: WebSocket.RawData) => {
     // Ignore every notification after stop — we may still hold a reference
-    // to the socket until terminate() finishes flushing.
-    if (!running || getMode() === 'off') return;
+    // to the socket until terminate() finishes flushing. Per-target gate
+    // so mint targets keep flowing across mode=off when the env-gated
+    // mint tracker is enabled.
+    if (!running || !isTargetActive(target.name)) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -866,7 +883,7 @@ function logPollSummary(): void {
 const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm', 'tcomp']);
 
 async function pollTarget(target: Target): Promise<void> {
-  if (!running || getMode() === 'off') return;
+  if (!running || !isTargetActive(target.name)) return;
   // High-volume mint targets (Token Metadata) opt out of cursor polling
   // entirely — WS subscription is the only path. Cursor polling at
   // 1.5 s × the program's volume would explode getSignaturesForAddress
@@ -881,9 +898,9 @@ async function pollTarget(target: Target): Promise<void> {
   let res: Response | null = null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
+    if (!running || !isTargetActive(target.name) || gen !== currentGeneration()) return;
     if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 600));
-    if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
+    if (!running || !isTargetActive(target.name) || gen !== currentGeneration()) return;
     try {
       incSigListFetch();
       noteSigList('listener', target.name);
@@ -927,13 +944,13 @@ async function pollTarget(target: Target): Promise<void> {
   }
 
   if (!res) return;
-  if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
+  if (!running || !isTargetActive(target.name) || gen !== currentGeneration()) return;
 
   const json = await res.json() as {
     result?: Array<{ signature: string; err: unknown; blockTime?: number | null }>;
   };
 
-  if (!running || getMode() === 'off' || gen !== currentGeneration()) return;
+  if (!running || !isTargetActive(target.name) || gen !== currentGeneration()) return;
   const rows = json.result;
   if (!Array.isArray(rows)) return;
 

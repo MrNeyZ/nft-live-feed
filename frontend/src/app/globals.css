@@ -815,3 +815,24 @@ body[data-bottombar="1"] .feed-root {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(168, 144, 232, 0.22);
 }
+
+/* /mints — fresh-insert animation. Plays once when a brand-new SSE
+   mint event lands at the top of the live feed list (cache-restored
+   rows fail the 2.5 s freshness predicate and never get this class).
+   Combined slide-down + soft green glow, mirrors /feed's flashBuy
+   pattern but tuned shorter (2 s vs 3.6 s) since /mints rows are
+   denser and the operator scans them faster. */
+@keyframes mintsFeedSlideIn {
+  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  to   { opacity: 1; transform: none;             max-height: 120px; }
+}
+@keyframes mintsFeedFreshFlash {
+  0%   { background: rgba(92, 224, 160, 0.22); border-color: rgba(92, 224, 160, 0.45); }
+  40%  { background: rgba(92, 224, 160, 0.10); border-color: rgba(92, 224, 160, 0.20); }
+  100% { background: rgba(255, 255, 255, 0.02); border-color: rgba(255, 255, 255, 0.06); }
+}
+.mints-feed-row-fresh {
+  animation:
+    mintsFeedSlideIn    220ms ease-out,
+    mintsFeedFreshFlash 2000ms ease-out;
+}

@@ -179,6 +179,13 @@ export interface MintStatusWire {
    *  `observedMints`, which is "how many of these we've seen ingested".
    *  Null until a supply resolver populates it; frontend renders "—". */
   maxSupply?:        number | null;
+  /** LaunchMyNFT-specific deep-link fields. Populated by the
+   *  `lmnft` enrichment lookup once the collection is found in the
+   *  homepage's featured set. Frontend uses both to build:
+   *    https://www.launchmynft.io/collections/{lmntfOwner}/{lmntfCollectionId}
+   *  Either being null falls back to a plain-text source pill. */
+  lmntfOwner?:        string | null;
+  lmntfCollectionId?: string | null;
   displayState:      MintDisplayState;
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;

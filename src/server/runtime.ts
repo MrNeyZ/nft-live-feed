@@ -23,7 +23,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { getMode, setMode, isRuntimeMode } from '../runtime/mode';
+import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
 import { rateLimit } from './rate-limit';
 
 // ── Idle auto-off ──────────────────────────────────────────────────────────
@@ -251,6 +251,23 @@ export function createRuntimeRouter(): Router {
   router.post('/runtime/heartbeat', heartbeatLimit, requireAuth, (_req: Request, res: Response) => {
     markFrontendSeen();
     res.json({ ok: true, mode: getMode() });
+  });
+
+  // Mint tracker on/off — independent from trade runtime mode. GET is
+  // public (no creds) so the TopNav badge can render the current state
+  // without auth on every nav. POST is auth-gated and rate-limited
+  // alongside the trade-mode endpoint to share back-pressure budget.
+  router.get('/mints/runtime', (_req: Request, res: Response) => {
+    res.json({ enabled: isMintTrackerEnabled() });
+  });
+  router.post('/mints/runtime', modeLimit, requireAuth, (req: Request, res: Response) => {
+    const requested = req.body?.enabled;
+    if (typeof requested !== 'boolean') {
+      res.status(400).json({ error: 'invalid enabled flag' });
+      return;
+    }
+    setMintTrackerEnabled(requested);
+    res.json({ ok: true, enabled: isMintTrackerEnabled() });
   });
 
   return router;

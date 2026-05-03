@@ -39,6 +39,11 @@ interface MintStatus {
    *  launchpad-specific resolver decodes the relevant config account.
    *  UI falls back to "—" when null/undefined per spec. */
   maxSupply?:        number | null;
+  /** LaunchMyNFT URL fragments. Backend populates them via the LMNFT
+   *  homepage scraper (`src/enrichment/lmnft.ts`). Both required to
+   *  build the deep-link; either null falls back to a plain pill. */
+  lmntfOwner?:        string | null;
+  lmntfCollectionId?: string | null;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -359,19 +364,13 @@ function shortMint(addr: string | null): string {
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
 }
 
-// Optional LMNFT deep-link fields. Backend may surface these on the
-// MintStatusWire alongside `sourceLabel === 'LaunchMyNFT'`; until then
-// the link falls through to "no anchor" so we never point operators
-// at the wrong collection page. The URL pattern is:
+// LMNFT URL pattern:
 //   https://www.launchmynft.io/collections/{lmntfOwner}/{lmntfCollectionId}
-// Both fields must be present and look like Solana pubkey / safe path
-// segments for the link to render.
-interface LmntfDeepLinkFields {
-  lmntfOwner?:        string | null;
-  lmntfCollectionId?: string | null;
-}
+// Both fields must be present and look like a safe path segment for
+// the link to render — defends against XSS / open-redirect via wire-
+// injected paths even if the backend scraper ever misbehaves.
 const SAFE_URL_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
-function buildLaunchMyNftUrl(row: LmntfDeepLinkFields): string | null {
+function buildLaunchMyNftUrl(row: MintStatus): string | null {
   const owner = row.lmntfOwner;
   const id    = row.lmntfCollectionId;
   if (!owner || !id) return null;
@@ -392,7 +391,7 @@ function sourceHref(row: MintStatus): string | null {
       // owner + collectionId fields. Falls through to null (plain
       // pill, no link) when either is missing — never the homepage,
       // per the targeted-mode spec.
-      return buildLaunchMyNftUrl(row as unknown as LmntfDeepLinkFields);
+      return buildLaunchMyNftUrl(row);
     case 'VVV':
       return 'https://vvv.so/';
     default:
@@ -932,6 +931,7 @@ export default function MintsPage() {
                 // visually dominant. Threshold/burst logic in the
                 // backend accumulator is unchanged.
                 const isActive = r.displayState === 'shown';
+                const accentColor = colorForCollection(r.collectionAddress ?? r.groupingKey);
                 return (
                   <tr key={r.groupingKey} style={{
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
@@ -941,8 +941,11 @@ export default function MintsPage() {
                     {/* COLLECTION cell — matches Dashboard rows:
                         12px vertical padding (up from /mints' previous
                         compact 8px to align with /dashboard rhythm),
-                        38 px ItemThumb, 15 px name. */}
-                    <td style={{ padding: '12px 6px 12px 10px', verticalAlign: 'middle' }}>
+                        38 px ItemThumb, 15 px name. Left accent stripe
+                        (3 px, deterministic per collectionAddress) so
+                        rows from the same collection are visually
+                        grouped at a glance. */}
+                    <td style={{ padding: '12px 6px 12px 10px', verticalAlign: 'middle', borderLeft: `3px solid ${accentColor}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         <ItemThumb
@@ -1030,7 +1033,14 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                       {r.observedMints.toLocaleString()}
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    <td
+                      title={
+                        typeof r.maxSupply === 'number' && r.maxSupply > 0
+                          ? `Max supply for this collection`
+                          : `Max supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`
+                      }
+                      style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                    >
                       {typeof r.maxSupply === 'number' && r.maxSupply > 0
                         ? r.maxSupply.toLocaleString()
                         : '—'}
@@ -1152,15 +1162,32 @@ export default function MintsPage() {
               return (
                 <div
                   key={ev.signature}
-                  className="mints-feed-row"
+                  // `mints-feed-row-fresh` adds a one-shot slide-in +
+                  // green flash on the first paint of a freshly-arrived
+                  // SSE mint event. Predicate is evaluated once per
+                  // render: cache-restored events have an old
+                  // `receivedAt` (set when the SSE first delivered them
+                  // in a prior session), so they fail the 2.5 s window
+                  // and never animate. New SSE arrivals stamp
+                  // `receivedAt = Date.now()` in the `mint` listener,
+                  // so they pass the window exactly once.
+                  className={
+                    'mints-feed-row' +
+                    (Date.now() - ev.receivedAt < 2500 ? ' mints-feed-row-fresh' : '')
+                  }
                   style={{
                     // Card chrome — exact mirror of /feed `.feed-card`:
                     // 10/12 padding, 12 px gap, 56 px thumb, 1 px hairline
                     // border, 7 px radius, faint background. Hover tint
                     // via the className rule in globals.css.
+                    // 3 px left accent stripe in the same deterministic
+                    // collection color used on the row above — visually
+                    // groups all mints from the same collection in the
+                    // stream. `borderLeftWidth` overrides the hairline.
                     display: 'flex', alignItems: 'center', gap: 12,
                     padding: '10px 12px',
                     border: '1px solid rgba(255,255,255,0.06)',
+                    borderLeft: `3px solid ${colorForCollection(ev.collectionAddress ?? ev.groupingKey)}`,
                     borderRadius: 7,
                     background: 'rgba(255,255,255,0.02)',
                     transition: 'background 0.12s, border-color 0.12s',

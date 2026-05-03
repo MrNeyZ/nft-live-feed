@@ -12,6 +12,9 @@ import './health/source-health';
 // is started below in main() once the bus is wired.
 import './mints/accumulator';
 import { startMintDetector } from './mints/detector';
+import { isMintTrackerEnabled } from './runtime/mode';
+import { startListener } from './ingestion/listener';
+import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -56,6 +59,20 @@ async function main() {
   // unconditionally at boot — it'll only see events once a runtime mode
   // is selected and the listener begins emitting.
   startMintDetector();
+
+  // Mint tracker runs 24/7 independent of trade runtime mode. When
+  // `MINT_TRACKER_ENABLED` is set (default ON), the listener spins up
+  // at boot so launchpad mints (LMNFT / vvv.so / Core / TM) flow into
+  // /mints even before any operator selects a trade mode. The listener's
+  // per-target `isTargetActive()` gate keeps sale-program subscriptions
+  // dormant until trade mode flips on, so RPC usage stays scoped to
+  // mint targets only.
+  if (isMintTrackerEnabled()) {
+    console.log(`[mints] tracker enabled mode=${getMintTrackerMode()} independent=true`);
+    startListener();
+  } else {
+    console.log('[mints] tracker disabled');
+  }
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
   // and calls /api/runtime/mode to pick FULL / BUDGET / SALES_ONLY. Previous

@@ -12,6 +12,7 @@ import {
 import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
 import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
+import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-tracker';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
@@ -985,6 +986,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
         fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
         <ModeBadge />
+        <MintTrackerToggle />
         {/* Layout-mode switcher is rendered as a floating bottom-right pill
             in every mode (see FloatingLayoutModeSwitcher mounted in Gate),
             so the TopNav row no longer carries it — keeps the stats row
@@ -1271,6 +1273,59 @@ function ModeBadge() {
     <span className="topnav-mode-badge" style={{ color: '#9683dc', fontSize: 10, letterSpacing: '1px', fontWeight: 600 }}>
       MODE: {mode.replace('_', ' ').toUpperCase()}
     </span>
+  );
+}
+
+/**
+ * Compact MINTS ON/OFF pill — independent from the trade runtime mode.
+ * Click to flip. Optimistic UI: state updates immediately, rolls back
+ * if the POST fails. Auth-gated on the backend; an unauthenticated
+ * click silently fails (the OFF button kicks the user back to /access
+ * the next time they try a protected action).
+ */
+function MintTrackerToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy,    setBusy]    = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchMintTrackerEnabled().then(v => { if (!cancelled) setEnabled(v); });
+    return () => { cancelled = true; };
+  }, []);
+  if (enabled === null) return null;  // hide until first fetch resolves
+  const handle = async () => {
+    if (busy) return;
+    setBusy(true);
+    const next = !enabled;
+    setEnabled(next);  // optimistic
+    const result = await setMintTrackerEnabled(next);
+    if (typeof result === 'boolean') setEnabled(result);
+    else setEnabled(!next);  // rollback on failure
+    setBusy(false);
+  };
+  const isOn = enabled;
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={busy}
+      title={isOn
+        ? 'Mint tracker is ON — click to stop launchpad mint ingestion'
+        : 'Mint tracker is OFF — click to start launchpad mint ingestion'}
+      style={{
+        padding: '3px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '1px',
+        color: isOn ? '#5ce0a0' : '#7a7a94',
+        background: 'transparent',
+        border: `1px solid ${isOn ? 'rgba(92,224,160,0.45)' : 'rgba(122,122,148,0.32)'}`,
+        borderRadius: 4,
+        cursor: busy ? 'wait' : 'pointer',
+        fontFamily: 'inherit',
+        textTransform: 'uppercase',
+        opacity: busy ? 0.6 : 1,
+        transition: 'color 0.12s, border-color 0.12s, opacity 0.12s',
+      }}
+    >
+      MINTS {isOn ? 'ON' : 'OFF'}
+    </button>
   );
 }
 

@@ -85,9 +85,34 @@ interface Accum {
    *  the relevant config account; null until then so the frontend
    *  renders "—" rather than mis-using `observedMints`. */
   maxSupply?: number | null;
+  /** LMNFT URL fragments — `{owner}/{collectionId}`. Populated by
+   *  `patchAccumulatorLmnft` once the homepage-featured lookup returns. */
+  lmntfOwner?:        string | null;
+  lmntfCollectionId?: string | null;
 }
 
 const map = new Map<string, Accum>();
+
+/** Ring buffer of recent accepted mint events, replayed to every fresh
+ *  SSE client on connect so /mints' Live Mint Feed isn't always empty
+ *  when a user opens the page mid-launch (per-mint events were
+ *  previously broadcast-once, so anyone connecting after a mint never
+ *  saw it). FIFO bounded — newest pushes at the end, oldest is
+ *  trimmed off the front. Capacity matches the frontend `LIVE_FEED_MAX`. */
+const RECENT_MINTS_MAX = 150;
+const recentMints: MintEventWire[] = [];
+function rememberRecentMint(ev: MintEventWire): void {
+  recentMints.push(ev);
+  if (recentMints.length > RECENT_MINTS_MAX) {
+    recentMints.splice(0, recentMints.length - RECENT_MINTS_MAX);
+  }
+}
+/** Public: snapshot of the most-recent mints for SSE bootstrap. Newest
+ *  last (chronological order — the frontend's reducer dedups + reverses
+ *  to its newest-first display ordering). */
+export function currentRecentMints(): MintEventWire[] {
+  return recentMints.slice();
+}
 
 /** Sticky reject set: groupingKeys the enricher classified as non-NFT
  *  via DAS. Future `recordMint` calls for these keys are silently
@@ -159,6 +184,8 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     name:              a.name,
     imageUrl:          a.imageUrl,
     maxSupply:         a.maxSupply ?? null,
+    lmntfOwner:        a.lmntfOwner ?? null,
+    lmntfCollectionId: a.lmntfCollectionId ?? null,
   };
 }
 
@@ -253,7 +280,12 @@ export function recordMint(ev: MintEventWire): void {
   }
 
   saleEventBus.emitMint(ev);
+  rememberRecentMint(ev);
   saleEventBus.emitMintStatus(buildStatus(a, now));
+  console.log(
+    `[mints/live] inserted sig=${ev.signature.slice(0, 12)}… ` +
+    `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
+  );
   if (prevDisplay !== a.displayState) {
     // Transition-only debug: never spammy because it fires once per
     // collection per state change (incubating → shown is the common
@@ -368,6 +400,42 @@ export function patchAccumulatorMeta(
  *  clients see the SUPPLY column populate without waiting for the
  *  next mint. Treats null/undefined/non-positive as "unknown" — never
  *  overwrites a known supply with null. */
+/** Patch LMNFT-specific deep-link fields + max supply on a group.
+ *  Called by the LMNFT lookup once a featured collection match comes
+ *  back. Re-emits one mint_status frame so connected clients see the
+ *  source pill become clickable + the supply column populate without
+ *  waiting for the next mint. Idempotent — no-op when the values
+ *  are unchanged. */
+export function patchAccumulatorLmnft(
+  groupingKey: string,
+  patch: { owner: string; collectionId: string; maxSupply?: number | null; name?: string | null },
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  const nextOwner = patch.owner || null;
+  const nextId    = patch.collectionId || null;
+  const nextSupply = (typeof patch.maxSupply === 'number' && patch.maxSupply > 0)
+    ? patch.maxSupply
+    : (a.maxSupply ?? null);
+  const nextName = (patch.name && patch.name.length > 0) ? patch.name : a.name;
+  if (
+    a.lmntfOwner === nextOwner &&
+    a.lmntfCollectionId === nextId &&
+    a.maxSupply === nextSupply &&
+    a.name === nextName
+  ) return;
+  a.lmntfOwner        = nextOwner;
+  a.lmntfCollectionId = nextId;
+  a.maxSupply         = nextSupply;
+  if (nextName) a.name = nextName;
+  console.log(
+    `[mints/link] source=LaunchMyNFT owner=${nextOwner} collectionId=${nextId} ` +
+    `href=https://www.launchmynft.io/collections/${nextOwner}/${nextId} ` +
+    `maxSupply=${nextSupply ?? 'null'}`,
+  );
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 export function setMintMaxSupply(groupingKey: string, maxSupply: number | null): void {
   const a = map.get(groupingKey);
   if (!a) return;

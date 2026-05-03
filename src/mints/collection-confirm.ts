@@ -19,7 +19,8 @@
  * mint_status frame tells every client to drop it.
  */
 import { getAsset } from '../enrichment/helius-das';
-import { evictMintGroup, patchAccumulatorMeta } from './accumulator';
+import { getLmnftInfoByMint } from '../enrichment/lmnft';
+import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft } from './accumulator';
 
 // Three increasingly-spaced DAS polls. Caps total wait at ~4 min from
 // mint to confirmation/eviction. Tightened from 30/120/300 to 15/60/180
@@ -83,13 +84,20 @@ async function runAttempt(entry: Pending): Promise<void> {
   // gets a real name + image as soon as DAS has them, instead of
   // waiting for the full collection-confirmation step.
   if (collectionName || nftName || imageUrl) {
+    // Prefer the DAS collection-asset name. When only the per-NFT
+    // name is available (the collection asset hasn't been indexed
+    // yet, common during a fresh launch), strip the trailing `#N`
+    // pattern so we display "Pix Ape" instead of "Pix Ape #44" as
+    // the row's collection name.
+    const stripped = nftName ? nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
+    const finalName = collectionName ?? (stripped && stripped.length > 0 ? stripped : null) ?? undefined;
     patchAccumulatorMeta(entry.groupingKey, {
-      name:     collectionName ?? nftName ?? undefined,
+      name:     finalName,
       imageUrl: imageUrl ?? undefined,
     });
     console.log(
       `[mints/meta] retry=${entry.idx + 1} mint=${entry.mintAddress} ` +
-      `name=${collectionName ?? nftName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
+      `name=${finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
     );
   }
   if (dasCollection) {
@@ -102,6 +110,21 @@ async function runAttempt(entry: Pending): Promise<void> {
       console.log(
         `[mints/meta] collection=${dasCollection} name=${collectionName}`,
       );
+    }
+    // LaunchMyNFT featured-set lookup. Synchronous cache read; if the
+    // map is stale a background refresh fires and the next confirmed
+    // mint will pick up the URL fields. Hits surface
+    // `lmntfOwner` + `lmntfCollectionId` (+ optional `maxSupply` /
+    // `collectionName`) on the wire so the source pill becomes
+    // clickable and SUPPLY populates with LMNFT's planned drop size.
+    const lmntf = getLmnftInfoByMint(dasCollection);
+    if (lmntf) {
+      patchAccumulatorLmnft(entry.groupingKey, {
+        owner:        lmntf.owner,
+        collectionId: lmntf.collectionId,
+        maxSupply:    lmntf.maxSupply,
+        name:         lmntf.collectionName,
+      });
     }
     pending.delete(entry.mintAddress);
     return;

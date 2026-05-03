@@ -12,7 +12,7 @@ import {
 import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
-import { currentMintStatuses } from '../mints/accumulator';
+import { currentMintStatuses, currentRecentMints } from '../mints/accumulator';
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 
 /**
@@ -262,6 +262,14 @@ export function createSseRouter(): Router {
     // /mints page on connect without per-client polling.
     for (const ms of currentMintStatuses()) {
       try { res.write(buildMintStatusFrame(ms)); } catch { /* client gone */ }
+    }
+    // Replay the recent per-mint events too — without this the Live
+    // Mint Feed pane on /mints stays empty until the next mint lands,
+    // even though the collection rows show entries from older mints.
+    // Frontend reducer already dedups by signature so a reconnect-
+    // during-quiet-window doesn't double-render anything.
+    for (const me of currentRecentMints()) {
+      try { res.write(buildMintFrame(me)); } catch { /* client gone */ }
     }
 
     sseClients.add(res);
