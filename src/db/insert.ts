@@ -102,6 +102,8 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     collectionAddress: event.collectionAddress,
     meCollectionSlug:  event.meCollectionSlug,
     collectionName:    null,
+    signature:         event.signature,
+    mintAddress:       event.mintAddress,
   })) {
     console.log(
       `[blacklist] dropped at insert  ` +
@@ -253,6 +255,8 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         collectionAddress: enriched.collectionAddress,
         meCollectionSlug:  enriched.meCollectionSlug,
         collectionName:    enriched.collectionName,
+        signature:         event.signature,
+        mintAddress:       event.mintAddress,
       })) {
         await pool.query('DELETE FROM sale_events WHERE signature = $1', [event.signature]);
         saleEventBus.emitRemove(event.signature);

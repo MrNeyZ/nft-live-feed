@@ -318,35 +318,27 @@ async function ownerScanForCollectionCount(
   }
 }
 
-/** Verbose variant — returns the source method alongside the count so
- *  the SSE layer can log which path produced the verdict.
- *
- *  Performance gate: the `getAssetsByOwner` fallback walks up to
- *  ~5 000 owned assets per call, which is expensive at /feed cadence.
- *  Disabled by default — set `SELLER_COUNT_DEEP_SCAN=1` to re-enable
- *  it (operators investigating an undercount can flip the env without
- *  a code change). With the deep scan off, a `searchAssets`
- *  null/0 result propagates straight through; the badge silently
- *  doesn't render for that wallet+collection pair. */
+/** Verbose variant — fast searchAssets path only. Never runs the
+ *  expensive `getAssetsByOwner` fallback; that's exposed separately
+ *  via `getOwnerCollectionDeepCount` and only invoked on demand by
+ *  the active-dumper exact-count path. */
 export async function getOwnerCollectionCountVerbose(
   owner: string,
   collectionAddress: string,
 ): Promise<OwnerCollectionCountVerbose> {
   const search = await searchAssetsTotal(owner, collectionAddress);
-  if (search != null && search > 0) {
-    return { count: search, method: 'searchAssets' };
-  }
-  if (process.env.SELLER_COUNT_DEEP_SCAN !== '1') {
-    return { count: search, method: search == null ? 'failed' : 'searchAssets' };
-  }
-  // Deep scan opted in. Walks getAssetsByOwner pages and counts
-  // grouping matches client-side — the source of truth used by
-  // wallet explorers, but heavy.
-  const scan = await ownerScanForCollectionCount(owner, collectionAddress);
-  if (scan.count != null) {
-    return { count: scan.count, method: 'getAssetsByOwner', scanned: scan.scanned };
-  }
   return { count: search, method: search == null ? 'failed' : 'searchAssets' };
+}
+
+/** Deep scan — paginated `getAssetsByOwner` walk (up to 5 pages × 1000
+ *  items = 5 000 owned assets) counting grouping matches client-side.
+ *  Heavy, so caller should gate (cache + queue + active-dumper trigger).
+ *  Returns `{count, scanned}` or `{count: null}` on failure. */
+export async function getOwnerCollectionDeepCount(
+  owner: string,
+  collectionAddress: string,
+): Promise<{ count: number | null; scanned: number }> {
+  return ownerScanForCollectionCount(owner, collectionAddress);
 }
 
 /** Backward-compatible wrapper for callers that only want the count. */

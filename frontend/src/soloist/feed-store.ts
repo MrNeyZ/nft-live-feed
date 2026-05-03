@@ -77,7 +77,15 @@ export interface SellerCountPatch {
   signature?: string;
   seller:     string;
   collection: string;
-  count:      number;
+  /** Authoritative DAS count. May be null when DAS returned nothing
+   *  but the multi-sell signal still applies. */
+  count:      number | null;
+  /** Sell-side sales the same wallet made for this collection in the
+   *  last 10 minutes (backend-tracked). Drives the 🔥 fallback. */
+  sells10m?:  number;
+  /** When backend determined the wallet is visibly dumping despite a
+   *  weak/null DAS count. Frontend renders 🔥 instead of a number. */
+  signal?:    'multi';
 }
 
 export type FeedAction =
@@ -202,11 +210,27 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           // resolved it). That repair lets future seller+collection
           // patches for the same wallet+collection light up THIS row
           // too without re-needing a signature match.
-          const nextColl = ev.collectionAddress ?? patch.collection;
-          if (ev.sellerRemainingCount === patch.count && ev.collectionAddress === nextColl) return ev;
+          const nextColl    = ev.collectionAddress ?? patch.collection;
+          // Sticky-merge count — a later signal-only patch (count=null,
+          // signal='multi') must NOT overwrite a previously-resolved
+          // DAS count. DAS-resolved values are authoritative; the 🔥
+          // signal is supplementary.
+          const nextCount   = (typeof patch.count === 'number' && Number.isFinite(patch.count))
+            ? patch.count
+            : (ev.sellerRemainingCount ?? null);
+          const nextSells   = patch.sells10m ?? ev.sellerSells10m ?? 0;
+          const nextSignal  = patch.signal ?? null;
+          if (
+            ev.sellerRemainingCount === nextCount &&
+            ev.collectionAddress    === nextColl  &&
+            ev.sellerSells10m       === nextSells &&
+            ev.sellerSignal         === nextSignal
+          ) return ev;
           return {
             ...ev,
-            sellerRemainingCount: patch.count,
+            sellerRemainingCount: nextCount,
+            sellerSells10m:       nextSells,
+            sellerSignal:         nextSignal,
             collectionAddress:    nextColl,
           };
         },

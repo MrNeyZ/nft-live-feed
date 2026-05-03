@@ -404,6 +404,13 @@ export function currentMintStatuses(): MintStatusWire[] {
   return out;
 }
 
+/** Read-only name probe — lets callers gate weaker-source name
+ *  fallbacks on whether we already have a stronger name. Returns
+ *  the current row's `name`, or null/undefined when unset. */
+export function getAccumulatorName(groupingKey: string): string | null | undefined {
+  return map.get(groupingKey)?.name;
+}
+
 /** Optional metadata patch from background enrichment. */
 export function patchAccumulatorMeta(
   groupingKey: string,

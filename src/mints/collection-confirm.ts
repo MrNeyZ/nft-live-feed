@@ -20,8 +20,19 @@
  */
 import { getAsset } from '../enrichment/helius-das';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
-import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft } from './accumulator';
+import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
+import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft, getAccumulatorName } from './accumulator';
 import { saleEventBus } from '../events/emitter';
+
+/** "Looks like a short-address fallback" — `<6chars>…<4chars>`, the
+ *  shape `shortKey()` produces on the frontend. Treat such names as
+ *  weak so a stronger source (ME) is allowed to overwrite. */
+const SHORT_ADDR_NAME_RE = /^[1-9A-HJ-NP-Za-km-z]{4,8}…[1-9A-HJ-NP-Za-km-z]{4,8}$/;
+function nameLooksWeak(name: string | null | undefined): boolean {
+  if (!name || name.length === 0) return true;
+  if (SHORT_ADDR_NAME_RE.test(name)) return true;
+  return false;
+}
 
 // Three increasingly-spaced DAS polls. Caps total wait at ~4 min from
 // mint to confirmation/eviction. Tightened from 30/120/300 to 15/60/180
@@ -91,6 +102,19 @@ async function runAttempt(entry: Pending): Promise<void> {
   // retry — even before collection grouping resolves — means the row
   // gets a real name + image as soon as DAS has them, instead of
   // waiting for the full collection-confirmation step.
+  // ME collection-name fallback — fires ONLY when this DAS attempt
+  // surfaced no NFT-level name AND the accumulator's current name
+  // is missing or address-shaped. Single ME `/v2/tokens/{mint}` call
+  // per mintAddress, cached 20 min, never blocks. DAS retries on the
+  // next interval are still authoritative — if DAS later resolves
+  // the name, it will overwrite ME's.
+  if (!collectionName && !nftName && entry.mintAddress
+      && nameLooksWeak(getAccumulatorName(entry.groupingKey))) {
+    const me = await getMagicEdenCollectionName(entry.mintAddress);
+    if (me.collectionName && nameLooksWeak(getAccumulatorName(entry.groupingKey))) {
+      patchAccumulatorMeta(entry.groupingKey, { name: me.collectionName });
+    }
+  }
   if (collectionName || nftName || imageUrl) {
     // Prefer the DAS collection-asset name. When only the per-NFT
     // name is available (the collection asset hasn't been indexed

@@ -36,15 +36,41 @@ export const NAME_BLACKLIST = new Set<string>([
   'collector crypt', // CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf — fake/wash sales
 ]);
 
+/** Lowercased substrings — match anywhere in the name. Use sparingly:
+ *  every entry adds a substring scan over every accepted sale's
+ *  collection name. "drip" covers DRiP / DRIP / Drip Haus / Drip … */
+export const NAME_SUBSTRING_BLACKLIST: readonly string[] = [
+  'drip',
+];
+
 /** Single entrypoint used by the insert pipeline. Returns true when ANY of the
- *  three keys match. Cheap: three Set lookups + one toLowerCase. */
+ *  exact-match keys hit OR a name-substring rule fires. Cheap: three Set
+ *  lookups + one toLowerCase + N short substring scans. Optional `signature`
+ *  / `mintAddress` only used for the substring-rule diagnostic log so callers
+ *  don't have to duplicate the log line at every call site. */
 export function isBlacklistedCollection(opts: {
   collectionAddress: string | null;
   meCollectionSlug:  string | null | undefined;
   collectionName:    string | null;
+  signature?:        string;
+  mintAddress?:      string | null;
 }): boolean {
   if (opts.collectionAddress && COLLECTION_BLACKLIST.has(opts.collectionAddress)) return true;
   if (opts.meCollectionSlug  && SLUG_BLACKLIST.has(opts.meCollectionSlug))         return true;
-  if (opts.collectionName    && NAME_BLACKLIST.has(opts.collectionName.toLowerCase())) return true;
+  if (opts.collectionName) {
+    const lower = opts.collectionName.toLowerCase();
+    if (NAME_BLACKLIST.has(lower)) return true;
+    for (const needle of NAME_SUBSTRING_BLACKLIST) {
+      if (lower.includes(needle)) {
+        console.log(
+          `[feed/blacklist] reason=${needle}_collection ` +
+          `collection=${opts.collectionName} ` +
+          `mint=${opts.mintAddress ?? '—'} ` +
+          `sig=${opts.signature ?? '—'}`,
+        );
+        return true;
+      }
+    }
+  }
   return false;
 }

@@ -15,6 +15,8 @@ import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../mints/accumulator';
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
+import { noteRecentSell, getRecentSellCount, getRecentSellerCountAny } from '../enrichment/recent-sell-tracker';
+import { scheduleExactSellerCount } from '../enrichment/seller-count-exact';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -187,8 +189,36 @@ saleEventBus.onSale(           (event)  => {
         console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=${collection.slice(0,8)}…`);
       }
     }
+    // Track this sale in the 10-min recent-sells ring for the
+    // dumping-signal fallback. Always recorded (cheap, in-memory),
+    // even when the DAS lookup below is dropped by the slot limiter.
+    noteRecentSell(seller, collection);
     const verdict = await getSellerCollectionCountVerbose(seller, collection);
     const count = verdict.count;
+    const sells10m = getRecentSellCount(seller, collection);
+    const sellsAny10m = getRecentSellerCountAny(seller);
+    console.log(
+      `[seller-count-fast] seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… count=${count ?? 'null'}`,
+    );
+    // Active-dumper trigger: when fast count is weak (null/0/1/2) AND
+    // the wallet shows live dump-y behavior, kick the exact-fallback
+    // deep scan. Fire-and-forget — broadcasts a fresh seller_count
+    // patch when it lands. Cache + queue + 5 s timeout in the module.
+    if ((count == null || count < 3) && (sells10m >= 2 || sellsAny10m >= 3)) {
+      console.log(
+        `[seller-count-exact-trigger] reason=active_dump ` +
+        `seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… ` +
+        `sells10m=${sells10m} sellsAny10m=${sellsAny10m}`,
+      );
+      scheduleExactSellerCount(seller, collection, sells10m);
+    }
+    // Dumping signal: when DAS reports too few (or nothing) but the
+    // wallet is visibly dumping into the same collection ≥2 times in
+    // the last 10 min, broadcast a `multi` signal so the frontend
+    // shows a 🔥 badge instead of hiding the row entirely. When DAS
+    // returns a real count >=3 the exact number wins.
+    const signal: 'multi' | undefined =
+      (count == null || count < 3) && sells10m >= 2 ? 'multi' : undefined;
     // Verify / result / mismatch logs — env-gated to keep the hot
     // sale path quiet under load. Set SELLER_COUNT_DEBUG=verbose
     // when actively investigating; SELLER_COUNT_DEBUG=1 samples 5%.
@@ -202,7 +232,14 @@ saleEventBus.onSale(           (event)  => {
         (verdict.scanned != null ? ` scanned=${verdict.scanned}` : ''),
       );
     }
-    if (count == null) {
+    // Always log the per-event signal — cheap and lets the operator
+    // confirm the multi-sell path is firing for known whales without
+    // enabling the noisier verbose flag.
+    console.log(
+      `[seller-count-signal] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… ` +
+      `sells10m=${sells10m} count=${count ?? 'null'}` + (signal ? ` signal=${signal}` : ''),
+    );
+    if (count == null && !signal) {
       if (Math.random() < 0.02) {
         console.log(
           `[seller-count-miss] reason=lookup_null sig=${signature.slice(0,12)}… ` +
@@ -222,15 +259,15 @@ saleEventBus.onSale(           (event)  => {
       console.log(
         `[seller-count-result] sig=${signature.slice(0,12)}… saleType=${saleType} ` +
         `seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… ` +
-        `count=${count} method=${verdict.method}`,
+        `count=${count ?? 'null'} method=${verdict.method} signal=${signal ?? '—'}`,
       );
     }
-    // Wire payload carries BOTH a signature (primary match key for
-    // the originating sale row, even when its collectionAddress was
-    // null at sale time) AND seller+collection (so the same patch can
-    // light up other rows from the same wallet+collection and persist
-    // across reloads in localStorage under the composite key).
-    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count })}\n\n`);
+    // Wire payload carries the originating signature, seller+collection
+    // (so the same patch fans out to siblings and persists in
+    // localStorage), the DAS count (may be null), and the new
+    // {sells10m, signal} pair so the frontend can choose between an
+    // exact-number badge and the 🔥 multi-sell badge.
+    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m, signal })}\n\n`);
   })();
 });
 saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
@@ -250,6 +287,14 @@ saleEventBus.onMint(           (m)      => {
 });
 saleEventBus.onMintStatus(     (s)      => broadcast(buildMintStatusFrame(s)));
 saleEventBus.onMintMeta(       (p)      => broadcast(buildMintMetaFrame(p)));
+// Late seller-count refresh (active-dumper exact-fallback). Re-uses
+// the existing `seller_count` SSE event; frontend reducer already
+// matches by seller+collection and sticky-merges higher counts.
+saleEventBus.onSellerCountUpdate((u) => {
+  broadcast(`event: seller_count\ndata: ${JSON.stringify({
+    seller: u.seller, collection: u.collection, count: u.count, sells10m: u.sells10m,
+  })}\n\n`);
+});
 
 // 60 s audit — cross-checks accumulator's accepted/emitted with
 // our broadcast count. Skips when no activity to keep logs quiet.

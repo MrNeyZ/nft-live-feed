@@ -544,22 +544,18 @@ const FeedCard = memo(function FeedCard({
                   backend has resolved a finite count (0 is a valid
                   value). Soft yellow circle on dark text, sized to
                   the wallet line metric so it doesn't bump row height. */}
-              {/* Seller-remaining badge — sell-side rows only, with the
-                  noise-cut active-dumping gate:
-                    1. count >= 3 (baseline meaningful inventory)
-                    2. row is the NEWEST sell for this seller+collection
-                       in the visible feed (no repeats on older siblings)
-                    3. EITHER 2+ sells visible from this wallet+collection
-                       OR remaining count >= 10 (clear large position)
-                  Inline conditional (NOT an early return) so the
-                  enclosing FeedCard keeps rendering and the badge
-                  pops in reactively as soon as a `seller_count`
-                  patch raises the count past the threshold. */}
+              {/* Seller-remaining badge — two render paths:
+                    A. Exact count (≥3) — same dump-gate as before
+                       (newest row for seller+collection in the feed
+                       AND either 2+ visible sells OR sellerCount≥10).
+                    B. 🔥 multi-sell signal — backend-determined
+                       (sells10m≥2 with weak/null DAS count). Renders
+                       only on the newest row to avoid repetition. */}
               {(kind === 'sell' || kind === 'sellAmm') &&
+                isNewestSellForSellerColl &&
                 typeof sellerCount === 'number' &&
                 Number.isFinite(sellerCount) &&
                 sellerCount >= 3 &&
-                isNewestSellForSellerColl &&
                 (sellerSellCountInFeed >= 2 || sellerCount >= 10) && (
                 <span
                   key={event.id}
@@ -573,6 +569,22 @@ const FeedCard = memo(function FeedCard({
                   <span key={sellerCount} className="seller-remaining-badge-num">
                     {Math.min(99, sellerCount)}
                   </span>
+                </span>
+              )}
+              {(kind === 'sell' || kind === 'sellAmm') &&
+                isNewestSellForSellerColl &&
+                event.sellerSignal === 'multi' &&
+                !(typeof sellerCount === 'number' && Number.isFinite(sellerCount) && sellerCount >= 3) && (
+                <span
+                  key={`multi-${event.id}`}
+                  className="seller-remaining-badge"
+                  title={
+                    `Wallet is dumping — ${event.sellerSells10m ?? 2}+ sells from this collection in the last 10 min ` +
+                    `(exact remaining count unavailable)`
+                  }
+                  style={SELLER_REMAINING_BADGE_STYLE}
+                >
+                  <span className="seller-remaining-badge-num">🔥</span>
                 </span>
               )}
             </div>
@@ -945,28 +957,34 @@ export default function FeedPage() {
       // `meta` frame is emitted for blacklisted rows).
       es.addEventListener('seller_count', (e: MessageEvent) => {
         try {
-          const { signature, seller, collection, count } = JSON.parse(e.data) as {
+          const { signature, seller, collection, count, sells10m, signal } = JSON.parse(e.data) as {
             signature?: string;
             seller:     string;
             collection: string;
-            count:      number;
+            count:      number | null;
+            sells10m?:  number;
+            signal?:    'multi';
           };
-          // TEMPORARY UNSAMPLED diagnostic per the badge-missing
-          // investigation. Always logs (even in production) so the
-          // operator can confirm SSE patches arrive at all.
           console.log(
             `[seller-count-ui] signature=${signature ?? '—'} ` +
-            `seller=${seller} collection=${collection} count=${count}`,
+            `seller=${seller} collection=${collection} count=${count ?? 'null'} ` +
+            `sells10m=${sells10m ?? '—'} signal=${signal ?? '—'}`,
           );
-          if (!seller || !collection || !Number.isFinite(count)) {
+          if (!seller || !collection) {
             console.log('[seller-count-ui-miss] reason=invalid_payload');
             return;
           }
           // Persist by seller+collection so reloads / future rows from
-          // the same wallet+collection can re-attach the count.
-          const k = sellerCountKey(seller, collection)!;
-          sellerCountRef.current.set(k, count);
-          persistSellerCounts(sellerCountRef.current);
+          // the same wallet+collection can re-attach the count. We
+          // only store finite counts; the 🔥 multi-sell signal is
+          // ephemeral (re-derived by backend on next sale) so it
+          // doesn't survive reload — which is fine, it's a real-time
+          // dumping indicator, not historical state.
+          if (typeof count === 'number' && Number.isFinite(count)) {
+            const k = sellerCountKey(seller, collection)!;
+            sellerCountRef.current.set(k, count);
+            persistSellerCounts(sellerCountRef.current);
+          }
           // UNSAMPLED orphan check — counts how many feed rows the
           // patch will actually update. 0 means the sale frame either
           // hasn't arrived yet OR the row was evicted (MAX_EVENTS cap).
@@ -984,7 +1002,10 @@ export default function FeedPage() {
               `seller=${seller} collection=${collection}`,
             );
           }
-          enqueue({ type: 'seller_count', patch: { signature, seller, collection, count } });
+          enqueue({
+            type: 'seller_count',
+            patch: { signature, seller, collection, count: count ?? null, sells10m, signal },
+          });
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('remove', (e: MessageEvent) => {

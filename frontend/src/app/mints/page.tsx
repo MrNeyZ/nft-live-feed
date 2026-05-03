@@ -966,11 +966,22 @@ export default function MintsPage() {
                 // backend accumulator is unchanged.
                 const isActive = r.displayState === 'shown';
                 const accentColor = colorForCollection(r.collectionAddress ?? r.groupingKey);
+                // SOLD takes priority over ACTIVE / WATCH: when the
+                // launchpad's planned drop has been fully minted (or
+                // exceeded due to dup events), the row is a completed
+                // event, not "still cooking". Clamp display via the
+                // raw comparison — even observedMints > maxSupply
+                // hits this branch and renders SOLD.
+                const isSoldOut = typeof r.maxSupply === 'number'
+                  && r.maxSupply > 0
+                  && r.observedMints >= r.maxSupply;
                 return (
                   <tr key={r.groupingKey} style={{
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
                     transition: 'background 0.12s',
-                    opacity: isActive ? 1 : 0.78,
+                    // SOLD rows render at full opacity — definitive
+                    // state, not a "less interesting" one to dim.
+                    opacity: isSoldOut ? 1 : (isActive ? 1 : 0.78),
                   }}>
                     {/* COLLECTION cell — matches Dashboard rows:
                         12px vertical padding (up from /mints' previous
@@ -989,12 +1000,22 @@ export default function MintsPage() {
                           size={38}
                         />
                         <span style={{ fontSize: 15, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                          {/* Status pill: ACTIVE (saturated green) for
-                              promoted rows, WATCH (muted amber) for
-                              incubating rows. Inline before the name so
-                              it doesn't add a column / change the table
-                              layout. */}
-                          {isActive ? (
+                          {/* Status pill priority: SOLD > ACTIVE > WATCH.
+                              SOLD (red, site-consistent) when the
+                              launchpad-known maxSupply is met or
+                              exceeded; ACTIVE (saturated green) for
+                              backend-promoted rows; WATCH (muted amber)
+                              for incubating rows. Inline before the
+                              name — no extra column, no layout shift. */}
+                          {isSoldOut ? (
+                            <span
+                              title={
+                                `Sold out — ${r.observedMints.toLocaleString()} of ` +
+                                `${(r.maxSupply ?? 0).toLocaleString()} minted`
+                              }
+                              style={STATUS_BADGE_SOLD}
+                            >SOLD</span>
+                          ) : isActive ? (
                             <span title={r.shownReason === 'burst' ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} style={STATUS_BADGE_ACTIVE}>ACTIVE</span>
                           ) : (
                             <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
@@ -1368,4 +1389,13 @@ const STATUS_BADGE_WATCH: React.CSSProperties = {
   color:      '#c9a820',
   background: 'rgba(201,168,32,0.10)',
   border:     '1px solid rgba(201,168,32,0.32)',
+};
+// Same red as the rest of the site (SELL flash / SELL feed badge —
+// `rgba(239,120,120,…)`), kept consistent so a row that hits its
+// max supply visually clusters with sell-side cues elsewhere.
+const STATUS_BADGE_SOLD: React.CSSProperties = {
+  ...STATUS_BADGE_BASE,
+  color:      '#ef7878',
+  background: 'rgba(239,120,120,0.12)',
+  border:     '1px solid rgba(239,120,120,0.45)',
 };

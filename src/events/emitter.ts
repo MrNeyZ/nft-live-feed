@@ -157,6 +157,16 @@ export interface MintMetaPatch {
   imageUrl:    string | null;
 }
 
+/** Late-arriving seller-count refresh — used when the active-dumper
+ *  exact-count fallback finishes a deep `getAssetsByOwner` walk and
+ *  the resolved count needs to fan out to every connected client. */
+export interface SellerCountUpdate {
+  seller:     string;
+  collection: string;
+  count:      number;
+  sells10m:   number;
+}
+
 export interface MintEventWire {
   signature:         string;
   blockTime:         string;
@@ -361,6 +371,13 @@ class SaleEventBus extends EventEmitter {
   emitMintMeta(p: MintMetaPatch): void { this.emit('mint_meta', p); }
   onMintMeta(listener: (p: MintMetaPatch) => void): this { return this.on('mint_meta', listener); }
   offMintMeta(listener: (p: MintMetaPatch) => void): this { return this.off('mint_meta', listener); }
+
+  // Late-arriving seller-count update from the active-dumper exact-
+  // fallback path. Independent of any specific sale signature — it
+  // patches every visible row that matches seller+collection.
+  emitSellerCountUpdate(u: SellerCountUpdate): void { this.emit('seller_count_update', u); }
+  onSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.on('seller_count_update', listener); }
+  offSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.off('seller_count_update', listener); }
 }
 
 export const saleEventBus = new SaleEventBus();

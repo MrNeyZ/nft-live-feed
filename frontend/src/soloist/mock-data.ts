@@ -70,6 +70,14 @@ export interface FeedEvent {
    *  type events; undefined until that frame arrives, null when the
    *  backend lookup failed. */
   sellerRemainingCount?: number | null;
+  /** Sell-side sales by the same wallet+collection in the last 10
+   *  min — backend-tracked. Drives the 🔥 fallback when the DAS count
+   *  is missing/low but the wallet is visibly dumping. */
+  sellerSells10m?: number;
+  /** Backend-determined "wallet is dumping" signal — set when the
+   *  DAS count is < 3 (or null) but `sells10m >= 2`. Frontend shows
+   *  a 🔥 badge instead of a number when this is `'multi'`. */
+  sellerSignal?: 'multi' | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [
