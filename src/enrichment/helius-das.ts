@@ -194,17 +194,36 @@ export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVer
 // ── Wallet-collection holdings count (for /feed seller badge) ─────────────
 //
 // `searchAssets` with both ownerAddress + grouping=[collection,<addr>] returns
-// a paginated list AND a `total` field. We only need the total, so we ask
-// for `limit: 1` (DAS still computes the unfiltered total). Returns null on
-// any error / missing total so callers can render a non-link fallback.
+// a paginated list AND a `total` field. The default tokenType filter on
+// some Helius DAS deployments excludes MPL Core / pNFT — we explicitly set
+// `tokenType: 'all'` so the count covers every NFT shape. When searchAssets
+// returns 0 we fall back to a paginated `getAssetsByOwner` scan that walks
+// the seller's wallet and counts grouping matches client-side; that path
+// has the highest fidelity (it's exactly what the explorer UIs render) at
+// the cost of more bytes on the wire.
 interface DasSearchResponse {
   result?: { total?: number; items?: unknown[] };
   error?:  { code: number; message: string };
 }
-export async function getOwnerCollectionCount(
-  owner: string,
-  collectionAddress: string,
-): Promise<number | null> {
+interface DasOwnerScanItem {
+  grouping?: Array<{ group_key: string; group_value: string }>;
+}
+interface DasOwnerScanResponse {
+  result?: { total?: number; items?: DasOwnerScanItem[] };
+  error?:  { code: number; message: string };
+}
+
+export type OwnerCollectionCountMethod = 'searchAssets' | 'getAssetsByOwner' | 'failed';
+export interface OwnerCollectionCountVerbose {
+  count:  number | null;
+  method: OwnerCollectionCountMethod;
+  /** Total assets seen during the fallback scan, useful for sanity
+   *  ratio checks ("seller has 1200 assets, only 1 matched collection
+   *  → DAS grouping mismatch"). */
+  scanned?: number;
+}
+
+async function searchAssetsTotal(owner: string, collection: string): Promise<number | null> {
   const apiKey = process.env.HELIUS_API_KEY;
   if (!apiKey) return null;
   try {
@@ -215,11 +234,12 @@ export async function getOwnerCollectionCount(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
-          id: 'seller-count',
+          id: 'seller-count-search',
           method: 'searchAssets',
           params: {
             ownerAddress: owner,
-            grouping:     ['collection', collectionAddress],
+            grouping:     ['collection', collection],
+            tokenType:    'all',     // include MPL Core / pNFT / legacy
             page:         1,
             limit:        1,
             burnt:        false,
@@ -236,4 +256,96 @@ export async function getOwnerCollectionCount(
   } catch {
     return null;
   }
+}
+
+/** Fallback: walk getAssetsByOwner pages and count items whose
+ *  grouping carries `{ group_key: 'collection', group_value: <addr> }`.
+ *  Caps at 5 pages × 1000 items = 5 000 owned assets which covers
+ *  every realistic seller wallet; whales beyond that get an
+ *  underestimate but the badge still renders for them since they're
+ *  trivially above the 3-NFT threshold. */
+async function ownerScanForCollectionCount(
+  owner: string,
+  collection: string,
+): Promise<{ count: number | null; scanned: number }> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return { count: null, scanned: 0 };
+  const MAX_PAGES = 5;
+  const PAGE_LIMIT = 1000;
+  let count   = 0;
+  let scanned = 0;
+  try {
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await fetch(
+        `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'seller-count-scan',
+            method: 'getAssetsByOwner',
+            params: {
+              ownerAddress: owner,
+              page,
+              limit: PAGE_LIMIT,
+              displayOptions: { showCollectionMetadata: false },
+            },
+          }),
+          signal: AbortSignal.timeout(8_000),
+        },
+      );
+      if (!res.ok) return { count: null, scanned };
+      const json = (await res.json()) as DasOwnerScanResponse;
+      if (json.error) return { count: null, scanned };
+      const items = json.result?.items ?? [];
+      if (items.length === 0) break;
+      for (const it of items) {
+        scanned++;
+        const groups = it.grouping ?? [];
+        for (const g of groups) {
+          if (g.group_key === 'collection' && g.group_value === collection) {
+            count++;
+            break;
+          }
+        }
+      }
+      if (items.length < PAGE_LIMIT) break;
+    }
+    return { count, scanned };
+  } catch {
+    return { count: null, scanned };
+  }
+}
+
+/** Verbose variant — returns the source method alongside the count so
+ *  the SSE layer can log which path produced the verdict. */
+export async function getOwnerCollectionCountVerbose(
+  owner: string,
+  collectionAddress: string,
+): Promise<OwnerCollectionCountVerbose> {
+  const search = await searchAssetsTotal(owner, collectionAddress);
+  if (search != null && search > 0) {
+    return { count: search, method: 'searchAssets' };
+  }
+  // Either DAS returned 0 (possibly because grouping filter excluded
+  // MPL Core / pNFT in this deployment) or the call failed entirely.
+  // Fall back to the owner-scan path which counts grouping matches
+  // client-side — the source of truth used by the wallet explorers.
+  const scan = await ownerScanForCollectionCount(owner, collectionAddress);
+  if (scan.count != null) {
+    return { count: scan.count, method: 'getAssetsByOwner', scanned: scan.scanned };
+  }
+  // Both paths failed — report `searchAssets` 0 if we got it,
+  // otherwise propagate null so the caller skips the badge.
+  return { count: search, method: search == null ? 'failed' : 'searchAssets' };
+}
+
+/** Backward-compatible wrapper for callers that only want the count. */
+export async function getOwnerCollectionCount(
+  owner: string,
+  collectionAddress: string,
+): Promise<number | null> {
+  const r = await getOwnerCollectionCountVerbose(owner, collectionAddress);
+  return r.count;
 }

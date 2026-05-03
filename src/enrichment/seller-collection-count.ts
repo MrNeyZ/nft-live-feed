@@ -14,13 +14,18 @@
  */
 
 import { TtlCache } from './cache';
-import { getAsset, getOwnerCollectionCount } from './helius-das';
+import {
+  getAsset,
+  getOwnerCollectionCountVerbose,
+  type OwnerCollectionCountMethod,
+} from './helius-das';
 
 const TTL_MS         = 45_000;
 const SWEEP_INTERVAL = 60_000;
 
-const cache    = new TtlCache<string, number | null>(TTL_MS, SWEEP_INTERVAL);
-const inflight = new Map<string, Promise<number | null>>();
+interface CachedCount { count: number | null; method: OwnerCollectionCountMethod | 'cached'; scanned?: number; }
+const cache    = new TtlCache<string, CachedCount>(TTL_MS, SWEEP_INTERVAL);
+const inflight = new Map<string, Promise<CachedCount>>();
 
 // Mint → collectionAddress resolver. Live sale events often arrive with
 // `collectionAddress = null` (parser couldn't extract a verified group on
@@ -66,30 +71,45 @@ export async function resolveCollectionForMint(mintAddress: string): Promise<str
   return p;
 }
 
-/**
- * Returns the seller's remaining holdings in `collectionAddress`.
- * Cache hit → instant; miss → triggers one DAS call shared via single-
- * flight dedup. Returns null when the lookup fails or DAS doesn't
- * report a numeric `total`.
- */
-export async function getSellerCollectionCount(
+export interface SellerCountResult {
+  count:   number | null;
+  method:  OwnerCollectionCountMethod | 'cached';
+  /** Total assets walked during the fallback scan, when applicable. */
+  scanned?: number;
+}
+
+/** Verbose variant — returns count + the path that produced it
+ *  ('searchAssets' | 'getAssetsByOwner' | 'failed' | 'cached') so the
+ *  SSE log can flag whether the value came from the fast path or the
+ *  slower fallback scan. Cache stores the full record. */
+export async function getSellerCollectionCountVerbose(
   owner: string,
   collectionAddress: string,
-): Promise<number | null> {
+): Promise<SellerCountResult> {
   const k = key(owner, collectionAddress);
   const hit = cache.get(k);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) return { ...hit, method: 'cached' };
   const live = inflight.get(k);
   if (live) return live;
-  const p = (async () => {
+  const p = (async (): Promise<CachedCount> => {
     try {
-      const n = await getOwnerCollectionCount(owner, collectionAddress);
-      cache.set(k, n);
-      return n;
+      const r = await getOwnerCollectionCountVerbose(owner, collectionAddress);
+      const entry: CachedCount = { count: r.count, method: r.method, scanned: r.scanned };
+      cache.set(k, entry);
+      return entry;
     } finally {
       inflight.delete(k);
     }
   })();
   inflight.set(k, p);
   return p;
+}
+
+/** Backward-compatible wrapper — returns just the count. */
+export async function getSellerCollectionCount(
+  owner: string,
+  collectionAddress: string,
+): Promise<number | null> {
+  const r = await getSellerCollectionCountVerbose(owner, collectionAddress);
+  return r.count;
 }

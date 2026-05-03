@@ -13,7 +13,7 @@ import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses } from '../mints/accumulator';
-import { getSellerCollectionCount, resolveCollectionForMint } from '../enrichment/seller-collection-count';
+import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -180,19 +180,43 @@ saleEventBus.onSale(           (event)  => {
       }
       console.log(`[seller-count-resolve] mint=${mint} collection=${collection}`);
     }
-    const count = await getSellerCollectionCount(seller, collection);
+    const verdict = await getSellerCollectionCountVerbose(seller, collection);
+    const count = verdict.count;
+    // [seller-count-verify] per accuracy-investigation spec — always
+    // logged with the resolution method tag so the operator can spot
+    // when DAS searchAssets is undercounting (method=searchAssets +
+    // count=0/1) vs. when the owner-scan fallback rescued it
+    // (method=getAssetsByOwner). `total` mirrors the count for a
+    // direct grep target.
+    console.log(
+      `[seller-count-verify] sig=${signature} seller=${seller} ` +
+      `soldMint=${mint ?? '—'} resolvedCollection=${collection} ` +
+      `total=${count ?? 'null'} method=${verdict.method}` +
+      (verdict.scanned != null ? ` scanned=${verdict.scanned}` : ''),
+    );
     if (count == null) {
       console.log(
         `[seller-count-miss] reason=lookup_null sig=${signature} ` +
-        `saleType=${saleType} seller=${seller} collection=${collection}`,
+        `saleType=${saleType} seller=${seller} collection=${collection} method=${verdict.method}`,
       );
       return;
+    }
+    // Sanity-mismatch flag — if the fast path returned 0 but the
+    // fallback scan also returned 0 with a meaningful asset count,
+    // the resolved collection probably doesn't match what the seller
+    // actually holds (DAS grouping disagreement). Helps the operator
+    // identify cases worth manual verification.
+    if (count === 0 && verdict.method === 'getAssetsByOwner' && (verdict.scanned ?? 0) > 0) {
+      console.log(
+        `[seller-count-verify-mismatch] reason=owner_holds_assets_but_no_grouping_match ` +
+        `sig=${signature} seller=${seller} collection=${collection} scanned=${verdict.scanned}`,
+      );
     }
     // UNSAMPLED — every successful lookup is logged so the operator
     // can confirm which sales (and counts) actually fan out to the UI.
     console.log(
       `[seller-count-result] sig=${signature} saleType=${saleType} ` +
-      `seller=${seller} collection=${collection} count=${count}`,
+      `seller=${seller} collection=${collection} count=${count} method=${verdict.method}`,
     );
     // Wire payload carries BOTH a signature (primary match key for
     // the originating sale row, even when its collectionAddress was
