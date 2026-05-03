@@ -32,10 +32,13 @@ interface MintStatus {
    *  link target. May be null until the first event arrives or for
    *  cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress?:  string | null;
-  /** Total collection supply, when known. Optional — backend may not
-   *  populate it for every launchpad path. UI falls back to "—" when
-   *  null/undefined per the targeted-mode spec. */
-  supply?:           number | null;
+  /** Max planned supply for the collection (e.g. LMNFT `max_items`,
+   *  MPL Core master-edition `maxSupply`). Distinct from
+   *  `observedMints` — this is "how big the drop will be", not "how
+   *  many we've seen". Optional — backend may not populate it until a
+   *  launchpad-specific resolver decodes the relevant config account.
+   *  UI falls back to "—" when null/undefined per spec. */
+  maxSupply?:        number | null;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -651,11 +654,25 @@ export default function MintsPage() {
           if (!isRenderableMintStatus(s)) return;
           setRows(prev => {
             const next = new Map(prev);
-            // Keep all states in the rolling map — the table renders
-            // shown + incubating; cooled rows aren't surfaced but stay
-            // available so a `mint` event can look up its group's
-            // lazily-resolved imageUrl/name without re-fetching.
-            next.set(s.groupingKey, s);
+            // Sticky-merge: preserve a row's imageUrl + name once
+            // they've been resolved. The backend re-emits mint_status
+            // on every accepted mint (and on the periodic sweep) and
+            // many of those frames lack imageUrl/name because the
+            // per-collection enrichment hasn't completed yet. Without
+            // this guard the row's thumbnail flickers in (resolved)
+            // and out (resolved → undefined) every time a new mint
+            // for the same collection lands. Treat the first non-empty
+            // image / name we see as authoritative for the lifetime
+            // of the page session.
+            const cur = prev.get(s.groupingKey);
+            const stickyImage = (s.imageUrl && s.imageUrl.length > 0)
+              ? s.imageUrl
+              : (cur?.imageUrl ?? undefined);
+            const stickyName  = (s.name && s.name.length > 0)
+              ? s.name
+              : (cur?.name ?? undefined);
+            const merged: MintStatus = { ...s, imageUrl: stickyImage, name: stickyName };
+            next.set(s.groupingKey, merged);
             // Mirror to localStorage so the active-collections table
             // survives page reload / tab switch (24 h TTL gated inside
             // savePersistedCollections / loadPersistedCollections).
@@ -975,8 +992,8 @@ export default function MintsPage() {
                       {r.observedMints.toLocaleString()}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      {typeof r.supply === 'number' && r.supply > 0
-                        ? r.supply.toLocaleString()
+                      {typeof r.maxSupply === 'number' && r.maxSupply > 0
+                        ? r.maxSupply.toLocaleString()
                         : '—'}
                     </td>
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 11.5, color: '#5e5e78', fontWeight: 500, whiteSpace: 'nowrap' }}>

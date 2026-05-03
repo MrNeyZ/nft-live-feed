@@ -174,6 +174,11 @@ export interface MintStatusWire {
    *  update authority, or merkle tree (not a viewable NFT). May be null
    *  for cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress:   string | null;
+  /** Max planned supply for the launchpad collection (e.g. LMNFT
+   *  `max_items`, MPL Core master-edition `maxSupply`). Distinct from
+   *  `observedMints`, which is "how many of these we've seen ingested".
+   *  Null until a supply resolver populates it; frontend renders "—". */
+  maxSupply?:        number | null;
   displayState:      MintDisplayState;
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;

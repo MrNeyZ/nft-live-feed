@@ -79,6 +79,12 @@ interface Accum {
 
   name?:     string;
   imageUrl?: string;
+  /** Max planned supply (LMNFT `max_items`, MPL Core master-edition
+   *  `maxSupply`). Distinct from `observedMints`. Populated lazily by
+   *  `setMintMaxSupply()` once a launchpad-specific resolver decodes
+   *  the relevant config account; null until then so the frontend
+   *  renders "—" rather than mis-using `observedMints`. */
+  maxSupply?: number | null;
 }
 
 const map = new Map<string, Accum>();
@@ -152,6 +158,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     sourceLabel:       a.sourceLabel,
     name:              a.name,
     imageUrl:          a.imageUrl,
+    maxSupply:         a.maxSupply ?? null,
   };
 }
 
@@ -353,6 +360,31 @@ export function patchAccumulatorMeta(
   if (!a) return;
   if (patch.name)     a.name     = patch.name;
   if (patch.imageUrl) a.imageUrl = patch.imageUrl;
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
+/** Patch a group's max planned supply once a launchpad-specific
+ *  resolver decodes it. Re-emits one mint_status frame so connected
+ *  clients see the SUPPLY column populate without waiting for the
+ *  next mint. Treats null/undefined/non-positive as "unknown" — never
+ *  overwrites a known supply with null. */
+export function setMintMaxSupply(groupingKey: string, maxSupply: number | null): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  if (maxSupply == null || !Number.isFinite(maxSupply) || maxSupply <= 0) {
+    console.log(
+      `[mints/supply-miss] reason=${maxSupply == null ? 'null' : 'invalid'} ` +
+      `source=${a.sourceLabel} groupingKey=${groupingKey}`,
+    );
+    return;
+  }
+  if (a.maxSupply === maxSupply) return;
+  a.maxSupply = maxSupply;
+  console.log(
+    `[mints/supply] source=${a.sourceLabel} ` +
+    `collection=${a.collectionAddress ?? '—'} ` +
+    `groupingKey=${groupingKey} maxSupply=${maxSupply}`,
+  );
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
