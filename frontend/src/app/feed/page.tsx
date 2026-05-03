@@ -279,6 +279,16 @@ interface FeedCardProps {
    *  cNFT-dust resolver), so the fallback fires for slugs that cache
    *  has already populated; no new fetches are added on this path. */
   slugFloor?: number | null;
+  /** Number of sell-side rows this seller+collection has in the
+   *  currently visible feed. Drives the noise-cut on the
+   *  seller-remaining badge: a single sell from a seller with high
+   *  inventory is quieter than two-in-a-row, which is when the
+   *  "active dumping" signal becomes meaningful. */
+  sellerSellCountInFeed: number;
+  /** True when this row is the most-recent sell in the feed for its
+   *  seller+collection pair. The badge only renders on the newest row
+   *  so older sibling rows don't repeat the same number. */
+  isNewestSellForSellerColl: boolean;
 }
 
 // Static FeedCard inline styles hoisted to module scope. These objects
@@ -346,8 +356,12 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   height:         16,
   padding:        '0 4px',
   borderRadius:   999,
-  background:     '#e9c44a',
-  color:          '#1a1408',
+  // Color matches the TimeAgo "16s–3min" timestamp tint (#c7b479) so
+  // the badge reads as ambient context — same visual weight as the
+  // time label, not an alert. Background is a very soft same-hue
+  // wash for shape definition without the prior neon look.
+  background:     'rgba(199, 180, 121, 0.12)',
+  color:          '#c7b479',
   fontSize:       10,
   fontWeight:     700,
   lineHeight:     1,
@@ -357,7 +371,14 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   userSelect:     'none',
 };
 
-const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugFloor }: FeedCardProps) {
+const FeedCard = memo(function FeedCard({
+  event,
+  onPreview,
+  inclusiveFees,
+  slugFloor,
+  sellerSellCountInFeed,
+  isNewestSellForSellerColl,
+}: FeedCardProps) {
   const renderPrice = displayPrice(event, inclusiveFees);
   // Display-only guard — keeps the formatter from producing "NaN" /
   // "Infinity" text if a malformed event slips past upstream validation.
@@ -523,8 +544,13 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
                   backend has resolved a finite count (0 is a valid
                   value). Soft yellow circle on dark text, sized to
                   the wallet line metric so it doesn't bump row height. */}
-              {/* Seller-remaining badge — visible only for sell-type
-                  rows when backend has resolved a count of 3 or more.
+              {/* Seller-remaining badge — sell-side rows only, with the
+                  noise-cut active-dumping gate:
+                    1. count >= 3 (baseline meaningful inventory)
+                    2. row is the NEWEST sell for this seller+collection
+                       in the visible feed (no repeats on older siblings)
+                    3. EITHER 2+ sells visible from this wallet+collection
+                       OR remaining count >= 10 (clear large position)
                   Inline conditional (NOT an early return) so the
                   enclosing FeedCard keeps rendering and the badge
                   pops in reactively as soon as a `seller_count`
@@ -532,15 +558,20 @@ const FeedCard = memo(function FeedCard({ event, onPreview, inclusiveFees, slugF
               {(kind === 'sell' || kind === 'sellAmm') &&
                 typeof sellerCount === 'number' &&
                 Number.isFinite(sellerCount) &&
-                sellerCount >= 3 && (
+                sellerCount >= 3 &&
+                isNewestSellForSellerColl &&
+                (sellerSellCountInFeed >= 2 || sellerCount >= 10) && (
                 <span
                   key={event.id}
                   className="seller-remaining-badge"
-                  title={`Seller has ${sellerCount} NFTs listed in this collection`}
+                  title={
+                    `Seller has ${sellerCount} NFTs left; ` +
+                    `${sellerSellCountInFeed} recent sell${sellerSellCountInFeed === 1 ? '' : 's'} from this wallet`
+                  }
                   style={SELLER_REMAINING_BADGE_STYLE}
                 >
                   <span key={sellerCount} className="seller-remaining-badge-num">
-                    {sellerCount > 9 ? '9+' : sellerCount}
+                    {Math.min(99, sellerCount)}
                   </span>
                 </span>
               )}
@@ -879,9 +910,20 @@ export default function FeedPage() {
           // Deep-discount alert: only fires from the LIVE SSE path
           // (never from REST snapshot / persisted hydration). Backend
           // floorDelta = (price - floor) / floor, so price <= floor*0.5
-          // ↔ floorDelta <= -0.5. Null floor (lookup miss) is ignored
-          // by the typeof guard so we never alert on missing data.
-          if (typeof ev.floorDelta === 'number' && ev.floorDelta <= -0.5) {
+          // ↔ floorDelta <= -0.5. When backend's floorDelta is null
+          // (floor not yet resolved at sale time) we recompute from the
+          // local `floorBySlug` cache — same fallback FeedCard already
+          // uses for the FloorChip, just lifted into the alert path so
+          // bid_sells with a known cached floor don't silently miss.
+          let alertDelta: number | null = typeof ev.floorDelta === 'number' ? ev.floorDelta : null;
+          if (alertDelta == null && ev.meCollectionSlug) {
+            const f = floorBySlugRef.current[ev.meCollectionSlug];
+            const safePrice = Number.isFinite(ev.price) ? ev.price : ev.grossPrice;
+            if (typeof f === 'number' && f > 0 && Number.isFinite(safePrice) && safePrice > 0) {
+              alertDelta = (safePrice - f) / f;
+            }
+          }
+          if (alertDelta != null && alertDelta <= -0.5) {
             playDeepDiscountAlert(ev.signature);
           }
           enqueue({ type: 'live', event: ev });
@@ -1021,6 +1063,13 @@ export default function FeedPage() {
   // per slug for 60 s, frontend bounds with a 500-entry cap and a 5-min
   // per-slug request TTL.
   const [floorBySlug, setFloorBySlug] = useState<Record<string, number | null>>({});
+  // Mirror of `floorBySlug` for the SSE listeners — they install once
+  // (deps `[]`) and would otherwise capture an empty initial map.
+  // Used by the deep-discount alert path so a sale whose backend
+  // `floorDelta` is null can still trip the alert when we have a
+  // cached floor for the slug.
+  const floorBySlugRef = useRef(floorBySlug);
+  useEffect(() => { floorBySlugRef.current = floorBySlug; }, [floorBySlug]);
   // Slug → timestamp of last request. After FLOOR_REQUEST_TTL_MS the slug is
   // eligible for a refresh so a long-running tab doesn't keep stale floors.
   const requestedFloorRef = useRef<Map<string, number>>(new Map());
@@ -1113,6 +1162,36 @@ export default function FeedPage() {
     if (filter === 'listing') return false; // backend does not emit listings in v1
     return true;
   }), [events, filter, priceFilter, collFilter, floorBySlug]);
+
+  // Per seller+collection sell-side aggregator over the visible feed.
+  // Drives the noise-cut on the seller-remaining badge: only the most
+  // recent row in each (seller, collection) bucket carries the badge,
+  // and only when there's either real activity (2+ visible sells) or
+  // the remaining count itself crosses the higher 10-NFT threshold.
+  // Computed on `filtered` so price/type/collection filters narrow the
+  // window the same way the rendered list does.
+  interface SellerDumpInfo { count: number; newestId: string; newestTs: number; }
+  const sellerDumpMap = useMemo(() => {
+    const m = new Map<string, SellerDumpInfo>();
+    for (const ev of filtered) {
+      const t = ev.saleTypeRaw;
+      const isSell = t === SALE_TYPE_SELL || t === SALE_TYPE_SELL_AMM;
+      if (!isSell) continue;
+      if (!ev.seller || !ev.collectionAddress) continue;
+      const k = `${ev.seller}-${ev.collectionAddress}`;
+      const prev = m.get(k);
+      if (!prev) {
+        m.set(k, { count: 1, newestId: ev.id, newestTs: ev.ts });
+      } else {
+        prev.count += 1;
+        if (ev.ts > prev.newestTs) {
+          prev.newestId = ev.id;
+          prev.newestTs = ev.ts;
+        }
+      }
+    }
+    return m;
+  }, [filtered]);
 
   // Page-level wheel forwarding: when the user scrolls anywhere on the
   // page (including the empty "black" margins outside the centered 640 px
@@ -1377,7 +1456,21 @@ export default function FeedPage() {
                   // cached floor pass `null` and fall back to backend
                   // floorDelta only inside the card.
                   const slugFloor = e.meCollectionSlug ? floorBySlug[e.meCollectionSlug] ?? null : null;
-                  return <FeedCard key={e.id} event={e} onPreview={setPreview} inclusiveFees={inclusiveFees} slugFloor={slugFloor} />;
+                  const dk = e.seller && e.collectionAddress ? `${e.seller}-${e.collectionAddress}` : null;
+                  const dump = dk ? sellerDumpMap.get(dk) : undefined;
+                  const sellerSellCountInFeed = dump?.count ?? 0;
+                  const isNewestSellForSellerColl = !!dump && dump.newestId === e.id;
+                  return (
+                    <FeedCard
+                      key={e.id}
+                      event={e}
+                      onPreview={setPreview}
+                      inclusiveFees={inclusiveFees}
+                      slugFloor={slugFloor}
+                      sellerSellCountInFeed={sellerSellCountInFeed}
+                      isNewestSellForSellerColl={isNewestSellForSellerColl}
+                    />
+                  );
                 })}
               </div>
             </div>

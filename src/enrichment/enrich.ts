@@ -435,8 +435,19 @@ async function computeFloorDelta(
   priceLamports: bigint,
 ): Promise<number | null> {
   if (!slug) return null;
+  // Source order:
+  //   1. listings-store derived floor — min non-pool listing for the
+  //      slug. Pool entries are excluded because their priceSol is a
+  //      curve quote that can shift between back-to-back events,
+  //      giving inconsistent % vs. floor for sales seconds apart.
+  //   2. legacy ME-API floor cache — slower / less fresh but stable.
   const derived = getDerivedFloorLamports(slug);
-  const floorLamports = derived ?? floorCache.get(slug) ?? null;
+  const cachedMe = floorCache.get(slug) ?? null;
+  const floorLamports = derived ?? cachedMe ?? null;
+  const floorSource: 'listings_store' | 'me_api' | 'none' =
+    derived != null ? 'listings_store' :
+    cachedMe != null ? 'me_api' :
+    'none';
   if (floorLamports == null || floorLamports <= 0) {
     // Background populate so the next event for this slug carries a delta.
     // Never blocks — the current event ships without a floor chip.
@@ -444,7 +455,20 @@ async function computeFloorDelta(
     return null;
   }
   if (Number(priceLamports) <= 0) return null;
-  return (Number(priceLamports) - floorLamports) / floorLamports;
+  const pct = (Number(priceLamports) - floorLamports) / floorLamports;
+  // [floor-debug] sampled to 5 % so a hot collection doesn't flood,
+  // but every floor delta a row reports can be cross-checked against
+  // the price + floor used + source. Helps the operator catch the
+  // "two same-collection sales with different %" case quickly.
+  if (Math.random() < 0.05) {
+    console.log(
+      `[floor-debug] collection=${slug} ` +
+      `price=${(Number(priceLamports) / 1e9).toFixed(6)} ` +
+      `floor=${(floorLamports / 1e9).toFixed(6)} ` +
+      `pct=${(pct * 100).toFixed(2)}% floorSource=${floorSource}`,
+    );
+  }
+  return pct;
 }
 
 /**

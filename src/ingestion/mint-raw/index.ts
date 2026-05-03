@@ -43,6 +43,7 @@ import {
   getMintTrackerMode,
   LAUNCHMYNFT_PROGRAM,
 } from './launchpad-detector';
+import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
 //
@@ -400,13 +401,32 @@ export async function ingestMintRaw(
       logLaunchpadReject('no_mint', sig, null);
       return;
     }
+    // Standalone-asset filter — required for both LMNFT and vvv.so.
+    // The launchpad programs can be invoked to mint single NFTs that
+    // don't belong to any collection (Magic Eden flags those as
+    // "This NFT does not belong to a listed collection"). For /mints
+    // we only want real launchpad COLLECTION mints, so:
+    //   1. Prefer the parser's collectionAddress (already extracted
+    //      from the inner Core CPI's accounts[1]).
+    //   2. If null, do ONE cached DAS getAsset(mintAddress) lookup
+    //      (`resolveCollectionForMint` is single-flight + 15 min TTL,
+    //      so a launch storm shares one round-trip per mint).
+    //   3. If both come back null → standalone asset → reject.
+    let collectionAddress: string | null = lp.collectionAddress;
+    if (!collectionAddress) {
+      collectionAddress = await resolveCollectionForMint(lp.mintAddress);
+    }
+    if (!collectionAddress) {
+      console.log(
+        `[mints/launchpad] reject reason=standalone_asset sig=${sig.slice(0,12)}… ` +
+        `mint=${lp.mintAddress} source=${lp.source}`,
+      );
+      return;
+    }
     const priceLamports = extractSignerLamportsPaid(tx);
     const mintType      = classifyMintType(priceLamports);
-    const groupingKey: string =
-      lp.collectionAddress ? `collection:${lp.collectionAddress}` :
-      `program:mpl_core`;
-    const groupingKind: MintEventWire['groupingKind'] =
-      lp.collectionAddress ? 'collection' : 'programSource';
+    const groupingKey   = `collection:${collectionAddress}`;
+    const groupingKind: MintEventWire['groupingKind'] = 'collection';
     const blockTime = tx.blockTime
       ? new Date((tx.blockTime as number) * 1000).toISOString()
       : new Date().toISOString();
@@ -416,7 +436,7 @@ export async function ingestMintRaw(
       blockTime,
       programSource:     'mpl_core',
       mintAddress:       lp.mintAddress,
-      collectionAddress: lp.collectionAddress,
+      collectionAddress,
       groupingKey,
       groupingKind,
       mintType,

@@ -840,9 +840,19 @@ export function getDerivedFloorLamports(slug: string): number | null {
   const ids = byCollection.get(slug);
   if (!ids || ids.size === 0) return null;
   let minSol = Infinity;
+  // Skip MMM/AMM pool entries — their `priceSol` is the pool's
+  // `spotPrice` (a curve quote, not a real per-NFT listing) and can
+  // sit well below or above the actual collection floor. Two sales
+  // seconds apart can land on different curve ticks → the floor
+  // appears to "jump" between rows in /feed even when no real
+  // listing changed. The non-pool min is the stable signal we want
+  // for the discount-vs-floor metric. Falls back to whatever non-
+  // pool listing exists; if there are NO non-pool listings, returns
+  // null so callers move on to the ME-API floor cache instead.
   for (const id of ids) {
     const l = byId.get(id);
     if (!l) continue;
+    if (l.type === 'pool') continue;
     if (l.priceSol > 0 && l.priceSol < minSol) minSol = l.priceSol;
   }
   if (!Number.isFinite(minSol)) return null;

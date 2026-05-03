@@ -41,6 +41,24 @@ import { LUCKY_BUY_PROGRAM } from './programs';
  *  program. Combined with a matched ME v2 sale instruction at the call
  *  site, the signal is unambiguous: the lucky-buy program is single-
  *  purpose and only ever appears in raffle-fulfilment transactions. */
+/** Extract the `lp_fee` integer from MMM's post-fulfill program log
+ *  line, e.g. `Program log: {"lp_fee":0,"royalty_paid":0,"total_price":5500000}`.
+ *  Returns the parsed lamport amount, or null if the log line isn't
+ *  present (different ix family, log shape change, or wrapper hiding
+ *  it). Tolerates whitespace + optional quoting around the field. */
+function readLpFeeFromLogs(logs: unknown): number | null {
+  if (!Array.isArray(logs)) return null;
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    const m = line.match(/["']?lp_fee["']?\s*:\s*(\d+)/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
 function isLuckyBuyTx(tx: RawSolanaTx): boolean {
   const msg = tx.transaction?.message;
   if (!msg) return false;
@@ -277,22 +295,61 @@ function parseMmmSale(
   //
   // ME AMM (mmm program) handles two distinct cases under the same fulfillBuy
   // instruction family:
-  //   1. True pool sale  — NFT is deposited into pool inventory.
-  //                        postTokenBalance[NFT].owner == pool state PDA == accounts[1].
+  //   1. True pool sale  — NFT swapped into an AMM pool. The MMM program
+  //                        always charges an LP curve fee (`lp_fee > 0`).
   //   2. Individual bid  — NFT delivered directly to the bidder's wallet.
-  //                        postTokenBalance[NFT].owner != pool state PDA.
+  //                        No LP curve fee (`lp_fee === 0`).
   //
-  // The postTokenBalance owner (tokenFlowBuyer) is the definitive signal.
-  // Core NFTs have no SPL token balances, so this check is skipped for them.
+  // MMM emits a JSON line in the program logs at the end of every fulfill
+  // call:  `{"lp_fee":N,"royalty_paid":M,"total_price":P}`. Reading
+  // `lp_fee` is the most reliable disambiguation — the previous address-
+  // comparison heuristic (tokenFlowBuyer vs accs[1]) misclassified
+  // trait-bid acceptances because for SolFulfillBuy `accs[1]` IS the
+  // bidder wallet (per programs.ts), so `tokenFlowBuyer === accs[1]`
+  // for every individual bid → fell through to `pool_sale`.
+  //
+  // Confirmed against fixture
+  //   57uuQJLbQRZfXoSnueSKEQtR4G4nWTHBN3PCtNajm1PdVjzWQCHa8yn33xQD4ieow3AL996tVoigyYokkNx3kB3s
+  // (trait-filtered SolFulfillBuy, lp_fee=0, total_price=5_500_000) which
+  // previously surfaced as AMM/pool_sale and now correctly classifies
+  // as bid_sell. Core NFTs reuse the same log shape via the
+  // post_sol_mpl_core_fulfill_buy log, so the signal is portable to
+  // them too if needed later — for now the gate stays non-Core to
+  // avoid touching the existing Core path's behavior.
   let effectiveDirection: string = match.direction;
   if (match.direction === 'fulfillBuy' && nftType !== 'core') {
-    const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
-    const poolPda        = accs[match.buyerAcctIdx ?? 1] ?? null;
-    if (tokenFlowBuyer && poolPda && tokenFlowBuyer !== poolPda) {
-      // NFT went to a real wallet, not the pool account → individual bid.
-      buyer             = tokenFlowBuyer;
+    const lpFee = readLpFeeFromLogs(tx.meta?.logMessages);
+    let promote: boolean;
+    if (lpFee != null) {
+      promote = lpFee === 0;
+    } else {
+      // No log signal — fall back to the legacy address heuristic so
+      // pre-launch / pre-log MMM ixs still behave identically. This
+      // path is reached only when the MMM program log line is missing
+      // or shape-changes; safe to leave the original logic in place.
+      const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
+      const poolPda        = accs[match.buyerAcctIdx ?? 1] ?? null;
+      promote = !!tokenFlowBuyer && !!poolPda && tokenFlowBuyer !== poolPda;
+    }
+    if (promote) {
+      const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
+      if (tokenFlowBuyer) buyer = tokenFlowBuyer;
       effectiveDirection = 'takeBid'; // maps to bid_sell in both sse.ts and queries.ts
     }
+  }
+
+  // TEMPORARY hard diagnostic for the trait-bid investigation. Logged
+  // unsampled for the specific fixture so the operator can verify the
+  // parser output without enabling the noisier general parse logs.
+  if (tx.signature === '57uuQJLbQRZfXoSnueSKEQtR4G4nWTHBN3PCtNajm1PdVjzWQCHa8yn33xQD4ieow3AL996tVoigyYokkNx3kB3s') {
+    const lpFee = readLpFeeFromLogs(tx.meta?.logMessages);
+    console.log(
+      `[debug-sale-fixture] sig=${tx.signature} ` +
+      `priceLamports=${payment.priceLamports.toString()} ` +
+      `direction=${match.direction} effectiveDirection=${effectiveDirection} ` +
+      `rawKind=${match.instructionName} lpFee=${lpFee ?? 'unknown'} ` +
+      `buyer=${buyer} seller=${seller}`,
+    );
   }
 
   // ── Price selection ───────────────────────────────────────────────────────

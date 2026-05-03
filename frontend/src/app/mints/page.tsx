@@ -186,7 +186,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = '7';
+const MINTS_CACHE_VERSION     = 'launchpad.v1';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -356,15 +356,44 @@ function shortMint(addr: string | null): string {
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
 }
 
+// Optional LMNFT deep-link fields. Backend may surface these on the
+// MintStatusWire alongside `sourceLabel === 'LaunchMyNFT'`; until then
+// the link falls through to "no anchor" so we never point operators
+// at the wrong collection page. The URL pattern is:
+//   https://www.launchmynft.io/collections/{lmntfOwner}/{lmntfCollectionId}
+// Both fields must be present and look like Solana pubkey / safe path
+// segments for the link to render.
+interface LmntfDeepLinkFields {
+  lmntfOwner?:        string | null;
+  lmntfCollectionId?: string | null;
+}
+const SAFE_URL_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
+function buildLaunchMyNftUrl(row: LmntfDeepLinkFields): string | null {
+  const owner = row.lmntfOwner;
+  const id    = row.lmntfCollectionId;
+  if (!owner || !id) return null;
+  if (!SAFE_URL_SEGMENT_RE.test(owner)) return null;
+  if (!SAFE_URL_SEGMENT_RE.test(id))    return null;
+  return `https://www.launchmynft.io/collections/${owner}/${id}`;
+}
+
 /** Outbound link target for launchpad source badges. Returns null for
- *  sources without a stable public URL — the badge then renders as a
- *  plain pill (no anchor). LMNFT + vvv.so are the targeted launchpads
- *  the backend now actively detects. */
-function sourceHref(s: SourceLabel): string | null {
-  switch (s) {
-    case 'LaunchMyNFT': return 'https://launchmynft.io/';
-    case 'VVV':         return 'https://vvv.so/';
-    default:            return null;
+ *  sources where we can't safely build a per-collection deep link —
+ *  the badge then renders as a plain pill (no anchor). LMNFT requires
+ *  per-row owner + collectionId from the wire; vvv.so currently has
+ *  no per-collection URL pattern, so it points at the platform root. */
+function sourceHref(row: MintStatus): string | null {
+  switch (row.sourceLabel) {
+    case 'LaunchMyNFT':
+      // Build the per-collection mint page when we have the LMNFT
+      // owner + collectionId fields. Falls through to null (plain
+      // pill, no link) when either is missing — never the homepage,
+      // per the targeted-mode spec.
+      return buildLaunchMyNftUrl(row as unknown as LmntfDeepLinkFields);
+    case 'VVV':
+      return 'https://vvv.so/';
+    default:
+      return null;
   }
 }
 
@@ -959,7 +988,7 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 12px 12px 8px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);
-                        const href = sourceHref(r.sourceLabel);
+                        const href = sourceHref(r);
                         const pillStyle: React.CSSProperties = {
                           display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
                           background: sb.bg, color: sb.fg, letterSpacing: '0.3px',
