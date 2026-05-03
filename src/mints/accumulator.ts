@@ -429,16 +429,23 @@ export function patchAccumulatorMeta(
  *  are unchanged. */
 export function patchAccumulatorLmnft(
   groupingKey: string,
-  patch: { owner: string; collectionId: string; maxSupply?: number | null; name?: string | null },
+  patch: { owner?: string | null; collectionId?: string | null; maxSupply?: number | null; name?: string | null },
 ): void {
   const a = map.get(groupingKey);
   if (!a) return;
-  const nextOwner = patch.owner || null;
-  const nextId    = patch.collectionId || null;
+  // Each field is optional and only overwrites when the new value is
+  // truthy — lets independent sources contribute partial updates:
+  //   - on-chain decoder supplies {owner, maxSupply} (no collectionId).
+  //   - LMNFT homepage scraper supplies {owner, collectionId, maxSupply, name}.
+  // Whichever lands first populates its share; the other fills in
+  // when it runs. Sticky-merge means a later partial patch never
+  // clobbers a previously-resolved value with null.
+  const nextOwner  = patch.owner       || a.lmntfOwner       || null;
+  const nextId     = patch.collectionId || a.lmntfCollectionId || null;
   const nextSupply = (typeof patch.maxSupply === 'number' && patch.maxSupply > 0)
     ? patch.maxSupply
     : (a.maxSupply ?? null);
-  const nextName = (patch.name && patch.name.length > 0) ? patch.name : a.name;
+  const nextName   = (patch.name && patch.name.length > 0) ? patch.name : a.name;
   if (
     a.lmntfOwner === nextOwner &&
     a.lmntfCollectionId === nextId &&
@@ -449,9 +456,12 @@ export function patchAccumulatorLmnft(
   a.lmntfCollectionId = nextId;
   a.maxSupply         = nextSupply;
   if (nextName) a.name = nextName;
+  const href = (nextOwner && nextId)
+    ? `https://www.launchmynft.io/collections/${nextOwner}/${nextId}`
+    : null;
   console.log(
-    `[mints/link] source=LaunchMyNFT owner=${nextOwner} collectionId=${nextId} ` +
-    `href=https://www.launchmynft.io/collections/${nextOwner}/${nextId} ` +
+    `[mints/link] source=LaunchMyNFT owner=${nextOwner ?? 'null'} ` +
+    `collectionId=${nextId ?? 'null'} href=${href ?? 'null'} ` +
     `maxSupply=${nextSupply ?? 'null'}`,
   );
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));

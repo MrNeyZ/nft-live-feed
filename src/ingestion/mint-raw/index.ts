@@ -46,6 +46,7 @@ import {
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
+import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
 import { patchAccumulatorLmnft } from '../../mints/accumulator';
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
@@ -513,6 +514,9 @@ export async function ingestMintRaw(
     // retry. Parser-pending rows also get rechecked from
     // collection-confirm.ts in case the cache was empty here.
     if (lp.source === 'LaunchMyNFT') {
+      // Path A — featured-set scraper. Hits cache; supplies owner +
+      // collectionId + maxSupply for collections LMNFT promotes on
+      // their homepage.
       const lmntf = getLmnftInfoByMint(collectionAddress);
       if (lmntf) {
         patchAccumulatorLmnft(groupingKey, {
@@ -522,6 +526,28 @@ export async function ingestMintRaw(
           name:         lmntf.collectionName,
         });
       }
+      // Path B — on-chain decoder. Walks the tx's account universe,
+      // finds the LMNFT-program-owned config account, decodes
+      // {owner, maxSupply, collectionMint} at confirmed offsets.
+      // Surfaces owner + maxSupply for ALL LMNFT mints (not just
+      // featured ones). collectionId stays null until the scraper
+      // fills it — sourceHref builds the URL only when both halves
+      // are present, so a non-featured LMNFT row gets SUPPLY but
+      // keeps the plain pill until promoted.
+      void (async () => {
+        const candidateAddrs = collectAccountUniverse(tx);
+        const state = await getLmnftStateForCollection(collectionAddress, candidateAddrs);
+        if (state && state.owner) {
+          console.log(
+            `[mints/lmnft-config] collection=${collectionAddress} owner=${state.owner} ` +
+            `collectionId=onchain_unavailable maxSupply=${state.maxSupply ?? 'null'}`,
+          );
+          patchAccumulatorLmnft(groupingKey, {
+            owner:     state.owner,
+            maxSupply: state.maxSupply,
+          });
+        }
+      })();
     }
     // Async DAS confirmation only when the accept relied on the
     // parser-extracted collection (the DAS path is already verified).
@@ -967,6 +993,29 @@ function logLaunchpadReject(reason: 'unknown_launchpad' | 'no_mint', sig: string
       `sig=${sig.slice(0, 12)}… mint=${mint ?? '—'}`,
     );
   }
+}
+
+/** All accounts the tx touched — static keys + ALT-loaded writable +
+ *  readonly. Used by the LMNFT on-chain decoder to enumerate
+ *  candidates for the launchpad's collection-state PDA. */
+function collectAccountUniverse(tx: RawSolanaTx): string[] {
+  const message = tx.transaction?.message;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawKeys = (message as any)?.accountKeys as Array<string | { pubkey: string }> | undefined;
+  if (!Array.isArray(rawKeys)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (k: string): void => {
+    if (typeof k !== 'string' || seen.has(k)) return;
+    seen.add(k);
+    out.push(k);
+  };
+  for (const k of rawKeys) push(typeof k === 'string' ? k : k?.pubkey ?? '');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const loaded = (tx.meta as any)?.loadedAddresses as { writable?: string[]; readonly?: string[] } | undefined;
+  if (loaded?.writable) for (const k of loaded.writable) push(k);
+  if (loaded?.readonly) for (const k of loaded.readonly) push(k);
+  return out;
 }
 
 const sourceLabelCount = new Map<string, number>();
