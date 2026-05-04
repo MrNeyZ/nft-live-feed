@@ -389,21 +389,28 @@ function buildLaunchMyNftUrl(row: MintStatus): string | null {
   if (owner && id && SAFE_URL_SEGMENT_RE.test(owner) && SAFE_URL_SEGMENT_RE.test(id)) {
     return `https://www.launchmynft.io/collections/${owner}/${id}`;
   }
-  // Fallback: LMNFT `/explore` filtered by the deployer wallet, sorted
-  // by `lastMintedAt:desc`, Solana-only, hidden sold-out off. Lands the
-  // operator on a single-page list of every collection that wallet has
-  // ever deployed — the right collection is virtually always one of
-  // the top hits. Used when only the deployer wallet is on the wire
-  // (e.g. `lmntfCollectionId` not yet scraped from the featured set).
+  // Fallback: LMNFT `/explore` Algolia-search. Tries deployer wallet
+  // first (`lmntfOwner`), then on-chain collection address. LMNFT's
+  // search indexes by collection name + creator + on-chain address,
+  // so either query lands the target in the first 1-3 cards sorted
+  // by `lastMintedAt:desc`. We use the collection-address fallback
+  // because the on-chain LMNFT state decoder occasionally fails
+  // (LMNFT layout drift / state PDA missing from tx account list)
+  // and that path leaves `lmntfOwner` null on the wire — without
+  // this branch the LMNFT pill stays unclickable for those rows.
+  const buildExploreUrl = (q: string) =>
+    `https://www.launchmynft.io/explore?` +
+    `query=${encodeURIComponent(q)}` +
+    `&toggle%5BtwitterVerified%5D=false` +
+    `&toggle%5BsoldOut%5D=false` +
+    `&page=1` +
+    `&sortBy=collections%2Fsort%2FlastMintedAt%3Adesc` +
+    `&refinementList%5Btype%5D%5B0%5D=Solana`;
   if (owner && SOL_PUBKEY_RE.test(owner)) {
-    const params =
-      `query=${owner}` +
-      `&toggle%5BtwitterVerified%5D=false` +
-      `&toggle%5BsoldOut%5D=false` +
-      `&page=1` +
-      `&sortBy=collections%2Fsort%2FlastMintedAt%3Adesc` +
-      `&refinementList%5Btype%5D%5B0%5D=Solana`;
-    return `https://www.launchmynft.io/explore?${params}`;
+    return buildExploreUrl(owner);
+  }
+  if (row.collectionAddress && SOL_PUBKEY_RE.test(row.collectionAddress)) {
+    return buildExploreUrl(row.collectionAddress);
   }
   return null;
 }
@@ -1405,12 +1412,22 @@ export default function MintsPage() {
                               the icon is hidden so the row doesn't
                               show a dead link. Same visual as ME icons
                               elsewhere (/feed wallet rows, /tools). */}
-                          {r.collectionAddress && (
+                          {/* ME `/item-details/{X}` only renders a real
+                              page when X is a SPECIFIC NFT mint, not a
+                              collection address. We use `lastMintAddress`
+                              (the most recent accepted mint for this
+                              row) — that lands on a viewable NFT page
+                              from which the user can navigate up to the
+                              collection. Falls back to nothing when no
+                              real mint address is on the wire (e.g.
+                              cNFTs without a leaf address) — better
+                              than a dead link to a collection page. */}
+                          {isSolPubkey(r.lastMintAddress) && (
                             <a
-                              href={`https://magiceden.io/item-details/${r.collectionAddress}`}
+                              href={`https://magiceden.io/item-details/${r.lastMintAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title={`Magic Eden · ${r.collectionAddress}`}
+                              title={`Magic Eden · last mint ${r.lastMintAddress}`}
                               style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -1418,18 +1435,20 @@ export default function MintsPage() {
                               <img src="/brand/me.png" alt="ME" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           )}
-                          {/* Tensor badge — pairs with the ME icon. Same
-                              gating: only renders when we have a stable
-                              on-chain collection anchor. Tensor accepts
-                              the on-chain collection address directly in
-                              `/trade/{address}`, so no slug lookup is
-                              needed. */}
-                          {r.collectionAddress && (
+                          {/* Tensor badge — pairs with the ME icon and
+                              uses the same lastMintAddress anchor.
+                              `/trade/{collectionAddress}` was producing
+                              dead pages for unverified collections
+                              (Tensor only indexes verified ones in
+                              that route); `/item/{mint}` always loads
+                              an item page from which the user can
+                              navigate up to the collection. */}
+                          {isSolPubkey(r.lastMintAddress) && (
                             <a
-                              href={`https://www.tensor.trade/trade/${r.collectionAddress}`}
+                              href={`https://www.tensor.trade/item/${r.lastMintAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title={`Tensor · ${r.collectionAddress}`}
+                              title={`Tensor · last mint ${r.lastMintAddress}`}
                               style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                               onClick={(e) => e.stopPropagation()}
                             >

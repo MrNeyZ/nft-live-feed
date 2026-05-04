@@ -527,6 +527,18 @@ const FeedCard = memo(function FeedCard({
                 style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
               >🍀</span>
             )}
+            {event.saleTypeRaw === 'pack_open' && (
+              // Sale-from-Packs marker — buyer opened a Magic Eden Pack
+              // and one of the contained NFTs landed in their wallet.
+              // Same visual treatment as Lucky Buy but with a card
+              // emoji to mirror ME's own UI. Detected via the PCKj…
+              // program in the tx account universe.
+              <span
+                title="Magic Eden Packs — buyer opened a Pack and received this NFT"
+                aria-label="Pack open"
+                style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
+              >🃏</span>
+            )}
           </div>
 
           {/* Seller/buyer rows — wallets clickable to Solscan; tiny ME
@@ -661,6 +673,7 @@ const SALE_TYPE_SELL     = 'bid_sell';    // sell into bid
 const SALE_TYPE_BUY_AMM  = 'pool_buy';    // buy from AMM/pool
 const SALE_TYPE_SELL_AMM = 'pool_sale';   // sell into AMM/pool
 const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settlement
+const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
 
 type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'unknown';
 
@@ -699,6 +712,10 @@ function saleKind(saleTypeRaw: string | null): SaleKind {
     // 🍀 marker rendered next to the NFT name communicates the
     // raffle origin separately.
     case SALE_TYPE_LUCKY:    return 'buy';
+    // Pack open is a buy from the user's perspective — they paid for
+    // a pack and received this NFT. The 🃏 marker next to the NFT
+    // name communicates the pack-origin separately.
+    case SALE_TYPE_PACK:     return 'buy';
     default:                 return 'unknown';
   }
 }

@@ -36,6 +36,19 @@ export const ME_TREASURY = 'NTYeYJ1wr4bpM5xo6zx5En44SvJFAd35zTxxNoERYqd';
  */
 export const LUCKY_BUY_PROGRAM = 'LUCK57mxzZiRGF2PdHAY79P6tZ8Apsi381tKvBrTdqk';
 
+/**
+ * Magic Eden Packs program (`PCKj…`). Wraps a regular MMM
+ * `solFulfillSell` (or sibling) inside its own `FulfillMmm` ix when a
+ * user opens a Pack and one of the contained NFT cards is delivered
+ * to them. We detect Pack-sourced sales the same way as Lucky Buy
+ * — by program presence in the tx's account universe — and tag them
+ * with `_subtype = 'pack_open'`. Confirmed against
+ *   44QViqq6UiS3VX6jmM1QUN4crUJ3yAtXHYCnvqmgvtGvPatMoYNd9RjBBUg93jaJFDCmKqBwHZSG4G3vGaMm1x2R
+ * (top-level ix = PCKj…, `Instruction: FulfillMmm`, CPIs into
+ * MMM `SolFulfillSell`).
+ */
+export const ME_PACKS_PROGRAM = 'PCKjSaQaZb3AcmjTcb2fcLanh9Mky9ZvuaKqTBxsqWE';
+
 // ─── Anchor discriminator helper ─────────────────────────────────────────────
 
 /** Computes the 8-byte Anchor instruction discriminator: sha256("global:<name>")[0..8]. */

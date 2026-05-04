@@ -17,7 +17,7 @@
  * with a known `_parser` ignores `heliusSaleType` even if present.
  */
 
-export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy' | 'lucky_buy';
+export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy' | 'lucky_buy' | 'pack_open';
 
 export interface SaleTypeInput {
   parser?:         string | null;
@@ -38,6 +38,7 @@ export function deriveSaleType(input: SaleTypeInput): SaleType {
   // Subtype wins over parser-only mapping when it carries a recognised
   // value, so a Lucky-Buy ME v2 row doesn't fall back to normal_sale.
   if (subtype === 'lucky_buy') return 'lucky_buy';
+  if (subtype === 'pack_open') return 'pack_open';
 
   // ── Raw-parser branches (program address is authoritative) ──────────────
   if (parser === 'me_v2_raw') return 'normal_sale';

@@ -127,27 +127,57 @@ async function runAttempt(entry: Pending): Promise<void> {
   // retry — even before collection grouping resolves — means the row
   // gets a real name + image as soon as DAS has them, instead of
   // waiting for the full collection-confirmation step.
-  // ME collection-name fallback — fires ONLY when this DAS attempt
-  // surfaced no NFT-level name AND the accumulator's current name
-  // is missing or address-shaped. Single ME `/v2/tokens/{mint}` call
-  // per mintAddress, cached 20 min, never blocks. DAS retries on the
-  // next interval are still authoritative — if DAS later resolves
-  // the name, it will overwrite ME's.
-  if (!collectionName && !nftName && entry.mintAddress
+  //
+  // Magic Eden collection-name resolver. We promote ME to a STRONG
+  // fallback whenever DAS doesn't surface a `collectionName` —
+  // including the case where DAS gave us a per-NFT name. Reason:
+  // launchpad collections where every NFT has a unique name (e.g.
+  // "Hipppieardo", "Schlongston", "Buttricia Bungleburst", …) used to
+  // fall back to "stripped per-NFT name as collection title", which
+  // produced wrong row labels — every mint's retry overwrote the row
+  // with whatever stripped name landed last. ME's
+  // `/v2/tokens/{mint}` returns the real collection display name
+  // (e.g. "Gonad Dick Butts" for the fixture above). Single ME call
+  // per mintAddress, cached 20 min in `getMagicEdenCollectionName`,
+  // never blocks the row emission.
+  let meCollectionName: string | null = null;
+  if (!collectionName && entry.mintAddress
       && nameLooksWeak(getAccumulatorName(entry.groupingKey))) {
     const me = await getMagicEdenCollectionName(entry.mintAddress);
-    if (me.collectionName && nameLooksWeak(getAccumulatorName(entry.groupingKey))) {
-      patchAccumulatorMeta(entry.groupingKey, { name: me.collectionName });
-    }
+    if (me.collectionName) meCollectionName = me.collectionName;
   }
-  if (collectionName || nftName || imageUrl) {
-    // Prefer the DAS collection-asset name. When only the per-NFT
-    // name is available (the collection asset hasn't been indexed
-    // yet, common during a fresh launch), strip the trailing `#N`
-    // pattern so we display "Pix Ape" instead of "Pix Ape #44" as
-    // the row's collection name.
+  if (collectionName || nftName || imageUrl || meCollectionName) {
+    // Name preference, strongest → weakest:
+    //   1. DAS `collectionName`     — authoritative (collection asset
+    //                                  metadata, indexed by Helius).
+    //   2. ME collection name       — authoritative for ME-listed
+    //                                  collections, and reliably
+    //                                  matches the deployer's intent.
+    //   3. stripped per-NFT name    — heuristic, only safe when the
+    //                                  collection follows "Project
+    //                                  #N" naming. We use it only as
+    //                                  a last-resort fallback.
+    // The stripping ("Foo #42" → "Foo") still applies to (3) so a
+    // single-mint sample with "ProjectName #1" still produces a clean
+    // row title.
     const stripped = nftName ? nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
-    const finalName = collectionName ?? (stripped && stripped.length > 0 ? stripped : null) ?? undefined;
+    const isStrong = !!collectionName || !!meCollectionName;
+    const finalName = collectionName
+      ?? meCollectionName
+      ?? (stripped && stripped.length > 0 ? stripped : null)
+      ?? undefined;
+    // Sticky guard against stripped-name overwrites. Per-NFT stripped
+    // names from successive retries on the same collection used to
+    // ping-pong the row title (e.g. "Hipppieardo" → "Schlongston" →
+    // "Buttricia Bungleburst" — for collections with unique-named
+    // NFTs). Patch only when:
+    //   - the new name is from a strong source (DAS collectionName /
+    //     ME), OR
+    //   - the accumulator is still on a weak name (short-key
+    //     fallback / empty), so we DO need to seed something.
+    // Once a strong name lands, no weak retry can overwrite it.
+    const currentName = getAccumulatorName(entry.groupingKey);
+    const shouldPatchName = isStrong || nameLooksWeak(currentName);
     // IMPORTANT: do NOT write per-NFT `imageUrl` into the collection
     // accumulator — it pollutes `group.imageUrl` with one mint's
     // specific asset image, then the frontend's
@@ -157,7 +187,9 @@ async function runAttempt(entry: Pending): Promise<void> {
     // is supplied separately (e.g. by the LMNFT lookup or a future
     // collection-asset getAsset call); per-NFT image fans out via
     // `mint_meta` only.
-    patchAccumulatorMeta(entry.groupingKey, { name: finalName });
+    if (shouldPatchName) {
+      patchAccumulatorMeta(entry.groupingKey, { name: finalName });
+    }
 
     // Image repetition heuristic. A LMNFT/Core launch typically uses
     // ONE placeholder image for the first wave of mints (pre-reveal),

@@ -34,7 +34,7 @@ import {
   extractPartiesFromTokenFlow,
   balanceDeltas,
 } from './price';
-import { LUCKY_BUY_PROGRAM } from './programs';
+import { LUCKY_BUY_PROGRAM, ME_PACKS_PROGRAM } from './programs';
 
 /** Deterministic Lucky Buy detector. Scans the tx's account-keys list
  *  (static + loaded-address tables) for the dedicated lucky-buy raffle
@@ -59,7 +59,7 @@ function readLpFeeFromLogs(logs: unknown): number | null {
   return null;
 }
 
-function isLuckyBuyTx(tx: RawSolanaTx): boolean {
+function txHasProgram(tx: RawSolanaTx, programId: string): boolean {
   const msg = tx.transaction?.message;
   if (!msg) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,21 +67,23 @@ function isLuckyBuyTx(tx: RawSolanaTx): boolean {
   if (Array.isArray(rawKeys)) {
     for (const k of rawKeys) {
       const pk = typeof k === 'string' ? k : k?.pubkey;
-      if (pk === LUCKY_BUY_PROGRAM) return true;
+      if (pk === programId) return true;
     }
   }
-  // loadedAddresses (v0 tx address-lookup-table expansions) — also checked
-  // because the lucky-buy program could in principle appear via ALT,
-  // although in practice it lands in the static keys.
+  // loadedAddresses (v0 tx address-lookup-table expansions) — also
+  // checked because either program could appear via ALT, although in
+  // practice both land in the static keys.
   const loaded = tx.meta?.loadedAddresses;
   if (loaded) {
     for (const list of [loaded.writable, loaded.readonly]) {
       if (!Array.isArray(list)) continue;
-      for (const k of list) if (k === LUCKY_BUY_PROGRAM) return true;
+      for (const k of list) if (k === programId) return true;
     }
   }
   return false;
 }
+function isLuckyBuyTx(tx: RawSolanaTx): boolean { return txHasProgram(tx, LUCKY_BUY_PROGRAM); }
+function isPackOpenTx(tx: RawSolanaTx): boolean { return txHasProgram(tx, ME_PACKS_PROGRAM); }
 
 /** Derive NFT type from the matched instruction name — more precise than program-presence heuristic. */
 function nftTypeFromInstruction(name: string): NftType {
@@ -211,7 +213,10 @@ function parseMeV2Sale(
       _parser:     'me_v2_raw',
       _instruction: match.instructionName,
       _verified:   match.verified,
-      ...(luckyBuy ? { _subtype: 'lucky_buy' as const } : {}),
+      // Lucky-buy and pack-open are mutually exclusive program-presence
+      // signals; checking pack first preserves intent if both ever
+      // co-occur in a future ME product (currently they don't).
+      ...(isPackOpenTx(tx) ? { _subtype: 'pack_open' as const } : luckyBuy ? { _subtype: 'lucky_buy' as const } : {}),
     },
     nftName:           null,
     imageUrl:          null,
@@ -418,6 +423,13 @@ function parseMmmSale(
       _parser:      'mmm_raw',
       _instruction: match.instructionName,
       _direction:   effectiveDirection,
+      // Same subtype tag as the ME V2 path, applied here because Pack
+      // opens deliver the NFT via an MMM `SolFulfillSell` CPI nested
+      // inside the PCKj `FulfillMmm` outer ix — the decoder matches
+      // the inner MMM instruction and routes through THIS parser
+      // path. Detection is by program presence in the tx account
+      // universe (mirrors the lucky-buy approach).
+      ...(isPackOpenTx(tx) ? { _subtype: 'pack_open' as const } : {}),
     },
     nftName:           null,
     imageUrl:          null,

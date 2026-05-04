@@ -372,8 +372,15 @@ export async function getCollectionMintedCount(collectionAddress: string): Promi
           id: 'collection-minted-count',
           method: 'searchAssets',
           params: {
+            // NB: do NOT pass `tokenType` here. Helius DAS validates
+            // `tokenType` only in conjunction with `ownerAddress` —
+            // sending it with grouping-only filters returns
+            // `-32000 Validation Error: Must provide owner_address when
+            // using token_type field`, the result is null, and the
+            // MINTED column shows "—" forever. Without `tokenType`
+            // DAS defaults to NFTs+pNFTs+Core, which is exactly the
+            // set we want for a launchpad mint count.
             grouping:  ['collection', collectionAddress],
-            tokenType: 'all',
             page:      1,
             limit:     1,
             burnt:     false,
