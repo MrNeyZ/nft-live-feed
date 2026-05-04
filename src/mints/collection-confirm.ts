@@ -34,12 +34,37 @@ function nameLooksWeak(name: string | null | undefined): boolean {
   return false;
 }
 
-// Three increasingly-spaced DAS polls. Caps total wait at ~4 min from
-// mint to confirmation/eviction. Tightened from 30/120/300 to 15/60/180
-// per the metadata-retry spec — fresh mints reach DAS in <30s most of
-// the time, so the first retry was too late.
-const RETRY_DELAYS_MS = [15_000, 60_000, 180_000];
+// Four increasingly-spaced DAS polls — 15s / 60s / 180s / 5min. The 4th
+// retry exists specifically to chase post-reveal per-NFT images: many
+// LMNFT/Core launches start with a shared placeholder and only swap to
+// per-asset art a few minutes after mint. Capping at 5 min keeps the
+// in-memory pending queue bounded.
+const RETRY_DELAYS_MS = [15_000, 60_000, 180_000, 300_000];
 const MAX_PENDING     = 500;
+
+/** Per-collection image-frequency counter. When the same imageUrl shows
+ *  up for multiple distinct mintAddresses in the same collection it's
+ *  almost certainly the launchpad's pre-reveal placeholder, NOT a
+ *  per-NFT asset image — we still surface it (better than abbr-only)
+ *  but tag it `repeated=true` in logs and keep retrying so a late
+ *  per-NFT image can replace it. */
+const imageUseCount = new Map<string, Map<string, Set<string>>>();
+function noteImageUse(collection: string | null, image: string, mint: string): number {
+  if (!collection || !image) return 1;
+  let perColl = imageUseCount.get(collection);
+  if (!perColl) { perColl = new Map(); imageUseCount.set(collection, perColl); }
+  let mints = perColl.get(image);
+  if (!mints) { mints = new Set(); perColl.set(image, mints); }
+  mints.add(mint);
+  return mints.size;
+}
+function imageLooksRepeated(collection: string | null, image: string): boolean {
+  if (!collection || !image) return false;
+  const perColl = imageUseCount.get(collection);
+  if (!perColl) return false;
+  const mints = perColl.get(image);
+  return !!mints && mints.size >= 2;
+}
 
 interface Pending {
   groupingKey:      string;
@@ -123,10 +148,38 @@ async function runAttempt(entry: Pending): Promise<void> {
     // the row's collection name.
     const stripped = nftName ? nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
     const finalName = collectionName ?? (stripped && stripped.length > 0 ? stripped : null) ?? undefined;
-    patchAccumulatorMeta(entry.groupingKey, {
-      name:     finalName,
-      imageUrl: imageUrl ?? undefined,
-    });
+    // IMPORTANT: do NOT write per-NFT `imageUrl` into the collection
+    // accumulator — it pollutes `group.imageUrl` with one mint's
+    // specific asset image, then the frontend's
+    // `cardImage = ev.nftImageUrl ?? group?.imageUrl` fallback paints
+    // that one image onto every card in the same collection that
+    // hasn't yet had its own DAS retry land. Collection-level image
+    // is supplied separately (e.g. by the LMNFT lookup or a future
+    // collection-asset getAsset call); per-NFT image fans out via
+    // `mint_meta` only.
+    patchAccumulatorMeta(entry.groupingKey, { name: finalName });
+
+    // Image repetition heuristic. A LMNFT/Core launch typically uses
+    // ONE placeholder image for the first wave of mints (pre-reveal),
+    // then later swaps to per-asset art. If we've already seen this
+    // image for another mint in the same collection, treat it as
+    // unresolved-but-tolerable: emit it so the card renders something
+    // plausible, but mark `repeated=true` so the next retry has a
+    // chance to overwrite it with a unique per-NFT image. When all
+    // retries return the same repeated image we accept it as the
+    // collection's actual base art.
+    let imageSource: 'nft' | 'collection' | 'placeholder' = 'placeholder';
+    let repeated = false;
+    if (imageUrl) {
+      const usesInCollection = noteImageUse(dasCollection, imageUrl, entry.mintAddress);
+      repeated = usesInCollection >= 2;
+      imageSource = repeated ? 'collection' : 'nft';
+    }
+    console.log(
+      `[mints/meta-image] mint=${entry.mintAddress} ` +
+      `image=${imageUrl ?? '—'} source=${imageSource} repeated=${repeated}`,
+    );
+
     // Per-mint patch — fans out to the Live Mint Feed cards on the
     // frontend, swapping shortMint placeholders for the real NFT
     // name + image. Distinct from the collection-row patch above.
@@ -167,7 +220,19 @@ async function runAttempt(entry: Pending): Promise<void> {
         name:         lmntf.collectionName,
       });
     }
-    pending.delete(entry.mintAddress);
+    // Image-only continuation. Collection is confirmed, so the row
+    // is staying — but if this attempt either had no image or got the
+    // shared pre-reveal placeholder (`repeated=true`), keep walking
+    // the retry schedule so a later DAS hit can swap in the unique
+    // per-NFT image when the launchpad reveals. When the image is
+    // already unique-per-mint we stop early.
+    const haveUniqueImage = !!imageUrl && !imageLooksRepeated(dasCollection, imageUrl);
+    if (haveUniqueImage || entry.idx + 1 >= RETRY_DELAYS_MS.length) {
+      pending.delete(entry.mintAddress);
+      return;
+    }
+    entry.idx += 1;
+    scheduleNext(entry);
     return;
   }
   entry.idx += 1;

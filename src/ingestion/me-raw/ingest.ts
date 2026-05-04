@@ -310,11 +310,23 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
       const loaded = (tx.meta as any)?.loadedAddresses ?? {};
       const loadedWritable: string[] = loaded.writable ?? [];
       const loadedReadonly: string[] = loaded.readonly  ?? [];
+      // With raw 'json' encoding the per-key `signer` flag is NOT in the
+      // RPC payload — the wire format only encodes signer-ness via the
+      // message header (`numRequiredSignatures` = first N static keys
+      // are signers, fee-payer at index 0). Without this lookup the
+      // mint-raw `readTxShape` would see signer:false on every key and
+      // emit `minter=null` for every accepted mint. ALT-loaded keys are
+      // never signers.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const numRequiredSignatures: number = (tx.transaction?.message as any)?.header?.numRequiredSignatures ?? 0;
 
       tx.transaction.message.accountKeys = [
-        ...staticKeys.map((k: string | { pubkey: string }) =>
-          typeof k === 'string' ? { pubkey: k, signer: false, writable: false } : k
-        ),
+        ...staticKeys.map((k: string | { pubkey: string }, i: number) => {
+          const isSigner = i < numRequiredSignatures;
+          return typeof k === 'string'
+            ? { pubkey: k, signer: isSigner, writable: false }
+            : { ...k, signer: isSigner };
+        }),
         ...loadedWritable.map((pk: string) => ({ pubkey: pk, signer: false, writable: true  })),
         ...loadedReadonly.map( (pk: string) => ({ pubkey: pk, signer: false, writable: false })),
       ];

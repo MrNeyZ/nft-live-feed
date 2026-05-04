@@ -200,7 +200,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = 'launchpad.v2';
+const MINTS_CACHE_VERSION     = 'launchpad.v4-image';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -599,6 +599,32 @@ export default function MintsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   const [, force]             = useState(0);
 
+  // cNFT visibility toggle for the LIVE MINT FEED panel. cNFT (Bubblegum)
+  // mints arrive in massive bursts (free airdrop drops can saturate the
+  // feed for minutes). The toggle hides them from the right-pane stream
+  // without affecting the LEFT collections table or backend ingest —
+  // it's a pure render filter. Persisted in localStorage so the
+  // preference survives reloads. Default ON (show everything).
+  const [showCnft, setShowCnft] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const v = window.localStorage.getItem('vl.mints.feed.showCnft');
+      return v === null ? true : v === '1';
+    } catch { return true; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.feed.showCnft', showCnft ? '1' : '0'); } catch { /* quota — fail silent */ }
+  }, [showCnft]);
+
+  // Render-time view of `events` for the LIVE MINT FEED panel. Pure
+  // filter — does not touch the persisted store, so flipping the toggle
+  // never drops anything from localStorage. cNFTs land with
+  // programSource='bubblegum'; everything else is shown unconditionally.
+  const visibleEvents = useMemo(
+    () => showCnft ? events : events.filter(ev => ev.programSource !== 'bubblegum'),
+    [events, showCnft],
+  );
+
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
   useEffect(() => {
@@ -925,7 +951,12 @@ export default function MintsPage() {
             </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
-                <th style={{ ...thStyle, textAlign: 'left' }} onClick={() => setSortKey('mints')}>
+                {/* COLLECTION header pads left by 13 px = 10 px (data
+                    cell padding) + 3 px (data cell accent border that
+                    pushes its content right by 3 px and isn't on the
+                    th). Without this comp the COLLECTION label sat 3 px
+                    to the left of the row content beneath it. */}
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 13 }} onClick={() => setSortKey('mints')}>
                   COLLECTION
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('mints')}>
@@ -936,7 +967,10 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('velocity')}>
                   MINT/MIN {sortKey === 'velocity' && <span style={{ color: '#8068d8' }}>↓</span>}
                 </th>
-                <th style={thStyle}>SOURCE</th>
+                {/* SOURCE data cell uses paddingRight: 12 (vs the
+                    default 8 in thStyle). Match it so the SOURCE label
+                    sits directly above the LMNFT pill. */}
+                <th style={{ ...thStyle, paddingRight: 12 }}>SOURCE</th>
               </tr>
             </thead>
             <tbody>
@@ -1082,6 +1116,25 @@ export default function MintsPage() {
                               <img src="/brand/me.png" alt="ME" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           )}
+                          {/* Tensor badge — pairs with the ME icon. Same
+                              gating: only renders when we have a stable
+                              on-chain collection anchor. Tensor accepts
+                              the on-chain collection address directly in
+                              `/trade/{address}`, so no slug lookup is
+                              needed. */}
+                          {r.collectionAddress && (
+                            <a
+                              href={`https://www.tensor.trade/trade/${r.collectionAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Tensor · ${r.collectionAddress}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/tensor.png" alt="Tensor" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
+                          )}
                         </span>
                       </div>
                     </td>
@@ -1168,9 +1221,35 @@ export default function MintsPage() {
                 LIVE MINT FEED
               </span>
             </div>
-            <span style={{ fontSize: 10, color: '#55556e' }}>
-              {events.length === 0 ? 'waiting…' : `${events.length} recent · max ${LIVE_FEED_MAX}`}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 10, color: '#55556e' }}>
+                {visibleEvents.length === 0
+                  ? 'waiting…'
+                  : `${visibleEvents.length} recent · max ${LIVE_FEED_MAX}`}
+              </span>
+              {/* cNFT visibility toggle. Pill style mirrors the small
+                  pills used elsewhere on the page (CORE/cNFT/NFT). When
+                  ON the cNFT-hidden state lights up red-ish so it's
+                  obvious the feed is filtered; OFF state is muted. */}
+              <button
+                type="button"
+                onClick={() => setShowCnft(v => !v)}
+                title={showCnft
+                  ? 'Hiding cNFT mints — click to show'
+                  : 'Showing cNFT mints — click to hide'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+                  background: showCnft ? 'rgba(92,224,160,0.15)' : 'rgba(239,120,120,0.15)',
+                  color: showCnft ? '#5ce0a0' : '#ef7878',
+                  border: '1px solid transparent',
+                  letterSpacing: '0.4px', cursor: 'pointer', userSelect: 'none',
+                  textTransform: 'uppercase',
+                }}
+              >
+                cNFT {showCnft ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </div>
           <div className="scroll-area" style={{
             flex: 1, overflowY: 'auto',
@@ -1181,12 +1260,14 @@ export default function MintsPage() {
             display: 'flex', flexDirection: 'column', gap: 6,
             padding: '8px 8px',
           }}>
-            {events.length === 0 && (
+            {visibleEvents.length === 0 && (
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
-                Waiting for individual mint events…
+                {events.length === 0
+                  ? 'Waiting for individual mint events…'
+                  : 'No non-cNFT mints in the buffer — toggle cNFT ON to see hidden rows.'}
               </div>
             )}
-            {events.map(ev => {
+            {visibleEvents.map(ev => {
               const group       = rows.get(ev.groupingKey);
               // NFT name vs. collection name. Per the targeted-mode
               // spec, these are distinct lines on the card: the NFT's
@@ -1210,10 +1291,18 @@ export default function MintsPage() {
               const collectionLine = collectionName
                 ?? (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
               const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
-              // Per-mint image when the patch surfaced one; otherwise
-              // fall back to the collection-level imageUrl so cards
-              // still render an image instead of the abbr placeholder.
-              const cardImage      = ev.nftImageUrl ?? group?.imageUrl ?? null;
+              // Per-mint image only. We deliberately do NOT fall back
+              // to `group?.imageUrl` here — that produced the bug
+              // where every card in a collection painted the same
+              // image: `patchAccumulatorMeta` used to write the
+              // FIRST resolved per-NFT image into the collection row,
+              // and every other card without its own resolved image
+              // inherited it via this fallback. Collection-row image
+              // is unaffected (renders in the trending table only);
+              // unresolved live cards now show a per-mint placeholder
+              // (mintAddress-seeded color + shortMint initials) until
+              // their own DAS retry lands a unique image.
+              const cardImage      = ev.nftImageUrl ?? null;
               const priceText      = ev.priceLamports == null
                 ? '—'
                 : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
@@ -1267,7 +1356,18 @@ export default function MintsPage() {
                       shared abbr/color placeholder when no image yet. */}
                   <ItemThumb
                     imageUrl={thumb200(cardImage)}
-                    color={colorForCollection(ev.collectionAddress ?? ev.groupingKey)}
+                    /* When a real per-NFT image lands we keep the
+                       collection-color tint behind it (matches the row
+                       accent stripe). When it's the placeholder path
+                       we seed by `mintAddress` instead so two cards in
+                       the same collection paint visibly different
+                       tiles — otherwise the abbr is the only varying
+                       pixel and the tiles read as duplicates. */
+                    color={colorForCollection(
+                      cardImage
+                        ? (ev.collectionAddress ?? ev.groupingKey)
+                        : (ev.mintAddress ?? ev.signature)
+                    )}
                     abbr={abbr}
                     size={56}
                   />
