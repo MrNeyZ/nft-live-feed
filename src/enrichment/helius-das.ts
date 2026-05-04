@@ -349,3 +349,45 @@ export async function getOwnerCollectionCount(
   const r = await getOwnerCollectionCountVerbose(owner, collectionAddress);
   return r.count;
 }
+
+/** Collection-wide minted count — `searchAssets` filtered by
+ *  `grouping=[collection, <addr>]` only (no owner). Returns the
+ *  total number of assets DAS has indexed for the collection, which
+ *  is a faithful proxy for "how many minted so far" on a launchpad
+ *  drop. Distinct from supply (the planned cap) and from
+ *  `observedMints` (what our session has personally seen).
+ *
+ *  Returns null on RPC failure / non-numeric `total`. */
+export async function getCollectionMintedCount(collectionAddress: string): Promise<number | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'collection-minted-count',
+          method: 'searchAssets',
+          params: {
+            grouping:  ['collection', collectionAddress],
+            tokenType: 'all',
+            page:      1,
+            limit:     1,
+            burnt:     false,
+          },
+        }),
+        signal: AbortSignal.timeout(6_000),
+      },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as DasSearchResponse;
+    if (json.error) return null;
+    const total = json.result?.total;
+    return typeof total === 'number' && total >= 0 ? total : null;
+  } catch {
+    return null;
+  }
+}

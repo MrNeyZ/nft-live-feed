@@ -39,6 +39,11 @@ interface MintStatus {
    *  launchpad-specific resolver decodes the relevant config account.
    *  UI falls back to "—" when null/undefined per spec. */
   maxSupply?:        number | null;
+  /** Total assets DAS has indexed for this collection — backend's
+   *  proxy for "how many minted so far". Refreshed on a 30 s per-row
+   *  cadence. UI shows it as the MINTED column; falls back to
+   *  `observedMints` when null so the cell isn't ever empty. */
+  mintedCount?:      number | null;
   /** LaunchMyNFT URL fragments. Backend populates them via the LMNFT
    *  homepage scraper (`src/enrichment/lmnft.ts`). Both required to
    *  build the deep-link; either null falls back to a plain pill. */
@@ -200,7 +205,7 @@ const COLLECTIONS_LOAD_MAX = 500;
  *  `migratePersistedCachesIfNeeded()` below — mismatch → wipe both
  *  the live-feed and collections stores, then write the new version. */
 const MINTS_CACHE_VERSION_KEY = 'vl.mints.cacheVersion';
-const MINTS_CACHE_VERSION     = 'launchpad.v4-image';
+const MINTS_CACHE_VERSION     = 'launchpad.v5-minted';
 
 function migratePersistedCachesIfNeeded(): void {
   if (typeof window === 'undefined') return;
@@ -379,10 +384,28 @@ const SAFE_URL_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 function buildLaunchMyNftUrl(row: MintStatus): string | null {
   const owner = row.lmntfOwner;
   const id    = row.lmntfCollectionId;
-  if (!owner || !id) return null;
-  if (!SAFE_URL_SEGMENT_RE.test(owner)) return null;
-  if (!SAFE_URL_SEGMENT_RE.test(id))    return null;
-  return `https://www.launchmynft.io/collections/${owner}/${id}`;
+  // Direct per-collection mint page — preferred when both fragments
+  // resolved (LMNFT featured-set scrape or on-chain state decode).
+  if (owner && id && SAFE_URL_SEGMENT_RE.test(owner) && SAFE_URL_SEGMENT_RE.test(id)) {
+    return `https://www.launchmynft.io/collections/${owner}/${id}`;
+  }
+  // Fallback: LMNFT `/explore` filtered by the deployer wallet, sorted
+  // by `lastMintedAt:desc`, Solana-only, hidden sold-out off. Lands the
+  // operator on a single-page list of every collection that wallet has
+  // ever deployed — the right collection is virtually always one of
+  // the top hits. Used when only the deployer wallet is on the wire
+  // (e.g. `lmntfCollectionId` not yet scraped from the featured set).
+  if (owner && SOL_PUBKEY_RE.test(owner)) {
+    const params =
+      `query=${owner}` +
+      `&toggle%5BtwitterVerified%5D=false` +
+      `&toggle%5BsoldOut%5D=false` +
+      `&page=1` +
+      `&sortBy=collections%2Fsort%2FlastMintedAt%3Adesc` +
+      `&refinementList%5Btype%5D%5B0%5D=Solana`;
+    return `https://www.launchmynft.io/explore?${params}`;
+  }
+  return null;
 }
 
 /** Outbound link target for launchpad source badges. Returns null for
@@ -612,6 +635,11 @@ export default function MintsPage() {
    *  Stored payload is filtered by FEED_TTL_MS + deduped by signature
    *  inside loadPersistedFeed(). */
   const [events, setEvents]   = useState<MintEvent[]>(() => loadPersistedFeed());
+  // Mirror of `events` for synchronous reads from event listeners
+  // (mint_meta needs to find the groupingKey by signature without
+  // racing setEvents's async batched update).
+  const eventsRef = useRef<MintEvent[]>(events);
+  useEffect(() => { eventsRef.current = events; }, [events]);
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   const [, force]             = useState(0);
 
@@ -818,19 +846,96 @@ export default function MintsPage() {
             console.log('[mints/live-miss] reason=missing_signature');
             return;
           }
-          const ev: MintEvent = { ...m, receivedAt: Date.now() };
+          // Anchor `receivedAt` to the on-chain `blockTime` whenever
+          // available. Backend replays `currentRecentMints()` to every
+          // freshly-connected SSE client (so a re-open of the page
+          // surfaces the last 150 mints), and stamping `Date.now()` on
+          // arrival was making every replay row read as "just now"
+          // even when the underlying mint happened minutes ago. Using
+          // blockTime keeps the timestamp truthful across reconnects;
+          // we fall back to wall-clock only when blockTime is missing
+          // or unparseable.
+          const blockTimeMs = m.blockTime ? Date.parse(m.blockTime) : NaN;
+          const receivedAt  = Number.isFinite(blockTimeMs) ? blockTimeMs : Date.now();
+          const ev: MintEvent = { ...m, receivedAt };
           setEvents(prev => {
             if (prev.some(p => p.signature === ev.signature)) {
               console.log(`[mints/live-miss] reason=dedupe_signature sig=${ev.signature.slice(0,12)}…`);
               return prev;
             }
             const next = [ev, ...prev];
-            const trimmed = next.length > LIVE_FEED_MAX ? next.slice(0, LIVE_FEED_MAX) : next;
+            // Hard cap at LIVE_FEED_MAX. When the buffer would
+            // overflow, drop EVERYTHING except the just-arrived
+            // event — the operator gets a clean slate at the cap
+            // instead of an opaque sliding-window trim that quietly
+            // hides older rows. The on-screen counter resets to 1,
+            // making the wipe visible. Below the cap we just prepend
+            // newest-first.
+            const trimmed = next.length > LIVE_FEED_MAX ? [ev] : next;
+            if (next.length > LIVE_FEED_MAX) {
+              console.log(`[mints/live] cap reached (${LIVE_FEED_MAX}) — feed cleared`);
+            }
             console.log(
               `[mints/live] inserted sig=${ev.signature.slice(0,12)}… ` +
               `mint=${ev.mintAddress ?? '—'} name=${ev.nftName ?? '—'}`,
             );
             return trimmed;
+          });
+          // Mirror every accepted mint event into the LEFT collections
+          // table. Without this the table only ever fills from the
+          // backend's separate `mint_status` channel, which the UI
+          // junk-filter (`isRenderableMintStatus`) sometimes drops on
+          // the first frame (no name/image yet) — leaving the user
+          // looking at a populated feed and an empty table for the
+          // same collection. Logic: upsert by `groupingKey`,
+          // increment observedMints on every NEW signature, refresh
+          // lastMintAt to the event's wall-clock. The next
+          // `mint_status` frame from the backend will overwrite the
+          // synthesized row with authoritative v60/v5m/state values.
+          setRows(prev => {
+            const next = new Map(prev);
+            const cur  = next.get(ev.groupingKey);
+            // Use the same blockTime anchor the feed uses, so the
+            // table's LAST MINT column matches the feed's "Xm ago"
+            // exactly on replayed events (otherwise after a reconnect
+            // the table would show "just now" for a 5-min-old mint).
+            const nowMs = ev.receivedAt;
+            const merged: MintStatus = cur ? {
+              ...cur,
+              observedMints:     cur.observedMints + 1,
+              // Never move the timestamp backwards — a replay of an
+              // older mint after a fresh one would otherwise reset
+              // the row to look stale.
+              lastMintAt:        Math.max(cur.lastMintAt, nowMs),
+              lastMintAddress:   ev.mintAddress ?? cur.lastMintAddress,
+              programSource:     ev.programSource,
+              collectionAddress: ev.collectionAddress ?? cur.collectionAddress,
+              priceLamports:     ev.priceLamports ?? cur.priceLamports,
+              sourceLabel:       ev.sourceLabel,
+            } : {
+              groupingKey:       ev.groupingKey,
+              groupingKind:      (ev.groupingKind as MintStatus['groupingKind']) ?? 'collection',
+              programSource:     ev.programSource,
+              collectionAddress: ev.collectionAddress,
+              lastMintAddress:   ev.mintAddress,
+              displayState:      'incubating',
+              observedMints:     1,
+              v60:               1,
+              v5m:               0.2,
+              lastMintAt:        nowMs,
+              mintType:          ev.mintType,
+              priceLamports:     ev.priceLamports,
+              sourceLabel:       ev.sourceLabel,
+              name:              ev.nftName ?? undefined,
+              imageUrl:          ev.nftImageUrl ?? undefined,
+              maxSupply:         null,
+              mintedCount:       null,
+              lmntfOwner:        null,
+              lmntfCollectionId: null,
+            };
+            next.set(ev.groupingKey, merged);
+            savePersistedCollections(next);
+            return next;
           });
         } catch { /* malformed frame — skip */ }
       });
@@ -857,6 +962,37 @@ export default function MintsPage() {
             });
             return changed ? next : prev;
           });
+          // Cross-pollinate the table: every per-mint metadata patch
+          // also strengthens the synthesized table row. Strip the
+          // trailing "#42" off the per-NFT name so the collection
+          // line in the table reads as "PIXEL APE OF THE HILL", not
+          // "PIXEL APE OF THE HILL #42". Find the row by the matched
+          // mint event's groupingKey (mint events and table rows
+          // share that key on the wire).
+          if (p.signature || p.mintAddress) {
+            setRows(prev => {
+              // Resolve groupingKey from the in-memory feed events —
+              // we don't carry it on the `mint_meta` wire, so look it
+              // up by signature/mintAddress against the live buffer.
+              let groupingKey: string | null = null;
+              for (const ev of eventsRef.current) {
+                const match = (p.signature && ev.signature === p.signature)
+                           || (!!p.mintAddress && ev.mintAddress === p.mintAddress);
+                if (match) { groupingKey = ev.groupingKey; break; }
+              }
+              if (!groupingKey) return prev;
+              const cur = prev.get(groupingKey);
+              if (!cur) return prev;
+              const stripped = p.nftName ? p.nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
+              const nextName  = (stripped && stripped.length > 0) ? stripped : cur.name;
+              const nextImage = cur.imageUrl;   // per-NFT images don't belong on the collection row
+              if (cur.name === nextName && cur.imageUrl === nextImage) return prev;
+              const next = new Map(prev);
+              next.set(groupingKey, { ...cur, name: nextName, imageUrl: nextImage });
+              savePersistedCollections(next);
+              return next;
+            });
+          }
         } catch { /* malformed frame — skip */ }
       });
       es.addEventListener('error', () => {
@@ -1085,6 +1221,7 @@ export default function MintsPage() {
             <colgroup>
               <col />                        {/* COLLECTION (auto) */}
               <col style={{ width: 90 }}  /> {/* MINTS    */}
+              <col style={{ width: 110 }} /> {/* MINTED   */}
               <col style={{ width: 100 }} /> {/* SUPPLY   */}
               <col style={{ width: 110 }} /> {/* LAST     */}
               <col style={{ width: 90 }}  /> {/* MINT/MIN */}
@@ -1103,6 +1240,13 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('mints')}>
                   MINTS {sortKey === 'mints' && <span style={{ color: '#8068d8' }}>↓</span>}
                 </th>
+                {/* MINTED — total minted on-chain so far (DAS-indexed
+                    asset count for the collection). Distinct from
+                    MINTS (session-only observation count) and from
+                    SUPPLY (planned cap). Renders MINTED / SUPPLY when
+                    both are known so progress is readable at a
+                    glance. */}
+                <th style={thStyle}>MINTED</th>
                 <th style={thStyle}>SUPPLY</th>
                 <th style={thStyle}>LAST MINT</th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('velocity')}>
@@ -1117,14 +1261,14 @@ export default function MintsPage() {
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
+                  <td colSpan={7} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
                     Waiting for active mints…
                   </td>
                 </tr>
               )}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
+                  <td colSpan={7} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
                     Collections appear here as soon as a mint is detected
                     (WATCH); they upgrade to ACTIVE on burst (≥ 8 mints / 60 s)
                     or 50 cumulative mints.
@@ -1150,14 +1294,31 @@ export default function MintsPage() {
                 const isSoldOut = typeof r.maxSupply === 'number'
                   && r.maxSupply > 0
                   && r.observedMints >= r.maxSupply;
+                // Fresh-mint flash — same green pulse the dashboard
+                // uses for fresh sales. Two parts:
+                //   1. `key` includes `r.lastMintAt` so React remounts
+                //      the row whenever a new mint lands in this
+                //      collection — the CSS animation replays from
+                //      frame 0 each time.
+                //   2. `row-flash-up` class is applied when the most
+                //      recent mint is < 3.6 s old (the animation's
+                //      duration). After the window passes the class
+                //      is dropped automatically on the next
+                //      `force()` tick (5 s cadence) — well beyond
+                //      animation end, so no visible cut-off.
+                const isFreshMint = (Date.now() - r.lastMintAt) < 3600;
                 return (
-                  <tr key={r.groupingKey} style={{
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    transition: 'background 0.12s',
-                    // SOLD rows render at full opacity — definitive
-                    // state, not a "less interesting" one to dim.
-                    opacity: isSoldOut ? 1 : (isActive ? 1 : 0.78),
-                  }}>
+                  <tr
+                    key={`${r.groupingKey}:${r.lastMintAt}`}
+                    className={isFreshMint ? 'row-flash-up' : undefined}
+                    style={{
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      transition: 'background 0.12s',
+                      // SOLD rows render at full opacity — definitive
+                      // state, not a "less interesting" one to dim.
+                      opacity: isSoldOut ? 1 : (isActive ? 1 : 0.78),
+                    }}
+                  >
                     {/* COLLECTION cell — matches Dashboard rows:
                         12px vertical padding (up from /mints' previous
                         compact 8px to align with /dashboard rhythm),
@@ -1282,6 +1443,64 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                       {r.observedMints.toLocaleString()}
                     </td>
+                    {/* MINTED cell — backend-resolved total minted on
+                        chain (DAS-indexed). When known and supply is
+                        also known we paint a percent fill behind the
+                        number (red 95–100%, amber 60–95%, neutral
+                        below) so progress to sold-out is readable at a
+                        glance. Falls back to "—" when DAS hasn't
+                        resolved yet. */}
+                    {(() => {
+                      const minted   = typeof r.mintedCount === 'number' ? r.mintedCount : null;
+                      const supply   = typeof r.maxSupply   === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
+                      const pct      = (minted != null && supply != null) ? Math.min(100, (minted / supply) * 100) : null;
+                      const cellColor = pct == null
+                        ? '#aaaabf'
+                        : pct >= 80 ? '#ef7878'
+                        : pct >= 60 ? '#c7b479'
+                        : '#aaaabf';
+                      const tooltip = minted == null
+                        ? 'On-chain minted count not yet resolved — DAS lookup pending'
+                        : supply != null
+                          ? `${minted.toLocaleString()} of ${supply.toLocaleString()} minted (${pct!.toFixed(0)}%)`
+                          : `${minted.toLocaleString()} minted on chain so far`;
+                      return (
+                        <td
+                          title={tooltip}
+                          style={{
+                            position: 'relative',
+                            padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle',
+                            fontSize: 13, color: cellColor, fontWeight: 700,
+                            fontFamily: "'SF Mono','Fira Code',monospace",
+                            fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {/* Background fill — left-aligned, height
+                              matches text band, fades from the cell's
+                              tier color so the bar reads as a "fill"
+                              not a "highlight". */}
+                          {pct != null && (
+                            <span
+                              aria-hidden
+                              style={{
+                                position: 'absolute', left: 0, top: 6, bottom: 6,
+                                width: `${pct}%`,
+                                background: pct >= 80
+                                  ? 'rgba(239,120,120,0.10)'
+                                  : pct >= 60
+                                    ? 'rgba(199,180,121,0.10)'
+                                    : 'rgba(168,144,232,0.06)',
+                                borderRadius: 2,
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                          <span style={{ position: 'relative' }}>
+                            {minted == null ? '—' : minted.toLocaleString()}
+                          </span>
+                        </td>
+                      );
+                    })()}
                     <td
                       title={
                         typeof r.maxSupply === 'number' && r.maxSupply > 0

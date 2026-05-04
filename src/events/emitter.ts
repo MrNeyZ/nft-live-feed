@@ -200,6 +200,12 @@ export interface MintStatusWire {
    *  `observedMints`, which is "how many of these we've seen ingested".
    *  Null until a supply resolver populates it; frontend renders "—". */
   maxSupply?:        number | null;
+  /** Total assets indexed by DAS for this collection — a faithful
+   *  "minted so far" proxy for launchpad drops. Refreshed on a
+   *  cadence (per-row, throttled) and on every Nth observed mint.
+   *  Distinct from `observedMints` (session-only) and `maxSupply`
+   *  (planned cap). Null until the first DAS lookup resolves. */
+  mintedCount?:      number | null;
   /** LaunchMyNFT-specific deep-link fields. Populated by the
    *  `lmnft` enrichment lookup once the collection is found in the
    *  homepage's featured set. Frontend uses both to build:

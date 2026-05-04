@@ -19,6 +19,14 @@ import {
   type MintStatusWire,
   type MintSourceLabel,
 } from '../events/emitter';
+import { getCollectionMintedCount } from '../enrichment/helius-das';
+
+/** Per-row refresh cadence for the MINTED column. A single row can
+ *  trigger at most one DAS `searchAssets` call per this window even if
+ *  it's bursting 50 mints/sec. Long enough to keep DAS quota sane,
+ *  short enough that the column stays visibly accurate during a hot
+ *  drop. */
+const MINTED_REFRESH_MIN_MS = 30_000;
 
 const WINDOW_60S            = 60_000;
 const WINDOW_5M             = 5 * 60_000;
@@ -85,6 +93,15 @@ interface Accum {
    *  the relevant config account; null until then so the frontend
    *  renders "—" rather than mis-using `observedMints`. */
   maxSupply?: number | null;
+  /** Total assets DAS has indexed for this collection (proxy for "how
+   *  many minted so far"). Populated lazily by `refreshMintedCount` and
+   *  is throttled per-row. Distinct from `observedMints` (session-only)
+   *  and `maxSupply` (planned cap). Null until the first DAS lookup. */
+  mintedCount?:       number | null;
+  /** Last time `refreshMintedCount` was attempted for this row, used to
+   *  throttle DAS calls (a single row triggers at most one refresh per
+   *  `MINTED_REFRESH_MIN_MS`). */
+  mintedFetchedAt?:   number;
   /** LMNFT URL fragments — `{owner}/{collectionId}`. Populated by
    *  `patchAccumulatorLmnft` once the homepage-featured lookup returns. */
   lmntfOwner?:        string | null;
@@ -158,6 +175,33 @@ function rollupType(a: Accum): MintType | 'mixed' {
   return a.unknownCount > a.paidCount + a.freeCount ? 'unknown' : 'paid';
 }
 
+/** Throttled fire-and-forget refresher for the MINTED column. Reads the
+ *  collection-wide DAS index size and patches it onto the row, then
+ *  re-emits a `mint_status` frame so connected clients see the new
+ *  count in real time. Skips silently when:
+ *    - `collectionAddress` is unknown (e.g. groupingKind=`creator`)
+ *    - the last attempt was less than `MINTED_REFRESH_MIN_MS` ago
+ *  Does not block the caller — even on RPC timeout the per-mint event
+ *  has already gone out. */
+function scheduleMintedCountRefresh(a: Accum, now: number): void {
+  if (!a.collectionAddress) return;
+  if (a.mintedFetchedAt && now - a.mintedFetchedAt < MINTED_REFRESH_MIN_MS) return;
+  a.mintedFetchedAt = now;
+  const collection = a.collectionAddress;
+  void (async () => {
+    const count = await getCollectionMintedCount(collection);
+    if (count == null) return;
+    // The accumulator entry may have been re-keyed or evicted in the
+    // meantime; re-resolve via the live map so we never patch a stale
+    // local reference.
+    const live = map.get(a.groupingKey);
+    if (!live) return;
+    if (live.mintedCount === count) return;
+    live.mintedCount = count;
+    saleEventBus.emitMintStatus(buildStatus(live, Date.now()));
+  })();
+}
+
 function classifyMintType(priceLamports: number | null): MintType {
   if (priceLamports == null) return 'unknown';
   if (priceLamports === 0)   return 'free';
@@ -193,6 +237,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     name:              a.name,
     imageUrl:          a.imageUrl,
     maxSupply:         a.maxSupply ?? null,
+    mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
     lmntfCollectionId: a.lmntfCollectionId ?? null,
   };
@@ -296,6 +341,14 @@ export function recordMint(ev: MintEventWire): void {
   rememberRecentMint(ev);
   auditEmittedCount++;
   saleEventBus.emitMintStatus(buildStatus(a, now));
+
+  // Fire-and-forget DAS refresh of the collection-wide minted count.
+  // Throttled per row so a 50-mint burst still issues one refresh, not
+  // 50. The status frame above already went out with the previous
+  // (possibly stale or null) `mintedCount`; when the refresh resolves
+  // we patch + re-emit, so connected clients see the MINTED column
+  // climb over time without us paying a DAS call per mint.
+  scheduleMintedCountRefresh(a, now);
   console.log(
     `[mints/emit] sig=${ev.signature.slice(0, 12)}… ` +
     `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,

@@ -332,9 +332,25 @@ function parseMmmSale(
       promote = !!tokenFlowBuyer && !!poolPda && tokenFlowBuyer !== poolPda;
     }
     if (promote) {
-      const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
-      if (tokenFlowBuyer) buyer = tokenFlowBuyer;
+      // Direction reclassification is correct for any fulfillBuy with
+      // lp_fee=0 — that's the bid acceptance signal regardless of NFT
+      // standard. Buyer override however is ONLY valid for legacy SPL,
+      // where the NFT lands directly in the bidder's wallet so
+      // `tokenFlowBuyer === bidder`. For pNFT (this `mmm` branch's
+      // pnft path) the pNFT escrow forces the destination ATA to be
+      // owned by an escrow PDA (e.g. `G6RG…QmmA`), NOT the bidder's
+      // human wallet — overriding here would surface that escrow PDA
+      // as the "buyer" on the wire (confirmed against
+      //   66RH19t3tZUaMc3A6WdfYG6tE8wMdeHNg2wn89Vhp6HVwGxHtSx7PaMM5iJEcoZVHhNz5nLJC3ijwtHLPsXBSc2Y
+      // — Magic Eden's UI shows `PER2zk…` (the MMM `owner` arg =
+      // accs[1] = bidder), our parser was showing `G6RG…QmmA`
+      // (escrow). Keeping `accs[1]` is correct for pNFT.
+      // Core path is gated out earlier (`nftType !== 'core'` above).
       effectiveDirection = 'takeBid'; // maps to bid_sell in both sse.ts and queries.ts
+      if (nftType === 'legacy') {
+        const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
+        if (tokenFlowBuyer) buyer = tokenFlowBuyer;
+      }
     }
   }
 
