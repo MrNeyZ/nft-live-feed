@@ -545,14 +545,19 @@ const FeedCard = memo(function FeedCard({
                   value). Soft yellow circle on dark text, sized to
                   the wallet line metric so it doesn't bump row height. */}
               {/* Seller-remaining badge — two render paths:
-                    A. Exact count (≥3) — same dump-gate as before
-                       (newest row for seller+collection in the feed
-                       AND either 2+ visible sells OR sellerCount≥10).
+                    A. Exact count (≥3) — renders on EVERY visible
+                       sell-side row from the same seller+collection
+                       (the dumper's full batch shows the same number
+                       so the user can see at-a-glance how much supply
+                       is still in the dumper's hands during a wave).
+                       Dump-gate kept: 2+ visible sells from the wallet
+                       OR sellerCount ≥ 10.
                     B. 🔥 multi-sell signal — backend-determined
                        (sells10m≥2 with weak/null DAS count). Renders
-                       only on the newest row to avoid repetition. */}
+                       only on the newest row to avoid repetition
+                       (no exact number, just a "wallet is dumping"
+                       hint — repeating it on every row would be noise). */}
               {(kind === 'sell' || kind === 'sellAmm') &&
-                isNewestSellForSellerColl &&
                 typeof sellerCount === 'number' &&
                 Number.isFinite(sellerCount) &&
                 sellerCount >= 3 &&

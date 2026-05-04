@@ -514,6 +514,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // appears under TOOLS when the operator hovers either the tab or
   // the dropdown itself; closes when the pointer leaves both.
   const [toolsOpen, setToolsOpen] = useState(false);
+  // Phone-only "OTHER" action-sheet menu — surfaces the nav items
+  // hidden by the topnav-tab phone trim (Mints, Offers, Burner).
+  const [otherOpen, setOtherOpen] = useState(false);
   // Single hover key for the entire nav row — set on mouse enter of any
   // tab, cleared on leave. Drives a subtle highlight on the hovered tab
   // (suppressed when that tab is also active so it doesn't double up
@@ -885,8 +888,30 @@ export function TopNav({ active }: { active?: Page } = {}) {
               </div>
             );
           })}
+          {/* Phone-only "OTHER" trigger. Hidden on desktop / laptop via
+              the `.topnav-tab-other-mobile` rule in globals.css. Tap
+              opens a centered action-sheet modal with Mints / Offers /
+              Burner — the nav items the phone trim hides. */}
+          <button
+            type="button"
+            className="topnav-tab topnav-tab-other-mobile"
+            data-tab="other"
+            onClick={() => setOtherOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={otherOpen}
+            style={{
+              position: 'relative', zIndex: 1,
+              padding: '5px 16px', fontSize: 12, fontWeight: 600,
+              color: '#55556e',
+              letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+              background: 'transparent',
+              border: 'none', outline: 'none', font: 'inherit', cursor: 'pointer',
+            }}
+          >OTHER</button>
         </div>
       </div>
+
+      {otherOpen && <OtherMenuModal onClose={() => setOtherOpen(false)} />}
 
       {/* Center: search collections */}
       <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 360px', maxWidth: 360, marginLeft: 18 }}>
@@ -1261,6 +1286,126 @@ export function FloatingLayoutModeSwitcher() {
  * OFF button) and both of those reload the app, so a background interval
  * is unnecessary noise.
  */
+/** Phone-only action-sheet menu. Centered card with backdrop blur,
+ *  scale + fade animation, three nav items (Mints, Offers, Burner).
+ *  Closes on backdrop click, Esc, the X button, or after item nav.
+ *  Pure React state — no portal lib, no animation lib. */
+function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const router = useRouter();
+  // Esc-key dismiss + backdrop click; mounted once via useEffect.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const goInternal = (href: string) => {
+    onClose();
+    router.push(href);
+  };
+  const ITEM_STYLE: React.CSSProperties = {
+    display:        'flex',
+    alignItems:     'center',
+    justifyContent: 'flex-start',
+    width:          '100%',
+    padding:        '11px 14px',
+    fontSize:       13,
+    fontWeight:     600,
+    letterSpacing:  '0.4px',
+    color:          '#d0c8e4',
+    background:     'transparent',
+    border:         'none',
+    outline:        'none',
+    borderRadius:   8,
+    cursor:         'pointer',
+    fontFamily:     'inherit',
+    textTransform:  'uppercase',
+    textDecoration: 'none',
+    transition:     'background 0.12s, color 0.12s',
+  };
+  const ITEM_LABEL: React.CSSProperties = { flex: 1, textAlign: 'left' };
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Other navigation"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(8, 6, 18, 0.62)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+        zIndex: 9999,
+        animation: 'otherMenuBackdropIn 160ms ease-out',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          minWidth: 240, maxWidth: 320, width: '78%',
+          padding: 8,
+          background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
+          border: '1px solid rgba(168,144,232,0.28)',
+          borderRadius: 12,
+          boxShadow:
+            '0 20px 50px rgba(0,0,0,0.65), ' +
+            '0 0 0 1px rgba(0,0,0,0.4), ' +
+            '0 0 28px rgba(128,104,216,0.18)',
+          animation: 'otherMenuCardIn 180ms cubic-bezier(0.22,1,0.36,1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px 8px' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#7a7a94', letterSpacing: '1px' }}>OTHER</span>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            style={{
+              width: 22, height: 22, padding: 0,
+              border: 'none', outline: 'none',
+              background: 'transparent', color: '#55556e',
+              fontSize: 16, lineHeight: '22px', cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >×</button>
+        </div>
+        <button
+          type="button"
+          style={ITEM_STYLE}
+          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          onClick={() => goInternal('/mints')}
+        >
+          <span style={ITEM_LABEL}>Mints</span>
+        </button>
+        <button
+          type="button"
+          style={ITEM_STYLE}
+          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+          onClick={() => goInternal('/tools')}
+        >
+          <span style={ITEM_LABEL}>Offers</span>
+        </button>
+        <a
+          href="https://wallet.victorylabs.app/burner"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={ITEM_STYLE}
+          onMouseDown={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseUp={(e)   => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
+          onClick={onClose}
+        >
+          <span style={ITEM_LABEL}>Burner</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function ModeBadge() {
   const [mode, setMode] = useState<RuntimeMode | null>(null);
   useEffect(() => {

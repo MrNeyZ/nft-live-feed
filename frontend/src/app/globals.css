@@ -92,6 +92,14 @@ html[data-layout="phone"] .topnav-stat-sol,
 html[data-layout="phone"] .topnav-stat-live,
 html[data-layout="phone"] .topnav-search,
 html[data-layout="phone"] .topnav-mode-badge { display: none !important; }
+
+/* OTHER trigger — hidden by default, shown only on phone via either
+   the data-layout attribute or the narrow-viewport safety net below.
+   Companion to the topnav-tab phone trim above: when MULTI / MINTS /
+   TOOLS hide, OTHER takes their place and opens an action-sheet
+   modal containing those routes + the external Burner link. */
+.topnav-tab-other-mobile { display: none !important; }
+html[data-layout="phone"] .topnav-tab-other-mobile { display: inline-flex !important; }
 html[data-layout="phone"] .topnav-left { gap: 8px !important; }
 html[data-layout="phone"] .topnav-tab  {
   padding: 4px 8px !important;
@@ -115,6 +123,7 @@ html[data-layout="phone"] .topnav-tab  {
   .topnav-stat-live,
   .topnav-search,
   .topnav-mode-badge { display: none !important; }
+  .topnav-tab-other-mobile { display: inline-flex !important; }
   .topnav-left { gap: 8px !important; }
   .topnav-tab  {
     padding: 4px 8px !important;
@@ -525,6 +534,18 @@ a { color: inherit; text-decoration: none; }
   0%   { background: rgba(92, 224, 160, 0.32); }
   40%  { background: rgba(92, 224, 160, 0.18); }
   100% { background: transparent; }
+}
+
+/* OTHER action-sheet menu animations — backdrop fade + card scale-in.
+   Mirrors the seller-badge mount pattern but tuned slightly longer
+   for a modal-feel rather than a micro-pill. */
+@keyframes otherMenuBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes otherMenuCardIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* Seller-remaining badge mount animation — small pop-in so the badge

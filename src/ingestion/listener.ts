@@ -106,13 +106,28 @@ function isTargetActive(targetName: string): boolean {
 
 /** Targets that must never enter the `getSignaturesForAddress` poll loop.
  *  Token Metadata's volume is too high for cursor polling to keep up
- *  meaningfully. MPL Core is intentionally WS-only too for now — cheaper
- *  and sufficient because the WS firehose covers the full mint stream
- *  and the lean-mode poller in sales_only/budget would have skipped it
- *  anyway (`LISTENER_LEAN_MODE_TARGETS` excludes it). Promoting Core to
- *  cursor-polled later is a one-line change if WS misses ever become a
- *  real signal. */
+ *  meaningfully. MPL Core stays in this set for the SHARED `pollAll`
+ *  loop (which targets sale programs at fast/healthy cadences), but
+ *  `pollTarget` accepts a `force` option that bypasses this gate —
+ *  used by the dedicated `mpl_core` cursor-poll loop below to backstop
+ *  Helius WS misses for launchpad mints. */
 const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+
+// ─── mpl_core cursor-poll fallback ──────────────────────────────────────────
+// Helius WS isn't reliable enough alone for /mints — confirmed by the
+// missed-mint investigation on 2bh9gtx3… The dedicated loop below runs
+// `getSignaturesForAddress(mpl_core, limit=N)` every few seconds and
+// dedup-feeds anything new through the same `pollTarget → fetchRawTx
+// → ingestMintRaw → detectLaunchpadMint` pipeline the WS path uses.
+// Defaults: enabled, 4 s interval, 30 sigs per sweep. Tunable via env
+// (`MINT_MPL_CORE_POLL_*`).
+const MPL_CORE_POLL_ENABLED     = process.env.MINT_MPL_CORE_POLL_ENABLED !== '0';
+const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '4000', 10) || 4000;
+const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '30',   10) || 30;
+let   mplCorePollSweeps   = 0;
+let   mplCorePollFetched  = 0;
+let   mplCorePollAccepted = 0;
+let   mplCorePollDeduped  = 0;
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -882,17 +897,23 @@ function logPollSummary(): void {
 // reconnect catch-up cover the rare TAMM sale.
 const LISTENER_LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm', 'tcomp']);
 
-async function pollTarget(target: Target): Promise<void> {
+async function pollTarget(
+  target: Target,
+  opts?: { force?: boolean; limitOverride?: number },
+): Promise<void> {
   if (!running || !isTargetActive(target.name)) return;
   // High-volume mint targets (Token Metadata) opt out of cursor polling
-  // entirely — WS subscription is the only path. Cursor polling at
-  // 1.5 s × the program's volume would explode getSignaturesForAddress
-  // usage; the prefilter wouldn't help because the cost is at the sig-
-  // list level, not getTransaction.
-  if (MINT_NO_POLL_TARGETS.has(target.name)) return;
-  // Lean modes: skip MMM/TAMM here — see note above.
-  const m = getMode();
-  if ((m === 'sales_only' || m === 'budget') && !LISTENER_LEAN_MODE_TARGETS.has(target.name)) return;
+  // entirely — WS subscription is the only path. mpl_core also lives
+  // in MINT_NO_POLL_TARGETS for the shared pollAll loop, but the
+  // dedicated mpl_core poll loop bypasses via `opts.force=true`.
+  if (!opts?.force && MINT_NO_POLL_TARGETS.has(target.name)) return;
+  // Lean modes: skip MMM/TAMM here — see note above. Force bypass
+  // because the mint tracker is independent of trade runtime mode.
+  if (!opts?.force) {
+    const m = getMode();
+    if ((m === 'sales_only' || m === 'budget') && !LISTENER_LEAN_MODE_TARGETS.has(target.name)) return;
+  }
+  const effectiveLimit = opts?.limitOverride ?? POLL_LIMIT;
   const gen = currentGeneration();
   // Retry once on network/HTTP failure.
   let res: Response | null = null;
@@ -912,7 +933,7 @@ async function pollTarget(target: Target): Promise<void> {
       // call's range.
       const lastSig = lastSigByProgram.get(target.program);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const params: any = { limit: POLL_LIMIT, commitment: 'confirmed' };
+      const params: any = { limit: effectiveLimit, commitment: 'confirmed' };
       if (lastSig) params.until = lastSig;
       // Diagnostic: per-call line so the actual cursor + response pattern
       // is visible from logs. Watch for "until=null" or "len=100" repeating
@@ -980,8 +1001,14 @@ async function pollTarget(target: Target): Promise<void> {
 
   const nowSec = Date.now() / 1000;
 
+  // Per-sweep counters for the dedicated mpl_core fallback path. Only
+  // tallied when `opts.force` is set so the existing pollAll loop's
+  // shared accumulators don't double-count.
+  const isMplCoreForce = !!opts?.force && target.name === 'mpl_core';
+
   for (const row of rows) {
     fetched++;
+    if (isMplCoreForce) mplCorePollFetched++;
 
     // Drop on-chain failures.
     if (!row.signature || row.err !== null) { skipped++; continue; }
@@ -996,7 +1023,18 @@ async function pollTarget(target: Target): Promise<void> {
     if (row.blockTime && (nowSec - row.blockTime) > MAX_BLOCK_AGE_S) { skipped++; continue; }
 
     // Dedup: skip already-seen sigs.
-    if (seenSigs.has(row.signature)) { skipped++; continue; }
+    if (seenSigs.has(row.signature)) {
+      skipped++;
+      if (isMplCoreForce) {
+        mplCorePollDeduped++;
+        // Sampled — every 10th dedupe to confirm WS-poll dedup is
+        // working without flooding under traffic.
+        if (mplCorePollDeduped <= 5 || mplCorePollDeduped % 10 === 0) {
+          console.log(`[mints/dedupe] sig=${row.signature.slice(0, 12)}… source=poll reason=seen`);
+        }
+      }
+      continue;
+    }
 
     // Step 2 — sig passed age filter + seenSigs dedup.
     trace(row.signature, 'poll:unseen', `target=${target.name}`);
@@ -1004,6 +1042,13 @@ async function pollTarget(target: Target): Promise<void> {
     unseen++;
     const sig = row.signature;
     markSeen(sig);
+    if (isMplCoreForce) {
+      mplCorePollAccepted++;
+      // The whole point: every NEW mpl_core sig the poller catches is
+      // a sig the WS firehose missed (or hasn't processed yet). Log
+      // each so an operator can verify the fallback is doing real work.
+      console.log(`[mints/poller] caught_missed sig=${sig} source=poll`);
+    }
 
     // Step 3 — dispatching to target.ingest() via pollerLimiter.
     trace(sig, 'poll:ingest', `target=${target.name}`);
@@ -1044,13 +1089,21 @@ async function pollTarget(target: Target): Promise<void> {
       `  fetched=${fetched}  unseen=${unseen}  ingested=${ingested}  skipped=${skipped}`,
     );
   }
+  // Per-sweep summary for the dedicated mpl_core fallback. Always
+  // emitted so quiet sweeps still confirm the loop is alive.
+  if (isMplCoreForce) {
+    console.log(
+      `[mints/poller] sweep target=mpl_core sigs=${rows.length} fetched=${fetched} ` +
+      `accepted=${unseen} rejected=0 skipped=${skipped}`,
+    );
+  }
 }
 
 let pollAllSeq = 0;
 async function pollAll(): Promise<void> {
   pollAllSeq++;
   console.log(`[sig/listener/pollAll] seq=${pollAllSeq}  ts=${new Date().toISOString()}`);
-  await Promise.allSettled(TARGETS.map(pollTarget));
+  await Promise.allSettled(TARGETS.map(t => pollTarget(t)));
 }
 
 async function seedSeenSigs(): Promise<void> {
@@ -1104,6 +1157,51 @@ export function startListener(): void {
   }, 60_000);
   heartbeat.unref();
   intervalHandles.push(heartbeat);
+
+  // Dedicated mpl_core cursor-poll fallback — backstop for Helius WS
+  // misses on launchpad mints. Runs at a fixed cadence regardless of
+  // WS health (which can lie). Gated by the env flag and the
+  // mint-tracker runtime toggle. Single shared timer; no per-client
+  // pollers. Token Metadata stays WS-only — its volume would explode
+  // getSignaturesForAddress usage and the prefilter only helps after
+  // the sig list is already on the wire.
+  if (MPL_CORE_POLL_ENABLED) {
+    const mplCoreTarget = TARGETS.find(t => t.name === 'mpl_core');
+    if (mplCoreTarget) {
+      console.log(
+        `[mints/poller] start target=mpl_core interval=${MPL_CORE_POLL_INTERVAL_MS}ms ` +
+        `limit=${MPL_CORE_POLL_LIMIT}`,
+      );
+      const tick = setInterval(() => {
+        if (!running)             return;
+        if (!isMintTrackerEnabled()) return;
+        if (!isTargetActive('mpl_core')) return;
+        mplCorePollSweeps++;
+        pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })
+          .catch(() => { /* fail-soft; next tick retries */ });
+      }, MPL_CORE_POLL_INTERVAL_MS);
+      tick.unref();
+      intervalHandles.push(tick);
+
+      // 60 s audit — confirms the fallback is doing real work and lets
+      // the operator see WS-vs-poll dedup ratios at a glance. Skipped
+      // on a fully-quiet minute so quiet hours stay quiet.
+      const audit = setInterval(() => {
+        if (mplCorePollSweeps === 0 && mplCorePollFetched === 0) return;
+        console.log(
+          `[mints/poller-audit] target=mpl_core sweeps=${mplCorePollSweeps} ` +
+          `fetched=${mplCorePollFetched} accepted=${mplCorePollAccepted} ` +
+          `deduped=${mplCorePollDeduped}`,
+        );
+      }, 60_000);
+      audit.unref();
+      intervalHandles.push(audit);
+    } else {
+      console.log('[mints/poller] cannot start — mpl_core target not found');
+    }
+  } else {
+    console.log('[mints/poller] disabled (MINT_MPL_CORE_POLL_ENABLED=0)');
+  }
 
   // Watchdog — checked every 15s, three independent tiers:
   //

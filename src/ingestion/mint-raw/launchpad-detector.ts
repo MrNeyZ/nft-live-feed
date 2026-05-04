@@ -86,14 +86,28 @@ function readTxShape(tx: RawSolanaTx): ParsedTxShape | null {
   return { accountKeys, signerKeys, logs };
 }
 
-/** True iff `tx` invoked LMNFT's MintCore handler — the Core path,
- *  unique log string, never collides with unrelated programs. */
-function isLaunchMyNftCoreTx(shape: ParsedTxShape): boolean {
-  if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return false;
+/** Core-Create log needles. LMNFT's Anchor handler family has expanded
+ *  past the original `MintCore` dispatcher — the program now ships
+ *  several entry points (e.g. `MintCore`, `MintCoreV2`, future
+ *  variants) that all CPI into MPL Core's create. Anchor non-mint
+ *  ixs (`Update`, `SetName…`, `UpdatePhase`) never CPI into a Core
+ *  CREATE — they hit Core's update/burn/transfer or no Core at all.
+ *  So the bulletproof acceptance condition is "outer = LMNFT AND a
+ *  CORE-program log line is one of these create needles" rather than
+ *  pinning on the launchpad's specific dispatcher name.
+ *
+ *  Strict end-of-line match to avoid `Instruction: CreateTokenAccount`
+ *  (Token program) collisions; ATA's create logs as `Program log:
+ *  Create` (no `Instruction:` prefix) so it's also disjoint. */
+const CORE_CREATE_LOG_REGEX = /^Program log: Instruction: (Create|CreateV1|CreateV2|CreateCollection|CreateCollectionV1)$/;
+function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))    return null;
   for (const line of shape.logs) {
-    if (line.includes('Instruction: MintCore')) return true;
+    const m = line.match(CORE_CREATE_LOG_REGEX);
+    if (m) return `Instruction: ${m[1]}`;
   }
-  return false;
+  return null;
 }
 
 /** True iff `tx` is an LMNFT cNFT mint — confirmed dispatcher names
@@ -238,17 +252,43 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
   const shape = readTxShape(tx);
   if (!shape) return null;
 
-  if (isLaunchMyNftCoreTx(shape)) {
+  const lmnftCoreNeedle = lmnftCoreNeedleIfPresent(shape);
+  if (lmnftCoreNeedle) {
     const core = extractCoreMintFromInner(tx, shape);
-    if (!core) return null;
+    if (!core) {
+      // LMNFT outer + Core-create log present, but inner Core ix accs
+      // didn't yield an asset. Treat as a parse miss, not an accept.
+      // Hard-log so the operator can capture an example to refine
+      // `extractCoreMintFromInner` if a new Core-create variant
+      // surfaces with a different account layout.
+      console.log(
+        `[mints/lmnft-core-skip] sig=${tx.signature ?? '—'} reason=no_core_create coreIx=${lmnftCoreNeedle}`,
+      );
+      return null;
+    }
+    console.log(
+      `[mints/lmnft-core-create] sig=${tx.signature ?? '—'} coreIx=${lmnftCoreNeedle} ` +
+      `mint=${core.mintAddress} collection=${core.collectionAddress ?? 'null'} ` +
+      `minter=${shape.signerKeys[0] ?? 'null'}`,
+    );
     return {
       source:            'LaunchMyNFT',
       standard:          'core',
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     'Instruction: MintCore',
+      matchedNeedle:     lmnftCoreNeedle,
     };
+  }
+  // LMNFT outer present but NO Core-create log → skipped here as
+  // `core_update_only` so config / update / SetName txs are visibly
+  // rejected (separate from the broader `unknown_launchpad` path).
+  if (shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)
+      && shape.accountKeys.includes(MPL_CORE_PROGRAM)
+      && !lmnftCnftNeedleIfPresent(shape)) {
+    console.log(
+      `[mints/lmnft-core-skip] sig=${tx.signature ?? '—'} reason=update_only`,
+    );
   }
   const cnftNeedle = lmnftCnftNeedleIfPresent(shape);
   if (cnftNeedle) {
