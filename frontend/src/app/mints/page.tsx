@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, TopNav, ItemThumb } from '@/soloist/shared';
+import { LiveDot, TopNav, ItemThumb, Pill } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -419,6 +419,22 @@ function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } 
 }
 
 type SortKey = 'velocity' | 'mints';
+type MintTab = 'active' | 'recent';
+
+/** Mirror of the dashboard's TIMEFRAMES — same labels, same windows.
+ *  Used by the Live Mint Tracker's RECENT tab to filter rows by
+ *  `lastMintAt` falling inside the chosen window. */
+const MINT_TIMEFRAMES = ['5M', '10M', '15M', '30M', '1H', '4H', '1D'] as const;
+type MintTimeframe = typeof MINT_TIMEFRAMES[number];
+const MINT_TF_MS: Record<MintTimeframe, number> = {
+  '5M':   5 * 60_000,
+  '10M': 10 * 60_000,
+  '15M': 15 * 60_000,
+  '30M': 30 * 60_000,
+  '1H':  60 * 60_000,
+  '4H':  4  * 60 * 60_000,
+  '1D':  24 * 60 * 60_000,
+};
 
 function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
@@ -598,6 +614,38 @@ export default function MintsPage() {
   const [events, setEvents]   = useState<MintEvent[]>(() => loadPersistedFeed());
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   const [, force]             = useState(0);
+
+  // ACTIVE / RECENT tab — mirrors the dashboard pattern. ACTIVE keeps
+  // the existing two-tier sort (shown rows first, watch rows after);
+  // RECENT flattens to "any row with a mint inside the selected
+  // timeframe window, sorted by most-recent mint", ignoring the
+  // shown/watch promotion gate so freshly-mintted but not-yet-promoted
+  // collections surface immediately. Tab + timeframe + filters-open
+  // are persisted in localStorage with the same key prefix as the rest
+  // of /mints state.
+  const [mintTab, setMintTab] = useState<MintTab>(() => {
+    if (typeof window === 'undefined') return 'active';
+    try {
+      const v = window.localStorage.getItem('vl.mints.tab');
+      return v === 'recent' ? 'recent' : 'active';
+    } catch { return 'active'; }
+  });
+  const [mintTf, setMintTf] = useState<MintTimeframe>(() => {
+    if (typeof window === 'undefined') return '1H';
+    try {
+      const v = window.localStorage.getItem('vl.mints.tf');
+      return (MINT_TIMEFRAMES as readonly string[]).includes(v ?? '')
+        ? (v as MintTimeframe)
+        : '1H';
+    } catch { return '1H'; }
+  });
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
+  }, [mintTab]);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.tf', mintTf); } catch { /* noop */ }
+  }, [mintTf]);
 
   // cNFT visibility toggle for the LIVE MINT FEED panel. cNFT (Bubblegum)
   // mints arrive in massive bursts (free airdrop drops can saturate the
@@ -837,12 +885,29 @@ export default function MintsPage() {
    *  This keeps the previous active-only behaviour as a strict subset
    *  while surfacing pre-burst activity at the bottom of the table. */
   const sorted = useMemo(() => {
-    const arr = Array.from(rows.values())
+    const now    = Date.now();
+    const tfMs   = MINT_TF_MS[mintTf];
+    const cutoff = now - tfMs;
+    let arr = Array.from(rows.values())
       .filter(r => r.displayState !== 'cooled')
       // Final-render safety net — a row that slipped past load /
       // SSE filters (e.g. mutated mid-session by patchAccumulatorMeta)
       // still gets dropped here before it paints.
       .filter(r => isRenderableMintStatus(r));
+
+    if (mintTab === 'recent') {
+      // RECENT view — flatten the shown/watch tiering and only show
+      // collections whose most recent mint falls inside the chosen
+      // timeframe window. Sort strictly by recency.
+      arr = arr.filter(r => r.lastMintAt >= cutoff);
+      arr.sort((a, b) => b.lastMintAt - a.lastMintAt || b.v60 - a.v60);
+      return arr;
+    }
+
+    // ACTIVE — preserve the existing two-tier sort (shown first, then
+    // watch), but still respect the timeframe filter so an idle 25h-old
+    // row doesn't sit on top when the user picked 5M.
+    arr = arr.filter(r => r.lastMintAt >= cutoff);
     arr.sort((a, b) => {
       const aShown = a.displayState === 'shown' ? 0 : 1;
       const bShown = b.displayState === 'shown' ? 0 : 1;
@@ -858,7 +923,7 @@ export default function MintsPage() {
       return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
     });
     return arr;
-  }, [rows, sortKey]);
+  }, [rows, sortKey, mintTab, mintTf]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -933,6 +998,82 @@ export default function MintsPage() {
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden',
       }}>
+        {/* Card header — mirrors /dashboard's "Trending collections"
+            chrome: ACTIVE / RECENT tab pills on the left, count + live
+            dot, then Filters pill + timeframe pills on the right. The
+            timeframe pills filter `sorted` by `lastMintAt` window;
+            tab=RECENT additionally drops the shown/watch tiering and
+            sorts strictly by recency. */}
+        <div style={{
+          padding: '7px 12px', borderBottom: '1px solid rgba(168,144,232,0.12)', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(168,144,232,0.04)',
+          flexWrap: 'wrap', gap: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {(['active', 'recent'] as const).map(t => (
+              <Pill
+                key={t}
+                active={mintTab === t}
+                onClick={() => setMintTab(t)}
+                label={t}
+                style={{ padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+                         textTransform: 'uppercase',
+                         border: mintTab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',
+                         background: mintTab === t ? 'rgba(168,144,232,0.18)' : 'transparent' }}
+              />
+            ))}
+            <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
+              {sorted.length.toLocaleString()} <span style={{ color: '#3a3a52', fontWeight: 500 }}>collections</span>
+            </span>
+            <span style={{ marginLeft: 8 }}><LiveDot /></span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Pill
+              active={filtersOpen}
+              onClick={() => setFiltersOpen(o => !o)}
+              title="Filters"
+              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+              label="Filters"
+              size="sm"
+            />
+            <span style={{ fontSize: 10, color: '#3a3a52' }}>Timeframe:</span>
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+              {MINT_TIMEFRAMES.map(t => (
+                <Pill
+                  key={t}
+                  active={mintTf === t}
+                  onClick={() => setMintTf(t)}
+                  label={t}
+                  size="sm"
+                  style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
+                           background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Collapsible filters — currently a placeholder slot for future
+            mint-side filters (source, supply band, etc). Mirrors the
+            dashboard collapsible row visually so users get a familiar
+            affordance the moment the FILTERS pill is toggled on. */}
+        {filtersOpen && (
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: 'rgba(255,255,255,0.015)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#56566e' }}>Source:</span>
+            <Pill active label="LMNFT" size="sm" />
+            <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
+            <span style={{ fontSize: 10, color: '#56566e' }}>Status:</span>
+            <Pill active label="Any" size="sm" />
+            <Pill label="Active only" size="sm" />
+            <Pill label="Sold out" size="sm" />
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: '#3a3a52', fontStyle: 'italic' }}>
+              More filters coming soon
+            </span>
+          </div>
+        )}
+
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             {/* Explicit column widths so the COLLECTION cell stays
