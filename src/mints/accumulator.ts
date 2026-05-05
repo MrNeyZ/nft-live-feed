@@ -133,6 +133,19 @@ let auditEmittedCount  = 0;
 export function getMintAuditCounts(): { accepted: number; emitted: number } {
   return { accepted: auditAcceptedCount, emitted: auditEmittedCount };
 }
+/** Wall-clock ms of the most recent accepted mint, across all groups.
+ *  Returns 0 when nothing has been observed since boot. Used by
+ *  `/api/mints/runtime` so operators can see at a glance how long it
+ *  has been since the tracker last saw a mint event — the primary
+ *  health signal when sales mode is OFF and the trade endpoints are
+ *  silent. Cheap O(N) over the in-memory accumulator (bounded). */
+export function lastObservedMintAt(): number {
+  let last = 0;
+  for (const a of map.values()) {
+    if (a.lastMintAt > last) last = a.lastMintAt;
+  }
+  return last;
+}
 /** Public: snapshot of the most-recent mints for SSE bootstrap. Newest
  *  last (chronological order — the frontend's reducer dedups + reverses
  *  to its newest-first display ordering). */
@@ -189,13 +202,29 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
   a.mintedFetchedAt = now;
   const collection = a.collectionAddress;
   void (async () => {
-    const count = await getCollectionMintedCount(collection);
-    if (count == null) return;
+    const dasCount = await getCollectionMintedCount(collection);
+    if (dasCount == null) return;
     // The accumulator entry may have been re-keyed or evicted in the
     // meantime; re-resolve via the live map so we never patch a stale
     // local reference.
     const live = map.get(a.groupingKey);
     if (!live) return;
+    // Floor invariant: total minted on chain must be >= what we've
+    // observed in this session. Helius DAS occasionally returns a
+    // stale low count (e.g. 1) for a collection that our session has
+    // already seen multiple mints for — likely a grouping-index lag
+    // for fresh launches. Surfacing the smaller number breaks user
+    // trust in the MINTED column. Prefer max(das, observed) so the
+    // column never shows a value lower than what's already in the
+    // user's eyes from MINTS column.
+    const count = Math.max(dasCount, live.observedMints);
+    if (count !== dasCount) {
+      console.log(
+        `[mints/minted-count] collection=${collection} ` +
+        `dasTotal=${dasCount} observed=${live.observedMints} ` +
+        `corrected=${count} reason=das_below_observed`,
+      );
+    }
     if (live.mintedCount === count) return;
     live.mintedCount = count;
     saleEventBus.emitMintStatus(buildStatus(live, Date.now()));

@@ -30,7 +30,7 @@ import bs58 from 'bs58';
 import { Limiter, Priority } from '../concurrency';
 import { incTxFetch, incTxNull, startTelemetry } from '../telemetry';
 import { saleEventBus } from '../../events/emitter';
-import { getMode } from '../../runtime/mode';
+import { getMode, isAnyIngestActive } from '../../runtime/mode';
 
 // ─── RPC fetch ────────────────────────────────────────────────────────────────
 
@@ -48,10 +48,16 @@ function rpcUrl(): string {
 // longer than STALE_LOW_MS are dropped at admission instead of spending a
 // `getTransaction` credit on a sig that no longer matters during a burst.
 const STALE_LOW_MS = 20_000;
-// Gate: once mode is `off`, every queued task resolves `null` and every
-// admission is refused — no queued `getTransaction` consumes a slot after
-// OFF, and no in-flight task re-enters the RPC path once it releases.
-const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS, () => getMode() !== 'off');
+// Gate: refuse admission when ALL ingest is paused — i.e. trade mode is
+// OFF AND the mint tracker is also disabled. The mint tracker is
+// independent of trade mode (`isAnyIngestActive()` is true when EITHER
+// is on), so when trade mode flips to OFF but the mint tracker stays
+// enabled this gate must keep `getTransaction` flowing for `mpl_core`
+// / `token_metadata` listener notifications. The previous gate
+// (`getMode() !== 'off'`) silently dropped every mint fetchRawTx
+// overnight when the operator turned the site OFF, leaving /mints
+// empty (root-cause of the 24/7 mint tracker regression).
+const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS, () => isAnyIngestActive());
 export function rpcLimiterAbortQueued(): number { return rpcLimiter.abortQueued(); }
 
 /**
@@ -191,8 +197,12 @@ export async function fetchRawTx(
   bestEffort = false,
   priority: Priority = 'medium',
 ): Promise<RawSolanaTx | null> {
-  // Hard kill switch — runtime is off, skip every callsite before any work.
-  if (getMode() === 'off') return null;
+  // Hard kill switch — only refuse work when BOTH trade ingest and the
+  // mint tracker are paused. The mint tracker is independent of trade
+  // mode (see `isAnyIngestActive` in src/runtime/mode.ts) so listener
+  // notifications for `mpl_core` / `token_metadata` mint targets must
+  // keep flowing even with `getMode() === 'off'`.
+  if (!isAnyIngestActive()) return null;
 
   // Circuit-breaker applies only to best-effort (rawpatch) callers.
   // Primary callers must never be silenced by a rawpatch-triggered cooldown.
@@ -209,8 +219,9 @@ export async function fetchRawTx(
     // their existing `if (!tx) return` guard.
     const tx = await rpcLimiter.run(async () => {
       // Re-check after waiting in queue: mode may have flipped to off OR
-      // cooldown activated while this sig was queued.
-      if (getMode() === 'off') return null;
+      // cooldown activated while this sig was queued. Same independence
+      // semantics as the entrypoint gate above.
+      if (!isAnyIngestActive()) return null;
       if (bestEffort && Date.now() < cooldownUntil) return null;
       const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
       return _fetchRawTxRpc(sig, maxRetries);
@@ -237,9 +248,10 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
   });
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      // Between retry attempts the mode may have flipped to off; bail before
-      // issuing another getTransaction.
-      if (getMode() === 'off') return null;
+      // Between retry attempts the mode may have flipped to off; bail
+      // before issuing another getTransaction unless the mint tracker
+      // is keeping ingest alive.
+      if (!isAnyIngestActive()) return null;
       // Per-attempt timeout — prevents hanging indefinitely on slow RPC nodes.
       const controller = new AbortController();
       const timerId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

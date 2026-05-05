@@ -426,12 +426,21 @@ export async function getCollectionMintedCount(collectionAddress: string): Promi
         signal: AbortSignal.timeout(6_000),
       },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.log(`[mints/minted-count] collection=${collectionAddress} http=${res.status} result=null`);
+      return null;
+    }
     const json = (await res.json()) as DasSearchResponse;
-    if (json.error) return null;
+    if (json.error) {
+      console.log(`[mints/minted-count] collection=${collectionAddress} dasErr=${json.error.code}:${json.error.message} result=null`);
+      return null;
+    }
     const total = json.result?.total;
-    return typeof total === 'number' && total >= 0 ? total : null;
-  } catch {
+    const out = typeof total === 'number' && total >= 0 ? total : null;
+    console.log(`[mints/minted-count] collection=${collectionAddress} total=${total} result=${out}`);
+    return out;
+  } catch (e) {
+    console.log(`[mints/minted-count] collection=${collectionAddress} err=${(e as Error)?.message ?? 'unknown'} result=null`);
     return null;
   }
 }

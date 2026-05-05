@@ -38,6 +38,11 @@ import { scheduleExactSellerCount } from '../enrichment/seller-count-exact';
 
 const sseClients = new Set<Response>();
 
+/** Public accessor — exposed so other subsystems (db/insert emit log,
+ *  health endpoints) can surface "how many clients are listening right
+ *  now" without importing the Set itself. Cheap; no allocation. */
+export function getSseClientCount(): number { return sseClients.size; }
+
 /** Send a pre-built SSE frame (e.g. `event: sale\ndata: …\n\n`) to every
  *  connected client. Disconnected clients are removed silently — the
  *  per-client teardown still runs from req/res close listeners. */

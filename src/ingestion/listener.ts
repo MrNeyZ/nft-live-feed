@@ -128,6 +128,11 @@ let   mplCorePollSweeps   = 0;
 let   mplCorePollFetched  = 0;
 let   mplCorePollAccepted = 0;
 let   mplCorePollDeduped  = 0;
+/** Wall-clock ms of the most recent successful mpl_core poll sweep
+ *  (i.e. one that actually fetched signatures). Surfaced via
+ *  `/api/mints/runtime` so operators can confirm the fallback poller
+ *  is alive even when WS is silent. 0 until the first sweep lands. */
+let   mplCorePollLastTs   = 0;
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -1177,6 +1182,7 @@ export function startListener(): void {
         if (!isMintTrackerEnabled()) return;
         if (!isTargetActive('mpl_core')) return;
         mplCorePollSweeps++;
+        mplCorePollLastTs = Date.now();
         pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })
           .catch(() => { /* fail-soft; next tick retries */ });
       }, MPL_CORE_POLL_INTERVAL_MS);
@@ -1303,6 +1309,24 @@ export function stopListener(): void {
     const h = intervalHandles.pop()!;
     clearInterval(h);
   }
+}
+
+/** Snapshot of mint-side listener health for `/api/mints/runtime`.
+ *  Reads in-process state (no RPC). `wsRunning` is true whenever the
+ *  `mpl_core` or `token_metadata` program WebSocket is currently
+ *  open; `pollerRunning` reflects the dedicated `mpl_core` cursor-poll
+ *  fallback (alive when MPL_CORE_POLL_ENABLED is on AND the listener
+ *  is running). `lastPollAt` is the wall-clock ms of the most
+ *  recent fallback sweep tick (0 if none). */
+export function getMintListenerStatus(): {
+  wsRunning: boolean;
+  pollerRunning: boolean;
+  lastPollAt: number;
+} {
+  const wsRunning =
+    activeSockets.has('mpl_core') || activeSockets.has('token_metadata');
+  const pollerRunning = running && MPL_CORE_POLL_ENABLED;
+  return { wsRunning, pollerRunning, lastPollAt: mplCorePollLastTs };
 }
 
 // ─── WS-health check + self-rescheduling poll loop ──────────────────────────

@@ -24,6 +24,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
+import { lastObservedMintAt } from '../mints/accumulator';
+import { getMintListenerStatus } from '../ingestion/listener';
 import { rateLimit } from './rate-limit';
 
 // ── Idle auto-off ──────────────────────────────────────────────────────────
@@ -258,7 +260,24 @@ export function createRuntimeRouter(): Router {
   // without auth on every nav. POST is auth-gated and rate-limited
   // alongside the trade-mode endpoint to share back-pressure budget.
   router.get('/mints/runtime', (_req: Request, res: Response) => {
-    res.json({ enabled: isMintTrackerEnabled() });
+    // Health snapshot — designed to answer "is the mint tracker
+    // actually doing work right now, even though sales mode is OFF?"
+    // `independent: true` is a constant marker that the contract
+    // formally separates mint runtime from sales runtime; it lets the
+    // operator UI render an explanatory tooltip without any extra
+    // probing. `lastMintAt` and `lastPollAt` come from in-process
+    // counters (zero RPC, zero DB), so this endpoint is cheap to
+    // poll on a heartbeat from the TopNav badge.
+    const { wsRunning, pollerRunning, lastPollAt } = getMintListenerStatus();
+    res.json({
+      enabled:       isMintTrackerEnabled(),
+      independent:   true,
+      salesMode:     getMode(),
+      wsRunning,
+      pollerRunning,
+      lastMintAt:    lastObservedMintAt(),
+      lastPollAt,
+    });
   });
   router.post('/mints/runtime', modeLimit, requireAuth, (req: Request, res: Response) => {
     const requested = req.body?.enabled;

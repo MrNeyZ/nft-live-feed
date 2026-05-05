@@ -12,7 +12,7 @@ import './health/source-health';
 // is started below in main() once the bus is wired.
 import './mints/accumulator';
 import { startMintDetector } from './mints/detector';
-import { isMintTrackerEnabled } from './runtime/mode';
+import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
@@ -68,7 +68,12 @@ async function main() {
   // dormant until trade mode flips on, so RPC usage stays scoped to
   // mint targets only.
   if (isMintTrackerEnabled()) {
+    // Two-line boot signal so log scans can confirm 24/7 mint coverage
+    // without needing to know which trade mode the operator booted in.
+    // Format matches the runtime task spec: stable substrings the
+    // operator can grep for in pm2 logs after a restart.
     console.log(`[mints] tracker enabled mode=${getMintTrackerMode()} independent=true`);
+    console.log(`[mints/runtime] enabled=true salesMode=${getMode()} independent=true`);
     startListener();
   } else {
     console.log('[mints] tracker disabled');

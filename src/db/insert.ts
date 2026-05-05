@@ -8,6 +8,7 @@ import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ingestion/seller-net';
 import { slugForMint } from '../server/listings-store';
+import { getSseClientCount } from '../server/sse';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
  *  insert and patchSaleEventRaw to gate emission and remove already-emitted
@@ -162,7 +163,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // undefined) then null.
   const resolvedSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
   const blockAgeSec = ((Date.now() - event.blockTime.getTime()) / 1000).toFixed(1);
-  console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}`);
+  console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}  clients=${getSseClientCount()}`);
   // Sampled debug: log when seller-net differs from gross (1st + every 25th).
   // Includes mint + seller so the operator can paste these into ME's UI
   // (item page / wallet activities) for direct ground-truth verification.
