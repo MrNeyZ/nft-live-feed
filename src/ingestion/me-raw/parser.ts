@@ -91,6 +91,7 @@ function nftTypeFromInstruction(name: string): NftType {
       name === 'coreFulfillBuyV2' ||
       name === 'coreExecuteSaleV2') return 'core';
   if (name === 'solMip1FulfillBuy' || name === 'solMip1FulfillSell' || name === 'mip1ExecuteSaleV2') return 'pnft';
+  if (name === 'cnftFulfillBuy') return 'cnft';
   return 'legacy';
 }
 
@@ -247,6 +248,19 @@ function parseMmmSale(
     // Core NFT with variable account layout (e.g. coreFulfillSell) — read from
     // MPL Core inner CPI accounts[0], which is the canonical stable position.
     mint = extractCoreAssetFromInnerIx(tx);
+  } else if (nftType === 'cnft') {
+    // Compressed NFT: no on-chain mint account. Place the collection
+    // address (verified at outer ix `accounts[7]` for `cnftFulfillBuy`
+    // — confirmed against fixture
+    //   3UwKaN58uyh2PBZ7atv1ACmDHpSG1n1xyNWjQvdAxKqcLZ3vubggv6BYweSb7yEPtPddNsFGxoR1R5p3ERWVso6w
+    // accs[7] = axkvaYVWWopHZJzPBsfLJcHQNecHy8L4vvMTYPjaY9N) into
+    // `mintAddress` as a stable placeholder. The signature is the
+    // real per-sale key downstream; mintAddress is just used for
+    // log truncation, dedup heuristics, and a Solscan link target
+    // (which for cNFT instead points at the collection page —
+    // acceptable trade-off versus a derived asset_id that requires
+    // a Bubblegum CPI decode + PDA derivation on every sale).
+    mint = accs[7] ?? null;
   } else {
     // Legacy / pNFT: derive mint from SPL token balance changes (confirmed to work).
     mint = extractNftMint(tx);
@@ -322,19 +336,26 @@ function parseMmmSale(
   // them too if needed later — for now the gate stays non-Core to
   // avoid touching the existing Core path's behavior.
   let effectiveDirection: string = match.direction;
-  if (match.direction === 'fulfillBuy' && nftType !== 'core') {
+  if (match.direction === 'fulfillBuy') {
     const lpFee = readLpFeeFromLogs(tx.meta?.logMessages);
     let promote: boolean;
     if (lpFee != null) {
       promote = lpFee === 0;
-    } else {
+    } else if (nftType !== 'core') {
       // No log signal — fall back to the legacy address heuristic so
       // pre-launch / pre-log MMM ixs still behave identically. This
       // path is reached only when the MMM program log line is missing
       // or shape-changes; safe to leave the original logic in place.
+      // Core NFTs don't have SPL token-flow so we can't run this
+      // heuristic for them; if the lp_fee log isn't present we leave
+      // the direction as-is (`fulfillBuy` → pool_sale) — better to
+      // miss a takeBid reclassification than to call the heuristic
+      // with bad inputs.
       const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
       const poolPda        = accs[match.buyerAcctIdx ?? 1] ?? null;
       promote = !!tokenFlowBuyer && !!poolPda && tokenFlowBuyer !== poolPda;
+    } else {
+      promote = false;
     }
     if (promote) {
       // Direction reclassification is correct for any fulfillBuy with
@@ -350,7 +371,14 @@ function parseMmmSale(
       // — Magic Eden's UI shows `PER2zk…` (the MMM `owner` arg =
       // accs[1] = bidder), our parser was showing `G6RG…QmmA`
       // (escrow). Keeping `accs[1]` is correct for pNFT.
-      // Core path is gated out earlier (`nftType !== 'core'` above).
+      // Core path: lp_fee=0 ALSO triggers takeBid reclassification —
+      // confirmed against
+      //   2cdam8rLjxCCAmW53ZTcFU4E9orPstjyP4oJtVhydT3z6anszEwripjf1mf5zUCqPz5HMeViNoEDLfvcow5ULdi5
+      // (SolMplCoreFulfillBuy, lp_fee=0, royalty_paid=1.4M lamports,
+      // total_price=20M lamports). For Core MMM the outer ix `accs[1]`
+      // is already the human bidder (pool owner), and there's no SPL
+      // token-flow to override against — so we DO NOT apply the
+      // tokenFlowBuyer override below.
       effectiveDirection = 'takeBid'; // maps to bid_sell in both sse.ts and queries.ts
       if (nftType === 'legacy') {
         const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;

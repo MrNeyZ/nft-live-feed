@@ -18,6 +18,14 @@ export interface SaleEvent {
   blockTime: Date;
   marketplace: Marketplace;
   nftType: NftType;
+  /** NFT mint address. For legacy/pNFT/Core this is the asset's
+   *  on-chain mint pubkey. For compressed NFTs (cNFT) we don't
+   *  compute the derived `[merkle_tree, leaf_index]` PDA on the
+   *  parser hot path — we use the collection address as a stable
+   *  placeholder so type assumptions across the codebase
+   *  (`.slice(0, 8)` log truncation, DB inserts, frontend dedup)
+   *  hold without per-callsite null checks. Signature uniquely
+   *  identifies the sale row downstream regardless. */
   mintAddress: string;
   collectionAddress: string | null;
   seller: string;

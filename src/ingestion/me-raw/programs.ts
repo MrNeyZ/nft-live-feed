@@ -302,6 +302,26 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     buyerAcctIdx:  1,  // pool-state PDA — consistent with solFulfillBuy / coreFulfillBuy
     coreAssetIdx:  null,
   },
+  {
+    // ✅ CONFIRMED — discriminator computed via anchorDisc('cnft_fulfill_buy')
+    // matches observed disc 91ade944244cc309 in live tx
+    //   3UwKaN58uyh2PBZ7atv1ACmDHpSG1n1xyNWjQvdAxKqcLZ3vubggv6BYweSb7yEPtPddNsFGxoR1R5p3ERWVso6w
+    // (cNFT bid acceptance, post-log `post_sol_cnft_fulfill_buy`).
+    // Account layout mirrors other fulfillBuy ixs:
+    //   accounts[0] = seller (signer/fulfiller)
+    //   accounts[1] = owner (pool owner = bidder = real buyer)
+    //   accounts[2] = cosigner (NTYeYJ…)
+    // SOL flow: accs[14] (pool vault) pays out, accs[0] receives proceeds.
+    // cNFT asset has NO regular mint pubkey — `mint` flows as null on
+    // the wire and the row anchors on collection address (accs[7] for
+    // this fixture). Parser caller must accept `mint=null` for cNFT.
+    name:          'cnftFulfillBuy',
+    disc:          anchorDisc('cnft_fulfill_buy'), // 91ade944244cc309
+    direction:     'fulfillBuy',
+    sellerAcctIdx: 0,
+    buyerAcctIdx:  1,
+    coreAssetIdx:  null,
+  },
 ];
 
 // ─── Combined lookup ──────────────────────────────────────────────────────────

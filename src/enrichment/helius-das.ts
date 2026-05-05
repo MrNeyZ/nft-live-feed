@@ -350,6 +350,43 @@ export async function getOwnerCollectionCount(
   return r.count;
 }
 
+/** Collection asset owner — calls DAS `getAsset(collectionAddress)`
+ *  and reads `ownership.owner`. For MPL Core collections this is the
+ *  deployer wallet (e.g. `7MmgSY…cwdoPx` for fixture
+ *  `He9QbMYH…NQRF1`); we use it as a final-tier fallback for the LMNFT
+ *  explore-by-deployer link when:
+ *    - `getLmnftInfoByMint` (featured-set scraper) misses, AND
+ *    - `getLmnftStateForCollection` (on-chain LMNFT state decoder) misses.
+ *  Returns null on RPC failure or when DAS hasn't indexed the
+ *  collection asset yet (very fresh launches). Cheap single call,
+ *  fire-and-forget by callers. */
+export async function getCollectionOwner(collectionAddress: string): Promise<string | null> {
+  try {
+    const meta = await getAsset(collectionAddress);
+    void meta;   // existing getAsset returns a curated subset — re-fetch raw for owner
+  } catch { /* fall through to dedicated call below */ }
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        jsonrpc: '2.0', id: 'collection-owner',
+        method:  'getAsset',
+        params:  { id: collectionAddress },
+      }),
+      signal:  AbortSignal.timeout(6_000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { result?: { ownership?: { owner?: string } } };
+    const owner = json.result?.ownership?.owner;
+    return typeof owner === 'string' && owner.length > 0 ? owner : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Collection-wide minted count — `searchAssets` filtered by
  *  `grouping=[collection, <addr>]` only (no owner). Returns the
  *  total number of assets DAS has indexed for the collection, which

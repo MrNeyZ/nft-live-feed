@@ -46,6 +46,7 @@ import {
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
+import { getCollectionOwner } from '../../enrichment/helius-das';
 import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
 import { patchAccumulatorLmnft } from '../../mints/accumulator';
 
@@ -579,6 +580,27 @@ export async function ingestMintRaw(
             owner:     state.owner,
             maxSupply: state.maxSupply,
           });
+          return;
+        }
+        // Path C — DAS collection-asset owner. Final-tier fallback for
+        // when the on-chain LMNFT state decoder fails (LMNFT layout
+        // drift, state PDA missing from this tx's account universe,
+        // or DAS hasn't indexed yet). For MPL Core collections,
+        // `getAsset(collectionAddress).ownership.owner` is the
+        // deployer wallet (confirmed against fixture
+        //   He9QbMYHdMpkQRvUmZ5ZbFXSgQQSVbz3k3vKeqhNQRF1
+        // → owner=7MmgSYQJbMcVCbbYyQFkkmB4Gs2uu8grMEUyNjcwdoPx). The
+        // frontend's `buildLaunchMyNftUrl` uses this owner as the
+        // `query=` argument for the LMNFT `/explore` URL, so the
+        // pill becomes clickable for non-featured launches without
+        // waiting on the LMNFT scraper.
+        const dasOwner = await getCollectionOwner(collectionAddress);
+        if (dasOwner) {
+          console.log(
+            `[mints/lmnft-das-owner] collection=${collectionAddress} owner=${dasOwner} ` +
+            `source=getAsset.ownership.owner`,
+          );
+          patchAccumulatorLmnft(groupingKey, { owner: dasOwner });
         }
       })();
     }

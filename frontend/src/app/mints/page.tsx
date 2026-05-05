@@ -389,28 +389,27 @@ function buildLaunchMyNftUrl(row: MintStatus): string | null {
   if (owner && id && SAFE_URL_SEGMENT_RE.test(owner) && SAFE_URL_SEGMENT_RE.test(id)) {
     return `https://www.launchmynft.io/collections/${owner}/${id}`;
   }
-  // Fallback: LMNFT `/explore` Algolia-search. Tries deployer wallet
-  // first (`lmntfOwner`), then on-chain collection address. LMNFT's
-  // search indexes by collection name + creator + on-chain address,
-  // so either query lands the target in the first 1-3 cards sorted
-  // by `lastMintedAt:desc`. We use the collection-address fallback
-  // because the on-chain LMNFT state decoder occasionally fails
-  // (LMNFT layout drift / state PDA missing from tx account list)
-  // and that path leaves `lmntfOwner` null on the wire — without
-  // this branch the LMNFT pill stays unclickable for those rows.
-  const buildExploreUrl = (q: string) =>
-    `https://www.launchmynft.io/explore?` +
-    `query=${encodeURIComponent(q)}` +
-    `&toggle%5BtwitterVerified%5D=false` +
-    `&toggle%5BsoldOut%5D=false` +
-    `&page=1` +
-    `&sortBy=collections%2Fsort%2FlastMintedAt%3Adesc` +
-    `&refinementList%5Btype%5D%5B0%5D=Solana`;
+  // Fallback: LMNFT `/explore` Algolia-search by deployer wallet.
+  // We deliberately do NOT fall back to `collectionAddress` as the
+  // search query — Algolia returns the wrong/empty result for the
+  // on-chain collection address (it indexes by deployer + collection
+  // name, not by token address). Instead the backend resolves the
+  // owner from three sources, in order:
+  //   1. LMNFT featured-set scraper (`getLmnftInfoByMint`)
+  //   2. on-chain LMNFT state-account decoder (`getLmnftStateForCollection`)
+  //   3. DAS collection-asset owner (`getCollectionOwner`)
+  // (3) is the safety net — for MPL Core collections it reads
+  // `getAsset(collectionAddress).ownership.owner` which IS the
+  // deployer wallet. By the time the user clicks the pill `lmntfOwner`
+  // is virtually always populated.
   if (owner && SOL_PUBKEY_RE.test(owner)) {
-    return buildExploreUrl(owner);
-  }
-  if (row.collectionAddress && SOL_PUBKEY_RE.test(row.collectionAddress)) {
-    return buildExploreUrl(row.collectionAddress);
+    return `https://www.launchmynft.io/explore?` +
+      `query=${encodeURIComponent(owner)}` +
+      `&toggle%5BtwitterVerified%5D=false` +
+      `&toggle%5BsoldOut%5D=false` +
+      `&page=1` +
+      `&sortBy=collections%2Fsort%2FlastMintedAt%3Adesc` +
+      `&refinementList%5Btype%5D%5B0%5D=Solana`;
   }
   return null;
 }
