@@ -360,6 +360,40 @@ export async function getOwnerCollectionCount(
  *  Returns null on RPC failure or when DAS hasn't indexed the
  *  collection asset yet (very fresh launches). Cheap single call,
  *  fire-and-forget by callers. */
+/** Resolve the collection-level image URL via DAS getAsset on the
+ *  collection address. Used as last-resort fallback for /feed cards
+ *  whose per-NFT image never resolved through the standard enrichment
+ *  chain (DAS asset image null + on-chain Metaplex null + Tensor +
+ *  ME all empty). The collection image is a strictly-better signal
+ *  than the abbr/color placeholder. Returns null on any failure /
+ *  missing field. Cheap single RPC; callers should throttle. */
+export async function getCollectionImage(collectionAddress: string): Promise<string | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        jsonrpc: '2.0', id: 'collection-image',
+        method:  'getAsset',
+        params:  { id: collectionAddress },
+      }),
+      signal:  AbortSignal.timeout(6_000),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      result?: { content?: { links?: { image?: string }; files?: Array<{ uri?: string; cdn_uri?: string }> } };
+    };
+    const link  = json.result?.content?.links?.image;
+    const file  = json.result?.content?.files?.[0]?.cdn_uri ?? json.result?.content?.files?.[0]?.uri;
+    const image = link || file || null;
+    return typeof image === 'string' && image.length > 0 ? image : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getCollectionOwner(collectionAddress: string): Promise<string | null> {
   // Previously prefixed with a `getAsset(collectionAddress)` whose
   // result was discarded (the curated wrapper doesn't expose ownership).

@@ -347,6 +347,81 @@ function savePersistedFeed(events: MintEvent[]): void {
   } catch { /* quota / private mode — fail silent */ }
 }
 
+/** Rebuild minimal MintStatus rows from restored MintEvent buffer.
+ *  Used on mount when:
+ *    - the live-feed restore brought back events for a group whose
+ *      `mint_status` snapshot is no longer in the persisted collections
+ *      store (or was never there — restored from a prior session that
+ *      saved the feed but evicted the collection row at the 24 h
+ *      collections-cache TTL or the 200-row write cap), AND
+ *    - the backend's `mint_status` snapshot replay (sent on SSE connect)
+ *      hasn't yet arrived for that group.
+ *  Without this, the LIVE MINT FEED panel shows old events but the
+ *  COLLECTIONS table on the left is empty for those groups even when
+ *  the user picks 4H / 1D timeframe — the row simply doesn't exist.
+ *
+ *  Synthesized rows are always `displayState: 'incubating'` so they
+ *  appear in both ACTIVE (WATCH tier) and RECENT tabs once a real
+ *  `mint_status` from the backend arrives, the SSE handler's
+ *  sticky-merge overwrites these scaffolds with authoritative numbers
+ *  (observedMints / v60 / v5m / displayState / mintType / etc.) while
+ *  preserving any name / image that resolved later. */
+function rebuildCollectionsFromEvents(events: MintEvent[]): Map<string, MintStatus> {
+  const now = Date.now();
+  const out = new Map<string, MintStatus>();
+  const freeCount: Record<string, number> = {};
+  const paidCount: Record<string, number> = {};
+  for (const ev of events) {
+    let row = out.get(ev.groupingKey);
+    if (!row) {
+      row = {
+        groupingKey:       ev.groupingKey,
+        groupingKind:      ev.groupingKind,
+        programSource:     ev.programSource,
+        collectionAddress: ev.collectionAddress,
+        lastMintAddress:   ev.mintAddress,
+        sourceLabel:       ev.sourceLabel,
+        displayState:      'incubating',
+        observedMints:     0,
+        v60:               0,
+        v5m:               0,
+        lastMintAt:        0,
+        mintType:          'unknown',
+        priceLamports:     null,
+        // name / imageUrl / maxSupply / mintedCount / lmntfOwner /
+        // lmntfCollectionId left undefined — no per-NFT image leaks
+        // into the collection row (per spec: live feed and table use
+        // separate image sources). The first authoritative
+        // `mint_status` frame after SSE reconnect fills these in.
+      };
+      out.set(ev.groupingKey, row);
+      freeCount[ev.groupingKey] = 0;
+      paidCount[ev.groupingKey] = 0;
+    }
+    row.observedMints++;
+    if (ev.receivedAt > row.lastMintAt) row.lastMintAt = ev.receivedAt;
+    if (ev.mintAddress) row.lastMintAddress = ev.mintAddress;
+    if (now - ev.receivedAt < 60_000)  row.v60++;
+    if (now - ev.receivedAt < 300_000) row.v5m++;
+    if (ev.mintType === 'free')      freeCount[ev.groupingKey]++;
+    else if (ev.mintType === 'paid') paidCount[ev.groupingKey]++;
+  }
+  // Roll up mintType the same way the backend does (`rollupType` in
+  // src/mints/accumulator.ts): mostly-free / mostly-paid / mixed /
+  // unknown. Cheap pass over the per-group counters.
+  for (const [k, row] of out) {
+    const obs = row.observedMints;
+    const f   = freeCount[k] ?? 0;
+    const p   = paidCount[k] ?? 0;
+    if (obs === 0)            row.mintType = 'unknown';
+    else if (f / obs > 0.95)  row.mintType = 'free';
+    else if (p / obs > 0.95)  row.mintType = 'paid';
+    else if (f > 0 && p > 0)  row.mintType = 'mixed';
+    else                      row.mintType = 'unknown';
+  }
+  return out;
+}
+
 /** Debounce shell for the two persist functions above. The raw
  *  `savePersistedCollections` / `savePersistedFeed` calls were being
  *  invoked from inside the SSE setRows / setEvents updaters on every
@@ -779,6 +854,32 @@ export default function MintsPage() {
     if (cacheLoggedRef.current) return;
     cacheLoggedRef.current = true;
     console.log(`[mints/cache] restored collections=${rows.size} events=${events.length}`);
+    // Rebuild missing collection rows from the restored live-feed
+    // events. Runs ONCE on mount, before any SSE traffic can arrive
+    // (the SSE useEffect opens the connection in the same tick but
+    // the network round-trip lands later). Result: when the user
+    // expands the timeframe to 4H / 1D, collections that exist only
+    // in the persisted feed (no surviving collection cache row, no
+    // backend snapshot replay yet) still appear in the table. The
+    // SSE handler's sticky-merge later overwrites these scaffolds
+    // with authoritative `mint_status` data while preserving any
+    // synthesized lastMintAt / observedMints in the meantime.
+    if (events.length > 0) {
+      setRows(prev => {
+        const synth = rebuildCollectionsFromEvents(events);
+        let added = 0;
+        const next = new Map(prev);
+        for (const [k, synthRow] of synth) {
+          if (next.has(k)) continue;                  // mint_status authoritative
+          if (!isRenderableMintStatus(synthRow)) continue; // junk filter
+          next.set(k, synthRow);
+          added++;
+        }
+        if (added === 0) return prev;
+        console.log(`[mints/cache] rebuiltCollectionsFromFeed=${added}`);
+        return next;
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1887,14 +1988,25 @@ export default function MintsPage() {
                         <div style={baseStyle}>{collectionLine}</div>
                       );
                     })()}
-                    {/* Minter wallet — same compact styling as the
-                        seller/buyer rows in /feed (mono, 10.5 px,
-                        muted). Hidden when the field isn't on the
-                        wire (some replays / cNFT paths). */}
+                    {/* Minter wallet — compact mono styling matching
+                        the seller/buyer rows in /feed. Plain shortened
+                        wallet (no "minter:" prefix) and clickable to
+                        the Solscan account page in a new tab. Hidden
+                        when the field isn't on the wire (some replays
+                        / cNFT paths). */}
                     {ev.minter && (
                       <div style={{ fontSize: 10.5, color: '#55556e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <span>minter:</span>
-                        <span>{shortMint(ev.minter)}</span>
+                        <a
+                          href={`https://solscan.io/account/${ev.minter}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Solscan · ${ev.minter}`}
+                          style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                        >
+                          {shortMint(ev.minter)}
+                        </a>
                       </div>
                     )}
                   </div>

@@ -42,7 +42,7 @@ interface MeTokenData {
  * Uses the public ME v2 tokens API — no key required.
  * Never throws.
  */
-async function getMeTokenData(mint: string): Promise<MeTokenData> {
+export async function getMeTokenData(mint: string): Promise<MeTokenData> {
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/tokens/${mint}`,
@@ -72,7 +72,7 @@ async function getMeTokenData(mint: string): Promise<MeTokenData> {
  * Fetches NFT name and image from Tensor's public mint API.
  * Returns null values on any failure; never throws.
  */
-async function getTensorMetadata(
+export async function getTensorMetadata(
   mint: string,
 ): Promise<Pick<NftMetadata, 'nftName' | 'imageUrl'>> {
   try {
