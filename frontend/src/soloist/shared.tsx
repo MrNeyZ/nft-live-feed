@@ -142,7 +142,21 @@ export const ItemThumb = memo(function ItemThumb({
       height={size}
       loading="lazy"
       decoding="async"
-      onError={() => { if (!fellBack) setFellBack(true); else setErrored(true); }}
+      onError={() => {
+        if (!fellBack) {
+          // First failure — usually a /thumb proxy 404 (wsrv host
+          // policy / transient upstream / expired CDN URL). Sampled
+          // 5 % so a whole-collection CDN outage doesn't flood
+          // devtools. Then fall back to the raw upstream URL.
+          if (typeof window !== 'undefined' && Math.random() < 0.05) {
+            // eslint-disable-next-line no-console
+            console.log(`[feed/image] proxy404 url=${src}`);
+          }
+          setFellBack(true);
+        } else {
+          setErrored(true);
+        }
+      }}
       style={{ width: size, height: size, borderRadius: 4, objectFit: 'cover', display: 'block', background: '#0e0b22' }}
     />
   );
@@ -180,7 +194,21 @@ export const CollectionIcon = memo(function CollectionIcon({
       height={size}
       loading="lazy"
       decoding="async"
-      onError={() => { if (!fellBack) setFellBack(true); else setErrored(true); }}
+      onError={() => {
+        if (!fellBack) {
+          // First failure — usually a /thumb proxy 404 (wsrv host
+          // policy / transient upstream / expired CDN URL). Sampled
+          // 5 % so a whole-collection CDN outage doesn't flood
+          // devtools. Then fall back to the raw upstream URL.
+          if (typeof window !== 'undefined' && Math.random() < 0.05) {
+            // eslint-disable-next-line no-console
+            console.log(`[feed/image] proxy404 url=${src}`);
+          }
+          setFellBack(true);
+        } else {
+          setErrored(true);
+        }
+      }}
       style={{
         width: size, height: size, borderRadius: '50%',
         objectFit: 'cover', display: 'block',

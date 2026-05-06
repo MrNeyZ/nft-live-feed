@@ -2,6 +2,7 @@ import { getPool } from './client';
 import { SaleEvent, CNFT_MIN_PRICE_LAMPORTS } from '../models/sale-event';
 import { saleEventBus } from '../events/emitter';
 import { enrich } from '../enrichment/enrich';
+import { scheduleImageRetry } from '../enrichment/image-retry';
 import { isBlacklistedCollection } from './blacklist';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
@@ -290,6 +291,25 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         floorDelta:        enriched.floorDelta        ?? null,
         offerDelta:        enriched.offerDelta        ?? null,
       });
+
+      // Late image-resolution path. The synchronous enrich pipeline
+      // above can leave imageUrl null when DAS hasn't yet indexed a
+      // freshly-minted asset (common for first-of-collection sales).
+      // Schedule background DAS retries at 15 s / 60 s / 180 s; if the
+      // image resolves, a follow-up `MetaUpdate` patches the card. The
+      // frontend reducer uses `patch.imageUrl ?? ev.imageUrl`, so a
+      // null here can never overwrite an already-resolved image. Per-
+      // mint dedup + 20 min backoff bound RPC.
+      if (!enriched.imageUrl && enriched.mintAddress) {
+        scheduleImageRetry({
+          mintAddress:       enriched.mintAddress,
+          signature:         enriched.signature,
+          collectionName:    enriched.collectionName,
+          collectionAddress: enriched.collectionAddress,
+          meCollectionSlug:  enriched.meCollectionSlug ?? null,
+          nftName:           enriched.nftName,
+        });
+      }
     })
     .catch((err) =>
       console.error(`[enrich] background failed  sig=${event.signature.slice(0, 12)}...`, err),

@@ -390,12 +390,21 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     if (event.nftType === 'core' && (!metadata?.nftName || !metadata?.imageUrl)) {
       metadata = await coreEnrichFallback(mint, metadata);
       metadata = { ...metadata, meCollectionSlug: metadata.meCollectionSlug ?? meCollectionSlug };
-      successCache.set(mint, metadata);
-    } else if (metadata !== null) {
-      successCache.set(mint, metadata);
-    } else {
-      failureCache.set(mint, true);     // non-Core total failure — retry in 60s
     }
+    // Cache only complete results (have BOTH name and image). Caching a
+    // partial — e.g. DAS returned a name but no image because indexing
+    // hasn't finished for a freshly-minted asset — would lock that
+    // partial in for the 7 min successCache TTL, defeating both the new
+    // background image-retry path and any subsequent same-mint sale's
+    // fallback chain. failureCache (60 s) handles total misses; partials
+    // simply re-enrich on the next sale until one source surfaces an
+    // image, after which the result becomes cacheable.
+    if (metadata && metadata.nftName && metadata.imageUrl) {
+      successCache.set(mint, metadata);
+    } else if (metadata === null) {
+      failureCache.set(mint, true);     // total failure — retry in 60s
+    }
+    // else: partial — fall through, neither cache populated.
   }
 
   const enriched = applyMetadata(event, metadata);
