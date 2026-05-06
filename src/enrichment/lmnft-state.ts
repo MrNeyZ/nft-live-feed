@@ -55,11 +55,25 @@ const MIN_DATA_LEN  = 267;             // owner+maxSupply+collMint all readable
 
 const OFF_OWNER          = 49;
 const OFF_MAX_SUPPLY_U32 = 226;
+// Offset 230 is annotated in the layout above as "5 misc bytes (likely
+// current count)". Reading it as a u32 LE at 230 yields a value in the
+// 0..maxSupply range on every fixture we've sampled — so this IS the
+// running mintedCount. We expose it conditionally (only when it's
+// sane) and the accumulator uses it as the third-tier fallback for
+// the MINTED column when DAS searchAssets returns a stale lower
+// number for the collection grouping.
+const OFF_MINTED_U32     = 230;
 const OFF_COLLECTION_MINT= 235;
 
 export interface LmntfState {
   owner:          string;
   maxSupply:      number | null;
+  /** Running count of NFTs minted from this LMNFT collection. Decoded
+   *  from the on-chain LMNFT state account at offset 230. Null when
+   *  the value reads zero (genuinely no mints yet) or when it falls
+   *  outside the sane [0, maxSupply] range (defensive — prefer no
+   *  data over a wrong value). */
+  mintedCount:    number | null;
   collectionMint: string;
 }
 
@@ -76,12 +90,23 @@ function decodeState(data: Buffer): LmntfState | null {
   if (data.length < MIN_DATA_LEN) return null;
   try {
     const owner          = readPubkey(data, OFF_OWNER);
-    const maxSupply      = data.readUInt32LE(OFF_MAX_SUPPLY_U32);
+    const maxSupplyRaw   = data.readUInt32LE(OFF_MAX_SUPPLY_U32);
+    const mintedRaw      = data.readUInt32LE(OFF_MINTED_U32);
     const collectionMint = readPubkey(data, OFF_COLLECTION_MINT);
     if (!owner || !collectionMint) return null;
+    const maxSupply = maxSupplyRaw > 0 ? maxSupplyRaw : null;
+    // Sanity: mintedCount must be 0..maxSupply (inclusive). Outside
+    // that range the offset assumption is wrong for this LMNFT
+    // version — return null so the caller falls back to other
+    // sources rather than displaying garbage.
+    const mintedCount =
+      mintedRaw > 0 && (maxSupply == null || mintedRaw <= maxSupply)
+        ? mintedRaw
+        : null;
     return {
       owner,
-      maxSupply: maxSupply > 0 ? maxSupply : null,
+      maxSupply,
+      mintedCount,
       collectionMint,
     };
   } catch {

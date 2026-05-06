@@ -217,12 +217,24 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
     // trust in the MINTED column. Prefer max(das, observed) so the
     // column never shows a value lower than what's already in the
     // user's eyes from MINTS column.
-    const count = Math.max(dasCount, live.observedMints);
+    // Three potential sources of truth for the MINTED column. Take the
+    // max so we always show the most progressed launch state:
+    //   1. DAS searchAssets total — best for steady-state, Helius
+    //      indexes most collections eventually.
+    //   2. LMNFT on-chain state account u32 at offset 230 — patched
+    //      in via `patchAccumulatorLmnft` from the LMNFT decoder; the
+    //      most authoritative for LMNFT-managed collections (DAS
+    //      grouping can lag a fast launch by minutes/hours, e.g.
+    //      Micros at 6669/10000 minted but DAS returns 0–1).
+    //   3. observedMints — session-only floor; never let MINTED show
+    //      less than what the user has already seen via MINTS column.
+    const lmnftMinted = typeof live.mintedCount === 'number' ? live.mintedCount : 0;
+    const count = Math.max(dasCount, live.observedMints, lmnftMinted);
     if (count !== dasCount) {
       console.log(
         `[mints/minted-count] collection=${collection} ` +
         `dasTotal=${dasCount} observed=${live.observedMints} ` +
-        `corrected=${count} reason=das_below_observed`,
+        `lmnft=${lmnftMinted || 'null'} corrected=${count} reason=das_lower_than_authoritative`,
       );
     }
     if (live.mintedCount === count) return;
@@ -518,13 +530,19 @@ export function patchAccumulatorMeta(
  *  are unchanged. */
 export function patchAccumulatorLmnft(
   groupingKey: string,
-  patch: { owner?: string | null; collectionId?: string | null; maxSupply?: number | null; name?: string | null },
+  patch: {
+    owner?:        string | null;
+    collectionId?: string | null;
+    maxSupply?:    number | null;
+    name?:         string | null;
+    mintedCount?:  number | null;
+  },
 ): void {
   const a = map.get(groupingKey);
   if (!a) return;
   // Each field is optional and only overwrites when the new value is
   // truthy — lets independent sources contribute partial updates:
-  //   - on-chain decoder supplies {owner, maxSupply} (no collectionId).
+  //   - on-chain decoder supplies {owner, maxSupply, mintedCount}.
   //   - LMNFT homepage scraper supplies {owner, collectionId, maxSupply, name}.
   // Whichever lands first populates its share; the other fills in
   // when it runs. Sticky-merge means a later partial patch never
@@ -535,15 +553,24 @@ export function patchAccumulatorLmnft(
     ? patch.maxSupply
     : (a.maxSupply ?? null);
   const nextName   = (patch.name && patch.name.length > 0) ? patch.name : a.name;
+  // For mintedCount we WANT to overwrite with new on-chain values
+  // (count grows over time), but never replace a known number with
+  // null. Patch wins iff it's a finite non-negative number.
+  const nextMinted =
+    typeof patch.mintedCount === 'number' && Number.isFinite(patch.mintedCount) && patch.mintedCount >= 0
+      ? patch.mintedCount
+      : (a.mintedCount ?? null);
   if (
     a.lmntfOwner === nextOwner &&
     a.lmntfCollectionId === nextId &&
     a.maxSupply === nextSupply &&
-    a.name === nextName
+    a.name === nextName &&
+    a.mintedCount === nextMinted
   ) return;
   a.lmntfOwner        = nextOwner;
   a.lmntfCollectionId = nextId;
   a.maxSupply         = nextSupply;
+  a.mintedCount       = nextMinted;
   if (nextName) a.name = nextName;
   const href = (nextOwner && nextId)
     ? `https://www.launchmynft.io/collections/${nextOwner}/${nextId}`

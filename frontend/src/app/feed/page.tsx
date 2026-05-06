@@ -556,24 +556,25 @@ const FeedCard = memo(function FeedCard({
                   backend has resolved a finite count (0 is a valid
                   value). Soft yellow circle on dark text, sized to
                   the wallet line metric so it doesn't bump row height. */}
-              {/* Seller-remaining badge — two render paths:
-                    A. Exact count (≥3) — renders on EVERY visible
-                       sell-side row from the same seller+collection
-                       (the dumper's full batch shows the same number
-                       so the user can see at-a-glance how much supply
-                       is still in the dumper's hands during a wave).
-                       Dump-gate kept: 2+ visible sells from the wallet
-                       OR sellerCount ≥ 10.
-                    B. 🔥 multi-sell signal — backend-determined
-                       (sells10m≥2 with weak/null DAS count). Renders
-                       only on the newest row to avoid repetition
-                       (no exact number, just a "wallet is dumping"
-                       hint — repeating it on every row would be noise). */}
+              {/* Seller-remaining badge. Renders on EVERY sell-side
+                  row where the backend has resolved a finite count
+                  ≥ 3 — the dumper's whole batch shows the same number
+                  consistently, so the user can read at a glance how
+                  much supply is still in the dumper's hands.
+                  Previously gated by `sellerSellCountInFeed >= 2 OR
+                  sellerCount >= 10`, which produced inconsistent
+                  badges across the same dump (some rows showed the
+                  count, others didn't depending on visible-row
+                  state). Per the spec: "if shown, show on ALL".
+                  The 🔥 multi-sell hint was removed entirely — it
+                  was redundant noise next to the numeric count, and
+                  on the rare path where only the multi-signal exists
+                  (no exact count) one row of fire among silent
+                  siblings was confusing rather than helpful. */}
               {(kind === 'sell' || kind === 'sellAmm') &&
                 typeof sellerCount === 'number' &&
                 Number.isFinite(sellerCount) &&
-                sellerCount >= 3 &&
-                (sellerSellCountInFeed >= 2 || sellerCount >= 10) && (
+                sellerCount >= 3 && (
                 <span
                   key={event.id}
                   className="seller-remaining-badge"
@@ -586,22 +587,6 @@ const FeedCard = memo(function FeedCard({
                   <span key={sellerCount} className="seller-remaining-badge-num">
                     {Math.min(99, sellerCount)}
                   </span>
-                </span>
-              )}
-              {(kind === 'sell' || kind === 'sellAmm') &&
-                isNewestSellForSellerColl &&
-                event.sellerSignal === 'multi' &&
-                !(typeof sellerCount === 'number' && Number.isFinite(sellerCount) && sellerCount >= 3) && (
-                <span
-                  key={`multi-${event.id}`}
-                  className="seller-remaining-badge"
-                  title={
-                    `Wallet is dumping — ${event.sellerSells10m ?? 2}+ sells from this collection in the last 10 min ` +
-                    `(exact remaining count unavailable)`
-                  }
-                  style={SELLER_REMAINING_BADGE_STYLE}
-                >
-                  <span className="seller-remaining-badge-num">🔥</span>
                 </span>
               )}
             </div>
@@ -1092,6 +1077,42 @@ export default function FeedPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Backfill sweep — runs whenever feedState changes. For any row that
+  // has a seller+collection both known but `sellerRemainingCount` not
+  // attached, look up the persisted count by (seller, collection) and
+  // dispatch a seller_count patch. Closes the race where a prior row's
+  // SSE seller_count broadcast set the cache key after this row was
+  // inserted, OR where this row's collectionAddress was null at sale
+  // time and only resolved later via `meta` (the reducer's `meta` case
+  // updates collectionAddress but doesn't re-attempt the count lookup).
+  // Idempotent: skips when count is already on the row, or no key
+  // resolves, or no persisted value exists.
+  useEffect(() => {
+    for (const ev of feedState.byId.values()) {
+      if (typeof ev.sellerRemainingCount === 'number') continue;
+      const k = sellerCountKey(ev.seller, ev.collectionAddress);
+      if (!k) continue;
+      const persisted = sellerCountRef.current.get(k);
+      if (typeof persisted !== 'number') continue;
+      // Synthetic patch — re-uses the existing seller_count reducer.
+      // No `signature` because we want to match by (seller+collection)
+      // which is the persisted key.
+      dispatch({
+        type:  'seller_count',
+        patch: {
+          seller:     ev.seller!,
+          collection: ev.collectionAddress!,
+          count:      persisted,
+          sells10m:   ev.sellerSells10m ?? 0,
+          signal:     ev.sellerSignal ?? undefined,
+        },
+      });
+      // One match per pass — patchWhere fans out to all matching rows
+      // anyway, so we don't need to iterate the full set.
+      break;
+    }
+  }, [feedState]);
 
   // ── Collection-floor lookup ─────────────────────────────────────────────
   // Dual-purpose cache populated from /api/collections/bids:

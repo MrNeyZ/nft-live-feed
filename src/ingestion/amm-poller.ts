@@ -506,16 +506,22 @@ async function sweepTarget(target: PollTarget): Promise<void> {
 
 // ─── Tick ─────────────────────────────────────────────────────────────────────
 
-// In the lean modes (`sales_only` and `budget`) the TAMM AMM-pool program
-// is deliberately NOT polled here: the listener's own pollAll already
-// sweeps it, and tensor's listener prefilter sheds non-sale txs before
-// fetchRawTx anyway. MMM is INCLUDED — its sale-side instructions
-// (`SolMplCoreFulfillBuy`, `solFulfillBuy`, etc.) are NOT in the
-// `MMM_SALES_ONLY_SKIP_LOG_NAMES` deny-list and we must keep them
-// covered by both subsystems; without amm-poller as a safety net,
-// transient WS stalls mean MMM sale sigs go missing in lean modes.
-// Full mode keeps the behaviour unchanged.
-const LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:mmm', 'poll:tcomp']);
+// In the lean modes (`sales_only` and `budget`) the AMM poller doubles
+// as a safety net for transient WS stalls. MMM was already included
+// because its sale-side instructions aren't in the deny-list; for the
+// same reason TAMM (Tensor AMM) is INCLUDED here too — `sellNftTradePool`
+// / `buyNftTradePool` log names DO pass the tensor prefilter, but
+// Helius WS still drops them under burst load (confirmed against
+//   5gg7cMUaXStgQY4UsujwC5DHgz4SNUsxnY8e7kWfcYxi1qNwBHEUvncKZ27HANDYg4oTJkR3YJVLVxGhEjzxZCQq
+// and 3 sibling sigs from the same `5XDWm4…eiCL` SCOUT bid-dump where
+// 4 of 8 TAMM sales went missing in /feed). The earlier "listener
+// pollAll already sweeps tamm" claim doesn't survive lean mode, where
+// pollAll is itself rate-shaped. Cost is small: tamm sale volume is
+// modest and the tensor prefilter still shed non-sale txs before
+// fetchRawTx for the WS path; the poller path lacks logs but the
+// tensor-raw parser DROPs unrecognised ixs cheaply.
+// Full mode keeps the behaviour unchanged (all targets polled).
+const LEAN_MODE_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:mmm', 'poll:tcomp', 'poll:tamm']);
 function isLeanMode(mode: ReturnType<typeof getMode>): boolean {
   return mode === 'sales_only' || mode === 'budget';
 }

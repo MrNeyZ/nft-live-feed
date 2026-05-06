@@ -877,8 +877,15 @@ export default function MintsPage() {
             // hides older rows. The on-screen counter resets to 1,
             // making the wipe visible. Below the cap we just prepend
             // newest-first.
-            const trimmed = next.length > LIVE_FEED_MAX ? [ev] : next;
-            if (next.length > LIVE_FEED_MAX) {
+            // Wipe at-or-above the cap so the buffer never displays a
+            // permanent "150 recent · max 150" shelf. Previously gated
+            // by `>`, which meant the wipe only fired on the 151st
+            // insert — if traffic stalled at exactly 150 events, the
+            // counter sat there indefinitely. `>=` fires on the
+            // insert that WOULD bring the buffer to the cap, dropping
+            // the prior 149 + the new event collapses to just `[ev]`.
+            const trimmed = next.length >= LIVE_FEED_MAX ? [ev] : next;
+            if (next.length >= LIVE_FEED_MAX) {
               console.log(`[mints/live] cap reached (${LIVE_FEED_MAX}) — feed cleared`);
             }
             console.log(
@@ -1666,8 +1673,29 @@ export default function MintsPage() {
               const nftName        = (ev.nftName && ev.nftName.length > 0)
                 ? ev.nftName
                 : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
-              const collectionLine = collectionName
-                ?? (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
+              // Defensive frontend strip — when backend patched
+              // `group.name` with the raw per-NFT name (e.g.
+              // "Kryptos #287"), strip the trailing `#N` to derive a
+              // collection-style label ("Kryptos"). This catches the
+              // race where the synthesized-row upsert from a `mint`
+              // event lands BEFORE collection-confirm strips it on
+              // the backend; without this guard the bottom line
+              // mirrors the top line and reads as "missing".
+              const strippedCollection = collectionName
+                ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim()
+                : null;
+              // Final collection line. Order:
+              //   1. stripped backend name when distinct from nftName
+              //   2. short collection address (always renders SOMETHING
+              //      pubkey-ish, never empty or '—')
+              //   3. literal "—" only when NEITHER is available
+              // Also guard against `strippedCollection === nftName`
+              // (true when backend hasn't resolved a real collection
+              // name and we'd duplicate the title line).
+              const collectionLine =
+                (strippedCollection && strippedCollection.length > 0 && strippedCollection !== nftName)
+                  ? strippedCollection
+                  : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
               const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
               // Per-mint image only. We deliberately do NOT fall back
               // to `group?.imageUrl` here — that produced the bug
@@ -1771,10 +1799,41 @@ export default function MintsPage() {
                     </div>
                     {/* Bottom line: collection name (smaller, muted)
                         per the targeted-mode spec. Falls back to the
-                        shortened collection address, then to "—". */}
-                    <div style={{ fontSize: 11, color: '#7a7a94', fontWeight: 500, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {collectionLine}
-                    </div>
+                        shortened collection address, then to "—".
+                        Clickable when we can build a LaunchMyNFT link
+                        for this row's group — same target as the
+                        LMNFT pill in the trending table on the left.
+                        We resolve the URL via `buildLaunchMyNftUrl`
+                        which already handles the deployer-only
+                        explore fallback. Cursor + underline-on-hover
+                        match the title-line link styling so users
+                        recognise it as interactive. */}
+                    {(() => {
+                      const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
+                      const baseStyle: React.CSSProperties = {
+                        fontSize: 11, color: '#7a7a94', fontWeight: 500,
+                        marginTop: 2, overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      };
+                      return lmnftHref ? (
+                        <a
+                          href={lmnftHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`LaunchMyNFT · ${group?.name ?? collectionLine}`}
+                          style={{
+                            ...baseStyle,
+                            display: 'block', textDecoration: 'none', cursor: 'pointer',
+                          }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                        >
+                          {collectionLine}
+                        </a>
+                      ) : (
+                        <div style={baseStyle}>{collectionLine}</div>
+                      );
+                    })()}
                     {/* Minter wallet — same compact styling as the
                         seller/buyer rows in /feed (mono, 10.5 px,
                         muted). Hidden when the field isn't on the

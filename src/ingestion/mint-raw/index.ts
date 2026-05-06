@@ -574,11 +574,13 @@ export async function ingestMintRaw(
         if (state && state.owner) {
           console.log(
             `[mints/lmnft-config] collection=${collectionAddress} owner=${state.owner} ` +
-            `collectionId=onchain_unavailable maxSupply=${state.maxSupply ?? 'null'}`,
+            `collectionId=onchain_unavailable maxSupply=${state.maxSupply ?? 'null'} ` +
+            `mintedCount=${state.mintedCount ?? 'null'}`,
           );
           patchAccumulatorLmnft(groupingKey, {
-            owner:     state.owner,
-            maxSupply: state.maxSupply,
+            owner:       state.owner,
+            maxSupply:   state.maxSupply,
+            mintedCount: state.mintedCount,
           });
           return;
         }
