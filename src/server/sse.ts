@@ -113,11 +113,20 @@ function buildMintMetaFrame(p: MintMetaPatch): string {
 // they're harmless extras here.
 const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'pool_sale', 'pool_sell', 'amm_sell']);
 
+/** Per-sale seller-count log gate. The fast/signal lines were unsampled
+ *  per sale; under load that's noisy without telling the operator anything
+ *  the audit/result/skip lines don't already say. Set `SELLER_COUNT_DEBUG=1`
+ *  (or `=verbose`) when actively investigating to re-enable them. The
+ *  exact-fallback trigger/result/skip logs in `seller-count-exact.ts`
+ *  remain unsampled regardless — they fire infrequently and matter. */
+const SELLER_COUNT_DEBUG = process.env.SELLER_COUNT_DEBUG === '1'
+  || process.env.SELLER_COUNT_DEBUG === 'verbose';
+
 // Startup confirmation — proves this module loaded and the seller-count
 // onSale listener is attached. Look for this exact line in `pm2 logs
 // nft-backend` immediately after restart to verify the binary in use
 // includes the seller-count diagnostic.
-console.log('[seller-count-init] listener attached');
+if (SELLER_COUNT_DEBUG) console.log('[seller-count-init] listener attached');
 
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
@@ -202,9 +211,11 @@ saleEventBus.onSale(           (event)  => {
     const count = verdict.count;
     const sells10m = getRecentSellCount(seller, collection);
     const sellsAny10m = getRecentSellerCountAny(seller);
-    console.log(
-      `[seller-count-fast] seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… count=${count ?? 'null'}`,
-    );
+    if (SELLER_COUNT_DEBUG) {
+      console.log(
+        `[seller-count-fast] seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… count=${count ?? 'null'}`,
+      );
+    }
     // Active-dumper trigger: when fast count is weak (null/0/1/2) AND
     // the wallet shows live dump-y behavior, kick the exact-fallback
     // deep scan. Fire-and-forget — broadcasts a fresh seller_count
@@ -237,13 +248,15 @@ saleEventBus.onSale(           (event)  => {
         (verdict.scanned != null ? ` scanned=${verdict.scanned}` : ''),
       );
     }
-    // Always log the per-event signal — cheap and lets the operator
-    // confirm the multi-sell path is firing for known whales without
-    // enabling the noisier verbose flag.
-    console.log(
-      `[seller-count-signal] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… ` +
-      `sells10m=${sells10m} count=${count ?? 'null'}` + (signal ? ` signal=${signal}` : ''),
-    );
+    // Per-event signal log — gated by SELLER_COUNT_DEBUG. The
+    // exact-fallback trigger log below is the operator-facing surface
+    // for whale-dump detection and remains unsampled.
+    if (SELLER_COUNT_DEBUG) {
+      console.log(
+        `[seller-count-signal] seller=${seller.slice(0,8)}… collection=${collection.slice(0,8)}… ` +
+        `sells10m=${sells10m} count=${count ?? 'null'}` + (signal ? ` signal=${signal}` : ''),
+      );
+    }
     if (count == null && !signal) {
       if (Math.random() < 0.02) {
         console.log(
@@ -295,10 +308,25 @@ saleEventBus.onMintMeta(       (p)      => broadcast(buildMintMetaFrame(p)));
 // Late seller-count refresh (active-dumper exact-fallback). Re-uses
 // the existing `seller_count` SSE event; frontend reducer already
 // matches by seller+collection and sticky-merges higher counts.
+// `signal` is forwarded only when the producer supplied one — omitting
+// it lets the frontend reducer keep any prior 🔥 state intact. When an
+// exact `count` is present the frontend will replace the multi badge
+// with the exact number regardless of `signal`.
 saleEventBus.onSellerCountUpdate((u) => {
-  broadcast(`event: seller_count\ndata: ${JSON.stringify({
-    seller: u.seller, collection: u.collection, count: u.count, sells10m: u.sells10m,
-  })}\n\n`);
+  const payload: {
+    seller:     string;
+    collection: string;
+    count:      number;
+    sells10m:   number;
+    signal?:    'multi';
+  } = {
+    seller:     u.seller,
+    collection: u.collection,
+    count:      u.count,
+    sells10m:   u.sells10m,
+  };
+  if (u.signal) payload.signal = u.signal;
+  broadcast(`event: seller_count\ndata: ${JSON.stringify(payload)}\n\n`);
 });
 
 // 60 s audit — cross-checks accumulator's accepted/emitted with

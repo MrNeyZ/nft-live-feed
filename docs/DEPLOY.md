@@ -108,6 +108,7 @@ to both the nginx `server_name` and `UI_ALLOWED_ORIGINS`.
 ```bash
 cd ~/nft-live-feed
 npm ci
+npm run build       # emits dist/index.js — PM2 launches from this
 npm run migrate
 
 cd frontend

@@ -618,16 +618,25 @@ export default function Dashboard() {
             nftName: string | null; collectionName: string | null;
             meCollectionSlug: string | null;
           };
-          setEvents(prev => prev.map(ev => {
-            if (ev.signature !== m.signature && ev.mintAddress !== m.mintAddress) return ev;
-            return {
-              ...ev,
-              mintAddress:      m.mintAddress     || ev.mintAddress,
-              nftName:          m.nftName         ?? ev.nftName,
-              collectionName:   m.collectionName  ?? ev.collectionName,
-              meCollectionSlug: m.meCollectionSlug ?? ev.meCollectionSlug,
-            };
-          }));
+          setEvents(prev => {
+            // Bail-out before allocating: most meta frames target a
+            // signature that has already aged out of this 2 000-event
+            // rolling buffer. Without this, every meta frame allocated
+            // a fresh 2 000-element array and iterated it for nothing.
+            const hit = prev.some(ev =>
+              ev.signature === m.signature || ev.mintAddress === m.mintAddress);
+            if (!hit) return prev;
+            return prev.map(ev => {
+              if (ev.signature !== m.signature && ev.mintAddress !== m.mintAddress) return ev;
+              return {
+                ...ev,
+                mintAddress:      m.mintAddress     || ev.mintAddress,
+                nftName:          m.nftName         ?? ev.nftName,
+                collectionName:   m.collectionName  ?? ev.collectionName,
+                meCollectionSlug: m.meCollectionSlug ?? ev.meCollectionSlug,
+              };
+            });
+          });
         } catch { /* malformed frame — skip */ }
       });
       // Backend fires `remove` for rows deleted after enrichment (blacklisted

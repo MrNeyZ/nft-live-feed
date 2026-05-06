@@ -237,10 +237,6 @@ function ensureCacheMigration(): void {
 /** localStorage key for the live-feed buffer. Per-user, single key
  *  (no multi-account variants for now). */
 const FEED_STORAGE_KEY  = 'vl.mints.liveFeed';
-/** Hard expiry for stored individual mint events. Bumped to 6 hours
- *  per spec so the persistent feed survives longer absences ("came
- *  back from lunch") while still aging out genuinely stale rows. */
-const FEED_TTL_MS         = 6 * 60 * 60_000;       // 6 hours
 /** Per-collection rollup cache. Persists the active-collections
  *  table across reloads so the operator doesn't see an empty table
  *  while waiting for the next mint_status frame. Longer TTL (24 h)
@@ -310,31 +306,31 @@ function loadPersistedFeed(): MintEvent[] {
       try { window.localStorage.removeItem(FEED_STORAGE_KEY); } catch { /* fail silent */ }
       return [];
     }
-    const cutoff = Date.now() - FEED_TTL_MS;
+    // Restore-as-is: dedupe by signature, validate shape only. No age-based
+    // filter — fresh events must survive remount unconditionally; stale
+    // entries are bounded by LIVE_FEED_MAX (sliding-window) instead of TTL.
     const out: MintEvent[] = [];
     const seen = new Set<string>();
-    let staleSkipped = 0;
     for (const v of parsed) {
-      if (!v || typeof v !== 'object')                     continue;
+      if (!v || typeof v !== 'object')        continue;
       const ev = v as MintEvent;
-      if (typeof ev.signature !== 'string')                continue;
-      if (typeof ev.receivedAt !== 'number')               continue;
-      if (ev.receivedAt < cutoff)                          { staleSkipped++; continue; }
-      if (seen.has(ev.signature))                          continue;
+      if (typeof ev.signature !== 'string')   continue;
+      if (typeof ev.receivedAt !== 'number')  continue;
+      if (seen.has(ev.signature))             continue;
       seen.add(ev.signature);
       out.push(ev);
-      if (out.length >= LIVE_FEED_MAX) break;
     }
+    // Sort newest-first by receivedAt (which is anchored to blockTime when
+    // available) so the restored display order is independent of the order
+    // events were appended to localStorage during the previous session.
+    out.sort((a, b) => b.receivedAt - a.receivedAt);
+    const capped = out.slice(0, LIVE_FEED_MAX);
     if (process.env.NODE_ENV !== 'production') {
-      // Diagnostic for the "feed disappears after refresh" report.
-      // `parsedLen` shows what was on disk; `count` is what survived
-      // shape + TTL filtering; `staleSkipped` distinguishes a wiped
-      // store (parsedLen=0) from a 6h-aged-out store (staleSkipped>0).
-      console.debug('[mints/cache] restored feed', out.length, {
-        parsedLen: parsed.length, staleSkipped,
+      console.debug('[mints/cache] restored feed', capped.length, {
+        parsedLen: parsed.length,
       });
     }
-    return out;
+    return capped;
   } catch {
     try { window.localStorage.removeItem(FEED_STORAGE_KEY); } catch { /* fail silent */ }
     return [];
@@ -344,12 +340,73 @@ function loadPersistedFeed(): MintEvent[] {
 function savePersistedFeed(events: MintEvent[]): void {
   if (typeof window === 'undefined') return;
   try {
-    // Defensive: trim again on write so a spec drift in the in-memory
-    // cap can't blow up the stored payload.
-    const cutoff = Date.now() - FEED_TTL_MS;
-    const slice  = events.filter(e => e.receivedAt >= cutoff).slice(0, LIVE_FEED_MAX);
+    // No TTL filter on write — fresh events must persist across remount.
+    // Cap by count only so a long-running session can't blow the quota.
+    const slice = events.slice(0, LIVE_FEED_MAX);
     window.localStorage.setItem(FEED_STORAGE_KEY, JSON.stringify(slice));
   } catch { /* quota / private mode — fail silent */ }
+}
+
+/** Debounce shell for the two persist functions above. The raw
+ *  `savePersistedCollections` / `savePersistedFeed` calls were being
+ *  invoked from inside the SSE setRows / setEvents updaters on every
+ *  mint_status / mint_meta / mint frame. During a hot launch (sweep
+ *  re-emits N rows every 30 s plus per-mint frames) this serialized
+ *  the entire rows Map / events array on the main thread many times
+ *  per second. Coalescing on a 1.5 s timer cuts the per-frame cost
+ *  while keeping the persisted store eventually-consistent.
+ *
+ *  A `pagehide` / `beforeunload` flush guarantees the latest snapshot
+ *  survives a tab close — important on /mints where the user often
+ *  alt-tabs between collections during a launch. */
+const PERSIST_DEBOUNCE_MS = 1500;
+
+let collectionsFlushTimer:   ReturnType<typeof setTimeout> | null = null;
+let collectionsPendingRows:  Map<string, MintStatus> | null = null;
+let feedFlushTimer:          ReturnType<typeof setTimeout> | null = null;
+let feedPendingEvents:       MintEvent[] | null = null;
+
+function flushPersistedCollectionsNow(): void {
+  if (collectionsFlushTimer != null) {
+    clearTimeout(collectionsFlushTimer);
+    collectionsFlushTimer = null;
+  }
+  if (collectionsPendingRows) {
+    savePersistedCollections(collectionsPendingRows);
+    collectionsPendingRows = null;
+  }
+}
+function flushPersistedFeedNow(): void {
+  if (feedFlushTimer != null) {
+    clearTimeout(feedFlushTimer);
+    feedFlushTimer = null;
+  }
+  if (feedPendingEvents) {
+    savePersistedFeed(feedPendingEvents);
+    feedPendingEvents = null;
+  }
+}
+
+function schedulePersistedCollections(rows: Map<string, MintStatus>): void {
+  if (typeof window === 'undefined') return;
+  collectionsPendingRows = rows;
+  if (collectionsFlushTimer != null) return;
+  collectionsFlushTimer = setTimeout(flushPersistedCollectionsNow, PERSIST_DEBOUNCE_MS);
+}
+function schedulePersistedFeed(events: MintEvent[]): void {
+  if (typeof window === 'undefined') return;
+  feedPendingEvents = events;
+  if (feedFlushTimer != null) return;
+  feedFlushTimer = setTimeout(flushPersistedFeedNow, PERSIST_DEBOUNCE_MS);
+}
+
+if (typeof window !== 'undefined') {
+  const flushAllNow = (): void => {
+    flushPersistedCollectionsNow();
+    flushPersistedFeedNow();
+  };
+  window.addEventListener('pagehide',     flushAllNow);
+  window.addEventListener('beforeunload', flushAllNow);
 }
 /** Proxy size for live-feed thumbnails — 64×64, matches the spec's
  *  /thumb URL form. compressImage() defaults to 200×200; the live
@@ -638,8 +695,8 @@ export default function MintsPage() {
    *  Newest at index 0; capped at LIVE_FEED_MAX. Hydrated synchronously
    *  from localStorage on first render via the lazy initializer so a
    *  page reload doesn't flash an empty feed before the SSE reconnects.
-   *  Stored payload is filtered by FEED_TTL_MS + deduped by signature
-   *  inside loadPersistedFeed(). */
+   *  Stored payload is deduped by signature + sorted newest-first
+   *  inside loadPersistedFeed(); no age-based eviction. */
   const [events, setEvents]   = useState<MintEvent[]>(() => loadPersistedFeed());
   // Mirror of `events` for synchronous reads from event listeners
   // (mint_meta needs to find the groupingKey by signature without
@@ -737,31 +794,13 @@ export default function MintsPage() {
   // enough that any stray bad write gets corrected on the next frame)
   // but the live-feed buffer didn't.
   useEffect(() => {
-    savePersistedFeed(events);
+    schedulePersistedFeed(events);
   }, [events]);
 
-  // Periodic TTL eviction for the persisted live feed. Without this,
-  // an idle tab whose user comes back after >45 min would still show
-  // events from before the absence — load() filters them on mount but
-  // an already-mounted page wouldn't rotate them out otherwise. 60 s
-  // cadence is fine: events go quiet visually via the row's "Xs ago"
-  // tier well before the eviction; this just clears the buffer.
-  useEffect(() => {
-    const id = setInterval(() => {
-      setEvents(prev => {
-        if (prev.length === 0) return prev;
-        const cutoff = Date.now() - FEED_TTL_MS;
-        // Cheap path: tail is freshest? skip filter. (events are stored
-        // newest-first, so the LAST element is the oldest.)
-        if (prev[prev.length - 1].receivedAt >= cutoff) return prev;
-        const next = prev.filter(e => e.receivedAt >= cutoff);
-        if (next.length === prev.length) return prev;
-        return next;
-        // Persistence handled by the events-watcher effect above.
-      });
-    }, 60_000);
-    return () => clearInterval(id);
-  }, []);
+  // No periodic age-based eviction — the live feed is bounded purely
+  // by LIVE_FEED_MAX (sliding-window trim in the SSE handler). Removing
+  // the TTL pass keeps fresh events visible across tab switches and
+  // long absences; the count cap protects memory.
 
   // Sampled console logger for `mint_status` frames. First N frames
   // emit verbatim (to confirm the wiring); after that every 25th to
@@ -779,12 +818,30 @@ export default function MintsPage() {
   useEffect(() => {
     let es: EventSource | null = null;
     let cancelled = false;
-    const connect = () => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Exponential backoff with jitter on reconnect — same pattern used
+    // in /dashboard and /feed. The previous fixed 2 s retry caused a
+    // herd-thunder pattern when the backend restarted: every connected
+    // /mints tab hammered the just-rebooted backend on a 2 s grid.
+    // Backoff is 1 s × 2^attempt, capped at 30 s, plus up to 1 s of
+    // jitter; the counter resets on a successful `open` so the next
+    // disconnect starts from 1 s again instead of inheriting the cap.
+    let attempt = 0;
+    const scheduleReconnect = (): void => {
+      if (cancelled) return;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const base   = Math.min(30_000, 1_000 * 2 ** attempt);
+      const jitter = Math.random() * 1_000;
+      reconnectTimer = setTimeout(connect, base + jitter);
+      attempt++;
+    };
+    const connect = (): void => {
       if (cancelled) return;
       sseStatusRef.current = 'connecting';
       es = new EventSource(`${API_BASE}/api/events/stream`);
       es.addEventListener('open', () => {
         sseStatusRef.current = 'open';
+        attempt = 0;
         console.debug('[sse/mints] connected');
       });
       es.addEventListener('mint_status', (e: MessageEvent) => {
@@ -828,7 +885,7 @@ export default function MintsPage() {
             // Mirror to localStorage so the active-collections table
             // survives page reload / tab switch (24 h TTL gated inside
             // savePersistedCollections / loadPersistedCollections).
-            savePersistedCollections(next);
+            schedulePersistedCollections(next);
             return next;
           });
         } catch { /* malformed frame — skip */ }
@@ -869,25 +926,18 @@ export default function MintsPage() {
               console.log(`[mints/live-miss] reason=dedupe_signature sig=${ev.signature.slice(0,12)}…`);
               return prev;
             }
-            const next = [ev, ...prev];
-            // Hard cap at LIVE_FEED_MAX. When the buffer would
-            // overflow, drop EVERYTHING except the just-arrived
-            // event — the operator gets a clean slate at the cap
-            // instead of an opaque sliding-window trim that quietly
-            // hides older rows. The on-screen counter resets to 1,
-            // making the wipe visible. Below the cap we just prepend
-            // newest-first.
-            // Wipe at-or-above the cap so the buffer never displays a
-            // permanent "150 recent · max 150" shelf. Previously gated
-            // by `>`, which meant the wipe only fired on the 151st
-            // insert — if traffic stalled at exactly 150 events, the
-            // counter sat there indefinitely. `>=` fires on the
-            // insert that WOULD bring the buffer to the cap, dropping
-            // the prior 149 + the new event collapses to just `[ev]`.
-            const trimmed = next.length >= LIVE_FEED_MAX ? [ev] : next;
-            if (next.length >= LIVE_FEED_MAX) {
-              console.log(`[mints/live] cap reached (${LIVE_FEED_MAX}) — feed cleared`);
-            }
+            // Insert + maintain newest-first order by receivedAt. Sorting
+            // here (instead of trusting prepend order) is what lets a
+            // backend replay — which arrives oldest-first — interleave
+            // correctly with already-restored localStorage events that
+            // may be newer than the head of the replay batch.
+            const merged = [ev, ...prev];
+            merged.sort((a, b) => b.receivedAt - a.receivedAt);
+            // Sliding-window trim — drop the oldest tail, never wipe.
+            // Wiping the buffer at the cap (previous behavior) destroyed
+            // restored fresh events whenever a 150-event SSE replay
+            // pushed the buffer over the limit on remount.
+            const trimmed = merged.slice(0, LIVE_FEED_MAX);
             console.log(
               `[mints/live] inserted sig=${ev.signature.slice(0,12)}… ` +
               `mint=${ev.mintAddress ?? '—'} name=${ev.nftName ?? '—'}`,
@@ -947,7 +997,7 @@ export default function MintsPage() {
               lmntfCollectionId: null,
             };
             next.set(ev.groupingKey, merged);
-            savePersistedCollections(next);
+            schedulePersistedCollections(next);
             return next;
           });
         } catch { /* malformed frame — skip */ }
@@ -1002,7 +1052,7 @@ export default function MintsPage() {
               if (cur.name === nextName && cur.imageUrl === nextImage) return prev;
               const next = new Map(prev);
               next.set(groupingKey, { ...cur, name: nextName, imageUrl: nextImage });
-              savePersistedCollections(next);
+              schedulePersistedCollections(next);
               return next;
             });
           }
@@ -1010,13 +1060,16 @@ export default function MintsPage() {
       });
       es.addEventListener('error', () => {
         sseStatusRef.current = 'error';
-        console.warn('[sse/mints] connection error — retrying in 2s');
         es?.close();
-        if (!cancelled) setTimeout(connect, 2_000);
+        scheduleReconnect();
       });
     };
     connect();
-    return () => { cancelled = true; es?.close(); };
+    return () => {
+      cancelled = true;
+      es?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   // dbgCountRef is a stable mutable ref — exclude from deps to avoid the
   // effect re-running on every render and re-opening the SSE stream.
   // eslint-disable-next-line react-hooks/exhaustive-deps

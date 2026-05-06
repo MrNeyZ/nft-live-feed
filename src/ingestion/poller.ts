@@ -205,6 +205,41 @@ async function pollTarget(target: PollTarget, txType: string): Promise<void> {
   const cursorKey = `${target.programAddress}:${txType}`;
   const lastSig = await getLastSig(cursorKey);
 
+  // First run for this (program, type): no cursor on disk. Previously
+  // fetchSince() walked up to 10 pages of history, then advanced the
+  // cursor to the NEWEST sig of those 1 000 — silently abandoning every
+  // sig older than page 10 forever (the comment "caught on next poll"
+  // was incorrect; subsequent polls only walk forward from `until`).
+  // Per the recovery-poller charter (webhook is primary; this poller
+  // heals gaps going forward, not full historical backfill), seed the
+  // cursor to the current chain head and process nothing on this tick.
+  // Subsequent ticks operate as steady-state forward catch-up.
+  if (lastSig === null) {
+    let head: PageResult;
+    try {
+      head = await fetchPage(target.programAddress, txType, null, null);
+    } catch (err) {
+      console.error(`[poller] seed fetch error ${target.name}:${txType}`, err);
+      return;
+    }
+    if (!Array.isArray(head) || head.length === 0) {
+      // No transactions surfaced for this program+type yet — nothing to
+      // anchor on. Leave cursor null; we'll retry on the next tick.
+      console.log(`[poller] ${target.name}:${txType} seed skipped — no transactions returned`);
+      return;
+    }
+    // Pages are newest-first; head[0].signature is the current chain head
+    // for this (program, type). Persist as the cursor floor — older sigs
+    // are intentionally NOT processed by the poller on first run.
+    const newestSig = head[0].signature;
+    await setLastSig(cursorKey, newestSig);
+    console.log(
+      `[poller] ${target.name}:${txType} seeded cursor head=${newestSig.slice(0, 12)}…  ` +
+      `older history skipped (recovery poller, webhook is primary)`
+    );
+    return;
+  }
+
   let txs: HeliusEnhancedTransaction[];
   try {
     txs = await fetchSince(target.programAddress, txType, lastSig);
@@ -287,10 +322,30 @@ export function startPoller(): void {
     `targets=${POLL_TARGETS.length}`
   );
 
-  // Run immediately on start (catch-up from last cursor), then on interval
-  pollAll().catch((err) => console.error('[poller] initial poll error', err));
+  // Re-entrancy guard. A heavy catch-up (4 programs × 2 types × paginated
+  // backfill) can exceed the 30 s tick. Without this guard, ticks stack
+  // and concurrent Helius requests pile up. Mirrors amm-poller's
+  // sweepInFlight pattern.
+  let pollAllInFlight = false;
+  let skipCount       = 0;
 
-  setInterval(() => {
-    pollAll().catch((err) => console.error('[poller] poll error', err));
-  }, POLL_INTERVAL_MS);
+  const launch = (label: string): void => {
+    if (pollAllInFlight) {
+      skipCount++;
+      // Sampled — log every 10th skip so a long catch-up doesn't spam,
+      // but a sustained backlog stays visible to the operator.
+      if (skipCount === 1 || skipCount % 10 === 0) {
+        console.log(`[poller] skip reason=in_flight count=${skipCount} src=${label}`);
+      }
+      return;
+    }
+    pollAllInFlight = true;
+    pollAll()
+      .catch((err) => console.error(`[poller] ${label} error`, err))
+      .finally(() => { pollAllInFlight = false; });
+  };
+
+  // Run immediately on start (catch-up from last cursor), then on interval.
+  launch('initial poll');
+  setInterval(() => launch('poll'), POLL_INTERVAL_MS);
 }

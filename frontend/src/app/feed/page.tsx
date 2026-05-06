@@ -3,7 +3,7 @@
 // Soloist — Live Feed (design port of feed.html)
 // Snapshot via REST + live updates via SSE; mapped through `fromBackend`.
 
-import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import {
   FeedEvent, Side,
   formatSol, shortWallet, timeAgo,
@@ -68,6 +68,46 @@ function persistSellerCounts(map: Map<string, number>): void {
     window.localStorage.setItem(SELLER_COUNT_STORAGE_KEY, JSON.stringify(Object.fromEntries(map)));
   } catch { /* quota / serialize error — fail silent */ }
 }
+
+/** Debounced wrapper around `persistSellerCounts`. The previous behavior
+ *  ran a full Object.fromEntries + JSON.stringify of a ~500-entry Map on
+ *  every `seller_count` SSE frame; under a multi-collection dump that
+ *  fires many times per second, blocking the main thread. Coalescing on
+ *  a 1.5 s timer keeps the persisted store eventually-consistent without
+ *  the per-frame serialize cost. A `beforeunload` flush (registered at
+ *  module load) guarantees the latest map survives a tab close. */
+const SELLER_COUNT_DEBOUNCE_MS = 1500;
+let sellerCountFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let sellerCountPendingMap:  Map<string, number> | null = null;
+
+function flushSellerCountsNow(): void {
+  if (sellerCountFlushTimer != null) {
+    clearTimeout(sellerCountFlushTimer);
+    sellerCountFlushTimer = null;
+  }
+  if (sellerCountPendingMap) {
+    persistSellerCounts(sellerCountPendingMap);
+    sellerCountPendingMap = null;
+  }
+}
+
+function schedulePersistSellerCounts(map: Map<string, number>): void {
+  if (typeof window === 'undefined') return;
+  // Capture the live ref — caller mutates the same Map between flushes,
+  // so we always serialize the latest state at flush time, not a stale
+  // snapshot.
+  sellerCountPendingMap = map;
+  if (sellerCountFlushTimer != null) return;
+  sellerCountFlushTimer = setTimeout(flushSellerCountsNow, SELLER_COUNT_DEBOUNCE_MS);
+}
+
+if (typeof window !== 'undefined') {
+  // Best-effort flush on tab close. `pagehide` is the more reliable
+  // mobile-safe sibling of `beforeunload`; both fire synchronously and
+  // localStorage.setItem is allowed in either.
+  window.addEventListener('pagehide',     flushSellerCountsNow);
+  window.addEventListener('beforeunload', flushSellerCountsNow);
+}
 /** Scroll tolerance (px) for treating the user as "at top". */
 const AT_TOP_THRESHOLD = 4;
 /** Lowercased collection-name blacklist; mirrors src/db/blacklist.ts NAME_BLACKLIST. */
@@ -81,12 +121,52 @@ const FEED_SLUG_BLACKLIST = new Set<string>([
   'staratlascrew',
 ]);
 
+// ── Shared 1 s tick (powers all TimeAgo leaves) ──────────────────────────────
+// Previously every TimeAgo card owned its own setInterval. With ~200 cards
+// that's 200 timer fires/sec doing 200 tiny rerenders — measurable jank on
+// weaker hardware. One module-level interval pushes a single `Date.now()`
+// snapshot into a pub-sub; each TimeAgo subscribes via useSyncExternalStore
+// and rerenders exactly once per tick (same visible behavior, 1× the timer
+// cost). The interval is lazily created when the first leaf subscribes and
+// torn down when the last leaf unsubscribes — zero work on pages that
+// don't render any TimeAgo.
+let sharedNow: number = typeof window === 'undefined' ? 0 : Date.now();
+const tickListeners = new Set<() => void>();
+let tickInterval: ReturnType<typeof setInterval> | null = null;
+
+function ensureTicker(): void {
+  if (tickInterval != null || typeof window === 'undefined') return;
+  tickInterval = setInterval(() => {
+    sharedNow = Date.now();
+    // Snapshot the listener set first — a subscriber that triggers a
+    // synchronous unsubscribe inside its callback would otherwise mutate
+    // the Set mid-iteration.
+    for (const cb of Array.from(tickListeners)) cb();
+  }, 1000);
+}
+function subscribeTick(cb: () => void): () => void {
+  tickListeners.add(cb);
+  ensureTicker();
+  return () => {
+    tickListeners.delete(cb);
+    if (tickListeners.size === 0 && tickInterval != null) {
+      clearInterval(tickInterval);
+      tickInterval = null;
+    }
+  };
+}
+function getTickSnapshot(): number { return sharedNow; }
+function getTickServerSnapshot(): number { return 0; }
+
+function useSharedNow(): number {
+  return useSyncExternalStore(subscribeTick, getTickSnapshot, getTickServerSnapshot);
+}
+
 // ── Time-ago leaf ────────────────────────────────────────────────────────────
-// Self-ticking time label. 1 s interval gives smooth seconds in the
-// 5–15 s pink window (per UX spec); the work per tick is one Date.now()
-// + a small <span> rerender, comfortably cheap even with 200 cards.
-// Each instance owns its own interval so React.memo on FeedCard isn't
-// invalidated every tick.
+// Reads from the shared ticker above. 1 s cadence gives smooth seconds in the
+// 5–15 s pink window (per UX spec). React.memo on FeedCard remains
+// invalidation-safe because TimeAgo is the only thing that rerenders per
+// tick — its parent's props don't change.
 //
 // Color tiers (per spec):
 //   1–5 s:        pink + "just now"
@@ -94,11 +174,7 @@ const FEED_SLUG_BLACKLIST = new Set<string>([
 //   16 s – 3 min: yellow                 (recent but cooling)
 //   > 3 min:      muted                  (background/historical)
 function TimeAgo({ ts }: { ts: number }) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => force(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const now = useSharedNow();
   // Defensive: invalid timestamp renders an em-dash so a malformed /
   // missing blockTime can't surface as "NaNd ago". Future-leaning and
   // negative ages already collapse into the `ageMs < 5000` branch
@@ -106,7 +182,12 @@ function TimeAgo({ ts }: { ts: number }) {
   if (!Number.isFinite(ts)) {
     return <span style={{ fontSize: 11, color: '#877496', fontWeight: 500 }}>—</span>;
   }
-  const ageMs = Date.now() - ts;
+  // SSR-safe: getTickServerSnapshot returns 0; first client paint
+  // will reconcile to a real `now` on the next tick (≤1 s). Falling back
+  // to Date.now() here would re-introduce a hydration mismatch on cards
+  // older than the static-render boundary.
+  const liveNow = now > 0 ? now : ts; // age=0 ("just now") on the SSR pass
+  const ageMs = liveNow - ts;
   let color: string;
   let weight: 500 | 600 = 500;
   if (ageMs < 15000) {
@@ -990,7 +1071,7 @@ export default function FeedPage() {
           if (typeof count === 'number' && Number.isFinite(count)) {
             const k = sellerCountKey(seller, collection)!;
             sellerCountRef.current.set(k, count);
-            persistSellerCounts(sellerCountRef.current);
+            schedulePersistSellerCounts(sellerCountRef.current);
           }
           // UNSAMPLED orphan check — counts how many feed rows the
           // patch will actually update. 0 means the sale frame either

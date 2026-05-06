@@ -56,6 +56,15 @@ console.log(
   ` THRESHOLD=${THRESHOLD_MIN_MINTS} COOLDOWN_MS=${COOLDOWN_MS}`,
 );
 
+/** Temporary diagnostic gate. The per-accept logs (`[mints/INSERT]`,
+ *  `[mints/REJECT]`, `[mints/emit]`, `[mints/recent]`, `[mints/live]`)
+ *  were unsampled and at 50 mints/sec produced ~250 PM2-stringified
+ *  log lines/sec. Enable with `MINTS_DEBUG=1` (or `=verbose`) when
+ *  actively debugging the ingest pipeline; otherwise these stay quiet
+ *  and the operator-facing transitions (`[mints/status]`, `[mints/summary]`,
+ *  `[mints/minted-count]`, `[mints/supply]`, `[mints/link]`) still print. */
+const MINTS_DEBUG = process.env.MINTS_DEBUG === '1' || process.env.MINTS_DEBUG === 'verbose';
+
 interface RingItem { ts: number; priceLamports: number | null; }
 
 interface Accum {
@@ -293,30 +302,25 @@ export function recordMint(ev: MintEventWire): void {
   // hits the accumulator / SSE bus. Without this, a fungible's
   // continuing MintTo activity would just re-promote the row.
   if (evictedNonNft.has(ev.groupingKey)) {
-    // TEMPORARY hard diagnostic: every blocked-by-prior-eviction call
-    // is logged so the operator can see whether sticky rejection is
-    // actually firing for the live-leaking groups.
-    console.log(
-      `[mints/REJECT] reason=evicted_group_replay groupingKey=${ev.groupingKey} ` +
-      `mint=${ev.mintAddress ?? '—'} sig=${ev.signature.slice(0, 20)}…`,
-    );
+    if (MINTS_DEBUG) {
+      console.log(
+        `[mints/REJECT] reason=evicted_group_replay groupingKey=${ev.groupingKey} ` +
+        `mint=${ev.mintAddress ?? '—'} sig=${ev.signature.slice(0, 20)}…`,
+      );
+    }
     return;
   }
-  // TEMPORARY hard diagnostic: every accepted row hitting the accumulator
-  // is logged unsampled. Lets the operator pair `[mints/INSERT]` lines
-  // (every accept) against `[mints/REJECT]` lines (every drop in
-  // ingestMintRaw + this function) and locate the bypass that put the
-  // visible Pump.fun / Meteora authority rows in /mints.
-  // Remove this log once the leak source is confirmed.
   const isFirst = !map.has(ev.groupingKey);
-  console.log(
-    `[mints/INSERT] groupingKey=${ev.groupingKey} mint=${ev.mintAddress ?? '—'} ` +
-    `name=${'name' in ev ? '—' : '—'} source=${ev.sourceLabel} ` +
-    `programSource=${ev.programSource} groupingKind=${ev.groupingKind} ` +
-    `priceLamports=${ev.priceLamports ?? '—'} mintType=${ev.mintType} ` +
-    `collectionAddress=${ev.collectionAddress ?? '—'} ` +
-    `path=${isFirst ? 'first_insert' : 'subsequent'} sig=${ev.signature.slice(0, 20)}…`,
-  );
+  if (MINTS_DEBUG) {
+    console.log(
+      `[mints/INSERT] groupingKey=${ev.groupingKey} mint=${ev.mintAddress ?? '—'} ` +
+      `name=${'name' in ev ? '—' : '—'} source=${ev.sourceLabel} ` +
+      `programSource=${ev.programSource} groupingKind=${ev.groupingKind} ` +
+      `priceLamports=${ev.priceLamports ?? '—'} mintType=${ev.mintType} ` +
+      `collectionAddress=${ev.collectionAddress ?? '—'} ` +
+      `path=${isFirst ? 'first_insert' : 'subsequent'} sig=${ev.signature.slice(0, 20)}…`,
+    );
+  }
   const now = Date.now();
   let a = map.get(ev.groupingKey);
   if (!a) {
@@ -390,17 +394,17 @@ export function recordMint(ev: MintEventWire): void {
   // we patch + re-emit, so connected clients see the MINTED column
   // climb over time without us paying a DAS call per mint.
   scheduleMintedCountRefresh(a, now);
-  console.log(
-    `[mints/emit] sig=${ev.signature.slice(0, 12)}… ` +
-    `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
-  );
-  console.log(
-    `[mints/recent] size=${recentMints.length}`,
-  );
-  console.log(
-    `[mints/live] inserted sig=${ev.signature.slice(0, 12)}… ` +
-    `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
-  );
+  if (MINTS_DEBUG) {
+    console.log(
+      `[mints/emit] sig=${ev.signature.slice(0, 12)}… ` +
+      `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
+    );
+    console.log(`[mints/recent] size=${recentMints.length}`);
+    console.log(
+      `[mints/live] inserted sig=${ev.signature.slice(0, 12)}… ` +
+      `mint=${ev.mintAddress ?? '—'} collection=${ev.collectionAddress ?? '—'}`,
+    );
+  }
   if (prevDisplay !== a.displayState) {
     // Transition-only debug: never spammy because it fires once per
     // collection per state change (incubating → shown is the common

@@ -361,10 +361,9 @@ export async function getOwnerCollectionCount(
  *  collection asset yet (very fresh launches). Cheap single call,
  *  fire-and-forget by callers. */
 export async function getCollectionOwner(collectionAddress: string): Promise<string | null> {
-  try {
-    const meta = await getAsset(collectionAddress);
-    void meta;   // existing getAsset returns a curated subset — re-fetch raw for owner
-  } catch { /* fall through to dedicated call below */ }
+  // Previously prefixed with a `getAsset(collectionAddress)` whose
+  // result was discarded (the curated wrapper doesn't expose ownership).
+  // Removed — it doubled the RPC cost of every owner lookup for no gain.
   const apiKey = process.env.HELIUS_API_KEY;
   if (!apiKey) return null;
   try {

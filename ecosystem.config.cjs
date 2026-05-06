@@ -26,8 +26,14 @@ module.exports = {
     {
       name:               'nft-backend',
       cwd:                HOME,
-      script:             'node_modules/.bin/ts-node',
-      args:               'src/index.ts',
+      // Run the COMPILED output, not ts-node. Previously launched via
+      // `node_modules/.bin/ts-node src/index.ts`, which paid the type-
+      // check + transpile cost on every restart and inflated RSS by
+      // the ts-node compiler footprint. The deploy flow already runs
+      // `npm run build` → emits to `dist/` (tsconfig outDir). If
+      // `dist/index.js` is missing, PM2 errors immediately — that's
+      // the correct fail-loud behavior; rebuild before restart.
+      script:             'dist/index.js',
       env:                { NODE_ENV: 'production' },
       instances:          1,            // single-instance lock refuses a 2nd anyway
       exec_mode:          'fork',

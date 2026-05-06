@@ -165,6 +165,14 @@ export interface SellerCountUpdate {
   collection: string;
   count:      number;
   sells10m:   number;
+  /** Optional dumping-signal hint, mirrors the `signal` field on the
+   *  initial onSale `seller_count` broadcast. The exact-fallback path
+   *  (`seller-count-exact.ts`) does not currently compute this — it
+   *  emits without `signal` so the SSE rebroadcast omits the field
+   *  too, letting the frontend reducer decide whether to clear or
+   *  keep any prior 🔥 state. Reserved for future producers that
+   *  *do* derive a signal late. */
+  signal?:    'multi';
 }
 
 export interface MintEventWire {
