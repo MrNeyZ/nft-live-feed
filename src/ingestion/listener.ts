@@ -25,6 +25,7 @@ import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred } from './mmm-prefilter';
+import { isSigTarget, saleDebug } from './sale-debug';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
 import { getMode, currentGeneration, isMintTrackerEnabled, isAnyIngestActive } from '../runtime/mode';
@@ -637,6 +638,13 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
 
     const sig = value.signature as string;
 
+    // Targeted sale-pipeline diagnostics — emit `ws_arrival` for any sig
+    // in the SALE_DEBUG_SIGS allowlist before any prefilter shed runs,
+    // so the operator sees both the path AND the prefilter decision.
+    if (isSigTarget(sig)) {
+      saleDebug('ws_arrival', sig, { program: target.name });
+    }
+
     // S3: Tensor-only log prefilter. Tensor programs use Anchor-generated log
     // names reliably, so we can safely skip obvious non-sale txs before paying
     // for getTransaction. markSigFetched blocks the 1.5 s primary poller from
@@ -644,6 +652,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     if (TENSOR_PREFILTER_TARGETS.has(target.name) && !hasTensorSaleInstruction(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
+      if (isSigTarget(sig)) {
+        saleDebug('prefilter_skip', sig, { program: target.name, reason: 'tensor_no_sale_ix' });
+        saleDebug('mark_fetched',   sig, { reason: 'tensor_prefilter_skip' });
+      }
       markSeen(sig);        // block poller path via seenSigs FIFO
       markSigFetched(sig);  // block fetchRawTx path via recentSigs (3 min TTL)
       return;
@@ -656,6 +668,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     if (target.name === 'me_v2' && shouldSkipMeV2Logs(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
+      if (isSigTarget(sig)) {
+        saleDebug('prefilter_skip', sig, { program: target.name, reason: 'me_v2_deny_list' });
+        saleDebug('mark_fetched',   sig, { reason: 'me_v2_prefilter_skip' });
+      }
       markSeen(sig);
       markSigFetched(sig);
       return;
@@ -668,6 +684,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     if (target.name === 'mmm' && shouldSkipMmmLogsSalesOnly(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
+      if (isSigTarget(sig)) {
+        saleDebug('prefilter_skip', sig, { program: target.name, reason: 'mmm_sales_only_deny_list' });
+        saleDebug('mark_fetched',   sig, { reason: 'mmm_sales_only_prefilter_skip' });
+      }
       markSeen(sig);
       markSigFetched(sig);
       return;
@@ -699,6 +719,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     }
 
     stats.fired++;
+    if (isSigTarget(sig)) {
+      saleDebug('prefilter_pass', sig, { program: target.name, path: 'ws_listener', priority: 'high' });
+    }
     // Do NOT call markSeen here. Cross-path dedup is handled inside fetchRawTx:
     //   inFlight   — blocks concurrent double-fetch while the listener fetch is live
     //   recentSigs — 3-min TTL, set only on successful fetch
@@ -712,6 +735,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       .run(() => target.ingest(sig, undefined, 'high'))
       .catch((err: unknown) => {
         stats.errors++;
+        if (isSigTarget(sig)) {
+          saleDebug('insert_skip', sig, { reason: 'ws_ingest_error', err: String((err as Error)?.message ?? err) });
+        }
         console.error(`[listener/${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
       });
   });
