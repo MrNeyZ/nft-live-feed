@@ -522,10 +522,15 @@ const FeedCard = memo(function FeedCard({
   // image-native default (open-image-in-new-tab, drag-to-tab, extension
   // middle-click-open-URL) without an absolute overlay. Parent handlers
   // still fire because events fall through to `.feed-thumb`.
+  // Card thumb at 56 px display → request 128 px (default) for crisp
+  // 2× DPI rendering. The preview overlay below upsizes to 200 px on
+  // click; we request a 256 px source there so the modal stays sharp
+  // without enlarging this rolling-feed card request.
   const thumbImg       = compressImage(event.imageUrl);
+  const previewImg     = compressImage(event.imageUrl, 256);
   const thumbSlug      = event.meCollectionSlug;
   const nftBorderColor = getNftBorderColor(event.nftType);
-  const handleThumbClick = () => { if (thumbImg) onPreview(thumbImg); };
+  const handleThumbClick = () => { if (previewImg) onPreview(previewImg); };
   const handleThumbMouseDown = (e: React.MouseEvent) => {
     if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
   };

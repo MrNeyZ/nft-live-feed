@@ -19,28 +19,38 @@ import { useInclusiveFees } from './price-mode';
 import { useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
-// render at 200×200 instead of the full-size upstream asset (PFP originals
-// commonly 2 000×2 000 / ~2 MB). `/thumb` is served by nginx in production
-// (proxy_pass to wsrv.nl, with `proxy_cache` + Cloudflare edge cache for
-// cross-user reuse) and by a Next.js rewrite in dev (see next.config.mjs).
+// render at a small fixed size instead of the full-size upstream asset
+// (PFP originals commonly 2 000×2 000 / ~2 MB). `/thumb` is implemented
+// as a Next.js Route Handler that 302-redirects to wsrv.nl with strong
+// browser + edge cache headers (see src/app/thumb/route.ts).
+//
+// Default size: 128 px — visually crisp at 2x DPI for the live feed's
+// 56 px card thumbnail and the 22–40 px collection icons, while cutting
+// payload roughly in half vs the previous 200 px default. Callers that
+// render at a larger display size (e.g. the 200 px avatar preview overlay)
+// pass an explicit `size` hint so the proxy URL matches their target.
+//
 // GIFs are forced to static PNG via wsrv's `output=png` flag to prevent
 // animation + scroll jank. irys.xyz hosts are bypassed (wsrv returns HTTP
 // 400 "Domain or TLD blocked by policy" for them — the raw URL renders
 // better than a broken proxy response). Non-http URLs (data URIs, relative
 // paths) pass through untouched.
-export function compressImage(url: string | null | undefined): string | null {
+export function compressImage(
+  url: string | null | undefined,
+  size: number = 128,
+): string | null {
   if (!url) return null;
   if (!(url.startsWith('http://') || url.startsWith('https://'))) return url;
   if (url.includes('irys.xyz')) return url;
   // Always force `output=png`. The proxy / wsrv decodes animated inputs
   // (GIF, animated WebP/AVIF) and emits only the first frame as PNG, so
-  // every NFT thumbnail renders as a static 200×200 image with no
-  // animation regardless of the upstream format. Previously this was
-  // gated on a `.gif` URL extension check, which missed CDN-hashed URLs
-  // (Tensor / Magic Eden often serve animated GIFs from URLs without a
-  // visible `.gif` suffix). PNG keeps transparency intact (vs JPEG)
-  // which matters for NFTs rendered against the dark theme.
-  return `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=png`;
+  // every NFT thumbnail renders as a static image with no animation
+  // regardless of the upstream format. Previously this was gated on a
+  // `.gif` URL extension check, which missed CDN-hashed URLs (Tensor /
+  // Magic Eden often serve animated GIFs from URLs without a visible
+  // `.gif` suffix). PNG keeps transparency intact (vs JPEG) which
+  // matters for NFTs rendered against the dark theme.
+  return `/thumb?url=${encodeURIComponent(url)}&w=${size}&h=${size}&fit=cover&output=png`;
 }
 
 // Row-as-link helpers — used by navigable rows that cannot nest inside an
@@ -142,6 +152,12 @@ export const ItemThumb = memo(function ItemThumb({
       height={size}
       loading="lazy"
       decoding="async"
+      // Thumbnails are decorative under dense lists — never compete with
+      // primary content (text, layout, network requests for next page of
+      // events). Browser's image priority hint stays at 'low' across the
+      // feed; the lazy attribute already gates above-the-fold off-screen
+      // loads.
+      fetchPriority="low"
       onError={() => {
         if (!fellBack) {
           // First failure — usually a /thumb proxy 404 (wsrv host
@@ -194,6 +210,9 @@ export const CollectionIcon = memo(function CollectionIcon({
       height={size}
       loading="lazy"
       decoding="async"
+      // Same rationale as ItemThumb: collection avatars are decorative
+      // and should not compete with above-the-fold layout requests.
+      fetchPriority="low"
       onError={() => {
         if (!fellBack) {
           // First failure — usually a /thumb proxy 404 (wsrv host
