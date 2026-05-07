@@ -26,16 +26,22 @@
  */
 import type { RawSolanaTx } from '../me-raw/types';
 
-export const LAUNCHMYNFT_PROGRAM = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';
-export const MPL_CORE_PROGRAM    = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
-export const BUBBLEGUM_PROGRAM   = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
+export const LAUNCHMYNFT_PROGRAM    = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';
+export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
+export const BUBBLEGUM_PROGRAM      = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
+export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
 /** vvv.so platform signer observed on every confirmed vvv.so mint.
  *  Treated as the on-chain fingerprint until a more durable signal
  *  (program, IDL discriminator) is identified. */
 export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZNrn';
 
 export type LaunchpadSource = 'LaunchMyNFT' | 'VVV';
-export type LaunchpadStandard = 'core' | 'cnft';
+/** Underlying NFT standard for this hit.
+ *   'core'           — MPL Core asset       (programSource = mpl_core)
+ *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
+ *   'token_metadata' — TM legacy / pNFT     (programSource = mpl_token_metadata)
+ */
+export type LaunchpadStandard = 'core' | 'cnft' | 'token_metadata';
 
 export interface LaunchpadHit {
   source:            LaunchpadSource;
@@ -108,6 +114,120 @@ function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
     if (m) return `Instruction: ${m[1]}`;
   }
   return null;
+}
+
+/** True iff `tx` is an LMNFT Token-Metadata mint — outer LMNFT dispatcher
+ *  `Instruction: MintTm`, with Token Metadata program present and an
+ *  inner Token Metadata CPI sequence (Create + Mint + optional Verify).
+ *  Strict end-of-line match keeps any future `MintTmV2`-style variant
+ *  out of this gate until it's confirmed.
+ *
+ *  Reference tx (legacy/pNFT family, with Verify):
+ *    4sC8772iLoGzjzcJRMbabYQMSnBqcpaAJN4XmFsUNrm4hoe1weJAbFBtcEx9xZgKvdSjUpcib2PZtmCaQeSMHQCr
+ */
+const LMNFT_TM_LOG_REGEX = /^Program log: Instruction: MintTm$/;
+function lmnftTmNeedleIfPresent(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM))    return null;
+  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM)) return null;
+  for (const line of shape.logs) {
+    if (LMNFT_TM_LOG_REGEX.test(line)) return 'Instruction: MintTm';
+  }
+  return null;
+}
+
+/** Pull the new mint and (best-effort) the verified collection out of the
+ *  inner Token-Metadata CPIs of an LMNFT MintTm tx.
+ *
+ *  Token Metadata `Create`/`CreateMetadataAccountV3` ix layout — the FIRST
+ *  TM CPI in the LMNFT MintTm flow:
+ *      accounts[0] = metadata PDA  (anchor for the Verify match below)
+ *      accounts[1] = mint           ← the new asset
+ *      accounts[2] = mint authority
+ *      accounts[3] = payer
+ *      accounts[4] = update authority
+ *
+ *  Token Metadata `Verify` ix layout — present only when the drop sets a
+ *  collection and the launchpad calls Verify in the same tx:
+ *      accounts[0] = collection_authority (signer)
+ *      accounts[1] = delegate_record (optional)
+ *      accounts[2] = asset's metadata PDA   ← anchor (matches Create accs[0])
+ *      accounts[3] = collection mint        ← what we want
+ *      accounts[4] = collection metadata
+ *      accounts[5] = collection master edition
+ *
+ *  When the Verify CPI is absent the collection is left null; the caller
+ *  then falls back to the existing DAS resolve / async confirmation path,
+ *  same as the Core branch. The mint is required — null returns reject. */
+function extractTmMintFromInner(
+  tx: RawSolanaTx,
+  shape: ParsedTxShape,
+): { mintAddress: string; collectionAddress: string | null } | null {
+  const inner = tx.meta?.innerInstructions;
+  if (!Array.isArray(inner)) return null;
+
+  let metadataPDA:       string | null = null;
+  let mintAddress:       string | null = null;
+  let collectionAddress: string | null = null;
+
+  // Pass 1: first TM CPI is the Create call. Pull metadata PDA + mint.
+  outer1:
+  for (const grp of inner) {
+    if (!Array.isArray(grp.instructions)) continue;
+    for (const ix of grp.instructions) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ixAny = ix as any;
+      const programId: string = typeof ixAny.programId === 'string'
+        ? ixAny.programId
+        : typeof ixAny.programIdIndex === 'number'
+          ? shape.accountKeys[ixAny.programIdIndex]
+          : '';
+      if (programId !== TOKEN_METADATA_PROGRAM) continue;
+      const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
+        typeof a === 'string' ? a : shape.accountKeys[a],
+      );
+      if (accs.length >= 2 && typeof accs[0] === 'string' && typeof accs[1] === 'string') {
+        metadataPDA = accs[0];
+        mintAddress = accs[1];
+      }
+      break outer1;
+    }
+  }
+
+  if (!mintAddress) return null;
+
+  // Pass 2: locate the Verify CPI by anchoring on metadataPDA at accs[2].
+  // This is the only TM ix in the flow whose 3rd account equals the asset's
+  // metadata PDA we just allocated; both Create (metadata at accs[0]) and
+  // Mint (metadata at accs[2] but accs[3]=mint, not a distinct collection)
+  // are excluded by the additional `accs[3] !== mintAddress` guard.
+  if (metadataPDA) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      for (const ix of grp.instructions) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ixAny = ix as any;
+        const programId: string = typeof ixAny.programId === 'string'
+          ? ixAny.programId
+          : typeof ixAny.programIdIndex === 'number'
+            ? shape.accountKeys[ixAny.programIdIndex]
+            : '';
+        if (programId !== TOKEN_METADATA_PROGRAM) continue;
+        const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
+          typeof a === 'string' ? a : shape.accountKeys[a],
+        );
+        if (accs.length >= 6
+            && accs[2] === metadataPDA
+            && typeof accs[3] === 'string'
+            && accs[3] !== mintAddress) {
+          collectionAddress = accs[3];
+          break;
+        }
+      }
+      if (collectionAddress) break;
+    }
+  }
+
+  return { mintAddress, collectionAddress };
 }
 
 /** True iff `tx` is an LMNFT cNFT mint — confirmed dispatcher names
@@ -317,6 +437,35 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       // First signer is buyer; vvv.so platform signer is at index 2.
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     'Instruction: CreateV2',
+    };
+  }
+  // LMNFT Token-Metadata mint variant. Gated on the dual-signal pair
+  // (LMNFT outer program + strict `Instruction: MintTm` log + Token
+  // Metadata program present) so a stand-alone TM Create from a wallet
+  // / unrelated launchpad cannot accidentally match here.
+  const tmNeedle = lmnftTmNeedleIfPresent(shape);
+  if (tmNeedle) {
+    const tm = extractTmMintFromInner(tx, shape);
+    if (!tm) {
+      // Inner TM CPI shape was wrong — log so the operator can capture
+      // an example if a future LMNFT MintTm variant changes the layout.
+      console.log(
+        `[mints/lmnft-minttm-skip] sig=${tx.signature ?? '—'} reason=no_tm_create`,
+      );
+      return null;
+    }
+    console.log(
+      `[mints/lmnft-minttm] sig=${tx.signature ?? '—'} mint=${tm.mintAddress} ` +
+      `collection=${tm.collectionAddress ?? 'null'} ` +
+      `minter=${shape.signerKeys[0] ?? 'null'}`,
+    );
+    return {
+      source:            'LaunchMyNFT',
+      standard:          'token_metadata',
+      mintAddress:       tm.mintAddress,
+      collectionAddress: tm.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     tmNeedle,
     };
   }
   return null;

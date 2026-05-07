@@ -385,7 +385,17 @@ export async function ingestMintRaw(
   _heliusTx?: unknown,                // unused; we always fetch raw
   _priority: Priority = 'medium',     // intentionally ignored — see above
 ): Promise<void> {
-  const tx = await fetchRawTx(sig, false, 'low');
+  // scope='mint' isolates this fetch from the sale-pipeline dedupe layer.
+  // Previously the shared dedupe poisoned MMM Core sales: the mints poller
+  // for mpl_core target catches MMM `SolMplCoreFulfillBuy` sigs (Core
+  // address appears in inner-CPI account list) and pre-fix would mark
+  // recentSigs globally. The amm-poller's dispatchMmmDeferred then saw
+  // wasRecentlyFetched=true and skipped, and any subsequent ingestMeRaw
+  // call dedup-skipped at fetchRawTx. Pipeline-scoped dedupe restores
+  // independent processing while a short-lived txCache (CACHE_TTL_MS)
+  // still avoids duplicate getTransaction credits when both scopes
+  // discover the same sig within the cache window.
+  const tx = await fetchRawTx(sig, false, 'low', 'mint');
   if (!tx) {
     // One-shot debug breadcrumb for the missing-event investigation.
     if (sig === '2bh9gtx3ZfG7bBjCkSjCTnH4JD8wShCorLNX4G93JP61az1XCFRNV7aTQcjJPo8posWYQWW9c9mD7W4YruLpLLK1') {
@@ -461,10 +471,10 @@ export async function ingestMintRaw(
       // mintAddress; cNFTs would no-op anyway.
       return;
     }
-    // Core path: accept on parser-extracted collection optimistically,
-    // then verify asynchronously via DAS with a 30 s / 120 s / 300 s
-    // retry queue (`scheduleCollectionConfirmation`). DAS lags
-    // freshly-minted assets by seconds-to-minutes, so a synchronous
+    // Core / Token-Metadata path: accept on parser-extracted collection
+    // optimistically, then verify asynchronously via DAS with a 30 s /
+    // 120 s / 300 s retry queue (`scheduleCollectionConfirmation`). DAS
+    // lags freshly-minted assets by seconds-to-minutes, so a synchronous
     // gate would drop every real LMNFT mint during that index window
     // (confirmed against fixture
     //   xtJv8g4TjtFPrcXkayEzzA4fVbgBkd8fo5qj2uYasZxxvMdMumZSTUengVwe7viKJjneaneyHG2es4nmF3g2Uke
@@ -476,6 +486,13 @@ export async function ingestMintRaw(
     // fallback synchronously (fast in steady-state; null on first
     // sight of a fresh mint) — only if both come back null is the
     // row rejected outright.
+    //
+    // `programSource` and the human label are derived from `lp.standard`
+    // so the same flow handles both MPL Core (LMNFT MintCore + vvv.so
+    // CreateV2) and Token Metadata (LMNFT MintTm) without divergence.
+    const programSource: MintProgramSource =
+      lp.standard === 'token_metadata' ? 'mpl_token_metadata' : 'mpl_core';
+    const standardLabel = lp.standard === 'token_metadata' ? 'TokenMetadata' : 'Core';
     if (!lp.mintAddress) {
       logLaunchpadReject('no_mint', sig, null);
       return;
@@ -499,7 +516,7 @@ export async function ingestMintRaw(
         `mint=${lp.mintAddress} source=${lp.source}`,
       );
       console.log(
-        `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=MintCore ` +
+        `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=${lp.matchedNeedle ?? '—'} ` +
         `parserCollection=${parserCollection ?? 'null'} dasCollection=null decision=reject_no_collection`,
       );
       return;
@@ -513,17 +530,17 @@ export async function ingestMintRaw(
       : new Date().toISOString();
     if (sig === DEBUG_SIG) {
       console.log(
-        `[mints/debug-sig] sig=${sig} decision=accept_core ` +
+        `[mints/debug-sig] sig=${sig} decision=accept_${standardLabel.toLowerCase()} ` +
         `reason=parser_or_das_resolved mint=${lp.mintAddress} collection=${collectionAddress} ` +
         `minter=${lp.minter ?? 'null'} confirmedBy=${confirmedBy}`,
       );
     }
     console.log(
-      `[mints/launchpad] accept source=${lp.source} type=Core mint=${lp.mintAddress} ` +
+      `[mints/launchpad] accept source=${lp.source} type=${standardLabel} mint=${lp.mintAddress} ` +
       `collection=${collectionAddress} confirmedBy=${confirmedBy} sig=${sig}`,
     );
     console.log(
-      `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=MintCore ` +
+      `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=${lp.matchedNeedle ?? '—'} ` +
       `parserCollection=${parserCollection ?? 'null'} ` +
       `dasCollection=${confirmedBy === 'das' ? collectionAddress : 'pending'} ` +
       `decision=accept (confirmedBy=${confirmedBy})`,
@@ -531,7 +548,7 @@ export async function ingestMintRaw(
     recordMint({
       signature:         sig,
       blockTime,
-      programSource:     'mpl_core',
+      programSource,
       mintAddress:       lp.mintAddress,
       collectionAddress,
       groupingKey,
