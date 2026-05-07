@@ -131,7 +131,13 @@ function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
   const hasRealName = !!row.name && !isShortKeyName;
   const hasNonPrefixedCollection = !!row.collectionAddress &&
     !/^(authority|program|owner|pool):/.test(row.collectionAddress);
-  const strongNftEvidence = hasImage || hasRealName || hasNonPrefixedCollection;
+  // Bubblegum (cNFT) program is NEVER used for fungibles by design;
+  // a row carrying programSource='bubblegum' is by definition a real
+  // cNFT mint and survives the soft-reject prefix rule below even
+  // when the backend grouping fell back to 'program:bubblegum' (no
+  // verified collection AND no merkle tree on the wire).
+  const isCnftEvidence = row.programSource === 'bubblegum';
+  const strongNftEvidence = hasImage || hasRealName || hasNonPrefixedCollection || isCnftEvidence;
 
   // Soft reject: groupingKey prefix indicates a non-collection bucket
   // (launchpad / DEX / system grouping). Keep only when strong evidence
@@ -160,6 +166,53 @@ function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
   }
 
   return true;
+}
+
+/** Unified cNFT (Bubblegum) detector — shared by the LIVE MINT FEED
+ *  filter and the COLLECTIONS table filter so the single CNFT ON/OFF
+ *  toggle in the header controls both surfaces consistently.
+ *
+ *  Accepts either a MintEvent or a MintStatus row (overlapping field
+ *  set covers both). Returns true when ANY of these hold:
+ *    1. `programSource === 'bubblegum'` — authoritative signal from
+ *       the backend detector / accumulator. Bubblegum is the cNFT
+ *       program by design, never used for fungibles.
+ *    2. `mintType === 'cnft'` — defensive; not currently on the wire
+ *       (mintType is `free`/`paid`/`unknown`/`mixed`) but accepted in
+ *       case a future backend revision starts emitting it.
+ *    3. `standard === 'cnft'` — defensive; same forward-compat rationale.
+ *    4. LMNFT-without-mint-address heuristic: `mintAddress`/`lastMintAddress`
+ *       missing AND `sourceLabel === 'LaunchMyNFT'` AND we have a real
+ *       group key. LMNFT cNFT drops surface as feed events with null
+ *       mintAddress because the leaf doesn't have a stable mint
+ *       address in the same sense as a legacy NFT; this catches them
+ *       even when the backend hasn't tagged programSource yet. */
+function isCnftLike(x: {
+  programSource?:    string;
+  mintType?:         string;
+  sourceLabel?:      string;
+  groupingKey?:      string;
+  collectionAddress?: string | null;
+  mintAddress?:      string | null;
+  lastMintAddress?:  string | null;
+} | MintEvent | MintStatus): boolean {
+  const r = x as Record<string, unknown>;
+  if (r.programSource === 'bubblegum') return true;
+  if (r.mintType      === 'cnft')      return true;
+  if (r.standard      === 'cnft')      return true;
+  const mintAddr      = (r.mintAddress      ?? null) as string | null;
+  const lastMintAddr  = (r.lastMintAddress  ?? null) as string | null;
+  const sourceLabel   = typeof r.sourceLabel === 'string' ? r.sourceLabel : '';
+  const groupingKey   = typeof r.groupingKey === 'string' ? r.groupingKey : '';
+  const collection    = (r.collectionAddress ?? null) as string | null;
+  if (
+    mintAddr === null && lastMintAddr === null &&
+    sourceLabel === 'LaunchMyNFT' &&
+    (groupingKey.length > 0 || (typeof collection === 'string' && collection.length > 0))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Defensive client-side guard against fungible / SPL / program-account
@@ -366,20 +419,58 @@ function savePersistedFeed(events: MintEvent[]): void {
  *  sticky-merge overwrites these scaffolds with authoritative numbers
  *  (observedMints / v60 / v5m / displayState / mintType / etc.) while
  *  preserving any name / image that resolved later. */
-function rebuildCollectionsFromEvents(events: MintEvent[]): Map<string, MintStatus> {
+/** Compute the most specific grouping key available on a MintEvent.
+ *  Priority:
+ *    1. `ev.groupingKey` — backend-authoritative (already prefixed with
+ *       `collection:` / `tree:` / `program:` / `authority:`).
+ *    2. `collection:<collectionAddress>` — synthesised when groupingKey
+ *       is empty but a collection address is on the wire.
+ *    3. `mint:<mintAddress>` — last-resort, single-asset key. Only
+ *       used when nothing else is present (rare; mostly applicable to
+ *       legacy / pNFT events without grouping info).
+ *  Returns null when the event carries none of the above (event is
+ *  un-groupable and the row would be a duplicate-prone singleton). */
+function rebuildEventGroupingKey(ev: MintEvent): string | null {
+  if (typeof ev.groupingKey === 'string' && ev.groupingKey.length > 0) {
+    return ev.groupingKey;
+  }
+  if (ev.collectionAddress) return `collection:${ev.collectionAddress}`;
+  if (ev.mintAddress)       return `mint:${ev.mintAddress}`;
+  return null;
+}
+
+interface RebuildResult { rows: Map<string, MintStatus>; cnftCount: number }
+
+function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
   const now = Date.now();
   const out = new Map<string, MintStatus>();
   const freeCount: Record<string, number> = {};
   const paidCount: Record<string, number> = {};
   for (const ev of events) {
-    let row = out.get(ev.groupingKey);
+    const key = rebuildEventGroupingKey(ev);
+    if (!key) {
+      console.log(
+        `[mints/cache] rebuildSkip reason=missing_group sig=${ev.signature?.slice(0, 12) ?? '—'}…`,
+      );
+      continue;
+    }
+    let row = out.get(key);
     if (!row) {
       row = {
-        groupingKey:       ev.groupingKey,
+        groupingKey:       key,
         groupingKind:      ev.groupingKind,
+        // Preserve programSource ('mpl_token_metadata' / 'mpl_core' /
+        // 'bubblegum'). Critical for cNFT rows: without this, the
+        // table row would mis-classify the source and the LIVE FEED
+        // CNFT toggle's render filter would still leave the row in
+        // the table (correct) but with the wrong sourceLabel pill.
         programSource:     ev.programSource,
         collectionAddress: ev.collectionAddress,
         lastMintAddress:   ev.mintAddress,
+        // Preserve sourceLabel ('Bubblegum' / 'LaunchMyNFT' / 'Metaplex'
+        // / 'CandyMachine' / etc.) so the SOURCE pill renders the
+        // right launchpad even before the first real `mint_status`
+        // arrives.
         sourceLabel:       ev.sourceLabel,
         displayState:      'incubating',
         observedMints:     0,
@@ -390,25 +481,25 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): Map<string, MintStat
         priceLamports:     null,
         // name / imageUrl / maxSupply / mintedCount / lmntfOwner /
         // lmntfCollectionId left undefined — no per-NFT image leaks
-        // into the collection row (per spec: live feed and table use
-        // separate image sources). The first authoritative
+        // into the collection row. The first authoritative
         // `mint_status` frame after SSE reconnect fills these in.
       };
-      out.set(ev.groupingKey, row);
-      freeCount[ev.groupingKey] = 0;
-      paidCount[ev.groupingKey] = 0;
+      out.set(key, row);
+      freeCount[key] = 0;
+      paidCount[key] = 0;
     }
     row.observedMints++;
     if (ev.receivedAt > row.lastMintAt) row.lastMintAt = ev.receivedAt;
     if (ev.mintAddress) row.lastMintAddress = ev.mintAddress;
     if (now - ev.receivedAt < 60_000)  row.v60++;
     if (now - ev.receivedAt < 300_000) row.v5m++;
-    if (ev.mintType === 'free')      freeCount[ev.groupingKey]++;
-    else if (ev.mintType === 'paid') paidCount[ev.groupingKey]++;
+    if (ev.mintType === 'free')      freeCount[key]++;
+    else if (ev.mintType === 'paid') paidCount[key]++;
   }
   // Roll up mintType the same way the backend does (`rollupType` in
   // src/mints/accumulator.ts): mostly-free / mostly-paid / mixed /
   // unknown. Cheap pass over the per-group counters.
+  let cnftCount = 0;
   for (const [k, row] of out) {
     const obs = row.observedMints;
     const f   = freeCount[k] ?? 0;
@@ -418,8 +509,23 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): Map<string, MintStat
     else if (p / obs > 0.95)  row.mintType = 'paid';
     else if (f > 0 && p > 0)  row.mintType = 'mixed';
     else                      row.mintType = 'unknown';
+    if (row.programSource === 'bubblegum') cnftCount++;
   }
-  return out;
+  return { rows: out, cnftCount };
+}
+
+/** Lighter-weight render check used ONLY by the synth-row merge path.
+ *  Events that survived to localStorage already passed
+ *  `isClearlyNonNftMintEvent` at save time, so they're definitionally
+ *  real NFT mints. The strict `isRenderableMintStatus` rules below
+ *  exist for backend `mint_status` frames whose `groupingKey` may be
+ *  a launchpad/program bucket without strong NFT evidence — here that
+ *  filter wrongly drops cNFT rows whose backend grouping fell back to
+ *  `program:bubblegum` (when neither verified collection nor merkle
+ *  tree was on the wire). For synth rows we trust the upstream
+ *  feed-side filter and only require a non-empty groupingKey. */
+function isRebuildableSynthRow(row: MintStatus): boolean {
+  return typeof row.groupingKey === 'string' && row.groupingKey.length > 0;
 }
 
 /** Debounce shell for the two persist functions above. The raw
@@ -832,10 +938,12 @@ export default function MintsPage() {
 
   // Render-time view of `events` for the LIVE MINT FEED panel. Pure
   // filter — does not touch the persisted store, so flipping the toggle
-  // never drops anything from localStorage. cNFTs land with
-  // programSource='bubblegum'; everything else is shown unconditionally.
+  // never drops anything from localStorage. Uses the shared `isCnftLike`
+  // detector so the same rule applies to the COLLECTIONS table memo
+  // below — a single CNFT ON/OFF toggle in the header consistently
+  // hides/shows cNFTs in both surfaces.
   const visibleEvents = useMemo(
-    () => showCnft ? events : events.filter(ev => ev.programSource !== 'bubblegum'),
+    () => showCnft ? events : events.filter(ev => !isCnftLike(ev)),
     [events, showCnft],
   );
 
@@ -866,17 +974,19 @@ export default function MintsPage() {
     // synthesized lastMintAt / observedMints in the meantime.
     if (events.length > 0) {
       setRows(prev => {
-        const synth = rebuildCollectionsFromEvents(events);
+        const { rows: synth, cnftCount } = rebuildCollectionsFromEvents(events);
         let added = 0;
         const next = new Map(prev);
         for (const [k, synthRow] of synth) {
-          if (next.has(k)) continue;                  // mint_status authoritative
-          if (!isRenderableMintStatus(synthRow)) continue; // junk filter
+          if (next.has(k)) continue;                       // mint_status authoritative
+          if (!isRebuildableSynthRow(synthRow)) continue;  // light filter — events
+                                                           // already passed feed-side
+                                                           // non-NFT guard at save
           next.set(k, synthRow);
           added++;
         }
         if (added === 0) return prev;
-        console.log(`[mints/cache] rebuiltCollectionsFromFeed=${added}`);
+        console.log(`[mints/cache] rebuiltCollectionsFromFeed=${added} cnft=${cnftCount}`);
         return next;
       });
     }
@@ -1193,6 +1303,12 @@ export default function MintsPage() {
     const cutoff = now - tfMs;
     let arr = Array.from(rows.values())
       .filter(r => r.displayState !== 'cooled')
+      // CNFT toggle — shared with the LIVE MINT FEED memo above so a
+      // single header control hides cNFTs everywhere. Applied BEFORE
+      // the timeframe filter so the ACTIVE/RECENT count chip matches
+      // the visible row count exactly. Pure filter — never touches
+      // `rows` state or localStorage.
+      .filter(r => showCnft || !isCnftLike(r))
       // Final-render safety net — a row that slipped past load /
       // SSE filters (e.g. mutated mid-session by patchAccumulatorMeta)
       // still gets dropped here before it paints.
@@ -1226,7 +1342,7 @@ export default function MintsPage() {
       return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
     });
     return arr;
-  }, [rows, sortKey, mintTab, mintTf]);
+  }, [rows, sortKey, mintTab, mintTf, showCnft]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1774,8 +1890,8 @@ export default function MintsPage() {
                 type="button"
                 onClick={() => setShowCnft(v => !v)}
                 title={showCnft
-                  ? 'Hiding cNFT mints — click to show'
-                  : 'Showing cNFT mints — click to hide'}
+                  ? 'Showing cNFT mints in feed and table — click to hide'
+                  : 'Hiding cNFT mints from feed and table — click to show'}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
