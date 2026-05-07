@@ -681,15 +681,27 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // Fail-open for every MMM sale family (including the known-unknown
     // coreFulfillBuyV2 log name) — see MMM_SALES_ONLY_SKIP_LOG_NAMES for
     // the confirmed deny-list scope.
+    //
+    // IMPORTANT: do NOT markSigFetched on this skip — same dedupe-poisoning
+    // class as the mint-prefilter fix (commit 65295c3). The MMM log
+    // heuristic is fragile: a real sale whose visible "Instruction:" lines
+    // happen to all be in the deny-list (truncated logs, unknown sale-ix
+    // variant whose log name collides with deny-list, or a sale ix that
+    // appears only as an inner CPI not present in this log slice) would
+    // be permanently lost — every recovery path (amm-poller.sweepTarget
+    // + listener.pollTarget) defers 5 s and rechecks `wasRecentlyFetched`,
+    // which `markSigFetched` poisons. `markSeen` is still set so the
+    // listener's own poll loop skips re-dispatch of WS-shed sigs, but
+    // amm-poller (independent dedup) keeps its safety-net role: it will
+    // dispatch via dispatchMmmDeferred → fetchRawTx, and the parser will
+    // cheaply DROP true noise while recovering false-positive sales.
     if (target.name === 'mmm' && shouldSkipMmmLogsSalesOnly(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'mmm_sales_only_deny_list' });
-        saleDebug('mark_fetched',   sig, { reason: 'mmm_sales_only_prefilter_skip' });
       }
       markSeen(sig);
-      markSigFetched(sig);
       return;
     }
 
