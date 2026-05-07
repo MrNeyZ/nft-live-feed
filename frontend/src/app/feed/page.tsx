@@ -659,10 +659,7 @@ const FeedCard = memo(function FeedCard({
                 <span
                   key={event.id}
                   className="seller-remaining-badge"
-                  title={
-                    `Seller has ${sellerCount} NFTs left; ` +
-                    `${sellerSellCountInFeed} recent sell${sellerSellCountInFeed === 1 ? '' : 's'} from this wallet`
-                  }
+                  title={`Seller has ${sellerCount} NFTs left in this collection`}
                   style={SELLER_REMAINING_BADGE_STYLE}
                 >
                   <span key={sellerCount} className="seller-remaining-badge-num">
@@ -1186,7 +1183,6 @@ export default function FeedPage() {
           collection: ev.collectionAddress!,
           count:      persisted,
           sells10m:   ev.sellerSells10m ?? 0,
-          signal:     ev.sellerSignal ?? undefined,
         },
       });
       // One match per pass — patchWhere fans out to all matching rows

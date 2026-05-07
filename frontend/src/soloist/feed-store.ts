@@ -81,10 +81,13 @@ export interface SellerCountPatch {
    *  but the multi-sell signal still applies. */
   count:      number | null;
   /** Sell-side sales the same wallet made for this collection in the
-   *  last 10 minutes (backend-tracked). Drives the 🔥 fallback. */
+   *  last 10 minutes (backend-tracked). Persisted alongside the count
+   *  for tooltip detail; not rendered as a badge. */
   sells10m?:  number;
-  /** When backend determined the wallet is visibly dumping despite a
-   *  weak/null DAS count. Frontend renders 🔥 instead of a number. */
+  /** Legacy field — backend used to ship a `'multi'` dumping signal so
+   *  the frontend could render a 🔥 hint. The hint was removed; the
+   *  field is kept on the patch type only for back-compat with stale
+   *  SSE messages and is silently ignored by the reducer. */
   signal?:    'multi';
 }
 
@@ -201,36 +204,36 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
       const { patch } = action;
       return patchWhere(
         state,
+        // Match priority: signature when present (backfills row data
+        // for the originating sale), then seller+collection (fans out
+        // to every visible sibling row in the same dump batch and
+        // catches late `seller_count_update` patches from the
+        // exact-fallback path which arrive WITHOUT a signature).
         ev =>
           (!!patch.signature && ev.signature === patch.signature) ||
           (ev.seller === patch.seller && ev.collectionAddress === patch.collection),
         ev => {
-          // Backfill collectionAddress when we matched by signature
-          // (the row had it null at sale time but the backend has now
-          // resolved it). That repair lets future seller+collection
-          // patches for the same wallet+collection light up THIS row
-          // too without re-needing a signature match.
-          const nextColl    = ev.collectionAddress ?? patch.collection;
-          // Sticky-merge count — a later signal-only patch (count=null,
-          // signal='multi') must NOT overwrite a previously-resolved
-          // DAS count. DAS-resolved values are authoritative; the 🔥
-          // signal is supplementary.
-          const nextCount   = (typeof patch.count === 'number' && Number.isFinite(patch.count))
+          // Backfill collectionAddress when we matched by signature.
+          // Without this, a row that landed with collectionAddress=null
+          // would never be reachable by subsequent seller+collection
+          // patches (including the late exact-scan update which has
+          // no signature).
+          const nextColl  = ev.collectionAddress ?? patch.collection;
+          // Sticky-merge count — a patch without a finite count must
+          // NOT overwrite a previously-resolved value. DAS counts win.
+          const nextCount = (typeof patch.count === 'number' && Number.isFinite(patch.count))
             ? patch.count
             : (ev.sellerRemainingCount ?? null);
-          const nextSells   = patch.sells10m ?? ev.sellerSells10m ?? 0;
-          const nextSignal  = patch.signal ?? null;
+          const nextSells = patch.sells10m ?? ev.sellerSells10m ?? 0;
           if (
             ev.sellerRemainingCount === nextCount &&
             ev.collectionAddress    === nextColl  &&
-            ev.sellerSells10m       === nextSells &&
-            ev.sellerSignal         === nextSignal
+            ev.sellerSells10m       === nextSells
           ) return ev;
           return {
             ...ev,
             sellerRemainingCount: nextCount,
             sellerSells10m:       nextSells,
-            sellerSignal:         nextSignal,
             collectionAddress:    nextColl,
           };
         },

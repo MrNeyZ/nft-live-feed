@@ -257,15 +257,43 @@ saleEventBus.onSale(           (event)  => {
         `sells10m=${sells10m} count=${count ?? 'null'}` + (signal ? ` signal=${signal}` : ''),
       );
     }
-    if (count == null && !signal) {
-      if (Math.random() < 0.02) {
-        console.log(
-          `[seller-count-miss] reason=lookup_null sig=${signature.slice(0,12)}… ` +
-          `saleType=${saleType} method=${verdict.method}`,
-        );
-      }
-      return;
+    // Targeted unsampled diagnostic for the dumper-wallet that lost
+    // its badge after Batch B's log-gating. Always logs regardless of
+    // SELLER_COUNT_DEBUG so the operator can confirm the wire path
+    // is firing for this exact wallet without flipping the env flag.
+    // Remove once the badge regression is confirmed fixed.
+    const SELLER_COUNT_TARGET_WALLETS = new Set<string>([
+      'BMjqDjXVwQVHBkSSxpzX9eKEw3sHmnP9yhn3tjF7T9SA',
+    ]);
+    if (SELLER_COUNT_TARGET_WALLETS.has(seller)) {
+      const exactTriggered =
+        (count == null || count < 3) && (sells10m >= 2 || sellsAny10m >= 3);
+      console.log(
+        `[seller-count-target] seller=${seller.slice(0,8)}… ` +
+        `collection=${collection.slice(0,8)}… count=${count ?? 'null'} ` +
+        `sells10m=${sells10m} sellsAny10m=${sellsAny10m} ` +
+        `signal=${signal ?? '—'} exactTriggered=${exactTriggered ? 'yes' : 'no'} ` +
+        `sig=${signature.slice(0,12)}…`,
+      );
     }
+    // PREVIOUS BUG: when both `count` and `signal` were absent we returned
+    // here without broadcasting. That created a class of dumpers (wallets
+    // hitting many DIFFERENT collections one-shot — qualifies for the
+    // sellsAny10m>=3 exact-scan trigger but NOT for signal='multi' which
+    // requires sells10m>=2 in the same collection) where:
+    //   1. Initial fast path returns count=null + no signal → return.
+    //   2. Frontend row never gets its `collectionAddress` backfilled
+    //      via the seller_count signature-match path.
+    //   3. Late `seller_count_update` from the exact-scan completion
+    //      fires WITHOUT a signature (only seller+collection).
+    //   4. Frontend reducer tries to match by seller+collection but
+    //      the row's collectionAddress is still null → no match,
+    //      badge never appears.
+    // Fix: always broadcast for sell-side events with resolved
+    // seller+collection. Frontend renders only when `count >= 3`,
+    // so a null-count broadcast is harmless — but it backfills
+    // `collectionAddress` on the row so the late exact patch can
+    // match by seller+collection.
     if (count === 0 && verdict.method === 'getAssetsByOwner' && (verdict.scanned ?? 0) > 0
         && Math.random() < 0.10) {
       console.log(
@@ -280,12 +308,18 @@ saleEventBus.onSale(           (event)  => {
         `count=${count ?? 'null'} method=${verdict.method} signal=${signal ?? '—'}`,
       );
     }
-    // Wire payload carries the originating signature, seller+collection
-    // (so the same patch fans out to siblings and persists in
-    // localStorage), the DAS count (may be null), and the new
-    // {sells10m, signal} pair so the frontend can choose between an
-    // exact-number badge and the 🔥 multi-sell badge.
-    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m, signal })}\n\n`);
+    // Wire payload carries the originating signature + seller+collection
+    // (so the same patch fans out to all visible rows from this dump
+    // batch and persists in localStorage), the DAS count (may be null),
+    // and `sells10m`. `signal` is intentionally OMITTED from the wire —
+    // frontend no longer renders the 🔥 multi-sell hint; it shows only
+    // the numeric exact remaining count when count >= 3. The backend
+    // still computes `signal` internally above to gate the
+    // exact-fallback trigger; it just doesn't ship to clients.
+    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
+    // Avoid 'signal is declared but never read' under strict-unused linting
+    // when the env-gated logs above are stripped from a production build.
+    void signal;
   })();
 });
 saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
