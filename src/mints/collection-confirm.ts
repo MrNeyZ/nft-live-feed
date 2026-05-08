@@ -43,6 +43,80 @@ function nameLooksWeak(name: string | null | undefined): boolean {
 const RETRY_DELAYS_MS = [15_000, 60_000, 180_000, 300_000];
 const MAX_PENDING     = 500;
 
+// ─── Helius credit budget (per-collection burst limiting) ────────────
+// During a hot LMNFT mint a single collection can ship 30–60 mints/min;
+// scheduling a 4-step DAS retry per mint blew our credits without
+// adding meaningful UX value (after a few resolves we already know the
+// collection's image template + name). The two valves below cap the
+// damage without changing live-feed correctness:
+//
+// 1. PER-KEY ENQUEUE RATE LIMIT — sliding 60 s window of how many
+//    mints we've sent into the retry queue for one groupingKey. Mints
+//    over the cap are NOT enrolled (they keep their placeholder; the
+//    mint_meta replay buffer / next-mint refresh fills them in
+//    eventually). Counter: `metricSkippedBurst`.
+//
+// 2. ADAPTIVE RETRY START — once K mints in a collection have
+//    successfully resolved name/image via DAS within RESOLVED_WINDOW_MS,
+//    new arrivals from that same collection skip retry-1 (15 s) AND
+//    retry-2 (60 s) and start at retry-3 (180 s). The 15 s slot is the
+//    most expensive (one DAS call per mint, often before DAS has even
+//    indexed it). Counter: `metricDelayed`.
+const MAX_ENQUEUES_PER_MIN_PER_KEY     = 20;
+const RESOLVE_THRESHOLD_FOR_DELAYED    = 5;
+const RESOLVED_WINDOW_MS               = 5 * 60_000;
+const ENQUEUE_WINDOW_MS                = 60_000;
+const ADAPTIVE_RETRY_START_IDX         = 2;   // skips retry-1 (15s) and retry-2 (60s)
+
+const enqueueTimesByKey:    Map<string, number[]> = new Map();
+const resolvedCountByKey:   Map<string, { count: number; firstAt: number }> = new Map();
+
+// Credit-usage counters. Reset on every emit of the [mints/credits]
+// metrics line so each log row is "since last tick" — easier to spot
+// regressions in pm2 logs without diffing cumulative totals.
+let metricGetAsset      = 0;
+let metricSkippedBurst  = 0;
+let metricDelayed       = 0;
+let metricSearchAssets  = 0;
+
+/** External hook: every place that issues a `searchAssets` RPC for
+ *  /mints (today: the per-collection minted-count refresh in
+ *  accumulator.ts) calls this so the counter shows up in the unified
+ *  [mints/credits] line. Cheap counter — no allocation, no async. */
+export function noteSearchAssetsCall(): void { metricSearchAssets++; }
+
+function trimEnqueueWindow(times: number[], now: number): number[] {
+  const cutoff = now - ENQUEUE_WINDOW_MS;
+  // Keep only entries inside the window. Tight loop instead of filter+
+  // assign so the existing array can shrink in place during steady
+  // state. On overflow this still creates a new array — fine, called
+  // at most once per enqueue attempt per key.
+  let i = 0;
+  while (i < times.length && times[i] < cutoff) i++;
+  return i === 0 ? times : times.slice(i);
+}
+
+function recentResolveCount(key: string, now: number): number {
+  const r = resolvedCountByKey.get(key);
+  if (!r) return 0;
+  if (now - r.firstAt > RESOLVED_WINDOW_MS) {
+    // Window expired — reset; the collection has cooled, treat new
+    // mints as a fresh launch so they get the full 4-retry treatment.
+    resolvedCountByKey.delete(key);
+    return 0;
+  }
+  return r.count;
+}
+
+function noteResolved(key: string, now: number): void {
+  const r = resolvedCountByKey.get(key);
+  if (!r || now - r.firstAt > RESOLVED_WINDOW_MS) {
+    resolvedCountByKey.set(key, { count: 1, firstAt: now });
+  } else {
+    r.count++;
+  }
+}
+
 /** Per-collection image-frequency counter. When the same imageUrl shows
  *  up for multiple distinct mintAddresses in the same collection it's
  *  almost certainly the launchpad's pre-reveal placeholder, NOT a
@@ -85,7 +159,36 @@ export function scheduleCollectionConfirmation(
   if (!mintAddress || !parserCollection) return;
   if (pending.has(mintAddress))         return;
   if (pending.size >= MAX_PENDING)      return;   // bounded — drop new arrivals on overflow
-  const entry: Pending = { groupingKey, mintAddress, parserCollection, signature, idx: 0 };
+
+  // Per-key burst rate limit. Sliding 60 s window of enqueue
+  // timestamps per groupingKey; mints over the cap don't enter the
+  // retry queue at all — they keep their placeholder until the next
+  // organic refresh path picks them up (mint_meta replay on reconnect,
+  // or another mint in the same collection landing inside the
+  // adaptive-retry threshold). Burst-shedding is preferable to running
+  // 4 DAS retries × 60 mints/min for a single collection.
+  const now = Date.now();
+  const bucket = trimEnqueueWindow(enqueueTimesByKey.get(groupingKey) ?? [], now);
+  if (bucket.length >= MAX_ENQUEUES_PER_MIN_PER_KEY) {
+    enqueueTimesByKey.set(groupingKey, bucket);   // store the trimmed bucket
+    metricSkippedBurst++;
+    return;
+  }
+
+  // Adaptive retry start — skip the noisy 15 s + 60 s slots once we've
+  // already resolved K mints in this collection's recent window. The
+  // collection's image/name template is well-known by then; per-NFT
+  // images can wait for the 180 s+ slots without user-visible cost.
+  let startIdx = 0;
+  if (recentResolveCount(groupingKey, now) >= RESOLVE_THRESHOLD_FOR_DELAYED) {
+    startIdx = ADAPTIVE_RETRY_START_IDX;
+    metricDelayed++;
+  }
+
+  bucket.push(now);
+  enqueueTimesByKey.set(groupingKey, bucket);
+
+  const entry: Pending = { groupingKey, mintAddress, parserCollection, signature, idx: startIdx };
   pending.set(mintAddress, entry);
   scheduleNext(entry);
 }
@@ -113,6 +216,7 @@ async function runAttempt(entry: Pending): Promise<void> {
   let imageUrl:       string | null = null;
   let collectionName: string | null = null;
   try {
+    metricGetAsset++;
     const meta = await getAsset(entry.mintAddress);
     dasCollection  = meta.collectionAddress ?? null;
     // Trim DAS-surfaced names — fixed-width Metaplex / MPL Core name
@@ -231,6 +335,14 @@ async function runAttempt(entry: Pending): Promise<void> {
       `[mints/meta] patched mint=${entry.mintAddress} ` +
       `name=${nftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
     );
+    // Bump the per-collection resolved counter only when this attempt
+    // surfaced something the UI cares about (image OR a real name).
+    // Adaptive-retry consults this counter on subsequent enqueues for
+    // the same groupingKey; once we cross RESOLVE_THRESHOLD, new mints
+    // start at retry idx 2 instead of 0, saving the 15 s + 60 s slots.
+    if (imageUrl || nftName || collectionName) {
+      noteResolved(entry.groupingKey, Date.now());
+    }
   }
   if (dasCollection) {
     console.log(
@@ -276,3 +388,42 @@ async function runAttempt(entry: Pending): Promise<void> {
   entry.idx += 1;
   scheduleNext(entry);
 }
+
+// ─── Helius credit metrics ticker ────────────────────────────────────
+// Logs once per minute with the deltas since the previous tick. Each
+// counter resets after emit so a hot-collection spike shows up clearly
+// in pm2 logs without having to diff cumulative totals. The
+// `collections=` field counts distinct groupingKeys with at least one
+// enqueue inside the current sliding window (i.e. collections actively
+// burning enrichment credits right now); a quiet system reads as
+// `collections=0` and a busy launch reads as `collections=1` with a
+// large `getAsset` value attributable to that single launch.
+const METRICS_INTERVAL_MS = 60_000;
+const _metricsTimer = setInterval(() => {
+  const now = Date.now();
+  // Distinct active collections = those whose sliding-window bucket
+  // still has any enqueue inside ENQUEUE_WINDOW_MS. Trim each bucket
+  // opportunistically so we don't accumulate dead keys forever.
+  let activeCollections = 0;
+  for (const [key, times] of enqueueTimesByKey) {
+    const trimmed = trimEnqueueWindow(times, now);
+    if (trimmed.length === 0) {
+      enqueueTimesByKey.delete(key);
+    } else {
+      enqueueTimesByKey.set(key, trimmed);
+      activeCollections++;
+    }
+  }
+  console.log(
+    `[mints/credits] getAsset=${metricGetAsset} ` +
+    `skippedBurst=${metricSkippedBurst} ` +
+    `delayed=${metricDelayed} ` +
+    `searchAssets=${metricSearchAssets} ` +
+    `collections=${activeCollections}`,
+  );
+  metricGetAsset     = 0;
+  metricSkippedBurst = 0;
+  metricDelayed      = 0;
+  metricSearchAssets = 0;
+}, METRICS_INTERVAL_MS);
+if (typeof _metricsTimer.unref === 'function') _metricsTimer.unref();

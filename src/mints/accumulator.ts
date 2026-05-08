@@ -21,13 +21,16 @@ import {
 } from '../events/emitter';
 import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
+import { noteSearchAssetsCall } from './collection-confirm';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
  *  trigger at most one DAS `searchAssets` call per this window even if
- *  it's bursting 50 mints/sec. Long enough to keep DAS quota sane,
- *  short enough that the column stays visibly accurate during a hot
- *  drop. */
-const MINTED_REFRESH_MIN_MS = 30_000;
+ *  it's bursting 50 mints/sec. Bumped from 30 s → 60 s as part of the
+ *  Helius-credit-budget pass — at 50 mints/sec a single hot collection
+ *  was still firing 2 searchAssets/min while the user-visible MINTED
+ *  number changes by ~the same percentage either way. 60 s halves the
+ *  searchAssets traffic for hot collections at no perceptible UX cost. */
+const MINTED_REFRESH_MIN_MS = 60_000;
 
 const WINDOW_60S            = 60_000;
 const WINDOW_5M             = 5 * 60_000;
@@ -212,6 +215,7 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
   a.mintedFetchedAt = now;
   const collection = a.collectionAddress;
   void (async () => {
+    noteSearchAssetsCall();
     const dasCount = await getCollectionMintedCount(collection);
     if (dasCount == null) return;
     // The accumulator entry may have been re-keyed or evicted in the
