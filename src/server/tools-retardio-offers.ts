@@ -257,6 +257,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/** Marker error for transient Magic Eden listings outages. The route
+ *  handler `instanceof`-checks this to return a structured 503 with a
+ *  friendly errorCode the frontend can recognise, instead of the
+ *  generic 500 / `scan failed` payload that otherwise renders raw. */
+class MeListingsUpstreamError extends Error {
+  readonly upstreamStatus:     number;
+  readonly upstreamStatusText: string;
+  constructor(slug: string, status: number, statusText: string) {
+    super(`ME listings upstream error for slug=${slug}: ${status} ${statusText}`.trim());
+    this.name              = 'MeListingsUpstreamError';
+    this.upstreamStatus     = status;
+    this.upstreamStatusText = statusText;
+  }
+}
+
 async function fetchListings(slug: string): Promise<MeListing[]> {
   const out: MeListing[] = [];
   let offset = 0;
@@ -267,17 +282,16 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
     if (!r.ok) {
       // First-page upstream failure (429 / 5xx / network glitch) is NOT
       // "this collection has no listings" — it's a transient ME outage.
-      // Throw so the route handler returns a 5xx and we don't cache /
-      // persist a misleading zero-listings result. Without this throw,
-      // a single ME hiccup poisons:
+      // Throw so the route handler returns a structured error and we
+      // don't cache / persist a misleading zero-listings result.
+      // Without this throw, a single ME hiccup poisons:
       //   - the in-memory cache for 45 s (every client click sees zeros)
       //   - the frontend's localStorage permanently (zero state persists
       //     across reloads until the next successful scan)
       // Subsequent-page failures keep whatever we already paged in —
       // partial results are still useful and we shouldn't bin them.
       if (offset === 0) {
-        const reason = `${r.status} ${r.statusText || ''}`.trim();
-        throw new Error(`ME listings upstream error for slug=${slug}: ${reason}`);
+        throw new MeListingsUpstreamError(slug, r.status, r.statusText || '');
       }
       break;
     }
@@ -482,6 +496,24 @@ export function createRetardioOffersRouter(): Router {
       );
       return res.json({ ...result, fromCache: false });
     } catch (err) {
+      // Transient ME listings outage → 503 with a structured payload the
+      // frontend can render as a friendly "try again in a minute" amber
+      // notice (instead of the raw `HTTP 500 — {"ok":false,...}` blob).
+      // The cache is intentionally NOT updated so the next click after
+      // ME recovers does a real scan.
+      if (err instanceof MeListingsUpstreamError) {
+        console.warn(
+          `[tools/retardio-me-offer-scan] upstream listings ${err.upstreamStatus} ` +
+          `${err.upstreamStatusText} slug=${slug}`,
+        );
+        return res.status(503).json({
+          ok:                false,
+          errorCode:         'ME_LISTINGS_UPSTREAM',
+          message:           'Magic Eden listings API temporarily unavailable. Try again in a minute.',
+          upstreamStatus:     err.upstreamStatus,
+          upstreamStatusText: err.upstreamStatusText,
+        });
+      }
       console.error('[tools/retardio-me-offer-scan] error', err);
       return res.status(500).json({ ok: false, error: 'scan failed' });
     }

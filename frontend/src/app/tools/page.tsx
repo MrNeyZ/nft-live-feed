@@ -135,6 +135,11 @@ export default function ToolsPage() {
   // ever-running interval.
   const [cooldownUntilMs, setCooldownUntilMs] = useState<number | null>(null);
   const [is429, setIs429]                     = useState(false);
+  // Transient upstream-listings failure (ME 429/5xx). Renders the same
+  // amber-banner soft warning as `is429` but keeps the Scan button
+  // enabled (no rate-limit cooldown applies — ME's outage is the cause,
+  // not our request rate) so the user can immediately retry.
+  const [isUpstreamErr, setIsUpstreamErr]     = useState(false);
   const [nowMs, setNowMs]                     = useState<number>(() => Date.now());
   useEffect(() => {
     if (cooldownUntilMs == null) return;
@@ -254,6 +259,7 @@ export default function ToolsPage() {
     setBusy(true);
     setError(null);
     setIs429(false);
+    setIsUpstreamErr(false);
     try {
       const body: Record<string, unknown> = { slug: selectedSlug };
       const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
@@ -271,8 +277,25 @@ export default function ToolsPage() {
         return;
       }
       if (!r.ok) {
-        const txt = await r.text().catch(() => '');
-        throw new Error(`HTTP ${r.status}${txt ? ` — ${txt.slice(0, 80)}` : ''}`);
+        // Try to parse the structured error envelope first — the
+        // backend returns `{ok:false, errorCode, message}` for known
+        // failure modes (currently `ME_LISTINGS_UPSTREAM`). Falls back
+        // to the raw-text message for unknown shapes.
+        const errBody = await r.json().catch(() => null) as
+          | { ok?: boolean; errorCode?: string; message?: string; error?: string }
+          | null;
+        if (errBody && errBody.errorCode === 'ME_LISTINGS_UPSTREAM') {
+          // Soft warning — keep existing `result` (and its localStorage
+          // copy) intact so cached rows stay visible. Scan button stays
+          // enabled (no cooldown) so the user can retry as soon as ME
+          // recovers — there's no rate-limit involved here.
+          setIsUpstreamErr(true);
+          setError(errBody.message ?? 'Magic Eden listings API temporarily unavailable. Try again in a minute.');
+          return;
+        }
+        const fallback = errBody?.message ?? errBody?.error
+          ?? `HTTP ${r.status}`;
+        throw new Error(fallback.slice(0, 200));
       }
       const data = await r.json() as ScanResult;
       // NEW badge rules (per spec):
@@ -368,10 +391,11 @@ export default function ToolsPage() {
           </div>
         </div>
         {error && (
-          // Soft amber banner for 429 (cached rows still visible);
-          // hard red banner for any other failure. Both keep `result`
-          // intact — the scan never wipes existing data.
-          is429 ? (
+          // Soft amber banner for 429 OR transient ME upstream-listings
+          // outage (cached rows still visible, button still usable on
+          // upstream); hard red banner for any other failure. All paths
+          // keep `result` intact — the scan never wipes existing data.
+          is429 || isUpstreamErr ? (
             <div style={{
               marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#e0b34a',
               background: 'rgba(224,179,74,0.08)', border: '1px solid rgba(224,179,74,0.32)',
