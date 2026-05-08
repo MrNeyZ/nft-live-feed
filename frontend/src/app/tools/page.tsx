@@ -20,6 +20,7 @@ const COLLECTIONS: ReadonlyArray<{ slug: string; label: string }> = [
 ];
 
 type OfferStatus = 'AVAILABLE' | 'EXPIRED' | 'EXPECTED';
+type FundingStatus = 'funded' | 'low_balance' | 'empty' | 'unknown';
 
 interface ScanRow {
   mint:               string;
@@ -31,6 +32,13 @@ interface ScanRow {
   bestOfferId:        string;
   bestOfferStatus:    OfferStatus;
   bestOfferCreatedAt: number | null;     // seconds since epoch
+  /** M2 buyer-escrow PDA backing the best offer (null when ME omitted
+   *  auctionHouse / buyer). Surfaced in the BEST OFFER cell as a
+   *  funded/low/empty/unknown badge so the operator can spot bids that
+   *  look fillable but whose escrow has been drained. */
+  fundingWallet:      string | null;
+  fundingBalanceSol:  number | null;
+  fundingStatus:      FundingStatus;
   meUrl:              string;
   tensorUrl:          string;
   /** Frontend-only flag: row's `bestOfferId` was not present in the
@@ -49,6 +57,33 @@ function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
   if (s === 'AVAILABLE') return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
   if (s === 'EXPECTED')  return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
   return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
+}
+
+/** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
+ *  Green/yellow/red mirror the existing OfferStatus palette so the two
+ *  badges read together as "is the offer real" + "is it backed". Gray
+ *  for unknown stays neutral so missing data doesn't grab the eye. */
+function fundingBadgeStyle(s: FundingStatus): React.CSSProperties {
+  if (s === 'funded')      return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
+  if (s === 'low_balance') return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
+  if (s === 'empty')       return { color: '#ef7878', background: 'rgba(239,120,120,0.12)', border: '1px solid rgba(239,120,120,0.40)' };
+  return                          { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.30)' };
+}
+function fundingLabel(s: FundingStatus): string {
+  if (s === 'funded')      return 'FUNDED';
+  if (s === 'low_balance') return 'LOW';
+  if (s === 'empty')       return 'EMPTY';
+  return 'UNKNOWN';
+}
+/** Format an SOL number for the funding badge — keep it short and the
+ *  same scale (2-3 sig figs) regardless of magnitude. The full balance
+ *  also lives in the cell tooltip so power users can hover for detail. */
+function fmtFundingSol(sol: number | null): string {
+  if (sol == null) return '';
+  if (sol === 0)   return '0';
+  if (sol >= 100)  return sol.toFixed(0);
+  if (sol >= 10)   return sol.toFixed(1);
+  return sol.toFixed(2);
 }
 
 type SortKey = 'nft' | 'listing' | 'offer' | 'spread' | 'age' | 'status';
@@ -583,6 +618,39 @@ export default function ToolsPage() {
                         }}>EXPIRED</span>
                       )}
                       {formatSol(row.bestOfferPrice)}
+                      {/* Bidder escrow funding badge — sits directly under
+                          the offer price so the operator can see the
+                          fillable amount and "is it actually backed" in
+                          one glance. Hidden when bestOfferStatus is
+                          EXPIRED (the row is already dimmed and the
+                          balance is moot). Title carries the full balance
+                          + escrow PDA for operators who want to verify on
+                          chain. */}
+                      {row.bestOfferStatus !== 'EXPIRED' && (
+                        <div style={{ marginTop: 3, textAlign: 'right' }}>
+                          <span
+                            title={
+                              row.fundingWallet
+                                ? `Bidder escrow ${row.fundingWallet}` +
+                                  (row.fundingBalanceSol != null ? ` · ${row.fundingBalanceSol} SOL` : '')
+                                : 'Funding wallet could not be resolved (missing auctionHouse/buyer on offer).'
+                            }
+                            style={{
+                              display: 'inline-block',
+                              padding: '1px 5px', fontSize: 8.5, fontWeight: 700,
+                              letterSpacing: '0.4px', textTransform: 'uppercase',
+                              borderRadius: 3, lineHeight: 1.2,
+                              fontFamily: "'SF Mono','Fira Code',monospace",
+                              ...fundingBadgeStyle(row.fundingStatus),
+                            }}
+                          >
+                            {fundingLabel(row.fundingStatus)}
+                            {row.fundingStatus !== 'unknown' && row.fundingBalanceSol != null && (
+                              <> {fmtFundingSol(row.fundingBalanceSol)} SOL</>
+                            )}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...tdStyleNum, color: positiveSpread ? '#5ce0a0' : '#ef7878', fontWeight: 700 }}>
                       {positiveSpread ? '+' : ''}{formatSol(Math.abs(row.spreadSol))}

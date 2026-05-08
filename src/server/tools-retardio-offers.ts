@@ -22,6 +22,13 @@
 
 import { Router, Request, Response } from 'express';
 import { rateLimit } from './rate-limit';
+import {
+  deriveBuyerEscrowPda,
+  resolveEscrowBalances,
+  classifyFundingStatus,
+  lamportsToSol,
+  type FundingStatus,
+} from './me-bid-escrow';
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const DEFAULT_SLUG     = process.env.RETARDIO_ME_SLUG ?? 'retardio_cousins';
@@ -233,6 +240,19 @@ export interface ScanRow {
    *  ME didn't provide a createdAt / blockTime. UI renders this as a
    *  human "AGE" string. */
   bestOfferCreatedAt: number | null;
+  /** M2 buyer-escrow PDA derived from (auctionHouse, buyer). Null when
+   *  ME omitted either side and we couldn't derive. The UI renders a
+   *  short version next to the funding badge. */
+  fundingWallet:     string | null;
+  /** Lamport balance of `fundingWallet`, expressed in SOL. Null = the
+   *  RPC didn't return a balance (failure / wallet unresolvable). The
+   *  badge renders this number for funded / low / empty. */
+  fundingBalanceSol: number | null;
+  /** funded → balance ≥ offer price ; low_balance → 0 < balance < price ;
+   *  empty  → balance == 0 ; unknown → wallet/balance unresolved. The
+   *  scanner does NOT hide rows based on this — every offer ME returned
+   *  is still shown, just labeled. */
+  fundingStatus:     FundingStatus;
   meUrl:            string;
   tensorUrl:        string;
 }
@@ -382,6 +402,17 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     const bestOfferId = best.pdaAddress
       ?? `${mint}:${best.buyer ?? '?'}:${best.auctionHouse ?? '?'}`;
 
+    // Resolve the funding wallet (M2 buyer escrow) for THIS best offer.
+    // Balance lookups are deferred to a single batched RPC after the
+    // listing-loop completes — see the resolveEscrowBalances() block
+    // below — so the scanner makes O(unique buyers) RPC calls regardless
+    // of how many listings the buyer has bid on.
+    const auctionHouse = typeof best.auctionHouse === 'string' ? best.auctionHouse : null;
+    const buyer        = typeof best.buyer        === 'string' ? best.buyer        : null;
+    const fundingWallet = (auctionHouse && buyer)
+      ? deriveBuyerEscrowPda(auctionHouse, buyer)
+      : null;
+
     out.push({
       mint,
       nftName:            l.token?.name ?? null,
@@ -392,6 +423,9 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       bestOfferId,
       bestOfferStatus:    bestStatus,
       bestOfferCreatedAt: createdAt,
+      fundingWallet,
+      fundingBalanceSol:  null,        // populated post-loop in batched RPC pass
+      fundingStatus:      'unknown',   // ditto
       meUrl:              `https://magiceden.io/item-details/${mint}`,
       tensorUrl:          `https://www.tensor.trade/item/${mint}`,
     });
@@ -444,6 +478,45 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       `miss=${offerAgeMissCache.size} took=${Date.now() - ageStarted}ms`,
     );
   }
+
+  // ── Bidder escrow funding check ───────────────────────────────────────
+  // For every row whose best offer resolved a funding wallet, batch a
+  // single getMultipleAccounts RPC call (deduped by PDA) to fetch
+  // lamport balances. The 60 s cache in me-bid-escrow.ts means repeated
+  // scans of the same collection within a minute reuse balances and
+  // issue zero RPC calls; a fresh scan after expiry typically issues
+  // ONE chunked call regardless of row count. We then classify each
+  // row's funding status against its own offer price — rows are NEVER
+  // dropped based on funding (per spec), only labeled.
+  const uniqueWallets = [...new Set(
+    out.map(r => r.fundingWallet).filter((w): w is string => !!w),
+  )];
+  let funded = 0, low = 0, empty = 0, unknown = 0;
+  let rpcCalls = 0;
+  if (uniqueWallets.length > 0) {
+    const { balances, rpcCalls: nCalls } = await resolveEscrowBalances(uniqueWallets);
+    rpcCalls = nCalls;
+    for (const row of out) {
+      if (!row.fundingWallet) { unknown++; continue; }
+      const lamports = balances.get(row.fundingWallet) ?? null;
+      const status   = classifyFundingStatus(lamports, row.bestOfferPrice);
+      row.fundingBalanceSol = lamportsToSol(lamports);
+      row.fundingStatus     = status;
+      if      (status === 'funded')      funded++;
+      else if (status === 'low_balance') low++;
+      else if (status === 'empty')       empty++;
+      else                               unknown++;
+    }
+  } else {
+    // No resolvable wallets — every row stays at the row-level
+    // 'unknown' default. Still emit the summary line so monitoring
+    // can spot scans that produced zero funding signal.
+    unknown = out.length;
+  }
+  console.log(
+    `[offers/funding] wallets=${uniqueWallets.length} rpc=${rpcCalls} ` +
+    `funded=${funded} low=${low} empty=${empty} unknown=${unknown}`,
+  );
 
   // Default order: status priority first (AVAILABLE > EXPECTED > EXPIRED),
   // then highest best-offer price, then spread. Frontend can re-sort by
