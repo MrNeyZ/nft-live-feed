@@ -173,6 +173,17 @@ export const ItemThumb = memo(function ItemThumb({
 }: { imageUrl: string | null | undefined; color: string; abbr: string; size: number }) {
   const [errored, setErrored] = useState(false);
   const [fellBack, setFellBack] = useState(false);
+  // Reset both error flags whenever the imageUrl prop changes. Without
+  // this, a card whose first image attempt failed (transient network
+  // blip, wsrv 5xx, upstream timeout) is pinned to the placeholder
+  // forever — even if a fresh mint_meta patch later supplies a perfectly
+  // valid URL. The component is `memo`-wrapped so it re-renders on prop
+  // change without remounting; that's why the state survived without
+  // this hook.
+  useEffect(() => {
+    setErrored(false);
+    setFellBack(false);
+  }, [imageUrl]);
   if (!imageUrl || errored) return <NFTThumb color={color} abbr={abbr} size={size} />;
   // On first load error try the raw upstream URL (wsrv may have refused the
   // host). If that fails too, fall back to the initials placeholder.
@@ -235,6 +246,15 @@ export const CollectionIcon = memo(function CollectionIcon({
 }: { imageUrl: string | null | undefined; color: string; abbr: string; size?: number }) {
   const [errored, setErrored] = useState(false);
   const [fellBack, setFellBack] = useState(false);
+  // Reset both error flags on imageUrl change — same rationale as in
+  // ItemThumb. Collection avatars get a fresh URL whenever the row's
+  // sticky-merged collection meta upgrades (LMNFT scrape → DAS), so
+  // pinning placeholder after one early failure is especially visible
+  // here.
+  useEffect(() => {
+    setErrored(false);
+    setFellBack(false);
+  }, [imageUrl]);
   if (!imageUrl || errored) return <CollectionCircle color={color} abbr={abbr} size={size} />;
   const src = fellBack ? rawUpstreamImage(imageUrl) : imageUrl;
   return (
