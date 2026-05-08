@@ -58,15 +58,19 @@ const MAX_PENDING     = 500;
 //
 // 2. ADAPTIVE RETRY START — once K mints in a collection have
 //    successfully resolved name/image via DAS within RESOLVED_WINDOW_MS,
-//    new arrivals from that same collection skip retry-1 (15 s) AND
-//    retry-2 (60 s) and start at retry-3 (180 s). The 15 s slot is the
-//    most expensive (one DAS call per mint, often before DAS has even
-//    indexed it). Counter: `metricDelayed`.
+//    new arrivals from that same collection skip retry-1 (15 s) and
+//    start at retry-2 (60 s). Originally skipped to retry-3 (180 s), but
+//    that was too aggressive — Aevon mints showed up as placeholders
+//    for 3 min on /mints because DAS already had data within seconds
+//    but our first attempt only fired at T+180 s. Retry-2 (60 s) keeps
+//    the 15 s slot's credit savings (still the noisy one — DAS often
+//    hasn't indexed yet) while UX-wise capping placeholder lifetime at
+//    ~60 s during a burst. Counter: `metricDelayed`.
 const MAX_ENQUEUES_PER_MIN_PER_KEY     = 20;
 const RESOLVE_THRESHOLD_FOR_DELAYED    = 5;
 const RESOLVED_WINDOW_MS               = 5 * 60_000;
 const ENQUEUE_WINDOW_MS                = 60_000;
-const ADAPTIVE_RETRY_START_IDX         = 2;   // skips retry-1 (15s) and retry-2 (60s)
+const ADAPTIVE_RETRY_START_IDX         = 1;   // skips retry-1 (15s) only
 
 const enqueueTimesByKey:    Map<string, number[]> = new Map();
 const resolvedCountByKey:   Map<string, { count: number; firstAt: number }> = new Map();
