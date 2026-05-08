@@ -105,6 +105,39 @@ export function rowLinkHandlers(href: string, onLeftClick: () => void) {
   };
 }
 
+/** Host-grouped per-stage failure counter. Sampled (1st + every 50th per
+ *  bucket) so a dead collection can't flood devtools but the operator can
+ *  still answer "are images failing more on host X?". Output format:
+ *      [feed/image] proxy_fail   host=bafy…ipfs.dweb.link count=1
+ *      [feed/image] raw_fallback host=bafy…ipfs.dweb.link count=1
+ *  Every counter resets on hot-reload, which is fine — diagnostics live
+ *  for the session, not durably. */
+const _imgFailCount: Map<string, number> = (() => {
+  const g = globalThis as unknown as { __vlImgFail?: Map<string, number> };
+  if (!g.__vlImgFail) g.__vlImgFail = new Map();
+  return g.__vlImgFail;
+})();
+function noteImageFail(stage: 'proxy_fail' | 'raw_fallback', src: string): void {
+  if (typeof window === 'undefined') return;
+  let host = '';
+  try {
+    if (src.startsWith('/thumb')) {
+      const parsed = new URL(src, 'http://x');
+      const raw = parsed.searchParams.get('url') ?? '';
+      host = raw ? new URL(raw).host : '/thumb';
+    } else {
+      host = new URL(src).host;
+    }
+  } catch { host = '?'; }
+  const key = `${stage}|${host}`;
+  const n   = (_imgFailCount.get(key) ?? 0) + 1;
+  _imgFailCount.set(key, n);
+  if (n === 1 || n % 50 === 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[feed/image] ${stage} host=${host} count=${n}`);
+  }
+}
+
 // Reverse of `compressImage` for fallback: extract the upstream URL from a
 // thumbnail proxy URL — both our own `/thumb?url=…` form (production +
 // dev) and the legacy `https://wsrv.nl/?url=…` form (still recognised in
@@ -160,16 +193,18 @@ export const ItemThumb = memo(function ItemThumb({
       fetchPriority="low"
       onError={() => {
         if (!fellBack) {
-          // First failure — usually a /thumb proxy 404 (wsrv host
-          // policy / transient upstream / expired CDN URL). Sampled
-          // 5 % so a whole-collection CDN outage doesn't flood
-          // devtools. Then fall back to the raw upstream URL.
-          if (typeof window !== 'undefined' && Math.random() < 0.05) {
-            // eslint-disable-next-line no-console
-            console.log(`[feed/image] proxy404 url=${src}`);
-          }
+          // First failure — wsrv proxy returned an error or the upstream
+          // host hung past the browser's load timeout. Sampled & grouped
+          // by host (see noteImageFail). Then fall back to the raw
+          // upstream URL — the browser can sometimes follow redirect
+          // chains wsrv refuses (e.g. cross-host IPFS gateway hops).
+          noteImageFail('proxy_fail', src);
           setFellBack(true);
         } else {
+          // Second failure — raw upstream is also dead (most often
+          // genuine upstream content loss, e.g. a CID that fell out of
+          // the IPFS DHT). Render the initials placeholder.
+          noteImageFail('raw_fallback', src);
           setErrored(true);
         }
       }}
@@ -215,16 +250,18 @@ export const CollectionIcon = memo(function CollectionIcon({
       fetchPriority="low"
       onError={() => {
         if (!fellBack) {
-          // First failure — usually a /thumb proxy 404 (wsrv host
-          // policy / transient upstream / expired CDN URL). Sampled
-          // 5 % so a whole-collection CDN outage doesn't flood
-          // devtools. Then fall back to the raw upstream URL.
-          if (typeof window !== 'undefined' && Math.random() < 0.05) {
-            // eslint-disable-next-line no-console
-            console.log(`[feed/image] proxy404 url=${src}`);
-          }
+          // First failure — wsrv proxy returned an error or the upstream
+          // host hung past the browser's load timeout. Sampled & grouped
+          // by host (see noteImageFail). Then fall back to the raw
+          // upstream URL — the browser can sometimes follow redirect
+          // chains wsrv refuses (e.g. cross-host IPFS gateway hops).
+          noteImageFail('proxy_fail', src);
           setFellBack(true);
         } else {
+          // Second failure — raw upstream is also dead (most often
+          // genuine upstream content loss, e.g. a CID that fell out of
+          // the IPFS DHT). Render the initials placeholder.
+          noteImageFail('raw_fallback', src);
           setErrored(true);
         }
       }}
