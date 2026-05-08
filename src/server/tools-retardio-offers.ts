@@ -264,7 +264,23 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
   while (out.length < SCAN_LIMIT_MAX) {
     const url = `${ME_API_BASE}/collections/${encodeURIComponent(slug)}/listings?offset=${offset}&limit=${LISTINGS_PAGE}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(6_000) });
-    if (!r.ok) break;
+    if (!r.ok) {
+      // First-page upstream failure (429 / 5xx / network glitch) is NOT
+      // "this collection has no listings" — it's a transient ME outage.
+      // Throw so the route handler returns a 5xx and we don't cache /
+      // persist a misleading zero-listings result. Without this throw,
+      // a single ME hiccup poisons:
+      //   - the in-memory cache for 45 s (every client click sees zeros)
+      //   - the frontend's localStorage permanently (zero state persists
+      //     across reloads until the next successful scan)
+      // Subsequent-page failures keep whatever we already paged in —
+      // partial results are still useful and we shouldn't bin them.
+      if (offset === 0) {
+        const reason = `${r.status} ${r.statusText || ''}`.trim();
+        throw new Error(`ME listings upstream error for slug=${slug}: ${reason}`);
+      }
+      break;
+    }
     const page = await r.json() as MeListing[];
     if (!Array.isArray(page) || page.length === 0) break;
     out.push(...page);
