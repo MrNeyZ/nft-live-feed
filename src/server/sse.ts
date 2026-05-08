@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import {
   saleEventBus,
+  recentMintMetaSnapshot,
   MetaUpdate,
   RawPatch,
   ListingRemoveDelta,
@@ -407,6 +408,23 @@ export function createSseRouter(): Router {
     for (const me of currentRecentMints()) {
       try { res.write(buildMintFrame(me)); } catch { /* client gone */ }
     }
+    // Replay the recent per-mint metadata patches. Without this, a tab
+    // that loads after a mint_meta has already fanned out keeps
+    // hydrated localStorage entries on their placeholder shortMint
+    // forever — the metadata never re-arrives. Frontend reducer is
+    // already idempotent (matches by signature, sticky-merges values),
+    // so replaying patches the client may have already seen during a
+    // brief disconnect is safe and a no-op. Order matters slightly:
+    // ship after the mint_status / mint frames so the events the
+    // patches reference are already in the client's buffer.
+    let metaReplayed = 0;
+    for (const p of recentMintMetaSnapshot()) {
+      try {
+        res.write(buildMintMetaFrame(p));
+        metaReplayed++;
+      } catch { /* client gone */ break; }
+    }
+    console.log(`[mints/sse] replayed mint_meta=${metaReplayed}`);
 
     sseClients.add(res);
 

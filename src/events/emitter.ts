@@ -382,7 +382,21 @@ class SaleEventBus extends EventEmitter {
   // name/image AFTER the mint event itself has already been emitted.
   // Lets the Live Mint Feed cards swap a shortMint placeholder for
   // the real NFT name without re-emitting the whole event.
-  emitMintMeta(p: MintMetaPatch): void { this.emit('mint_meta', p); }
+  //
+  // Bounded ring buffer of recent emits. New SSE clients replay this
+  // on connect so a tab that loads after the meta patch already fanned
+  // out can still resolve images for cards it hydrated from
+  // localStorage / mint_status snapshot. Sized to comfortably cover the
+  // longest DAS retry window (5 min, ~30 mints/min worst-case bursts);
+  // 250 = ~8 min of headroom while keeping memory negligible (~30 KB).
+  // Dedupe-by-signature on insert so repeat patches for the same mint
+  // (image upgrade, name upgrade) only keep the latest copy in the
+  // replay tail. No persistence — the buffer is throwaway, rebuilt as
+  // soon as new mints flow.
+  emitMintMeta(p: MintMetaPatch): void {
+    rememberRecentMintMeta(p);
+    this.emit('mint_meta', p);
+  }
   onMintMeta(listener: (p: MintMetaPatch) => void): this { return this.on('mint_meta', listener); }
   offMintMeta(listener: (p: MintMetaPatch) => void): this { return this.off('mint_meta', listener); }
 
@@ -397,3 +411,55 @@ class SaleEventBus extends EventEmitter {
 export const saleEventBus = new SaleEventBus();
 // Prevent Node warning when many SSE clients connect simultaneously
 saleEventBus.setMaxListeners(500);
+
+// ─── Recent mint_meta replay buffer ──────────────────────────────────
+// In-memory only. Holds the last ~MINT_META_REPLAY_MAX patches in
+// emit order (oldest first → newest at tail). Each new SSE connection
+// reads `recentMintMetaSnapshot()` and replays the array verbatim
+// after the mint_status snapshot, so a tab that just loaded can fill
+// in images for live-feed cards whose initial `mint_meta` already
+// fanned out before the connection opened.
+const MINT_META_REPLAY_MAX = 250;
+const recentMintMeta: MintMetaPatch[] = [];
+/** Index by signature so a follow-up patch for the same mint
+ *  (image-only emit then name-resolved emit, etc.) replaces the prior
+ *  entry in-place instead of pushing two copies. Mints without a
+ *  signature (defensive — shouldn't happen on the current wire) skip
+ *  the dedupe and just append. */
+const recentMintMetaIndex = new Map<string, number>();
+
+function rememberRecentMintMeta(p: MintMetaPatch): void {
+  // Replace existing entry for this signature — keeps the buffer tail
+  // pointing at the freshest version of each mint's metadata.
+  if (p.signature) {
+    const existing = recentMintMetaIndex.get(p.signature);
+    if (existing != null && existing < recentMintMeta.length && recentMintMeta[existing]?.signature === p.signature) {
+      recentMintMeta[existing] = p;
+      return;
+    }
+  }
+  recentMintMeta.push(p);
+  if (p.signature) recentMintMetaIndex.set(p.signature, recentMintMeta.length - 1);
+  // Bound the buffer. Drop the oldest entry; rebuild the index lazily
+  // (cheap: ≤ MINT_META_REPLAY_MAX entries) so signatures still resolve
+  // to their current array index after the shift.
+  if (recentMintMeta.length > MINT_META_REPLAY_MAX) {
+    const dropped = recentMintMeta.shift();
+    if (dropped?.signature) recentMintMetaIndex.delete(dropped.signature);
+    // The shift moved every remaining entry down by one — rebuild the
+    // index in one pass. Cheaper than maintaining offsets across a
+    // queue, and only fires once per overflow.
+    recentMintMetaIndex.clear();
+    for (let i = 0; i < recentMintMeta.length; i++) {
+      const sig = recentMintMeta[i].signature;
+      if (sig) recentMintMetaIndex.set(sig, i);
+    }
+  }
+}
+
+/** Snapshot for SSE handlers — returns a shallow copy in emit order so
+ *  the caller can iterate without worrying about mutation if a new
+ *  patch lands mid-replay. */
+export function recentMintMetaSnapshot(): MintMetaPatch[] {
+  return recentMintMeta.slice();
+}
