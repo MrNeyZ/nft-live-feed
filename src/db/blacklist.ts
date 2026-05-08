@@ -25,15 +25,24 @@
 export const COLLECTION_BLACKLIST = new Set<string>([
   'CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf', // collector_crypt — fake/wash sales
   '12TCHn5MB1TnyWC8dmUThgVHYPSQNVbG7mj6fxV1KhwR', // cNFT collection — Tensor-heavy spam, hide from Live Feed
+  // Star Atlas Crew — cNFT collection that leaked through the feed: pre-insert
+  // gate misses it because cNFT parsers ship collectionAddress=null at parse
+  // time; post-enrichment now matches via the DAS-resolved on-chain collection.
+  // Slug + name entries below back this up in case ME's /v2/tokens/:mint
+  // times out (we've observed frequent staratlascrew timeouts) and the
+  // frontend slug filter would otherwise be bypassed.
+  'CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB', // staratlascrew — cNFT, Tensor-heavy
 ]);
 
 export const SLUG_BLACKLIST = new Set<string>([
   'collector_crypt', // CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf — fake/wash sales
+  'staratlascrew',   // CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB
 ]);
 
 /** Lowercased so caller does `NAME_BLACKLIST.has(name.toLowerCase())`. */
 export const NAME_BLACKLIST = new Set<string>([
   'collector crypt', // CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf — fake/wash sales
+  'star atlas crew', // CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB — DAS provides this name when ME slug API fails
 ]);
 
 /** Lowercased substrings — match anywhere in the name. Use sparingly:

@@ -1297,6 +1297,24 @@ export default function MintsPage() {
    *                  existing UX is preserved for promoted rows
    *  This keeps the previous active-only behaviour as a strict subset
    *  while surfacing pre-burst activity at the bottom of the table. */
+  // Per-collection mint count inside the currently selected timeframe
+  // window. Drives the MINTS column and MINT/MIN derivation so the
+  // table metrics react to 5M / 10M / … / 1D pills instead of showing
+  // the cumulative session-lifetime number. Counted from the live
+  // events buffer, which is bounded at LIVE_FEED_MAX (150 newest); for
+  // very hot collections + long timeframes the count can be understated
+  // when older events have rolled off the buffer — same trade-off as
+  // the existing `recent`-tab filter.
+  const tfMintsByKey = useMemo(() => {
+    const cutoff = Date.now() - MINT_TF_MS[mintTf];
+    const m = new Map<string, number>();
+    for (const ev of events) {
+      if (ev.receivedAt < cutoff) continue;
+      m.set(ev.groupingKey, (m.get(ev.groupingKey) ?? 0) + 1);
+    }
+    return m;
+  }, [events, mintTf]);
+
   const sorted = useMemo(() => {
     const now    = Date.now();
     const tfMs   = MINT_TF_MS[mintTf];
@@ -1336,13 +1354,17 @@ export default function MintsPage() {
         if (sortKey === 'velocity') {
           return b.v60 - a.v60 || b.observedMints - a.observedMints;
         }
-        return b.observedMints - a.observedMints || b.v60 - a.v60;
+        // 'mints' sort — rank by the same tf-windowed count the MINTS
+        // column displays so the visible numbers match the order.
+        const am = tfMintsByKey.get(a.groupingKey) ?? 0;
+        const bm = tfMintsByKey.get(b.groupingKey) ?? 0;
+        return bm - am || b.v60 - a.v60;
       }
       // WATCH tier — newest mint first, then v60.
       return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
     });
     return arr;
-  }, [rows, sortKey, mintTab, mintTf, showCnft]);
+  }, [rows, sortKey, mintTab, mintTf, showCnft, tfMintsByKey]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1743,9 +1765,27 @@ export default function MintsPage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      {r.observedMints.toLocaleString()}
-                    </td>
+                    {/* MINTS — count of mints for this collection
+                        seen inside the currently-selected timeframe
+                        window (5M / 10M / 15M / 30M / 1H / 4H / 1D).
+                        Matches the LIVE MINT FEED scope; was previously
+                        the cumulative session count which made the
+                        timeframe pill feel non-functional. Tooltip
+                        spells out the timeframe + falls back to the
+                        cumulative number for context. */}
+                    {(() => {
+                      const tfCount = tfMintsByKey.get(r.groupingKey) ?? 0;
+                      const tip = `${tfCount.toLocaleString()} mint(s) in last ${mintTf}` +
+                        ` · ${r.observedMints.toLocaleString()} since session start`;
+                      return (
+                        <td
+                          title={tip}
+                          style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                        >
+                          {tfCount.toLocaleString()}
+                        </td>
+                      );
+                    })()}
                     {/* MINTED cell — backend-resolved total minted on
                         chain (DAS-indexed). When known and supply is
                         also known we paint a percent fill behind the
@@ -1819,9 +1859,27 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 11.5, color: '#5e5e78', fontWeight: 500, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                      {r.v60.toFixed(0)}
-                    </td>
+                    {/* MINT/MIN — average rate inside the selected
+                        timeframe (tf-count / tf-minutes). Replaces the
+                        fixed 60s window that ignored the timeframe
+                        pill. Uses 1 decimal for sub-1/min rates,
+                        otherwise rounds to integer for compact display. */}
+                    {(() => {
+                      const tfCount   = tfMintsByKey.get(r.groupingKey) ?? 0;
+                      const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
+                      const rate      = tfMinutes > 0 ? tfCount / tfMinutes : 0;
+                      const display   = rate >= 10 ? rate.toFixed(0)
+                                       : rate >= 1  ? rate.toFixed(1)
+                                       : rate.toFixed(2);
+                      return (
+                        <td
+                          title={`${tfCount.toLocaleString()} mints / ${tfMinutes} min ≈ ${display} per min`}
+                          style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                        >
+                          {display}
+                        </td>
+                      );
+                    })()}
                     <td style={{ padding: '12px 12px 12px 8px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);

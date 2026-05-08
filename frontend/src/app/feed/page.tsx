@@ -113,6 +113,12 @@ const AT_TOP_THRESHOLD = 4;
 /** Lowercased collection-name blacklist; mirrors src/db/blacklist.ts NAME_BLACKLIST. */
 const FEED_NAME_BLACKLIST = new Set<string>([
   'collector crypt',
+  // staratlascrew leak guard — when ME's /v2/tokens/:mint times out, the
+  // backend's enrichment ships meta with meCollectionSlug=null, so the
+  // FEED_SLUG_BLACKLIST gate below short-circuits. DAS still surfaces the
+  // collection name reliably (verified live: "STAR ATLAS CREW"), so this
+  // name-level fallback closes the bypass.
+  'star atlas crew',
 ]);
 /** Frontend-only slug blacklist — hide specific collections from the Live
  *  Feed without touching ingestion. Collection page for these slugs still
