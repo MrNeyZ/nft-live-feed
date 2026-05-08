@@ -20,6 +20,7 @@ import {
   type MintSourceLabel,
 } from '../events/emitter';
 import { getCollectionMintedCount } from '../enrichment/helius-das';
+import { cleanName } from './clean-name';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
  *  trigger at most one DAS `searchAssets` call per this window even if
@@ -516,7 +517,13 @@ export function patchAccumulatorMeta(
 ): void {
   const a = map.get(groupingKey);
   if (!a) return;
-  if (patch.name)     a.name     = patch.name;
+  // Trim before storing — on-chain / scraped collection names are
+  // sometimes whitespace-padded ("                                "),
+  // which renders as blank rows. cleanName returns null for empty /
+  // whitespace-only inputs; we then skip the write so an existing good
+  // name on the row isn't clobbered with null.
+  const cleaned = cleanName(patch.name);
+  if (cleaned)        a.name     = cleaned;
   if (patch.imageUrl) a.imageUrl = patch.imageUrl;
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
@@ -556,7 +563,12 @@ export function patchAccumulatorLmnft(
   const nextSupply = (typeof patch.maxSupply === 'number' && patch.maxSupply > 0)
     ? patch.maxSupply
     : (a.maxSupply ?? null);
-  const nextName   = (patch.name && patch.name.length > 0) ? patch.name : a.name;
+  // Trim LMNFT-supplied collection names — homepage scraper occasionally
+  // returns the on-chain right-padded buffer (32 spaces). cleanName
+  // returns null for whitespace-only; in that case we keep `a.name`
+  // (sticky-merge — never replace a previously resolved good name with
+  // an empty patch).
+  const nextName   = cleanName(patch.name) ?? a.name;
   // For mintedCount we WANT to overwrite with new on-chain values
   // (count grows over time), but never replace a known number with
   // null. Patch wins iff it's a finite non-negative number.

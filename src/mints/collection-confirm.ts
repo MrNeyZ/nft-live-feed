@@ -23,6 +23,7 @@ import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft, getAccumulatorName } from './accumulator';
 import { saleEventBus } from '../events/emitter';
+import { cleanName } from './clean-name';
 
 /** "Looks like a short-address fallback" — `<6chars>…<4chars>`, the
  *  shape `shortKey()` produces on the frontend. Treat such names as
@@ -114,9 +115,14 @@ async function runAttempt(entry: Pending): Promise<void> {
   try {
     const meta = await getAsset(entry.mintAddress);
     dasCollection  = meta.collectionAddress ?? null;
-    nftName        = meta.nftName            ?? null;
+    // Trim DAS-surfaced names — fixed-width Metaplex / MPL Core name
+    // buffers ship with trailing spaces, and we don't want
+    // "                                " to win the strong-source check
+    // below (or worse, ride the wire to /mints as the row title). See
+    // src/mints/clean-name.ts for the full rationale.
+    nftName        = cleanName(meta.nftName);
     imageUrl       = meta.imageUrl           ?? null;
-    collectionName = meta.collectionName     ?? null;
+    collectionName = cleanName(meta.collectionName);
   } catch {
     // Transient failure — treat as "no answer this round" and let
     // the next retry attempt try again.

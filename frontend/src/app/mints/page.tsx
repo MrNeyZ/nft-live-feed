@@ -1559,7 +1559,15 @@ export default function MintsPage() {
                 </tr>
               )}
               {sorted.map((r, i) => {
-                const displayName = r.name ?? shortKey(r.groupingKey);
+                // Belt-and-suspenders against whitespace-only names that
+                // pre-date the backend trim (still cached in localStorage)
+                // or that slip through any future enrichment path. `??`
+                // alone wouldn't catch "                                "
+                // (32 spaces) — that's truthy, would render as blank.
+                const trimmed = r.name?.trim();
+                const displayName = (trimmed && trimmed.length > 0)
+                  ? trimmed
+                  : shortKey(r.groupingKey);
                 const isBurst = r.shownReason === 'burst';
                 // ACTIVE = promoted (`shown`), WATCH = pre-burst
                 // (`incubating`). Drives the inline status pill below
