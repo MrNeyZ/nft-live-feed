@@ -2089,7 +2089,12 @@ export default function MintsPage() {
                     {(() => {
                       const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
                       const baseStyle: React.CSSProperties = {
-                        fontSize: 11, color: '#7a7a94', fontWeight: 500,
+                        // Same off-white family as the NFT title above
+                        // (#f0eef8) but a step darker so the title still
+                        // dominates the visual hierarchy. Wallet line
+                        // below now takes the old #7a7a94 for the
+                        // muted-metadata bottom tier.
+                        fontSize: 11, color: '#d4d4e8', fontWeight: 500,
                         marginTop: 2, overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       };
@@ -2119,7 +2124,7 @@ export default function MintsPage() {
                         when the field isn't on the wire (some replays
                         / cNFT paths). */}
                     {ev.minter && (
-                      <div style={{ fontSize: 10.5, color: '#55556e', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 10.5, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <a
                           href={`https://solscan.io/account/${ev.minter}`}
                           target="_blank"
