@@ -81,7 +81,12 @@ export function dispatchMmmDeferred(
   const dispatchGen = currentGeneration();
   const t = setTimeout(() => {
     if (getMode() === 'off' || dispatchGen !== currentGeneration()) return;
-    if (wasRecentlyFetched(sig)) { wsResolved++; return; }
+    // Scope='sale': only sale-pipeline fetches count as "WS already
+    // resolved this MMM sig". Mint-pipeline fetches (mpl_core /
+    // token_metadata mint trackers) live in a separate scope and must
+    // not trip this gate — that was the MMM Core sale dedupe-poison
+    // bug pre-scoped-dedupe.
+    if (wasRecentlyFetched(sig, 'sale')) { wsResolved++; return; }
     fallbackFetch++;
     dispatch(sig).catch((err: unknown) =>
       console.error(`[${errLabel}] mmm-deferred ingest error  sig=${sig.slice(0, 12)}…`, err)

@@ -74,54 +74,123 @@ startTelemetry(rpcLimiter);
 // Prevents repeated getTransaction calls for the same signature that arrives
 // via multiple paths (listener × N subscriptions, raw-poller, webhook).
 //
-// Two layers:
-//   inFlight    — signature is currently being fetched (Set)
-//   recentSigs  — signature was fetched within the TTL window (Map → expiry ms)
+// Pipeline-scoped: 'sale' (me_v2 / mmm / tensor sales) and 'mint' (mpl_core /
+// token_metadata mint trackers) maintain INDEPENDENT recent/inflight maps so
+// the two pipelines cannot poison each other. Previously a single shared
+// `recentSigs` let the mints poller dedup-skip MMM Core sales after fetching
+// the same sig — a real sale was lost because the sale parser silently saw
+// `fetchRawTx` return null.
 //
-// Both checks are synchronous, so the check+mark sequence is atomic under
-// Node.js's single-threaded event loop — no race between concurrent callers.
+// Cross-scope sharing of the actual RPC fetch is preserved via:
+//   txCache              — short-lived raw-tx cache (CACHE_TTL_MS) read by
+//                          either scope to avoid a duplicate getTransaction
+//   sharedRpcInFlight    — in-flight RPC promise (one per sig until resolved);
+//                          a second concurrent caller (any scope) awaits it
+//                          instead of firing its own RPC
+//
+// Per-scope state:
+//   inFlightByScope      — sig is currently being processed by THIS scope
+//   recentByScope        — sig was processed by THIS scope within TTL window
+//
+// All mutations are synchronous, so check+mark sequences remain atomic under
+// Node.js's single-threaded event loop.
+
+export type FetchScope = 'sale' | 'mint';
+const FETCH_SCOPES: readonly FetchScope[] = ['sale', 'mint'];
 
 const SIG_TTL_MS   = 3 * 60_000; // 3 minutes
-const inFlight     = new Set<string>();
-const recentSigs   = new Map<string, number>(); // sig → expiresAt
+const CACHE_TTL_MS = 30_000;     // shared raw-tx cache TTL — long enough for
+                                  // mints/poller (3 s cadence) and amm-poller
+                                  // dispatchMmmDeferred (5 s defer) to read
+                                  // each other's fetch result.
 
-function sigSeen(sig: string): boolean {
-  if (inFlight.has(sig)) return true;
-  const exp = recentSigs.get(sig);
+const inFlightByScope: Record<FetchScope, Set<string>> = {
+  sale: new Set(),
+  mint: new Set(),
+};
+const recentByScope: Record<FetchScope, Map<string, number>> = {
+  sale: new Map(),
+  mint: new Map(),
+};
+
+const sharedRpcInFlight: Map<string, Promise<RawSolanaTx | null>> = new Map();
+const txCache: Map<string, { tx: RawSolanaTx; expiresAt: number }> = new Map();
+
+function getCachedTx(sig: string): RawSolanaTx | null {
+  const entry = txCache.get(sig);
+  if (!entry) return null;
+  if (Date.now() < entry.expiresAt) return entry.tx;
+  txCache.delete(sig);
+  return null;
+}
+
+function cacheTx(sig: string, tx: RawSolanaTx): void {
+  txCache.set(sig, { tx, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+function sigSeenInScope(scope: FetchScope, sig: string): boolean {
+  if (inFlightByScope[scope].has(sig)) return true;
+  const exp = recentByScope[scope].get(sig);
   if (exp === undefined) return false;
   if (Date.now() < exp)  return true;
-  recentSigs.delete(sig); // expired entry — clean up inline
+  recentByScope[scope].delete(sig);
   return false;
 }
 
-// Periodic sweep for any remaining expired entries (runs every 2 minutes).
+// Sampled diagnostic log — first occurrence per (scope, decision) plus every
+// 100th. Lets the operator confirm scoped dedupe is firing and see the
+// cross-scope cache-hit rate without flooding the console.
+const _dedupeLogCount = new Map<string, number>();
+function logDedupe(sig: string, scope: FetchScope, decision: string): void {
+  const key = `${scope}:${decision}`;
+  const n   = (_dedupeLogCount.get(key) ?? 0) + 1;
+  _dedupeLogCount.set(key, n);
+  if (n === 1 || n % 100 === 0) {
+    console.log(
+      `[dedupe] sig=${sig.slice(0, 12)}… scope=${scope} decision=${decision} count=${n}`,
+    );
+  }
+}
+
+// Periodic sweep for expired entries. Runs every 2 minutes; covers per-scope
+// recent maps and the cross-scope tx cache.
 setInterval(() => {
   const now = Date.now();
-  for (const [sig, exp] of recentSigs) {
-    if (now >= exp) recentSigs.delete(sig);
+  for (const scope of FETCH_SCOPES) {
+    for (const [sig, exp] of recentByScope[scope]) {
+      if (now >= exp) recentByScope[scope].delete(sig);
+    }
+  }
+  for (const [sig, entry] of txCache) {
+    if (now >= entry.expiresAt) txCache.delete(sig);
   }
 }, 2 * 60_000).unref();
 
 /**
- * Mark a signature as already processed so listener/poller paths skip the raw
- * fetch. Call this when an accurate fast-path event was inserted (e.g. from the
- * Helius webhook) and the raw RPC fetch is intentionally bypassed.
- * Used by tensor-raw/ingest.ts which shares this dedupe layer.
+ * Mark a signature as already processed in `scope` so subsequent fetchRawTx
+ * calls in the SAME scope dedup-skip without firing RPC. Used by:
+ *   - Helius webhook fast path: marks 'sale' so listener raw-fetch is skipped.
+ *   - Listener prefilter skip branches: marks 'sale' so the listener's own
+ *     poll loop doesn't redundantly re-dispatch a WS-shed sig.
+ * Other scopes are unaffected — a 'sale' mark does NOT block a 'mint' fetch.
+ *
+ * Default scope='sale' preserves prior call-site behaviour. Tensor / ME
+ * sale paths share this layer; mint paths must opt in via scope='mint'.
  */
-export function markSigFetched(sig: string): void {
-  recentSigs.set(sig, Date.now() + SIG_TTL_MS);
+export function markSigFetched(sig: string, scope: FetchScope = 'sale'): void {
+  recentByScope[scope].set(sig, Date.now() + SIG_TTL_MS);
 }
 
 /**
- * Read-only probe: has this sig been fetched OR pre-filtered (markSigFetched)
- * within the dedup TTL window, OR is it currently in-flight? True ⇒ a
- * subsequent `fetchRawTx(sig)` would dedup-skip without firing RPC. Used by
- * the MMM lean-mode prefilter shim (mmm-prefilter.ts) to drop poller-discovered
- * sigs that the WS log-prefilter has already handled.
+ * Read-only probe: has this sig been fetched OR pre-filtered within the
+ * scope's TTL window, OR is it currently in-flight in that scope? True ⇒ a
+ * subsequent `fetchRawTx(sig, ..., scope)` would dedup-skip without firing
+ * RPC. Default scope='sale' matches the MMM lean-mode prefilter shim's
+ * intent (drop poller-discovered MMM sigs the WS sale path has handled).
  */
-export function wasRecentlyFetched(sig: string): boolean {
-  if (inFlight.has(sig)) return true;
-  const exp = recentSigs.get(sig);
+export function wasRecentlyFetched(sig: string, scope: FetchScope = 'sale'): boolean {
+  if (inFlightByScope[scope].has(sig)) return true;
+  const exp = recentByScope[scope].get(sig);
   return exp !== undefined && Date.now() < exp;
 }
 
@@ -196,6 +265,7 @@ export async function fetchRawTx(
   sig: string,
   bestEffort = false,
   priority: Priority = 'medium',
+  scope: FetchScope = 'sale',
 ): Promise<RawSolanaTx | null> {
   // Hard kill switch — only refuse work when BOTH trade ingest and the
   // mint tracker are paused. The mint tracker is independent of trade
@@ -208,31 +278,64 @@ export async function fetchRawTx(
   // Primary callers must never be silenced by a rawpatch-triggered cooldown.
   if (bestEffort && Date.now() < cooldownUntil) return null;
 
-  // Dedup guards run before the limiter — duplicate calls are rejected without
-  // consuming an rpcLimiter slot or making any network request.
-  if (sigSeen(sig)) return null;
-  inFlight.add(sig);
+  // Per-scope dedupe — a fetch in the OTHER scope cannot block this one.
+  // Same scope sees its own inflight + recent entries and skips duplicates.
+  if (sigSeenInScope(scope, sig)) {
+    logDedupe(sig, scope, 'skip_recent');
+    return null;
+  }
 
+  // Cross-scope tx cache — if any scope just fetched the same tx and the
+  // body is still cached, hand it to this caller without spending another
+  // getTransaction. Mark this scope as recent so its future calls also dedup.
+  const cached = getCachedTx(sig);
+  if (cached) {
+    recentByScope[scope].set(sig, Date.now() + SIG_TTL_MS);
+    logDedupe(sig, scope, 'served_from_cache');
+    return cached;
+  }
+
+  inFlightByScope[scope].add(sig);
   try {
-    // rpcLimiter.run resolves to `null` when a low-priority task is stale-dropped
-    // at admission — the same contract as dedup hits, so callers handle it with
-    // their existing `if (!tx) return` guard.
-    const tx = await rpcLimiter.run(async () => {
-      // Re-check after waiting in queue: mode may have flipped to off OR
-      // cooldown activated while this sig was queued. Same independence
-      // semantics as the entrypoint gate above.
-      if (!isAnyIngestActive()) return null;
-      if (bestEffort && Date.now() < cooldownUntil) return null;
-      const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
-      return _fetchRawTxRpc(sig, maxRetries);
-    }, priority);
+    // Cross-scope shared RPC: if another scope is mid-fetch, await its
+    // promise instead of firing a duplicate getTransaction. The first
+    // scope to arrive enqueues the rpcLimiter task; later scopes (any)
+    // share the resolved tx body. Each scope still records its own
+    // recent-mark on success so per-scope dedupe stays accurate.
+    let pending = sharedRpcInFlight.get(sig);
+    let firedNew = false;
+    if (!pending) {
+      pending = (async (): Promise<RawSolanaTx | null> => {
+        const result = await rpcLimiter.run(async () => {
+          // Re-check after waiting in queue: mode may have flipped to off OR
+          // cooldown activated while this sig was queued. Same independence
+          // semantics as the entrypoint gate above.
+          if (!isAnyIngestActive()) return null;
+          if (bestEffort && Date.now() < cooldownUntil) return null;
+          const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
+          return _fetchRawTxRpc(sig, maxRetries);
+        }, priority);
+        if (result) cacheTx(sig, result);
+        return result;
+      })();
+      sharedRpcInFlight.set(sig, pending);
+      pending.finally(() => sharedRpcInFlight.delete(sig));
+      firedNew = true;
+    }
+
+    const tx = await pending;
     // Only record a TTL dedup entry when the RPC actually returned a tx.
     // Transient failures (429, timeout, non-JSON, null result, stale-drop)
     // must stay retryable by subsequent poller / listener passes.
-    if (tx) recentSigs.set(sig, Date.now() + SIG_TTL_MS);
+    if (tx) {
+      recentByScope[scope].set(sig, Date.now() + SIG_TTL_MS);
+      logDedupe(sig, scope, firedNew ? 'fetched_rpc' : 'awaited_in_flight');
+    } else {
+      logDedupe(sig, scope, 'fetch_null');
+    }
     return tx;
   } finally {
-    inFlight.delete(sig);
+    inFlightByScope[scope].delete(sig);
   }
 }
 
@@ -560,9 +663,11 @@ async function _ingestMeRaw(
   const needsRawFetch = fastParser === 'me_xfer_fast' || (!fastParser && !fastPathInserted);
   if (!needsRawFetch) {
     if (fastPathInserted) {
-      // Accurate fast path inserted the event — mark so listener/poller won't
-      // redundantly raw-fetch this sig from a different ingestion path.
-      recentSigs.set(sig, Date.now() + SIG_TTL_MS);
+      // Accurate fast path inserted the event — mark in the sale scope so
+      // listener / poller sale paths skip the redundant raw-fetch. The mint
+      // scope is independent and its callers must opt in via fetchRawTx
+      // scope='mint' / markSigFetched(sig, 'mint').
+      markSigFetched(sig, 'sale');
     }
     return;
   }
