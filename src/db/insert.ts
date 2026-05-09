@@ -4,6 +4,7 @@ import { saleEventBus } from '../events/emitter';
 import { enrich } from '../enrichment/enrich';
 import { scheduleImageRetry } from '../enrichment/image-retry';
 import { isBlacklistedCollection } from './blacklist';
+import { isMintBlocked, markMintBlocked } from './blocked-mint-cache';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
@@ -95,23 +96,46 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     return null;
   }
 
-  // Pre-insert blacklist gate. Only fires when one of collectionAddress /
-  // meCollectionSlug / collectionName is populated at parse time — true for
-  // some legacy/Core paths but not for cNFT (whose collection identity only
-  // resolves via DAS enrichment). For cNFT-shaped rows that fall through,
-  // the post-enrichment gate below DELETEs the row and emits `remove`.
+  // Pre-emit blacklist gate. Three layers, cheapest first — none of these
+  // require an RPC call. The aim is to avoid the ~10 s "Unknown #?" flash
+  // for sales whose collection identity is knowable at parse time:
+  //
+  //   1. Repeat-sale cache hit — `blocked-mint-cache.ts` was populated by
+  //      the post-enrichment gate on a prior sale of THIS mintAddress.
+  //   2. Per-mint slug already learned — `slugForMint(mintAddress)` returns
+  //      the slug from the in-process mint→slug index (populated from
+  //      DB preload + live `meta` updates) so blacklisted slugs/substrings
+  //      are caught for any mint we've seen before.
+  //   3. Parser-supplied identifiers — same as before: collectionAddress
+  //      or meCollectionSlug provided directly by the parser.
+  //
+  // Brand-new mints in a brand-new blacklisted collection are NOT covered
+  // here (no prior data exists); the existing post-enrichment gate still
+  // catches them ~5 s later via DAS/ME and seeds layers 1 + 2 for next time.
+  const cachedReason = isMintBlocked(event.mintAddress);
+  if (cachedReason) {
+    console.log(
+      `[feed/blacklist-preemit] reason=${cachedReason} ` +
+      `mint=${event.mintAddress} sig=${event.signature.slice(0, 12)}...`,
+    );
+    return null;
+  }
+  const preEmitSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
   if (isBlacklistedCollection({
     collectionAddress: event.collectionAddress,
-    meCollectionSlug:  event.meCollectionSlug,
+    meCollectionSlug:  preEmitSlug,
     collectionName:    null,
     signature:         event.signature,
     mintAddress:       event.mintAddress,
   })) {
     console.log(
-      `[blacklist] dropped at insert  ` +
-      `addr=${(event.collectionAddress ?? event.meCollectionSlug ?? '?').slice(0, 24)}  ` +
-      `sig=${event.signature.slice(0, 12)}...`,
+      `[feed/blacklist-preemit] reason=collection_match ` +
+      `mint=${event.mintAddress} sig=${event.signature.slice(0, 12)}... ` +
+      `addr=${(event.collectionAddress ?? preEmitSlug ?? '?').slice(0, 24)}`,
     );
+    // Seed the cache too so subsequent re-sales of this mint short-circuit
+    // at layer 1 even if the mint→slug index ever evicts the entry.
+    markMintBlocked(event.mintAddress, 'collection_match');
     return null;
   }
 
@@ -262,9 +286,20 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
       })) {
         await pool.query('DELETE FROM sale_events WHERE signature = $1', [event.signature]);
         saleEventBus.emitRemove(event.signature);
+        // Stash mint → blocked so the next sale of this asset short-circuits
+        // at the pre-emit gate without flashing in the feed. cNFT mintAddress
+        // is stable per asset, so this is a clean key. The shared mint→slug
+        // index also gets updated organically via the meta-update bus when
+        // enrichment populates a slug, but that path doesn't fire for
+        // blacklisted rows (we DELETE before emitting `meta`), so we record
+        // here explicitly.
+        markMintBlocked(event.mintAddress, 'collection_match');
         console.log(
-          `[blacklist] removed ${(enriched.collectionAddress ?? enriched.meCollectionSlug ?? enriched.collectionName ?? '?').slice(0, 24)}` +
-          `  sig=${event.signature.slice(0, 12)}...`,
+          `[feed/blacklist-learn] reason=collection_match ` +
+          `mint=${event.mintAddress} ` +
+          `slug=${enriched.meCollectionSlug ?? 'null'} ` +
+          `collection=${enriched.collectionName ?? enriched.collectionAddress ?? 'null'} ` +
+          `sig=${event.signature.slice(0, 12)}...`,
         );
         return;
       }
