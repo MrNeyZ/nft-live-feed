@@ -685,7 +685,8 @@ function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } 
   }
 }
 
-type SortKey = 'velocity' | 'mints';
+type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'coef' | 'velocity' | 'source';
+type SortDir = 'asc' | 'desc';
 type MintTab = 'active' | 'recent';
 
 /** Mirror of the dashboard's TIMEFRAMES — same labels, same windows.
@@ -885,6 +886,19 @@ export default function MintsPage() {
   const eventsRef = useRef<MintEvent[]>(events);
   useEffect(() => { eventsRef.current = events; }, [events]);
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
+  // Direction is per-key; toggling the same header flips it, picking a
+  // new header resets to 'desc' (the natural default for numeric/recency
+  // columns — collection/source still default to 'desc' so a single click
+  // produces a Z→A read, second click flips to A→Z).
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const handleSortClick = (k: SortKey) => {
+    if (k === sortKey) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(k);
+      setSortDir('desc');
+    }
+  };
   const [, force]             = useState(0);
 
   // ACTIVE / RECENT tab — mirrors the dashboard pattern. ACTIVE keeps
@@ -1340,6 +1354,22 @@ export default function MintsPage() {
     return m;
   }, [events, mintTf]);
 
+  // COEF — coefficient comparing the active-window mint rate against
+  // the average rate spread over the full selected timeframe. Sparse
+  // cases (count <= 1) collapse to 0 because there's no two-point span
+  // to sample. The `max(1, …)` floor on the divisor keeps the value
+  // meaningful when the spread rate is tiny (the collection mostly
+  // wasn't minting): a 20-mint burst over 2 active min in a 15M window
+  // returns 10 / max(1, 20/15) = 10 / 1.33 ≈ 7.5 (very bursty); a steady
+  // 20 mints across 14 of 15 min returns ≈ 1.07 (mostly steady).
+  const computeCoef = (r: MintStatus): number => {
+    const stats = tfStatsByKey.get(r.groupingKey);
+    if (!stats || stats.count < 2) return 0;
+    const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
+    const avgRate   = stats.count / tfMinutes;
+    return stats.mintPerMin / Math.max(1, avgRate);
+  };
+
   const sorted = useMemo(() => {
     const now    = Date.now();
     const tfMs   = MINT_TF_MS[mintTf];
@@ -1355,45 +1385,80 @@ export default function MintsPage() {
       // Final-render safety net — a row that slipped past load /
       // SSE filters (e.g. mutated mid-session by patchAccumulatorMeta)
       // still gets dropped here before it paints.
-      .filter(r => isRenderableMintStatus(r));
+      .filter(r => isRenderableMintStatus(r))
+      .filter(r => r.lastMintAt >= cutoff);
+
+    // Per-key comparator (always returns "ascending" — direction is
+    // applied below). Numeric keys compare on the actual underlying
+    // value, not the formatted string, so e.g. SUPPLY sorts 8 < 88 <
+    // 888, not lexically 8 < 88 < 888 (happens to match here, but the
+    // pattern matters for floats / negatives elsewhere).
+    const coefBy = new Map<string, number>();
+    for (const r of arr) coefBy.set(r.groupingKey, computeCoef(r));
+
+    const cmpAsc = (a: MintStatus, b: MintStatus): number => {
+      switch (sortKey) {
+        case 'collection': {
+          const an = (a.name?.trim() || a.groupingKey).toLowerCase();
+          const bn = (b.name?.trim() || b.groupingKey).toLowerCase();
+          return an.localeCompare(bn);
+        }
+        case 'mints': {
+          const av = tfStatsByKey.get(a.groupingKey)?.count ?? 0;
+          const bv = tfStatsByKey.get(b.groupingKey)?.count ?? 0;
+          return av - bv;
+        }
+        case 'supply': {
+          // Missing supply (null / 0 / non-number) is treated as 0 so
+          // it clusters with the smallest values — predictable in both
+          // directions without per-direction sentinel handling.
+          const av = (typeof a.maxSupply === 'number' && a.maxSupply > 0) ? a.maxSupply : 0;
+          const bv = (typeof b.maxSupply === 'number' && b.maxSupply > 0) ? b.maxSupply : 0;
+          return av - bv;
+        }
+        case 'last': {
+          return a.lastMintAt - b.lastMintAt;
+        }
+        case 'coef': {
+          return (coefBy.get(a.groupingKey) ?? 0) - (coefBy.get(b.groupingKey) ?? 0);
+        }
+        case 'velocity': {
+          const av = tfStatsByKey.get(a.groupingKey)?.mintPerMin ?? 0;
+          const bv = tfStatsByKey.get(b.groupingKey)?.mintPerMin ?? 0;
+          return av - bv;
+        }
+        case 'source': {
+          const an = (a.sourceLabel ?? '').toLowerCase();
+          const bn = (b.sourceLabel ?? '').toLowerCase();
+          return an.localeCompare(bn);
+        }
+      }
+    };
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const tiebreak = (a: MintStatus, b: MintStatus): number =>
+      (b.lastMintAt - a.lastMintAt) || (b.v60 - a.v60);
 
     if (mintTab === 'recent') {
-      // RECENT view — flatten the shown/watch tiering and only show
-      // collections whose most recent mint falls inside the chosen
-      // timeframe window. Sort strictly by recency.
-      arr = arr.filter(r => r.lastMintAt >= cutoff);
-      arr.sort((a, b) => b.lastMintAt - a.lastMintAt || b.v60 - a.v60);
+      // RECENT view — flatten the shown/watch tiering. Apply the user's
+      // chosen sort + direction, falling back to recency when equal.
+      arr.sort((a, b) => cmpAsc(a, b) * dir || tiebreak(a, b));
       return arr;
     }
 
-    // ACTIVE — preserve the existing two-tier sort (shown first, then
-    // watch), but still respect the timeframe filter so an idle 25h-old
-    // row doesn't sit on top when the user picked 5M.
-    arr = arr.filter(r => r.lastMintAt >= cutoff);
+    // ACTIVE — preserve the two-tier sort (shown first, then watch),
+    // but apply the user's chosen sort + direction within each tier so
+    // every column header is honoured.
     arr.sort((a, b) => {
       const aShown = a.displayState === 'shown' ? 0 : 1;
       const bShown = b.displayState === 'shown' ? 0 : 1;
       if (aShown !== bShown) return aShown - bShown;
-      // Same tier:
-      if (a.displayState === 'shown') {
-        if (sortKey === 'velocity') {
-          // Sort by the same active-window rate the MINT/MIN column
-          // displays so the visible numbers match the order.
-          const ar = tfStatsByKey.get(a.groupingKey)?.mintPerMin ?? 0;
-          const br = tfStatsByKey.get(b.groupingKey)?.mintPerMin ?? 0;
-          return br - ar || b.v60 - a.v60 || b.observedMints - a.observedMints;
-        }
-        // 'mints' sort — rank by the same tf-windowed count the MINTS
-        // column displays so the visible numbers match the order.
-        const am = tfStatsByKey.get(a.groupingKey)?.count ?? 0;
-        const bm = tfStatsByKey.get(b.groupingKey)?.count ?? 0;
-        return bm - am || b.v60 - a.v60;
-      }
-      // WATCH tier — newest mint first, then v60.
-      return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
+      return cmpAsc(a, b) * dir || tiebreak(a, b);
     });
     return arr;
-  }, [rows, sortKey, mintTab, mintTf, showCnft, tfStatsByKey]);
+  // computeCoef closes over `mintTf` and `tfStatsByKey`, both already
+  // listed below — no extra dep needed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, sortKey, sortDir, mintTab, mintTf, showCnft, tfStatsByKey]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1555,9 +1620,9 @@ export default function MintsPage() {
             <colgroup>
               <col />                        {/* COLLECTION (auto) */}
               <col style={{ width: 90 }}  /> {/* MINTS    */}
-              <col style={{ width: 110 }} /> {/* MINTED   */}
               <col style={{ width: 100 }} /> {/* SUPPLY   */}
               <col style={{ width: 110 }} /> {/* LAST     */}
+              <col style={{ width: 80 }}  /> {/* COEF     */}
               <col style={{ width: 90 }}  /> {/* MINT/MIN */}
               <col style={{ width: 120 }} /> {/* SOURCE   */}
             </colgroup>
@@ -1568,28 +1633,34 @@ export default function MintsPage() {
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 13 }} onClick={() => setSortKey('mints')}>
-                  COLLECTION
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 13, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
+                  COLLECTION {sortArrow(sortKey, sortDir, 'collection')}
                 </th>
-                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('mints')}>
-                  MINTS {sortKey === 'mints' && <span style={{ color: '#8068d8' }}>↓</span>}
+                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('mints')}>
+                  MINTS {sortArrow(sortKey, sortDir, 'mints')}
                 </th>
-                {/* MINTED — total minted on-chain so far (DAS-indexed
-                    asset count for the collection). Distinct from
-                    MINTS (session-only observation count) and from
-                    SUPPLY (planned cap). Renders MINTED / SUPPLY when
-                    both are known so progress is readable at a
-                    glance. */}
-                <th style={thStyle}>MINTED</th>
-                <th style={thStyle}>SUPPLY</th>
-                <th style={thStyle}>LAST MINT</th>
-                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => setSortKey('velocity')}>
-                  MINT/MIN {sortKey === 'velocity' && <span style={{ color: '#8068d8' }}>↓</span>}
+                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('supply')}>
+                  SUPPLY {sortArrow(sortKey, sortDir, 'supply')}
+                </th>
+                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
+                  LAST MINT {sortArrow(sortKey, sortDir, 'last')}
+                </th>
+                {/* COEF — coefficient comparing the active-window mint
+                    rate against the average rate spread over the full
+                    selected timeframe. >1 means bursty, ~1 means steady.
+                    See `computeCoef` near the sorted memo. */}
+                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('coef')}>
+                  COEF {sortArrow(sortKey, sortDir, 'coef')}
+                </th>
+                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('velocity')}>
+                  MINT/MIN {sortArrow(sortKey, sortDir, 'velocity')}
                 </th>
                 {/* SOURCE data cell uses paddingRight: 12 (vs the
                     default 8 in thStyle). Match it so the SOURCE label
                     sits directly above the LMNFT pill. */}
-                <th style={{ ...thStyle, paddingRight: 12 }}>SOURCE</th>
+                <th style={{ ...thStyle, paddingRight: 12, cursor: 'pointer' }} onClick={() => handleSortClick('source')}>
+                  SOURCE {sortArrow(sortKey, sortDir, 'source')}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1656,9 +1727,11 @@ export default function MintsPage() {
                     style={{
                       borderBottom: '1px solid rgba(255,255,255,0.04)',
                       transition: 'background 0.12s',
-                      // SOLD rows render at full opacity — definitive
-                      // state, not a "less interesting" one to dim.
-                      opacity: isSoldOut ? 1 : (isActive ? 1 : 0.78),
+                      // Full opacity across all states — the WATCH /
+                      // ACTIVE / SOLD distinction is already conveyed by
+                      // the inline status pill, so dimming the row body
+                      // only made images and values look washed out.
+                      opacity: 1,
                     }}
                   >
                     {/* COLLECTION cell — matches Dashboard rows:
@@ -1668,16 +1741,16 @@ export default function MintsPage() {
                         (3 px, deterministic per collectionAddress) so
                         rows from the same collection are visually
                         grouped at a glance. */}
-                    <td style={{ padding: '12px 6px 12px 10px', verticalAlign: 'middle', borderLeft: `3px solid ${accentColor}` }}>
+                    <td style={{ padding: '14px 8px 14px 12px', verticalAlign: 'middle', borderLeft: `3px solid ${accentColor}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         <ItemThumb
                           imageUrl={thumb64(r.imageUrl ?? null)}
                           color={colorForCollection(r.collectionAddress ?? r.groupingKey)}
                           abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
-                          size={38}
+                          size={42}
                         />
-                        <span style={{ fontSize: 15, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                           {/* Status pill priority: SOLD > ACTIVE > WATCH.
                               SOLD (red, site-consistent) when the
                               launchpad-known maxSupply is met or
@@ -1809,85 +1882,55 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {tfCount.toLocaleString()}
                         </td>
                       );
                     })()}
-                    {/* MINTED cell — backend-resolved total minted on
-                        chain (DAS-indexed). When known and supply is
-                        also known we paint a percent fill behind the
-                        number (red 95–100%, amber 60–95%, neutral
-                        below) so progress to sold-out is readable at a
-                        glance. Falls back to "—" when DAS hasn't
-                        resolved yet. */}
-                    {(() => {
-                      const minted   = typeof r.mintedCount === 'number' ? r.mintedCount : null;
-                      const supply   = typeof r.maxSupply   === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
-                      const pct      = (minted != null && supply != null) ? Math.min(100, (minted / supply) * 100) : null;
-                      const cellColor = pct == null
-                        ? '#aaaabf'
-                        : pct >= 80 ? '#ef7878'
-                        : pct >= 60 ? '#c7b479'
-                        : '#aaaabf';
-                      const tooltip = minted == null
-                        ? 'On-chain minted count not yet resolved — DAS lookup pending'
-                        : supply != null
-                          ? `${minted.toLocaleString()} of ${supply.toLocaleString()} minted (${pct!.toFixed(0)}%)`
-                          : `${minted.toLocaleString()} minted on chain so far`;
-                      return (
-                        <td
-                          title={tooltip}
-                          style={{
-                            position: 'relative',
-                            padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle',
-                            fontSize: 13, color: cellColor, fontWeight: 700,
-                            fontFamily: "'SF Mono','Fira Code',monospace",
-                            fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {/* Background fill — left-aligned, height
-                              matches text band, fades from the cell's
-                              tier color so the bar reads as a "fill"
-                              not a "highlight". */}
-                          {pct != null && (
-                            <span
-                              aria-hidden
-                              style={{
-                                position: 'absolute', left: 0, top: 6, bottom: 6,
-                                width: `${pct}%`,
-                                background: pct >= 80
-                                  ? 'rgba(239,120,120,0.10)'
-                                  : pct >= 60
-                                    ? 'rgba(199,180,121,0.10)'
-                                    : 'rgba(168,144,232,0.06)',
-                                borderRadius: 2,
-                                pointerEvents: 'none',
-                              }}
-                            />
-                          )}
-                          <span style={{ position: 'relative' }}>
-                            {minted == null ? '—' : minted.toLocaleString()}
-                          </span>
-                        </td>
-                      );
-                    })()}
+                    {/* SUPPLY — planned cap (when known). Bright row
+                        colour matches the MINTS column so the table
+                        reads as a single tier of values rather than a
+                        ladder of fade levels. */}
                     <td
                       title={
                         typeof r.maxSupply === 'number' && r.maxSupply > 0
                           ? `Max supply for this collection`
                           : `Max supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`
                       }
-                      style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#aaaabf', fontWeight: 600, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                      style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color: '#f0eef8', fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                     >
                       {typeof r.maxSupply === 'number' && r.maxSupply > 0
                         ? r.maxSupply.toLocaleString()
                         : '—'}
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 11.5, color: '#5e5e78', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
+                    {/* COEF — see `computeCoef` near the sorted memo for
+                        the formula and rationale. With <2 mints there's
+                        no two-point span to sample, so we render "—"
+                        instead of a misleading 0. */}
+                    {(() => {
+                      const stats   = tfStatsByKey.get(r.groupingKey);
+                      const tfCount = stats?.count ?? 0;
+                      const coef    = computeCoef(r);
+                      const display = tfCount < 2
+                        ? '—'
+                        : coef >= 10 ? coef.toFixed(0)
+                        : coef.toFixed(1);
+                      const tip = tfCount < 2
+                        ? `Need ≥ 2 mints in last ${mintTf} to compute coefficient`
+                        : `Active-window rate ÷ avg rate over last ${mintTf} ≈ ${display}`;
+                      return (
+                        <td
+                          title={tip}
+                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                        >
+                          {display}
+                        </td>
+                      );
+                    })()}
                     {/* MINT/MIN — average rate over the *active* mint
                         span inside the selected timeframe, NOT the full
                         timeframe. See the tfStatsByKey memo above for
@@ -1914,13 +1957,13 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {display}
                         </td>
                       );
                     })()}
-                    <td style={{ padding: '12px 12px 12px 8px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '14px 14px 14px 10px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                       {(() => {
                         const sb = sourceBadge(r.sourceLabel);
                         const href = sourceHref(r);
@@ -2277,9 +2320,23 @@ export default function MintsPage() {
   );
 }
 
+/** Tiny ↑/↓ chip rendered next to the active sort key in the table
+ *  header. Returns null when the column isn't the active key so the
+ *  unselected headers don't render an empty `<span>`. */
+function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
+  if (active !== key) return null;
+  return <span style={{ color: '#8068d8' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+}
+
+// Comfortable density baseline shared with /dashboard (mirrors the
+// `thStyle` constant in dashboard/page.tsx). /multi inherits via
+// iframe + ?embed=1, so updating this in lockstep with dashboard
+// keeps the three pages aligned without a CSS-class round-trip.
+// The Live Mint Feed (.mints-feed-row) on this page's right pane
+// uses different sizing and stays denser by design.
 const thStyle: React.CSSProperties = {
-  padding: '10px 8px',
-  fontSize: 9.5,
+  padding: '12px 10px',
+  fontSize: 11,
   fontWeight: 700,
   color: '#56566e',
   letterSpacing: '0.6px',

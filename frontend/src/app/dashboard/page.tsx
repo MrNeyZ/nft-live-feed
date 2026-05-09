@@ -386,38 +386,38 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
        *  the <td> keeps the overlay strictly within the first cell. Whole-row
        *  middle / Cmd+click still works via the row-level rowLinkHandlers.
        */}
-      <td style={{ padding: '12px 6px 12px 10px', position: 'relative' }}>
+      <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{rank}</span>
-          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={38} />
-          <span style={{ fontSize: 15, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
+          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
+          <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
         </div>
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '10px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '10px 4px', textAlign: 'center' }}>
+      <td style={{ padding: '12px 6px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>
       </td>
-      <td style={{ padding: '10px 8px 10px 4px', textAlign: 'center' }}>
+      <td style={{ padding: '12px 10px 12px 6px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <VolBars data={volData} color={col.color} w={64} h={18} />
         </div>
@@ -451,41 +451,41 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
       style={{ background: bg, cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.1s' }}
     >
       {/* See CollectionRow: overlay is anchored to the first <td>, not <tr>. */}
-      <td style={{ padding: '12px 6px 12px 10px', position: 'relative' }}>
+      <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{rank}</span>
-          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={38} />
+          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</div>
             <div style={{ fontSize: 10.5, color: '#877496', marginTop: 1 }}>{ago}</div>
           </div>
         </div>
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 4px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 6px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>
       </td>
-      <td style={{ padding: '12px 8px 12px 4px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 10px 14px 6px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <VolBars data={volData} color={col.color} w={64} h={18} />
         </div>
@@ -895,8 +895,14 @@ export default function Dashboard() {
     window.location.href = `/collection/${encodeURIComponent(col._meSlug)}`;
   };
 
+  // Comfortable density baseline shared with /mints (mirrors the
+  // `thStyle` constant near the bottom of mints/page.tsx). /multi
+  // inherits via iframe + ?embed=1, so updating this in lockstep with
+  // mints/page.tsx keeps the three pages aligned without a CSS-class
+  // round-trip. Live Sale Feed (.feed-card) and Live Mint Feed
+  // (.mints-feed-row) use distinct classes and stay denser by design.
   const thStyle: React.CSSProperties = {
-    padding: '11px 6px', fontSize: 10, fontWeight: 600, color: '#5a5a78',
+    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: '#5a5a78',
     letterSpacing: '0.8px', textAlign: 'right', borderBottom: '1px solid rgba(168,144,232,0.12)',
     whiteSpace: 'nowrap', background: '#201a3a', position: 'sticky', top: 0, zIndex: 1,
   };
