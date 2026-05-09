@@ -1297,20 +1297,45 @@ export default function MintsPage() {
    *                  existing UX is preserved for promoted rows
    *  This keeps the previous active-only behaviour as a strict subset
    *  while surfacing pre-burst activity at the bottom of the table. */
-  // Per-collection mint count inside the currently selected timeframe
-  // window. Drives the MINTS column and MINT/MIN derivation so the
-  // table metrics react to 5M / 10M / … / 1D pills instead of showing
-  // the cumulative session-lifetime number. Counted from the live
-  // events buffer, which is bounded at LIVE_FEED_MAX (150 newest); for
-  // very hot collections + long timeframes the count can be understated
-  // when older events have rolled off the buffer — same trade-off as
-  // the existing `recent`-tab filter.
-  const tfMintsByKey = useMemo(() => {
+  // Per-collection stats inside the currently selected timeframe window.
+  // Drives the MINTS column (count) and MINT/MIN column (mintPerMin) so
+  // the table metrics react to 5M / 10M / … / 1D pills instead of showing
+  // the cumulative session-lifetime number. Counted from the live events
+  // buffer, which is bounded at LIVE_FEED_MAX (150 newest); for very hot
+  // collections + long timeframes the count can be understated when older
+  // events have rolled off the buffer — same trade-off as the existing
+  // `recent`-tab filter.
+  //
+  // MINT/MIN is intentionally NOT (count / fullTimeframeMinutes). That
+  // math is misleading: a single mint 4 minutes ago in a 15M window would
+  // render as 0.07/min even though the collection wasn't minting for 14
+  // of those 15 minutes. Instead we compute the rate over the *active*
+  // span — distance between the earliest and latest mint timestamps in
+  // the window, floored at 1 minute. With <2 mints we can't infer a span,
+  // so we surface the raw count (0 or 1) directly.
+  const tfStatsByKey = useMemo(() => {
     const cutoff = Date.now() - MINT_TF_MS[mintTf];
-    const m = new Map<string, number>();
+    type Stats = { count: number; firstTs: number; lastTs: number; mintPerMin: number };
+    const m = new Map<string, Stats>();
     for (const ev of events) {
       if (ev.receivedAt < cutoff) continue;
-      m.set(ev.groupingKey, (m.get(ev.groupingKey) ?? 0) + 1);
+      const cur = m.get(ev.groupingKey);
+      if (!cur) {
+        m.set(ev.groupingKey, { count: 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt, mintPerMin: 0 });
+      } else {
+        cur.count += 1;
+        if (ev.receivedAt < cur.firstTs) cur.firstTs = ev.receivedAt;
+        if (ev.receivedAt > cur.lastTs)  cur.lastTs  = ev.receivedAt;
+      }
+    }
+    for (const s of m.values()) {
+      if (s.count >= 2) {
+        const activeMin = Math.max(1, (s.lastTs - s.firstTs) / 60_000);
+        s.mintPerMin = s.count / activeMin;
+      } else {
+        // count===1 → show 1 (no two-point span yet); count===0 unreachable here.
+        s.mintPerMin = s.count;
+      }
     }
     return m;
   }, [events, mintTf]);
@@ -1352,19 +1377,23 @@ export default function MintsPage() {
       // Same tier:
       if (a.displayState === 'shown') {
         if (sortKey === 'velocity') {
-          return b.v60 - a.v60 || b.observedMints - a.observedMints;
+          // Sort by the same active-window rate the MINT/MIN column
+          // displays so the visible numbers match the order.
+          const ar = tfStatsByKey.get(a.groupingKey)?.mintPerMin ?? 0;
+          const br = tfStatsByKey.get(b.groupingKey)?.mintPerMin ?? 0;
+          return br - ar || b.v60 - a.v60 || b.observedMints - a.observedMints;
         }
         // 'mints' sort — rank by the same tf-windowed count the MINTS
         // column displays so the visible numbers match the order.
-        const am = tfMintsByKey.get(a.groupingKey) ?? 0;
-        const bm = tfMintsByKey.get(b.groupingKey) ?? 0;
+        const am = tfStatsByKey.get(a.groupingKey)?.count ?? 0;
+        const bm = tfStatsByKey.get(b.groupingKey)?.count ?? 0;
         return bm - am || b.v60 - a.v60;
       }
       // WATCH tier — newest mint first, then v60.
       return b.lastMintAt - a.lastMintAt || b.v60 - a.v60;
     });
     return arr;
-  }, [rows, sortKey, mintTab, mintTf, showCnft, tfMintsByKey]);
+  }, [rows, sortKey, mintTab, mintTf, showCnft, tfStatsByKey]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1774,7 +1803,7 @@ export default function MintsPage() {
                         spells out the timeframe + falls back to the
                         cumulative number for context. */}
                     {(() => {
-                      const tfCount = tfMintsByKey.get(r.groupingKey) ?? 0;
+                      const tfCount = tfStatsByKey.get(r.groupingKey)?.count ?? 0;
                       const tip = `${tfCount.toLocaleString()} mint(s) in last ${mintTf}` +
                         ` · ${r.observedMints.toLocaleString()} since session start`;
                       return (
@@ -1859,21 +1888,32 @@ export default function MintsPage() {
                     <td style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 11.5, color: '#5e5e78', fontWeight: 500, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    {/* MINT/MIN — average rate inside the selected
-                        timeframe (tf-count / tf-minutes). Replaces the
-                        fixed 60s window that ignored the timeframe
-                        pill. Uses 1 decimal for sub-1/min rates,
-                        otherwise rounds to integer for compact display. */}
+                    {/* MINT/MIN — average rate over the *active* mint
+                        span inside the selected timeframe, NOT the full
+                        timeframe. See the tfStatsByKey memo above for
+                        why: dividing by the full window makes a single
+                        recent mint look like 0.07/min on a 15M pill,
+                        which misrepresents bursty collections. With <2
+                        mints we surface the raw count. Uses 1 decimal
+                        for sub-1/min rates, integer otherwise. */}
                     {(() => {
-                      const tfCount   = tfMintsByKey.get(r.groupingKey) ?? 0;
-                      const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
-                      const rate      = tfMinutes > 0 ? tfCount / tfMinutes : 0;
-                      const display   = rate >= 10 ? rate.toFixed(0)
+                      const stats     = tfStatsByKey.get(r.groupingKey);
+                      const tfCount   = stats?.count ?? 0;
+                      const rate      = stats?.mintPerMin ?? 0;
+                      const display   = tfCount < 2
+                                       ? tfCount.toString()
+                                       : rate >= 10 ? rate.toFixed(0)
                                        : rate >= 1  ? rate.toFixed(1)
                                        : rate.toFixed(2);
+                      const activeMin = stats && stats.count >= 2
+                        ? Math.max(1, (stats.lastTs - stats.firstTs) / 60_000)
+                        : 0;
+                      const tip = tfCount < 2
+                        ? `${tfCount} mint(s) in last ${mintTf} — not enough data for a rate`
+                        : `${tfCount.toLocaleString()} mints over ${activeMin.toFixed(1)} active min ≈ ${display} per min`;
                       return (
                         <td
-                          title={`${tfCount.toLocaleString()} mints / ${tfMinutes} min ≈ ${display} per min`}
+                          title={tip}
                           style={{ padding: '12px 8px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {display}
