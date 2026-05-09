@@ -126,6 +126,12 @@ const FEED_NAME_BLACKLIST = new Set<string>([
 const FEED_SLUG_BLACKLIST = new Set<string>([
   'staratlascrew',
 ]);
+/** Frontend mirror of src/db/blacklist.ts NAME_SUBSTRING_BLACKLIST. Each
+ *  needle is checked against BOTH `collectionName` and `meCollectionSlug`
+ *  (lowercased) so collections like `paulcharlesart_drip` whose human
+ *  name doesn't contain "drip" are still hidden. Lowercase + .includes
+ *  only — no regex. */
+const FEED_NAME_SUBSTRING_BLACKLIST: readonly string[] = ['drip'];
 
 // ── Shared 1 s tick (powers all TimeAgo leaves) ──────────────────────────────
 // Previously every TimeAgo card owned its own setInterval. With ~200 cards
@@ -1289,6 +1295,15 @@ export default function FeedPage() {
     // Lowercase comparison matches NAME_BLACKLIST in src/db/blacklist.ts.
     if (e.collectionName && FEED_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) return false;
     if (e.meCollectionSlug && FEED_SLUG_BLACKLIST.has(e.meCollectionSlug)) return false;
+    // Substring fallback — covers slug-only matches the exact-set above
+    // misses (e.g. `paulcharlesart_drip` slug, "Paul Charles Art" name).
+    {
+      const lowerName = e.collectionName?.toLowerCase()   ?? '';
+      const lowerSlug = e.meCollectionSlug?.toLowerCase() ?? '';
+      for (const needle of FEED_NAME_SUBSTRING_BLACKLIST) {
+        if (lowerName.includes(needle) || lowerSlug.includes(needle)) return false;
+      }
+    }
     if (collFilter) {
       const target = collFilter.toLowerCase();
       const slug = e.meCollectionSlug?.toLowerCase() ?? '';

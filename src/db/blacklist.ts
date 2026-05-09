@@ -69,11 +69,25 @@ export function isBlacklistedCollection(opts: {
   if (opts.collectionName) {
     const lower = opts.collectionName.toLowerCase();
     if (NAME_BLACKLIST.has(lower)) return true;
-    for (const needle of NAME_SUBSTRING_BLACKLIST) {
-      if (lower.includes(needle)) {
+  }
+  // Substring scan over BOTH the lowercased collection name AND the
+  // lowercased ME slug. Collections like `paulcharlesart_drip` carry
+  // "drip" only in the slug while the human collection name (e.g. the
+  // artist's name) doesn't contain the substring at all — the previous
+  // name-only loop missed them. Each haystack is checked independently
+  // so a row needs only ONE of name/slug to match. The diagnostic log
+  // is preserved verbatim from the prior implementation; it now fires
+  // for slug matches too, distinguishable by `collection=null`.
+  const haystacks: string[] = [];
+  if (opts.collectionName)   haystacks.push(opts.collectionName.toLowerCase());
+  if (opts.meCollectionSlug) haystacks.push(opts.meCollectionSlug.toLowerCase());
+  for (const needle of NAME_SUBSTRING_BLACKLIST) {
+    for (const hay of haystacks) {
+      if (hay.includes(needle)) {
         console.log(
           `[feed/blacklist] reason=${needle}_collection ` +
-          `collection=${opts.collectionName} ` +
+          `collection=${opts.collectionName ?? 'null'} ` +
+          `slug=${opts.meCollectionSlug ?? 'null'} ` +
           `mint=${opts.mintAddress ?? '—'} ` +
           `sig=${opts.signature ?? '—'}`,
         );
