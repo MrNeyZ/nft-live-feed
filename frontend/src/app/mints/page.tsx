@@ -1784,7 +1784,7 @@ export default function MintsPage() {
               <col style={{ width: 100 }} /> {/* SUPPLY   */}
               <col style={{ width: 110 }} /> {/* LAST     */}
               <col style={{ width: 80 }}  /> {/* COEF     */}
-              <col style={{ width: 90 }}  /> {/* RATE     */}
+              <col style={{ width: 110 }} /> {/* RATE     */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
@@ -1820,20 +1820,22 @@ export default function MintsPage() {
                 >
                   COEF {sortArrow(effectiveSortKey, effectiveSortDir, 'coef')}
                 </th>
-                {/* RATE — formerly MINT/MIN. Renamed to avoid implying
-                    an average over the full selected timeframe; this is
-                    a count-over-active-window rate (see tfStatsByKey).
-                    No padding-right override here: every numeric data
-                    cell in this table uses `padding: '14px 10px'` (the
-                    `14` is vertical, the `10` is horizontal), so the
-                    column's right inset is 10 px on the value row.
-                    `thStyle` already has `padding: '12px 10px'`; using
-                    it as-is keeps RATE header text right-aligned to
-                    the same column edge as MINTS / SUPPLY / LAST /
-                    COEF, and to the values directly beneath. */}
+                {/* RATE — formerly MINT/MIN, primary activity number.
+                    Last column on the right, so it needs a wider
+                    "terminal" gutter than the interior columns or the
+                    value reads as hugging the card edge. We bump the
+                    col width (110 vs the 80–100 of interior numeric
+                    columns) AND set paddingRight: 18 on BOTH this th
+                    and the matching td below. Both must move together
+                    — moving only one re-introduces the header/value
+                    drift the previous attempt fixed. The td uses the
+                    explicit 4-tuple `padding: '14px 18px 14px 10px'`
+                    to keep the same vertical padding (14) and same
+                    left-side padding (10) as MINTS / SUPPLY / LAST /
+                    COEF, only widening on the right. */}
                 <th
                   title="RATE — mints per minute over the active window inside the selected timeframe (count ÷ active-minutes)."
-                  style={{ ...thStyle, cursor: 'pointer' }}
+                  style={{ ...thStyle, paddingRight: 18, cursor: 'pointer' }}
                   onClick={() => handleSortClick('velocity')}
                 >
                   RATE {sortArrow(effectiveSortKey, effectiveSortDir, 'velocity')}
@@ -2223,7 +2225,7 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: '14px 18px 14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {display}
                         </td>
