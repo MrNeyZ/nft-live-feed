@@ -384,6 +384,20 @@ function FloorChip({ delta }: { delta: number }) {
 // Re-renders only when `event` changes — the time label has been hoisted
 // into the <TimeAgo> leaf above, so card bodies are stable after first paint.
 
+/** Density modes for the live feed surface — drives card padding,
+ *  row-wrap spacing, and thumb size. Stored in localStorage as
+ *  `vl.feed.density`; default is COMPACT (the current polished
+ *  baseline). COMFY adds a notch of breathing room; TAPE shrinks
+ *  the thumb (56 → 40) and tightens padding for an ultra-dense
+ *  trading-tape look. CSS rules under `.feed-density-{comfy,
+ *  compact,tape}` carry the layout deltas (globals.css). */
+type Density = 'comfy' | 'compact' | 'tape';
+const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
+const DENSITY_LS_KEY = 'vl.feed.density';
+function isDensity(v: unknown): v is Density {
+  return v === 'comfy' || v === 'compact' || v === 'tape';
+}
+
 interface FeedCardProps {
   event: FeedEvent;
   /** LMB on avatar → open a small centered image preview. */
@@ -408,6 +422,11 @@ interface FeedCardProps {
    *  seller+collection pair. The badge only renders on the newest row
    *  so older sibling rows don't repeat the same number. */
   isNewestSellForSellerColl: boolean;
+  /** Card density mode. Drives the thumb size (TAPE shrinks to 40 px,
+   *  others stay at 56 px); other density deltas (padding, gaps,
+   *  thumb wrapper width) are owned by CSS rules scoped to
+   *  `.feed-density-{comfy,compact,tape}` on the parent feed-list. */
+  density: Density;
 }
 
 // Static FeedCard inline styles hoisted to module scope. These objects
@@ -531,7 +550,15 @@ const FeedCard = memo(function FeedCard({
   slugFloor,
   sellerSellCountInFeed,
   isNewestSellForSellerColl,
+  density,
 }: FeedCardProps) {
+  // Thumb size is the only density-driven inline value — every other
+  // delta lives in CSS via the `.feed-density-X` parent class. TAPE
+  // mode shrinks 56 → 40 px; COMFY + COMPACT keep 56 (the current
+  // polished baseline). The wrapper `.feed-thumb` width is also
+  // overridden in CSS for TAPE so the inner img doesn't sit inside
+  // a 56 px box with transparent margin.
+  const thumbSize = density === 'tape' ? 40 : 56;
   const renderPrice = displayPrice(event, inclusiveFees);
   // Display-only guard — keeps the formatter from producing "NaN" /
   // "Infinity" text if a malformed event slips past upstream validation.
@@ -626,7 +653,7 @@ const FeedCard = memo(function FeedCard({
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}
         >
           <div draggable={false} style={FC_THUMB_INNER_STYLE}>
-            <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={56} />
+            <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={thumbSize} />
           </div>
           {nftBorderColor && (
             <span
@@ -936,6 +963,25 @@ export default function FeedPage() {
   // — see `displayPrice()` in src/soloist/price-mode.ts. Persisted in
   // localStorage; updates here propagate via the 'vl:priceMode' event.
   const [inclusiveFees] = useInclusiveFees();
+
+  // Live-feed density mode (COMFY / COMPACT / TAPE). Lazy-init from
+  // localStorage so the user's prior choice survives page reloads;
+  // SSR safely returns 'compact' (current polished baseline). Bad /
+  // corrupt values fall through the type guard and reset to compact
+  // — never throws. Persistence side-effect lives in the useEffect
+  // below so it runs only after hydration (no setItem during SSR).
+  const [density, setDensity] = useState<Density>(() => {
+    if (typeof window === 'undefined') return 'compact';
+    try {
+      const v = window.localStorage.getItem(DENSITY_LS_KEY);
+      return isDensity(v) ? v : 'compact';
+    } catch {
+      return 'compact';
+    }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(DENSITY_LS_KEY, density); } catch { /* noop */ }
+  }, [density]);
 
   // Normalized feed state: dedup + ordering + patching live inside the reducer,
   // so every SSE/REST path below just dispatches a typed action instead of
@@ -1527,7 +1573,7 @@ export default function FeedPage() {
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <Pill
                   active={filtersOpen}
                   onClick={() => setFiltersOpen(o => !o)}
@@ -1535,6 +1581,34 @@ export default function FeedPage() {
                   icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
                   label="Filters"
                 />
+                {/* Density selector — three small pills toggling card
+                    layout between COMFY (a notch airier), COMPACT
+                    (current polished baseline), and TAPE (ultra-dense
+                    trading-tape look with shrunk thumb). Persists in
+                    `vl.feed.density` localStorage; resets to COMPACT
+                    on bad/corrupt values. The visible affordance is
+                    intentionally a tight 3-button group so it doesn't
+                    crowd out Filters / Pause. */}
+                <div
+                  role="group"
+                  aria-label="Card density"
+                  style={{ display: 'flex', alignItems: 'center', gap: 2 }}
+                >
+                  {DENSITIES.map(d => (
+                    <Pill
+                      key={d}
+                      active={density === d}
+                      onClick={() => setDensity(d)}
+                      label={d.toUpperCase()}
+                      size="sm"
+                      title={
+                        d === 'comfy'   ? 'Comfy — slightly more breathing room' :
+                        d === 'compact' ? 'Compact — current polished baseline'  :
+                                          'Tape — ultra-dense trading-tape view'
+                      }
+                    />
+                  ))}
+                </div>
                 <Pill
                   active
                   color={paused ? '#c9a820' : '#5ce0a0'}
@@ -1664,7 +1738,7 @@ export default function FeedPage() {
               )}
 
               {/* Feed list */}
-              <div ref={listRef} className="feed-list" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
+              <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
                 {filtered.length === 0 && (
                   meStale ? (
                     <div style={{
@@ -1706,6 +1780,7 @@ export default function FeedPage() {
                       slugFloor={slugFloor}
                       sellerSellCountInFeed={sellerSellCountInFeed}
                       isNewestSellForSellerColl={isNewestSellForSellerColl}
+                      density={density}
                     />
                   );
                 })}

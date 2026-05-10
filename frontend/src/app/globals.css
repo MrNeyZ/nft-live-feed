@@ -605,6 +605,24 @@ a { color: inherit; text-decoration: none; }
   border-right: 3px solid rgba(168, 144, 232, 0.95);
 }
 
+/* /feed density modes — three trader-style densities scoped to the
+   `.feed-list` parent (`.feed-density-{comfy,compact,tape}` is set
+   from React state, persisted in localStorage as `vl.feed.density`).
+   COMPACT is the baseline (no overrides — the existing `.feed-card`
+   /`.feed-row-wrap` rules above already define the polished default
+   density). COMFY adds a notch of breathing room. TAPE shrinks the
+   thumb (with a matching React `size={40}` prop on ItemThumb) and
+   tightens padding for an ultra-dense activity-tape view.
+   Phone-layout overrides (`html[data-layout="phone"] .feed-card`,
+   `.feed-thumb`) have higher specificity and win on mobile — these
+   density rules only affect desktop/laptop layouts. */
+.feed-density-comfy .feed-card     { padding: 11px 14px; gap: 14px; }
+.feed-density-comfy .feed-row-wrap { padding: 5px 0; }
+
+.feed-density-tape  .feed-card     { padding: 5px 10px;  gap: 8px;  }
+.feed-density-tape  .feed-row-wrap { padding: 1px 0; }
+.feed-density-tape  .feed-thumb    { width: 40px; height: 40px; }
+
 /* Edge-accent middle-glow stripes for buy/sell cards. Vertical span
    `top: 18 %` to `bottom: 18 %` covers the centre 64 % of the card
    height; alpha 1.0 with a 6 px outer glow makes the middle read
