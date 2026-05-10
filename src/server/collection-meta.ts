@@ -53,6 +53,38 @@ function coerce(v: unknown): string | null {
   return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
 }
 
+/**
+ * URL allowlist for socials. The collection's twitter / discord / website
+ * fields land in the frontend as `<a href="…" target="_blank">` chips, so
+ * the value lives in href-attribute context. ME's catalog is curator-
+ * supplied — verified-creator metadata, NOT a value we control. We've
+ * seen creators sneak `data:text/html,…` and similar pseudo-schemes into
+ * the website field; render that into an anchor and a click navigates
+ * the user into attacker-rendered HTML on what looks like our origin.
+ *
+ * Hard rules:
+ *   - must be a string
+ *   - must start with `https://` (case-insensitive)
+ *   - must parse as a valid URL
+ *   - must not contain control characters (newline / NUL etc. could
+ *     break out of the attribute)
+ *   - must not embed userinfo (`https://user:pass@host/`)
+ *   - must be ≤ 2048 chars (sanity cap — legit social URLs are tiny)
+ * Anything that fails returns null and the frontend simply omits the chip.
+ */
+function coerceUrl(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  if (!s || s.length > 2048) return null;
+  if (!/^https:\/\//i.test(s)) return null;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return null;
+  let u: URL;
+  try { u = new URL(s); } catch { return null; }
+  if (u.protocol !== 'https:') return null;
+  if (u.username || u.password) return null;
+  return s;
+}
+
 function isNonEmpty(s: Meta): boolean {
   return !!(s.name || s.twitter || s.discord || s.website);
 }
@@ -92,9 +124,9 @@ async function fetchMeFallback(slug: string): Promise<Meta> {
     const json = await res.json() as MeCollection;
     return {
       name:    coerce(json.name),
-      twitter: coerce(json.twitter),
-      discord: coerce(json.discord),
-      website: coerce(json.website),
+      twitter: coerceUrl(json.twitter),
+      discord: coerceUrl(json.discord),
+      website: coerceUrl(json.website),
     };
   } catch {
     return emptyMeta();
@@ -109,14 +141,16 @@ export function createCollectionMetaRouter(): Router {
     const slug = String(req.query.slug ?? '').trim();
     if (!isValidSlug(slug)) { res.status(400).json({ error: 'invalid slug' }); return; }
 
-    // Catalog hit → return immediately, zero network.
+    // Catalog hit → return immediately, zero network. URL fields go
+    // through coerceUrl so a creator-supplied javascript:/data:/file:
+    // value that survived ingestion can't reach the frontend href.
     const catalogEntry = getCatalogEntry(slug);
     if (catalogEntry) {
       const data: Meta = {
         name:    catalogEntry.name,
-        twitter: catalogEntry.twitter,
-        discord: catalogEntry.discord,
-        website: catalogEntry.website,
+        twitter: coerceUrl(catalogEntry.twitter),
+        discord: coerceUrl(catalogEntry.discord),
+        website: coerceUrl(catalogEntry.website),
       };
       res.json(data);
       return;

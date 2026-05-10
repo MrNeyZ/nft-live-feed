@@ -475,6 +475,27 @@ function DropBtn({ label }: { label: string }) {
 // Hover lifts opacity/border so the chip lights up consistently regardless
 // of which variant it is.
 interface ChipStyle { bg: string; glyph: string; border: string }
+/** Defence-in-depth href validator. Server already drops non-https/
+ *  malformed/control-char URLs before they reach this prop (see
+ *  `coerceUrl` in src/server/collection-meta.ts), but a stale catalog
+ *  entry, a future ingestion path, or a localStorage-cached payload
+ *  could still hand us a raw string. This second gate guarantees the
+ *  href we put in the DOM is an https URL that parses cleanly. */
+function isSafeSocialHref(href: string): boolean {
+  if (typeof href !== 'string' || !href) return false;
+  if (href.length > 2048) return false;
+  if (!/^https:\/\//i.test(href)) return false;
+  if (/[\u0000-\u001f\u007f]/.test(href)) return false;
+  try {
+    const u = new URL(href);
+    if (u.protocol !== 'https:') return false;
+    if (u.username || u.password) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 function SocialIconLink({
   href, label, children, style,
 }: {
@@ -484,6 +505,9 @@ function SocialIconLink({
   style: ChipStyle;
 }) {
   const [hover, setHover] = useState(false);
+  // Render nothing if the href fails validation. This is intentional:
+  // a missing chip is strictly better than rendering an unsafe link.
+  if (!isSafeSocialHref(href)) return null;
   return (
     <a
       href={href}
