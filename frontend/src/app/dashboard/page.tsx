@@ -350,8 +350,12 @@ function hasBidImbalance(col: LiveCollection, bid: BidSnap | null): boolean {
 }
 
 function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
-  const [hovered, setHovered] = useState(false);
-  const bg = isSelected ? 'rgba(128,104,216,0.08)' : hovered ? 'rgba(255,255,255,0.03)' : 'transparent';
+  // Hover lift + resting tint come from the shared `.tools-offer-row`
+  // + `.mints-tracker-row` classes (globals.css) — same design
+  // language as the /mints tracker rows. Selected state lives on a
+  // dedicated class so .tools-offer-row:hover (specificity 2) still
+  // wins on hover. No more local `hovered` state — CSS `:hover`
+  // handles the fill, scale, and glow.
   const volData   = col.vol7d   ?? [];
   const floorData = col.floor7d ?? [];
   // Displayed floor is the REAL marketplace floor from /api/collections/bids.
@@ -373,10 +377,12 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
   return (
     <tr
       {...rowHandlers}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className={col._flash === 'up' ? 'row-flash-up' : col._flash === 'down' ? 'row-flash-down' : ''}
-      style={{ background: bg, cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.1s' }}
+      className={
+        'mints-tracker-row tools-offer-row' +
+        (isSelected ? ' mints-tracker-row-selected' : '') +
+        (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
+      }
+      style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
       {/* First cell hosts the link-overlay <a>. `<tr position: relative>` is
        *  unreliable across browsers as a containing block — if it loses
@@ -427,13 +433,14 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
 }
 
 function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
-  const [hovered, setHovered] = useState(false);
+  // See CollectionRow above — hover lift + resting tint come from the
+  // shared `.tools-offer-row` + `.mints-tracker-row` classes. Selected
+  // state lives on `.mints-tracker-row-selected`. No local hover state.
   // "ago" reflects the real latest sale; the Dashboard's nowTick (30s)
   // forces re-aggregation which re-renders this row, refreshing the label.
   const ago = timeAgo(col._latestTs);
   const volData   = col.vol7d   ?? [];
   const floorData = col.floor7d ?? [];
-  const bg = isSelected ? 'rgba(128,104,216,0.08)' : hovered ? 'rgba(255,255,255,0.03)' : 'transparent';
   // See CollectionRow — real floor from /api/collections/bids, sale-min is fallback.
   const displayFloor = bid?.floorSol ?? col.floor;
   const hasMomentum = col.floor > col._prevFloor * MOMENTUM_THRESHOLD;
@@ -445,10 +452,12 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
   return (
     <tr
       {...rowHandlers}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className={col._flash === 'up' ? 'row-flash-up' : col._flash === 'down' ? 'row-flash-down' : ''}
-      style={{ background: bg, cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.1s' }}
+      className={
+        'mints-tracker-row tools-offer-row' +
+        (isSelected ? ' mints-tracker-row-selected' : '') +
+        (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
+      }
+      style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
       {/* See CollectionRow: overlay is anchored to the first <td>, not <tr>. */}
       <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
@@ -1026,7 +1035,7 @@ export default function Dashboard() {
         )}
 
         {/* Table */}
-        <div className="scroll-area" style={{
+        <div className="scroll-area collection-table-scroll" style={{
           flex: 1, overflow: 'auto', padding: '0 10px 8px',
           opacity: tfFading ? 0.6 : 1, transition: 'opacity 140ms ease',
         }}>

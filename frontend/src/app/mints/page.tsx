@@ -1770,7 +1770,7 @@ export default function MintsPage() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll">
+        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —

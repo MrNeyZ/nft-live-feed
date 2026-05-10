@@ -932,6 +932,30 @@ body[data-bottombar="1"] .feed-root {
   background: rgba(239, 120, 120, 0.028);
 }
 
+/* Selected-row tint, shared across collection-style tables (used on
+   /dashboard Trending Collections — /mints rows have their own ACTIVE
+   / WATCH / SOLD priority and don't carry an external "selected"
+   state, so the class is opt-in). Same purple family as the rest of
+   the chrome, faint enough that .tools-offer-row:hover still wins
+   visually when the user mouses over a selected row. */
+.mints-tracker-row-selected {
+  background: rgba(128, 104, 216, 0.08);
+}
+
+/* Symmetric scrollbar gutter for collection-style tables. The base
+   `.scroll-area` class uses `scrollbar-gutter: stable`, which reserves
+   the gutter only on the inline-end edge. With a `<tr>` hover or
+   selection background that fills the full table width, that
+   right-only gutter makes the row fill read ~12–15 px narrower on the
+   right than on the left — the asymmetric highlight visible on the
+   /dashboard Trending Collections rows. `both-edges` mirrors the
+   gutter so the row fill sits symmetrically inside the card without
+   changing scroll behaviour. Applied wherever a collection table's
+   row tint matters (currently /dashboard + /mints tracker). */
+.collection-table-scroll {
+  scrollbar-gutter: stable both-edges;
+}
+
 /* /mints Live Mint Feed rows — mirror the .feed-card hover state so the
    right-panel rhythm matches /feed's visual language. Subtle background
    tint on hover; no border/shadow change. Card-style hover (no transform
