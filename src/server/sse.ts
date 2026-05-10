@@ -140,6 +140,65 @@ function broadcast(frame: string): void {
   }
 }
 
+// ── Micro-batching ──────────────────────────────────────────────────────────
+// High-frequency event types (sale, mint, listing_*, meta, rawpatch,
+// seller_count) used to call broadcast() once per event — i.e. one write()
+// per event per client. Under burst load (mint storms, AMM repricing
+// floods) that's hundreds of writes per second across N clients, each
+// paying its own syscall + per-write backpressure round-trip.
+//
+// `enqueue(frame)` appends to a FIFO and schedules a flush ~SSE_BATCH_MS
+// (default 50 ms) later. At flush time the queued frames are concatenated
+// into one string and shipped through broadcast() — i.e. one write() per
+// client per ~50 ms window, regardless of how many events arrived. The
+// SSE wire format is unchanged: clients see exactly the same
+// `event: X\ndata: …\n\n` frames in the same order; only the TCP chunking
+// differs. EventSource parses the stream incrementally, so a single TCP
+// write delivering 50 frames is indistinguishable from 50 individual
+// writes at the protocol level.
+//
+// Control / status events (currently `status`) keep using broadcast()
+// directly so they don't sit in a 50 ms queue while the operator is
+// staring at a "tensor down" indicator.
+//
+// Overflow: if the queue reaches MAX_BATCH_FRAMES (default 500), flush
+// immediately. We never drop frames — drop semantics would risk losing a
+// `remove` or `seller_count` patch that downstream UI state depends on.
+const BATCH_MS         = envInt('SSE_BATCH_MS',          50);
+const MAX_BATCH_FRAMES = envInt('SSE_MAX_BATCH_FRAMES', 500);
+let batchQueue: string[] = [];
+let batchTimer: NodeJS.Timeout | null = null;
+let batchHighWater = 0; // largest queue size we've seen — diagnostic only
+
+function flush(): void {
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+  if (batchQueue.length === 0) return;
+  if (batchQueue.length > batchHighWater) batchHighWater = batchQueue.length;
+  const combined = batchQueue.join('');
+  batchQueue = [];
+  if (sseClients.size === 0) return;
+  broadcast(combined);
+}
+
+/** Queue a pre-built SSE frame for the next batch flush. Use for high-
+ *  frequency event types (sale / mint / listing_* / meta / rawpatch /
+ *  seller_count). Force-flushes when the queue exceeds MAX_BATCH_FRAMES
+ *  so a sustained burst can't grow the queue without bound. */
+function enqueue(frame: string): void {
+  batchQueue.push(frame);
+  if (batchQueue.length >= MAX_BATCH_FRAMES) {
+    flush();
+    return;
+  }
+  if (batchTimer) return;
+  batchTimer = setTimeout(flush, BATCH_MS);
+  if (typeof batchTimer.unref === 'function') batchTimer.unref();
+}
+
+/** Diagnostic — high-water mark of the batch queue since boot. Exposed
+ *  for future health endpoints; unused today. */
+export function getSseBatchHighWater(): number { return batchHighWater; }
+
 function buildSaleFrame(event: SaleEvent): string {
   const parser = event.rawData._parser as string | undefined;
   const source = parser ? 'me_raw' : 'helius';
@@ -212,8 +271,12 @@ if (SELLER_COUNT_DEBUG) console.log('[seller-count-init] listener attached');
 
 // One bus listener per event type, registered once at module load. The
 // frame is built once per emit and broadcast to all clients in the Set.
+// High-frequency types (sale, mint, listing_*, meta, rawpatch,
+// seller_count) go through enqueue() for 50 ms micro-batching; control
+// types (status) call broadcast() directly so the operator sees
+// source-health flips without batch latency.
 saleEventBus.onSale(           (event)  => {
-  broadcast(buildSaleFrame(event));
+  enqueue(buildSaleFrame(event));
   // Async, fire-and-forget: for sell-type sales with a known
   // collectionAddress, look up the seller's remaining holdings via DAS
   // (cached + deduped) and broadcast a `seller_count` patch frame so
@@ -398,29 +461,31 @@ saleEventBus.onSale(           (event)  => {
     // the numeric exact remaining count when count >= 3. The backend
     // still computes `signal` internally above to gate the
     // exact-fallback trigger; it just doesn't ship to clients.
-    broadcast(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
+    enqueue(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
     // Avoid 'signal is declared but never read' under strict-unused linting
     // when the env-gated logs above are stripped from a production build.
     void signal;
   })();
 });
-saleEventBus.onMetaUpdate(     (update) => broadcast(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
-saleEventBus.onRemove(         (sig)    => broadcast(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
-saleEventBus.onRawPatch(       (patch)  => broadcast(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
-saleEventBus.onListingRemove(  (delta)  => broadcast(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
-saleEventBus.onListingSnapshot((delta)  => broadcast(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
+saleEventBus.onMetaUpdate(     (update) => enqueue(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
+saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
+saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
+saleEventBus.onListingRemove(  (delta)  => enqueue(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
+saleEventBus.onListingSnapshot((delta)  => enqueue(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
+// Source-status flips are operator-relevant — keep them immediate so a
+// "tensor down" indicator doesn't sit in a 50 ms queue.
 saleEventBus.onSourceStatus(   (s)      => broadcast(buildStatusFrame(s)));
 // Audit counter — pairs with the accumulator's accepted/emitted
 // counts. A growing gap (`emitted >> sseSent`) means broadcasts are
 // failing to write; a healthy stream sees all three move together.
 let mintsSseSentCount = 0;
 saleEventBus.onMint(           (m)      => {
-  broadcast(buildMintFrame(m));
+  enqueue(buildMintFrame(m));
   mintsSseSentCount++;
   console.log(`[mints/sse] sent mint sig=${m.signature.slice(0, 12)}…`);
 });
-saleEventBus.onMintStatus(     (s)      => broadcast(buildMintStatusFrame(s)));
-saleEventBus.onMintMeta(       (p)      => broadcast(buildMintMetaFrame(p)));
+saleEventBus.onMintStatus(     (s)      => enqueue(buildMintStatusFrame(s)));
+saleEventBus.onMintMeta(       (p)      => enqueue(buildMintMetaFrame(p)));
 // Late seller-count refresh (active-dumper exact-fallback). Re-uses
 // the existing `seller_count` SSE event; frontend reducer already
 // matches by seller+collection and sticky-merges higher counts.
@@ -442,7 +507,7 @@ saleEventBus.onSellerCountUpdate((u) => {
     sells10m:   u.sells10m,
   };
   if (u.signal) payload.signal = u.signal;
-  broadcast(`event: seller_count\ndata: ${JSON.stringify(payload)}\n\n`);
+  enqueue(`event: seller_count\ndata: ${JSON.stringify(payload)}\n\n`);
 });
 
 // 60 s audit — cross-checks accumulator's accepted/emitted with
