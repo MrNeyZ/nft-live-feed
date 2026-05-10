@@ -842,6 +842,18 @@ const FILTERS: { key: FilterKey; label: string; color: string }[] = [
   { key: 'listing', label: 'Listings',   color: '#a890e8' },
 ];
 
+/** Ghost-button style for inactive filter pills inside the filters
+ *  panel. Recedes visually so the active selection reads immediately;
+ *  hover (handled by the Pill base) brings the pill back into focus
+ *  on intent. Active pills carry their own per-color highlight via
+ *  the inline `style={isActive ? {...} : ...}` branch at the call
+ *  site (see Type / Price / Density rows below). */
+const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid rgba(255, 255, 255, 0.05)',
+  color: '#6e6e8a',
+};
+
 /** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
  *  Listings is intentionally absent — the backend does not yet emit listing
  *  events, so the Listings filter is wired but renders empty. */
@@ -1581,34 +1593,12 @@ export default function FeedPage() {
                   icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
                   label="Filters"
                 />
-                {/* Density selector — three small pills toggling card
-                    layout between COMFY (a notch airier), COMPACT
-                    (current polished baseline), and TAPE (ultra-dense
-                    trading-tape look with shrunk thumb). Persists in
-                    `vl.feed.density` localStorage; resets to COMPACT
-                    on bad/corrupt values. The visible affordance is
-                    intentionally a tight 3-button group so it doesn't
-                    crowd out Filters / Pause. */}
-                <div
-                  role="group"
-                  aria-label="Card density"
-                  style={{ display: 'flex', alignItems: 'center', gap: 2 }}
-                >
-                  {DENSITIES.map(d => (
-                    <Pill
-                      key={d}
-                      active={density === d}
-                      onClick={() => setDensity(d)}
-                      label={d.toUpperCase()}
-                      size="sm"
-                      title={
-                        d === 'comfy'   ? 'Comfy — slightly more breathing room' :
-                        d === 'compact' ? 'Compact — current polished baseline'  :
-                                          'Tape — ultra-dense trading-tape view'
-                      }
-                    />
-                  ))}
-                </div>
+                {/* Density moved into the Filters panel below — top
+                    bar reduces to [Filters][Pause] for cleaner
+                    hierarchy (feed cards remain the page focus,
+                    secondary controls live behind the Filters
+                    toggle). Existing `vl.feed.density` localStorage
+                    + state logic unchanged. */}
                 <Pill
                   active
                   color={paused ? '#c9a820' : '#5ce0a0'}
@@ -1621,118 +1611,169 @@ export default function FeedPage() {
             {/* Feed surface */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {filtersOpen && (
-                <div style={{ padding: '10px 4px 12px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Type:</span>
-                    {FILTERS.map(f => {
-                      const isActive = filter === f.key;
-                      return (
-                        <Pill
-                          key={f.key}
-                          active={isActive}
-                          color={f.color}
-                          onClick={() => setFilter(f.key)}
-                          label={f.label}
-                          size="sm"
-                          // Stronger highlight on the active filter — bumped
-                          // background opacity, full-color border, subtle glow
-                          // — so the current selection reads at a glance.
-                          style={isActive ? {
-                            background:  `${f.color}38`,
-                            border:      `1px solid ${f.color}`,
-                            boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
-                            fontWeight:  700,
-                          } : undefined}
-                        />
-                      );
-                    })}
+                <div className="feed-filters-panel">
+                  {/* TYPE row — sale-direction filter. Active pill keeps
+                      its per-color highlight (green for buy / red for
+                      sell / lilac for all + listing); inactive pills go
+                      ghost (transparent bg, faint border) so the active
+                      selection reads at a glance. */}
+                  <div className="feed-filter-row">
+                    <span className="feed-filter-label">Type</span>
+                    <div className="feed-filter-pills">
+                      {FILTERS.map(f => {
+                        const isActive = filter === f.key;
+                        return (
+                          <Pill
+                            key={f.key}
+                            active={isActive}
+                            color={f.color}
+                            onClick={() => setFilter(f.key)}
+                            label={f.label}
+                            size="sm"
+                            style={isActive ? {
+                              background:  `${f.color}38`,
+                              border:      `1px solid ${f.color}`,
+                              boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
+                              fontWeight:  700,
+                            } : FILTER_PILL_INACTIVE_STYLE}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Price:</span>
-                    {([
-                      { key: 'p001', label: '0.01+' },
-                      { key: 'p01',  label: '0.1+'  },
-                    ] as const).map(p => {
-                      const isActive = priceFilter === p.key;
-                      const color = '#a890e8';
-                      return (
-                        <Pill
-                          key={p.key}
-                          active={isActive}
-                          color={color}
-                          onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
-                          label={p.label}
-                          size="sm"
-                          style={isActive ? {
-                            background:  `${color}38`,
-                            border:      `1px solid ${color}`,
-                            boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
-                            fontWeight:  700,
-                          } : undefined}
-                        />
-                      );
-                    })}
+                  {/* PRICE row — minimum-price toggles. Re-clicking the
+                      active pill clears back to 'all'. */}
+                  <div className="feed-filter-row">
+                    <span className="feed-filter-label">Price</span>
+                    <div className="feed-filter-pills">
+                      {([
+                        { key: 'p001', label: '0.01+' },
+                        { key: 'p01',  label: '0.1+'  },
+                      ] as const).map(p => {
+                        const isActive = priceFilter === p.key;
+                        const color = '#a890e8';
+                        return (
+                          <Pill
+                            key={p.key}
+                            active={isActive}
+                            color={color}
+                            onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
+                            label={p.label}
+                            size="sm"
+                            style={isActive ? {
+                              background:  `${color}38`,
+                              border:      `1px solid ${color}`,
+                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
+                              fontWeight:  700,
+                            } : FILTER_PILL_INACTIVE_STYLE}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Collection:</span>
-                    <input
-                      value={collInput}
-                      onChange={(e) => setCollInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
+                  {/* DENSITY row — moved here from the top controls bar.
+                      State + persistence (`vl.feed.density` localStorage)
+                      unchanged; only the rendering location moved. */}
+                  <div
+                    className="feed-filter-row"
+                    role="group"
+                    aria-label="Card density"
+                  >
+                    <span className="feed-filter-label">Density</span>
+                    <div className="feed-filter-pills">
+                      {DENSITIES.map(d => {
+                        const isActive = density === d;
+                        const color = '#a890e8';
+                        return (
+                          <Pill
+                            key={d}
+                            active={isActive}
+                            color={color}
+                            onClick={() => setDensity(d)}
+                            label={d.charAt(0).toUpperCase() + d.slice(1)}
+                            size="sm"
+                            title={
+                              d === 'comfy'   ? 'Comfy — slightly more breathing room' :
+                              d === 'compact' ? 'Compact — current polished baseline'  :
+                                                'Tape — ultra-dense trading-tape view'
+                            }
+                            style={isActive ? {
+                              background:  `${color}38`,
+                              border:      `1px solid ${color}`,
+                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
+                              fontWeight:  700,
+                            } : FILTER_PILL_INACTIVE_STYLE}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* COLLECTIONS row — slug input + compact "+" Add
+                      button + active-filter chip. Input has its own
+                      `feed-coll-input` class that owns :focus glow +
+                      monospace placeholder via globals.css. */}
+                  <div className="feed-filter-row">
+                    <span className="feed-filter-label">Coll.</span>
+                    <div className="feed-filter-pills">
+                      <input
+                        className="feed-coll-input"
+                        value={collInput}
+                        onChange={(e) => setCollInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const v = collInput.trim();
+                            if (v) { setCollFilter(v); setCollInput(''); }
+                          }
+                        }}
+                        placeholder="collection slug…"
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                      <Pill
+                        active
+                        color="#a890e8"
+                        onClick={() => {
                           const v = collInput.trim();
                           if (v) { setCollFilter(v); setCollInput(''); }
-                        }
-                      }}
-                      placeholder="collection slug…"
-                      spellCheck={false}
-                      autoComplete="off"
-                      style={{
-                        padding: '3px 8px', fontSize: 10.5, borderRadius: 4,
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        background: 'rgba(255,255,255,0.03)',
-                        color: '#e8e6f2', outline: 'none',
-                        minWidth: 180, fontFamily: "'SF Mono','Fira Code',monospace",
-                        letterSpacing: '0.2px',
-                      }}
-                    />
-                    <Pill
-                      active
-                      color="#a890e8"
-                      onClick={() => {
-                        const v = collInput.trim();
-                        if (v) { setCollFilter(v); setCollInput(''); }
-                      }}
-                      label="Add"
-                      size="sm"
-                    />
-                    {collFilter && (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
-                        borderRadius: 4, letterSpacing: '0.2px',
-                        border: '1px solid #a890e866',
-                        background: '#a890e822',
-                        color: '#a890e8',
-                        fontFamily: "'SF Mono','Fira Code',monospace",
-                        maxWidth: 240, overflow: 'hidden',
-                      }}>
+                        }}
+                        label="+"
+                        title="Add collection filter (Enter)"
+                        size="sm"
+                        style={{
+                          padding: '2px 9px', fontWeight: 700,
+                          background: 'rgba(168, 144, 232, 0.20)',
+                          border: '1px solid rgba(168, 144, 232, 0.50)',
+                          boxShadow: '0 0 0 1px rgba(168, 144, 232, 0.18), 0 0 6px rgba(168, 144, 232, 0.14)',
+                        }}
+                      />
+                      {collFilter && (
                         <span style={{
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}>{collFilter}</span>
-                        <button
-                          type="button"
-                          onClick={() => setCollFilter(null)}
-                          title="Clear collection filter"
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            width: 14, height: 14, padding: 0, borderRadius: 3,
-                            border: 'none', background: 'transparent',
-                            color: '#a890e8', cursor: 'pointer', fontSize: 11, lineHeight: 1,
-                          }}
-                        >✕</button>
-                      </span>
-                    )}
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
+                          borderRadius: 4, letterSpacing: '0.2px',
+                          border: '1px solid #a890e866',
+                          background: '#a890e822',
+                          color: '#a890e8',
+                          fontFamily: "'SF Mono','Fira Code',monospace",
+                          maxWidth: 240, overflow: 'hidden',
+                        }}>
+                          <span style={{
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{collFilter}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCollFilter(null)}
+                            title="Clear collection filter"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 14, height: 14, padding: 0, borderRadius: 3,
+                              border: 'none', background: 'transparent',
+                              color: '#a890e8', cursor: 'pointer', fontSize: 11, lineHeight: 1,
+                            }}
+                          >✕</button>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

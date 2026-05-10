@@ -605,6 +605,113 @@ a { color: inherit; text-decoration: none; }
   border-right: 3px solid rgba(168, 144, 232, 0.95);
 }
 
+/* /feed Filters panel — terminal control surface. Sits as a darker
+   inset band between the card header and the live-feed list, so the
+   filters read as a secondary utility lane rather than a "form" on
+   top of the cards. Inset highlights at top + bottom, plus a faint
+   inner vignette, give a small amount of depth without bright
+   gradients or large shadows. `feedFiltersIn` keyframe runs on
+   mount when `filtersOpen` flips true (panel is unmounted when
+   closed; re-mount triggers the animation each open). */
+.feed-filters-panel {
+  flex-shrink: 0;
+  display: flex; flex-direction: column;
+  gap: 4px;
+  padding: 8px 14px 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border-top: 1px solid rgba(168, 144, 232, 0.10);
+  border-bottom: 1px solid rgba(168, 144, 232, 0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.02),
+    inset 0 0 24px rgba(0, 0, 0, 0.20);
+  overflow: hidden;
+  animation: feedFiltersIn 160ms ease-out;
+}
+
+/* Each filter lane: fixed-width right-aligned label column on the
+   left + flexible pills cluster on the right. Labels sit at the
+   same x-coordinate across rows so the panel reads as a tidy grid
+   rather than a stack of independent rows. min-height keeps the
+   row baseline consistent even with empty pill groups. */
+.feed-filter-row {
+  display: flex; align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+.feed-filter-label {
+  flex-shrink: 0;
+  width: 56px;
+  text-align: right;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #56566e;
+}
+.feed-filter-pills {
+  display: flex; flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Collection-slug input — inset terminal field with a subtle focus
+   glow. Background reads darker than the surrounding panel for a
+   "pressed in" look; focus state outlines in lilac with a small
+   outer halo (no neon). Placeholder uses the same monospace family
+   as the input itself so the empty state still reads as terminal. */
+.feed-coll-input {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  border-radius: 4px;
+  border: 1px solid rgba(168, 144, 232, 0.12);
+  background: rgba(0, 0, 0, 0.32);
+  color: #e8e6f2;
+  outline: none;
+  min-width: 200px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  letter-spacing: 0.2px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.30);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.feed-coll-input::placeholder {
+  color: #45455e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  letter-spacing: 0.5px;
+}
+.feed-coll-input:focus {
+  border-color: rgba(168, 144, 232, 0.40);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.30),
+    0 0 0 1px rgba(168, 144, 232, 0.20),
+    0 0 12px rgba(168, 144, 232, 0.10);
+}
+
+/* Filters-panel mount animation. Combines opacity + slight
+   translateY + max-height + padding so the panel feels like it's
+   "growing in" from the header rather than popping. Duration kept
+   at 160 ms — long enough to read as deliberate, short enough not
+   to feel sluggish on rapid toggles. max-height ceiling 240 px is
+   well above the panel's natural ~110 px so content is never
+   clipped at the end of the animation. */
+@keyframes feedFiltersIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    max-height: 240px;
+    padding-top: 8px;
+    padding-bottom: 10px;
+  }
+}
+
 /* /feed density modes — three trader-style densities scoped to the
    `.feed-list` parent (`.feed-density-{comfy,compact,tape}` is set
    from React state, persisted in localStorage as `vl.feed.density`).
