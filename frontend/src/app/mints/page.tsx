@@ -193,6 +193,20 @@ function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
  *  own per-asset names/fallbacks. */
 function isUsefulTrackerCollection(row: MintStatus): boolean {
   const realName = (row.name ?? '').trim();
+  // Explicit zero-identity-singleton gate (audit task 8 finding):
+  // when a row has none of the four identity dimensions —
+  // trimmed name, imageUrl, lastMintAddress — and is still in
+  // single-test-mint territory (observedMints ≤ 2), reject. A real
+  // collection that later resolves any of these flips back to
+  // visible on the next mint_status frame; this only suppresses
+  // 1-of-2 mint test deploys / unindexed cNFT trees that have no
+  // signal yet. Strict subset of the `!realName` reject below
+  // (kept as documentation + defense-in-depth in case the bare
+  // name reject is ever relaxed).
+  const hasImage           = !!row.imageUrl && row.imageUrl.length > 0;
+  const hasLastMint        = !!row.lastMintAddress && row.lastMintAddress.length > 0;
+  const observed           = typeof row.observedMints === 'number' ? row.observedMints : 0;
+  if (!realName && !hasImage && !hasLastMint && observed <= 2) return false;
   if (!realName)                              return false;
   if (realName.toLowerCase() === 'nft')       return false;
   if (realName === shortKey(row.groupingKey)) return false;

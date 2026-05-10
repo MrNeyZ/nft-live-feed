@@ -298,6 +298,45 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
   };
 }
 
+/** Identity gate for displayState='shown'. A row is allowed into
+ *  ACTIVE only when it has at least one usable identity field —
+ *  a non-empty trimmed `name` OR an `imageUrl`. Without this gate,
+ *  cNFT/Core LMNFT bursts that arrive before DAS metadata patches
+ *  produced loud "ACTIVE with no name and no image" rows on the
+ *  tracker (audit captured one Bubblegum row that emitted 8
+ *  `displayState='shown'` frames with name=null/image=null over
+ *  ~3 minutes). The row is NOT evicted while waiting — velocity
+ *  windows + burst thresholds keep accumulating, so the moment
+ *  `patchAccumulatorMeta` / `patchAccumulatorLmnft` resolves
+ *  identity, `tryPromote` re-runs and the row upgrades cleanly. */
+function hasUsableIdentity(a: Accum): boolean {
+  const trimmedName = (a.name ?? '').trim();
+  return trimmedName.length > 0 || !!a.imageUrl;
+}
+
+/** Single source of truth for incubating → shown promotion. Mirrors
+ *  the previous inline block in `recordMint`, plus the identity
+ *  gate above. Called from:
+ *    1. `recordMint` on every mint, after stats are updated.
+ *    2. `patchAccumulatorMeta` / `patchAccumulatorLmnft` after a
+ *       metadata patch lands — so a row that hit a burst earlier
+ *       but was held back by missing identity upgrades the moment
+ *       the name or image arrives.
+ *  Never demotes. Demotion (shown → cooled) lives only in `sweep`. */
+function tryPromote(a: Accum, now: number): void {
+  if (a.displayState === 'shown')        return;
+  if (!hasUsableIdentity(a))             return;
+  if (a.observedMints >= THRESHOLD_MIN_MINTS) {
+    a.displayState = 'shown';
+    a.shownReason  = 'threshold';
+    a.shownAt      = now;
+  } else if (a.events60s.length >= BURST_V60 || a.events5m.length >= BURST_V5M) {
+    a.displayState = 'shown';
+    a.shownReason  = 'burst';
+    a.shownAt      = now;
+  }
+}
+
 /** Public: record a detected mint and return whether it passed the
  *  tracked gate (i.e. should be persisted by the caller — though we
  *  don't persist in this MVP). Always emits `mint` + `mint_status`. */
@@ -369,19 +408,10 @@ export function recordMint(ev: MintEventWire): void {
   else if (cls === 'paid') a.paidCount++;
   else a.unknownCount++;
 
-  // Promote on threshold or burst (never demote here).
+  // Promote on threshold or burst (never demote here). Promotion is
+  // additionally gated by `hasUsableIdentity` — see tryPromote below.
   const prevDisplay = a.displayState;
-  if (a.displayState !== 'shown') {
-    if (a.observedMints >= THRESHOLD_MIN_MINTS) {
-      a.displayState = 'shown';
-      a.shownReason  = 'threshold';
-      a.shownAt      = now;
-    } else if (a.events60s.length >= BURST_V60 || a.events5m.length >= BURST_V5M) {
-      a.displayState = 'shown';
-      a.shownReason  = 'burst';
-      a.shownAt      = now;
-    }
-  }
+  tryPromote(a, now);
 
   // EMIT FIRST — never gated on metadata, never debounced. The
   // per-mint event must be on the wire before any DAS retry queue
@@ -529,6 +559,12 @@ export function patchAccumulatorMeta(
   const cleaned = cleanName(patch.name);
   if (cleaned)        a.name     = cleaned;
   if (patch.imageUrl) a.imageUrl = patch.imageUrl;
+  // Re-evaluate promotion AFTER the patch fields are written. A row
+  // held back by the identity gate (no name AND no image) at the
+  // last burst tick can now satisfy `hasUsableIdentity` and flip to
+  // 'shown' on the same status frame this patch emits — no extra
+  // round-trip needed.
+  tryPromote(a, Date.now());
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
@@ -592,6 +628,12 @@ export function patchAccumulatorLmnft(
   a.maxSupply         = nextSupply;
   a.mintedCount       = nextMinted;
   if (nextName) a.name = nextName;
+  // Same rationale as in `patchAccumulatorMeta`: if this LMNFT patch
+  // resolved a name (the only identity dimension this path can
+  // populate; imageUrl is patched via the meta path), a row that was
+  // bursting but identity-gated can now upgrade to 'shown' on this
+  // same status frame.
+  tryPromote(a, Date.now());
   const href = (nextOwner && nextId)
     ? `https://www.launchmynft.io/collections/${nextOwner}/${nextId}`
     : null;
