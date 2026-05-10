@@ -19,20 +19,36 @@ interface EnvRequirement {
   extra?: (value: string) => string | null;
 }
 
+/** Whether SIWS is the active login model. Read once per `validateEnv()`
+ *  call so the env file is the only source of truth — flipping the flag
+ *  takes effect at the next restart. */
+function siwsRequiredAtBoot(): boolean {
+  return (process.env.AUTH_REQUIRE_SIWS ?? '').trim().toLowerCase() === 'true';
+}
+
 const REQUIRED: ReadonlyArray<EnvRequirement> = [
   {
     name: 'UI_AUTH_PASSWORD',
-    purpose: 'shared login passphrase',
-    // Login is rate-limited but a dictionary word ("beta", "test", etc.)
-    // is one wordlist guess away. Refuse to boot in production with a
-    // short shared password — operator must rotate to a real secret.
-    extra: (v) => v.length < 16 ? 'must be at least 16 characters' : null,
+    purpose: 'shared invite passphrase',
+    // Behaviour split by AUTH_REQUIRE_SIWS:
+    //   SIWS off → passphrase is the ONLY login secret; require >=16
+    //              chars so a dictionary word can't be brute-forced.
+    //   SIWS on  → passphrase is an invite gate. The wallet signature is
+    //              the real auth factor; allow short codes ("beta") so
+    //              the gate stays human-shareable. Min length stays at 1
+    //              (set + non-empty) so a typo in the env file still
+    //              fails loud.
+    extra: (v) => siwsRequiredAtBoot()
+      ? null
+      : (v.length < 16 ? 'must be at least 16 characters when AUTH_REQUIRE_SIWS=false' : null),
   },
   {
     name: 'UI_AUTH_SECRET',
     purpose: 'HMAC signing secret for auth tokens',
+    // The HMAC secret signs the post-login bearer token regardless of
+    // which login model is active, so its strength floor never relaxes.
     // Below ~32 hex chars (~128 bits) is trivially brute-forceable for a
-    // production deployment. Reject obviously weak values at boot.
+    // production deployment.
     extra: (v) => v.length < 16 ? 'must be at least 16 characters' : null,
   },
   { name: 'UI_ALLOWED_WALLETS',  purpose: 'comma-separated wallet whitelist' },
@@ -94,5 +110,9 @@ export function validateEnv(): void {
     }
   }
 
-  console.log(`[env] startup validation ok  mode=${isProd ? 'production' : 'development'}`);
+  // Surface the active login model at boot so operators see it in logs
+  // (and so a SIWS misconfig can be diagnosed before any user attempts
+  // to sign in). The value is a boolean derived from env; not a secret.
+  const auth = siwsRequiredAtBoot() ? 'siws' : 'passphrase';
+  console.log(`[env] startup validation ok  mode=${isProd ? 'production' : 'development'}  auth=${auth}`);
 }

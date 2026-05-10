@@ -27,6 +27,7 @@ import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEn
 import { lastObservedMintAt } from '../mints/accumulator';
 import { getMintListenerStatus } from '../ingestion/listener';
 import { rateLimit } from './rate-limit';
+import { issueNonce, verifyLogin, siwsRequired } from '../auth/siws';
 
 // ── Idle auto-off ──────────────────────────────────────────────────────────
 // If no frontend tab has checked in for IDLE_TIMEOUT_MS and a non-`off` mode
@@ -192,10 +193,22 @@ export function createRuntimeRouter(): Router {
   // GET /api/runtime/mode is intentionally NOT limited: it's read-only and
   // called by the Gate screen on every mount.
   const loginLimit     = rateLimit({ limit: 5,   windowMs: 5 * 60_000, label: 'auth/login'      });
+  const siwsNonceLimit = rateLimit({ limit: 20,  windowMs: 60_000,     label: 'auth/siws/nonce' });
+  const siwsVerifyLimit= rateLimit({ limit: 10,  windowMs: 60_000,     label: 'auth/siws/verify'});
   const modeLimit      = rateLimit({ limit: 20,  windowMs: 60_000,     label: 'runtime/mode'    });
   const heartbeatLimit = rateLimit({ limit: 120, windowMs: 60_000,     label: 'runtime/heartbeat' });
 
+  // ── Legacy passphrase login ────────────────────────────────────────────
+  // When AUTH_REQUIRE_SIWS=true this route refuses every request — the
+  // SIWS pair below becomes the only login path. Kept registered so a
+  // misconfigured client hitting the old endpoint gets a clear 410 instead
+  // of a confusing 401, and so the flip is reversible by toggling one env
+  // var (no code redeploy needed) during rollout.
   router.post('/auth/login', loginLimit, (req: Request, res: Response) => {
+    if (siwsRequired()) {
+      res.status(410).json({ error: 'use_siws', detail: '/api/auth/siws/nonce + /api/auth/siws/verify' });
+      return;
+    }
     const wallet = req.body?.wallet;
     const pw     = typeof req.body?.password === 'string' ? req.body.password : '';
 
@@ -226,6 +239,75 @@ export function createRuntimeRouter(): Router {
     // by rotating UI_AUTH_SECRET without changing the login password.
     const nowSec = Math.floor(Date.now() / 1000);
     const token = issueToken(wallet, nowSec);
+    res.json({ ok: true, token, expiresAt: (nowSec + TOKEN_LIFETIME_SEC) * 1000 });
+  });
+
+  // ── Sign-In With Solana ────────────────────────────────────────────────
+  // Two-step flow. /nonce returns a server-issued challenge bound to a
+  // wallet; /verify consumes it after the wallet signs the canonical
+  // message. The verify step issues the EXISTING HMAC bearer token, so
+  // every downstream route (runtime/mode, buy/me, …) keeps verifying
+  // against the same `requireAuth` middleware — SIWS only changes how
+  // the token is obtained.
+  router.post('/auth/siws/nonce', siwsNonceLimit, (req: Request, res: Response) => {
+    const wallet = req.body?.wallet;
+    if (!isValidWallet(wallet)) {
+      res.status(400).json({ error: 'invalid wallet' });
+      return;
+    }
+    // Wallet-allowlist check happens here too so an attacker can't farm
+    // signed-in messages from disallowed wallets even though verify will
+    // reject them. Saves the upstream work + log volume.
+    const allow = allowedWallets();
+    if (allow && !allow.has(wallet)) {
+      res.status(401).json({ error: 'wallet not permitted' });
+      return;
+    }
+    const issued = issueNonce(wallet);
+    if ('error' in issued) {
+      res.status(400).json({ error: issued.error });
+      return;
+    }
+    res.json(issued);
+  });
+
+  router.post('/auth/siws/verify', siwsVerifyLimit, (req: Request, res: Response) => {
+    // Defence in depth: re-check signing secret + wallet allowlist + that
+    // SIWS module returned ok before issuing the bearer token. The
+    // siws module itself doesn't know about the wallet allowlist (it's a
+    // route-layer concern) so we enforce that here too.
+    if (!signingSecret()) {
+      res.status(500).json({ error: 'server auth misconfigured' });
+      return;
+    }
+    const wallet = req.body?.wallet;
+    if (!isValidWallet(wallet)) {
+      res.status(400).json({ error: 'invalid wallet' });
+      return;
+    }
+    const allow = allowedWallets();
+    if (allow && !allow.has(wallet)) {
+      res.status(401).json({ error: 'wallet not permitted' });
+      return;
+    }
+    const result = verifyLogin({
+      wallet,
+      nonce:        req.body?.nonce,
+      signatureB64: req.body?.signature,
+      passphrase:   req.body?.password,
+    });
+    if (!result.ok) {
+      const status = result.reason === 'passphrase_unconfigured' ? 500 : 401;
+      // Log a short, redaction-safe code only. We never log the nonce,
+      // signature, or passphrase. The wallet pubkey is base58 and is fine
+      // to surface partially for audit; nginx access logs already see
+      // the full URL.
+      console.warn(`[auth/siws/verify] reject reason=${result.reason} wallet=${wallet.slice(0, 6)}…`);
+      res.status(status).json({ error: 'unauthorized', reason: result.reason });
+      return;
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    const token  = issueToken(result.wallet, nowSec);
     res.json({ ok: true, token, expiresAt: (nowSec + TOKEN_LIFETIME_SEC) * 1000 });
   });
 

@@ -14,7 +14,7 @@
 // the pre-existing ones — this file does not change auth / runtime logic.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { isAuthed, login, clearAuth } from './auth';
+import { isAuthed, loginWithSiws, clearAuth } from './auth';
 import { fetchMode, setMode, SELECTABLE_MODES, type RuntimeMode } from './mode';
 import { FloatingLayoutModeSwitcher, BottomStatusBar } from '@/soloist/shared';
 import { usePathname } from 'next/navigation';
@@ -139,6 +139,12 @@ interface InjectedSolana {
   isPhantom?: boolean;
   connect?: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: { toString(): string } }>;
   publicKey?: { toString(): string } | null;
+  // signMessage is the SIWS primitive — Phantom shows a "Sign Message"
+  // prompt (not "Approve Transaction"), there's no SOL fee, and no
+  // on-chain side effect. Optional in the type because legacy wallets
+  // may not expose it; the SIWS flow falls back to a clear error in
+  // that case.
+  signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array | string }>;
 }
 
 function getInjectedSolana(): InjectedSolana | null {
@@ -205,9 +211,26 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     if (e) e.preventDefault();
     if (!wallet || !pw || busy) return;
     setBusy(true); setErr(null);
-    const ok = await login(wallet, pw);
+    // SIWS flow: nonce → wallet.signMessage → verify. The provider object
+    // here is the same injected solana we used to connect; its
+    // signMessage is what Phantom shows as "Sign Message" (no SOL fee,
+    // no on-chain side effect).
+    const sol = getInjectedSolana();
+    if (!sol) { setBusy(false); setErr('Phantom wallet not detected'); return; }
+    const result = await loginWithSiws(sol, wallet, pw);
     setBusy(false);
-    if (!ok) { setErr('Wallet or passphrase rejected'); return; }
+    if (!result.ok) {
+      const msg =
+        result.reason === 'no_wallet'         ? 'Wallet does not support message signing' :
+        result.reason === 'wallet_rejected'   ? 'Signature cancelled' :
+        result.reason === 'nonce_failed'      ? 'Could not start sign-in — try again' :
+        result.reason === 'verify_failed'     ? 'Wallet or passphrase rejected' :
+        result.reason === 'network'           ? 'Network error — try again' :
+        result.reason === 'malformed_response'? 'Unexpected server response' :
+                                                'Sign-in failed';
+      setErr(msg);
+      return;
+    }
     onSuccess();
   };
 
