@@ -719,11 +719,40 @@ function buildLaunchMyNftUrl(row: MintStatus): string | null {
   return null;
 }
 
+/** Slug rule used to deep-link a VVV mint into vvv.so. Lowercase,
+ *  unicode-folded, non-alphanumerics collapsed to a single hyphen.
+ *  Returns '' when the input has no usable characters (caller treats
+ *  that as "no link, plain pill"). Examples:
+ *    "CSTRIKE v2"        → "cstrike-v2"
+ *    "Neo Keith : Angel" → "neo-keith-angel"
+ *    "Pepok Collection"  → "pepok-collection"
+ *    "Café Latte"        → "cafe-latte"
+ *    "###"               → "" (no link) */
+function vvvSlugify(input: string): string {
+  let s = input.trim().toLowerCase();
+  // NFKD splits accented chars (é → e + combining acute), then we drop
+  // the combining marks. Wrapped in try/catch because some legacy
+  // browsers don't ship `normalize` for every form.
+  try { s = s.normalize('NFKD').replace(/[̀-ͯ]/g, ''); } catch { /* noop */ }
+  s = s.replace(/[^a-z0-9]+/g, '-');  // anything not [a-z0-9] → '-'
+  s = s.replace(/-+/g, '-');          // collapse runs
+  s = s.replace(/^-+|-+$/g, '');      // trim edges
+  return s;
+}
+
+/** Build the per-collection vvv.so URL from the row's collection name.
+ *  Returns null when the name is missing or slugifies to empty. */
+function buildVvvCollectionUrl(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const slug = vvvSlugify(name);
+  return slug ? `https://www.vvv.so/${slug}` : null;
+}
+
 /** Outbound link target for launchpad source badges. Returns null for
  *  sources where we can't safely build a per-collection deep link —
  *  the badge then renders as a plain pill (no anchor). LMNFT requires
- *  per-row owner + collectionId from the wire; vvv.so currently has
- *  no per-collection URL pattern, so it points at the platform root. */
+ *  per-row owner + collectionId from the wire; VVV uses the collection
+ *  name slugified into the vvv.so per-collection URL shape. */
 function sourceHref(row: MintStatus): string | null {
   switch (row.sourceLabel) {
     case 'LaunchMyNFT':
@@ -733,7 +762,10 @@ function sourceHref(row: MintStatus): string | null {
       // per the targeted-mode spec.
       return buildLaunchMyNftUrl(row);
     case 'VVV':
-      return 'https://vvv.so/';
+      // Per-collection vvv.so URL derived from the collection name.
+      // Plain pill when no name yet (mirrors the LMNFT "wait for the
+      // wire to populate" pattern — no point linking to a homepage).
+      return buildVvvCollectionUrl(row.name);
     default:
       return null;
   }
@@ -2118,12 +2150,20 @@ export default function MintsPage() {
                             const plainTitle = r.sourceLabel === 'LaunchMyNFT'
                               ? 'LaunchMyNFT mint page unavailable'
                               : r.sourceLabel;
+                            // Linked-pill tooltip: VVV gets "Open on VVV"
+                            // per the per-collection deep-link UX so users
+                            // know clicking opens the launchpad's page.
+                            // Other sources keep the raw label as the
+                            // hover hint.
+                            const linkTitle = r.sourceLabel === 'VVV'
+                              ? 'Open on VVV'
+                              : r.sourceLabel;
                             return href ? (
                               <a
                                 href={href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title={r.sourceLabel}
+                                title={linkTitle}
                                 style={pillStyle}
                                 onClick={(e) => e.stopPropagation()}
                               >{sb.label}</a>
