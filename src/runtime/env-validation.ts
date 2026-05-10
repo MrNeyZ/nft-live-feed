@@ -20,7 +20,14 @@ interface EnvRequirement {
 }
 
 const REQUIRED: ReadonlyArray<EnvRequirement> = [
-  { name: 'UI_AUTH_PASSWORD', purpose: 'shared login passphrase' },
+  {
+    name: 'UI_AUTH_PASSWORD',
+    purpose: 'shared login passphrase',
+    // Login is rate-limited but a dictionary word ("beta", "test", etc.)
+    // is one wordlist guess away. Refuse to boot in production with a
+    // short shared password — operator must rotate to a real secret.
+    extra: (v) => v.length < 16 ? 'must be at least 16 characters' : null,
+  },
   {
     name: 'UI_AUTH_SECRET',
     purpose: 'HMAC signing secret for auth tokens',

@@ -49,9 +49,15 @@ async function main() {
   app.listen(PORT, () => {
     console.log(`[server] listening on port ${PORT}`);
     console.log(`[server] SSE feed: GET  /events/stream`);
-    // Helius webhook route still registered but no longer primary path.
-    // Disable in dashboard once raw pipeline is confirmed working.
-    console.log(`[server] webhook:  POST /webhooks/helius (standby)`);
+    // Helius webhook route only registered when HELIUS_WEBHOOK_AUTH is
+    // configured (see src/server/app.ts). Without the secret the route
+    // is unmounted, so requests get a 404 from Express even though
+    // nginx forwards /webhooks/.
+    if ((process.env.HELIUS_WEBHOOK_AUTH ?? '').trim().length > 0) {
+      console.log(`[server] webhook:  POST /webhooks/helius (standby, auth required)`);
+    } else {
+      console.log(`[server] webhook:  disabled (HELIUS_WEBHOOK_AUTH unset)`);
+    }
     console.log(`[server] ingestion: idle — POST /api/runtime/mode to start`);
   });
 

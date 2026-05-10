@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { HeliusEnhancedTransaction } from './types';
 import { parseHeliusTransaction } from './parser';
 import { insertSaleEvent } from '../../db/insert';
@@ -123,8 +124,19 @@ export function createHeliusRouter(): Router {
   const router = Router();
 
   router.post('/', async (req: Request, res: Response) => {
-    const authHeader = req.headers['authorization'];
-    if (process.env.HELIUS_WEBHOOK_AUTH && authHeader !== process.env.HELIUS_WEBHOOK_AUTH) {
+    // Defence in depth: the route is only mounted in `createApp()` when
+    // HELIUS_WEBHOOK_AUTH is set, so any request that reaches here must
+    // already have a configured secret to compare against. We still
+    // re-check at handler scope (don't trust the mount-time check alone)
+    // and use a constant-time comparison so the secret can't be
+    // discovered by timing differences.
+    const expected = (process.env.HELIUS_WEBHOOK_AUTH ?? '').trim();
+    const provided = String(req.headers['authorization'] ?? '');
+    if (
+      expected.length === 0 ||
+      provided.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+    ) {
       res.status(401).json({ error: 'unauthorized' });
       return;
     }

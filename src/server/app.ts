@@ -23,6 +23,13 @@ import { corsMiddleware } from './cors';
 export function createApp() {
   const app = express();
 
+  // We sit behind exactly one reverse-proxy hop (nginx). Telling Express to
+  // trust one hop makes `req.ip` resolve to the real client (the value nginx
+  // appended to X-Forwarded-For), which is what every per-IP rate limiter
+  // keys on. Without this, `req.ip` is always `127.0.0.1` and the first XFF
+  // entry — which a hostile client controls — looks legitimate.
+  app.set('trust proxy', 1);
+
   // Origin-allowlist CORS (UI_ALLOWED_ORIGINS, plus localhost defaults in
   // dev). Replaces the previous `Access-Control-Allow-Origin: *`. Mounted
   // first so it also handles OPTIONS preflights before any router runs.
@@ -32,7 +39,14 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-  app.use('/webhooks', createIngestionRouter());
+  // Helius webhook route is "standby" — only registered when
+  // HELIUS_WEBHOOK_AUTH is configured. With the env unset the route is
+  // unmounted entirely (404), so nginx forwarding `/webhooks/` to a
+  // disabled backend is a no-op. When set, the router enforces a
+  // constant-time bearer check on every request.
+  if ((process.env.HELIUS_WEBHOOK_AUTH ?? '').trim().length > 0) {
+    app.use('/webhooks', createIngestionRouter());
+  }
 
   // Mount under both /events (for reverse-proxy / production) and /api/events
   // (for direct browser → backend connection, bypassing Next.js rewrite proxy).

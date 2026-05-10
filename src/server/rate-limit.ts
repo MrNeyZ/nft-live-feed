@@ -35,15 +35,17 @@ interface Bucket {
   resetAt: number;
 }
 
-/** Best-effort client IP extraction that's safe behind a single proxy hop
- *  (the only supported production topology). Falls back to the socket peer
- *  so localhost dev works without any proxy headers. */
+/** Client IP extraction. With `app.set('trust proxy', 1)` configured in
+ *  `createApp()`, Express's `req.ip` is the value nginx appended to
+ *  X-Forwarded-For (i.e., the real connecting client) — NOT the first
+ *  header-supplied entry, which a hostile client controls. We deliberately
+ *  do NOT parse `x-forwarded-for` ourselves any more: that field arrives as
+ *  `<attacker_value>, <real_ip>` and the first comma-segment is forgeable.
+ *  Trusting `req.ip` is the only correct path behind this single-hop proxy
+ *  topology. Falls back to the socket peer for direct-loopback dev (no
+ *  proxy in front) and an `unknown` sentinel as a last resort so the
+ *  rate-limit map never holds an empty key. */
 function clientIp(req: Request): string {
-  const xff = req.header('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
