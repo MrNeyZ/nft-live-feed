@@ -168,6 +168,59 @@ function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
   return true;
 }
 
+/** Stricter display filter applied ONLY to the left Live mint tracker
+ *  table. `isRenderableMintStatus` is the global safety net (drops
+ *  fungibles / aggregates / evidence-free Metaplex noise); this helper
+ *  goes one step further and refuses rows whose visible identity isn't
+ *  useful for a tracker:
+ *    1. no real `name` (missing / null / empty after trim).
+ *    2. literal "NFT" — generic per-asset metadata fallback.
+ *    3. name equals what `shortKey(groupingKey)` would have rendered
+ *       (the backend never resolved a name and is echoing the truncated
+ *       address back at us).
+ *    4. name looks like a pubkey-ish fallback — contains "…" / "...",
+ *       or is a long base58-only blob (≥ 24 chars, no whitespace).
+ *    5. one-of-one drop without collection identity — `maxSupply ≤ 1`
+ *       AND no non-prefixed collection address / collection grouping.
+ *       Per spec example "DASC 1/1": even if the per-asset name string
+ *       is technically real, a single-mint NFT with no collection MCC
+ *       isn't a tracker-worthy "collection". A 1-of-1 with a real
+ *       collection address (groupingKind=collection, non-prefixed
+ *       collectionAddress) is kept — see rule 5 of the parent spec.
+ *
+ *  Pure render filter — never touches state or localStorage. The right-
+ *  side Live Mint Feed cards do NOT use this; per-mint cards keep their
+ *  own per-asset names/fallbacks. */
+function isUsefulTrackerCollection(row: MintStatus): boolean {
+  const realName = (row.name ?? '').trim();
+  if (!realName)                              return false;
+  if (realName.toLowerCase() === 'nft')       return false;
+  if (realName === shortKey(row.groupingKey)) return false;
+  // Pubkey-ish fallback: the codebase's shortKey emits `{6}…{4}` with
+  // U+2026; some backends fall back to ASCII "...". Either way, hide.
+  if (realName.includes('…') || realName.includes('...')) return false;
+  // Bare base58 blob with no spaces — Solana pubkeys are 32–44 chars,
+  // floor at 24 to also catch truncated variants the backend may emit.
+  if (realName.length >= 24 && !/\s/.test(realName) &&
+      /^[1-9A-HJ-NP-Za-km-z]+$/.test(realName)) {
+    return false;
+  }
+  // 1-of-1 drops: require evidence of a real collection grouping.
+  // Without a non-prefixed collection address AND a `collection:` /
+  // `groupingKind === 'collection'` key, the row is a single asset
+  // wearing a per-asset name (e.g. "DASC 1/1") rather than a real
+  // collection — hide it.
+  const ms = typeof row.maxSupply === 'number' ? row.maxSupply : null;
+  if (ms !== null && ms > 0 && ms <= 1) {
+    const hasCollectionAddr = !!row.collectionAddress &&
+      !/^(authority|program|owner|pool):/.test(row.collectionAddress);
+    const isCollectionGrouping = row.groupingKind === 'collection' ||
+      (typeof row.groupingKey === 'string' && row.groupingKey.startsWith('collection:'));
+    if (!hasCollectionAddr || !isCollectionGrouping) return false;
+  }
+  return true;
+}
+
 /** Unified cNFT (Bubblegum) detector — shared by the LIVE MINT FEED
  *  filter and the COLLECTIONS table filter so the single CNFT ON/OFF
  *  toggle in the header controls both surfaces consistently.
@@ -685,7 +738,7 @@ function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } 
   }
 }
 
-type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'coef' | 'velocity' | 'source';
+type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'coef' | 'velocity';
 type SortDir = 'asc' | 'desc';
 type MintTab = 'active' | 'recent';
 
@@ -702,6 +755,19 @@ const MINT_TF_MS: Record<MintTimeframe, number> = {
   '1H':  60 * 60_000,
   '4H':  4  * 60 * 60_000,
   '1D':  24 * 60 * 60_000,
+};
+/** Per-timeframe tooltips for the pills in the tracker header. Same
+ *  phrasing across pills so users learn the rule once and don't
+ *  have to interpret each label — the window scopes WHICH rows
+ *  appear and the active-window math behind RATE / COEF. */
+const MINT_TF_DESC: Record<MintTimeframe, string> = {
+  '5M':  'Show collections active in the last 5 minutes',
+  '10M': 'Show collections active in the last 10 minutes',
+  '15M': 'Show collections active in the last 15 minutes',
+  '30M': 'Show collections active in the last 30 minutes',
+  '1H':  'Show collections active in the last hour',
+  '4H':  'Show collections active in the last 4 hours',
+  '1D':  'Show collections active in the last 24 hours',
 };
 
 function fmtSol(lamports: number | null): string {
@@ -891,15 +957,40 @@ export default function MintsPage() {
   // columns — collection/source still default to 'desc' so a single click
   // produces a Z→A read, second click flips to A→Z).
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  // Has the user manually clicked a column header in the current tab?
+  // While false, each tab uses its own default (ACTIVE → RATE desc,
+  // RECENT → LAST MINT desc) so the table reads as "active activity"
+  // / "recent activity" without surprising the user with an unrelated
+  // metric ordering. Resets on tab switch so going to RECENT always
+  // starts newest-first regardless of what was clicked under ACTIVE.
+  const [hasManualSort, setHasManualSort] = useState<boolean>(false);
   const handleSortClick = (k: SortKey) => {
-    if (k === sortKey) {
-      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    setHasManualSort(true);
+    // When entering manual mode, the displayed sort key may differ
+    // from the underlying `sortKey` state (effective default kicks in).
+    // Compare against the *effective* key so a click on the currently-
+    // visible column flips direction, while a click on a different
+    // column resets to desc.
+    const currentEffective = hasManualSort
+      ? sortKey
+      : (mintTab === 'recent' ? 'last' : 'velocity');
+    if (k === currentEffective) {
+      const currentDir = hasManualSort ? sortDir : 'desc';
+      setSortKey(k);
+      setSortDir(currentDir === 'asc' ? 'desc' : 'asc');
     } else {
       setSortKey(k);
       setSortDir('desc');
     }
   };
-  const [, force]             = useState(0);
+  // Self-tick — exposed (not just discarded via `[, force]`) so the
+  // tfStatsByKey / sorted memos can include it in their deps and re-
+  // evaluate the timeframe cutoff every 5 s. Without that dep, a row
+  // whose lastMintAt rolled past the selected window stayed visible
+  // until something else (new event, tab change, tf change) forced
+  // the memo to recompute — which is what produced the "30M selected
+  // but rows show 56m ago" bug.
+  const [tick, setTick]       = useState(0);
 
   // ACTIVE / RECENT tab — mirrors the dashboard pattern. ACTIVE keeps
   // the existing two-tier sort (shown rows first, watch rows after);
@@ -928,6 +1019,10 @@ export default function MintsPage() {
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
+    // Tab switch clears manual-sort state so each tab opens with its
+    // own default ordering (ACTIVE → RATE desc, RECENT → LAST MINT
+    // desc). Manual click in the new tab re-enables the user's choice.
+    setHasManualSort(false);
   }, [mintTab]);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tf', mintTf); } catch { /* noop */ }
@@ -964,7 +1059,7 @@ export default function MintsPage() {
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
   useEffect(() => {
-    const id = setInterval(() => force(n => n + 1), 5_000);
+    const id = setInterval(() => setTick(n => n + 1), 5_000);
     return () => clearInterval(id);
   }, []);
 
@@ -1352,23 +1447,43 @@ export default function MintsPage() {
       }
     }
     return m;
-  }, [events, mintTf]);
+  // `tick` re-evaluates the cutoff every 5 s so events that age past
+  // the selected window drop out without waiting for new SSE traffic.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, mintTf, tick]);
 
-  // COEF — coefficient comparing the active-window mint rate against
-  // the average rate spread over the full selected timeframe. Sparse
-  // cases (count <= 1) collapse to 0 because there's no two-point span
-  // to sample. The `max(1, …)` floor on the divisor keeps the value
-  // meaningful when the spread rate is tiny (the collection mostly
-  // wasn't minting): a 20-mint burst over 2 active min in a 15M window
-  // returns 10 / max(1, 20/15) = 10 / 1.33 ≈ 7.5 (very bursty); a steady
-  // 20 mints across 14 of 15 min returns ≈ 1.07 (mostly steady).
+  // COEF — burstiness coefficient: ratio of the active-window RATE
+  // (count / activeMinutes) to the baseline rate spread across the
+  // FULL selected timeframe (count / timeframeMinutes). The baseline
+  // is floored at 0.01 so very-sparse-but-bursty cases still surface
+  // a meaningful value instead of saturating at 1.
+  // Examples (verified):
+  //   • 1 mint in 30M  → count<2, returns 0 (cell renders "—")
+  //   • 3 mints in 2 active min inside 30M:
+  //       activeRate = 3 / 2  = 1.5
+  //       baseline   = 3 / 30 = 0.1
+  //       coef       = 1.5 / max(0.01, 0.1) = 15
+  //   • 4 mints in 4 active min inside 4H:
+  //       activeRate = 4 / 4    = 1
+  //       baseline   = 4 / 240  ≈ 0.0167
+  //       coef       = 1 / max(0.01, 0.0167) ≈ 60
   const computeCoef = (r: MintStatus): number => {
     const stats = tfStatsByKey.get(r.groupingKey);
     if (!stats || stats.count < 2) return 0;
-    const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
-    const avgRate   = stats.count / tfMinutes;
-    return stats.mintPerMin / Math.max(1, avgRate);
+    const tfMinutes    = MINT_TF_MS[mintTf] / 60_000;
+    const baselineRate = stats.count / tfMinutes;
+    const activeRate   = stats.mintPerMin;
+    return activeRate / Math.max(0.01, baselineRate);
   };
+
+  // Effective sort = manual override when set, else per-tab default.
+  // ACTIVE defaults to RATE desc; RECENT defaults to LAST MINT desc so
+  // the table reads as recent activity until the user opts into a
+  // different ordering by clicking a header.
+  const effectiveSortKey: SortKey = hasManualSort
+    ? sortKey
+    : (mintTab === 'recent' ? 'last' : 'velocity');
+  const effectiveSortDir: SortDir = hasManualSort ? sortDir : 'desc';
 
   const sorted = useMemo(() => {
     const now    = Date.now();
@@ -1386,6 +1501,16 @@ export default function MintsPage() {
       // SSE filters (e.g. mutated mid-session by patchAccumulatorMeta)
       // still gets dropped here before it paints.
       .filter(r => isRenderableMintStatus(r))
+      // Tracker-only stricter display filter — rejects rows whose
+      // visible identity is junk ("NFT", pubkey-ish fallback, name
+      // missing) or 1-of-1 drops without collection identity. Kept
+      // separate from `isRenderableMintStatus` so the right-side Live
+      // Mint Feed (which doesn't apply this filter) keeps showing
+      // every detected mint.
+      .filter(r => isUsefulTrackerCollection(r))
+      // Timeframe gate — applies to BOTH tabs. A row whose lastMintAt
+      // is older than the selected window is hidden, so 30M never
+      // shows a "56m ago" row regardless of tab.
       .filter(r => r.lastMintAt >= cutoff);
 
     // Per-key comparator (always returns "ascending" — direction is
@@ -1397,7 +1522,7 @@ export default function MintsPage() {
     for (const r of arr) coefBy.set(r.groupingKey, computeCoef(r));
 
     const cmpAsc = (a: MintStatus, b: MintStatus): number => {
-      switch (sortKey) {
+      switch (effectiveSortKey) {
         case 'collection': {
           const an = (a.name?.trim() || a.groupingKey).toLowerCase();
           const bn = (b.name?.trim() || b.groupingKey).toLowerCase();
@@ -1427,26 +1552,21 @@ export default function MintsPage() {
           const bv = tfStatsByKey.get(b.groupingKey)?.mintPerMin ?? 0;
           return av - bv;
         }
-        case 'source': {
-          const an = (a.sourceLabel ?? '').toLowerCase();
-          const bn = (b.sourceLabel ?? '').toLowerCase();
-          return an.localeCompare(bn);
-        }
       }
     };
-    const dir = sortDir === 'asc' ? 1 : -1;
+    const dir = effectiveSortDir === 'asc' ? 1 : -1;
     const tiebreak = (a: MintStatus, b: MintStatus): number =>
       (b.lastMintAt - a.lastMintAt) || (b.v60 - a.v60);
 
     if (mintTab === 'recent') {
-      // RECENT view — flatten the shown/watch tiering. Apply the user's
-      // chosen sort + direction, falling back to recency when equal.
+      // RECENT view — flatten the shown/watch tiering. Apply the
+      // effective sort + direction, falling back to recency when equal.
       arr.sort((a, b) => cmpAsc(a, b) * dir || tiebreak(a, b));
       return arr;
     }
 
     // ACTIVE — preserve the two-tier sort (shown first, then watch),
-    // but apply the user's chosen sort + direction within each tier so
+    // but apply the effective sort + direction within each tier so
     // every column header is honoured.
     arr.sort((a, b) => {
       const aShown = a.displayState === 'shown' ? 0 : 1;
@@ -1456,9 +1576,10 @@ export default function MintsPage() {
     });
     return arr;
   // computeCoef closes over `mintTf` and `tfStatsByKey`, both already
-  // listed below — no extra dep needed.
+  // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
+  // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, sortKey, sortDir, mintTab, mintTf, showCnft, tfStatsByKey]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, tfStatsByKey, tick]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1582,12 +1703,38 @@ export default function MintsPage() {
                   onClick={() => setMintTf(t)}
                   label={t}
                   size="sm"
+                  title={MINT_TF_DESC[t]}
                   style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
                            background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
                 />
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Tracker microcopy — explains in one short line that the
+            timeframe pills above don't just filter rows but also drive
+            RATE/COEF math. Without this, users were misreading why
+            collections appear/disappear when toggling 15M ↔ 1H, and
+            mistaking RATE/COEF for cumulative session metrics. Tiny
+            italic text in the same muted lilac as the secondary
+            metadata elsewhere — visible always (no tooltip-only
+            solution) but quiet enough that it doesn't compete with
+            the tab/timeframe row above. flexShrink: 0 keeps the band
+            present even when the scroll-area squeezes vertically. */}
+        <div
+          style={{
+            padding: '5px 12px',
+            fontSize: 10,
+            color: '#56566e',
+            letterSpacing: '0.3px',
+            fontStyle: 'italic',
+            background: 'rgba(168,144,232,0.018)',
+            borderBottom: '1px solid rgba(255,255,255,0.035)',
+            flexShrink: 0,
+          }}
+        >
+          Window controls table rows, RATE and COEF
         </div>
 
         {/* Collapsible filters — currently a placeholder slot for future
@@ -1609,7 +1756,7 @@ export default function MintsPage() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
+        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
@@ -1623,8 +1770,10 @@ export default function MintsPage() {
               <col style={{ width: 100 }} /> {/* SUPPLY   */}
               <col style={{ width: 110 }} /> {/* LAST     */}
               <col style={{ width: 80 }}  /> {/* COEF     */}
-              <col style={{ width: 90 }}  /> {/* MINT/MIN */}
-              <col style={{ width: 120 }} /> {/* SOURCE   */}
+              <col style={{ width: 90 }}  /> {/* RATE     */}
+              {/* SOURCE column removed — source badge is now rendered
+                  inline inside the COLLECTION cell. The freed width
+                  goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
@@ -1634,49 +1783,64 @@ export default function MintsPage() {
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
                 <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 13, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
-                  COLLECTION {sortArrow(sortKey, sortDir, 'collection')}
+                  COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('mints')}>
-                  MINTS {sortArrow(sortKey, sortDir, 'mints')}
+                  MINTS {sortArrow(effectiveSortKey, effectiveSortDir, 'mints')}
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('supply')}>
-                  SUPPLY {sortArrow(sortKey, sortDir, 'supply')}
+                  SUPPLY {sortArrow(effectiveSortKey, effectiveSortDir, 'supply')}
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
-                  LAST MINT {sortArrow(sortKey, sortDir, 'last')}
+                  LAST MINT {sortArrow(effectiveSortKey, effectiveSortDir, 'last')}
                 </th>
-                {/* COEF — coefficient comparing the active-window mint
-                    rate against the average rate spread over the full
-                    selected timeframe. >1 means bursty, ~1 means steady.
-                    See `computeCoef` near the sorted memo. */}
-                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('coef')}>
-                  COEF {sortArrow(sortKey, sortDir, 'coef')}
+                {/* COEF — burstiness coefficient: active-window RATE
+                    divided by the baseline rate (count over the full
+                    selected timeframe). High = burst; ~1 = steady. See
+                    `computeCoef` near the sorted memo. Secondary metric
+                    visually — RATE is the primary activity number. */}
+                <th
+                  title="COEF — burstiness: active-window RATE divided by the selected timeframe's average rate. High = burst, ~1 = steady."
+                  style={{ ...thStyle, cursor: 'pointer' }}
+                  onClick={() => handleSortClick('coef')}
+                >
+                  COEF {sortArrow(effectiveSortKey, effectiveSortDir, 'coef')}
                 </th>
-                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('velocity')}>
-                  MINT/MIN {sortArrow(sortKey, sortDir, 'velocity')}
-                </th>
-                {/* SOURCE data cell uses paddingRight: 12 (vs the
-                    default 8 in thStyle). Match it so the SOURCE label
-                    sits directly above the LMNFT pill. */}
-                <th style={{ ...thStyle, paddingRight: 12, cursor: 'pointer' }} onClick={() => handleSortClick('source')}>
-                  SOURCE {sortArrow(sortKey, sortDir, 'source')}
+                {/* RATE — formerly MINT/MIN. Renamed to avoid implying
+                    an average over the full selected timeframe; this is
+                    a count-over-active-window rate (see tfStatsByKey).
+                    Right-edge column now — paddingRight matches the
+                    data cell so the values sit flush with the table's
+                    right edge after SOURCE column removal. */}
+                <th
+                  title="RATE — mints per minute over the active window inside the selected timeframe (count ÷ active-minutes)."
+                  style={{ ...thStyle, paddingRight: 14, cursor: 'pointer' }}
+                  onClick={() => handleSortClick('velocity')}
+                >
+                  RATE {sortArrow(effectiveSortKey, effectiveSortDir, 'velocity')}
                 </th>
               </tr>
             </thead>
             <tbody>
+              {/* Zero-row empty state — two compact rows tucked into
+                  the table area, styled via .mints-empty-{primary,
+                  helper} (globals.css). Premium-feeling and
+                  intentional: an uppercased "no data" header plus a
+                  small italic suggestion to widen the timeframe.
+                  No illustration / no card — the tracker chrome
+                  carries the visual weight. Hidden the moment a
+                  single row arrives. */}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#55556e', padding: '48px 0 12px', fontSize: 13 }}>
-                    Waiting for active mints…
+                  <td colSpan={6} className="mints-empty-primary">
+                    No collections in this timeframe
                   </td>
                 </tr>
               )}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', color: '#3a3a52', padding: '0 24px 48px', fontSize: 11.5, lineHeight: 1.5 }}>
-                    Collections appear here as soon as a mint is detected
-                    (WATCH); they upgrade to ACTIVE on burst (≥ 8 mints / 60 s)
-                    or 50 cumulative mints.
+                  <td colSpan={6} className="mints-empty-helper">
+                    Try a longer window
                   </td>
                 </tr>
               )}
@@ -1707,6 +1871,25 @@ export default function MintsPage() {
                 const isSoldOut = typeof r.maxSupply === 'number'
                   && r.maxSupply > 0
                   && r.observedMints >= r.maxSupply;
+                // Row state — drives the per-state row className
+                // (`.mints-tracker-row-{active,watch,sold}`) and the
+                // alpha applied to the per-collection accent border
+                // on the COLLECTION cell. Same priority order as the
+                // status pill below: SOLD > ACTIVE > WATCH.
+                const rowState: 'active' | 'watch' | 'sold' = isSoldOut
+                  ? 'sold'
+                  : isActive ? 'active' : 'watch';
+                // WATCH rows soften the per-collection accent to ~55%
+                // alpha (`8c` hex) so an incubating row reads as
+                // quieter on the left edge without losing the
+                // per-collection grouping cue. ACTIVE/SOLD keep the
+                // accent at full strength so the band is unambiguous.
+                // Palette is 6-char hex throughout (see
+                // COLLECTION_PALETTE), so an 8-char hex suffix is
+                // safe.
+                const accentBorderColor = rowState === 'watch'
+                  ? `${accentColor}8c`
+                  : accentColor;
                 // Fresh-mint flash — same green pulse the dashboard
                 // uses for fresh sales. Two parts:
                 //   1. `key` includes `r.lastMintAt` so React remounts
@@ -1723,10 +1906,37 @@ export default function MintsPage() {
                 return (
                   <tr
                     key={`${r.groupingKey}:${r.lastMintAt}`}
-                    className={isFreshMint ? 'row-flash-up' : undefined}
+                    // Class stack:
+                    //   • `mints-tracker-row` — per-row background tint
+                    //     (globals.css) so each tracker row sits as a
+                    //     soft band rather than a fully transparent
+                    //     strip; closes the depth gap with the right-
+                    //     pane Live Mint Feed cards.
+                    //   • `mints-tracker-row-{active,watch,sold}` —
+                    //     state-based tint shift on top of the base
+                    //     row tint. ACTIVE = subtle green wash;
+                    //     WATCH = quieter than default; SOLD = subtle
+                    //     red wash. Combined with the per-state alpha
+                    //     on the COLLECTION cell's borderLeft, this
+                    //     gives WATCH/ACTIVE/SOLD a visible hierarchy
+                    //     without dropping row opacity (which made
+                    //     images / values look washed out).
+                    //   • `tools-offer-row` — shared hover lift system
+                    //     (scale 1.015, inset purple ring, soft outer
+                    //     glow, z-index 1, 200 ms ease-out). `:hover`
+                    //     specificity (2) beats both `.mints-tracker-row`
+                    //     and the state classes, so the hover state
+                    //     looks identical for ACTIVE/WATCH/SOLD.
+                    //   • `row-flash-up` — additive, animates
+                    //     background on fresh mints without breaking
+                    //     hover.
+                    className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
                     style={{
-                      borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      transition: 'background 0.12s',
+                      // Slightly stronger separator alpha (0.05 vs 0.04
+                      // before) so the per-row tint reads as a
+                      // distinct band; still a 1px hairline, never
+                      // thick.
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
                       // Full opacity across all states — the WATCH /
                       // ACTIVE / SOLD distinction is already conveyed by
                       // the inline status pill, so dimming the row body
@@ -1741,7 +1951,7 @@ export default function MintsPage() {
                         (3 px, deterministic per collectionAddress) so
                         rows from the same collection are visually
                         grouped at a glance. */}
-                    <td style={{ padding: '14px 8px 14px 12px', verticalAlign: 'middle', borderLeft: `3px solid ${accentColor}` }}>
+                    <td style={{ padding: '14px 8px 14px 12px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
                         <ItemThumb
@@ -1864,6 +2074,42 @@ export default function MintsPage() {
                               <img src="/brand/tensor.png" alt="Tensor" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           )}
+                          {/* Source badge — moved inline from the
+                              removed right-side SOURCE column. Same
+                              palette as the prior column pill (uses
+                              `sourceBadge`); rendered smaller (9 px,
+                              tighter padding) so it reads as secondary
+                              metadata next to the title rather than
+                              competing with it. Clickable when
+                              `sourceHref` resolves a URL (links to the
+                              launchpad's mint page); plain `<span>`
+                              otherwise. flexShrink: 0 so it doesn't
+                              squeeze on narrow rows. */}
+                          {(() => {
+                            const sb = sourceBadge(r.sourceLabel);
+                            const href = sourceHref(r);
+                            const pillStyle: React.CSSProperties = {
+                              display: 'inline-block', padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+                              background: sb.bg, color: sb.fg, letterSpacing: '0.4px',
+                              textDecoration: 'none', cursor: href ? 'pointer' : 'default',
+                              flexShrink: 0, lineHeight: '13px', textTransform: 'uppercase',
+                            };
+                            const plainTitle = r.sourceLabel === 'LaunchMyNFT'
+                              ? 'LaunchMyNFT mint page unavailable'
+                              : r.sourceLabel;
+                            return href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={r.sourceLabel}
+                                style={pillStyle}
+                                onClick={(e) => e.stopPropagation()}
+                              >{sb.label}</a>
+                            ) : (
+                              <span title={plainTitle} style={pillStyle}>{sb.label}</span>
+                            );
+                          })()}
                         </span>
                       </div>
                     </td>
@@ -1907,10 +2153,12 @@ export default function MintsPage() {
                     <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
-                    {/* COEF — see `computeCoef` near the sorted memo for
-                        the formula and rationale. With <2 mints there's
-                        no two-point span to sample, so we render "—"
-                        instead of a misleading 0. */}
+                    {/* COEF — burstiness: RATE ÷ baseline (count over
+                        full selected timeframe), floor 0.01. With <2
+                        mints there's no two-point span, so we render
+                        "—". Rendered MUTED (gray-lilac, weight 500) so
+                        it reads as secondary to the RATE column to its
+                        right — RATE is the primary activity metric. */}
                     {(() => {
                       const stats   = tfStatsByKey.get(r.groupingKey);
                       const tfCount = stats?.count ?? 0;
@@ -1920,25 +2168,24 @@ export default function MintsPage() {
                         : coef >= 10 ? coef.toFixed(0)
                         : coef.toFixed(1);
                       const tip = tfCount < 2
-                        ? `Need ≥ 2 mints in last ${mintTf} to compute coefficient`
-                        : `Active-window rate ÷ avg rate over last ${mintTf} ≈ ${display}`;
+                        ? `Need ≥ 2 mints in last ${mintTf} to compute COEF`
+                        : `RATE ÷ baseline (count / ${mintTf}) ≈ ${display}` +
+                          ` · higher = bursty, ~1 = steady`;
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: '#8a82b0', letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {display}
                         </td>
                       );
                     })()}
-                    {/* MINT/MIN — average rate over the *active* mint
-                        span inside the selected timeframe, NOT the full
-                        timeframe. See the tfStatsByKey memo above for
-                        why: dividing by the full window makes a single
-                        recent mint look like 0.07/min on a 15M pill,
-                        which misrepresents bursty collections. With <2
-                        mints we surface the raw count. Uses 1 decimal
-                        for sub-1/min rates, integer otherwise. */}
+                    {/* RATE — count ÷ active-window minutes inside the
+                        selected timeframe, floored at 1 minute. Header
+                        renamed from MINT/MIN to avoid implying "average
+                        over the full timeframe" (which it isn't). With
+                        <2 mints we surface the raw count (0 or 1).
+                        Primary activity metric — green, weight 700. */}
                     {(() => {
                       const stats     = tfStatsByKey.get(r.groupingKey);
                       const tfCount   = stats?.count ?? 0;
@@ -1953,7 +2200,7 @@ export default function MintsPage() {
                         : 0;
                       const tip = tfCount < 2
                         ? `${tfCount} mint(s) in last ${mintTf} — not enough data for a rate`
-                        : `${tfCount.toLocaleString()} mints over ${activeMin.toFixed(1)} active min ≈ ${display} per min`;
+                        : `${tfCount.toLocaleString()} mints over ${activeMin.toFixed(1)} active min ≈ ${display} /min`;
                       return (
                         <td
                           title={tip}
@@ -1963,30 +2210,6 @@ export default function MintsPage() {
                         </td>
                       );
                     })()}
-                    <td style={{ padding: '14px 14px 14px 10px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                      {(() => {
-                        const sb = sourceBadge(r.sourceLabel);
-                        const href = sourceHref(r);
-                        const pillStyle: React.CSSProperties = {
-                          display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                          background: sb.bg, color: sb.fg, letterSpacing: '0.3px',
-                          textDecoration: 'none', cursor: href ? 'pointer' : 'default',
-                        };
-                        // Tooltip explains why the pill isn't clickable for
-                        // LMNFT today (no per-collection URL we can build
-                        // from the wire fields). Avoids the "looks dead"
-                        // perception. Other unlinked sources just show
-                        // their label as the tooltip.
-                        const plainTitle = r.sourceLabel === 'LaunchMyNFT'
-                          ? 'LaunchMyNFT mint page unavailable'
-                          : r.sourceLabel;
-                        return href ? (
-                          <a href={href} target="_blank" rel="noopener noreferrer" title={r.sourceLabel} style={pillStyle}>{sb.label}</a>
-                        ) : (
-                          <span title={plainTitle} style={pillStyle}>{sb.label}</span>
-                        );
-                      })()}
-                    </td>
                   </tr>
                 );
               })}
@@ -2141,21 +2364,30 @@ export default function MintsPage() {
                 ev.programSource === 'mpl_core'   ? 'CORE'   :
                 ev.programSource === 'bubblegum'  ? 'cNFT'   :
                 'NFT';
+              // Two-tier freshness on the right Live Mint Feed:
+              //   • `mints-feed-row-fresh`  (< 2.5 s) — one-shot
+              //     slide-in + green flash for brand-new SSE arrivals
+              //     (cache-restored events have an old `receivedAt`
+              //     and never qualify).
+              //   • `mints-feed-row-recent` (2.5–15 s) — soft lilac
+              //     halo that persists for the rest of the 15 s
+              //     window so a card stays visually distinct after
+              //     the flash decays. Mutually exclusive with -fresh
+              //     so the two effects never stack.
+              // Boundary precision is gated by the page-level 5 s
+              // force tick (same cadence used by the age-tier color
+              // below) — a 14 s card flips off within 5 s of crossing
+              // the threshold.
+              const ageMsCard    = Date.now() - ev.receivedAt;
+              const isFreshFlash = ageMsCard < 2500;
+              const isRecent     = !isFreshFlash && ageMsCard < 15000;
               return (
                 <div
                   key={ev.signature}
-                  // `mints-feed-row-fresh` adds a one-shot slide-in +
-                  // green flash on the first paint of a freshly-arrived
-                  // SSE mint event. Predicate is evaluated once per
-                  // render: cache-restored events have an old
-                  // `receivedAt` (set when the SSE first delivered them
-                  // in a prior session), so they fail the 2.5 s window
-                  // and never animate. New SSE arrivals stamp
-                  // `receivedAt = Date.now()` in the `mint` listener,
-                  // so they pass the window exactly once.
                   className={
                     'mints-feed-row' +
-                    (Date.now() - ev.receivedAt < 2500 ? ' mints-feed-row-fresh' : '')
+                    (isFreshFlash ? ' mints-feed-row-fresh'  : '') +
+                    (isRecent     ? ' mints-feed-row-recent' : '')
                   }
                   style={{
                     // Card chrome — exact mirror of /feed `.feed-card`:
@@ -2230,12 +2462,16 @@ export default function MintsPage() {
                     {(() => {
                       const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
                       const baseStyle: React.CSSProperties = {
-                        // Same off-white family as the NFT title above
-                        // (#f0eef8) but a step darker so the title still
-                        // dominates the visual hierarchy. Wallet line
-                        // below now takes the old #7a7a94 for the
-                        // muted-metadata bottom tier.
-                        fontSize: 11, color: '#d4d4e8', fontWeight: 500,
+                        // Secondary tier in the card's text hierarchy:
+                        // NFT title above is the bright primary (#f0eef8,
+                        // weight 600); collection name sits a clear step
+                        // darker so the two lines don't read as equally
+                        // bright (the prior #d4d4e8 was too close to the
+                        // title and flattened the hierarchy). Wallet
+                        // below stays at #7a7a94 — the muted-metadata
+                        // bottom tier — preserving the four-tier ladder
+                        // (title → collection → wallet → age/source).
+                        fontSize: 11, color: '#9c9cb8', fontWeight: 500,
                         marginTop: 2, overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       };

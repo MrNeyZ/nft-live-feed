@@ -574,22 +574,35 @@ a { color: inherit; text-decoration: none; }
   animation: sellerBadgeNumIn 150ms ease-out;
 }
 
-/* Tools / Offers — per-row hover lift. Scale (not margin) keeps the
-   table layout stable; the slight purple glow + brighter background
-   reads as a "selected/focused" state without competing with the
-   inline opacity dim used for EXPIRED rows. */
+/* Tools / Offers / Mints — per-row hover lift. Single shared class so
+   the Offers Scanner table and the /mints Live Tracker table stay in
+   visual lock-step. Scale (not margin/height) keeps table layout
+   stable — `transform: scale()` is paint-only, no reflow, no layout
+   shift, avatar inside the row scales proportionally. The slight
+   purple glow + brighter background reads as a "selected/focused"
+   state without competing with the inline opacity dim used for
+   EXPIRED rows in /tools.
+
+   Tuning notes:
+   - 200ms ease-out: long enough to feel premium / "soft" rather
+     than a snap, short enough that the cursor never out-runs it.
+   - scale(1.015): one notch up from the original 1.012 — slightly
+     more noticeable lift without crossing into "zoom".
+   - inset 1px @ 0.40 alpha: subtle purple ring that picks up the
+     row edge cleanly on the dark surface.
+   - outer 18px @ 0.24 alpha: tasteful soft glow; not neon. */
 .tools-offer-row {
   position: relative;
-  transition: transform 180ms ease-out, background 180ms ease-out, box-shadow 180ms ease-out;
+  transition: transform 200ms ease-out, background 200ms ease-out, box-shadow 200ms ease-out;
   transform-origin: center;
   will-change: transform;
 }
 .tools-offer-row:hover {
-  transform: scale(1.012);
-  background: rgba(168,144,232,0.06);
+  transform: scale(1.015);
+  background: rgba(168,144,232,0.07);
   box-shadow:
-    0 0 0 1px rgba(168,144,232,0.32) inset,
-    0 0 14px rgba(128,104,216,0.18);
+    0 0 0 1px rgba(168,144,232,0.40) inset,
+    0 0 18px rgba(128,104,216,0.24);
   z-index: 1;
 }
 
@@ -828,13 +841,137 @@ body[data-bottombar="1"] .feed-root {
   padding-bottom: 36px;
 }
 
+/* /mints Live Mint Tracker — LEFT-pane depth polish. The right Live
+   Mint Feed reads as layered cards (each card has an own background
+   fill + rounded chrome); the left tracker previously read as flat
+   <tr> rows on the dark surface, which felt washed-out next to the
+   right pane. Two cheap paint-only additions close that gap without
+   touching layout, density, or row heights:
+     1. `.mints-tracker-row` — per-row background tint (~0.022 white).
+        Each tracker row now sits as a soft band rather than a fully
+        transparent strip. Hover (.tools-offer-row:hover) still wins
+        on specificity, so the lift behavior is unchanged.
+     2. `.mints-tracker-scroll` — dual radial gradient inside the
+        scroll surface. Anchors a gentle purple "spotlight" at the
+        top center and a softer accent at the bottom-right so the
+        panel never looks like a dead rectangle when only 1–3
+        collections are populated. Pure background — no filters, no
+        blur, no per-frame cost. */
+.mints-tracker-scroll {
+  background-image:
+    radial-gradient(ellipse 60% 35% at 50% 0%,    rgba(168,144,232,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(128,104,216,0.05) 0%, transparent 65%),
+    /* Bottom horizon fade — closes the "dead rectangle" feeling
+       when only 1–3 collections are visible. Default
+       background-attachment (`scroll`) pins this gradient to
+       the scroll-area's box, so as rows scroll past it the fade
+       stays at the bottom of the visible pane. With dense rows
+       the row tints (rgba(255,255,255,0.022) and the per-state
+       variants) mask the fade; with sparse rows the fade shows
+       through the empty band below the last row, giving it a
+       soft "terminal screen" depth instead of flat black. Pure
+       gradient — no filter, no blur, zero per-frame cost. */
+    linear-gradient(to bottom, transparent 55%, rgba(20, 14, 38, 0.30) 100%);
+  background-repeat: no-repeat;
+}
+
+/* /mints tracker — zero-row empty state. Two compact rows
+   (primary + helper) styled to feel intentional rather than
+   "loading". The primary line uses the same muted heading tone
+   as the rest of the tracker chrome (#55556e), and the helper
+   sits one notch deeper (#3a3a52) at a smaller size — same
+   palette / language as the existing column headers and
+   secondary metadata in the page. Letter-spacing on the primary
+   line nudges it toward a deliberate "no-data" header rather
+   than a sentence. Horizontal rule via padding only — no card,
+   no border, no illustration. */
+.mints-empty-primary {
+  text-align: center;
+  color: #55556e;
+  padding: 56px 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.mints-empty-helper {
+  text-align: center;
+  color: #3a3a52;
+  padding: 0 24px 56px;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  font-style: italic;
+}
+.mints-tracker-row {
+  background: rgba(255,255,255,0.022);
+}
+
+/* /mints tracker — state-based row hierarchy. After we removed row
+   opacity dimming (rows used to drop to 0.78 on WATCH/SOLD, which
+   washed out images and numbers), WATCH and ACTIVE rows became too
+   visually equal. These three classes restore hierarchy with paint-
+   only tints; row opacity stays at 1 across all states.
+     • ACTIVE — slightly richer green-tinted band (matches the
+       ACTIVE pill's green cue, signals "promoted / hot").
+     • WATCH  — quieter than the default row band so an incubating
+       row recedes; combined with the softened (~55%) per-collection
+       accent on the COLLECTION cell's borderLeft, the left edge
+       reads as the softer cue.
+     • SOLD   — subtle red wash (same red family as STATUS_BADGE_SOLD
+       and the SELL flash), just enough to cluster a completed drop
+       with sell-side cues without making the row scream.
+   `.tools-offer-row:hover` (specificity 2) beats these (specificity
+   1), so hover lift is identical for all three states. */
+.mints-tracker-row-active {
+  background: rgba(92, 224, 160, 0.040);
+}
+.mints-tracker-row-watch {
+  background: rgba(255, 255, 255, 0.012);
+}
+.mints-tracker-row-sold {
+  background: rgba(239, 120, 120, 0.028);
+}
+
 /* /mints Live Mint Feed rows — mirror the .feed-card hover state so the
    right-panel rhythm matches /feed's visual language. Subtle background
-   tint on hover; no border/shadow change. */
+   tint on hover; no border/shadow change. Card-style hover (no transform
+   / no scale) so the right pane keeps its "card list" feel and never
+   inherits the table-row scale lift used on the left tracker. */
 .mints-feed-row { cursor: default; }
 .mints-feed-row:hover {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(168, 144, 232, 0.22);
+}
+
+/* Persistent freshness halo for cards that are 2.5–15 s old. The
+   2 s `.mints-feed-row-fresh` flash decays into transparency long
+   before a viewer's eye can re-orient; this rule keeps a soft lilac
+   ring + faint outer glow on the card for the rest of the 15 s
+   window so "new" cards remain easy to pick out of a dense feed.
+   Mutually exclusive with `.mints-feed-row-fresh` (the JSX picks
+   one or the other), so the green flash and the lilac halo never
+   stack. `.mints-feed-row:hover` (specificity 2) still wins on
+   `background` and `border-color`; the `box-shadow` here isn't
+   re-declared on hover so the halo persists through hover —
+   intentional, it tells the user the card is still "new" while
+   they're looking at it. Pure paint — no animation loop, no
+   transform, no layout shift. */
+.mints-feed-row-recent {
+  background: rgba(168, 144, 232, 0.05);
+  box-shadow:
+    0 0 0 1px rgba(168, 144, 232, 0.20),
+    0 0 14px rgba(168, 144, 232, 0.12);
+}
+
+/* Subtle image polish for the right-pane card thumbnails ONLY.
+   Scoped via the `.mints-feed-row` ancestor selector so left-tracker
+   thumbs (`.mints-tracker-row img`), source-icon mini-images
+   (Tensor / ME pngs in the tracker), and any other `<img>` on the
+   page are unaffected. Tiny saturate + contrast bump (~5% / ~2%)
+   keeps under-exposed PFP thumbs from reading as washed-out next to
+   the card's dark chrome — cheap GPU filter, no blur. */
+.mints-feed-row img {
+  filter: saturate(1.06) contrast(1.02);
 }
 
 /* /mints — fresh-insert animation. Plays once when a brand-new SSE
