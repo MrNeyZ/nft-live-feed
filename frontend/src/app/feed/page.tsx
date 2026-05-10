@@ -23,6 +23,20 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
 const SNAPSHOT_LIMIT = 100;
 
+// Visible-row cap on the rendered FeedCard list. MAX_EVENTS bounds the
+// in-memory ring buffer that the reducer maintains; this constant bounds
+// how many of those events actually mount as DOM nodes after filtering.
+// During a sustained burst (mint storm, AMM repricing flood) the buffer
+// can be 200 events that all pass the active filter, which means 200
+// memo'd FeedCards in the DOM — each card paints a thumbnail, time-ago
+// chip, FloorChip, and several flex rows. Capping render to 150 keeps
+// the layout/paint budget bounded without changing the underlying data
+// model: the trimmed rows are still in `events` / `filtered` / the
+// seller-dump aggregate, just not in the DOM. Scrollback impact is
+// limited to the most-burst-y periods; quiet operation (filtered.length
+// < cap) is byte-identical to before.
+const MAX_RENDERED_ROWS = 150;
+
 // ── Persisted seller-remaining counts ──────────────────────────────────────
 // Map of `${seller}-${collection}` → count, JSON-encoded into localStorage.
 // Backend emits the count asynchronously over SSE (event: seller_count)
@@ -1490,6 +1504,19 @@ export default function FeedPage() {
     return m;
   }, [filtered]);
 
+  // Visible slice — bounds the rendered DOM to MAX_RENDERED_ROWS regardless
+  // of how many events pass the filter. `filtered` is already sorted
+  // newest-first by the reducer, so .slice(0, N) preserves the user's view
+  // (most recent activity first) and trims only the tail. When
+  // filtered.length <= MAX_RENDERED_ROWS this returns the same array
+  // reference content-wise — the cap is a no-op outside burst periods.
+  // sellerDumpMap stays computed over the full `filtered` set so the
+  // dump-badge aggregation isn't biased by the render cap.
+  const visible = useMemo(
+    () => filtered.length <= MAX_RENDERED_ROWS ? filtered : filtered.slice(0, MAX_RENDERED_ROWS),
+    [filtered],
+  );
+
   // Page-level wheel forwarding: when the user scrolls anywhere on the
   // page (including the empty "black" margins outside the centered 640 px
   // column), forward the wheel delta to the feed list. Skipped when the
@@ -1804,7 +1831,7 @@ export default function FeedPage() {
                     </div>
                   )
                 )}
-                {filtered.map(e => {
+                {visible.map(e => {
                   // Per-card slug-floor lookup. `floorBySlug` is keyed
                   // by ME slug; cards without a slug or without a
                   // cached floor pass `null` and fall back to backend
