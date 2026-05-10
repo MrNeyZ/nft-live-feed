@@ -23,15 +23,32 @@ import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft, getAccumulatorName } from './accumulator';
 import { saleEventBus } from '../events/emitter';
-import { cleanName } from './clean-name';
+import { cleanName, nameLooksPerAsset } from './clean-name';
 
 /** "Looks like a short-address fallback" — `<6chars>…<4chars>`, the
  *  shape `shortKey()` produces on the frontend. Treat such names as
  *  weak so a stronger source (ME) is allowed to overwrite. */
 const SHORT_ADDR_NAME_RE = /^[1-9A-HJ-NP-Za-km-z]{4,8}…[1-9A-HJ-NP-Za-km-z]{4,8}$/;
+
+/** Weak-name predicate — treated as "ok to overwrite" by sticky merge.
+ *  Three buckets:
+ *    1. empty / null              — no name, nothing to protect.
+ *    2. short-address fallback    — `<6chars>…<4chars>` placeholder.
+ *    3. per-asset shape (clean-name) — names that LOOK like they came
+ *       straight from a per-NFT field on a launchpad drop ("PAGE - 2",
+ *       "DASC 1/1", "Beez … #NFT #Solana"). LMNFT / cNFT / Core
+ *       launches expose per-asset names BEFORE the real collection
+ *       metadata is indexed in DAS, and a subsequent strong DAS
+ *       `collectionName` should be allowed to replace the residue.
+ *  cleanName already strips these shapes upstream, so case 3 is
+ *  defense-in-depth — a code path that bypasses cleanName (or a future
+ *  per-asset shape we haven't strip-encoded yet) is still caught here.
+ *  Adding case 3 does NOT weaken sticky protection globally: it only
+ *  matches the exact per-asset shapes, never a real collection name. */
 function nameLooksWeak(name: string | null | undefined): boolean {
   if (!name || name.length === 0) return true;
   if (SHORT_ADDR_NAME_RE.test(name)) return true;
+  if (nameLooksPerAsset(name))      return true;
   return false;
 }
 
