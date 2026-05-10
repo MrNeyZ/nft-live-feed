@@ -39,22 +39,56 @@ import { scheduleExactSellerCount } from '../enrichment/seller-count-exact';
 
 const sseClients = new Set<Response>();
 
+// ── Connection caps (H6) ────────────────────────────────────────────────────
+// Without limits, an attacker (or an accidental reconnect-storm) can open
+// arbitrarily many keep-alive sockets to /events/stream and either exhaust
+// the worker's file descriptors or grow each broadcast loop's per-tick cost
+// linearly with N clients. The caps below bound both axes.
+//   - MAX_SSE_CLIENTS:        process-wide ceiling. Default 2000 leaves
+//                              headroom for the Linux soft `nofile` limit
+//                              (typically 1024-65535) while bounding the
+//                              broadcast loop work-per-emit.
+//   - MAX_SSE_CLIENTS_PER_IP: per-IP ceiling. Default 4 covers a normal
+//                              user with 2-3 dashboard tabs plus a
+//                              feed/multi window; tighter than that breaks
+//                              the multi-tab UX.
+// Both are env-overridable. Caps are checked BEFORE response headers are
+// flushed so an over-cap caller gets a clean 429 instead of a 200-then-
+// hang. Per-IP counters live in a Map keyed on req.ip (which the existing
+// `app.set('trust proxy', 1)` makes the real client IP, not a forgeable
+// XFF header value).
+function envInt(name: string, fallback: number): number {
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const MAX_SSE_CLIENTS        = envInt('SSE_MAX_CLIENTS',        2000);
+const MAX_SSE_CLIENTS_PER_IP = envInt('SSE_MAX_CLIENTS_PER_IP',  4);
+const clientsByIp = new Map<string, number>();
+
 /** Public accessor — exposed so other subsystems (db/insert emit log,
  *  health endpoints) can surface "how many clients are listening right
  *  now" without importing the Set itself. Cheap; no allocation. */
 export function getSseClientCount(): number { return sseClients.size; }
 
 /** Send a pre-built SSE frame (e.g. `event: sale\ndata: …\n\n`) to every
- *  connected client. Disconnected clients are removed silently — the
- *  per-client teardown still runs from req/res close listeners. */
+ *  connected client. Disconnected clients are removed silently — and we
+ *  also force-trigger the per-client teardown closure (attached to res as
+ *  `_sseCleanup` in the route handler). The req/res close listeners
+ *  almost always fire on their own, but a proxy half-close can leave them
+ *  pending; calling cleanup directly here guarantees the per-IP counter
+ *  decrement and the heartbeat clearInterval happen exactly once even on
+ *  that path. cleanup() is idempotent. */
 function broadcast(frame: string): void {
   if (sseClients.size === 0) return;
   for (const res of sseClients) {
     try {
       res.write(frame);
     } catch {
-      // Client disconnected mid-write. Drop quietly; teardown handles the rest.
-      sseClients.delete(res);
+      const cleanup = (res as Response & { _sseCleanup?: () => void })._sseCleanup;
+      if (cleanup) cleanup();
+      else sseClients.delete(res);
     }
   }
 }
@@ -379,6 +413,27 @@ export function createSseRouter(): Router {
   const router = Router();
 
   router.get('/stream', (req: Request, res: Response) => {
+    // ── Connection caps ─────────────────────────────────────────────────
+    // Reject BEFORE any setHeader / flushHeaders so the rejection is a
+    // clean HTTP/1.1 429 with a JSON body — once we've flushed the
+    // 200 OK + text/event-stream headers we can't change status. The
+    // caps key on req.ip (real client IP after `trust proxy = 1`) for
+    // the per-IP bucket, and on sseClients.size for the global bucket.
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    if (sseClients.size >= MAX_SSE_CLIENTS) {
+      console.warn(`[sse] reject reason=global_cap clients=${sseClients.size}/${MAX_SSE_CLIENTS}`);
+      res.setHeader('Retry-After', '30');
+      res.status(429).json({ error: 'sse_capacity' });
+      return;
+    }
+    const ipCount = clientsByIp.get(ip) ?? 0;
+    if (ipCount >= MAX_SSE_CLIENTS_PER_IP) {
+      console.warn(`[sse] reject reason=per_ip_cap ip=${ip} count=${ipCount}/${MAX_SSE_CLIENTS_PER_IP}`);
+      res.setHeader('Retry-After', '30');
+      res.status(429).json({ error: 'sse_per_ip_limit' });
+      return;
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -427,6 +482,7 @@ export function createSseRouter(): Router {
     console.log(`[mints/sse] replayed mint_meta=${metaReplayed}`);
 
     sseClients.add(res);
+    clientsByIp.set(ip, ipCount + 1);
 
     const heartbeat = setInterval(() => {
       try { res.write(': heartbeat\n\n'); }
@@ -441,14 +497,23 @@ export function createSseRouter(): Router {
     // /`aborted`, with subsequent triggers no-op. The previous code only
     // listened on req.close; certain proxy timeouts where the socket
     // half-closes never fire that, leaking the heartbeat interval and the
-    // entry in sseClients.
+    // entry in sseClients. Per-IP counter decrement is in here so a
+    // disconnect (clean OR proxy-half-close caught by broadcast()) frees
+    // the slot for a future reconnect from the same address.
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
       clearInterval(heartbeat);
       sseClients.delete(res);
+      const cur = clientsByIp.get(ip) ?? 0;
+      if (cur <= 1) clientsByIp.delete(ip);
+      else clientsByIp.set(ip, cur - 1);
     };
+    // Make the cleanup reachable from broadcast() so a write-fail on a
+    // half-closed socket can run it without waiting for the OS to fire
+    // the matching close event.
+    (res as Response & { _sseCleanup?: () => void })._sseCleanup = cleanup;
     req.on('close',   cleanup);
     req.on('error',   cleanup);
     req.on('aborted', cleanup);
