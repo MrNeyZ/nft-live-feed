@@ -208,7 +208,12 @@ function TimeAgo({ ts }: { ts: number }) {
   } else if (ageMs < 180000) {
     color  = '#c7b479'; // yellow — 16s to 3min
   } else {
-    color  = '#877496'; // muted — older than 3min
+    // Stale tier — bumped from #877496 → #a094c0 so the operator
+    // can still scan ages past 3 min without the timestamp washing
+    // into the card background. Pink/yellow tiers are unchanged
+    // (already prominent), so the hierarchy "fresh = louder, stale
+    // = quieter" is preserved, just with a higher floor on quiet.
+    color  = '#a094c0';
   }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   return <span style={{ fontSize: 11, color, fontWeight: weight }}>{text}</span>;
@@ -394,8 +399,13 @@ const FC_THUMB_INNER_STYLE: React.CSSProperties = {
   pointerEvents: 'none', userSelect: 'none',
 };
 const FC_MIDDLE_COL_STYLE: React.CSSProperties = {
+  // Vertical paddings dropped from 1 → 0 so the title and the
+  // seller/buyer rows sit a hair tighter. The thumb is 56 px tall
+  // and drives card height; trimming this padding doesn't shrink
+  // the card but lets the inner content breathe more cleanly
+  // against the new tighter card padding (8 px vs the prior 10).
   flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
-  justifyContent: 'space-between', paddingTop: 1, paddingBottom: 1,
+  justifyContent: 'space-between', paddingTop: 0, paddingBottom: 0,
 };
 const FC_NAME_ROW_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden',
@@ -411,17 +421,31 @@ const FC_NAME_SPAN_STYLE: React.CSSProperties = {
 };
 const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#e8e6f2' };
 const FC_PARTIES_COL_STYLE: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 1, marginTop: 3,
+  // Tighten the seller/buyer stack — gap dropped from 1 → 0 (rows
+  // are already 14 px tall via lineHeight) and marginTop trimmed
+  // from 3 → 2 so the two lines sit immediately under the title
+  // as a single identity block, not three separate lanes.
+  display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6,
 };
 const FC_RIGHT_COL_STYLE: React.CSSProperties = {
+  // Right-col gap tightened from 6 → 4 to match the new compact
+  // card rhythm. paddingTop dropped to 0 (was 1) so the timestamp
+  // cluster sits flush with the title baseline on the left.
   display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-  alignItems: 'flex-end', gap: 6, flexShrink: 0, paddingTop: 1,
+  alignItems: 'flex-end', gap: 4, flexShrink: 0, paddingTop: 0,
 };
 const FC_TOP_RIGHT_CLUSTER_STYLE: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 5,
+  // Anchor the top-right "X ago + ME icon" cluster to a fixed
+  // minWidth so timestamps line up across rows like a trading
+  // tape's right-edge action lane, instead of jittering with
+  // text width ("just now" vs "12 min ago"). 92 px holds the
+  // longest "X min ago" string + icon comfortably; right-justify
+  // pins them flush to the card edge.
+  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+  gap: 5, minWidth: 92,
 };
 const FC_PRICE_ROW_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
