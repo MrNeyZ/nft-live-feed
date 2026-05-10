@@ -400,30 +400,30 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
           <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
         </div>
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 6px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>
       </td>
-      <td style={{ padding: '12px 10px 12px 6px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <VolBars data={volData} color={col.color} w={64} h={18} />
         </div>
@@ -471,30 +471,30 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
           </div>
         </div>
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 6px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>
       </td>
-      <td style={{ padding: '14px 10px 14px 6px', textAlign: 'center' }}>
+      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <VolBars data={volData} color={col.color} w={64} h={18} />
         </div>
@@ -1036,7 +1036,13 @@ export default function Dashboard() {
 
         {/* Table */}
         <div className="scroll-area collection-table-scroll" style={{
-          flex: 1, overflow: 'auto', padding: '0 10px 8px',
+          // Drop the prior 10 px horizontal inset so the table runs
+          // flush to the card edges like /mints' tracker (which has
+          // no scroll-area horizontal padding). The right gutter is
+          // owned by the last cell's terminal padding (18 px) plus
+          // the symmetric scrollbar gutter; left gutter is owned by
+          // the first cell's 12 px. Bottom 8 stays as a soft buffer.
+          flex: 1, overflow: 'auto', padding: '0 0 8px',
           opacity: tfFading ? 0.6 : 1, transition: 'opacity 140ms ease',
         }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
@@ -1087,7 +1093,7 @@ export default function Dashboard() {
                     7D FLOOR {sortArrow('floor_7d') && <span style={{ color: '#8068d8' }}>{sortArrow('floor_7d')}</span>}
                   </span>
                 </th>
-                <th onClick={() => handleSortClick('vol_7d')} style={{ ...thStyle, textAlign: 'center', paddingRight: 8, cursor: 'pointer' }}>
+                <th onClick={() => handleSortClick('vol_7d')} style={{ ...thStyle, textAlign: 'center', paddingRight: 18, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                     7D VOLUME {sortArrow('vol_7d') && <span style={{ color: '#8068d8' }}>{sortArrow('vol_7d')}</span>}
                   </span>
