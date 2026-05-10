@@ -38,6 +38,7 @@
 
 import { Router, Request, Response } from 'express';
 import { getEventsByCollection } from '../db/queries';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE        = 500;
@@ -213,10 +214,11 @@ async function fetchMeActivities(slug: string, cutoffSec: number, limit: number)
 
 export function createCollectionTradeHistoryRouter(): Router {
   const router = Router();
+  const historyLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/trade-history' });
 
-  router.get('/trade-history', async (req: Request, res: Response) => {
+  router.get('/trade-history', historyLimit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim();
-    if (!slug) { res.status(400).json({ error: 'missing slug' }); return; }
+    if (!isValidSlug(slug)) { res.status(400).json({ error: 'invalid slug' }); return; }
 
     const rawDays = parseInt(String(req.query.days ?? DEFAULT_DAYS), 10);
     const days = Number.isFinite(rawDays) && rawDays > 0

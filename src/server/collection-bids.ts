@@ -20,9 +20,13 @@
 
 import { Router, Request, Response } from 'express';
 import { getMeStats } from '../enrichment/me-stats';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 const BID_TTL_MS = 60_000;
-const MAX_SLUGS_PER_REQUEST = 80;
+// Lowered 80 → 20 per H2: per-request fan-out budget is now bounded
+// regardless of caller. Dashboard / Live Feed bid-cache prefetch calls
+// in chunks of ≤ 20, so legitimate usage is unaffected.
+const MAX_SLUGS_PER_REQUEST = 20;
 
 interface CachedBids {
   floorLamports:    number | null;
@@ -131,15 +135,23 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
 
 export function createCollectionBidsRouter(): Router {
   const router = Router();
+  // 60 req/min/IP covers a steady dashboard refresh (every 30 s) per
+  // tab + headroom; stops a rotating-slug attacker cold while leaving
+  // normal page UX untouched.
+  const bidsLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/bids' });
 
-  router.get('/bids', async (req: Request, res: Response) => {
+  router.get('/bids', bidsLimit, async (req: Request, res: Response) => {
     const raw = String(req.query.slugs ?? '').trim();
     if (!raw) {
       res.json({ bids: {} });
       return;
     }
+    // Validate-then-cap. Slugs that don't match the canonical shape
+    // never see an upstream ME/Tensor call — slug bypass via crafted
+    // strings (`/api/collections/bids?slugs=<garbage>`) used to cost
+    // 3 fetches per garbage entry. Cheap regex test up front.
     const slugs = Array.from(new Set(
-      raw.split(',').map(s => s.trim()).filter(Boolean),
+      raw.split(',').map(s => s.trim()).filter(isValidSlug),
     )).slice(0, MAX_SLUGS_PER_REQUEST);
 
     try {

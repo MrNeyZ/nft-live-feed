@@ -19,6 +19,7 @@
 import { Router, Request, Response } from 'express';
 import { getCatalogEntry } from './collection-catalog';
 import { getPool } from '../db/client';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const HIT_TTL_MS       = 60 * 60_000;     // 1 h for real data
@@ -102,10 +103,11 @@ async function fetchMeFallback(slug: string): Promise<Meta> {
 
 export function createCollectionMetaRouter(): Router {
   const router = Router();
+  const metaLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/meta' });
 
-  router.get('/meta', async (req: Request, res: Response) => {
+  router.get('/meta', metaLimit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim();
-    if (!slug) { res.status(400).json({ error: 'missing slug' }); return; }
+    if (!isValidSlug(slug)) { res.status(400).json({ error: 'invalid slug' }); return; }
 
     // Catalog hit → return immediately, zero network.
     const catalogEntry = getCatalogEntry(slug);

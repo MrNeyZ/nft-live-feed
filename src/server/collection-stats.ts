@@ -18,6 +18,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { rateLimit, isValidSlug } from './rate-limit';
 import { getPool } from '../db/client';
 
 const TTL_MS       = 30_000;
@@ -103,10 +104,11 @@ async function getStats(slug: string): Promise<CollectionStats> {
 
 export function createCollectionStatsRouter(): Router {
   const router = Router();
+  const statsLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/stats' });
 
-  router.get('/stats', async (req: Request, res: Response) => {
+  router.get('/stats', statsLimit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim();
-    if (!slug || slug.length > MAX_SLUG_LEN) {
+    if (!isValidSlug(slug) || slug.length > MAX_SLUG_LEN) {
       res.status(400).json({ error: 'missing_or_invalid_slug' });
       return;
     }

@@ -87,3 +87,25 @@ export function rateLimit(opts: RateLimitOptions) {
     next();
   };
 }
+
+// ── Shared shape validators ─────────────────────────────────────────────────
+// Hoisted here so every public endpoint applies the same rule and so a
+// future tweak (e.g., relax to 80 chars) only edits one place. Used to
+// fail-fast at the route layer BEFORE any DB / upstream call, so a flood
+// of malformed-slug probes costs only the regex test.
+
+/** Magic Eden / Tensor collection slug. Lowercase alphanumerics +
+ *  `_`/`-`, 1–60 chars. Matches the shape ME/Tensor emit in their public
+ *  URLs (`/marketplace/<slug>`); anything wider is junk we don't need to
+ *  forward upstream. */
+const SLUG_RE = /^[a-z0-9_-]{1,60}$/;
+export function isValidSlug(s: unknown): s is string {
+  return typeof s === 'string' && SLUG_RE.test(s);
+}
+
+/** Solana base58 mint address (32–44 chars). Rejects anything that would
+ *  blow up `new PublicKey(...)` later in the upstream client. */
+const MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+export function isValidMint(s: unknown): s is string {
+  return typeof s === 'string' && MINT_RE.test(s);
+}

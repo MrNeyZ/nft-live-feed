@@ -19,6 +19,7 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
 import { searchCatalog, catalogSize, refreshCatalog } from './collection-catalog';
+import { rateLimit } from './rate-limit';
 
 const TTL_MS           = 30_000;
 const FETCH_TIMEOUT_MS = 4_000;
@@ -97,8 +98,12 @@ async function meExactSlug(slug: string): Promise<SearchResult | null> {
 
 export function createCollectionSearchRouter(): Router {
   const router = Router();
+  // Slightly looser than the slug routes — search is keystroke-driven so
+  // an autocomplete burst is normal traffic. 120/min/IP still slams the
+  // door on enumeration probes.
+  const searchLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'collections/search' });
 
-  router.get('/search', async (req: Request, res: Response) => {
+  router.get('/search', searchLimit, async (req: Request, res: Response) => {
     const q = String(req.query.q ?? '').trim().toLowerCase();
     if (!q || q.length < 2 || q.length > 60) {
       res.json({ results: [] });

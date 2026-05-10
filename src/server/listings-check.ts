@@ -24,9 +24,13 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { rateLimit, isValidMint } from './rate-limit';
 
 const CHECK_TTL_MS = 30_000;
-const MAX_MINTS_PER_REQUEST = 60;
+// Lowered 60 → 20 per H2. The Collection page's listing-presence prefetch
+// runs in batches ≤ 20 so dashboard UX is unaffected; the cap is now a
+// real budget against rotating-mint abuse.
+const MAX_MINTS_PER_REQUEST = 20;
 
 interface MeListing {
   listed:        boolean;
@@ -102,15 +106,20 @@ async function getCheckForMint(mint: string): Promise<CachedCheck> {
 
 export function createListingsCheckRouter(): Router {
   const router = Router();
+  const checkLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'listings/check' });
 
-  router.get('/check', async (req: Request, res: Response) => {
+  router.get('/check', checkLimit, async (req: Request, res: Response) => {
     const raw = String(req.query.mints ?? '').trim();
     if (!raw) {
       res.json({ listings: {} });
       return;
     }
+    // Base58-shape validation BEFORE the upstream fan-out — a mint that
+    // would fail `new PublicKey(...)` later can't legitimately exist on
+    // ME/Tensor, so we drop it at the boundary instead of wasting
+    // upstream credits on a guaranteed 4xx.
     const mints = Array.from(new Set(
-      raw.split(',').map(s => s.trim()).filter(Boolean),
+      raw.split(',').map(s => s.trim()).filter(isValidMint),
     )).slice(0, MAX_MINTS_PER_REQUEST);
 
     try {

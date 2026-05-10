@@ -21,6 +21,7 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
 import { deriveSaleType } from '../domain/sale-type';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 // Bumped 15 s → 60 s. Chart points come from sale_events aggregates; the
 // resolution at which the dashboard renders (5–60 m bars) is much coarser
@@ -125,10 +126,11 @@ function parseSpan(raw: unknown): Span | null {
 
 export function createCollectionChartRouter(): Router {
   const router = Router();
+  const chartLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/chart' });
 
-  router.get('/chart', async (req: Request, res: Response) => {
+  router.get('/chart', chartLimit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim();
-    if (!slug || slug.length > MAX_SLUG_LEN) {
+    if (!isValidSlug(slug) || slug.length > MAX_SLUG_LEN) {
       res.status(400).json({ error: 'missing_or_invalid_slug' });
       return;
     }

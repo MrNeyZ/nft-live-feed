@@ -15,6 +15,7 @@
 
 import { Router, Request, Response } from 'express';
 import { ensureFresh, getByCollection, Listing } from './listings-store';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 const MAX_LIMIT     = 500;
 const DEFAULT_LIMIT = 40;
@@ -95,11 +96,12 @@ function sourceRank(s: Listing['source']): number {
 
 export function createCollectionListingsRouter(): Router {
   const router = Router();
+  const listingsLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/listings' });
 
-  router.get('/listings', async (req: Request, res: Response) => {
+  router.get('/listings', listingsLimit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim();
-    if (!slug) {
-      res.status(400).json({ error: 'missing slug' });
+    if (!isValidSlug(slug)) {
+      res.status(400).json({ error: 'invalid slug' });
       return;
     }
 

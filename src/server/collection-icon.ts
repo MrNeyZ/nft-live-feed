@@ -17,10 +17,14 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
 import { getByCollection } from './listings-store';
+import { rateLimit, isValidSlug } from './rate-limit';
 
 const SUCCESS_TTL_MS   = 24 * 60 * 60_000;   // 24 h — revisit only once a day
 const FAILURE_TTL_MS   =      60_000;        // retry empty-DB slugs after a minute
-const MAX_SLUGS        = 80;
+// Lowered 80 → 20 per H2 to bound the per-request fan-out (each slug
+// triggers a DB lookup + optional Helius DAS fallback). Dashboard
+// prefetches in batches ≤ 20 so normal traffic is unaffected.
+const MAX_SLUGS        = 20;
 
 interface CacheEntry { url: string | null; expiresAt: number; lastKnown: string | null }
 const cache = new Map<string, CacheEntry>();
@@ -86,12 +90,13 @@ async function fetchIcon(slug: string): Promise<string | null> {
 
 export function createCollectionIconRouter(): Router {
   const router = Router();
+  const iconLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/icon' });
 
-  router.get('/icon', async (req: Request, res: Response) => {
+  router.get('/icon', iconLimit, async (req: Request, res: Response) => {
     const raw = String(req.query.slugs ?? '').trim();
     if (!raw) { res.json({ icons: {} }); return; }
     const slugs = Array.from(new Set(
-      raw.split(',').map(s => s.trim()).filter(Boolean),
+      raw.split(',').map(s => s.trim()).filter(isValidSlug),
     )).slice(0, MAX_SLUGS);
 
     try {
