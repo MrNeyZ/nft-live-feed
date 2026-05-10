@@ -67,27 +67,74 @@ const MAX_SSE_CLIENTS        = envInt('SSE_MAX_CLIENTS',        2000);
 const MAX_SSE_CLIENTS_PER_IP = envInt('SSE_MAX_CLIENTS_PER_IP',  4);
 const clientsByIp = new Map<string, number>();
 
+// ── Slow-client backpressure ────────────────────────────────────────────────
+// res.write() returns false when the kernel send buffer is full and Node is
+// queuing the frame in user space. One false return is normal under bursts.
+// Repeated falses in a row mean the client isn't draining — keeping that
+// res in the broadcast loop grows Node's internal buffer without bound and
+// turns one stalled tab into a process-wide memory leak.
+//
+// Eviction trigger: SSE_MAX_CONSECUTIVE_BACKPRESSURE consecutive false
+// returns (default 8). At our normal emit cadence (a handful of frames per
+// second during active periods + a 25 s heartbeat) reaching 8 consecutive
+// failures means the buffer has been wedged across multiple seconds. We
+// reset the counter on every successful write, so transient
+// fullness during a burst doesn't trip the gate.
+const MAX_CONSECUTIVE_BACKPRESSURE = envInt('SSE_MAX_CONSECUTIVE_BACKPRESSURE', 8);
+
+interface SseStats {
+  ip:                       string;
+  connectedAt:              number;
+  consecutiveBackpressure:  number;
+  totalBackpressure:        number;
+  lastWriteOkAt:            number;
+  evicted:                  boolean;
+}
+
 /** Public accessor — exposed so other subsystems (db/insert emit log,
  *  health endpoints) can surface "how many clients are listening right
  *  now" without importing the Set itself. Cheap; no allocation. */
 export function getSseClientCount(): number { return sseClients.size; }
 
 /** Send a pre-built SSE frame (e.g. `event: sale\ndata: …\n\n`) to every
- *  connected client. Disconnected clients are removed silently — and we
- *  also force-trigger the per-client teardown closure (attached to res as
- *  `_sseCleanup` in the route handler). The req/res close listeners
- *  almost always fire on their own, but a proxy half-close can leave them
- *  pending; calling cleanup directly here guarantees the per-IP counter
- *  decrement and the heartbeat clearInterval happen exactly once even on
- *  that path. cleanup() is idempotent. */
+ *  connected client. Three failure paths handled inline so a slow / dead
+ *  client can never wedge the broadcast loop:
+ *    1. write() throws (socket already torn down) → run cleanup.
+ *    2. write() returns false (backpressure — Node is buffering for us)
+ *       → bump consecutive counter; reset on next true return. If the
+ *       counter crosses MAX_CONSECUTIVE_BACKPRESSURE the client is
+ *       considered stuck and evicted via the same cleanup() path.
+ *    3. normal true return → reset the counter, stamp lastWriteOkAt.
+ *  cleanup() is idempotent so concurrent evictions (broadcast + req.close
+ *  firing back-to-back) are safe. */
 function broadcast(frame: string): void {
   if (sseClients.size === 0) return;
   for (const res of sseClients) {
+    const tagged = res as Response & {
+      _sseCleanup?: () => void;
+      _sseStats?:   SseStats;
+    };
     try {
-      res.write(frame);
+      const ok = res.write(frame);
+      const stats = tagged._sseStats;
+      if (!stats) continue;
+      if (ok) {
+        stats.consecutiveBackpressure = 0;
+        stats.lastWriteOkAt = Date.now();
+      } else {
+        stats.consecutiveBackpressure++;
+        stats.totalBackpressure++;
+        if (stats.consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE && !stats.evicted) {
+          stats.evicted = true;
+          console.warn(
+            `[sse] evict reason=slow_client ip=${stats.ip} ` +
+            `consecutive=${stats.consecutiveBackpressure} total=${stats.totalBackpressure}`,
+          );
+          tagged._sseCleanup?.();
+        }
+      }
     } catch {
-      const cleanup = (res as Response & { _sseCleanup?: () => void })._sseCleanup;
-      if (cleanup) cleanup();
+      if (tagged._sseCleanup) tagged._sseCleanup();
       else sseClients.delete(res);
     }
   }
@@ -484,8 +531,37 @@ export function createSseRouter(): Router {
     sseClients.add(res);
     clientsByIp.set(ip, ipCount + 1);
 
+    // Per-client stats. broadcast() reads/writes this; cleanup nulls the
+    // back-reference so a late callback can't resurrect a dead client.
+    const stats: SseStats = {
+      ip,
+      connectedAt:              Date.now(),
+      consecutiveBackpressure:  0,
+      totalBackpressure:        0,
+      lastWriteOkAt:            Date.now(),
+      evicted:                  false,
+    };
+    (res as Response & { _sseStats?: SseStats })._sseStats = stats;
+
     const heartbeat = setInterval(() => {
-      try { res.write(': heartbeat\n\n'); }
+      try {
+        const ok = res.write(': heartbeat\n\n');
+        if (ok) {
+          stats.consecutiveBackpressure = 0;
+          stats.lastWriteOkAt = Date.now();
+        } else {
+          stats.consecutiveBackpressure++;
+          stats.totalBackpressure++;
+          if (stats.consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE && !stats.evicted) {
+            stats.evicted = true;
+            console.warn(
+              `[sse] evict reason=slow_client_heartbeat ip=${stats.ip} ` +
+              `consecutive=${stats.consecutiveBackpressure}`,
+            );
+            cleanup();
+          }
+        }
+      }
       catch {
         // Heartbeat write failed — client gone. Cleanup runs via the close
         // listeners below; we just stop emitting heartbeats from here.
@@ -509,6 +585,14 @@ export function createSseRouter(): Router {
       const cur = clientsByIp.get(ip) ?? 0;
       if (cur <= 1) clientsByIp.delete(ip);
       else clientsByIp.set(ip, cur - 1);
+      // Drop the back-references so a late broadcast() can't operate on
+      // a torn-down response. The actual socket teardown (res.end on a
+      // closed stream is a no-op) is handled by Node when the close
+      // event fires.
+      const tagged = res as Response & { _sseStats?: SseStats; _sseCleanup?: () => void };
+      tagged._sseStats = undefined;
+      tagged._sseCleanup = undefined;
+      try { res.end(); } catch { /* already closed */ }
     };
     // Make the cleanup reachable from broadcast() so a write-fail on a
     // half-closed socket can run it without waiting for the OS to fire
