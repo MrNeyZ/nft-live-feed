@@ -1823,12 +1823,17 @@ export default function MintsPage() {
                 {/* RATE — formerly MINT/MIN. Renamed to avoid implying
                     an average over the full selected timeframe; this is
                     a count-over-active-window rate (see tfStatsByKey).
-                    Right-edge column now — paddingRight matches the
-                    data cell so the values sit flush with the table's
-                    right edge after SOURCE column removal. */}
+                    No padding-right override here: every numeric data
+                    cell in this table uses `padding: '14px 10px'` (the
+                    `14` is vertical, the `10` is horizontal), so the
+                    column's right inset is 10 px on the value row.
+                    `thStyle` already has `padding: '12px 10px'`; using
+                    it as-is keeps RATE header text right-aligned to
+                    the same column edge as MINTS / SUPPLY / LAST /
+                    COEF, and to the values directly beneath. */}
                 <th
                   title="RATE — mints per minute over the active window inside the selected timeframe (count ÷ active-minutes)."
-                  style={{ ...thStyle, paddingRight: 14, cursor: 'pointer' }}
+                  style={{ ...thStyle, cursor: 'pointer' }}
                   onClick={() => handleSortClick('velocity')}
                 >
                   RATE {sortArrow(effectiveSortKey, effectiveSortDir, 'velocity')}
