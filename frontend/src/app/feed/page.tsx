@@ -216,7 +216,20 @@ function TimeAgo({ ts }: { ts: number }) {
     color  = '#a094c0';
   }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
-  return <span style={{ fontSize: 11, color, fontWeight: weight }}>{text}</span>;
+  // tabular-nums locks digit width so the right-edge timestamp lane
+  // doesn't jitter as the count climbs ("9 min ago" → "10 min ago"
+  // shifted ~3 px before; with tabular-nums the alpha-numeric mix
+  // stays anchored). letterSpacing 0.1 px gives a subtle "tape"
+  // feel without dropping the proportional font.
+  return (
+    <span style={{
+      fontSize: 11, color, fontWeight: weight,
+      fontVariantNumeric: 'tabular-nums',
+      letterSpacing: '0.1px',
+    }}>
+      {text}
+    </span>
+  );
 }
 
 // ── Wallet links + "YOU" badge ──────────────────────────────────────────────
@@ -273,7 +286,11 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 }
 
 const WALLET_LINK_STYLE: React.CSSProperties = {
-  color: '#7a7a94', fontWeight: 500,
+  // Wallet text sits one tier above the row label (`seller:` /
+  // `buyer:` at #45455e) and one tier below the title (#f0eef8) —
+  // bumped from #7a7a94 → #8e8eb0 so addresses are scan-readable
+  // without competing with the title or price for attention.
+  color: '#8e8eb0', fontWeight: 500,
   fontFamily: "'SF Mono','Fira Code',monospace",
   // No persistent decoration — matches the NFT-name link's behavior.
   // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
@@ -299,7 +316,11 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
   alignItems: 'center',
   lineHeight: 0,
   flexShrink: 0,
-  opacity: 0.85,
+  // Lowered from 0.85 → 0.65 so the marketplace icons recede behind
+  // the wallet text. They still read at a glance (the icons are
+  // distinctive shapes, not text), but they no longer dominate the
+  // metadata row.
+  opacity: 0.65,
   textDecoration: 'none',
 };
 
@@ -428,7 +449,12 @@ const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
-  fontSize: 10.5, color: '#55556e', display: 'flex', alignItems: 'center', gap: 6,
+  // Label tone (`seller:` / `buyer:`) dimmed from #55556e → #45455e so
+  // the labels recede behind the wallet text. The wallet text itself
+  // (`WALLET_LINK_STYLE` below) was bumped one notch in the opposite
+  // direction (#7a7a94 → #8e8eb0), establishing a clear three-tier
+  // hierarchy on the card: title → wallet → label/icon.
+  fontSize: 10.5, color: '#45455e', display: 'flex', alignItems: 'center', gap: 6,
 };
 const FC_RIGHT_COL_STYLE: React.CSSProperties = {
   // Right-col gap tightened from 6 → 4 to match the new compact
@@ -448,16 +474,26 @@ const FC_TOP_RIGHT_CLUSTER_STYLE: React.CSSProperties = {
   gap: 5, minWidth: 92,
 };
 const FC_PRICE_ROW_STYLE: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8,
+  // Tighten the action lane: badge + price now sit 6 px apart (was
+  // 8) so they read as a single trading-action group rather than
+  // two separate widgets. The FloorChip (when present) keeps its
+  // gap before the badge — visual order: chip · badge · price.
+  display: 'flex', alignItems: 'center', gap: 6,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
+  // Bumped to pure white (was #f0eef8) so the price has the highest
+  // luminance on the card — beats the BUY/SELL badge and the title
+  // for primary attention, matching trader-terminal hierarchy
+  // (price first, then action, then identity).
   minWidth: 80, textAlign: 'right',
-  fontSize: 16, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.3px',
+  fontSize: 16, fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px',
   fontFamily: "'SF Mono','Fira Code',monospace",
   fontVariantNumeric: 'tabular-nums',
 };
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
-  color: '#8a8aa6', fontWeight: 600, fontSize: 11,
+  // Dimmed from #8a8aa6 → #6a6a82 so the unit suffix recedes against
+  // the brighter price digits. Same family, ~one notch darker.
+  color: '#6a6a82', fontWeight: 600, fontSize: 11,
 };
 // Inline seller-remaining badge — sits next to the seller wallet on the
 // FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
@@ -741,9 +777,19 @@ const FeedCard = memo(function FeedCard({
           <div style={FC_PRICE_ROW_STYLE}>
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             <span style={{
+              // Glassy BUY/SELL/AMM pill. Width stays at 56 (locks
+              // the action lane); vertical padding trimmed 3 → 2 px
+              // so the badge sits a hair tighter against the price.
+              // Two inset box-shadows give a subtle top highlight +
+              // bottom shadow, reading as a slight 3D depth without
+              // changing colors or layout. Same idea as Hyperliquid /
+              // Tensor terminal pills.
               width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-              padding: '3px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
+              padding: '2px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
+              boxShadow:
+                'inset 0 1px 0 rgba(255, 255, 255, 0.08),' +
+                ' inset 0 -1px 0 rgba(0, 0, 0, 0.18)',
             }}>{style.label}</span>
             <span style={FC_PRICE_TEXT_STYLE}>
               {safePrice == null ? '—' : formatSol(safePrice)}{' '}

@@ -440,21 +440,29 @@ a { color: inherit; text-decoration: none; }
   to   { opacity: 1; transform: none;                          max-height: 120px; }
 }
 
+/* Insert-flash keyframes — peak intensities lowered (0.28 → 0.20)
+   for a softer terminal-pulse feel rather than the prior aggressive
+   wash, and the END frame bg is set to the per-side at-rest tint so
+   the buy/sell directional cue persists smoothly when the animation
+   completes — no "snap" from white-2 % to the variant tint. The
+   listing keyframe still ends at white-2 % (no listing variant tint
+   defined). slideDown still drives the actual entrance motion;
+   these handle the color decay only. */
 @keyframes flashBuy {
-  0%   { background: rgba(92, 224, 160, 0.28); }
-  40%  { background: rgba(92, 224, 160, 0.14); }
-  100% { background: rgba(255, 255, 255, 0.02); }
+  0%   { background: rgba(92, 224, 160, 0.20); }
+  40%  { background: rgba(92, 224, 160, 0.10); }
+  100% { background: rgba(79, 200, 142, 0.030); }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(239, 120, 120, 0.28); }
-  40%  { background: rgba(239, 120, 120, 0.14); }
-  100% { background: rgba(255, 255, 255, 0.02); }
+  0%   { background: rgba(239, 120, 120, 0.20); }
+  40%  { background: rgba(239, 120, 120, 0.10); }
+  100% { background: rgba(250, 100, 105, 0.032); }
 }
 
 @keyframes flashListingFeed {
-  0%   { background: rgba(168, 144, 232, 0.24); }
-  40%  { background: rgba(168, 144, 232, 0.12); }
+  0%   { background: rgba(168, 144, 232, 0.18); }
+  40%  { background: rgba(168, 144, 232, 0.10); }
   100% { background: rgba(255, 255, 255, 0.02); }
 }
 
@@ -470,20 +478,25 @@ a { color: inherit; text-decoration: none; }
    0.22 → 0.45, hover from 0.4 → 0.65; faint track tint reserves the rail
    visually even when idle. Width nudged 5 → 7 px for a comfortable hit
    target without crowding the cards. */
-/* /feed scroll surface — thinner, lower-contrast scrollbar than the
-   prior 7 px / 0.45-α treatment. The list runs ~150 cards deep at any
-   moment and the previous scrollbar read as a vivid purple stripe
-   competing with card chrome. Width 5 px + thumb α 0.25 ↑ 0.45 on
-   hover keeps it visible without dominating; track α 0.015 hides it
-   nearly entirely against the dark surface until needed. Scoped to
+/* /feed scroll surface — thin, low-contrast, fully-rounded "glass"
+   scrollbar. Pill-shaped thumb (border-radius: 999) reads softer
+   than the prior 3 px square corners; α 0.22 with a 0.10 inner
+   highlight gives a subtle glassy feel without going invisible.
+   Hover bumps to α 0.40 for a clear grab affordance. Scoped to
    `.feed-list` — does not affect `.scroll-area` global rules. */
 .feed-list::-webkit-scrollbar             { width: 5px; }
-.feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.015); border-radius: 3px; }
-.feed-list::-webkit-scrollbar-thumb       { background: rgba(168, 144, 232, 0.25); border-radius: 3px; }
-.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.45); }
+.feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.015); border-radius: 999px; }
+.feed-list::-webkit-scrollbar-thumb       {
+  background: rgba(168, 144, 232, 0.22);
+  border-radius: 999px;
+  /* Faint inner highlight gives the thumb a translucent-glass feel
+     instead of the prior matte stripe. Pure CSS, no extra layers. */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.40); }
 .feed-list {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.25) rgba(255, 255, 255, 0.015);
+  scrollbar-color: rgba(168, 144, 232, 0.22) rgba(255, 255, 255, 0.015);
   scrollbar-gutter: stable;
   /* Let JS manage scroll compensation on prepend; browser anchoring would
      fight our pin-to-top behavior when the user is at scrollTop=0. */
@@ -508,7 +521,16 @@ a { color: inherit; text-decoration: none; }
    scale (1.004), inset lilac ring + soft outer glow, smooth 200 ms
    ease-out. transform-origin centred so adjacent cards don't shift.
    `will-change: transform` hints the compositor; cards transform
-   only on hover so the cost is negligible. */
+   only on hover so the cost is negligible.
+     position: relative — anchors the buy/sell ::before/::after edge
+   stripes (defined below) to the card box; harmless to other
+   children since none rely on the card's positioning context.
+     background-image: a faint top-to-bottom white wash gives the
+   card a subtle "panel lit from above" depth without changing
+   typography or layout. The base `background` (or buy/sell variant)
+   provides the base tone underneath.
+     box-shadow: a 1 px top inner highlight reinforces the depth.
+   Replaced wholesale by the hover state. */
 .feed-card {
   display: flex;
   align-items: stretch;
@@ -517,8 +539,20 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.025) 0%,
+    rgba(255, 255, 255, 0)     65%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   cursor: pointer;
-  transition: transform 200ms ease-out, background 200ms ease-out, border-color 200ms ease-out, box-shadow 200ms ease-out;
+  position: relative;
+  transition:
+    transform 200ms ease-out,
+    background 200ms ease-out,
+    border-color 200ms ease-out,
+    box-shadow 200ms ease-out,
+    opacity 180ms ease-out;
   transform-origin: center;
   will-change: transform;
 }
@@ -533,25 +567,36 @@ a { color: inherit; text-decoration: none; }
   z-index: 1;
 }
 
-/* Card side-frames — bumped to full opacity + slightly more saturated
-   RGB so the buy/sell tone reads as a vivid edge against the dark
-   feed, not a muted tint. Buy at 0.78 was perceptibly weaker than
-   sell at 1.0; bumping to 0.95 brings them to perceptual parity.
-   Body tints: a very subtle directional wash (~0.030 α) on buy/sell
-   cards so the eye picks up direction even before reading the
-   BUY/SELL badge. The hover variants below replace the wash with a
-   slightly stronger same-tone bg so the directional cue persists
-   under the hover state instead of being overwritten by the default
-   white-5% hover bg. */
+/* Hover-focus dimming — when the operator is hovering ANY feed card,
+   the unhovered siblings drop to opacity 0.92 so the focused card
+   reads as the active row in a trading-tape sense. `:has()` is the
+   correct anchor (Chrome ≥ 105, Safari ≥ 15.4, Firefox ≥ 121); the
+   transition is on `.feed-card` itself (`opacity 180 ms`) so the
+   dim/undim is smooth. Keyboard / no-pointer paths don't trigger
+   this — same behaviour as a desktop terminal. */
+.feed-list:has(.feed-card:hover) .feed-card:not(:hover) {
+  opacity: 0.92;
+}
+
+/* Card side-frames — buy/sell direction now drawn as a vertical-
+   gradient pseudo-element overlay rather than a flat 3 px solid
+   border. Border alpha is dropped to 0.40 (was 0.95–1.0) to play
+   the role of the soft "fade" tail at the card's top/bottom; the
+   pseudo-elements add a centred 70 %-of-height bright stripe that
+   makes the middle of the edge read as a glow. Listing card keeps
+   the prior solid stripe — no listing-specific direction signal
+   was identified as needing the gradient treatment. Body tints
+   unchanged from the prior commit (~0.030 α at rest, 0.060 α on
+   hover). */
 .feed-card.buy-card  {
-  border-left:  3px solid rgba( 79, 200, 142, 0.95);
-  border-right: 3px solid rgba( 79, 200, 142, 0.95);
+  border-left:  3px solid rgba( 79, 200, 142, 0.40);
+  border-right: 3px solid rgba( 79, 200, 142, 0.40);
   background:   rgba( 79, 200, 142, 0.030);
 }
 .feed-card.buy-card:hover  { background: rgba( 79, 200, 142, 0.060); }
 .feed-card.sell-card    {
-  border-left:  3px solid rgba(250, 100, 105, 1);
-  border-right: 3px solid rgba(250, 100, 105, 1);
+  border-left:  3px solid rgba(250, 100, 105, 0.40);
+  border-right: 3px solid rgba(250, 100, 105, 0.40);
   background:   rgba(250, 100, 105, 0.032);
 }
 .feed-card.sell-card:hover { background: rgba(250, 100, 105, 0.062); }
@@ -559,6 +604,28 @@ a { color: inherit; text-decoration: none; }
   border-left:  3px solid rgba(168, 144, 232, 0.95);
   border-right: 3px solid rgba(168, 144, 232, 0.95);
 }
+
+/* Edge-accent middle-glow stripes for buy/sell cards. Vertical span
+   `top: 18 %` to `bottom: 18 %` covers the centre 64 % of the card
+   height; alpha 1.0 with a 6 px outer glow makes the middle read
+   bright while the surrounding faded border (0.40 α above) carries
+   the soft top/bottom tail. Sits on top of the existing 3 px
+   border, scoped via `position: relative` on `.feed-card`. */
+.feed-card.buy-card::before,
+.feed-card.buy-card::after,
+.feed-card.sell-card::before,
+.feed-card.sell-card::after {
+  content: '';
+  position: absolute;
+  top: 18%; bottom: 18%;
+  width: 3px;
+  pointer-events: none;
+  border-radius: 1.5px;
+}
+.feed-card.buy-card::before  { left: -3px;  background: rgb(79, 200, 142);  box-shadow: 0 0 6px rgba(79, 200, 142, 0.45); }
+.feed-card.buy-card::after   { right: -3px; background: rgb(79, 200, 142);  box-shadow: 0 0 6px rgba(79, 200, 142, 0.45); }
+.feed-card.sell-card::before { left: -3px;  background: rgb(250, 100, 105); box-shadow: 0 0 6px rgba(250, 100, 105, 0.45); }
+.feed-card.sell-card::after  { right: -3px; background: rgb(250, 100, 105); box-shadow: 0 0 6px rgba(250, 100, 105, 0.45); }
 
 .feed-thumb {
   width: 56px;
