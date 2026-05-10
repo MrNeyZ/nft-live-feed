@@ -108,22 +108,35 @@ export function timeAgo(ms: number): string {
 /**
  * Canonical SOL price formatter used everywhere prices render.
  * Decimal precision tiers:
- *   ≥ 1000  → 1.2K-style abbreviation
- *   ≥ 100   → 0 decimals
- *   ≥ 10    → 1 decimal
- *   ≥ 0.1   → 2 decimals  (e.g. 1.35, 0.27)
- *   < 0.1   → 3 decimals  (e.g. 0.099, 0.045) so sub-floor values stay legible
- * The 0.1 boundary is the only place this differs from "1.0 boundary"
- * — moved deliberately so 0.27 / 0.45 display as 2 decimals (cleaner)
+ *   ≥ 1000   → 1.2K-style abbreviation
+ *   ≥ 100    → 0 decimals
+ *   ≥ 10     → 1 decimal
+ *   ≥ 0.1    → 2 decimals  (e.g. 1.35, 0.27)
+ *   ≥ 0.01   → 3 decimals  (e.g. 0.099, 0.045) so sub-floor values stay legible
+ *   ≥ 0.001  → 4 decimals  (e.g. 0.0034)
+ *   ≥ 0.0001 → 5 decimals  (e.g. 0.00025) — ultra-low cNFT/raffle sales
+ *   < 0.0001 → 6 decimals
+ * The 0.1 boundary is where 0.27 / 0.45 collapse to 2 decimals (cleaner)
  * while 0.099 / 0.045 keep the third digit (otherwise they'd round to
  * 0.10 / 0.05 and lose meaningful precision).
+ *
+ * Tiny SOL prices need higher precision; do not round to 3 decimals or
+ * clamp. A 0.00025 SOL sale must render as "0.00025" (not "0.000" and not
+ * "0.003") — the formatter is the only thing standing between raw lamports
+ * and the user's eyes, so collapsing them to a meaningless "0.000" or
+ * inflating to "0.003" both misrepresent the trade. NOTE: this is sale-
+ * price formatting only; it has no relationship to the cNFT low-floor
+ * visibility filter (see `cnft-filter.ts`), which keys on collection floor.
  */
 export function formatSol(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  if (n >= 100)  return `${n.toFixed(0)}`;
-  if (n >= 10)   return `${n.toFixed(1)}`;
-  if (n >= 0.1)  return `${n.toFixed(2)}`;
-  return `${n.toFixed(3)}`;
+  if (n >= 1000)   return `${(n / 1000).toFixed(1)}K`;
+  if (n >= 100)    return `${n.toFixed(0)}`;
+  if (n >= 10)     return `${n.toFixed(1)}`;
+  if (n >= 0.1)    return `${n.toFixed(2)}`;
+  if (n >= 0.01)   return `${n.toFixed(3)}`;
+  if (n >= 0.001)  return `${n.toFixed(4)}`;
+  if (n >= 0.0001) return `${n.toFixed(5)}`;
+  return `${n.toFixed(6)}`;
 }
 
 // ── Collection mock data ─────────────────────────────────────────────────────

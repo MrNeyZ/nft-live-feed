@@ -16,7 +16,7 @@ import {
   feedReducer, initFeedState, orderedEvents,
   type MetaPatch, type FeedAction,
 } from '@/soloist/feed-store';
-import { isCnftDust, CNFT_FLOOR_MIN_SOL } from '@/soloist/cnft-filter';
+import { isCnftDust } from '@/soloist/cnft-filter';
 import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -1338,8 +1338,9 @@ export default function FeedPage() {
 
   // ── Collection-floor lookup ─────────────────────────────────────────────
   // Dual-purpose cache populated from /api/collections/bids:
-  //   1. cNFT dust filter — hide cNFT collections whose CURRENT FLOOR is
-  //      below 0.002 SOL via the shared `isCnftDust` predicate (Dashboard
+  //   1. cNFT dust filter — hide cNFT low-floor noise by collection floor,
+  //      not sale price. Hides cNFT collections whose CURRENT FLOOR is at or
+  //      below 0.005 SOL via the shared `isCnftDust` predicate (Dashboard
   //      uses the same predicate so the two surfaces stay in lockstep).
   //   2. % floor fallback — when the backend didn't compute `floorDelta`
   //      for an event but its slug landed in this cache, FeedCard derives
@@ -1415,7 +1416,8 @@ export default function FeedPage() {
 
   const filtered = useMemo(() => events.filter(e => {
     // Collection-floor gate for cNFTs (replaces the old sale-price guard):
-    // shared predicate — see `@/soloist/cnft-filter`.
+    // shared predicate — see `@/soloist/cnft-filter`. Hide cNFT low-floor
+    // noise by collection floor, not sale price.
     if (isCnftDust(e, s => floorBySlug[s])) return false;
     // Defensive blacklist — backend deletes blacklisted rows after enrichment,
     // but if a card was already painted via the immediate `sale` SSE frame we

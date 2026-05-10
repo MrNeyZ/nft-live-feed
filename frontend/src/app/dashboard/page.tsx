@@ -712,9 +712,10 @@ export default function Dashboard() {
   const [bids, setBids] = useState<Record<string, BidSnap>>({});
 
   const filteredEvents = useMemo(() => {
-    // cNFT dust gate — shared predicate with Live Feed. Applied pre-aggregate
-    // so collections whose only events are sub-0.002-SOL-floor cNFTs drop out
-    // of the Dashboard entirely (no row, no slug, no bids fetch). Lookup pulls
+    // cNFT dust gate — shared predicate with Live Feed. Hide cNFT low-floor
+    // noise by collection floor, not sale price. Applied pre-aggregate so
+    // collections whose floor is at or below 0.005 SOL drop out of the
+    // Dashboard entirely (no row, no slug, no bids fetch). Lookup pulls
     // floor from the `bids` map that's already populated for every aggregated
     // slug; first pass may include a cNFT row until its floor lands, then the
     // next render filters it. Unknown floor ⇒ fail-safe, event passes.
