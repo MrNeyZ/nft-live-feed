@@ -24,12 +24,59 @@
  * The detectors are deliberately narrow: anything else returns null so
  * targeted-mode ingestion can reject `unknown_launchpad` cleanly.
  */
+import { PublicKey } from '@solana/web3.js';
+import bs58 from 'bs58';
 import type { RawSolanaTx } from '../me-raw/types';
 
 export const LAUNCHMYNFT_PROGRAM    = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 export const BUBBLEGUM_PROGRAM      = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
 export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
+/** SPL Account Compression Noop program — every Bubblegum mint emits a
+ *  CPI to this program carrying the `LeafSchema` of the freshly-minted
+ *  leaf. We decode that payload to recover the leaf nonce and derive
+ *  the cNFT asset ID locally (no DAS / RPC needed). */
+const NOOP_PROGRAM = 'noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV';
+const BUBBLEGUM_PROGRAM_PK = new PublicKey(BUBBLEGUM_PROGRAM);
+const ASSET_SEED = Buffer.from('asset');
+
+/** Borsh layout of the `AccountCompressionEvent::ApplicationData` Noop
+ *  ix data emitted by every Bubblegum mint (mint_v1 /
+ *  mint_to_collection_v1 / mint_v2 / mint_to_collection_v2):
+ *
+ *    byte  0     AccountCompressionEvent variant tag (1 = ApplicationData)
+ *    byte  1     ApplicationDataEvent variant tag    (0 = V1)
+ *    bytes 2-5   u32 LE: length of application_data
+ *    bytes 6+    application_data — a serialized LeafSchema:
+ *      byte    6      LeafSchema variant tag (0 = V1, 1 = V2)
+ *      bytes   7-38   id        (32 bytes)
+ *      bytes  39-70   owner     (32 bytes)
+ *      bytes  71-102  delegate  (32 bytes)
+ *      bytes 103-110  nonce     (u64 LE)               ← used for PDA derivation
+ *      ... data_hash, creator_hash; LeafSchemaV2 adds collection_hash etc.
+ *
+ *  The prefix layout up through `nonce` is identical for V1 and V2,
+ *  so reading at fixed offset 103 works for both. We don't gate on the
+ *  LeafSchema variant tag at byte 6 for the same reason. */
+const NOOP_LEAF_NONCE_OFFSET = 103;
+const NOOP_LEAF_NONCE_LEN    = 8;
+const NOOP_MIN_DATA_LEN      = NOOP_LEAF_NONCE_OFFSET + NOOP_LEAF_NONCE_LEN;
+
+/** Derive the cNFT asset ID via the canonical Bubblegum PDA seeds:
+ *    findProgramAddress(["asset", merkle_tree, u64_le(nonce)], BGUM)
+ *  Returns null on malformed merkle key (web3.js throws on a
+ *  non-base58 string). */
+function deriveCnftAssetId(merkleTree: string, nonceLe: Buffer): string | null {
+  try {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [ASSET_SEED, new PublicKey(merkleTree).toBuffer(), nonceLe],
+      BUBBLEGUM_PROGRAM_PK,
+    );
+    return pda.toBase58();
+  } catch {
+    return null;
+  }
+}
 /** vvv.so platform signer observed on every confirmed vvv.so mint.
  *  Treated as the on-chain fingerprint until a more durable signal
  *  (program, IDL discriminator) is identified. */
@@ -51,9 +98,13 @@ export interface LaunchpadHit {
    *  sense — they live in a Merkle tree which IS the collection-like
    *  grouping). Defaults to 'core' for backward compatibility. */
   standard:          LaunchpadStandard;
-  /** The freshly-minted asset / mint pubkey. Null for cNFT mints —
-   *  cNFTs don't have an on-chain mint account; the asset ID is a
-   *  derivative of (tree, leaf nonce) computed off-chain via DAS. */
+  /** The freshly-minted asset / mint pubkey.
+   *   - Core / Token Metadata: the SPL mint account.
+   *   - cNFT (Bubblegum): the asset ID PDA derived locally from the
+   *     merkle tree + leaf nonce read out of the SPL Noop event the
+   *     Bubblegum mint CPI emits. Stays `null` only when that event
+   *     is missing / malformed (defensive — graceful degrade to the
+   *     previous behaviour of emitting a row with no mint anchor). */
   mintAddress:       string | null;
   /** Buyer / payer wallet (signer at index 0). */
   minter:            string | null;
@@ -320,9 +371,9 @@ function extractCoreMintFromInner(
   return null;
 }
 
-/** Pull the Merkle tree (and best-effort collection) from the inner
- *  Bubblegum CPI of an LMNFT cNFT mint tx. Bubblegum's mint_v1 /
- *  mint_to_collection_v1 ix accounts:
+/** Pull the Merkle tree + derived asset ID from the inner CPIs of an
+ *  LMNFT cNFT mint tx. Bubblegum's mint_v1 / mint_to_collection_v1 /
+ *  mint_v2 / mint_to_collection_v2 ix accounts share the prefix:
  *      accounts[0] = tree config / authority PDA
  *      accounts[1] = leaf owner (the recipient wallet)
  *      accounts[2] = leaf delegate
@@ -330,17 +381,23 @@ function extractCoreMintFromInner(
  *      accounts[4] = payer (signer)
  *      accounts[5] = tree creator/delegate
  *      ...
- *  cNFTs have no on-chain mint account; the asset ID is computed
- *  off-chain from (tree, leaf_nonce). We use the tree address as the
- *  collection-equivalent and leave `mintAddress = null`. */
+ *  Bubblegum then emits a Noop CPI with the LeafSchema event for the
+ *  freshly-minted leaf — that's where the `nonce` comes from. With the
+ *  tree + nonce in hand we derive the asset ID locally via the
+ *  canonical Bubblegum PDA seeds (no DAS / no RPC). When the Noop
+ *  event is missing or layout-skewed (e.g. unknown future Bubblegum
+ *  variant), assetId stays null and the row degrades to the previous
+ *  no-mint-anchor behaviour. */
 function extractCnftFromInner(
   tx: RawSolanaTx,
   shape: ParsedTxShape,
-): { merkleTree: string } | null {
+): { merkleTree: string; assetId: string | null } | null {
   const inner = tx.meta?.innerInstructions;
   if (!Array.isArray(inner)) return null;
   for (const grp of inner) {
     if (!Array.isArray(grp.instructions)) continue;
+    let merkleTree: string | null = null;
+    let nonceLe:    Buffer | null = null;
     for (const ix of grp.instructions) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ixAny = ix as any;
@@ -349,16 +406,33 @@ function extractCnftFromInner(
         : typeof ixAny.programIdIndex === 'number'
           ? shape.accountKeys[ixAny.programIdIndex]
           : '';
-      if (programId !== BUBBLEGUM_PROGRAM) continue;
-      const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
-        typeof a === 'string' ? a : shape.accountKeys[a],
-      );
-      // Merkle tree at index 3 across mint_v1 / mint_to_collection_v1.
-      // Defensive: bail if the slot's empty / not a string.
-      const tree = accs.length > 3 ? accs[3] : null;
-      if (typeof tree === 'string' && tree.length > 0) {
-        return { merkleTree: tree };
+      if (programId === BUBBLEGUM_PROGRAM && merkleTree === null) {
+        const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
+          typeof a === 'string' ? a : shape.accountKeys[a],
+        );
+        // Merkle tree at index 3 across mint_v1 / mint_to_collection_v1
+        // / mint_v2 / mint_to_collection_v2. Defensive: bail if the
+        // slot's empty / not a string.
+        const tree = accs.length > 3 ? accs[3] : null;
+        if (typeof tree === 'string' && tree.length > 0) merkleTree = tree;
+      } else if (programId === NOOP_PROGRAM && nonceLe === null) {
+        // Decode the Noop ix data — base58-encoded in the parsed-tx
+        // representation. Skip silently on any malformed payload (e.g.
+        // a ChangeLog event, which uses tag 0 and not 1).
+        let data: Buffer;
+        try { data = Buffer.from(bs58.decode(ixAny.data)); } catch { continue; }
+        if (data.length < NOOP_MIN_DATA_LEN) continue;
+        if (data[0] !== 1)                   continue;  // not ApplicationData
+        if (data[1] !== 0)                   continue;  // not V1 wrapper
+        nonceLe = Buffer.from(data.subarray(
+          NOOP_LEAF_NONCE_OFFSET,
+          NOOP_LEAF_NONCE_OFFSET + NOOP_LEAF_NONCE_LEN,
+        ));
       }
+    }
+    if (merkleTree) {
+      const assetId = nonceLe ? deriveCnftAssetId(merkleTree, nonceLe) : null;
+      return { merkleTree, assetId };
     }
   }
   return null;
@@ -417,8 +491,13 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
     return {
       source:            'LaunchMyNFT',
       standard:          'cnft',
-      // cNFTs have no on-chain mint account.
-      mintAddress:       null,
+      // cNFT asset ID derived locally from the Bubblegum Noop event
+      // (tree + leaf nonce). Stays null only when that event is missing
+      // — e.g. an as-yet-unknown Bubblegum variant — so callers see
+      // the same "no mint anchor" fallback as before in degenerate
+      // cases. Healthy LMNFT cNFT mints now ship a real assetId,
+      // restoring Solscan links + LAST MINT clickability.
+      mintAddress:       cnft.assetId,
       // Use the Merkle tree as the collection-equivalent grouping
       // anchor — every cNFT in this drop shares this tree.
       collectionAddress: cnft.merkleTree,

@@ -450,15 +450,21 @@ export async function ingestMintRaw(
         : new Date().toISOString();
       console.log(
         `[mints/launchpad] accept source=${lp.source} type=cNFT ix=${lp.matchedNeedle ?? '—'} ` +
-        `tree=${lp.collectionAddress} sig=${sig.slice(0,12)}…`,
+        `tree=${lp.collectionAddress} mint=${lp.mintAddress ?? 'null'} ` +
+        `sig=${sig.slice(0,12)}…`,
       );
       recordMint({
         signature:         sig,
         blockTime,
         programSource:     'bubblegum',
-        // cNFTs have no on-chain mint account — emit null so the
-        // frontend renders the row without a Solscan token link.
-        mintAddress:       null,
+        // cNFT asset ID derived deterministically from the Bubblegum
+        // Noop LeafSchema event (see `extractCnftFromInner` in
+        // launchpad-detector.ts). Fans out to the accumulator's
+        // `lastMintAddress` and onto the wire as `mintAddress`, so
+        // Solscan links + LAST MINT clickability work for cNFT rows
+        // and per-mint cards. Falls back to null on a malformed /
+        // missing Noop event — same graceful-degrade as before.
+        mintAddress:       lp.mintAddress,
         collectionAddress: lp.collectionAddress,
         groupingKey,
         groupingKind,
