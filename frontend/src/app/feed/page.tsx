@@ -37,6 +37,22 @@ const SNAPSHOT_LIMIT = 100;
 // < cap) is byte-identical to before.
 const MAX_RENDERED_ROWS = 150;
 
+// Display-only price formatter for the live-feed cards. Diverges from the
+// shared `formatSol` only in the 0.001..0.01 SOL band: that range used to
+// render as 4 decimals ("0.0060"), which made every low-priced row read as
+// dust noise. New rule: max 3 decimals with trailing zeros trimmed
+// (0.006, 0.007). Sub-0.001 SOL keeps the shared formatter's 5/6-decimal
+// path so a 0.00025 SOL sale still renders meaningfully instead of
+// collapsing to "0.000". Larger prices (≥ 0.01) fall through to the shared
+// formatter unchanged so dashboard / collection / tools displays stay in
+// lockstep. Does NOT touch raw priceSol, filters, sorting, or floor%.
+function formatFeedPrice(n: number): string {
+  if (n >= 0.001 && n < 0.01) {
+    return n.toFixed(3).replace(/\.?0+$/, '');
+  }
+  return formatSol(n);
+}
+
 // ── Persisted seller-remaining counts ──────────────────────────────────────
 // Map of `${seller}-${collection}` → count, JSON-encoded into localStorage.
 // Backend emits the count asynchronously over SSE (event: seller_count)
@@ -833,7 +849,7 @@ const FeedCard = memo(function FeedCard({
                 ' inset 0 -1px 0 rgba(0, 0, 0, 0.18)',
             }}>{style.label}</span>
             <span style={FC_PRICE_TEXT_STYLE}>
-              {safePrice == null ? '—' : formatSol(safePrice)}{' '}
+              {safePrice == null ? '—' : formatFeedPrice(safePrice)}{' '}
               <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>
