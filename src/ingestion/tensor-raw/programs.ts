@@ -294,6 +294,24 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     sellerAcctIdx: null,
     coreAssetIdx:  null,
   },
+  {
+    // TAMM legacy SPL-NFT "buy NFT from token pool". Discriminator confirmed
+    // from two live sales that /feed had been skipping entirely:
+    //   kg7hHr1zm9ffL6LxK7iPUNuF75TZmfLPhnfoMm4CXG3cxMf9ozMAkAhVrmeNcs62iRDSsqDm51BwWVEsMgHxf8h
+    //   3C9WCWFLxyCCZipuy6Fg6SjBVSNqHyroeiXvNUv9vnuDdpaFW4Ne13UpD3n2AdkiNYST41iXPZXyBJwkeFgsYVpV
+    // Log prefix `Instruction: BuyNft`; Anchor disc sha256("global:buy_nft")[:8] = 60 00 1c be 31 6b 53 de.
+    // accounts[1] = buyer (confirmed: receives the NFT). accounts[7] = pool owner / seller — layout mirrors the
+    // verified `buy` def above, but the owner↔pool-PDA link wasn't cross-checked, so verified:false. nftType
+    // resolves to 'legacy' (Tokenkeg TransferChecked + CloseAccount, no Core inner CPI), so parseTammSale uses
+    // extractNftMint() + token-flow / payment-flow fallbacks — coreAssetIdx is not applicable.
+    name:          'buyNft',
+    disc:          Buffer.from('60001cbe316b53de', 'hex'),
+    verified:      false,
+    direction:     'buy',
+    buyerAcctIdx:  1,
+    sellerAcctIdx: 7,
+    coreAssetIdx:  null,
+  },
 ];
 
 // ─── Combined lookup ──────────────────────────────────────────────────────────

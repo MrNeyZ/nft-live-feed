@@ -324,7 +324,7 @@ const TENSOR_SALE_INSTRUCTIONS: ReadonlySet<string> = new Set([
   'takebidlegacy', 'takebidcore', 'takebidfullmeta', 'takebidmetahash',
   'takebidt22', 'takebidwns',
   // tamm
-  'sell', 'sellnfttradepool', 'buynfttradepool',
+  'sell', 'sellnfttradepool', 'buynfttradepool', 'buynft',
 ]);
 
 const TENSOR_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['tcomp', 'tamm']);
