@@ -547,14 +547,28 @@ a { color: inherit; text-decoration: none; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   cursor: pointer;
   position: relative;
+  /* `box-shadow` is intentionally NOT in this transition list: the
+     hover state adds a 16 px-blur outer glow, and animating it would
+     re-rasterise that glow every frame for the whole card. The glow
+     now snaps in on hover while `transform` (composited) + the cheap
+     paint props ease — visually near-identical, far less work per
+     frame on a 150-row list.
+     `will-change` is intentionally absent: pinning 150 cards as
+     compositor layers up-front costs real GPU memory for no gain;
+     the browser promotes the hovered card transiently for the scale
+     transition, which is all that's needed. */
   transition:
     transform 200ms ease-out,
     background 200ms ease-out,
     border-color 200ms ease-out,
-    box-shadow 200ms ease-out,
     opacity 180ms ease-out;
   transform-origin: center;
-  will-change: transform;
+  /* Scope layout + style recalc to the card box. A hover restyle on
+     one row can't dirty the layout of its 149 siblings. `paint` is
+     deliberately excluded — the buy/sell ::before/::after edge
+     stripes are positioned at left/right: -3px and must not be
+     clipped. */
+  contain: layout style;
 }
 
 .feed-card:hover {
@@ -831,9 +845,14 @@ a { color: inherit; text-decoration: none; }
    - outer 18px @ 0.24 alpha: tasteful soft glow; not neon. */
 .tools-offer-row {
   position: relative;
-  transition: transform 200ms ease-out, background 200ms ease-out, box-shadow 200ms ease-out;
+  /* Same rationale as `.feed-card`: keep `box-shadow` out of the
+     transition (hover glow snaps; transform + background ease) and
+     drop the always-on `will-change` layer promotion. `contain:
+     layout style` scopes recalc; `paint` excluded so any focus ring
+     that bleeds past the row box isn't clipped. */
+  transition: transform 200ms ease-out, background 200ms ease-out;
   transform-origin: center;
-  will-change: transform;
+  contain: layout style;
 }
 .tools-offer-row:hover {
   transform: scale(1.015);
@@ -1066,6 +1085,21 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
 @media (prefers-reduced-motion: reduce) {
   .topnav-active-indicator,
   .topnav-tab { transition: none !important; }
+}
+
+/* Reduced-motion: strip the non-essential motion on the feed/tools
+   surfaces. The new-row slide-in (`slideDown`, which animates
+   `max-height` — a per-frame reflow) and the hover scale-lift are
+   pure polish, so they're cut entirely; the colour-coded buy/sell
+   flash decay is left intact because it conveys trade direction, not
+   decoration. Hover background / border-colour changes also stay so
+   the row still reads as "focused" — they just don't move. */
+@media (prefers-reduced-motion: reduce) {
+  .feed-row-wrap { animation: none; }
+  .feed-card,
+  .tools-offer-row { transition: background 120ms ease, border-color 120ms ease; }
+  .feed-card:hover,
+  .tools-offer-row:hover { transform: none; }
 }
 
 /* Persistent BottomStatusBar — when the shell renders the bar, mark
