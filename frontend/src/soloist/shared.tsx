@@ -1217,17 +1217,22 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
     const id = setInterval(load, 20 * 60_000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
-  // Subtle "platform module" surface — a barely-there inset panel that lets a
-  // related cluster of footer items read as one unit (Magic Eden-style chrome)
-  // instead of disconnected text. Low-contrast fill + a hairline border + a
-  // faint top sheen; tiny radius keeps the terminal feel. Per-use callers add
-  // their own internal `gap`. Stays lighter than the topbar's surfaces.
+  // "Platform module" surface — a barely-there panel that lets a related
+  // cluster of footer items read as one unit (Magic Eden-style chrome)
+  // instead of disconnected text. Reads as cut *into* the bar: a fill a touch
+  // darker than the footer base, a hairline rim, a soft inner shadow at the
+  // top edge, and a faint sheen along the bottom — a little more physical
+  // depth than before, still subtle. Tiny radius keeps the terminal feel;
+  // per-use callers add their own internal `gap`. Stays quieter / more
+  // recessed than the topbar's surfaces.
   const groupModule: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center',
     padding: '1px 9px', borderRadius: 5,
-    background: 'rgba(255,255,255,0.018)',
-    border: '1px solid rgba(255,255,255,0.045)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.022)',
+    background: 'rgba(0,0,0,0.20)',
+    border: '1px solid rgba(255,255,255,0.05)',
+    boxShadow:
+      'inset 0 1px 2px rgba(0,0,0,0.26), ' +
+      'inset 0 -1px 0 rgba(255,255,255,0.022)',
   };
   return (
     <div className="bottom-status" style={{
@@ -1257,7 +1262,12 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 18px',
+        // Tightened in small steps (this wrapper went 8px → 7px vertical; the
+        // FEES/SOUND pills were trimmed in step too) — the wrapper padding is
+        // the dominant lever for the footer's overall height, but every
+        // vertical value is kept just above "cramped". Horizontal padding,
+        // grouping, alignment (alignItems: center), and readability unchanged.
+        padding: '7px 18px',
         maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
@@ -1266,17 +1276,17 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             href="https://discord.com/"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#62627a', fontFamily: 'inherit', textDecoration: 'none' }}
+            style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}
           >Discord</a>
           <a
             href="https://x.com/VictoryHell_"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#62627a', fontFamily: 'inherit', textDecoration: 'none' }}
+            style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}
           >Twitter</a>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-            <span style={{ color: '#62627a' }}>alerts</span>
+            <span style={{ color: '#5c5c74' }}>alerts</span>
           </span>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -1298,25 +1308,25 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price'
                 : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '2px 8px', fontSize: 10, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '1px 10px', fontSize: 10, fontWeight: 700,
                 letterSpacing: '0.4px', textTransform: 'uppercase',
-                borderRadius: 3, cursor: 'pointer',
+                borderRadius: 4, cursor: 'pointer',
                 border: inclusiveFees
                   ? '1px solid rgba(168,144,232,0.55)'
-                  : '1px solid rgba(255,255,255,0.08)',
+                  : '1px solid rgba(255,255,255,0.10)',
                 background: inclusiveFees
                   ? 'rgba(168,144,232,0.18)'
                   : 'rgba(255,255,255,0.04)',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                color:      inclusiveFees ? '#d0c8e4' : '#8a8aa2',
+                color:      inclusiveFees ? '#d0c8e4' : '#9494ac',
                 fontFamily: 'inherit',
                 transition: 'all 0.12s',
               }}
             >
               <span style={{
                 display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                background: inclusiveFees ? '#a890e8' : '#46465e',
+                background: inclusiveFees ? '#a890e8' : '#52526a',
               }} />
               Fees
             </button>
@@ -1335,25 +1345,25 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 ? 'UI sound ON — subtle hover/click ticks'
                 : 'UI sound OFF — click to enable subtle hover/click ticks'}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '2px 8px', fontSize: 10, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '1px 10px', fontSize: 10, fontWeight: 700,
                 letterSpacing: '0.4px', textTransform: 'uppercase',
-                borderRadius: 3, cursor: 'pointer',
+                borderRadius: 4, cursor: 'pointer',
                 border: uiSoundEnabled
                   ? '1px solid rgba(168,144,232,0.55)'
-                  : '1px solid rgba(255,255,255,0.08)',
+                  : '1px solid rgba(255,255,255,0.10)',
                 background: uiSoundEnabled
                   ? 'rgba(168,144,232,0.18)'
                   : 'rgba(255,255,255,0.04)',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                color:      uiSoundEnabled ? '#d0c8e4' : '#8a8aa2',
+                color:      uiSoundEnabled ? '#d0c8e4' : '#9494ac',
                 fontFamily: 'inherit',
                 transition: 'all 0.12s',
               }}
             >
               <span style={{
                 display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                background: uiSoundEnabled ? '#a890e8' : '#46465e',
+                background: uiSoundEnabled ? '#a890e8' : '#52526a',
               }} />
               Sound
             </button>
@@ -1362,14 +1372,14 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
               live-market readouts read as a unit. Values sit a notch clearer
               than their labels for a small, deliberate contrast hierarchy. */}
           <div style={{ ...groupModule, gap: 12 }}>
-            <span><span style={{ color: '#62627a' }}>TPS </span><span style={{ color: '#a08fe2' }}>{tps.toLocaleString()}</span></span>
-            <span><span style={{ color: '#62627a' }}>SOL </span><span style={{ color: '#58c089' }}>${sol}</span></span>
+            <span><span style={{ color: '#5c5c74' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
+            <span><span style={{ color: '#5c5c74' }}>SOL </span><span style={{ color: '#62cb93' }}>${sol}</span></span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <LiveDot />
-              <span style={{ color: '#58c089' }}>live</span>
+              <span style={{ color: '#62cb93' }}>live</span>
             </span>
             {typeof eventsCount === 'number' && (
-              <span><span style={{ color: '#62627a' }}>EVENTS </span><span style={{ color: '#6e6e88' }}>{eventsCount}</span></span>
+              <span><span style={{ color: '#5c5c74' }}>EVENTS </span><span style={{ color: '#7e7e98' }}>{eventsCount}</span></span>
             )}
           </div>
         </div>
@@ -1414,10 +1424,18 @@ export function FloatingLayoutModeSwitcher() {
         zIndex: 9999,
         display: 'inline-flex', alignItems: 'center',
         padding: 2, gap: 2, borderRadius: 5,
-        border: '1px solid rgba(168,144,232,0.45)',
-        background: 'rgba(20,14,34,0.94)',
+        // Calmer / more recessed than before — a much fainter purple rim, a
+        // darker base closer to the footer chrome, an inner top shadow + a
+        // faint bottom sheen so it reads as a milled-in control rather than a
+        // bright floating widget, and a lighter outer drop shadow (the purple
+        // glow ring is gone).
+        border: '1px solid rgba(168,144,232,0.18)',
+        background: 'rgba(14,11,24,0.95)',
         backdropFilter: 'blur(8px)',
-        boxShadow: '0 4px 14px rgba(0,0,0,0.5), 0 0 0 1px rgba(168,144,232,0.14)',
+        boxShadow:
+          'inset 0 1px 2px rgba(0,0,0,0.28), ' +
+          'inset 0 -1px 0 rgba(255,255,255,0.022), ' +
+          '0 3px 10px -2px rgba(0,0,0,0.42)',
       }}
     >
       {/* Sliding indicator. zIndex: 0 so button text reads on top.
@@ -1429,8 +1447,12 @@ export function FloatingLayoutModeSwitcher() {
           position: 'absolute',
           top: 2, bottom: 2,
           left: pill.left, width: pill.width,
-          background: 'rgba(168,144,232,0.22)',
-          border: '1px solid rgba(168,144,232,0.35)',
+          // Softened: a quieter purple wash + rim, plus a faint top sheen so
+          // the active capsule reads as a slightly raised key inside the
+          // recessed track. The brighter active label keeps the state obvious.
+          background: 'rgba(168,144,232,0.16)',
+          border: '1px solid rgba(168,144,232,0.26)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
           borderRadius: 3,
           transition: pill.primed
             ? 'left 0.22s cubic-bezier(0.4, 0.0, 0.2, 1), width 0.22s cubic-bezier(0.4, 0.0, 0.2, 1)'
@@ -1450,7 +1472,10 @@ export function FloatingLayoutModeSwitcher() {
             onClick={() => setMode(m.key)}
             style={{
               position: 'relative', zIndex: 1,
-              padding: '3px 7px', fontSize: 9.5, fontWeight: 700,
+              // 3px → 2px vertical: a very subtle vertical tighten (slimmer
+              // capsule too, since it tracks the button height). Horizontal
+              // padding, min-width, and font size are untouched.
+              padding: '2px 7px', fontSize: 9.5, fontWeight: 700,
               letterSpacing: '0.4px', borderRadius: 3,
               border: 'none',
               background: 'transparent',
