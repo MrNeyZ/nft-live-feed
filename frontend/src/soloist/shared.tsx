@@ -1420,7 +1420,7 @@ export function FloatingLayoutModeSwitcher() {
       style={{
         position: 'fixed',
         right: 12,
-        bottom: 32,
+        bottom: 37,
         zIndex: 9999,
         display: 'inline-flex', alignItems: 'center',
         padding: 2, gap: 2, borderRadius: 5,
