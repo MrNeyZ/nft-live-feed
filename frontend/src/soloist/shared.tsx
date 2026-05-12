@@ -808,7 +808,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
       //   • low downward glow (purple-tinted) + the original black drop shadow
       //   • inset 1px top highlight = the "glass edge" sheen
       background:
-        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.12) 0%, rgba(132,108,224,0.035) 40%, transparent 66%), ' +
+        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.08) 0%, rgba(132,108,224,0.035) 40%, transparent 66%), ' +
         'linear-gradient(180deg, rgba(22,16,38,0.82) 0%, rgba(11,9,20,0.96) 100%)',
       borderBottom: '1px solid rgba(168,144,232,0.10)',
       boxShadow:
@@ -823,7 +823,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
     }}>
     <div className="topnav-inner" style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 22px', height: 56,
+      padding: '0 22px', height: 48,
       maxWidth: 'var(--topnav-max, 1400px)', margin: '0 auto',
       gap: 12,
     }}>
@@ -839,9 +839,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
             layout shell stays mounted and only the route segment swaps. */}
         <Link href="/dashboard" className="topnav-logo" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
-          // A small padded block (rounded) gives the wordmark a defined
-          // presence / home-affordance region instead of floating text.
-          marginLeft: 2, padding: '6px 10px', borderRadius: 8,
+          // No block/background — the wordmark floats clean in the bar; the
+          // bloom on the <img> below is what gives it presence.
+          marginLeft: 6,
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -875,15 +875,18 @@ export function TopNav({ active }: { active?: Page } = {}) {
               left:  indicator?.left  ?? 0,
               width: indicator?.width ?? 0,
               opacity: indicator ? 1 : 0,
-              // Soft capsule: rounder corners, a stronger purple wash, a 1px
-              // inset border, a top sheen, and both a tight lift-shadow and a
-              // wider glow so the active tab clearly outranks the others.
-              borderRadius: 7,
-              background: 'linear-gradient(180deg, rgba(140,116,232,0.22) 0%, rgba(120,98,210,0.07) 100%)',
+              // Soft capsule: a purple wash, a 1px inset border, a top sheen,
+              // and both a tight lift-shadow and a wider glow so the active tab
+              // clearly outranks the others — but tuned down (~18% less glow,
+              // dimmer border, darker wash) so it reads as a "selected
+              // terminal tab", not a clickable neon button. Kept slim (radius +
+              // height track the tighter tab padding) for a terminal feel.
+              borderRadius: 6,
+              background: 'linear-gradient(180deg, rgba(130,106,216,0.16) 0%, rgba(112,92,196,0.05) 100%)',
               boxShadow:
-                '0 2px 10px rgba(118,94,210,0.22), ' +
-                '0 0 16px rgba(140,116,232,0.16), ' +
-                'inset 0 0 0 1px rgba(168,144,232,0.30), ' +
+                '0 2px 10px rgba(118,94,210,0.18), ' +
+                '0 0 16px rgba(140,116,232,0.13), ' +
+                'inset 0 0 0 1px rgba(168,144,232,0.24), ' +
                 'inset 0 1px 0 rgba(255,255,255,0.05)',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -905,7 +908,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             // TOOLS <button> trigger so both render pixel-identically.
             const tabStyle: React.CSSProperties = {
               position: 'relative', zIndex: 1,
-              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              padding: '4px 16px', fontSize: 12, fontWeight: 600,
               // Inactive a notch more muted; active text noticeably brighter
               // (the sliding capsule behind it carries the rest of the weight).
               color: isActive ? '#e7e0f6' : (isHover ? '#b4b4c8' : '#4f4f66'),
@@ -1034,7 +1037,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             aria-expanded={otherOpen}
             style={{
               position: 'relative', zIndex: 1,
-              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              padding: '4px 16px', fontSize: 12, fontWeight: 600,
               color: '#4f4f66',
               letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               background: 'transparent',
@@ -1047,10 +1050,10 @@ export function TopNav({ active }: { active?: Page } = {}) {
       {otherOpen && <OtherMenuModal onClose={() => setOtherOpen(false)} />}
 
       {/* Center: search collections */}
-      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 400px', maxWidth: 400, marginLeft: 18 }}>
+      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 480px', maxWidth: 480, marginLeft: 18 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '0 12px', height: 34,
+          padding: '0 12px', height: 28,
           // Glass/inset field: a recessed look (inner top shadow) at rest;
           // on focus it brightens, the border goes purple, and a soft outer
           // glow ring fades in. Functionality/handlers below are unchanged.
