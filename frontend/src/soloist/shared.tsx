@@ -1217,19 +1217,47 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
     const id = setInterval(load, 20 * 60_000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
+  // Subtle "platform module" surface — a barely-there inset panel that lets a
+  // related cluster of footer items read as one unit (Magic Eden-style chrome)
+  // instead of disconnected text. Low-contrast fill + a hairline border + a
+  // faint top sheen; tiny radius keeps the terminal feel. Per-use callers add
+  // their own internal `gap`. Stays lighter than the topbar's surfaces.
+  const groupModule: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center',
+    padding: '1px 9px', borderRadius: 5,
+    background: 'rgba(255,255,255,0.018)',
+    border: '1px solid rgba(255,255,255,0.045)',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.022)',
+  };
   return (
     <div className="bottom-status" style={{
       width: '100vw',
       marginLeft: 'calc(50% - 50vw)',
-      background: 'linear-gradient(180deg, rgba(10,8,18,0.95) 0%, rgba(20,14,34,0.7) 100%)',
-      borderTop: '1px solid rgba(255,255,255,0.04)',
-      boxShadow: '0 -1px 0 rgba(128,104,216,0.04), 0 -8px 24px rgba(0,0,0,0.4)',
-      backdropFilter: 'blur(12px)',
+      // Mirror of the topbar's layered chrome, flipped to anchor at the
+      // bottom: a deeper dark-glass base (vertical gradient + backdrop blur),
+      // a faint purple haze pooled toward the bottom edge, a slightly
+      // stronger top separator, a crisp top-edge highlight + a soft inner
+      // shadow descending from it (so page content reads as sitting *in
+      // front of* the footer), and an upward purple-tinted depth shadow +
+      // the original black one. Kept a touch more restrained than the topbar
+      // so the header stays the dominant chrome.
+      background:
+        'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.07) 0%, rgba(132,108,224,0.03) 42%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(11,9,20,0.96) 0%, rgba(22,16,38,0.82) 100%)',
+      borderTop: '1px solid rgba(168,144,232,0.10)',
+      boxShadow:
+        'inset 0 1px 0 rgba(255,255,255,0.05), ' +
+        'inset 0 6px 14px -10px rgba(0,0,0,0.28), ' +
+        '0 -1px 0 rgba(168,144,232,0.06), ' +
+        '0 -16px 38px -12px rgba(58,40,104,0.38), ' +
+        '0 -8px 24px rgba(0,0,0,0.40)',
+      backdropFilter: 'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
       flexShrink: 0,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '6px 18px',
+        padding: '8px 18px',
         maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
@@ -1238,94 +1266,112 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             href="https://discord.com/"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#55556e', fontFamily: 'inherit', textDecoration: 'none' }}
+            style={{ color: '#62627a', fontFamily: 'inherit', textDecoration: 'none' }}
           >Discord</a>
           <a
             href="https://x.com/VictoryHell_"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: '#55556e', fontFamily: 'inherit', textDecoration: 'none' }}
+            style={{ color: '#62627a', fontFamily: 'inherit', textDecoration: 'none' }}
           >Twitter</a>
           <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-            <span style={{ color: '#55556e' }}>alerts</span>
+            <span style={{ color: '#62627a' }}>alerts</span>
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          {/* Pricing-mode toggle. Affects only AMM_SELL display
-              (pool_sale events) — see displayPrice() in
-              `@/soloist/price-mode`. Default OFF. */}
-          <button
-            type="button"
-            onClick={() => setInclusiveFees(!inclusiveFees)}
-            title={inclusiveFees
-              ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price'
-              : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '2px 8px', fontSize: 10, fontWeight: 700,
-              letterSpacing: '0.4px', textTransform: 'uppercase',
-              borderRadius: 3, cursor: 'pointer',
-              border: inclusiveFees
-                ? '1px solid rgba(168,144,232,0.55)'
-                : '1px solid rgba(255,255,255,0.08)',
-              background: inclusiveFees
-                ? 'rgba(168,144,232,0.18)'
-                : 'rgba(255,255,255,0.03)',
-              color:      inclusiveFees ? '#d0c8e4' : '#7a7a94',
-              fontFamily: 'inherit',
-              transition: 'all 0.12s',
-            }}
-          >
-            <span style={{
-              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-              background: inclusiveFees ? '#a890e8' : '#3a3a52',
-            }} />
-            Fees
-          </button>
-          {/* UI Sound toggle — synthesised hover/click ticks via WebAudio.
-              Default OFF; enabling persists to localStorage `vl.uiSound`.
-              Visual mirror of the "Incl. fees" pill so the bar looks
-              uniform; behavior gated inside `playUiTick` (no-op when off,
-              when prefers-reduced-motion is set, or before first user
-              gesture has primed the AudioContext). */}
-          <button
-            type="button"
-            onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
-            title={uiSoundEnabled
-              ? 'UI sound ON — subtle hover/click ticks'
-              : 'UI sound OFF — click to enable subtle hover/click ticks'}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '2px 8px', fontSize: 10, fontWeight: 700,
-              letterSpacing: '0.4px', textTransform: 'uppercase',
-              borderRadius: 3, cursor: 'pointer',
-              border: uiSoundEnabled
-                ? '1px solid rgba(168,144,232,0.55)'
-                : '1px solid rgba(255,255,255,0.08)',
-              background: uiSoundEnabled
-                ? 'rgba(168,144,232,0.18)'
-                : 'rgba(255,255,255,0.03)',
-              color:      uiSoundEnabled ? '#d0c8e4' : '#7a7a94',
-              fontFamily: 'inherit',
-              transition: 'all 0.12s',
-            }}
-          >
-            <span style={{
-              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-              background: uiSoundEnabled ? '#a890e8' : '#3a3a52',
-            }} />
-            Sound
-          </button>
-          <span><span style={{ color: '#55556e' }}>TPS </span><span style={{ color: '#9683dc' }}>{tps.toLocaleString()}</span></span>
-          <span><span style={{ color: '#55556e' }}>SOL </span><span style={{ color: '#4fb67d' }}>${sol}</span></span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <LiveDot />
-            <span style={{ color: '#4fb67d' }}>live</span>
-          </span>
-          {typeof eventsCount === 'number' && (
-            <span><span style={{ color: '#55556e' }}>EVENTS </span><span style={{ color: '#56566e' }}>{eventsCount}</span></span>
-          )}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {/* FEES + SOUND — grouped into one platform module so the two
+              toggles read as a single "controls" cluster rather than loose
+              buttons floating in the bar. */}
+          <div style={{ ...groupModule, gap: 8 }}>
+            {/* Pricing-mode toggle. Affects only AMM_SELL display
+                (pool_sale events) — see displayPrice() in
+                `@/soloist/price-mode`. Default OFF. */}
+            <button
+              type="button"
+              onClick={() => setInclusiveFees(!inclusiveFees)}
+              // Tiny hover lift — a hair more fill, no bright/glow hover.
+              // mouse-leave restores the state-correct resting fill.
+              onMouseEnter={(e) => { e.currentTarget.style.background = inclusiveFees ? 'rgba(168,144,232,0.235)' : 'rgba(255,255,255,0.065)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = inclusiveFees ? 'rgba(168,144,232,0.18)'  : 'rgba(255,255,255,0.04)';  }}
+              title={inclusiveFees
+                ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price'
+                : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '2px 8px', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.4px', textTransform: 'uppercase',
+                borderRadius: 3, cursor: 'pointer',
+                border: inclusiveFees
+                  ? '1px solid rgba(168,144,232,0.55)'
+                  : '1px solid rgba(255,255,255,0.08)',
+                background: inclusiveFees
+                  ? 'rgba(168,144,232,0.18)'
+                  : 'rgba(255,255,255,0.04)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                color:      inclusiveFees ? '#d0c8e4' : '#8a8aa2',
+                fontFamily: 'inherit',
+                transition: 'all 0.12s',
+              }}
+            >
+              <span style={{
+                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                background: inclusiveFees ? '#a890e8' : '#46465e',
+              }} />
+              Fees
+            </button>
+            {/* UI Sound toggle — synthesised hover/click ticks via WebAudio.
+                Default OFF; enabling persists to localStorage `vl.uiSound`.
+                Visual mirror of the "Incl. fees" pill so the bar looks
+                uniform; behavior gated inside `playUiTick` (no-op when off,
+                when prefers-reduced-motion is set, or before first user
+                gesture has primed the AudioContext). */}
+            <button
+              type="button"
+              onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = uiSoundEnabled ? 'rgba(168,144,232,0.235)' : 'rgba(255,255,255,0.065)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = uiSoundEnabled ? 'rgba(168,144,232,0.18)'  : 'rgba(255,255,255,0.04)';  }}
+              title={uiSoundEnabled
+                ? 'UI sound ON — subtle hover/click ticks'
+                : 'UI sound OFF — click to enable subtle hover/click ticks'}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                padding: '2px 8px', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.4px', textTransform: 'uppercase',
+                borderRadius: 3, cursor: 'pointer',
+                border: uiSoundEnabled
+                  ? '1px solid rgba(168,144,232,0.55)'
+                  : '1px solid rgba(255,255,255,0.08)',
+                background: uiSoundEnabled
+                  ? 'rgba(168,144,232,0.18)'
+                  : 'rgba(255,255,255,0.04)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                color:      uiSoundEnabled ? '#d0c8e4' : '#8a8aa2',
+                fontFamily: 'inherit',
+                transition: 'all 0.12s',
+              }}
+            >
+              <span style={{
+                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                background: uiSoundEnabled ? '#a890e8' : '#46465e',
+              }} />
+              Sound
+            </button>
+          </div>
+          {/* TPS · SOL · live · EVENTS — grouped into one stats module so the
+              live-market readouts read as a unit. Values sit a notch clearer
+              than their labels for a small, deliberate contrast hierarchy. */}
+          <div style={{ ...groupModule, gap: 12 }}>
+            <span><span style={{ color: '#62627a' }}>TPS </span><span style={{ color: '#a08fe2' }}>{tps.toLocaleString()}</span></span>
+            <span><span style={{ color: '#62627a' }}>SOL </span><span style={{ color: '#58c089' }}>${sol}</span></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <LiveDot />
+              <span style={{ color: '#58c089' }}>live</span>
+            </span>
+            {typeof eventsCount === 'number' && (
+              <span><span style={{ color: '#62627a' }}>EVENTS </span><span style={{ color: '#6e6e88' }}>{eventsCount}</span></span>
+            )}
+          </div>
         </div>
       </div>
     </div>
