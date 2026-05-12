@@ -801,16 +801,29 @@ export function TopNav({ active }: { active?: Page } = {}) {
     <div className="topnav-root" style={{
       width: '100vw',
       marginLeft: 'calc(50% - 50vw)',
-      background: 'linear-gradient(180deg, rgba(20,14,34,0.7) 0%, rgba(10,8,18,0.95) 100%)',
-      borderBottom: '1px solid rgba(255,255,255,0.04)',
-      boxShadow: '0 1px 0 rgba(128,104,216,0.04), 0 8px 24px rgba(0,0,0,0.4)',
-      backdropFilter: 'blur(12px)',
+      // Layered chrome so the header reads as a real platform shell:
+      //   • dark glass base — vertical gradient + backdrop blur
+      //   • soft purple haze pooled toward the top-centre (radial layer on top)
+      //   • faintly purple 1px bottom separator
+      //   • low downward glow (purple-tinted) + the original black drop shadow
+      //   • inset 1px top highlight = the "glass edge" sheen
+      background:
+        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.12) 0%, rgba(132,108,224,0.035) 40%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(22,16,38,0.82) 0%, rgba(11,9,20,0.96) 100%)',
+      borderBottom: '1px solid rgba(168,144,232,0.10)',
+      boxShadow:
+        'inset 0 1px 0 rgba(255,255,255,0.04), ' +
+        '0 1px 0 rgba(168,144,232,0.06), ' +
+        '0 16px 38px -12px rgba(58,40,104,0.42), ' +
+        '0 8px 24px rgba(0,0,0,0.42)',
+      backdropFilter: 'blur(14px)',
+      WebkitBackdropFilter: 'blur(14px)',
       flexShrink: 0,
       position: 'relative', zIndex: 100,
     }}>
     <div className="topnav-inner" style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 20px', height: 44,
+      padding: '0 22px', height: 56,
       maxWidth: 'var(--topnav-max, 1400px)', margin: '0 auto',
       gap: 12,
     }}>
@@ -826,7 +839,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
             layout shell stays mounted and only the route segment swaps. */}
         <Link href="/dashboard" className="topnav-logo" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
-          marginLeft: 6,
+          // A small padded block (rounded) gives the wordmark a defined
+          // presence / home-affordance region instead of floating text.
+          marginLeft: 2, padding: '6px 10px', borderRadius: 8,
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -835,7 +850,12 @@ export function TopNav({ active }: { active?: Page } = {}) {
             width={125}
             height={38}
             draggable={false}
-            style={{ display: 'block' }}
+            // Subtle purple bloom + a tight dark shadow so the wordmark lifts
+            // off the glass instead of sitting flat on it.
+            style={{
+              display: 'block',
+              filter: 'drop-shadow(0 0 14px rgba(132,108,224,0.26)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))',
+            }}
           />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
@@ -855,9 +875,16 @@ export function TopNav({ active }: { active?: Page } = {}) {
               left:  indicator?.left  ?? 0,
               width: indicator?.width ?? 0,
               opacity: indicator ? 1 : 0,
-              borderRadius: 4,
-              background: 'linear-gradient(180deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.04) 100%)',
-              boxShadow: '0 0 12px rgba(128,104,216,0.15), inset 0 0 0 1px rgba(128,104,216,0.12)',
+              // Soft capsule: rounder corners, a stronger purple wash, a 1px
+              // inset border, a top sheen, and both a tight lift-shadow and a
+              // wider glow so the active tab clearly outranks the others.
+              borderRadius: 7,
+              background: 'linear-gradient(180deg, rgba(140,116,232,0.22) 0%, rgba(120,98,210,0.07) 100%)',
+              boxShadow:
+                '0 2px 10px rgba(118,94,210,0.22), ' +
+                '0 0 16px rgba(140,116,232,0.16), ' +
+                'inset 0 0 0 1px rgba(168,144,232,0.30), ' +
+                'inset 0 1px 0 rgba(255,255,255,0.05)',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
                 'width 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -878,15 +905,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
             // TOOLS <button> trigger so both render pixel-identically.
             const tabStyle: React.CSSProperties = {
               position: 'relative', zIndex: 1,
-              padding: '5px 16px', fontSize: 12, fontWeight: 600,
-              color: isActive ? '#d0c8e4' : (isHover ? '#aaaabf' : '#55556e'),
-              letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              // Inactive a notch more muted; active text noticeably brighter
+              // (the sliding capsule behind it carries the rest of the weight).
+              color: isActive ? '#e7e0f6' : (isHover ? '#b4b4c8' : '#4f4f66'),
+              letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               // Background + box-shadow removed — handled by the
               // sliding indicator behind the labels (except for the
               // hover-highlight, which paints its own subtle tint when
               // the tab isn't already active).
-              background: isHover ? 'rgba(168,144,232,0.07)' : 'transparent',
-              transition: 'color 180ms ease-out, background 180ms ease-out',
+              background: isHover ? 'rgba(168,144,232,0.08)' : 'transparent',
+              transition: 'color 160ms ease-out, background 160ms ease-out',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
             // NOT navigate — it's purely a dropdown trigger; navigation
@@ -1005,9 +1034,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
             aria-expanded={otherOpen}
             style={{
               position: 'relative', zIndex: 1,
-              padding: '5px 16px', fontSize: 12, fontWeight: 600,
-              color: '#55556e',
-              letterSpacing: '0.5px', borderRadius: 4, textDecoration: 'none',
+              padding: '7px 16px', fontSize: 12, fontWeight: 600,
+              color: '#4f4f66',
+              letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               background: 'transparent',
               border: 'none', outline: 'none', font: 'inherit', cursor: 'pointer',
             }}
@@ -1018,15 +1047,20 @@ export function TopNav({ active }: { active?: Page } = {}) {
       {otherOpen && <OtherMenuModal onClose={() => setOtherOpen(false)} />}
 
       {/* Center: search collections */}
-      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 360px', maxWidth: 360, marginLeft: 18 }}>
+      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 400px', maxWidth: 400, marginLeft: 18 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '4px 10px 4px 12px', height: 28,
-          background: 'rgba(255,255,255,0.03)',
-          border: open ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.05)',
-          borderRadius: 5,
-          boxShadow: open ? '0 0 0 3px rgba(128,104,216,0.08)' : 'none',
-          transition: 'all 0.15s',
+          padding: '0 12px', height: 34,
+          // Glass/inset field: a recessed look (inner top shadow) at rest;
+          // on focus it brightens, the border goes purple, and a soft outer
+          // glow ring fades in. Functionality/handlers below are unchanged.
+          background: open ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)',
+          border: open ? '1px solid rgba(168,144,232,0.55)' : '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 8,
+          boxShadow: open
+            ? 'inset 0 1px 2px rgba(0,0,0,0.28), 0 0 0 3px rgba(132,108,224,0.12)'
+            : 'inset 0 1px 2px rgba(0,0,0,0.28), inset 0 -1px 0 rgba(255,255,255,0.02)',
+          transition: 'border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease',
         }}>
           <svg
             aria-hidden="true"
@@ -1110,7 +1144,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
       </div>
 
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 18,
+        display: 'flex', alignItems: 'center', gap: 16, marginRight: 2,
         fontSize: 12, color: '#4a4a62',
         fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
