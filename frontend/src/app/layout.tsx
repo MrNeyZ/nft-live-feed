@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { Gate } from '@/runtime/Gate';
+import { ViewportDebugBadge } from '@/lib/ViewportDebugBadge';
 
 // Playfair Display — italic 600 + italic 800 ONLY. Used by the topbar
 // VictoryLabs wordmark lockup (`.vl-logo` in globals.css). Exposed as the
@@ -58,7 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body><Gate>{children}</Gate></body>
+      <body><Gate>{children}</Gate><ViewportDebugBadge /></body>
     </html>
   );
 }

@@ -61,7 +61,11 @@ html[data-layout="phone"] .feed-thumb img {
   object-fit: cover !important;
   display: block;
 }
-@media (max-width: 600px) {
+/* Aligned with the centralized tablet breakpoint (≤768) from
+   src/lib/breakpoints.ts. Tablet portrait now gets the same rigid
+   48 px feed-thumb the phone gets — feed-card width at tablet portrait
+   is already too narrow for the desktop thumb. */
+@media (max-width: 768px) {
   .feed-thumb {
     width:  48px !important;
     height: 48px !important;
@@ -470,7 +474,10 @@ body { display: block; height: 100vh; }
   min-height: 0;
 }
 
-@media (max-width: 900px) {
+/* Aligned with the centralized small_laptop breakpoint (≤1024) from
+   src/lib/breakpoints.ts. Tighter horizontal padding now applies across
+   mobile / tablet / small_laptop instead of cutting off at 900. */
+@media (max-width: 1024px) {
   #__next, .feed-root { padding: 0 12px; }
 }
 
@@ -1038,8 +1045,10 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   grid-template-columns: 1fr !important;
 }
 /* Same fallback for narrow widths even when layout-mode hasn't been
-   explicitly set to phone — covers PC users who shrink the window. */
-@media (max-width: 720px) {
+   explicitly set to phone — covers PC users who shrink the window.
+   Aligned with the centralized tablet breakpoint (≤768) from
+   src/lib/breakpoints.ts. */
+@media (max-width: 768px) {
   [data-page="mints"] .mints-grid {
     grid-template-columns: 1fr !important;
   }
@@ -1338,3 +1347,74 @@ body[data-bottombar="1"] .feed-root {
     mintsFeedSlideIn    220ms ease-out,
     mintsFeedFreshFlash 2000ms ease-out;
 }
+
+/* ===== breakpoints =====
+   Centralized responsive breakpoints — kept in lockstep with
+   src/lib/breakpoints.ts. New responsive UI should target these ranges
+   (and use the .bp-* utility classes below) rather than introducing new
+   ad-hoc media queries.
+
+   ranges (inclusive upper bound):
+     mobile         ≤ 480
+     tablet       481 – 768
+     small_laptop 769 – 1024
+     laptop      1025 – 1600
+     desktop_large > 1600
+
+   The numeric values are exposed as CSS custom properties so layout code
+   can use them in clamp()/calc(), e.g.
+       width: clamp(280px, 40vw, var(--bp-laptop-max));
+   CSS `@media` cannot read custom properties directly, so the @media
+   blocks below restate the same numbers — keep them aligned. */
+:root {
+  --bp-mobile-max:        480px;
+  --bp-tablet-max:        768px;
+  --bp-small-laptop-max: 1024px;
+  --bp-laptop-max:       1600px;
+}
+
+/* Show/hide utilities — `.bp-only-mobile` shows ONLY in the mobile range;
+   `.bp-mobile-down` shows mobile and below (here = mobile only, kept for
+   symmetry); `.bp-tablet-up` shows from tablet upwards; etc. Use these
+   instead of inline `style={{ display: vp.isMobile ? ... }}` when the
+   only thing changing is visibility — it avoids a hydration flash. */
+.bp-only-mobile,
+.bp-only-tablet,
+.bp-only-small-laptop,
+.bp-only-laptop,
+.bp-only-desktop-large,
+.bp-tablet-up,
+.bp-small-laptop-up,
+.bp-laptop-up,
+.bp-desktop-large-up { display: none; }
+
+@media (max-width: 480px) {
+  .bp-only-mobile     { display: revert; }
+  .bp-tablet-up,
+  .bp-small-laptop-up,
+  .bp-laptop-up,
+  .bp-desktop-large-up { display: none; }
+}
+@media (min-width: 481px) and (max-width: 768px) {
+  .bp-only-tablet     { display: revert; }
+  .bp-tablet-up       { display: revert; }
+}
+@media (min-width: 769px) and (max-width: 1024px) {
+  .bp-only-small-laptop { display: revert; }
+  .bp-tablet-up,
+  .bp-small-laptop-up   { display: revert; }
+}
+@media (min-width: 1025px) and (max-width: 1600px) {
+  .bp-only-laptop     { display: revert; }
+  .bp-tablet-up,
+  .bp-small-laptop-up,
+  .bp-laptop-up       { display: revert; }
+}
+@media (min-width: 1601px) {
+  .bp-only-desktop-large { display: revert; }
+  .bp-tablet-up,
+  .bp-small-laptop-up,
+  .bp-laptop-up,
+  .bp-desktop-large-up   { display: revert; }
+}
+/* ===== /breakpoints ===== */
