@@ -12,6 +12,11 @@
   --feed-column-max:     640px;
   --topnav-max:          1400px;
   --status-max:          1400px;
+  /* Serif used by the VictoryLabs wordmark lockup (.vl-logo). The leading
+     `var(--font-playfair-display)` is the next/font/google face (italic
+     600/800) wired up in layout.tsx; the rest are fallbacks (the roman
+     Playfair from the <head> <link>, then Georgia/serif). */
+  --vl-font-serif: var(--font-playfair-display), 'Playfair Display', Georgia, serif;
 }
 html[data-layout="pc"] {
   --feed-root-padding-x: 24px;
@@ -77,6 +82,49 @@ html[data-layout="phone"] .feed-thumb img {
     object-fit: cover !important;
     display: block;
   }
+}
+
+/* VictoryLabs wordmark lockup — typography only (no image, no box, fully
+   transparent). Ported from the WC v2 handoff prototype
+   (wallet-checker/_design_ref/wc-v2/tokens.css) plus the requested
+   overrides; values NOT from the prototype are marked. (The local
+   "finalized" version wasn't available on the VPS — verify against it.)
+   Lives inside `.topnav-logo`, so the existing phone trim that hides
+   `.topnav-logo` hides this too. */
+.vl-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;                                  /* prototype */
+  user-select: none;
+  /* Optical correction — nudge the whole lockup up ~1px so it reads as
+     vertically centered in the topbar like the old PNG (italic-serif
+     ascenders make baseline-aligned text sit a touch low). */
+  transform: translateY(-1px);
+}
+.vl-logo .v {
+  font-family: var(--vl-font-serif);
+  font-style: italic;
+  font-weight: 800;                          /* override (matches prototype) */
+  font-size: 24px;                           /* override (prototype: 22px) */
+  letter-spacing: -0.5px;                    /* prototype */
+  color: #b794f4;                            /* prototype */
+  /* Bumped up from the prototype's `0 0 14px / 0.35`, plus a tight dark
+     drop, to restore a little of the old PNG's visual weight without going
+     neon. (Glow strength is a judgment fill — verify.) */
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.40),
+    0 0 16px rgba(168, 144, 232, 0.42);
+  transform: scaleX(0.97);                   /* override (was 0.95 — too compressed) */
+  transform-origin: 100% 50%;                /* override */
+}
+.vl-logo .l {
+  font-family: var(--vl-font-serif);
+  font-style: italic;
+  font-weight: 600;                          /* prototype (kept) */
+  font-size: 18px;                           /* prototype (kept) */
+  color: #f4f0ff;                            /* prototype used var(--vl-fg) = #f4f0ff; literal here since nft-live-feed has no --vl-fg */
+  margin-left: 1px;                          /* prototype */
+  letter-spacing: -0.2px;                    /* prototype */
 }
 
 /* Phone TopNav — drop the logo, the MULTI-TAB tab, and the TPS / SOL /

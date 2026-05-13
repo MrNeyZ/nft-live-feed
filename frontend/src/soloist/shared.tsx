@@ -837,26 +837,18 @@ export function TopNav({ active }: { active?: Page } = {}) {
             the layout shell and showing a brief empty frame between
             documents (the "black flash" symptom). With <Link>, the
             layout shell stays mounted and only the route segment swaps. */}
-        <Link href="/dashboard" className="topnav-logo" style={{
+        <Link href="/dashboard" className="topnav-logo" aria-label="VictoryLabs — home" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
-          // No block/background — the wordmark floats clean in the bar; the
-          // bloom on the <img> below is what gives it presence.
+          // Typography-only wordmark — no image, no box, fully transparent
+          // (see `.vl-logo` in globals.css). Ported from the WC v2 handoff
+          // prototype + the requested overrides (Victory 24px / scaleX 0.95
+          // / transform-origin). The lockup itself is aria-hidden; this link
+          // carries the accessible name.
           marginLeft: 6,
         }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/victorylabs.png"
-            alt="VictoryLabs"
-            width={125}
-            height={38}
-            draggable={false}
-            // Subtle purple bloom + a tight dark shadow so the wordmark lifts
-            // off the glass instead of sitting flat on it.
-            style={{
-              display: 'block',
-              filter: 'drop-shadow(0 0 14px rgba(132,108,224,0.26)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))',
-            }}
-          />
+          <div className="vl-logo" aria-hidden="true">
+            <span className="v">Victory</span><span className="l">Labs</span>
+          </div>
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.

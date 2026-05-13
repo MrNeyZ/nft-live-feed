@@ -1,6 +1,21 @@
 import type { Metadata } from 'next';
+import { Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { Gate } from '@/runtime/Gate';
+
+// Playfair Display — italic 600 + italic 800 ONLY. Used by the topbar
+// VictoryLabs wordmark lockup (`.vl-logo` in globals.css). Exposed as the
+// CSS variable `--font-playfair-display` so `--vl-font-serif` can reference
+// it; next/font provides the font via this variable, not by its CSS name,
+// so the roman Playfair 700/800 still loaded by the <link> in <head> below
+// (used elsewhere, e.g. the access Gate) is left untouched.
+const playfairDisplay = Playfair_Display({
+  subsets: ['latin'],
+  style: 'italic',
+  weight: ['600', '800'],
+  display: 'swap',
+  variable: '--font-playfair-display',
+});
 
 export const metadata: Metadata = {
   title: 'VictoryLabs — Live Feed',
@@ -15,7 +30,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={playfairDisplay.variable}>
       <head>
         {/* Apply persisted UI layout-mode before first paint so PC/Phone
             users don't flash the default laptop layout on hydrate. Mirrors
