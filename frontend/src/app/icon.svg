@@ -1,0 +1,20 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- VictoryLabs app icon — dark rounded-square (close to the topbar's
+       dark-purple glass) + the purple "V" from the new typography wordmark.
+       The glyph is squared-up / upright (not the wordmark's slanted Playfair
+       italic) and chunky so it stays legible at 16px; it's a hand-drawn path,
+       not live text, so it renders identically everywhere. Subtle purple
+       bloom — no neon. -->
+  <defs>
+    <linearGradient id="vl-icon-bg" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16112a"/>
+      <stop offset="1" stop-color="#0c0a16"/>
+    </linearGradient>
+    <filter id="vl-icon-glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#ae92ee" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="url(#vl-icon-bg)"
+        stroke="#a890e8" stroke-opacity="0.2" stroke-width="1.5"/>
+  <path d="M11 15 L24 15 L32 40 L40 15 L53 15 L32 50 Z" fill="#ae92ee" filter="url(#vl-icon-glow)"/>
+</svg>
