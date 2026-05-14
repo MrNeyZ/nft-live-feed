@@ -45,6 +45,63 @@ const LISTINGS_PAGE    = 100;
  *  observing 429 logs over a longer baseline. */
 const SCAN_CONCURRENCY = 2;
 
+// ─── Recent-activity candidate enumeration (replaces holder/DAS scan) ──────
+// The original scanner walked /collections/{slug}/listings and pulled
+// /tokens/{mint}/offers_received per listed mint. That misses every NFT
+// in the collection that has an active personal offer but is NOT currently
+// listed — those mints never enter the candidate set.
+//
+// Fix: in addition to current listings, page ME's collection activities
+// feed (/v2/collections/{slug}/activities) bounded by both a time horizon
+// (`recentActivityDays`, default 30) AND a page cap (`activityMaxPages`,
+// default 20 = 2 000 events) so a single scan can't spiral. We harvest
+// `tokenMint` only from marketplace events (list / delist / buy / bid /
+// cancelBid / acceptBid) — mmm pool bids and poolUpdates carry no
+// tokenMint and are dropped naturally, so the candidate set never grows
+// beyond mints that genuinely had marketplace activity. Mints not in
+// the listings set become `listed:false` rows with
+// listingPrice/spreadSol = null.
+//
+// Why this and not DAS holder enumeration: scanning every NFT in the
+// collection (or every top-N holder) is way too heavy for a manual
+// click — wall time at 200 holders was ~60-90s on Retardio. Activity
+// enumeration touches only the surface of recently-touched mints,
+// which is exactly the population the operator cares about.
+/** Marketplace activity types we treat as "this mint had recent
+ *  trading-relevant motion". `poolUpdate` (mmm) is excluded — it's a
+ *  pool-wide spread tick, has no `tokenMint`, and is by far the bulk
+ *  of activity feed traffic on AMM-heavy collections like Retardio.
+ *  Plain wallet transfers / metadata-only events also don't appear
+ *  here since ME's activities feed already only surfaces marketplace
+ *  events; this Set is the additional safety filter on top. */
+const ACTIVITY_MARKETPLACE_TYPES: ReadonlySet<string> = new Set([
+  'list', 'delist',
+  'bid', 'cancelBid', 'acceptBid',
+  'buyNow',
+]);
+/** Default time horizon for the activity candidate scan, in days.
+ *  Override via env RECENT_ACTIVITY_DAYS or per-request body. */
+const RECENT_ACTIVITY_DAYS_DFLT = Math.max(0, Math.floor(
+  Number(process.env.RECENT_ACTIVITY_DAYS ?? 30),
+));
+/** Hard ceiling on the activity-horizon param to prevent a typo / fat-
+ *  finger from asking for 365 days on a hot collection. */
+const RECENT_ACTIVITY_DAYS_MAX = 90;
+/** ME activities page size — public endpoint accepts up to 100. */
+const ACTIVITY_PAGE_LIMIT      = 100;
+/** Default cap on activity pages per scan (= ACTIVITY_PAGE_LIMIT events
+ *  × N pages). 20 pages × 100 = 2 000 events. On a hot AMM-heavy
+ *  collection that's ~hours of coverage, not 30 days — when we hit the
+ *  cap before reaching the time horizon, a `coverage_truncated` warning
+ *  is emitted so the operator knows the horizon wasn't fully covered. */
+const ACTIVITY_MAX_PAGES_DFLT  = Math.max(1, Math.floor(
+  Number(process.env.RECENT_ACTIVITY_MAX_PAGES ?? 20),
+));
+/** Hard ceiling on activity pages — protects against an env typo or a
+ *  fat-fingered request asking for 1 000 pages. */
+const ACTIVITY_MAX_PAGES_MAX   = 100;
+const ACTIVITY_FETCH_TIMEOUT_MS = 8_000;
+
 interface MeListing {
   pdaAddress?:    string;
   tokenMint?:     string;
@@ -226,9 +283,19 @@ export interface ScanRow {
   mint:             string;
   nftName:          string | null;
   imageUrl:         string | null;
-  listingPrice:     number;     // SOL
+  /** Null when the mint is not currently listed on ME (Option-H unlisted
+   *  rows). LISTING column renders `—` when null; sort partitions listed
+   *  rows above unlisted rows regardless of column sort. */
+  listingPrice:     number | null;     // SOL
   bestOfferPrice:   number;     // SOL
-  spreadSol:        number;     // bestOffer - listing  (positive = offer above ask)
+  /** Null whenever `listingPrice` is null — there is no listing to spread
+   *  against. SPREAD column renders `—` when null. */
+  spreadSol:        number | null;     // bestOffer - listing  (positive = offer above ask)
+  /** Whether this mint has a current ME listing. UI shows an UNLISTED
+   *  badge in the STATUS column when false; BEST OFFER colouring still
+   *  follows `bestOfferStatus` so an active offer on an unlisted NFT
+   *  reads as actionable. */
+  listed:           boolean;
   /** Stable identity for the best active offer. ME returns its
    *  `pdaAddress` per offer; the frontend uses this to compare scans
    *  and mark newly-appeared offers as NEW. Falls back to a synthetic
@@ -266,7 +333,31 @@ export interface ScanResult {
   offersFetched: number;
   /** Count of offers classified AVAILABLE (future-dated expiry). */
   offersAvailable: number;
+  /** Number of activity events ME returned across all pages we walked
+   *  during the recent-activity candidate scan. Includes events we then
+   *  filtered out (mmm poolUpdate, plain transfers, etc.) — this is
+   *  raw upstream volume, not candidate count. */
+  activitiesScanned: number;
+  /** Unique tokenMints harvested from recent marketplace activities
+   *  (list / delist / bid / cancelBid / acceptBid / buyNow). Drives the
+   *  unlisted-candidate set; some of these mints may also be in
+   *  `listedCandidateMints` and are deduped against the listings scan. */
+  activityCandidateMints: number;
+  /** Unique tokenMints from the current ME listings page. */
+  listedCandidateMints: number;
+  /** Mints that produced an UNLISTED row in `withOffers`. Pure
+   *  diagnostic count; the rows themselves still appear in `withOffers`. */
+  unlistedWithOffers: number;
+  /** Backend wall time for this scan, in milliseconds. Surfaced so the
+   *  UI can show "took N s" without doing its own client-side
+   *  before/after timing. */
+  tookMs: number;
   withOffers:   ScanRow[];
+  /** Non-fatal warnings raised during the scan — DAS failed, a holder
+   *  fetch errored, debugMint upstream returned 4xx, etc. Empty array on
+   *  a clean scan. Surfaced so the frontend never silently shows "0
+   *  offers" when a candidate-set fetch actually failed upstream. */
+  warnings:     string[];
   cachedAt:     number;         // epoch ms
   ttlMs:        number;
 }
@@ -337,10 +428,160 @@ async function fetchOffersReceived(mint: string): Promise<MeOffer[]> {
   }
 }
 
-async function runScan(slug: string, scanLimit: number, minOfferSol: number): Promise<ScanResult> {
+interface MeTokenInfo {
+  mintAddress?:     string;
+  owner?:           string;
+  collection?:      string;
+  listStatus?:      string;
+  name?:            string;
+  image?:           string;
+}
+
+/** One ME `/tokens/{mint}` lookup. Used by the debugMint path to decide
+ *  whether to surface the targeted mint as listed/unlisted and to grab
+ *  a name/image for the row. Errors return `null` so the caller can
+ *  fall back gracefully. */
+async function fetchTokenInfo(mint: string): Promise<MeTokenInfo | null> {
+  try {
+    const r = await fetch(`${ME_API_BASE}/tokens/${encodeURIComponent(mint)}`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r.ok) return null;
+    return await r.json() as MeTokenInfo;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Recent-activity candidate enumeration ────────────────────────────────
+// Pages ME's `/collections/{slug}/activities` until either:
+//   - blockTime crosses `cutoffSec` (the recent-activity horizon), OR
+//   - we've fetched `maxPages` of 100-event pages, OR
+//   - upstream returns a partial / empty page.
+//
+// Per row, we keep `tokenMint` only when:
+//   - the event type is in ACTIVITY_MARKETPLACE_TYPES, AND
+//   - blockTime is at or after the cutoff, AND
+//   - tokenMint is a non-empty string.
+// That filters mmm `poolUpdate` / pool `bid` (no tokenMint anyway) and
+// anything outside the marketplace event whitelist.
+//
+// We also opportunistically remember the first `image` URL seen for each
+// mint, so unlisted activity-derived rows can still render a thumbnail
+// without needing a separate /tokens/{mint} call per candidate.
+interface MeActivity {
+  signature?: string;
+  type?:      string;
+  source?:    string;
+  tokenMint?: string;
+  blockTime?: number;
+  image?:     string;
+}
+
+interface ActivityScanResult {
+  /** Unique tokenMints harvested from marketplace events in window. */
+  mints:             Set<string>;
+  /** First image URL seen per mint, when an activity event carried one. */
+  imageByMint:       Map<string, string>;
+  /** Total events ME returned across all pages we walked (pre-filter). */
+  activitiesScanned: number;
+  pagesFetched:      number;
+  /** True when we stopped because we hit `maxPages` while blockTime was
+   *  still inside the requested horizon — i.e. coverage is partial. */
+  coverageTruncated: boolean;
+  /** Non-null when an upstream / parse error short-circuited the walk;
+   *  caller pushes this onto the response `warnings` array. */
+  warning:           string | null;
+}
+
+async function fetchActivityCandidateMints(
+  slug:      string,
+  cutoffSec: number,
+  maxPages:  number,
+): Promise<ActivityScanResult> {
+  const mints       = new Set<string>();
+  const imageByMint = new Map<string, string>();
+  let pagesFetched      = 0;
+  let activitiesScanned = 0;
+  let coverageTruncated = false;
+  let warning: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const offset = page * ACTIVITY_PAGE_LIMIT;
+    const url = `${ME_API_BASE}/collections/${encodeURIComponent(slug)}/activities?offset=${offset}&limit=${ACTIVITY_PAGE_LIMIT}`;
+    let rows: MeActivity[] = [];
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(ACTIVITY_FETCH_TIMEOUT_MS) });
+      if (!r.ok) {
+        warning = `activities_upstream_${r.status} at offset=${offset}`;
+        break;
+      }
+      const body = await r.json();
+      rows = Array.isArray(body) ? body as MeActivity[] : [];
+    } catch (err) {
+      warning = `activities_fetch_failed at offset=${offset}: ${(err as Error).message?.slice(0, 80) ?? 'unknown'}`;
+      break;
+    }
+    if (rows.length === 0) break;          // exhausted
+    pagesFetched++;
+    activitiesScanned += rows.length;
+
+    let lastBlockTime = 0;
+    for (const row of rows) {
+      const bt = typeof row.blockTime === 'number' ? row.blockTime : 0;
+      if (bt > 0) lastBlockTime = bt;
+      // blockTime may be older than the cutoff on this row even though
+      // earlier rows in the same page were inside the window — keep
+      // scanning the rest of the page but don't add this one.
+      if (bt > 0 && bt < cutoffSec) continue;
+      if (!row.type || !ACTIVITY_MARKETPLACE_TYPES.has(row.type)) continue;
+      const mint = row.tokenMint;
+      if (typeof mint !== 'string' || mint.length === 0) continue;
+      mints.add(mint);
+      if (typeof row.image === 'string' && row.image.length > 0 && !imageByMint.has(mint)) {
+        imageByMint.set(mint, row.image);
+      }
+    }
+    // Activities feed is newest-first → once the last row of a page is
+    // older than the cutoff, every subsequent page is too. Stop early.
+    if (lastBlockTime > 0 && lastBlockTime < cutoffSec) break;
+    if (rows.length < ACTIVITY_PAGE_LIMIT)              break;   // last page
+    await sleep(REQUEST_GAP_MS);
+  }
+  if (warning === null && pagesFetched === maxPages) {
+    // We exited because we hit the page cap, not because we reached the
+    // cutoff or ran out of pages. Coverage is shorter than the requested
+    // horizon — the operator should know.
+    coverageTruncated = true;
+  }
+  return { mints, imageByMint, activitiesScanned, pagesFetched, coverageTruncated, warning };
+}
+
+interface RunScanOpts {
+  slug:                string;
+  scanLimit:           number;
+  minOfferSol:         number;
+  recentActivityDays:  number;
+  activityMaxPages:    number;
+  /** Optional verification mint. When provided, force-fetch
+   *  `/tokens/{debugMint}` + `/tokens/{debugMint}/offers_received` and
+   *  ensure the mint appears in `withOffers` regardless of whether the
+   *  activity scan caught it. Diagnostic / dev only — no UI surface
+   *  required. */
+  debugMint?:          string | null;
+}
+
+async function runScan(opts: RunScanOpts): Promise<ScanResult> {
+  const { slug, scanLimit, minOfferSol, recentActivityDays, activityMaxPages, debugMint } = opts;
+  const scanStartedAt = Date.now();
+  const warnings: string[] = [];
   const listings = await fetchListings(slug);
   const sliced   = listings.slice(0, scanLimit);
   const out: ScanRow[] = [];
+  /** Mints we've already emitted a row for. Lets the unlisted/holder
+   *  path and the debugMint path each dedupe against the listed scan
+   *  and against each other. */
+  const emittedMints = new Set<string>();
 
   const nowSec = Math.floor(Date.now() / 1000);
   let totalFetched   = 0;
@@ -420,6 +661,7 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       listingPrice:       l.price,
       bestOfferPrice:     bestPrice,
       spreadSol:          bestPrice - l.price,
+      listed:             true,
       bestOfferId,
       bestOfferStatus:    bestStatus,
       bestOfferCreatedAt: createdAt,
@@ -429,6 +671,7 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
       meUrl:              `https://magiceden.io/item-details/${mint}`,
       tensorUrl:          `https://www.tensor.trade/item/${mint}`,
     });
+    emittedMints.add(mint);
   };
 
   // Worker pool: SCAN_CONCURRENCY workers consume listings via a shared
@@ -447,6 +690,195 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     workers.push(work());
   }
   await Promise.all(workers);
+
+  // ── Recent-activity candidate scan for UNLISTED mints with active offers ──
+  // The listed loop above only sees mints currently listed on ME, so an
+  // unlisted NFT with a live personal offer (e.g. the bug example
+  // AQGck2L… — owner unlisted, two future-dated offers) is invisible.
+  // Bounded fix: page recent collection activities up to a time horizon
+  // (`recentActivityDays`, default 30) AND a hard page cap
+  // (`activityMaxPages`, default 20 ≈ 2 000 events) — whichever comes
+  // first. Activity events that carry a `tokenMint` and a marketplace
+  // type (list / delist / bid / cancelBid / acceptBid / buyNow) yield
+  // candidate mints. For each candidate not already in the listings
+  // set, we fetch /tokens/{mint}/offers_received and surface as an
+  // UNLISTED row when there's a live offer.
+  //
+  // Every upstream failure is recorded as a warning, never silently
+  // zeroed.
+  const listedMintSet = new Set<string>();
+  for (const l of listings) {
+    const m = l.tokenMint ?? l.tokenAddress;
+    if (typeof m === 'string') listedMintSet.add(m);
+  }
+  let activitiesScanned      = 0;
+  let activityCandidateMints = 0;
+  let unlistedWithOffers     = 0;
+  if (activityMaxPages > 0 && recentActivityDays > 0) {
+    const cutoffSec = nowSec - (recentActivityDays * 86_400);
+    const actStart  = Date.now();
+    const act = await fetchActivityCandidateMints(slug, cutoffSec, activityMaxPages);
+    activitiesScanned      = act.activitiesScanned;
+    activityCandidateMints = act.mints.size;
+    if (act.warning) warnings.push(act.warning);
+    if (act.coverageTruncated) {
+      warnings.push(
+        `activity_coverage_truncated: hit page cap (${activityMaxPages} pages × ${ACTIVITY_PAGE_LIMIT}) ` +
+        `before reaching ${recentActivityDays}d horizon — coverage is partial`,
+      );
+    }
+    console.log(
+      `[tools/retardio-me-offer-scan/activities] slug=${slug} ` +
+      `days=${recentActivityDays} pages=${act.pagesFetched}/${activityMaxPages} ` +
+      `events=${act.activitiesScanned} candidates=${act.mints.size} ` +
+      `truncated=${act.coverageTruncated} took=${Date.now() - actStart}ms`,
+    );
+
+    // Resolve activity candidates that aren't already covered by the
+    // listed scan. We use the existing `fetchOffersReceived` and a
+    // small worker pool (mirror of the listed pool) so multiple
+    // candidates can fetch in flight without spamming ME. Each row
+    // mirrors the listed-row shape but with listingPrice / spreadSol
+    // null and listed=false.
+    const candidates = [...act.mints].filter(m => !listedMintSet.has(m) && !emittedMints.has(m));
+    let candCursor = 0;
+    const candWork = async (): Promise<void> => {
+      while (candCursor < candidates.length) {
+        const idx  = candCursor++;
+        const mint = candidates[idx];
+        const offers = await fetchOffersReceived(mint);
+        await sleep(REQUEST_GAP_MS);
+        if (offers.length === 0) continue;
+        if (offers[0]) maybeLogSampleKeys(offers[0]);
+        const priced = offers
+          .filter(o => typeof o.price === 'number' && (o.price as number) > 0)
+          .map(o => ({ offer: o, status: classifyOfferStatus(o, nowSec) }))
+          .sort((a, b) => {
+            const ra = statusRank(a.status);
+            const rb = statusRank(b.status);
+            if (ra !== rb) return ra - rb;
+            return (b.offer.price as number) - (a.offer.price as number);
+          });
+        totalFetched   += offers.length;
+        totalAvailable += priced.filter(p => p.status === 'AVAILABLE').length;
+        if (priced.length === 0) continue;
+        const best       = priced[0].offer;
+        const bestStatus = priced[0].status;
+        const bestPrice  = best.price as number;
+        if (bestPrice < minOfferSol) continue;
+        const createdAt = extractCreatedAt(best);
+        const bestOfferId = best.pdaAddress
+          ?? `${mint}:${best.buyer ?? '?'}:${best.auctionHouse ?? '?'}`;
+        const auctionHouse = typeof best.auctionHouse === 'string' ? best.auctionHouse : null;
+        const buyer        = typeof best.buyer        === 'string' ? best.buyer        : null;
+        const fundingWallet = (auctionHouse && buyer)
+          ? deriveBuyerEscrowPda(auctionHouse, buyer)
+          : null;
+        out.push({
+          mint,
+          nftName:            null,                              // activity events don't carry a token name; UI falls back to mint prefix
+          imageUrl:           act.imageByMint.get(mint) ?? null, // best-effort: first image seen in any marketplace event for this mint
+          listingPrice:       null,
+          bestOfferPrice:     bestPrice,
+          spreadSol:          null,
+          listed:             false,
+          bestOfferId,
+          bestOfferStatus:    bestStatus,
+          bestOfferCreatedAt: createdAt,
+          fundingWallet,
+          fundingBalanceSol:  null,
+          fundingStatus:      'unknown',
+          meUrl:              `https://magiceden.io/item-details/${mint}`,
+          tensorUrl:          `https://www.tensor.trade/item/${mint}`,
+        });
+        emittedMints.add(mint);
+        unlistedWithOffers++;
+      }
+    };
+    const candWorkers: Promise<void>[] = [];
+    for (let w = 0; w < Math.min(SCAN_CONCURRENCY, candidates.length); w++) {
+      candWorkers.push(candWork());
+    }
+    await Promise.all(candWorkers);
+    console.log(
+      `[tools/retardio-me-offer-scan/activity-rows] candidates=${candidates.length} ` +
+      `unlistedRows=${unlistedWithOffers}`,
+    );
+  }
+
+  // ── Optional debugMint verification path ─────────────────────────────
+  // When ?debugMint=<mint> is supplied, ALWAYS pull that mint's offers
+  // directly via /tokens/{mint}/offers_received and its token info via
+  // /tokens/{mint}, regardless of whether it surfaced through the
+  // listed scan or the holder scan. This is the diagnostic escape hatch
+  // for mints whose owner falls outside the top-N holder cap (e.g. a
+  // wallet that holds exactly 1 NFT in the collection).
+  if (debugMint) {
+    if (emittedMints.has(debugMint)) {
+      console.log(`[tools/retardio-me-offer-scan/debug] mint=${debugMint} already emitted (listed or holder path)`);
+    } else {
+      const [info, mintOffers] = await Promise.all([
+        fetchTokenInfo(debugMint),
+        fetchOffersReceived(debugMint),
+      ]);
+      if (!info) warnings.push(`debug_mint_token_info_failed: /tokens/${debugMint} upstream error`);
+      if (mintOffers.length === 0) {
+        warnings.push(`debug_mint_no_offers: /tokens/${debugMint}/offers_received returned 0 offers`);
+      }
+      if (mintOffers[0]) maybeLogSampleKeys(mintOffers[0]);
+      const priced = mintOffers
+        .filter(o => typeof o.price === 'number' && (o.price as number) > 0)
+        .map(o => ({ offer: o, status: classifyOfferStatus(o, nowSec) }))
+        .sort((a, b) => {
+          const ra = statusRank(a.status);
+          const rb = statusRank(b.status);
+          if (ra !== rb) return ra - rb;
+          return (b.offer.price as number) - (a.offer.price as number);
+        });
+      totalFetched   += mintOffers.length;
+      totalAvailable += priced.filter(p => p.status === 'AVAILABLE').length;
+      if (priced.length > 0) {
+        const best       = priced[0].offer;
+        const bestStatus = priced[0].status;
+        const bestPrice  = best.price as number;
+        const isListed   = info?.listStatus === 'listed';
+        // Note: debugMint deliberately ignores `minOfferSol` so the
+        // operator always sees the target mint when the param is set —
+        // it's a verification probe, not a filtered scan result.
+        const createdAt = extractCreatedAt(best);
+        const bestOfferId = best.pdaAddress
+          ?? `${debugMint}:${best.buyer ?? '?'}:${best.auctionHouse ?? '?'}`;
+        const auctionHouse = typeof best.auctionHouse === 'string' ? best.auctionHouse : null;
+        const buyer        = typeof best.buyer        === 'string' ? best.buyer        : null;
+        const fundingWallet = (auctionHouse && buyer)
+          ? deriveBuyerEscrowPda(auctionHouse, buyer)
+          : null;
+        out.push({
+          mint:               debugMint,
+          nftName:            info?.name ?? null,
+          imageUrl:           info?.image ?? null,
+          listingPrice:       null,           // debugMint path doesn't know the listing price; even if listed, ME's token endpoint doesn't return it
+          bestOfferPrice:     bestPrice,
+          spreadSol:          null,
+          listed:             isListed,
+          bestOfferId,
+          bestOfferStatus:    bestStatus,
+          bestOfferCreatedAt: createdAt,
+          fundingWallet,
+          fundingBalanceSol:  null,
+          fundingStatus:      'unknown',
+          meUrl:              `https://magiceden.io/item-details/${debugMint}`,
+          tensorUrl:          `https://www.tensor.trade/item/${debugMint}`,
+        });
+        emittedMints.add(debugMint);
+        if (!isListed) unlistedWithOffers++;
+        console.log(
+          `[tools/retardio-me-offer-scan/debug] mint=${debugMint} listed=${isListed} ` +
+          `offers=${mintOffers.length} best=${bestPrice} status=${bestStatus}`,
+        );
+      }
+    }
+  }
 
   // ── Age backfill via on-chain bid PDA history ─────────────────────────
   // For rows whose `bestOfferStatus` is AVAILABLE or EXPECTED and where
@@ -518,26 +950,39 @@ async function runScan(slug: string, scanLimit: number, minOfferSol: number): Pr
     `funded=${funded} low=${low} empty=${empty} unknown=${unknown}`,
   );
 
-  // Default order: status priority first (AVAILABLE > EXPECTED > EXPIRED),
-  // then highest best-offer price, then spread. Frontend can re-sort by
-  // any column on click.
+  // Default order:
+  //   1. listed rows before unlisted rows (frontend mirrors this, but
+  //      we set it here so non-browser callers also get the ordering)
+  //   2. within each group, status priority (AVAILABLE > EXPECTED > EXPIRED)
+  //   3. then highest best-offer price
+  //   4. then highest spread (listed rows only — unlisted spreadSol is null
+  //      and is treated as 0 for tie-break, which keeps the sort stable)
   out.sort((a, b) => {
+    if (a.listed !== b.listed) return a.listed ? -1 : 1;
     const ra = statusRank(a.bestOfferStatus);
     const rb = statusRank(b.bestOfferStatus);
     if (ra !== rb) return ra - rb;
-    return b.bestOfferPrice - a.bestOfferPrice || b.spreadSol - a.spreadSol;
+    const priceDiff = b.bestOfferPrice - a.bestOfferPrice;
+    if (priceDiff !== 0) return priceDiff;
+    return (b.spreadSol ?? 0) - (a.spreadSol ?? 0);
   });
 
   return {
-    ok:              true,
+    ok:                     true,
     slug,
-    scanned:         sliced.length,
-    listedTotal:     listings.length,
-    offersFetched:   totalFetched,
-    offersAvailable: totalAvailable,
-    withOffers:      out,
-    cachedAt:        Date.now(),
-    ttlMs:           CACHE_TTL_MS,
+    scanned:                sliced.length,
+    listedTotal:            listings.length,
+    offersFetched:          totalFetched,
+    offersAvailable:        totalAvailable,
+    activitiesScanned,
+    activityCandidateMints,
+    listedCandidateMints:   listedMintSet.size,
+    unlistedWithOffers,
+    withOffers:             out,
+    warnings,
+    tookMs:                 Date.now() - scanStartedAt,
+    cachedAt:               Date.now(),
+    ttlMs:                  CACHE_TTL_MS,
   };
 }
 
@@ -551,7 +996,26 @@ export function createRetardioOffersRouter(): Router {
     const slug        = (req.body?.slug as string)        || DEFAULT_SLUG;
     const minOfferSol = Math.max(0, Number(req.body?.minOfferSol ?? 0));
     const scanLimit   = Math.min(SCAN_LIMIT_MAX, Math.max(1, Number(req.body?.limit ?? SCAN_LIMIT_DFLT)));
-    const cacheKey    = `${slug}|${minOfferSol}|${scanLimit}`;
+    const recentActivityDays = Math.min(
+      RECENT_ACTIVITY_DAYS_MAX,
+      Math.max(0, Math.floor(Number(req.body?.recentActivityDays ?? RECENT_ACTIVITY_DAYS_DFLT))),
+    );
+    const activityMaxPages = Math.min(
+      ACTIVITY_MAX_PAGES_MAX,
+      Math.max(0, Math.floor(Number(req.body?.activityMaxPages ?? ACTIVITY_MAX_PAGES_DFLT))),
+    );
+    // debugMint is a base58-ish address; trim, length-cap, and reject
+    // anything that isn't a plausible mint string before forwarding it.
+    // Keeps the diagnostic param from being abused as an arbitrary
+    // /tokens/<x> probe.
+    const rawDebug = typeof req.body?.debugMint === 'string' ? req.body.debugMint.trim() : '';
+    const debugMint = (rawDebug.length >= 32 && rawDebug.length <= 64 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(rawDebug))
+      ? rawDebug
+      : null;
+    // Cache key includes every dimension that can change the result —
+    // crucially recentActivityDays / activityMaxPages / debugMint so a
+    // tuned scan doesn't poison the default scan's cache and vice-versa.
+    const cacheKey    = `${slug}|${minOfferSol}|${scanLimit}|d=${recentActivityDays}|p=${activityMaxPages}|dbg=${debugMint ?? ''}`;
 
     if (cached && cached.key === cacheKey && Date.now() - cached.result.cachedAt < CACHE_TTL_MS) {
       return res.json({ ...cached.result, fromCache: true });
@@ -559,13 +1023,15 @@ export function createRetardioOffersRouter(): Router {
 
     const startedAt = Date.now();
     try {
-      const result = await runScan(slug, scanLimit, minOfferSol);
+      const result = await runScan({ slug, scanLimit, minOfferSol, recentActivityDays, activityMaxPages, debugMint });
       cached = { key: cacheKey, result };
       console.log(
         `[tools/retardio-me-offer-scan] slug=${slug} scanned=${result.scanned} ` +
-        `withOffers=${result.withOffers.length} ` +
+        `withOffers=${result.withOffers.length} listed=${result.listedCandidateMints} ` +
+        `unlisted=${result.unlistedWithOffers} activities=${result.activitiesScanned} ` +
+        `actCandidates=${result.activityCandidateMints} debug=${debugMint ?? '-'} ` +
         `offersFetched=${result.offersFetched} offersAvailable=${result.offersAvailable} ` +
-        `took=${Date.now() - startedAt}ms`,
+        `warnings=${result.warnings.length} took=${result.tookMs}ms (handler=${Date.now() - startedAt}ms)`,
       );
       return res.json({ ...result, fromCache: false });
     } catch (err) {

@@ -26,9 +26,18 @@ interface ScanRow {
   mint:               string;
   nftName:            string | null;
   imageUrl:           string | null;
-  listingPrice:       number;
+  /** Null when the row is for an UNLISTED mint (Option-H holder scan).
+   *  LISTING column renders `—` in that case. */
+  listingPrice:       number | null;
   bestOfferPrice:     number;
-  spreadSol:          number;
+  /** Null whenever `listingPrice` is null. SPREAD column renders `—`. */
+  spreadSol:          number | null;
+  /** True when this mint has a current ME listing; false when the row
+   *  came from the holder-based unlisted scan. STATUS column shows the
+   *  UNLISTED badge when false; BEST OFFER cell colouring still follows
+   *  `bestOfferStatus` so an active offer on an unlisted NFT reads as
+   *  actionable. */
+  listed:             boolean;
   bestOfferId:        string;
   bestOfferStatus:    OfferStatus;
   bestOfferCreatedAt: number | null;     // seconds since epoch
@@ -57,6 +66,53 @@ function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
   if (s === 'AVAILABLE') return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
   if (s === 'EXPECTED')  return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
   return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
+}
+
+// ─── Offer state × listing state status model ────────────────────────────
+// The STATUS column shows two stacked pills — `bestOfferStatus` collapses
+// to ACTIVE (AVAILABLE | EXPECTED) vs EXPIRED, and `row.listed` shows
+// LISTED vs UNLISTED. They are independent dimensions: an unlisted NFT
+// can still have an active offer (the original AQGck2L bug case), and a
+// listed NFT can have only expired offers. Sort priority groups them:
+//   0  ACTIVE + LISTED      ← primary fill candidates
+//   1  ACTIVE + UNLISTED    ← actionable unlisted bids
+//   2  EXPIRED + LISTED     ← stale offers on live listings
+//   3  EXPIRED + UNLISTED   ← background noise
+type OfferState   = 'ACTIVE' | 'EXPIRED';
+type ListingState = 'LISTED' | 'UNLISTED';
+function offerState(s: OfferStatus): OfferState {
+  return s === 'EXPIRED' ? 'EXPIRED' : 'ACTIVE';
+}
+function listingState(row: ScanRow): ListingState {
+  return row.listed ? 'LISTED' : 'UNLISTED';
+}
+/** 4-bucket combined-status rank: ACTIVE+LISTED (0) … EXPIRED+UNLISTED (3).
+ *  Lower = more actionable. Used as the OUTER sort partition that
+ *  replaces the prior listed-always-first rule. */
+function combinedStatusRank(row: ScanRow): number {
+  const active = offerState(row.bestOfferStatus) === 'ACTIVE';
+  const listed = row.listed;
+  if (active &&  listed) return 0;
+  if (active && !listed) return 1;
+  if (!active && listed) return 2;
+  return 3;
+}
+function offerStateBadgeStyle(s: OfferState): React.CSSProperties {
+  // ACTIVE folds AVAILABLE + EXPECTED into one green pill so the
+  // operator gets a single yes/no read on "is this offer fillable?".
+  // The amber EXPECTED nuance is lost here intentionally — preserved
+  // upstream in bestOfferStatus for power users / debugMint output.
+  return s === 'EXPIRED'
+    ? { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' }
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
+}
+function listingStateBadgeStyle(s: ListingState): React.CSSProperties {
+  // LISTED is the "default" state — subtle neutral so it doesn't grab
+  // attention. UNLISTED keeps the lilac accent so the eye still
+  // separates it from listed rows in a dense scroll.
+  return s === 'LISTED'
+    ? { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.30)' }
+    : { color: '#a890e8', background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.42)' };
 }
 
 /** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
@@ -99,16 +155,26 @@ function fmtAge(createdAtSec: number | null): string {
   return `${Math.floor(diffSec / 86_400)}d ago`;
 }
 interface ScanResult {
-  ok:              true;
-  slug:            string;
-  scanned:         number;
-  listedTotal:     number;
-  offersFetched:   number;
-  offersAvailable: number;
-  withOffers:      ScanRow[];
-  cachedAt:        number;
-  ttlMs:           number;
-  fromCache?:      boolean;
+  ok:                 true;
+  slug:               string;
+  scanned:            number;
+  listedTotal:        number;
+  offersFetched:      number;
+  offersAvailable:    number;
+  activitiesScanned?:      number;
+  activityCandidateMints?: number;
+  listedCandidateMints?:   number;
+  unlistedWithOffers?:     number;
+  tookMs?:                 number;
+  withOffers:         ScanRow[];
+  /** Non-fatal upstream warnings from the backend. Logged to the
+   *  console on receipt so the operator can see partial-failure
+   *  context (DAS failed, N holder fetches errored, debugMint upstream
+   *  4xx, …) without us silently rendering "0 offers" on a broken scan. */
+  warnings?:          string[];
+  cachedAt:           number;
+  ttlMs:              number;
+  fromCache?:         boolean;
   /** Frontend-only: number of rows whose `bestOfferId` was not present
    *  in the previous scan (i.e. count of `isNew=true` rows after merge).
    *  Persisted alongside the rows so the summary line keeps showing
@@ -208,6 +274,18 @@ export default function ToolsPage() {
     const arr = [...result.withOffers];
     const dir = sortDir === 'asc' ? 1 : -1;
     arr.sort((a, b) => {
+      // Outer partition: combined offer×listing rank, NOT plain `listed`.
+      // Order is fixed (ACTIVE+LISTED → ACTIVE+UNLISTED → EXPIRED+LISTED
+      // → EXPIRED+UNLISTED) regardless of the column the user clicked,
+      // so an unlisted-but-active row outranks a listed-but-expired
+      // one — that's the actionability ordering the operator wants.
+      // Bypassed only for STATUS column header clicks, where the
+      // user-selected direction applies to this rank directly.
+      if (sortKey !== 'status') {
+        const ra = combinedStatusRank(a);
+        const rb = combinedStatusRank(b);
+        if (ra !== rb) return ra - rb;
+      }
       let va: number | string;
       let vb: number | string;
       switch (sortKey) {
@@ -217,17 +295,23 @@ export default function ToolsPage() {
           if (va < vb) return -1 * dir;
           if (va > vb) return  1 * dir;
           return 0;
-        case 'listing': va = a.listingPrice;   vb = b.listingPrice;   break;
-        case 'offer': {
-          // Status takes priority over price: AVAILABLE > EXPECTED >
-          // EXPIRED, regardless of sort direction. Within a status
-          // tier, price respects the user's chosen direction.
-          const ra = statusRank(a.bestOfferStatus);
-          const rb = statusRank(b.bestOfferStatus);
-          if (ra !== rb) return ra - rb;
-          return (a.bestOfferPrice - b.bestOfferPrice) * dir;
-        }
-        case 'spread':  va = a.spreadSol;      vb = b.spreadSol;      break;
+        case 'listing':
+          // Null listing prices (unlisted rows) sink to the bottom of
+          // their offer-state group via -Infinity.
+          va = a.listingPrice ?? -Infinity;
+          vb = b.listingPrice ?? -Infinity;
+          break;
+        case 'offer':
+          // The outer combined rank already partitions ACTIVE above
+          // EXPIRED; this column's sort just orders by price within
+          // each (offer×listing) bucket per user direction.
+          va = a.bestOfferPrice;
+          vb = b.bestOfferPrice;
+          break;
+        case 'spread':
+          va = a.spreadSol ?? -Infinity;
+          vb = b.spreadSol ?? -Infinity;
+          break;
         case 'age':
           // Newer first when desc; "—" (null createdAt) sinks to the
           // bottom regardless of dir so unknown-age rows don't pollute
@@ -236,20 +320,19 @@ export default function ToolsPage() {
           vb = b.bestOfferCreatedAt ?? -Infinity;
           break;
         case 'status':
-          // Pure status ordering (asc: AVAILABLE → EXPECTED → EXPIRED).
-          // Different from the implicit status priority inside `offer`,
-          // which still groups by status but tie-breaks within a tier
-          // by price; here, status is the primary key and the secondary
-          // tie-break (spread desc) at the bottom of this comparator
-          // takes over within a tier.
-          va = statusRank(a.bestOfferStatus);
-          vb = statusRank(b.bestOfferStatus);
+          // Sorting on the STATUS header walks the 4-bucket rank
+          // directly. Asc → ACTIVE+LISTED first (the default), desc
+          // → EXPIRED+UNLISTED first (rare but useful for triaging
+          // dead candidates).
+          va = combinedStatusRank(a);
+          vb = combinedStatusRank(b);
           break;
       }
       const primary = (va as number) - (vb as number);
       if (primary !== 0) return primary * dir;
-      // Stable tie-break by spread desc to match the spec's default.
-      return b.spreadSol - a.spreadSol;
+      // Stable tie-break by spread desc (treating null as 0 so unlisted
+      // rows tie-break together rather than going to -Infinity here).
+      return (b.spreadSol ?? 0) - (a.spreadSol ?? 0);
     });
     return arr;
   }, [result, sortKey, sortDir]);
@@ -333,6 +416,15 @@ export default function ToolsPage() {
         throw new Error(fallback.slice(0, 200));
       }
       const data = await r.json() as ScanResult;
+      // Surface backend partial-failure warnings (DAS skipped, N holder
+      // fetches errored, etc.) in the browser console so the operator
+      // can tell when a "0 unlisted offers found" result is genuine vs.
+      // an upstream blip. Doesn't change the table UI — warnings live
+      // in the response metadata, not in a banner.
+      if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+        // eslint-disable-next-line no-console
+        console.warn('[tools/retardio-me-offer-scan] backend warnings:', data.warnings);
+      }
       // NEW badge rules (per spec):
       //   - new offer on a known listing  → NEW
       //   - brand-new listing whose best offer is AVAILABLE/EXPECTED
@@ -490,18 +582,23 @@ export default function ToolsPage() {
             {/* Explicit column widths so the table reads as a balanced
                 trading layout — without these, browser auto-distribution
                 pushed LINKS to the far edge and crowded NFT against the
-                left border. NFT is widest (30 %) but not glued to the
-                edge thanks to thStyleNft's 14 px left padding; metric
-                columns sit at 12–14 % each; STATUS / LINKS stay
-                compact. Total = 100 %. */}
+                left border. Retuned after the STATUS column became two
+                stacked pills: NFT widened to 34 % (was 30 %) for the
+                asset block + thumbnail, BEST OFFER held at 16 % so the
+                FUNDED 1.95 SOL pill underneath the price doesn't wrap,
+                SPREAD trimmed to 8 % (was 14 %) since it's just a
+                +/-NUM and the prior 14 % left a yawning gap between
+                the right-aligned BEST OFFER and SPREAD values, AGE at
+                8 % (was 10 %), STATUS up to 14 % for the two-pill
+                stack. Total = 100 %. */}
             <colgroup>
-              <col style={{ width: '30%' }} />{/* NFT        */}
-              <col style={{ width: '12%' }} />{/* LISTING    */}
-              <col style={{ width: '14%' }} />{/* BEST OFFER */}
-              <col style={{ width: '14%' }} />{/* SPREAD     */}
-              <col style={{ width: '10%' }} />{/* AGE        */}
-              <col style={{ width: '12%' }} />{/* STATUS     */}
-              <col style={{ width:  '8%' }} />{/* LINKS      */}
+              <col style={{ width: '34%' }} />{/* NFT        */}
+              <col style={{ width: '10%' }} />{/* LISTING    */}
+              <col style={{ width: '16%' }} />{/* BEST OFFER */}
+              <col style={{ width:  '8%' }} />{/* SPREAD     */}
+              <col style={{ width:  '8%' }} />{/* AGE        */}
+              <col style={{ width: '14%' }} />{/* STATUS     */}
+              <col style={{ width: '10%' }} />{/* LINKS      */}
             </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
@@ -520,10 +617,10 @@ export default function ToolsPage() {
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
                   AGE {sortArrow('age') && <span style={{ color: '#8068d8' }}>{sortArrow('age')}</span>}
                 </th>
-                <th style={{ ...thStyleSmall, cursor: 'pointer' }} onClick={() => onHeaderClick('status')}>
+                <th style={{ ...thStyleSmall, textAlign: 'center', cursor: 'pointer' }} onClick={() => onHeaderClick('status')}>
                   STATUS {sortArrow('status') && <span style={{ color: '#8068d8' }}>{sortArrow('status')}</span>}
                 </th>
-                <th style={thStyleSmall}>LINKS</th>
+                <th style={{ ...thStyleSmall, textAlign: 'center' }}>LINKS</th>
               </tr>
             </thead>
             <tbody>
@@ -545,12 +642,17 @@ export default function ToolsPage() {
               {sortedRows.map((row) => {
                 const name = row.nftName ?? row.mint.slice(0, 6);
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
-                const positiveSpread = row.spreadSol > 0;
-                // Dim expired rows so they read as background context
-                // rather than actionable rows. AVAILABLE / EXPECTED at
-                // full opacity; EXPIRED at 0.5.
+                const positiveSpread = row.spreadSol != null && row.spreadSol > 0;
+                // Dim EXPIRED rows regardless of listing state — they
+                // are universally not actionable until refreshed, and
+                // the STATUS column's offer pill already calls that
+                // out. UNLISTED-but-ACTIVE rows stay full-opacity (still
+                // actionable). The lilac UNLISTED pill carries the
+                // listing-state signal on its own.
                 const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1;
                 const sb = statusBadgeStyle(row.bestOfferStatus);
+                const oState = offerState(row.bestOfferStatus);
+                const lState = listingState(row);
                 // NEW pill: surfaces fresh offers based on the offer's own
                 // age (the same `bestOfferCreatedAt` that powers the AGE
                 // column), not on scan time. Self-expires after 24 h and
@@ -563,7 +665,7 @@ export default function ToolsPage() {
                   && row.bestOfferStatus !== 'EXPIRED';
                 return (
                   <tr key={row.mint} className="tools-offer-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
-                    <td style={{ padding: '10px 8px 10px 14px' }}>
+                    <td style={{ padding: '10px 8px 10px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* Thumbnail wrapper carries `position: relative`
                             so the NEW pill can corner-anchor over the
@@ -599,7 +701,9 @@ export default function ToolsPage() {
                         </div>
                       </div>
                     </td>
-                    <td style={tdStyleNum}>{formatSol(row.listingPrice)}</td>
+                    <td style={tdStyleNum}>
+                      {row.listingPrice != null ? formatSol(row.listingPrice) : '—'}
+                    </td>
                     <td style={{ ...tdStyleNum, color: '#5ce0a0' }}>
                       {row.bestOfferStatus === 'EXPIRED' && (
                         // Inline EXPIRED tag — kept here in addition to the
@@ -652,22 +756,52 @@ export default function ToolsPage() {
                         </div>
                       )}
                     </td>
-                    <td style={{ ...tdStyleNum, color: positiveSpread ? '#5ce0a0' : '#ef7878', fontWeight: 700 }}>
-                      {positiveSpread ? '+' : ''}{formatSol(Math.abs(row.spreadSol))}
+                    <td style={{
+                      ...tdStyleNum,
+                      // Neutral grey for unlisted (no spread to express);
+                      // existing green/red palette for listed rows.
+                      color: row.spreadSol == null ? '#56566e' : (positiveSpread ? '#5ce0a0' : '#ef7878'),
+                      fontWeight: 700,
+                    }}>
+                      {row.spreadSol == null
+                        ? '—'
+                        : `${positiveSpread ? '+' : ''}${formatSol(Math.abs(row.spreadSol))}`}
                     </td>
                     <td style={{ ...tdStyleNum, color: '#aaaabf', fontWeight: 500 }}>
                       {fmtAge(row.bestOfferCreatedAt)}
                     </td>
-                    <td style={tdStyleSmall}>
-                      <span style={{
-                        display: 'inline-block', padding: '2px 7px',
-                        fontSize: 9.5, fontWeight: 700, borderRadius: 3,
-                        letterSpacing: '0.4px', textTransform: 'uppercase',
-                        ...sb,
-                      }}>{row.bestOfferStatus}</span>
+                    <td style={{ ...tdStyleSmall, textAlign: 'center' }}>
+                      {/* Combined offer×listing status — two stacked
+                          compact pills inside the existing STATUS
+                          column (no new header). Top pill collapses the
+                          offer state to ACTIVE/EXPIRED (AVAILABLE +
+                          EXPECTED both fold into ACTIVE — the operator
+                          only needs to know "fillable or not"), bottom
+                          pill carries the listing state LISTED/UNLISTED.
+                          Centered alignment matches the now-centered
+                          STATUS header (was right-aligned flex / left-
+                          aligned header, which read inconsistently).
+                          gap:1 + tighter pill padding (1px 6px) keep
+                          the stack height under control so rows with no
+                          FUNDED badge under BEST OFFER don't inherit
+                          extra row height from the STATUS stack. */}
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 1, alignItems: 'center', lineHeight: 1.15 }}>
+                        <span style={{
+                          display: 'inline-block', padding: '1px 6px',
+                          fontSize: 9.5, fontWeight: 700, borderRadius: 3,
+                          letterSpacing: '0.4px', textTransform: 'uppercase',
+                          ...offerStateBadgeStyle(oState),
+                        }}>{oState}</span>
+                        <span style={{
+                          display: 'inline-block', padding: '1px 6px',
+                          fontSize: 9.5, fontWeight: 700, borderRadius: 3,
+                          letterSpacing: '0.4px', textTransform: 'uppercase',
+                          ...listingStateBadgeStyle(lState),
+                        }}>{lState}</span>
+                      </div>
                     </td>
                     <td style={tdStyleSmall}>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                         <a href={row.meUrl} target="_blank" rel="noopener noreferrer" style={logoChipStyle}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src="/brand/me.png" alt="Magic Eden" width={20} height={20} draggable={false} style={logoImgStyle} />
@@ -702,11 +836,21 @@ const thStyleSmall: React.CSSProperties = { ...thStyle, textAlign: 'left', fontS
  *  (`padding: '10px 8px 10px 14px'`) below. */
 const thStyleNft: React.CSSProperties = { ...thStyle, padding: '10px 8px 10px 14px' };
 const tdStyleNum: React.CSSProperties = {
-  padding: '10px 8px', textAlign: 'right', fontSize: 13, fontWeight: 600,
+  // verticalAlign:'middle' is the fix for the row misalignment after
+  // STATUS became two stacked pills — without it, table cells default
+  // to baseline, and rows where any cell (NFT block, BEST OFFER + FUNDED
+  // pill, STATUS stack) has more than one line caused single-line
+  // cells like LISTING/SPREAD/AGE to drift toward the top of the row.
+  // Padding trimmed from '10px 8px' to '10px 6px' so the right-aligned
+  // metric values sit a touch closer to their column boundaries,
+  // reducing the visual gap between BEST OFFER and SPREAD.
+  padding: '10px 6px', textAlign: 'right', fontSize: 13, fontWeight: 600,
   color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",
+  verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  padding: '10px 8px', fontSize: 11, color: '#aaaabf', fontFamily: "'SF Mono','Fira Code',monospace",
+  padding: '10px 6px', fontSize: 11, color: '#aaaabf', fontFamily: "'SF Mono','Fira Code',monospace",
+  verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
   textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
