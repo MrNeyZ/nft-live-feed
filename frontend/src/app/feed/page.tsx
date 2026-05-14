@@ -397,11 +397,16 @@ function FloorChip({ delta }: { delta: number }) {
     <span
       title={`${sign}${pct.toFixed(1)}% vs collection floor`}
       style={{
-        fontSize: 10, fontWeight: bright ? 700 : 600,
+        // Trimmed one tier: smaller font, lower border alpha, no bg
+        // tint when not "bright" — the chip is a secondary qualifier
+        // for the price, not a peer of the BUY/SELL badge, so it
+        // shouldn't compete for attention. ~14 % smaller pill area.
+        fontSize: 9.5, fontWeight: bright ? 700 : 600,
         color: fg, background: bg, border: `1px solid ${bd}`,
-        padding: '1px 5px', borderRadius: 3, letterSpacing: '0.2px',
-        lineHeight: 1.1, fontFamily: "'SF Mono','Fira Code',monospace",
+        padding: '0 4px', borderRadius: 3, letterSpacing: '0.2px',
+        lineHeight: 1.25, fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
+        opacity: bright ? 1 : 0.85,
       }}
     >
       {sign}{pct.toFixed(0)}%
@@ -540,9 +545,11 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
-  // Dimmed from #8a8aa6 → #6a6a82 so the unit suffix recedes against
-  // the brighter price digits. Same family, ~one notch darker.
-  color: '#6a6a82', fontWeight: 600, fontSize: 11,
+  // SOL unit suffix — dimmed further (color + opacity) so the eye
+  // lands on the price digits first, then registers the unit. The
+  // suffix is informational, not load-bearing — at viewing distance
+  // the row reads "2.50 sol" with the digits dominant.
+  color: '#6a6a82', fontWeight: 600, fontSize: 10.5, opacity: 0.7,
 };
 // Inline seller-remaining badge — sits next to the seller wallet on the
 // FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
@@ -834,19 +841,18 @@ const FeedCard = memo(function FeedCard({
           <div style={FC_PRICE_ROW_STYLE}>
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             <span style={{
-              // Glassy BUY/SELL/AMM pill. Width stays at 56 (locks
-              // the action lane); vertical padding trimmed 3 → 2 px
-              // so the badge sits a hair tighter against the price.
-              // Two inset box-shadows give a subtle top highlight +
-              // bottom shadow, reading as a slight 3D depth without
-              // changing colors or layout. Same idea as Hyperliquid /
-              // Tensor terminal pills.
-              width: 56, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-              padding: '2px 0', fontSize: 11, fontWeight: 700, borderRadius: 4,
+              // Trimmed BUY/SELL/AMM pill — width 50 (was 56), padding
+              // 1px 0 (was 2px 0), fontSize 10.5 (was 11). Net ~12 %
+              // smaller pill area so the direction badge yields visual
+              // dominance to the price digits next to it. Inset
+              // highlight/shadow still gives the glassy 3D read, just
+              // at a more secondary scale.
+              width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
+              padding: '1px 0', fontSize: 10.5, fontWeight: 700, borderRadius: 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
               boxShadow:
-                'inset 0 1px 0 rgba(255, 255, 255, 0.08),' +
-                ' inset 0 -1px 0 rgba(0, 0, 0, 0.18)',
+                'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
+                ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
             }}>{style.label}</span>
             <span style={FC_PRICE_TEXT_STYLE}>
               {safePrice == null ? '—' : formatFeedPrice(safePrice)}{' '}
@@ -872,16 +878,48 @@ const FILTERS: { key: FilterKey; label: string; color: string }[] = [
   { key: 'listing', label: 'Listings',   color: '#a890e8' },
 ];
 
-/** Ghost-button style for inactive filter pills inside the filters
- *  panel. Recedes visually so the active selection reads immediately;
- *  hover (handled by the Pill base) brings the pill back into focus
- *  on intent. Active pills carry their own per-color highlight via
- *  the inline `style={isActive ? {...} : ...}` branch at the call
- *  site (see Type / Price / Density rows below). */
+/** Inactive-pill style for Type/Price utility filters inside the
+ *  filters panel. Brought up to the same family as
+ *  DENSITY_PILL_INACTIVE_STYLE — faint white-α 0.025 fill, white-α
+ *  0.08 border, color #8e8eb0 — so the panel reads as one
+ *  consistent tone instead of "Density bright / everything else
+ *  ghost". Pills are still clearly inactive (no per-color
+ *  highlight, no border at full lilac), but visible. Active pills
+ *  retain their per-color highlight + glow at the call site, so
+ *  the active selection still dominates. */
 const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
-  background: 'transparent',
-  border: '1px solid rgba(255, 255, 255, 0.05)',
-  color: '#6e6e8a',
+  background: 'rgba(255, 255, 255, 0.025)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  color: '#8e8eb0',
+};
+
+/** Density pills are the primary "feed mode" control inside the
+ *  filters panel — sized noticeably larger than the Type/Price
+ *  utility pills so they read as a segmented control rather than
+ *  another tiny toggle, but trimmed back from the prior 4 × 14 /
+ *  11.5 px sizing so they don't dominate the panel. Inactive pills
+ *  are still subdued (they're not the active mode), but carry a
+ *  real bg + border so the row reads as a 3-button segment, not
+ *  three ghost chips. */
+const DENSITY_PILL_BASE_STYLE: React.CSSProperties = {
+  padding:        '3px 12px',
+  fontSize:       11,
+  letterSpacing:  '0.4px',
+};
+const DENSITY_PILL_INACTIVE_STYLE: React.CSSProperties = {
+  ...DENSITY_PILL_BASE_STYLE,
+  background:    'rgba(255, 255, 255, 0.025)',
+  border:        '1px solid rgba(255, 255, 255, 0.08)',
+  color:         '#8e8eb0',
+  fontWeight:    600,
+};
+const DENSITY_PILL_ACTIVE_STYLE: React.CSSProperties = {
+  ...DENSITY_PILL_BASE_STYLE,
+  background:    'rgba(168, 144, 232, 0.26)',
+  border:        '1px solid #a890e8',
+  boxShadow:     '0 0 0 1px rgba(168, 144, 232, 0.36), 0 0 10px rgba(168, 144, 232, 0.42)',
+  color:         '#f0eef8',
+  fontWeight:    700,
 };
 
 /** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
@@ -906,18 +944,25 @@ interface KindStyle {
   borderTone: 'buy' | 'sell' | 'neutral';
 }
 
-// Two colors only — reuse the exact card-border tones from globals.css
-// (.feed-card.buy-card uses rgba(79,200,142,0.78); .feed-card.sell-card
-// uses rgba(250,100,105,1)). AMM trades reuse the same side color and
-// say "AMM" instead of BUY/SELL so the eye distinguishes by label, not
-// by an extra hue. No yellow, no blue.
-//   buy / buyAmm   → GREEN (border-green)   labels: "BUY" / "AMM"
-//   sell / sellAmm → RED   (border-red)     labels: "SELL" / "AMM"
+// Direction palette — retuned to separate marketplace pink (ME logo,
+// card borders, accent chrome) from trade-direction signal. Prior:
+// SELL at rgb(250,100,105) sat squarely in the same pink/red family as
+// the ME logo and the lilac accents, so a glance couldn't disambiguate
+// "Magic Eden source" from "this was a sell". New:
+//   BUY  → emerald with a touch of cyan: rgb(64,212,168)
+//          (was 79,200,142) — more saturated mid-green, slightly cyan,
+//          reads distinctly from the lilac border accent.
+//   SELL → cleaner red, less pink: rgb(232,86,86)
+//          (was 250,100,105) — drops ~30 points of red-channel pink
+//          and matches the dim "expired" #ef7878 family we already use
+//          in /tools, keeping cross-page palette coherence.
+// AMM rows reuse the side color and say "AMM" instead of BUY/SELL —
+// label disambiguates the venue, hue carries direction.
 const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: 'rgb(79,200,142)',  bg: 'rgba(79,200,142,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(250,100,105)', bg: 'rgba(250,100,105,0.18)', borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: 'rgb(79,200,142)',  bg: 'rgba(79,200,142,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: 'rgb(250,100,105)', bg: 'rgba(250,100,105,0.18)', borderTone: 'sell' },
+  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: 'rgb(232,86,86)',   bg: 'rgba(232,86,86,0.18)',   borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: 'rgb(232,86,86)',   bg: 'rgba(232,86,86,0.18)',   borderTone: 'sell' },
   unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
@@ -1001,6 +1046,27 @@ export default function FeedPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Two-state mount machine so the close animation has time to play
+  // before React unmounts the panel. `filtersMounted` lags
+  // `filtersOpen` by the close-animation duration: it flips true
+  // immediately on open (so the open-animation runs on a fresh
+  // mount), and waits ~180 ms after close before flipping false.
+  // Re-opening mid-close cancels the unmount timer via the effect
+  // cleanup, so a rapid toggle just restarts the open animation
+  // without a flicker. Duration is shared with FILTERS_CLOSE_MS
+  // below + the `feedFiltersOut` keyframe (globals.css).
+  const FILTERS_CLOSE_MS = 180;
+  const [filtersMounted, setFiltersMounted] = useState(false);
+  useEffect(() => {
+    if (filtersOpen) {
+      setFiltersMounted(true);
+      return;
+    }
+    if (!filtersMounted) return;
+    const t = setTimeout(() => setFiltersMounted(false), FILTERS_CLOSE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersOpen]);
   // Inclusive-fees toggle (bottom bar). Affects only AMM_SELL price display
   // — see `displayPrice()` in src/soloist/price-mode.ts. Persisted in
   // localStorage; updates here propagate via the 'vl:priceMode' event.
@@ -1580,30 +1646,38 @@ export default function FeedPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
                 <LiveDot />
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#8068d8', marginLeft: 4 }}>
+                {/* Event count — dimmed from #8068d8 → #56566e so the
+                    title "Live events" + the LiveDot stay primary; the
+                    count is supplementary context (operator usually
+                    reads the rows, not the number). */}
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
                 {/* Source-health indicator. Green = both sources fresh.
                     Red = Magic Eden stale (most common: ME API stalls
-                    while Tensor keeps producing events). */}
+                    while Tensor keeps producing events). Resting OK
+                    state is now noticeably subtler (~30 % of the prior
+                    saturation) — only the STALE state remains loud,
+                    which is the correct attention model: silent when
+                    healthy, alarming when not. */}
                 <span
                   title={meStale
                     ? 'Magic Eden API appears stale — no events received recently. Tensor data still flowing.'
                     : 'All data sources flowing normally.'}
                   style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    marginLeft: 4, padding: '2px 6px', borderRadius: 4,
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-                    border: meStale ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.4)',
-                    background: meStale ? 'rgba(239,120,120,0.14)' : 'rgba(92,224,160,0.10)',
-                    color: meStale ? '#ef7878' : '#5ce0a0',
+                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                    marginLeft: 4, padding: '1px 5px', borderRadius: 3,
+                    fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
+                    border: meStale ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
+                    background: meStale ? 'rgba(239,120,120,0.14)' : 'transparent',
+                    color: meStale ? '#ef7878' : 'rgba(92,224,160,0.65)',
                     cursor: 'help',
                   }}
                 >
                   <span style={{
-                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                    display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
                     background: meStale ? '#ef7878' : '#5ce0a0',
-                    boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 6px #5ce0a080',
+                    boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
                   }} />
                   ME {meStale ? 'STALE' : 'OK'}
                 </span>
@@ -1655,8 +1729,8 @@ export default function FeedPage() {
 
             {/* Feed surface */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-              {filtersOpen && (
-                <div className="feed-filters-panel">
+              {filtersMounted && (
+                <div className={`feed-filters-panel ${filtersOpen ? 'feed-filters-panel-open' : 'feed-filters-panel-close'}`}>
                   {/* TYPE row — sale-direction filter. Active pill keeps
                       its per-color highlight (green for buy / red for
                       sell / lilac for all + listing); inactive pills go
@@ -1716,11 +1790,19 @@ export default function FeedPage() {
                       })}
                     </div>
                   </div>
-                  {/* DENSITY row — moved here from the top controls bar.
-                      State + persistence (`vl.feed.density` localStorage)
-                      unchanged; only the rendering location moved. */}
+                  {/* DENSITY row — primary control inside the filters
+                      panel (changes the whole feed mode). The lift
+                      lives on the pills themselves: larger sizing
+                      (default `Pill` size, NOT 'sm', plus extra
+                      horizontal padding via DENSITY_PILL_*_STYLE) and
+                      a stronger active glow so the row reads as a
+                      segmented mode control rather than yet another
+                      tiny toggle. The `feed-filter-row-priority`
+                      class only nudges the "Density" label color
+                      brighter — no row-bg wash. State + persistence
+                      (`vl.feed.density` localStorage) unchanged. */}
                   <div
-                    className="feed-filter-row"
+                    className="feed-filter-row feed-filter-row-priority"
                     role="group"
                     aria-label="Card density"
                   >
@@ -1736,29 +1818,24 @@ export default function FeedPage() {
                             color={color}
                             onClick={() => setDensity(d)}
                             label={d.charAt(0).toUpperCase() + d.slice(1)}
-                            size="sm"
                             title={
                               d === 'comfy'   ? 'Comfy — slightly more breathing room' :
                               d === 'compact' ? 'Compact — current polished baseline'  :
                                                 'Tape — ultra-dense trading-tape view'
                             }
-                            style={isActive ? {
-                              background:  `${color}38`,
-                              border:      `1px solid ${color}`,
-                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
-                              fontWeight:  700,
-                            } : FILTER_PILL_INACTIVE_STYLE}
+                            style={isActive ? DENSITY_PILL_ACTIVE_STYLE : DENSITY_PILL_INACTIVE_STYLE}
                           />
                         );
                       })}
                     </div>
                   </div>
-                  {/* COLLECTIONS row — slug input + compact "+" Add
-                      button + active-filter chip. Input has its own
-                      `feed-coll-input` class that owns :focus glow +
-                      monospace placeholder via globals.css. */}
+                  {/* WATCH row — slug input + compact "+" Add button +
+                      active-filter chip. "Watch" semantics: pin the
+                      feed to a specific collection slug. Input has its
+                      own `feed-coll-input` class (focus glow,
+                      monospace placeholder) in globals.css. */}
                   <div className="feed-filter-row">
-                    <span className="feed-filter-label">Coll.</span>
+                    <span className="feed-filter-label">Watch</span>
                     <div className="feed-filter-pills">
                       <input
                         className="feed-coll-input"

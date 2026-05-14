@@ -9,7 +9,15 @@
    Applied via `data-layout` on <html>, set by useLayoutMode(). */
 :root {
   --feed-root-padding-x: 16px;
-  --feed-column-max:     640px;
+  /* Feed column widened: 640 → 760 (laptop/default) and pc 820 → 960
+     below. Prior 640 left ~400 px of dead space on a 1440-wide screen,
+     making the column read as a phone embed on a desktop. New value
+     keeps the centered-card composition (NOT edge-to-edge) but cuts
+     the empty side margins roughly in half on the design-target
+     viewport. Phone tier stays at 100 % (cards still fill narrow
+     screens), and the embed (multi-tab) path overrides this with
+     `maxWidth: 'none'` inline so widening here doesn't affect it. */
+  --feed-column-max:     760px;
   --topnav-max:          1400px;
   --status-max:          1400px;
   /* Serif used by the VictoryLabs wordmark lockup (.vl-logo). The leading
@@ -20,7 +28,7 @@
 }
 html[data-layout="pc"] {
   --feed-root-padding-x: 24px;
-  --feed-column-max:     820px;
+  --feed-column-max:     960px;
   --topnav-max:          1700px;
   --status-max:          1700px;
 }
@@ -111,13 +119,14 @@ html[data-layout="phone"] .feed-thumb img {
   font-weight: 800;                          /* override (matches prototype) */
   font-size: 24px;                           /* override (prototype: 22px) */
   letter-spacing: -0.5px;                    /* prototype */
-  color: #b794f4;                            /* prototype */
-  /* Bumped up from the prototype's `0 0 14px / 0.35`, plus a tight dark
-     drop, to restore a little of the old PNG's visual weight without going
-     neon. (Glow strength is a judgment fill — verify.) */
+  color: #ae92ee;                            /* slightly desaturated from #b794f4 — calmer */
+  /* A soft purple bloom (~prototype level) + a tight dark drop for a
+     little of the old PNG's weight — dialled back so the wordmark sits
+     inside the topbar's chrome rather than grabbing attention. No neon.
+     (Judgment fill — verify.) */
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.40),
-    0 0 16px rgba(168, 144, 232, 0.42);
+    0 0 16px rgba(158, 134, 216, 0.33);
   transform: scaleX(0.97);                   /* override (was 0.95 — too compressed) */
   transform-origin: 100% 50%;                /* override */
 }
@@ -504,15 +513,15 @@ a { color: inherit; text-decoration: none; }
    defined). slideDown still drives the actual entrance motion;
    these handle the color decay only. */
 @keyframes flashBuy {
-  0%   { background: rgba(92, 224, 160, 0.20); }
-  40%  { background: rgba(92, 224, 160, 0.10); }
-  100% { background: rgba(79, 200, 142, 0.030); }
+  0%   { background: rgba(64, 212, 168, 0.20); }
+  40%  { background: rgba(64, 212, 168, 0.10); }
+  100% { background: rgba(64, 212, 168, 0.030); }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(239, 120, 120, 0.20); }
-  40%  { background: rgba(239, 120, 120, 0.10); }
-  100% { background: rgba(250, 100, 105, 0.032); }
+  0%   { background: rgba(232,  86,  86, 0.20); }
+  40%  { background: rgba(232,  86,  86, 0.10); }
+  100% { background: rgba(232,  86,  86, 0.032); }
 }
 
 @keyframes flashListingFeed {
@@ -589,8 +598,13 @@ a { color: inherit; text-decoration: none; }
 .feed-card {
   display: flex;
   align-items: stretch;
-  gap: 12px;
-  padding: 8px 12px;
+  /* Density tightened ~12 %: gap 12 → 10, padding 8/12 → 7/11. Net
+     row-height drop ~3 px per card; on a 700 px feed this is +2 rows
+     visible without making the seller/buyer secondary text or the
+     56 px thumb feel cramped. Density modes (.feed-density-tape)
+     still pile on further reductions on top of this baseline. */
+  gap: 10px;
+  padding: 7px 11px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
@@ -627,12 +641,18 @@ a { color: inherit; text-decoration: none; }
 }
 
 .feed-card:hover {
-  transform: scale(1.004);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(168, 144, 232, 0.30);
+  /* Subtle terminal-row hover: scale was 1.004, now 1.005 — barely
+     perceptible "lift" without a real transform. Inset ring +
+     outer glow bumped a notch (~25 % more alpha each) so the row
+     reads as visibly interactive without screaming. No big
+     transforms, no slow animations — same 200 ms ease-out the
+     base card already uses. */
+  transform: scale(1.005);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(168, 144, 232, 0.40);
   box-shadow:
-    0 0 0 1px rgba(168, 144, 232, 0.30) inset,
-    0 0 16px rgba(128, 104, 216, 0.18);
+    0 0 0 1px rgba(168, 144, 232, 0.40) inset,
+    0 0 18px rgba(128, 104, 216, 0.22);
   z-index: 1;
 }
 
@@ -658,17 +678,17 @@ a { color: inherit; text-decoration: none; }
    unchanged from the prior commit (~0.030 α at rest, 0.060 α on
    hover). */
 .feed-card.buy-card  {
-  border-left:  3px solid rgba( 79, 200, 142, 0.40);
-  border-right: 3px solid rgba( 79, 200, 142, 0.40);
-  background:   rgba( 79, 200, 142, 0.030);
+  border-left:  3px solid rgba( 64, 212, 168, 0.40);
+  border-right: 3px solid rgba( 64, 212, 168, 0.40);
+  background:   rgba( 64, 212, 168, 0.030);
 }
-.feed-card.buy-card:hover  { background: rgba( 79, 200, 142, 0.060); }
+.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.060); }
 .feed-card.sell-card    {
-  border-left:  3px solid rgba(250, 100, 105, 0.40);
-  border-right: 3px solid rgba(250, 100, 105, 0.40);
-  background:   rgba(250, 100, 105, 0.032);
+  border-left:  3px solid rgba(232,  86,  86, 0.40);
+  border-right: 3px solid rgba(232,  86,  86, 0.40);
+  background:   rgba(232,  86,  86, 0.032);
 }
-.feed-card.sell-card:hover { background: rgba(250, 100, 105, 0.062); }
+.feed-card.sell-card:hover { background: rgba(232,  86,  86, 0.062); }
 .feed-card.listing-card {
   border-left:  3px solid rgba(168, 144, 232, 0.95);
   border-right: 3px solid rgba(168, 144, 232, 0.95);
@@ -679,9 +699,9 @@ a { color: inherit; text-decoration: none; }
    filters read as a secondary utility lane rather than a "form" on
    top of the cards. Inset highlights at top + bottom, plus a faint
    inner vignette, give a small amount of depth without bright
-   gradients or large shadows. `feedFiltersIn` keyframe runs on
-   mount when `filtersOpen` flips true (panel is unmounted when
-   closed; re-mount triggers the animation each open). */
+   gradients or large shadows. The animation is owned by the two
+   modifier classes below (`-open` / `-close`) so React can keep the
+   panel mounted long enough to play the close keyframe. */
 .feed-filters-panel {
   flex-shrink: 0;
   display: flex; flex-direction: column;
@@ -695,7 +715,18 @@ a { color: inherit; text-decoration: none; }
     inset 0 -1px 0 rgba(255, 255, 255, 0.02),
     inset 0 0 24px rgba(0, 0, 0, 0.20);
   overflow: hidden;
-  animation: feedFiltersIn 160ms ease-out;
+}
+.feed-filters-panel-open  { animation: feedFiltersIn  200ms ease-out; }
+.feed-filters-panel-close { animation: feedFiltersOut 180ms ease-in forwards; }
+
+/* Priority row — Density. The visual emphasis lives on the pills
+   themselves (larger sizing, stronger active glow — see
+   DENSITY_PILL_* style constants in feed/page.tsx), so the row
+   itself is left flush with Type/Price/Watch. The class here only
+   scopes a one-notch brighter label color so the "DENSITY" word
+   reads as primary, without a banner-like wash behind the row. */
+.feed-filter-row-priority .feed-filter-label {
+  color: #74749a;
 }
 
 /* Each filter lane: fixed-width right-aligned label column on the
@@ -717,7 +748,12 @@ a { color: inherit; text-decoration: none; }
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: #56566e;
+  /* Bumped from #56566e → #6e6e8a so Type/Price/Watch labels read
+     in the same family as the Density label (#74749a) rather than
+     looking dead next to it. Density's `.feed-filter-row-priority`
+     override still keeps Density a notch brighter for clear
+     hierarchy without the prior big mismatch. */
+  color: #6e6e8a;
 }
 .feed-filter-pills {
   display: flex; flex-wrap: wrap;
@@ -745,7 +781,11 @@ a { color: inherit; text-decoration: none; }
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 .feed-coll-input::placeholder {
-  color: #45455e;
+  /* Bumped from #45455e → #5a5a78 so the empty-state placeholder
+     reads as a hint, not a dead string. Same family as the new
+     #6e6e8a default label color, kept one tier dimmer so the input
+     still looks empty until typed into. */
+  color: #5a5a78;
   font-family: 'SF Mono', 'Fira Code', monospace;
   letter-spacing: 0.5px;
 }
@@ -778,6 +818,29 @@ a { color: inherit; text-decoration: none; }
     max-height: 240px;
     padding-top: 8px;
     padding-bottom: 10px;
+  }
+}
+
+/* Mirror of feedFiltersIn — runs when `.feed-filters-panel-close`
+   is applied (filtersOpen flipped false but `filtersMounted` still
+   true, holding the panel in the DOM long enough for the keyframe
+   to play). `forwards` keeps the panel collapsed at the close
+   end-state until React unmounts it ~180 ms later, so there's no
+   snap back to the open layout at unmount time. */
+@keyframes feedFiltersOut {
+  from {
+    opacity: 1;
+    transform: none;
+    max-height: 240px;
+    padding-top: 8px;
+    padding-bottom: 10px;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-2px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
   }
 }
 
@@ -816,10 +879,10 @@ a { color: inherit; text-decoration: none; }
   pointer-events: none;
   border-radius: 1.5px;
 }
-.feed-card.buy-card::before  { left: -3px;  background: rgb(79, 200, 142);  box-shadow: 0 0 6px rgba(79, 200, 142, 0.45); }
-.feed-card.buy-card::after   { right: -3px; background: rgb(79, 200, 142);  box-shadow: 0 0 6px rgba(79, 200, 142, 0.45); }
-.feed-card.sell-card::before { left: -3px;  background: rgb(250, 100, 105); box-shadow: 0 0 6px rgba(250, 100, 105, 0.45); }
-.feed-card.sell-card::after  { right: -3px; background: rgb(250, 100, 105); box-shadow: 0 0 6px rgba(250, 100, 105, 0.45); }
+.feed-card.buy-card::before  { left: -3px;  background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
+.feed-card.buy-card::after   { right: -3px; background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
+.feed-card.sell-card::before { left: -3px;  background: rgb(232,  86,  86); box-shadow: 0 0 6px rgba(232,  86,  86, 0.45); }
+.feed-card.sell-card::after  { right: -3px; background: rgb(232,  86,  86); box-shadow: 0 0 6px rgba(232,  86,  86, 0.45); }
 
 .feed-thumb {
   width: 56px;

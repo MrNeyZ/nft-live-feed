@@ -336,7 +336,11 @@ export function Pill({
   size?:    'sm' | 'md';
   style?:   React.CSSProperties;
 }) {
-  const pad      = size === 'sm' ? '2px 8px' : '3px 10px';
+  // Slightly slimmer / lighter than before — 1px less horizontal padding and
+  // a hair weaker borders (idle rim + active tint) so filter/tab/timeframe
+  // pills (Filters, Pause, …) read a touch more "terminal", less "dashboard
+  // app". Size band, typography, radius, and active logic are unchanged.
+  const pad      = size === 'sm' ? '2px 7px' : '3px 9px';
   const fontSize = size === 'sm' ? 10 : 10.5;
   return (
     <button
@@ -348,8 +352,8 @@ export function Pill({
         display: 'inline-flex', alignItems: 'center', gap: 4,
         padding: pad, fontSize, fontWeight: 600, borderRadius: 4,
         letterSpacing: '0.3px',
-        border:     active ? `1px solid ${color}66` : '1px solid rgba(255,255,255,0.08)',
-        background: active ? `${color}22`           : 'rgba(255,255,255,0.03)',
+        border:     active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,0.07)',
+        background: active ? `${color}1c`           : 'rgba(255,255,255,0.03)',
         color:      active ? color                  : '#8f8fa8',
         cursor:     disabled ? 'not-allowed' : 'pointer',
         opacity:    disabled ? 0.55 : 1,
@@ -868,17 +872,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
               width: indicator?.width ?? 0,
               opacity: indicator ? 1 : 0,
               // Soft capsule: a purple wash, a 1px inset border, a top sheen,
-              // and both a tight lift-shadow and a wider glow so the active tab
-              // clearly outranks the others — but tuned down (~18% less glow,
-              // dimmer border, darker wash) so it reads as a "selected
-              // terminal tab", not a clickable neon button. Kept slim (radius +
-              // height track the tighter tab padding) for a terminal feel.
+              // and a tight lift-shadow + a faint glow so the active tab
+              // outranks the others — dialled down again here (lighter border,
+              // weaker lift/glow) so it reads closer to the layout-switcher
+              // capsule's language: a "selected terminal tab", not a clickable
+              // neon button. Wash / radius / size / animations unchanged.
               borderRadius: 6,
               background: 'linear-gradient(180deg, rgba(130,106,216,0.16) 0%, rgba(112,92,196,0.05) 100%)',
               boxShadow:
-                '0 2px 10px rgba(118,94,210,0.18), ' +
-                '0 0 16px rgba(140,116,232,0.13), ' +
-                'inset 0 0 0 1px rgba(168,144,232,0.24), ' +
+                '0 2px 8px rgba(118,94,210,0.14), ' +
+                '0 0 14px rgba(140,116,232,0.10), ' +
+                'inset 0 0 0 1px rgba(168,144,232,0.20), ' +
                 'inset 0 1px 0 rgba(255,255,255,0.05)',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -1661,17 +1665,28 @@ function MintTrackerToggle() {
         ? 'Mint tracker is ON — click to stop launchpad mint ingestion'
         : 'Mint tracker is OFF — click to start launchpad mint ingestion'}
       style={{
-        padding: '3px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '1px',
-        color: isOn ? '#5ce0a0' : '#7a7a94',
+        // Toned down a tier: padding 3/10 → 2/8, font 10 → 9.5,
+        // letter-spacing 1 → 0.8, border alpha dropped (0.45 → 0.30
+        // ON, 0.32 → 0.22 OFF), text colors slightly desaturated and
+        // resting opacity reduced to 0.78 so the MINTS toggle reads
+        // as a tertiary control rather than a peer of the page-level
+        // MODE pill / OFF button. Hover reveals full opacity for
+        // affordance. The state colors (green = ON, neutral = OFF)
+        // are preserved so the operator still spots the state
+        // change at a glance.
+        padding: '2px 8px', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.8px',
+        color: isOn ? 'rgba(92,224,160,0.85)' : 'rgba(122,122,148,0.85)',
         background: 'transparent',
-        border: `1px solid ${isOn ? 'rgba(92,224,160,0.45)' : 'rgba(122,122,148,0.32)'}`,
+        border: `1px solid ${isOn ? 'rgba(92,224,160,0.30)' : 'rgba(122,122,148,0.22)'}`,
         borderRadius: 4,
         cursor: busy ? 'wait' : 'pointer',
         fontFamily: 'inherit',
         textTransform: 'uppercase',
-        opacity: busy ? 0.6 : 1,
+        opacity: busy ? 0.5 : 0.78,
         transition: 'color 0.12s, border-color 0.12s, opacity 0.12s',
       }}
+      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = busy ? '0.5' : '1'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = busy ? '0.5' : '0.78'; }}
     >
       MINTS {isOn ? 'ON' : 'OFF'}
     </button>
