@@ -487,25 +487,25 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
           <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
         </div>
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'center' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>
@@ -564,25 +564,25 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
           </div>
         </div>
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'center' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
           <Sparkline data={floorData} color={col.color} w={64} h={18} />
         </div>

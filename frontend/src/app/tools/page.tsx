@@ -857,12 +857,12 @@ const tdStyleNum: React.CSSProperties = {
   // Padding trimmed from '10px 8px' to '10px 6px' so the right-aligned
   // metric values sit a touch closer to their column boundaries,
   // reducing the visual gap between BEST OFFER and SPREAD.
-  padding: '10px 6px', textAlign: 'right', fontSize: 13, fontWeight: 600,
+  padding: 'var(--table-row-pad-compact, 10px 6px)', textAlign: 'right', fontSize: 13, fontWeight: 600,
   color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  padding: '10px 6px', fontSize: 11, color: '#aaaabf', fontFamily: "'SF Mono','Fira Code',monospace",
+  padding: 'var(--table-row-pad-compact, 10px 6px)', fontSize: 11, color: '#aaaabf', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {

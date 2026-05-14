@@ -35,6 +35,28 @@
   --dashboard-max:     1000px;
   --tools-max:         1100px;
   --mints-max:         1400px;
+  /* Table tokens — centralize current row sizing across the three
+     dense-analytics tables on the site. Values match the live
+     hardcoded equivalents exactly (no density change in this pass):
+       --table-row-pad        : dashboard + mints baseline
+       --table-row-pad-compact: /tools intentionally tighter
+       --table-font           : primary metric cell size (dim cells
+                                vary; not consolidated here)
+       --table-cell-gap       : reserved — currently no rule uses
+                                this; defined for future use. */
+  --table-row-pad:           14px 10px;
+  --table-row-pad-compact:   10px 6px;
+  --table-font:              14px;
+  --table-cell-gap:          12px;
+  /* Feed-card tokens — replaces the prior hardcoded `.feed-card`
+     padding/gap rules. Density classes (.feed-density-comfy /
+     .feed-density-tape) and phone tier override these tokens at
+     scoped selectors below. Thumb size is currently JS-driven via
+     <ItemThumb size={...}> + CSS-only phone/tape overrides; not
+     tokenized in this pass to avoid img/wrapper-size conflicts. */
+  --feed-card-pad:     7px 11px;
+  --feed-card-gap:     10px;
+  --feed-thumb-size:   56px;
   /* Aliases — point at the new tokens for the duration of migration. */
   --feed-root-padding-x: var(--page-x);
   --feed-column-max:     var(--feed-max);
@@ -63,6 +85,18 @@ html[data-layout="phone"] {
   --dashboard-max:      100%;
   --tools-max:          100%;
   --mints-max:          100%;
+  /* Tables tighten on phone — matches the existing visual; no density
+     change. The compact variant doesn't shrink further (tools is
+     already at its target tighter padding on every tier). */
+  --table-row-pad:           10px 6px;
+  --table-font:              12px;
+  --table-cell-gap:           8px;
+  /* Feed card on phone — matches the existing `html[data-layout=
+     "phone"] .feed-card { padding: 8px 10px; gap: 10px }` rule
+     above and the existing `.feed-thumb { 48px }` override. */
+  --feed-card-pad:           8px 10px;
+  --feed-card-gap:          10px;
+  --feed-thumb-size:        48px;
 }
 /* Small-laptop (≤1024 px physical viewport) — tighten page padding
    regardless of data-layout, since the manual layout-switcher hasn't
@@ -73,7 +107,10 @@ html[data-layout="phone"] {
   :root { --page-x: 12px; }
 }
 html[data-layout="phone"] body { font-size: 12px; }
-html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
+/* Phone-tier feed-card padding/gap now flows through the
+   `--feed-card-pad` / `--feed-card-gap` tokens set above; the prior
+   `.feed-card { padding: 8px 10px; gap: 10px }` override here became
+   redundant once `.feed-card` consumes the tokens. Same values. */
 /* Phone thumb — force a rigid 48 px square that never shrinks, never
    stretches, and centres any inner content. The inline ItemThumb uses
    size={56} on the JSX side; on phone we override the actual rendered
@@ -81,8 +118,8 @@ html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
    nothing shifts vertically inside the card. Live Feed only — does not
    touch dashboard / mints / collection thumbs. */
 html[data-layout="phone"] .feed-thumb {
-  width:  48px !important;
-  height: 48px !important;
+  width:  var(--feed-thumb-size, 48px) !important;
+  height: var(--feed-thumb-size, 48px) !important;
   flex-shrink: 0 !important;
   display: flex;
   align-items: center;
@@ -109,8 +146,8 @@ html[data-layout="phone"] .feed-thumb img {
    is already too narrow for the desktop thumb. */
 @media (max-width: 768px) {
   .feed-thumb {
-    width:  48px !important;
-    height: 48px !important;
+    width:  var(--feed-thumb-size, 48px) !important;
+    height: var(--feed-thumb-size, 48px) !important;
     flex-shrink: 0 !important;
     display: flex;
     align-items: center;
@@ -658,9 +695,12 @@ a { color: inherit; text-decoration: none; }
      row-height drop ~3 px per card; on a 700 px feed this is +2 rows
      visible without making the seller/buyer secondary text or the
      56 px thumb feel cramped. Density modes (.feed-density-tape)
-     still pile on further reductions on top of this baseline. */
-  gap: 10px;
-  padding: 7px 11px;
+     still pile on further reductions on top of this baseline.
+     Values flow through `--feed-card-gap` / `--feed-card-pad`
+     tokens defined at `:root` (Phase 2 step 6) — density classes
+     and the phone tier override the tokens, not these declarations. */
+  gap:     var(--feed-card-gap, 10px);
+  padding: var(--feed-card-pad, 7px 11px);
   /* Two custom properties multiplied into the opacity so age-fade
      and hover-dim stack instead of overriding each other. Defaults
      are 1 (no fade); the data-age-bucket rules below set
@@ -927,12 +967,16 @@ a { color: inherit; text-decoration: none; }
    Phone-layout overrides (`html[data-layout="phone"] .feed-card`,
    `.feed-thumb`) have higher specificity and win on mobile — these
    density rules only affect desktop/laptop layouts. */
-.feed-density-comfy .feed-card     { padding: 11px 14px; gap: 14px; }
+/* Density classes override the feed-card tokens (Phase 2 step 6)
+   instead of restating `.feed-card { padding/gap }` rules. The
+   feed-row-wrap padding and the tape thumb size aren't tokenized
+   here — they stay scoped to the density class. */
+.feed-density-comfy { --feed-card-pad: 11px 14px; --feed-card-gap: 14px; }
 .feed-density-comfy .feed-row-wrap { padding: 5px 0; }
 
-.feed-density-tape  .feed-card     { padding: 5px 10px;  gap: 8px;  }
+.feed-density-tape  { --feed-card-pad: 5px 10px;  --feed-card-gap: 8px; --feed-thumb-size: 40px; }
 .feed-density-tape  .feed-row-wrap { padding: 1px 0; }
-.feed-density-tape  .feed-thumb    { width: 40px; height: 40px; }
+.feed-density-tape  .feed-thumb    { width: var(--feed-thumb-size, 40px); height: var(--feed-thumb-size, 40px); }
 
 /* Edge-accent middle-glow stripes for buy/sell cards. Vertical span
    `top: 18 %` to `bottom: 18 %` covers the centre 64 % of the card

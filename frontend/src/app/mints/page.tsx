@@ -2189,7 +2189,7 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {tfCount.toLocaleString()}
                         </td>
@@ -2205,13 +2205,13 @@ export default function MintsPage() {
                           ? `Max supply for this collection`
                           : `Max supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`
                       }
-                      style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color: '#f0eef8', fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                      style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color: '#f0eef8', fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                     >
                       {typeof r.maxSupply === 'number' && r.maxSupply > 0
                         ? r.maxSupply.toLocaleString()
                         : '—'}
                     </td>
-                    <td style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
                     {/* COEF — burstiness: RATE ÷ baseline (count over
@@ -2235,7 +2235,7 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: '14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: '#8a82b0', letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: '#8a82b0', letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {display}
                         </td>
