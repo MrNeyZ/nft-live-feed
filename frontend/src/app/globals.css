@@ -419,30 +419,6 @@ html[data-layout="pc"] .feed-root .topnav-root                          { zoom: 
 html[data-layout="pc"] .feed-root[data-page="dashboard"] .topnav-root   { zoom: 1; }
 html[data-layout="pc"] [data-page="collection"] .topnav-root            { zoom: calc(1.20 / 1.25); }
 
-/* Fallback for browsers without `zoom` support (older Firefox <126,
-   exotic engines). `@supports not (zoom: 1)` evaluates true only when
-   the engine doesn't recognise the property, so this block is dormant
-   on every modern browser the primary path already covers. */
-@supports not (zoom: 1) {
-  html[data-layout="pc"] .feed-root {
-    transform: scale(1.10);
-    transform-origin: top left;
-    width:  calc(100% / 1.10);
-    height: calc(100vh / 1.10);
-  }
-  html[data-layout="pc"] .feed-root[data-page="dashboard"] {
-    transform: scale(1.20);
-    width:  calc(100% / 1.20);
-    height: calc(100vh / 1.20);
-  }
-  html[data-layout="pc"] .feed-root[data-embedded="1"],
-  html[data-layout="pc"] .feed-root[data-no-scale="1"] {
-    transform: none;
-    width:  100%;
-    height: 100vh;
-  }
-}
-
 /* Collection detail page — per-mode scaling, scoped strictly via the
    data-page="collection" attribute on the page root so dashboard /
    live-feed / multi-tab are untouched. The scatter chart is pinned to
@@ -468,35 +444,6 @@ html[data-layout="pc"] [data-page="collection"] .trade-row {
 }
 html[data-layout="pc"] [data-page="collection"] .collection-chart {
   zoom: 0.8;           /* 1.25 × 0.8 = 1.0 effective */
-}
-
-/* Fallback for browsers without `zoom` support — same intent, transform
-   compensation. Page root in PC scales via transform; chart undoes it
-   with an inverse scale so its visual size stays at 1.0×. Rows compound
-   to 1.5× in PC and 1.25× in laptop. */
-@supports not (zoom: 1) {
-  html[data-layout="laptop"] [data-page="collection"] .listing-row,
-  html[data-layout="laptop"] [data-page="collection"] .trade-row {
-    transform: scale(1.25);
-    transform-origin: top left;
-  }
-  html[data-layout="pc"] [data-page="collection"] {
-    transform: scale(1.25);
-    transform-origin: top left;
-    width:  calc(100% / 1.25);
-    height: calc(100vh / 1.25);
-  }
-  html[data-layout="pc"] [data-page="collection"] .listing-row,
-  html[data-layout="pc"] [data-page="collection"] .trade-row {
-    transform: scale(1.2);
-    transform-origin: top left;
-  }
-  html[data-layout="pc"] [data-page="collection"] .collection-chart {
-    transform: scale(0.8);
-    transform-origin: top left;
-    width:  calc(100% / 0.8);
-    height: calc(100% / 0.8);
-  }
 }
 
 /* Smooth transitions when the user switches PC / Laptop / Phone — eases
