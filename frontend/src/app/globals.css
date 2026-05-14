@@ -65,6 +65,10 @@
   --hover-ring-alpha:    0.40;
   --hover-glow-blur:     18px;
   --hover-glow-alpha:    0.22;
+  /* Collection stats panel — PC bumps the label color from near-bg
+     #2c2c44 to a slightly brighter #3d3d5a for readability on dense
+     monitors. Laptop / phone keep the muted default. */
+  --stat-label-color:    #2c2c44;
   /* Aliases — point at the new tokens for the duration of migration. */
   --feed-root-padding-x: var(--page-x);
   --feed-column-max:     var(--feed-max);
@@ -89,6 +93,7 @@ html[data-layout="pc"] {
   --hover-ring-alpha:    0.55;
   --hover-glow-blur:     22px;
   --hover-glow-alpha:    0.28;
+  --stat-label-color:    #3d3d5a;
 }
 html[data-layout="phone"] {
   --shell-x:            12px;

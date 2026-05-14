@@ -22,6 +22,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ w: 600, h: 280 });
   const [pulseTick, setPulseTick] = useState(0);
+  const [layoutTick, setLayoutTick] = useState(0);
 
   // Drive halo animation while any trade is under 1.8s old.
   useEffect(() => {
@@ -49,6 +50,15 @@ export function ScatterChart({ trades, span, interval }: Props) {
     return () => ro.disconnect();
   }, []);
 
+  // Re-draw when the operator toggles layout mode (pc / laptop / phone)
+  // so the per-mode dot radius + grid/axis treatments picked up in the
+  // draw effect below reflect the live `<html data-layout>` value.
+  useEffect(() => {
+    const onChange = () => setLayoutTick(t => t + 1);
+    window.addEventListener('vl:layoutModeChange', onChange);
+    return () => window.removeEventListener('vl:layoutModeChange', onChange);
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || trades.length === 0) return;
@@ -59,6 +69,17 @@ export function ScatterChart({ trades, span, interval }: Props) {
     const chartW = w - PAD.l - PAD.r;
     const chartH = h - PAD.t - PAD.b - 40;
     const volH = 30;
+
+    // PC bump: slightly larger dots + a touch more grid/axis contrast for
+    // dense-monitor readability. Laptop / phone unchanged. Read straight
+    // from <html data-layout>; the layout-mode effect above triggers a
+    // re-draw via `layoutTick` when the operator toggles modes.
+    const isPC = typeof document !== 'undefined'
+      && document.documentElement.dataset.layout === 'pc';
+    const dotRFresh  = isPC ? 4.0 : 3.6;
+    const dotRStale  = isPC ? 3.2 : 2.8;
+    const gridStroke = isPC ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.07)';
+    const axisColor  = isPC ? '#6f6f8c' : '#5a5a78';
 
     ctx.clearRect(0, 0, w, h);
 
@@ -76,12 +97,12 @@ export function ScatterChart({ trades, span, interval }: Props) {
     const ticks: number[] = [];
     for (let v = Math.ceil(minP / pStep) * pStep; v <= maxP; v += pStep) ticks.push(v);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = gridStroke;
     ctx.lineWidth = 1;
     ticks.forEach(v => {
       const y = PAD.t + chartH - ((v - minP) / pRange) * chartH;
       ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + chartW, y); ctx.stroke();
-      ctx.fillStyle = '#5a5a78';
+      ctx.fillStyle = axisColor;
       ctx.font = '9px "SF Mono","Fira Code",monospace';
       const label = v.toFixed(v < 1 ? 3 : v < 10 ? 2 : 1);
       ctx.textAlign = 'right';
@@ -92,7 +113,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
 
     // X axis labels
     const xLabelCount = Math.min(6, trades.length);
-    ctx.fillStyle = '#5a5a78';
+    ctx.fillStyle = axisColor;
     ctx.font = '9px "SF Mono","Fira Code",monospace';
     ctx.textAlign = 'center';
     for (let i = 0; i <= xLabelCount; i++) {
@@ -110,7 +131,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
     ctx.save();
     ctx.translate(10, PAD.t + chartH / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillStyle = '#5a5a78';
+    ctx.fillStyle = axisColor;
     ctx.font = '9px -apple-system,sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('PRICE IN SOL', 0, 0);
@@ -158,11 +179,11 @@ export function ScatterChart({ trades, span, interval }: Props) {
       }
 
       ctx.beginPath();
-      ctx.arc(x, y, isFresh ? 3.6 : 2.8, 0, Math.PI * 2);
+      ctx.arc(x, y, isFresh ? dotRFresh : dotRStale, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
     });
-  }, [trades, dims, span, interval, pulseTick]);
+  }, [trades, dims, span, interval, pulseTick, layoutTick]);
 
   // The chart's container fills 100% × 100% of its parent (which gives it a
   // pixel height — `<div style={{ height: 220 }}>` in the collection page).

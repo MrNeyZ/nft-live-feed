@@ -447,7 +447,7 @@ function StatItem({ value, label, highlight, title }: { value: React.ReactNode; 
   return (
     <div title={title} style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, padding:'5px 10px' }}>
       <span className={flick ? 'stat-flicker' : ''} style={{ fontSize:13, fontWeight:700, color: highlight || '#aaaabf', letterSpacing:'-0.3px' }}>{value}</span>
-      <span style={{ fontSize:8, fontWeight:600, color:'#2c2c44', letterSpacing:'0.5px', textTransform:'uppercase' }}>{label}</span>
+      <span style={{ fontSize:8, fontWeight:600, color:'var(--stat-label-color, #2c2c44)', letterSpacing:'0.5px', textTransform:'uppercase' }}>{label}</span>
     </div>
   );
 }
