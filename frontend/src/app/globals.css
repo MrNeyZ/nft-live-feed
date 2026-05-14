@@ -398,40 +398,6 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   .feed-root { overflow-x: hidden !important; }
 }
 
-/* Phase 7B (temp): collection page-root still zooms 1.25× via B-group
-   (out of 7B scope; removed in 7C). This inverse-zoom keeps the collection
-   topnav at 1.0× so it matches every other PC page now that the
-   .feed-root / .topnav-root scale rules have been removed. Deleted in
-   7C alongside B-group. */
-html[data-layout="pc"] [data-page="collection"] .topnav-root            { zoom: calc(1 / 1.25); }
-
-/* Collection detail page — per-mode scaling, scoped strictly via the
-   data-page="collection" attribute on the page root so dashboard /
-   live-feed / multi-tab are untouched. The scatter chart is pinned to
-   1.0× in both modes via an inverse `zoom` so it never inherits the
-   page-root scale. Phone mode stays untouched.
-
-   Math notes (zoom compounds across ancestor → descendant):
-     LAPTOP  – page root NOT scaled; rows scale 1.25× directly. Chart untouched.
-     PC      – page root scales 1.25×. Listing/trade rows additionally
-               scale by 1.2 so net = 1.25 × 1.2 = 1.5×. Chart is dezoomed
-               by 0.8 so net = 1.25 × 0.8 = 1.0×. */
-html[data-layout="laptop"] [data-page="collection"] .listing-row,
-html[data-layout="laptop"] [data-page="collection"] .trade-row {
-  zoom: 1.25;
-}
-
-html[data-layout="pc"] [data-page="collection"] {
-  zoom: 1.25;
-}
-html[data-layout="pc"] [data-page="collection"] .listing-row,
-html[data-layout="pc"] [data-page="collection"] .trade-row {
-  zoom: 1.2;           /* 1.25 × 1.2 = 1.5 effective */
-}
-html[data-layout="pc"] [data-page="collection"] .collection-chart {
-  zoom: 0.8;           /* 1.25 × 0.8 = 1.0 effective */
-}
-
 /* Smooth transitions when the user switches PC / Laptop / Phone — eases
    the props that change between modes (feed-root padding, body font, card
    padding/gap, thumb size) over 280 ms instead of snapping. */
@@ -1134,17 +1100,6 @@ html[data-layout="phone"] [data-page="collection"] .collection-header-right {
 html[data-layout="phone"] [data-page="collection"] {
   overflow-x: hidden !important;
 }
-/* Suppress the laptop/PC per-row zoom AND any transform fallback on
-   phone — phone uses raw sizing so cards fit without horizontal
-   overflow. The previous rules are gated to laptop/pc but this is
-   defence in depth in case the data-layout attribute lags. */
-html[data-layout="phone"] [data-page="collection"] .listing-row,
-html[data-layout="phone"] [data-page="collection"] .trade-row,
-html[data-layout="phone"] [data-page="collection"] .collection-chart,
-html[data-layout="phone"] [data-page="collection"] {
-  zoom: 1 !important;
-  transform: none !important;
-}
 /* Force every grid child to take the full pane width and stack
    vertically as a list of cards (image + text column). `display: flex`
    keeps the existing in-row layout (image | content) but
@@ -1213,13 +1168,6 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   }
   [data-page="collection"] {
     overflow-x: hidden !important;
-  }
-  [data-page="collection"] .listing-row,
-  [data-page="collection"] .trade-row,
-  [data-page="collection"] .collection-chart,
-  [data-page="collection"] {
-    zoom: 1 !important;
-    transform: none !important;
   }
   [data-page="collection"] .collection-grid > * {
     width: 100% !important;

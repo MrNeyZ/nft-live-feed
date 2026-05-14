@@ -323,16 +323,16 @@ const ListingRowItem = memo(function ListingRowItem({
     : {};
   return (
     <div className="listing-row"
-      style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', cursor:'pointer', ...dealStyle }}>
-      <ItemThumb imageUrl={image} color={color} abbr={abbr} size={48} />
+      style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 10px', cursor:'pointer', ...dealStyle }}>
+      <ItemThumb imageUrl={image} color={color} abbr={abbr} size={56} />
       <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
         {/* Line 1: unified `{stem} #{num}` + listedAt on the right */}
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:11, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
+          <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
             <span style={{ fontWeight:600, color:'#d4d4e8' }}>{baseName}</span>
             {num && <span style={{ color:'#56566e', marginLeft:4 }}>#{num}</span>}
           </span>
-          <span style={{ fontSize:10, color:'#56566e', flexShrink:0 }}>{listing.listedAt ? timeAgo(listing.listedAt) : '—'}</span>
+          <span style={{ fontSize:12, color:'#56566e', flexShrink:0 }}>{listing.listedAt ? timeAgo(listing.listedAt) : '—'}</span>
         </div>
         {/* Line 2: rank LEFT — price + buy + mkt RIGHT */}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
@@ -340,18 +340,18 @@ const ListingRowItem = memo(function ListingRowItem({
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             {/* BEST near-floor badge temporarily removed — will return in a
              *  cleaner form. Price + BUY + marketplace badge unchanged. */}
-            <span style={{ fontSize:11, fontWeight:700, color:'#f0eef8' }}>{formatSol(listing.priceSol)}</span>
+            <span style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>{formatSol(listing.priceSol)}</span>
             <button
               onClick={(e) => { e.stopPropagation(); if (!disabled) onBuy(listing); }}
               disabled={disabled}
               title={buyTitle}
               style={{
-                display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700,
-                padding:'1px 6px', borderRadius:3,
+                display:'inline-flex', alignItems:'center', fontSize:12, fontWeight:700,
+                padding:'2px 7px', borderRadius:3,
                 border:`1px solid ${errored ? '#bf5f5f48' : '#36b86848'}`,
                 background: errored ? '#bf5f5f20' : '#36b86820',
                 color: errored ? '#ef7878' : '#5ce0a0',
-                letterSpacing:'0.3px', flexShrink:0, lineHeight:'14px',
+                letterSpacing:'0.3px', flexShrink:0, lineHeight:'16px',
                 cursor: disabled ? 'default' : 'pointer',
                 opacity: disabled && !busy ? 0.55 : 1,
               }}>{buyLabel}</button>
@@ -409,20 +409,20 @@ const TradeRowItem = memo(function TradeRowItem({
   });
   return (
     <div className={`trade-row${isNew ? ' new-row-trade' : ''}`}
-      style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', cursor:'pointer' }}>
-      <ItemThumb imageUrl={image} color={event.color} abbr={event.abbr} size={48} />
+      style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 10px', cursor:'pointer' }}>
+      <ItemThumb imageUrl={image} color={event.color} abbr={event.abbr} size={56} />
       <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:11, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
+          <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
             <span style={{ fontWeight:600, color:'#d4d4e8' }}>{baseName}</span>
             {num && <span style={{ color:'#56566e', marginLeft:4 }}>#{num}</span>}
           </span>
-          <span style={{ fontSize:10, color: isNew ? '#e87ab0' : '#56566e', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
+          <span style={{ fontSize:12, color: isNew ? '#e87ab0' : '#56566e', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
-          <span style={{ fontSize:10, color:'#56566e' }}>{shortWallet(event.buyer)}</span>
+          <span style={{ fontSize:12, color:'#56566e' }}>{shortWallet(event.buyer)}</span>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ fontSize:11, fontWeight:700, color: event.side === 'buy' ? '#5ce0a0' : '#ef7878' }}>{formatSol(event.price)}</span>
+            <span style={{ fontSize:13, fontWeight:700, color: event.side === 'buy' ? '#5ce0a0' : '#ef7878' }}>{formatSol(event.price)}</span>
             <TypeBadge type={event.side} />
             <MktBadge mp={event.marketplace} href={tradeItemUrl(event)} />
           </div>
