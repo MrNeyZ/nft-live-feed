@@ -1021,7 +1021,7 @@ export default function Dashboard() {
       {/* Header — hidden in multi-tab embed mode so the iframe can fit
           more collection rows in the same vertical space. */}
       {!embedded && (
-        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1000, margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--dashboard-max, 1000px)', margin: '0 auto', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
               <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -1042,7 +1042,7 @@ export default function Dashboard() {
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%',
-        maxWidth: embedded ? 'none' : 1000,
+        maxWidth: embedded ? 'none' : 'var(--dashboard-max, 1000px)',
         margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',

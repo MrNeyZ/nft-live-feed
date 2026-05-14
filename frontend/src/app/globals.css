@@ -8,20 +8,38 @@
    viewport so cards stay readable on a narrow screen.
    Applied via `data-layout` on <html>, set by useLayoutMode(). */
 :root {
-  --feed-root-padding-x: 16px;
-  /* Feed column: retuned to the midpoint between the original 640
-     (which read as "phone embed on a desktop") and the wider 760
-     experiment (which exceeded the ~400-600 px scan-band line length
-     and made horizontal eye travel between buyer column and price
-     cluster slow). 700 px gives ~530 px of effective content width
-     after padding — comfortably inside the trading-tape scan band
-     while still ~60 px wider than the original. PC tier scales
-     proportionally (820 → 960 → 880). Phone tier stays at 100 %,
-     embed (multi-tab) path overrides this inline with `maxWidth:
-     'none'`. */
-  --feed-column-max:     660px;
-  --topnav-max:          1400px;
-  --status-max:          1400px;
+  /* ── Layout token system (Phase 2) ─────────────────────────────────
+     Four orthogonal layers; each component picks from the layer that
+     matches its role. Names without a numeric suffix are the LAPTOP
+     default (the design target); `html[data-layout="pc"/"phone"]` and
+     the small-laptop @media query below override per layer.
+
+     • SHELL   (top nav, bottom status bar) — viewport-anchored chrome.
+                Never gets a max-width.
+     • PAGE    (root container padding) — global page side padding.
+     • CONTENT (per-route centered column max) — feed, dashboard,
+                tools, mints. Each gets its own width tier so a feed
+                column isn't forced to match a tools table.
+
+     The Phase-1 names (`--feed-root-padding-x`, `--feed-column-max`)
+     are kept as aliases below that resolve to the new tokens — until
+     the last legacy consumer is migrated in Phase 3 / cleanup. */
+  /* Shell */
+  --shell-x:           24px;
+  --shell-height:      48px;
+  --shell-search-max:  480px;
+  /* Page */
+  --page-x:            16px;
+  /* Content (per route) */
+  --feed-max:           660px;
+  --dashboard-max:     1000px;
+  --tools-max:         1100px;
+  --mints-max:         1400px;
+  /* Aliases — point at the new tokens for the duration of migration. */
+  --feed-root-padding-x: var(--page-x);
+  --feed-column-max:     var(--feed-max);
+  --topnav-max:          1400px;     /* deprecated: no remaining consumer */
+  --status-max:          1400px;     /* deprecated: no remaining consumer */
   /* Serif used by the VictoryLabs wordmark lockup (.vl-logo). The leading
      `var(--font-playfair-display)` is the next/font/google face (italic
      600/800) wired up in layout.tsx; the rest are fallbacks (the roman
@@ -29,16 +47,30 @@
   --vl-font-serif: var(--font-playfair-display), 'Playfair Display', Georgia, serif;
 }
 html[data-layout="pc"] {
-  --feed-root-padding-x: 24px;
-  --feed-column-max:     880px;
-  --topnav-max:          1700px;
-  --status-max:          1700px;
+  --shell-x:            40px;
+  --page-x:             24px;
+  --feed-max:           880px;
+  --dashboard-max:     1280px;
+  --tools-max:         1400px;
+  --mints-max:         1600px;
 }
 html[data-layout="phone"] {
-  --feed-root-padding-x: 8px;
-  --feed-column-max:     100%;
-  --topnav-max:          100%;
-  --status-max:          100%;
+  --shell-x:            12px;
+  --shell-height:       44px;
+  --shell-search-max:   100%;
+  --page-x:              8px;
+  --feed-max:           100%;
+  --dashboard-max:      100%;
+  --tools-max:          100%;
+  --mints-max:          100%;
+}
+/* Small-laptop (≤1024 px physical viewport) — tighten page padding
+   regardless of data-layout, since the manual layout-switcher hasn't
+   propagated yet on initial paint. Replaces the prior
+   `#__next, .feed-root { padding: 0 12px }` rule (now token-driven
+   via --page-x at the consumer). */
+@media (max-width: 1024px) {
+  :root { --page-x: 12px; }
 }
 html[data-layout="phone"] body { font-size: 12px; }
 html[data-layout="phone"] .feed-card { padding: 8px 10px; gap: 10px; }
@@ -174,9 +206,11 @@ html[data-layout="phone"] .topnav-tab  {
    narrow viewport instead of the data-layout attribute. Catches the case
    where the user is on a phone but the data-layout dataset hasn't
    propagated (browser cache, first paint before hydrate, or the user
-   hasn't opened the floating switcher yet). 600 px threshold covers
-   every modern phone viewport. */
-@media (max-width: 600px) {
+   hasn't opened the floating switcher yet). 768 px aligned with the
+   centralized `tabletMax` from src/lib/breakpoints.ts — tablets in
+   portrait already want the condensed topnav for the same reasons
+   phones do. */
+@media (max-width: 768px) {
   .topnav-logo,
   .topnav-tab[data-tab="multi"],
   .topnav-tab[data-tab="mints"],
@@ -256,7 +290,7 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   white-space: nowrap !important;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .collections-table th:nth-child(4),
   .collections-table th:nth-child(5),
   .collections-table th:nth-child(6),
@@ -485,12 +519,10 @@ body { display: block; height: 100vh; }
   min-height: 0;
 }
 
-/* Aligned with the centralized small_laptop breakpoint (≤1024) from
-   src/lib/breakpoints.ts. Tighter horizontal padding now applies across
-   mobile / tablet / small_laptop instead of cutting off at 900. */
-@media (max-width: 1024px) {
-  #__next, .feed-root { padding: 0 12px; }
-}
+/* Phase 2: small-laptop horizontal padding is now token-driven —
+   `--page-x` is bumped to 12px inside the `@media (max-width: 1024px)`
+   block at the top of this file, and `#__next, .feed-root` already
+   consumes `padding: 0 var(--page-x)` above. No rule needed here. */
 
 a { color: inherit; text-decoration: none; }
 
@@ -1087,9 +1119,10 @@ a { color: inherit; text-decoration: none; }
 /* Collection detail — phone layout. Scoped to [data-page="collection"]
    so /dashboard, /feed, /multi are untouched. Two parallel gates:
    `html[data-layout="phone"]` (deliberate phone pick from the floating
-   switcher) and `@media (max-width: 600px)` (physical narrow viewport)
-   so the trim fires even before the dataset attribute propagates.
-   Laptop / PC / multi-tab behaviour preserved. */
+   switcher) and `@media (max-width: 768px)` (physical narrow viewport
+   aligned with the centralized tablet break) so the trim fires even
+   before the dataset attribute propagates. Laptop / PC / multi-tab
+   behaviour preserved. */
 html[data-layout="phone"] [data-page="collection"] .collection-grid {
   grid-template-columns: 1fr !important;
   grid-template-rows: 1fr 1fr !important;
@@ -1169,7 +1202,7 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   [data-page="collection"] .collection-grid {
     grid-template-columns: 1fr !important;
     grid-template-rows: 1fr 1fr !important;

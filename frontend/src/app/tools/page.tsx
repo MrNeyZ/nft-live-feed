@@ -470,7 +470,7 @@ export default function ToolsPage() {
       <TopNav active="tools" />
 
       {/* Header */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 1100, margin: '0 auto', boxSizing: 'border-box' }}>
+      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -574,7 +574,7 @@ export default function ToolsPage() {
       {/* Results card */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-        width: '100%', maxWidth: 1100, margin: '0 auto',
+        width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,

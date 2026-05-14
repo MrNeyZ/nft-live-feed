@@ -826,9 +826,14 @@ export function TopNav({ active }: { active?: Page } = {}) {
       position: 'relative', zIndex: 100,
     }}>
     <div className="topnav-inner" style={{
+      // Phase 2: TopNav is shell chrome — viewport-anchored, no
+      // max-width column constraint (matches the BottomStatusBar
+      // pattern). Side padding + height drive off the shared shell
+      // tokens (`--shell-x`, `--shell-height`) so PC/laptop/phone
+      // tiers stay coherent across the top + bottom bars.
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '0 22px', height: 48,
-      maxWidth: 'var(--topnav-max, 1400px)', margin: '0 auto',
+      padding: '0 var(--shell-x, 24px)', height: 'var(--shell-height, 48px)',
+      width: '100%',
       gap: 12,
     }}>
       {/* alignItems: 'baseline' pins the logo's text baseline to the nav
@@ -1046,7 +1051,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
       {otherOpen && <OtherMenuModal onClose={() => setOtherOpen(false)} />}
 
       {/* Center: search collections */}
-      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 480px', maxWidth: 480, marginLeft: 18 }}>
+      <div ref={searchRef} className="topnav-search" style={{ position: 'relative', flex: '0 1 var(--shell-search-max, 480px)', maxWidth: 'var(--shell-search-max, 480px)', marginLeft: 18 }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '0 12px', height: 28,
@@ -1258,13 +1263,14 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        // Tightened in small steps (this wrapper went 8px → 7px vertical; the
-        // FEES/SOUND pills were trimmed in step too) — the wrapper padding is
-        // the dominant lever for the footer's overall height, but every
-        // vertical value is kept just above "cramped". Horizontal padding,
-        // grouping, alignment (alignItems: center), and readability unchanged.
-        padding: '7px 18px',
-        maxWidth: 'var(--status-max, 1400px)', margin: '0 auto',
+        // Phase 2: bar is shell chrome — shares the `--shell-x` token
+        // with the TopNav so both bars maintain the same edge-gap
+        // across PC (40), laptop (24), and phone (12) tiers. No max-
+        // width column constraint; full viewport width. Vertical 7 px
+        // padding preserves the pre-existing bar height; chip sizes
+        // are unchanged.
+        padding: '7px var(--shell-x, 24px)',
+        width: '100%',
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
         <div style={{ display: 'flex', gap: 16 }}>
