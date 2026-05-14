@@ -384,40 +384,12 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   .feed-root { overflow-x: hidden !important; }
 }
 
-/* PC — true +15 % visual scale on the entire app shell. `zoom` scales
-   geometry, fonts, and layout simultaneously without breaking flexbox /
-   grid measurements (unlike `transform: scale`, which leaves the layout
-   box at its pre-scale size and would force the bottom status bar's
-   `100vw` full-bleed to overflow the parent). Supported in Chrome,
-   Safari, Edge, and Firefox 126+.
-   Multi-tab and embedded iframes opt out via the [data-no-scale="1"]
-   and [data-embedded="1"] attributes so the multi-tab grid stays at
-   laptop scale regardless of the user's PC choice. */
-/* PC scaling — per-page differentiation:
-   - Default (Live Feed, Multi-tab outer, Collection page, etc.) = 1.10
-   - Dashboard standalone                                          = 1.20
-   - Embedded panes inside Multi-tab iframes / explicit no-scale   = 1.0
-   Last rule wins on equal specificity, so the data-embedded /
-   data-no-scale opt-outs keep working even when the dashboard's
-   data-page="dashboard" attribute is also present. */
-html[data-layout="pc"] .feed-root                               { zoom: 1.10; height: calc(100vh / 1.10); }
-html[data-layout="pc"] .feed-root[data-page="dashboard"]        { zoom: 1.20; height: calc(100vh / 1.20); }
-html[data-layout="pc"] .feed-root[data-embedded="1"],
-html[data-layout="pc"] .feed-root[data-no-scale="1"]            { zoom: 1; height: 100vh; }
-
-/* PC TopNav uniformity — every page should render the TopNav at the
-   same visual size (1.20×, the dashboard reference). Pages have
-   different page-root zoom, so the TopNav inherits a different scale
-   on each. We compensate via an inverse zoom on `.topnav-root` that
-   re-targets the visible scale to 1.20× regardless of the parent.
-     dashboard parent 1.20  → topnav 1.0  → 1.20 × 1.0 = 1.20 ✓
-     feed/multi parent 1.10 → topnav 1.0909 → 1.10 × 1.0909 ≈ 1.20 ✓
-     collection parent 1.25 → topnav 0.96 → 1.25 × 0.96 = 1.20 ✓
-   Embedded iframes don't render the TopNav (it's hidden in embed
-   mode), so no rule needed for them. */
-html[data-layout="pc"] .feed-root .topnav-root                          { zoom: calc(1.20 / 1.10); }
-html[data-layout="pc"] .feed-root[data-page="dashboard"] .topnav-root   { zoom: 1; }
-html[data-layout="pc"] [data-page="collection"] .topnav-root            { zoom: calc(1.20 / 1.25); }
+/* Phase 7B (temp): collection page-root still zooms 1.25× via B-group
+   (out of 7B scope; removed in 7C). This inverse-zoom keeps the collection
+   topnav at 1.0× so it matches every other PC page now that the
+   .feed-root / .topnav-root scale rules have been removed. Deleted in
+   7C alongside B-group. */
+html[data-layout="pc"] [data-page="collection"] .topnav-root            { zoom: calc(1 / 1.25); }
 
 /* Collection detail page — per-mode scaling, scoped strictly via the
    data-page="collection" attribute on the page root so dashboard /
