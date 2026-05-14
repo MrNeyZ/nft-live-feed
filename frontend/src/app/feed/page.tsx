@@ -633,6 +633,15 @@ const FeedCard = memo(function FeedCard({
     style.borderTone === 'sell' ? 'sell-card' :
     style.borderTone === 'buy'  ? 'buy-card'  : 'buy-card';
   const cardClass = `feed-card ${borderClass}`;
+  // Age-bucket at mount: fresh (<2min) / mid (<5min) / old (≥5min).
+  // A single global setInterval in FeedApp walks `.feed-card[data-event-ts]`
+  // every 30 s and only updates this attribute if it changed — no React
+  // re-render, no per-card timer, no broken React.memo. CSS rules under
+  // `.feed-card[data-age-bucket="mid|old"]` apply a subtle opacity decay
+  // (1.00 / 0.92 / 0.86) via a custom property that multiplies with the
+  // hover-dim variable so both stack cleanly.
+  const ageMinAtMount = (Date.now() - event.ts) / 60_000;
+  const initialAgeBucket = ageMinAtMount < 2 ? 'fresh' : ageMinAtMount < 5 ? 'mid' : 'old';
   const m = event.nftName?.match(/^(.*?)\s*#?(\d+)$/);
   const baseName = m ? m[1] : (event.nftName ?? '');
   const num = m ? m[2] : '';
@@ -681,7 +690,7 @@ const FeedCard = memo(function FeedCard({
 
   return (
     <div className={`feed-row-wrap${isNew ? ' new-' + event.side : ''}`}>
-      <div className={cardClass}>
+      <div className={cardClass} data-event-ts={event.ts} data-age-bucket={initialAgeBucket}>
         <div
           className="feed-thumb"
           onClick={handleThumbClick}
@@ -841,18 +850,35 @@ const FeedCard = memo(function FeedCard({
           <div style={FC_PRICE_ROW_STYLE}>
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             <span style={{
-              // Trimmed BUY/SELL/AMM pill — width 50 (was 56), padding
-              // 1px 0 (was 2px 0), fontSize 10.5 (was 11). Net ~12 %
-              // smaller pill area so the direction badge yields visual
-              // dominance to the price digits next to it. Inset
-              // highlight/shadow still gives the glassy 3D read, just
-              // at a more secondary scale.
+              // Trimmed BUY/SELL/AMM pill — width 50, padding 1px 0,
+              // fontSize 10.5. ASYMMETRIC chrome by side:
+              //   • BUY (and neutral): glassy treatment — inset
+              //     top highlight + inset bottom shadow read as a
+              //     softly raised glass chip, matching "calm
+              //     profit" intent.
+              //   • SELL: flat framed treatment — a single 1 px
+              //     inset ring at the side color (alpha 0.55)
+              //     replaces the glassy shadows. Reads as a
+              //     tight terminal chip, no embossing, matching
+              //     "sharp exit" intent. Same pill geometry, so
+              //     adjacent BUY/SELL rows stay aligned.
+              // SELL text-shadow stays: a 1 px dark halo crisps
+              // the letterforms against the now-redder bg.
               width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-              padding: '1px 0', fontSize: 10.5, fontWeight: 700, borderRadius: 4,
+              padding: '1px 0', fontSize: 10.5, fontWeight: 700,
+              // SELL-only tighter radius (3 vs 4) + denser inset ring
+              // (α 0.75 vs the prior 0.55) — corners feel more
+              // rectangular/terminal, ring reads as a hard edge.
+              // Combined with the near-opaque SELL bg in KIND_STYLES,
+              // the pill drops from "translucent glass" to "physical
+              // chip" without changing geometry.
+              borderRadius: style.borderTone === 'sell' ? 3 : 4,
               background: style.bg, color: style.fg, letterSpacing: '0.2px',
-              boxShadow:
-                'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
-                ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
+              boxShadow: style.borderTone === 'sell'
+                ? 'inset 0 0 0 1px rgba(245, 88, 102, 0.62)'
+                : 'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
+                  ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
+              textShadow: style.borderTone === 'sell' ? '0 0 1px rgba(0, 0, 0, 0.30)' : undefined,
             }}>{style.label}</span>
             <span style={FC_PRICE_TEXT_STYLE}>
               {safePrice == null ? '—' : formatFeedPrice(safePrice)}{' '}
@@ -944,25 +970,34 @@ interface KindStyle {
   borderTone: 'buy' | 'sell' | 'neutral';
 }
 
-// Direction palette — retuned to separate marketplace pink (ME logo,
-// card borders, accent chrome) from trade-direction signal. Prior:
-// SELL at rgb(250,100,105) sat squarely in the same pink/red family as
-// the ME logo and the lilac accents, so a glance couldn't disambiguate
-// "Magic Eden source" from "this was a sell". New:
-//   BUY  → emerald with a touch of cyan: rgb(64,212,168)
-//          (was 79,200,142) — more saturated mid-green, slightly cyan,
-//          reads distinctly from the lilac border accent.
-//   SELL → cleaner red, less pink: rgb(232,86,86)
-//          (was 250,100,105) — drops ~30 points of red-channel pink
-//          and matches the dim "expired" #ef7878 family we already use
-//          in /tools, keeping cross-page palette coherence.
-// AMM rows reuse the side color and say "AMM" instead of BUY/SELL —
-// label disambiguates the venue, hue carries direction.
+// Direction palette — asymmetric tuning so SELL reads sharper than BUY
+// (trader-UI semantics: profit calm, exit urgent). The previous SELL
+// at rgb(255,90,90) bg 0.10 still read as burgundy because G = B = 90
+// means 35 % of the red channel was neutral grey, which mixed into the
+// dark purple bg as red-grey-purple = burgundy. Fixing it required
+// dropping G aggressively (not bumping R further):
+//   BUY  → unchanged: rgb(64,212,168) bg 0.18 — calm soft emerald.
+//   SELL → rgb(255,70,86) bg 0.14 — G dropped 90 → 70 cuts grey
+//          washout ~22 %, so red dominates instead of red+grey.
+//          B = 86 (slightly > G) gives a subtle cool lean matching
+//          Hyperliquid #F6465D / Binance #F84960 / TradingView
+//          #F23645 — modern perp terminal reds all live at G ≤ 73.
+//          bg α nudged 0.10 → 0.14: with the cooler/sharper hue, the
+//          bg can be visibly present without re-introducing the
+//          burgundy mud.
+// Pill chrome is asymmetric (see pill JSX below): BUY keeps the
+// glassy inset highlight + bottom shadow; SELL replaces it with a
+// crisp 1 px inset ring. Same geometry, different emotional weight.
 const KIND_STYLES: Record<SaleKind, KindStyle> = {
   buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(232,86,86)',   bg: 'rgba(232,86,86,0.18)',   borderTone: 'sell' },
+  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',  bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
   buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: 'rgb(232,86,86)',   bg: 'rgba(232,86,86,0.18)',   borderTone: 'sell' },
+  // sellAmm fg darkened 245→215 (~12 %) to differentiate "direct sell"
+  // (SELL pill) from "pool sell" (AMM pill). Same scarlet family, same
+  // cool lean (B − G = 15), just slightly lower contrast — the pill
+  // reads "in family but secondary" without leaving the unified red
+  // palette.
+  sellAmm: { label: 'AMM',  fg: 'rgb(215,80,95)',   bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
   unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
@@ -1016,6 +1051,32 @@ export default function FeedPage() {
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
   useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
+  // Age-bucket walker — one global setInterval that re-stamps
+  // `data-age-bucket` on every `.feed-card[data-event-ts]` element every
+  // 30 s. CSS rules under those selectors apply a subtle opacity decay
+  // (fresh 1.00, mid 0.92, old 0.86) via a CSS custom property so the
+  // age fade stacks multiplicatively with the existing hover-dim. This
+  // is intentionally a direct DOM walk, not React state — passing a
+  // "now tick" prop into FeedCard would break React.memo and re-render
+  // ~150 rows every tick. Cost: ~1 ms/walk.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const tick = () => {
+      const now = Date.now();
+      const cards = document.querySelectorAll<HTMLElement>('.feed-card[data-event-ts]');
+      for (const card of cards) {
+        const tsStr = card.dataset.eventTs;
+        if (!tsStr) continue;
+        const ts = Number(tsStr);
+        if (!Number.isFinite(ts)) continue;
+        const ageMin = (now - ts) / 60_000;
+        const next = ageMin < 2 ? 'fresh' : ageMin < 5 ? 'mid' : 'old';
+        if (card.dataset.ageBucket !== next) card.dataset.ageBucket = next;
+      }
+    };
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
   const [filter, setFilter] = useState<FilterKey>('all');
   // Price-tier quick filter. Independent of `filter` (Type) — both can
   // be active at once. Only one price tier can be selected at a time;

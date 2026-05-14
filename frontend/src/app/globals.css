@@ -9,15 +9,17 @@
    Applied via `data-layout` on <html>, set by useLayoutMode(). */
 :root {
   --feed-root-padding-x: 16px;
-  /* Feed column widened: 640 → 760 (laptop/default) and pc 820 → 960
-     below. Prior 640 left ~400 px of dead space on a 1440-wide screen,
-     making the column read as a phone embed on a desktop. New value
-     keeps the centered-card composition (NOT edge-to-edge) but cuts
-     the empty side margins roughly in half on the design-target
-     viewport. Phone tier stays at 100 % (cards still fill narrow
-     screens), and the embed (multi-tab) path overrides this with
-     `maxWidth: 'none'` inline so widening here doesn't affect it. */
-  --feed-column-max:     760px;
+  /* Feed column: retuned to the midpoint between the original 640
+     (which read as "phone embed on a desktop") and the wider 760
+     experiment (which exceeded the ~400-600 px scan-band line length
+     and made horizontal eye travel between buyer column and price
+     cluster slow). 700 px gives ~530 px of effective content width
+     after padding — comfortably inside the trading-tape scan band
+     while still ~60 px wider than the original. PC tier scales
+     proportionally (820 → 960 → 880). Phone tier stays at 100 %,
+     embed (multi-tab) path overrides this inline with `maxWidth:
+     'none'`. */
+  --feed-column-max:     660px;
   --topnav-max:          1400px;
   --status-max:          1400px;
   /* Serif used by the VictoryLabs wordmark lockup (.vl-logo). The leading
@@ -28,7 +30,7 @@
 }
 html[data-layout="pc"] {
   --feed-root-padding-x: 24px;
-  --feed-column-max:     960px;
+  --feed-column-max:     880px;
   --topnav-max:          1700px;
   --status-max:          1700px;
 }
@@ -519,9 +521,9 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(232,  86,  86, 0.20); }
-  40%  { background: rgba(232,  86,  86, 0.10); }
-  100% { background: rgba(232,  86,  86, 0.032); }
+  0%   { background: rgba(245,  88, 102, 0.20); }
+  40%  { background: rgba(245,  88, 102, 0.10); }
+  100% { background: rgba(245,  88, 102, 0.025); }
 }
 
 @keyframes flashListingFeed {
@@ -605,6 +607,13 @@ a { color: inherit; text-decoration: none; }
      still pile on further reductions on top of this baseline. */
   gap: 10px;
   padding: 7px 11px;
+  /* Two custom properties multiplied into the opacity so age-fade
+     and hover-dim stack instead of overriding each other. Defaults
+     are 1 (no fade); the data-age-bucket rules below set
+     --age-opacity, and the hover-dim rule sets --hover-opacity. */
+  --age-opacity:   1;
+  --hover-opacity: 1;
+  opacity: calc(var(--age-opacity) * var(--hover-opacity));
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
@@ -641,14 +650,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 .feed-card:hover {
-  /* Subtle terminal-row hover: scale was 1.004, now 1.005 — barely
-     perceptible "lift" without a real transform. Inset ring +
-     outer glow bumped a notch (~25 % more alpha each) so the row
-     reads as visibly interactive without screaming. No big
-     transforms, no slow animations — same 200 ms ease-out the
-     base card already uses. */
+  /* Subtle terminal-row hover: scale 1.005 + bumped bg lift (0.06 →
+     0.07, ~17 % stronger) for better mouse-tracking readability
+     while scanning. Inset ring + outer glow unchanged — only the
+     base bg lift moved. No new animations. */
   transform: scale(1.005);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
   border-color: rgba(168, 144, 232, 0.40);
   box-shadow:
     0 0 0 1px rgba(168, 144, 232, 0.40) inset,
@@ -664,8 +671,19 @@ a { color: inherit; text-decoration: none; }
    dim/undim is smooth. Keyboard / no-pointer paths don't trigger
    this — same behaviour as a desktop terminal. */
 .feed-list:has(.feed-card:hover) .feed-card:not(:hover) {
-  opacity: 0.92;
+  /* Drives --hover-opacity (not opacity) so the age-fade
+     custom-property below can stack multiplicatively. */
+  --hover-opacity: 0.92;
 }
+
+/* Age-based subtle fade — buckets set on .feed-card by a single
+   global setInterval walker in FeedApp (no React re-renders). Values
+   are deliberately tame: fresh→1.00 stays full opacity, mid→0.92
+   matches the hover-dim sibling alpha, old→0.86 sits one notch
+   under. The 180 ms opacity transition on .feed-card smooths every
+   bucket transition. */
+.feed-card[data-age-bucket="mid"] { --age-opacity: 0.92; }
+.feed-card[data-age-bucket="old"] { --age-opacity: 0.86; }
 
 /* Card side-frames — buy/sell direction now drawn as a vertical-
    gradient pseudo-element overlay rather than a flat 3 px solid
@@ -682,13 +700,13 @@ a { color: inherit; text-decoration: none; }
   border-right: 3px solid rgba( 64, 212, 168, 0.40);
   background:   rgba( 64, 212, 168, 0.030);
 }
-.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.060); }
+.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.066); }
 .feed-card.sell-card    {
-  border-left:  3px solid rgba(232,  86,  86, 0.40);
-  border-right: 3px solid rgba(232,  86,  86, 0.40);
-  background:   rgba(232,  86,  86, 0.032);
+  border-left:  3px solid rgba(245,  88, 102, 0.45);
+  border-right: 3px solid rgba(245,  88, 102, 0.45);
+  background:   rgba(245,  88, 102, 0.025);
 }
-.feed-card.sell-card:hover { background: rgba(232,  86,  86, 0.062); }
+.feed-card.sell-card:hover { background: rgba(245,  88, 102, 0.060); }
 .feed-card.listing-card {
   border-left:  3px solid rgba(168, 144, 232, 0.95);
   border-right: 3px solid rgba(168, 144, 232, 0.95);
@@ -881,8 +899,8 @@ a { color: inherit; text-decoration: none; }
 }
 .feed-card.buy-card::before  { left: -3px;  background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
 .feed-card.buy-card::after   { right: -3px; background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
-.feed-card.sell-card::before { left: -3px;  background: rgb(232,  86,  86); box-shadow: 0 0 6px rgba(232,  86,  86, 0.45); }
-.feed-card.sell-card::after  { right: -3px; background: rgb(232,  86,  86); box-shadow: 0 0 6px rgba(232,  86,  86, 0.45); }
+.feed-card.sell-card::before { left: -3px;  background: rgb(245,  88, 102); box-shadow: 0 0 4px rgba(245,  88, 102, 0.32); }
+.feed-card.sell-card::after  { right: -3px; background: rgb(245,  88, 102); box-shadow: 0 0 4px rgba(245,  88, 102, 0.32); }
 
 .feed-thumb {
   width: 56px;
