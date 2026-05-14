@@ -52,6 +52,18 @@ interface LiveCollection extends Collection {
    *  Filled in at render time in the Dashboard component, not inside
    *  aggregate() — NFT item images must never be used as the collection icon. */
   _iconUrl: string | null;
+  /** Buy-side sale count inside the timeframe window. Drives the FlowDots
+   *  indicator + SALES-cell text tint. Cheap derivation: counted in the
+   *  existing aggregate() loop using `event.side` which is already on
+   *  every FeedEvent (no backend change). */
+  _buyCount:  number;
+  /** Sell-side sale count inside the timeframe window. */
+  _sellCount: number;
+  /** True when the most-recent sale is within DASHBOARD_LIVE_PULSE_MS of
+   *  `now` — drives the subtle lilac pulse on the rank number. Slightly
+   *  longer than the 30 s aggregate cadence so a row doesn't flicker on/
+   *  off as it crosses the boundary between two aggregates. */
+  _isLive:    boolean;
 }
 
 /** Per-slug bid snapshot returned by /api/collections/bids. All values in SOL or null. */
@@ -93,6 +105,15 @@ const FRESH_SALE_WINDOW_MS = 6_000;
 const SPIKE_RATIO = 1.5;
 /** … and the newer-half has at least this many events (noise floor). */
 const SPIKE_MIN_NEWER = 3;
+/** Window in which a collection is treated as "live" — drives the lilac
+ *  rank-pulse. Slightly larger than the 30 s aggregate cadence so rows
+ *  don't flicker the pulse on/off at the boundary. */
+const DASHBOARD_LIVE_PULSE_MS = 45_000;
+/** Sales-cell text tint thresholds: ratio of buy / (buy+sell). Mixed
+ *  flows (between these bounds) stay neutral white — the tint only
+ *  fires when one side is at least 3× the other (75 % / 25 %). */
+const FLOW_TINT_BUY_LEAN  = 0.75;
+const FLOW_TINT_SELL_LEAN = 0.25;
 
 /** Cadence for refreshing per-collection 7D rollups (floor sparkline + volume bars). */
 const ROLLUPS_REFRESH_MS = 5 * 60_000;
@@ -159,6 +180,7 @@ function aggregate(events: FeedEvent[], tf: Timeframe, now: number): LiveCollect
     let sum = 0, latestTs = 0;
     let overallMin = Infinity, newerMin = Infinity, olderMin = Infinity;
     let newerCount = 0, olderCount = 0;
+    let buyCount   = 0, sellCount = 0;
     let latestEv: FeedEvent = evs[0];
     for (const e of evs) {
       sum += e.price;
@@ -171,6 +193,10 @@ function aggregate(events: FeedEvent[], tf: Timeframe, now: number): LiveCollect
         olderCount++;
         if (e.price < olderMin) olderMin = e.price;
       }
+      // Flow split: side is mapped by fromBackend.ts via mapSide(saleType)
+      // — 'buy' or 'sell'. No third state at this layer; mixed flow is
+      // expressed at the row level via buy/sell ratio.
+      if (e.side === 'sell') sellCount++; else buyCount++;
     }
     const count     = evs.length;
     const avg       = sum / count;
@@ -211,6 +237,9 @@ function aggregate(events: FeedEvent[], tf: Timeframe, now: number): LiveCollect
       _avgPrice: avg,
       _meSlug: dominantSlug(evs),
       _iconUrl: null,                           // resolved at render time via useCollectionIcons
+      _buyCount:  buyCount,
+      _sellCount: sellCount,
+      _isLive:    (now - latestTs) < DASHBOARD_LIVE_PULSE_MS,
     });
   }
   return out;
@@ -251,9 +280,9 @@ function Sparkline({ data, color = '#36b868', w = 80, h = 20 }: { data: number[]
   });
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }}>
-      <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.45" />
+      <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.38" />
       {pts.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} opacity="0.6" />
+        <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} opacity="0.50" />
       ))}
     </svg>
   );
@@ -271,17 +300,53 @@ function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; 
   // while a small total drifts up into the cell's existing top padding.
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }}>
-      <text x={w} y={-2} fontSize="8" textAnchor="end" fill="#7a7a94" opacity="0.85" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
+      <text x={w} y={-2} fontSize="8" textAnchor="end" fill="#7a7a94" opacity="0.72" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
         Σ {sum >= 100 ? sum.toFixed(0) : sum.toFixed(sum >= 10 ? 1 : 2)}
       </text>
       {data.map((v, i) => {
         const bh = Math.max(2, (v / max) * (h - 2));
         const x = i * (barW + 2);
         const y = h - bh;
-        return <rect key={i} x={x} y={y} width={barW} height={bh} rx="1" fill={color} opacity="0.45" />;
+        return <rect key={i} x={x} y={y} width={barW} height={bh} rx="1" fill={color} opacity="0.38" />;
       })}
     </svg>
   );
+}
+
+// ── Sales-cell directional tint (typography-only) ────────────────────────────
+// The SALES count itself is the ONLY thing carrying flow signal — no
+// dots, bars, capsules, borders, backgrounds, or wrapper spans. The
+// number's color shifts to bright mint at ≥ 75 % buys, bright coral at
+// ≥ 75 % sells, and stays near-white otherwise. Intensity matches the
+// /mints RATE column — strong enough to read at peripheral vision,
+// no chrome around it. Same single threshold either direction.
+const SALES_TINT_BUY     = '#5EF0B0';   // rgb(94, 240, 176)  — bright mint
+const SALES_TINT_SELL    = '#FF6B7A';   // rgb(255, 107, 122) — bright coral
+const SALES_TINT_NEUTRAL = '#f0eef8';
+
+function salesTint(buy: number, sell: number): string {
+  const total = buy + sell;
+  if (total === 0) return SALES_TINT_NEUTRAL;
+  const buyRatio = buy / total;
+  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return SALES_TINT_BUY;
+  if (buyRatio <= FLOW_TINT_SELL_LEAN) return SALES_TINT_SELL;
+  return SALES_TINT_NEUTRAL;
+}
+
+/** Direction of pressure inside the timeframe window — drives the 2 px
+ *  left-edge strip on ACTIVE rows. 'buy' / 'sell' share the same
+ *  75 % / 25 % threshold as salesTint so the SALES number's tint and
+ *  the strip fire together; 'mixed' is the in-between band where the
+ *  strip stays present but neutral so a row with traffic but no
+ *  direction is visually distinct from a row with no data at all
+ *  ('none' → no strip). */
+function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null {
+  const total = buy + sell;
+  if (total === 0) return null;
+  const buyRatio = buy / total;
+  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return 'buy';
+  if (buyRatio <= FLOW_TINT_SELL_LEAN) return 'sell';
+  return 'mixed';
 }
 
 // ── Filter pill ──────────────────────────────────────────────────────────────
@@ -374,11 +439,12 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
     ? rowLinkHandlers(href, () => onClick(col))
     : { onClick: () => onClick(col) };
 
+  const pDir = pressureDir(col._buyCount, col._sellCount);
   return (
     <tr
       {...rowHandlers}
       className={
-        'mints-tracker-row tools-offer-row' +
+        'dash-row mints-tracker-row tools-offer-row' +
         (isSelected ? ' mints-tracker-row-selected' : '') +
         (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
       }
@@ -394,13 +460,34 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
        */}
       <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
+        {pDir && (
+          // 2 px left-edge pressure strip — peripheral mirror of the SALES
+          // signal. ACTIVE rows only. Buy / sell rows tint the strip
+          // green / coral at α 0.32; mixed rows use a neutral white at
+          // α 0.18 so vertical scanning still picks up the row as
+          // "has-traffic-but-no-clear-direction" instead of letting it
+          // visually disappear (white α 0.32 would read brighter than
+          // the colored strips because white has full per-channel
+          // luminance — 0.18 lands at perceptual parity).
+          <span style={{
+            position: 'absolute', left: 0, top: 0, bottom: 0, width: 2,
+            background:
+              pDir === 'buy'   ? 'rgba(94, 240, 176, 0.32)'  :
+              pDir === 'sell'  ? 'rgba(255, 107, 122, 0.32)' :
+                                 'rgba(255, 255, 255, 0.18)',
+            pointerEvents: 'none',
+          }} />
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{rank}</span>
+          <span
+            className={col._isLive ? 'dashboard-live-rank' : undefined}
+            style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
+          >{rank}</span>
           <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
           <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
         </div>
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
@@ -453,17 +540,23 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
     <tr
       {...rowHandlers}
       className={
-        'mints-tracker-row tools-offer-row' +
+        'dash-row mints-tracker-row tools-offer-row' +
         (isSelected ? ' mints-tracker-row-selected' : '') +
         (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
       }
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
-      {/* See CollectionRow: overlay is anchored to the first <td>, not <tr>. */}
+      {/* See CollectionRow: overlay is anchored to the first <td>, not <tr>.
+       *  RecentRow intentionally has NO pressure strip — the RECENT tab is
+       *  a "last seen" view, not a current-pressure view, so the strip
+       *  would imply directional context that doesn't apply. */}
       <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{rank}</span>
+          <span
+            className={col._isLive ? 'dashboard-live-rank' : undefined}
+            style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
+          >{rank}</span>
           <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</div>
@@ -471,7 +564,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
           </div>
         </div>
       </td>
-      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: '14px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
         {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
         {col.trades1d.toLocaleString()}
       </td>
@@ -974,6 +1067,18 @@ export default function Dashboard() {
                 active={tab === t}
                 onClick={() => setTab(t)}
                 label={t}
+                // Small contextual dot — green for ACTIVE (matches the
+                // LiveDot semantics in the rest of the site), muted grey
+                // for RECENT. 4 px circle, 0.75 opacity — peripheral
+                // hint about what each tab represents without turning
+                // the tab pills into badges.
+                icon={
+                  <span style={{
+                    display: 'inline-block', width: 4, height: 4, borderRadius: '50%',
+                    background: t === 'active' ? '#5ce0a0' : '#7a7a94',
+                    opacity: 0.75,
+                  }} />
+                }
                 style={{ padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
                          textTransform: 'uppercase',
                          border: tab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',

@@ -532,6 +532,28 @@ a { color: inherit; text-decoration: none; }
   100% { background: rgba(255, 255, 255, 0.02); }
 }
 
+/* Subtle "this collection is live" pulse — applied to the rank number
+   of dashboard rows whose latest sale is < 45 s old (see
+   col._isLive in /dashboard/page.tsx). A slow soft lilac background
+   breathes on/off; the negative margin keeps the row's vertical
+   metric stable so adding the class doesn't reflow neighbours. The
+   class is toggled OFF when the aggregate refresh (every 30 s) re-
+   computes _isLive false — so the pulse stops naturally as activity
+   becomes stale. No opacity changes (would reduce text contrast),
+   no scale changes (would shift layout), no glow (would spread to
+   the avatar). */
+@keyframes dashboardLivePulse {
+  0%, 100% { background: rgba(168, 144, 232, 0.00); }
+  50%      { background: rgba(168, 144, 232, 0.18); }
+}
+.dashboard-live-rank {
+  display:       inline-block;
+  border-radius: 4px;
+  padding:       1px 4px;
+  margin:        -1px -4px;
+  animation:     dashboardLivePulse 2.6s ease-in-out infinite;
+}
+
 /* ── Scrollbars ─────────────────────────────────────────────────────────── */
 
 ::-webkit-scrollbar             { width: 6px; }
@@ -997,6 +1019,18 @@ a { color: inherit; text-decoration: none; }
     0 0 0 1px rgba(168,144,232,0.40) inset,
     0 0 18px rgba(128,104,216,0.24);
   z-index: 1;
+}
+
+/* Dashboard rows opt OUT of the /tools row hover (no scale, no outer
+   glow) — the dashboard is a dense analytics table, not a clickable
+   card surface. Hover here = "focused terminal row": ~3% brighter
+   background plus a slightly stronger inset ring. No transform, no
+   outer glow, no motion. Higher specificity (0,3,0 vs 0,2,0) so this
+   wins on the dashboard but leaves /tools / /mints rows alone. */
+.dash-row.tools-offer-row:hover {
+  transform:  none;
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(168, 144, 232, 0.22);
 }
 
 @keyframes flashListing {
