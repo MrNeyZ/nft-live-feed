@@ -97,22 +97,26 @@ function combinedStatusRank(row: ScanRow): number {
   if (!active && listed) return 2;
   return 3;
 }
-function offerStateBadgeStyle(s: OfferState): React.CSSProperties {
-  // ACTIVE folds AVAILABLE + EXPECTED into one green pill so the
-  // operator gets a single yes/no read on "is this offer fillable?".
-  // The amber EXPECTED nuance is lost here intentionally — preserved
-  // upstream in bestOfferStatus for power users / debugMint output.
+// ─── Unified STATUS capsule ────────────────────────────────────────────
+// One outer rounded chip, tinted by OFFER state (green for ACTIVE,
+// muted red/brown for EXPIRED) — the more dominant signal. Two inner
+// text lines: offer state on top in the capsule's accent color, listing
+// state below at reduced opacity in a separate hue (grey for LISTED,
+// lilac for UNLISTED). No inner borders, no per-line backgrounds — the
+// stacked-pill design that preceded this read as two unrelated chips
+// jammed together. Tints are 0.08-0.30 alpha so the capsule sits
+// quietly inside the row rather than reading like a button.
+function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   return s === 'EXPIRED'
-    ? { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
+    ? { color: '#a07474', background: 'rgba(160,116,116,0.08)', border: '1px solid rgba(160,116,116,0.28)' }
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.08)',  border: '1px solid rgba(92,224,160,0.30)' };
 }
-function listingStateBadgeStyle(s: ListingState): React.CSSProperties {
-  // LISTED is the "default" state — subtle neutral so it doesn't grab
-  // attention. UNLISTED keeps the lilac accent so the eye still
-  // separates it from listed rows in a dense scroll.
-  return s === 'LISTED'
-    ? { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.30)' }
-    : { color: '#a890e8', background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.42)' };
+/** Inner second-line color, independent of capsule offer state.
+ *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
+ *  the listing-state dimension still reads at a glance even though
+ *  there's no second border to carry it. */
+function listingLineColor(s: ListingState): string {
+  return s === 'UNLISTED' ? '#a890e8' : '#7a7a94';
 }
 
 /** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
@@ -650,7 +654,6 @@ export default function ToolsPage() {
                 // actionable). The lilac UNLISTED pill carries the
                 // listing-state signal on its own.
                 const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1;
-                const sb = statusBadgeStyle(row.bestOfferStatus);
                 const oState = offerState(row.bestOfferStatus);
                 const lState = listingState(row);
                 // NEW pill: surfaces fresh offers based on the offer's own
@@ -771,32 +774,42 @@ export default function ToolsPage() {
                       {fmtAge(row.bestOfferCreatedAt)}
                     </td>
                     <td style={{ ...tdStyleSmall, textAlign: 'center' }}>
-                      {/* Combined offer×listing status — two stacked
-                          compact pills inside the existing STATUS
-                          column (no new header). Top pill collapses the
-                          offer state to ACTIVE/EXPIRED (AVAILABLE +
-                          EXPECTED both fold into ACTIVE — the operator
-                          only needs to know "fillable or not"), bottom
-                          pill carries the listing state LISTED/UNLISTED.
-                          Centered alignment matches the now-centered
-                          STATUS header (was right-aligned flex / left-
-                          aligned header, which read inconsistently).
-                          gap:1 + tighter pill padding (1px 6px) keep
-                          the stack height under control so rows with no
-                          FUNDED badge under BEST OFFER don't inherit
-                          extra row height from the STATUS stack. */}
-                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 1, alignItems: 'center', lineHeight: 1.15 }}>
+                      {/* Unified offer×listing capsule — one outer
+                          rounded chip with bg + border tinted by offer
+                          state, two text lines inside:
+                            • line 1 (full opacity, accent color):
+                                ACTIVE | EXPIRED
+                            • line 2 (reduced opacity, separate hue):
+                                LISTED (grey) | UNLISTED (lilac)
+                          AVAILABLE + EXPECTED fold into ACTIVE — the
+                          operator only needs "fillable or not"; the
+                          amber EXPECTED nuance is still preserved
+                          upstream in bestOfferStatus for debugMint.
+                          Two-line text on a single border reads as one
+                          status field rather than two chips bolted
+                          together. Padding 3×7 + radius 6 + line-
+                          height 1.15 keep the capsule inside the row's
+                          existing height. */}
+                      <div style={{
+                        display:        'inline-flex',
+                        flexDirection:  'column',
+                        alignItems:     'center',
+                        justifyContent: 'center',
+                        padding:        '3px 7px',
+                        borderRadius:   6,
+                        fontSize:       9.5,
+                        fontWeight:     700,
+                        lineHeight:     1.15,
+                        letterSpacing:  '0.4px',
+                        textTransform:  'uppercase',
+                        fontFamily:     "'SF Mono','Fira Code',monospace",
+                        ...statusCapsuleStyle(oState),
+                      }}>
+                        <span>{oState}</span>
                         <span style={{
-                          display: 'inline-block', padding: '1px 6px',
-                          fontSize: 9.5, fontWeight: 700, borderRadius: 3,
-                          letterSpacing: '0.4px', textTransform: 'uppercase',
-                          ...offerStateBadgeStyle(oState),
-                        }}>{oState}</span>
-                        <span style={{
-                          display: 'inline-block', padding: '1px 6px',
-                          fontSize: 9.5, fontWeight: 700, borderRadius: 3,
-                          letterSpacing: '0.4px', textTransform: 'uppercase',
-                          ...listingStateBadgeStyle(lState),
+                          fontWeight: 600,
+                          opacity:    0.65,
+                          color:      listingLineColor(lState),
                         }}>{lState}</span>
                       </div>
                     </td>
