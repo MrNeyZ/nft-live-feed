@@ -1713,7 +1713,7 @@ export default function CollectionPage() {
                   Rendered as visually inactive so users don't mistake it for a
                   working toggle. State hook kept in place as a no-op to keep
                   the diff minimal. */}
-              <span title="Not implemented yet" style={{ fontSize:11, color:'#2c2c44' }}>Interval</span>
+              <span title="Not implemented yet" style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Interval</span>
               <div title="Not implemented yet" style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden', opacity:0.5 }}>
                 {INTERVALS.map(v => (
                   <button key={v} disabled style={{
@@ -1738,7 +1738,7 @@ export default function CollectionPage() {
               </div>
               {/* Outliers: dead control — IQR / z-score filtering not
                   implemented. Rendered forced-off and non-interactive. */}
-              <span title="Not implemented yet" style={{ fontSize:11, color:'#2c2c44' }}>Outliers</span>
+              <span title="Not implemented yet" style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Outliers</span>
               <div title="Not implemented yet" style={{
                 width:32, height:16, borderRadius:8, cursor:'default',
                 background:'#ffffff0d', position:'relative', opacity:0.5,

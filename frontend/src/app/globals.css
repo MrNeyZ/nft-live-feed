@@ -69,6 +69,17 @@
      #2c2c44 to a slightly brighter #3d3d5a for readability on dense
      monitors. Laptop / phone keep the muted default. */
   --stat-label-color:    #2c2c44;
+  /* Tiny uppercase column-header tier (dashboard th, chart axis-equivalent).
+     PC lifts one notch to match the scatter-chart axis bump (#5a5a78 →
+     #6f6f8c) so the dashboard table headers and the collection chart
+     axes read in the same family on dense monitors. */
+  --th-label-color:      #5a5a78;
+  /* Dashboard sparkline + volume bar visibility. The path / dot / bar
+     opacities are wired through these tokens so PC mode can lift them
+     one notch for dense-monitor scan-readability without bleeding into
+     laptop / phone (which keep the existing dim default). */
+  --spark-line-opacity:  0.38;
+  --spark-dot-opacity:   0.50;
   /* Aliases — point at the new tokens for the duration of migration. */
   --feed-root-padding-x: var(--page-x);
   --feed-column-max:     var(--feed-max);
@@ -94,6 +105,21 @@ html[data-layout="pc"] {
   --hover-glow-blur:     22px;
   --hover-glow-alpha:    0.28;
   --stat-label-color:    #3d3d5a;
+  --th-label-color:      #6f6f8c;
+  --spark-line-opacity:  0.50;
+  --spark-dot-opacity:   0.62;
+}
+
+/* Dashboard sparkline + volume bars consume the opacity tokens above
+   via these scoped rules so PC mode lifts visibility one notch without
+   touching laptop / phone. Inline `opacity` attributes were dropped on
+   the underlying <path>/<circle>/<rect> so CSS can drive the value. */
+.dashboard-spark path,
+.dashboard-volbars rect {
+  opacity: var(--spark-line-opacity, 0.38);
+}
+.dashboard-spark circle {
+  opacity: var(--spark-dot-opacity, 0.50);
 }
 html[data-layout="phone"] {
   --shell-x:            12px;

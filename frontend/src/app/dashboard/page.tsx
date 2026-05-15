@@ -279,10 +279,10 @@ function Sparkline({ data, color = '#36b868', w = 80, h = 20 }: { data: number[]
     return [x, y] as const;
   });
   return (
-    <svg width={w} height={h} style={{ overflow: 'visible' }}>
-      <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.38" />
+    <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-spark">
+      <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
       {pts.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} opacity="0.50" />
+        <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} />
       ))}
     </svg>
   );
@@ -299,7 +299,7 @@ function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; 
   // SVG's reserved layout box at exactly w × h so column heights don't grow,
   // while a small total drifts up into the cell's existing top padding.
   return (
-    <svg width={w} height={h} style={{ overflow: 'visible' }}>
+    <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-volbars">
       <text x={w} y={-2} fontSize="8" textAnchor="end" fill="#7a7a94" opacity="0.72" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
         Σ {sum >= 100 ? sum.toFixed(0) : sum.toFixed(sum >= 10 ? 1 : 2)}
       </text>
@@ -307,7 +307,7 @@ function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; 
         const bh = Math.max(2, (v / max) * (h - 2));
         const x = i * (barW + 2);
         const y = h - bh;
-        return <rect key={i} x={x} y={y} width={barW} height={bh} rx="1" fill={color} opacity="0.38" />;
+        return <rect key={i} x={x} y={y} width={barW} height={bh} rx="1" fill={color} />;
       })}
     </svg>
   );
@@ -1005,7 +1005,7 @@ export default function Dashboard() {
   // round-trip. Live Sale Feed (.feed-card) and Live Mint Feed
   // (.mints-feed-row) use distinct classes and stay denser by design.
   const thStyle: React.CSSProperties = {
-    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: '#5a5a78',
+    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: 'var(--th-label-color, #5a5a78)',
     letterSpacing: '0.8px', textAlign: 'right', borderBottom: '1px solid rgba(168,144,232,0.12)',
     whiteSpace: 'nowrap', background: '#201a3a', position: 'sticky', top: 0, zIndex: 1,
   };
