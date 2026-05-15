@@ -109,7 +109,7 @@ function combinedStatusRank(row: ScanRow): number {
 function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   return s === 'EXPIRED'
     ? { color: '#a07474', background: 'rgba(160,116,116,0.08)', border: '1px solid rgba(160,116,116,0.28)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.08)',  border: '1px solid rgba(92,224,160,0.30)' };
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.12)',  border: '1px solid rgba(92,224,160,0.45)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
@@ -667,7 +667,19 @@ export default function ToolsPage() {
                   && offerAgeSec < 24 * 60 * 60
                   && row.bestOfferStatus !== 'EXPIRED';
                 return (
-                  <tr key={row.mint} className="tools-offer-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: rowOpacity }}>
+                  <tr key={row.mint} className="tools-offer-row" style={{
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    opacity: rowOpacity,
+                    // Trader-terminal "actionable row" cue — a 3 px inset
+                    // strip in the active-green at low alpha sits on the
+                    // row's left edge, giving ACTIVE rows positive emphasis
+                    // instead of only "winning by not being dim". Pure
+                    // paint, no layout shift. EXPIRED rows keep the 0.5
+                    // opacity dim and get no strip. On hover the lilac
+                    // ring (defined in .tools-offer-row:hover) takes over
+                    // — that's the correct focus-state priority.
+                    boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.35)' : undefined,
+                  }}>
                     <td style={{ padding: '10px 8px 10px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* Thumbnail wrapper carries `position: relative`
@@ -766,9 +778,29 @@ export default function ToolsPage() {
                       color: row.spreadSol == null ? '#56566e' : (positiveSpread ? '#5ce0a0' : '#ef7878'),
                       fontWeight: 700,
                     }}>
-                      {row.spreadSol == null
-                        ? '—'
-                        : `${positiveSpread ? '+' : ''}${formatSol(Math.abs(row.spreadSol))}`}
+                      {row.spreadSol == null ? '—' : (
+                        <>
+                          {/* SPREAD is the money column — primary value
+                              one notch larger (14 vs the 13 used in the
+                              rest of the table) so it visually beats
+                              BEST OFFER in the hierarchy. Secondary line
+                              renders the spread as a percentage of the
+                              listing price when both are computable; for
+                              UNLISTED rows (listingPrice null) the
+                              primary path already returned '—' above. */}
+                          <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.15 }}>
+                            {positiveSpread ? '+' : ''}{formatSol(Math.abs(row.spreadSol))}
+                          </div>
+                          {row.listingPrice != null && row.listingPrice > 0 && (
+                            <div style={{
+                              fontSize: 10, fontWeight: 500, opacity: 0.7,
+                              lineHeight: 1.2, marginTop: 1,
+                            }}>
+                              {positiveSpread ? '+' : ''}{((row.spreadSol / row.listingPrice) * 100).toFixed(1)}%
+                            </div>
+                          )}
+                        </>
+                      )}
                     </td>
                     <td style={{ ...tdStyleNum, color: '#aaaabf', fontWeight: 500 }}>
                       {fmtAge(row.bestOfferCreatedAt)}
@@ -815,11 +847,11 @@ export default function ToolsPage() {
                     </td>
                     <td style={tdStyleSmall}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                        <a href={row.meUrl} target="_blank" rel="noopener noreferrer" style={logoChipStyle}>
+                        <a href={row.meUrl} target="_blank" rel="noopener noreferrer" className="tools-link-chip" style={logoChipStyle}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src="/brand/me.png" alt="Magic Eden" width={20} height={20} draggable={false} style={logoImgStyle} />
                         </a>
-                        <a href={row.tensorUrl} target="_blank" rel="noopener noreferrer" style={logoChipStyle}>
+                        <a href={row.tensorUrl} target="_blank" rel="noopener noreferrer" className="tools-link-chip" style={logoChipStyle}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src="/brand/tensor.png" alt="Tensor" width={20} height={20} draggable={false} style={logoImgStyle} />
                         </a>
@@ -838,7 +870,7 @@ export default function ToolsPage() {
 
 const thStyle: React.CSSProperties = {
   padding: '10px 8px', fontSize: 9.5, fontWeight: 700,
-  color: '#56566e', letterSpacing: '0.6px', textAlign: 'left',
+  color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
   background: 'rgba(28,22,50,0.95)', borderBottom: '1px solid rgba(168,144,232,0.12)',
   textTransform: 'uppercase', userSelect: 'none',
 };
