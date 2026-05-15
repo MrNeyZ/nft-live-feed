@@ -207,7 +207,11 @@ function isUsefulTrackerCollection(row: MintStatus): boolean {
   const hasLastMint        = !!row.lastMintAddress && row.lastMintAddress.length > 0;
   const observed           = typeof row.observedMints === 'number' ? row.observedMints : 0;
   if (!realName && !hasImage && !hasLastMint && observed <= 2) return false;
-  if (!realName)                              return false;
+  // Aligned with backend `hasUsableIdentity` (src/mints/accumulator.ts):
+  // a row is tracker-worthy if EITHER a real name OR an image has
+  // resolved. Pre-fix this was `!realName` alone, which hid backend-
+  // confirmed rows whose DAS image had landed but name hadn't yet.
+  if (!realName && !hasImage)                 return false;
   if (realName.toLowerCase() === 'nft')       return false;
   if (realName === shortKey(row.groupingKey)) return false;
   // Pubkey-ish fallback: the codebase's shortKey emits `{6}…{4}` with
