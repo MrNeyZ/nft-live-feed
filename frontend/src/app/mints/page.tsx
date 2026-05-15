@@ -1095,6 +1095,37 @@ export default function MintsPage() {
     try { window.localStorage.setItem('vl.mints.feed.showCnft', showCnft ? '1' : '0'); } catch { /* quota — fail silent */ }
   }, [showCnft]);
 
+  // Source filter — narrows the LEFT tracker table to a single launchpad.
+  // 'all' preserves the prior cosmetic-LMNFT-pill default (which did
+  // nothing). Persisted in localStorage. Backend wire enum: 'LaunchMyNFT'
+  // and 'VVV' are the two operator-facing launchpads today.
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'LMNFT' | 'VVV'>(() => {
+    if (typeof window === 'undefined') return 'all';
+    try {
+      const v = window.localStorage.getItem('vl.mints.sourceFilter');
+      return v === 'LMNFT' || v === 'VVV' ? v : 'all';
+    } catch { return 'all'; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.sourceFilter', sourceFilter); } catch { /* noop */ }
+  }, [sourceFilter]);
+
+  // Status filter — strict policy: a row is 'soldOut' only when BOTH
+  // maxSupply (planned cap) and mintedCount (DAS-derived total) are known
+  // and mintedCount >= maxSupply. Unknown-supply rows are treated as
+  // 'active' since the backend can't prove they've sold out. 'any'
+  // preserves prior cosmetic default. Persisted in localStorage.
+  const [statusFilter, setStatusFilter] = useState<'any' | 'active' | 'soldOut'>(() => {
+    if (typeof window === 'undefined') return 'any';
+    try {
+      const v = window.localStorage.getItem('vl.mints.statusFilter');
+      return v === 'active' || v === 'soldOut' ? v : 'any';
+    } catch { return 'any'; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.statusFilter', statusFilter); } catch { /* noop */ }
+  }, [statusFilter]);
+
   // Render-time view of `events` for the LIVE MINT FEED panel. Pure
   // filter — does not touch the persisted store, so flipping the toggle
   // never drops anything from localStorage. Uses the shared `isCnftLike`
@@ -1558,6 +1589,22 @@ export default function MintsPage() {
       // Mint Feed (which doesn't apply this filter) keeps showing
       // every detected mint.
       .filter(r => isUsefulTrackerCollection(r))
+      // Source filter — narrows to one launchpad. 'all' = no filter.
+      .filter(r =>
+        sourceFilter === 'all' ||
+        (sourceFilter === 'LMNFT' && r.sourceLabel === 'LaunchMyNFT') ||
+        (sourceFilter === 'VVV'   && r.sourceLabel === 'VVV')
+      )
+      // Status filter — strict sold-out determination. Requires both
+      // maxSupply and mintedCount known; unknown-supply rows are treated
+      // as still active because the backend can't prove sell-through.
+      .filter(r => {
+        if (statusFilter === 'any') return true;
+        const cap    = typeof r.maxSupply   === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
+        const minted = typeof r.mintedCount === 'number' ? r.mintedCount : 0;
+        const isSoldOut = cap !== null && minted >= cap;
+        return statusFilter === 'soldOut' ? isSoldOut : !isSoldOut;
+      })
       // Timeframe gate — applies to BOTH tabs. A row whose lastMintAt
       // is older than the selected window is hidden, so 30M never
       // shows a "56m ago" row regardless of tab.
@@ -1629,7 +1676,7 @@ export default function MintsPage() {
   // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
   // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, tfStatsByKey, tick]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, sourceFilter, statusFilter, tfStatsByKey, tick]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1787,22 +1834,22 @@ export default function MintsPage() {
           Window controls table rows, RATE and COEF
         </div>
 
-        {/* Collapsible filters — currently a placeholder slot for future
-            mint-side filters (source, supply band, etc). Mirrors the
-            dashboard collapsible row visually so users get a familiar
-            affordance the moment the FILTERS pill is toggled on. */}
+        {/* Collapsible filters — Source narrows the table to one launchpad;
+            Status uses strict sold-out semantics (only fires when backend
+            knows both maxSupply and mintedCount). Mirrors the dashboard
+            collapsible row visually. State persisted in localStorage
+            (vl.mints.sourceFilter / vl.mints.statusFilter). */}
         {filtersOpen && (
           <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: 'rgba(255,255,255,0.015)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             <span style={{ fontSize: 10, color: '#56566e' }}>Source:</span>
-            <Pill active label="LMNFT" size="sm" />
+            <Pill active={sourceFilter === 'all'}   onClick={() => setSourceFilter('all')}   label="Any"   size="sm" />
+            <Pill active={sourceFilter === 'LMNFT'} onClick={() => setSourceFilter('LMNFT')} label="LMNFT" size="sm" />
+            <Pill active={sourceFilter === 'VVV'}   onClick={() => setSourceFilter('VVV')}   label="VVV"   size="sm" />
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
             <span style={{ fontSize: 10, color: '#56566e' }}>Status:</span>
-            <Pill active label="Any" size="sm" />
-            <Pill label="Active only" size="sm" />
-            <Pill label="Sold out" size="sm" />
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: '#3a3a52', fontStyle: 'italic' }}>
-              More filters coming soon
-            </span>
+            <Pill active={statusFilter === 'any'}     onClick={() => setStatusFilter('any')}     label="Any"         size="sm" />
+            <Pill active={statusFilter === 'active'}  onClick={() => setStatusFilter('active')}  label="Active only" size="sm" />
+            <Pill active={statusFilter === 'soldOut'} onClick={() => setStatusFilter('soldOut')} label="Sold out"    size="sm" />
           </div>
         )}
 
