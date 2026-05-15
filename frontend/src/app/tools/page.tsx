@@ -544,31 +544,41 @@ export default function ToolsPage() {
             </div>
           )
         )}
-        {result && !error && (
-          <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94' }}>
-            slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span>
-            {' · '}scanned <span style={{ color: '#d4d4e8' }}>{result.scanned}</span> / {result.listedTotal} listings
-            {' · '}offers <span style={{ color: '#5ce0a0' }}>{result.offersAvailable}</span> available / {result.offersFetched} fetched
-            {' · '}rows <span style={{ color: '#5ce0a0' }}>{result.withOffers.length}</span> shown
-            {/* Persisted across reloads via localStorage; cleared/recomputed
-                on every Scan click. Undefined = first-ever scan for this
-                slug (no baseline yet); 0 = scanned but nothing new; >0 =
-                highlight in the same purple as the NEW corner ribbon. */}
-            {result.addedCount !== undefined && (
-              <>
-                {' · '}
-                {result.addedCount > 0 ? (
-                  <span style={{ color: '#a890e8', fontWeight: 700 }}>
-                    added {result.addedCount} new
-                  </span>
-                ) : (
-                  <span>added 0</span>
-                )}
-              </>
-            )}
-            {result.fromCache && <span style={{ color: '#c9a820' }}> · cached</span>}
-          </div>
-        )}
+        {result && !error && (() => {
+          // Trading-terminal telemetry strip — only money metrics get
+          // accent color (available offers → green; new rows → lilac).
+          // Everything else (slug literal, counts, scanned ratio) stays
+          // in the muted secondary tier so the eye lands on actionable
+          // numbers. Separators use a deeper muted tone so they read as
+          // structure rather than text.
+          const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
+          return (
+            <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94', lineHeight: 1.6 }}>
+              <span>slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span></span>
+              {sep}
+              <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
+              {sep}
+              <span>offers <span style={{ color: '#5ce0a0', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#56566e' }}>/</span>{result.offersFetched}</span>
+              {sep}
+              <span>rows {result.withOffers.length}</span>
+              {/* `addedCount` is undefined on the first-ever scan for this
+                  slug (no baseline to diff against) so we don't render the
+                  field at all in that case. After the first scan it persists
+                  across reloads via localStorage. */}
+              {result.addedCount !== undefined && (
+                <>
+                  {sep}
+                  {result.addedCount > 0 ? (
+                    <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
+                  ) : (
+                    <span>+0 new</span>
+                  )}
+                </>
+              )}
+              {result.fromCache && <>{sep}<span style={{ color: '#c9a820' }}>cached</span></>}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Results card */}
@@ -678,7 +688,7 @@ export default function ToolsPage() {
                     // opacity dim and get no strip. On hover the lilac
                     // ring (defined in .tools-offer-row:hover) takes over
                     // — that's the correct focus-state priority.
-                    boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.35)' : undefined,
+                    boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.30)' : undefined,
                   }}>
                     <td style={{ padding: '10px 8px 10px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -736,7 +746,12 @@ export default function ToolsPage() {
                           ...statusBadgeStyle('EXPIRED'),
                         }}>EXPIRED</span>
                       )}
-                      {formatSol(row.bestOfferPrice)}
+                      {/* Slight de-emphasis on the offer price (0.92 opacity)
+                          now that SPREAD is the dominant money column. The
+                          number stays plainly readable; this only lowers
+                          its hierarchy notch below SPREAD. Wrap-only — the
+                          cell color/weight from tdStyleNum is preserved. */}
+                      <span style={{ opacity: 0.92 }}>{formatSol(row.bestOfferPrice)}</span>
                       {/* Bidder escrow funding badge — sits directly under
                           the offer price so the operator can see the
                           fillable amount and "is it actually backed" in
@@ -746,7 +761,7 @@ export default function ToolsPage() {
                           + escrow PDA for operators who want to verify on
                           chain. */}
                       {row.bestOfferStatus !== 'EXPIRED' && (
-                        <div style={{ marginTop: 3, textAlign: 'right' }}>
+                        <div style={{ marginTop: 2, textAlign: 'right' }}>
                           <span
                             title={
                               row.fundingWallet
@@ -756,7 +771,7 @@ export default function ToolsPage() {
                             }
                             style={{
                               display: 'inline-block',
-                              padding: '1px 5px', fontSize: 8.5, fontWeight: 700,
+                              padding: '0 5px', fontSize: 8.5, fontWeight: 600,
                               letterSpacing: '0.4px', textTransform: 'uppercase',
                               borderRadius: 3, lineHeight: 1.2,
                               fontFamily: "'SF Mono','Fira Code',monospace",
@@ -827,11 +842,11 @@ export default function ToolsPage() {
                         flexDirection:  'column',
                         alignItems:     'center',
                         justifyContent: 'center',
-                        padding:        '3px 7px',
+                        padding:        '3px 10px',
                         borderRadius:   6,
                         fontSize:       9.5,
                         fontWeight:     700,
-                        lineHeight:     1.15,
+                        lineHeight:     1.1,
                         letterSpacing:  '0.4px',
                         textTransform:  'uppercase',
                         fontFamily:     "'SF Mono','Fira Code',monospace",
@@ -909,16 +924,19 @@ function linkChipStyle(color: string): React.CSSProperties {
   };
 }
 
-/** Square chrome for the marketplace-logo links — same compact size as
- *  the prior text chips (22×22) so the LINKS column keeps its width.
- *  Mirrors `MktIconBadge` chrome exactly. */
+/** Square chrome for the marketplace-logo links — chip widened from 22
+ *  to 26 so the clickable hitbox is ~40 % larger (676 px² vs 484 px²)
+ *  without enlarging the logo art itself. `logoImgStyle` pins the image
+ *  to a fixed 22×22 so the icon's visual size stays identical to the
+ *  prior chip-fills behavior; the new 2 px breathing room reads as a
+ *  framed button rather than a bare image with a hairline border. */
 const logoChipStyle: React.CSSProperties = {
   display:        'inline-flex',
   alignItems:     'center',
   justifyContent: 'center',
-  width:          22,
-  height:         22,
-  borderRadius:   4,
+  width:          26,
+  height:         26,
+  borderRadius:   5,
   overflow:       'hidden',
   border:         '1px solid rgba(255,255,255,0.08)',
   cursor:         'pointer',
@@ -928,8 +946,8 @@ const logoChipStyle: React.CSSProperties = {
 };
 const logoImgStyle: React.CSSProperties = {
   display:      'block',
-  width:        '100%',
-  height:       '100%',
+  width:        '22px',
+  height:       '22px',
   objectFit:    'cover',
   pointerEvents: 'none',
 };
