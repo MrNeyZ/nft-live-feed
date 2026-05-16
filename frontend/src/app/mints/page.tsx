@@ -861,18 +861,18 @@ function shortKey(k: string): string {
  *  family so accents read as "tag", not "alert". FNV-1a over the
  *  address gives a stable index without per-render allocation. */
 const COLLECTION_PALETTE: readonly string[] = [
-  '#22d3ee',  // cyan
-  '#36b868',  // green
-  '#e8c14a',  // amber
-  '#e87a5e',  // orange
-  '#e87ab0',  // pink
+  '#5fc8dd',  // cyan
+  '#7bc88a',  // green
+  '#e0c067',  // amber
+  '#e2906f',  // orange
+  '#dd8cb7',  // pink
   '#7c93e0',  // blue
-  '#a78bfa',  // violet
-  '#e85f6f',  // red
-  '#2dd4bf',  // teal
-  '#a3e635',  // lime
+  '#9c8be0',  // violet
+  '#e07683',  // red
+  '#6dceb9',  // teal
+  '#b8d36b',  // lime
   '#5fa8e6',  // sky blue
-  '#5ce0a0',  // mint
+  '#73d29a',  // mint
 ];
 function colorForCollection(addr: string | null | undefined): string {
   if (!addr) return COLLECTION_PALETTE[0];
@@ -1984,16 +1984,16 @@ export default function MintsPage() {
                 const rowState: 'active' | 'watch' | 'sold' = isSoldOut
                   ? 'sold'
                   : isActive ? 'active' : 'watch';
-                // WATCH rows soften the per-collection accent to ~55%
-                // alpha (`8c` hex) so an incubating row reads as
-                // quieter on the left edge without losing the
-                // per-collection grouping cue. ACTIVE/SOLD keep the
-                // accent at full strength so the band is unambiguous.
-                // Palette is 6-char hex throughout (see
-                // COLLECTION_PALETTE), so an 8-char hex suffix is
-                // safe.
+                // WATCH rows soften the per-collection accent to ~80%
+                // alpha (`cc` hex) so an incubating row still reads as
+                // slightly quieter than ACTIVE/SOLD (FF) but darker
+                // palette entries (green, orange, red, teal) stay
+                // clearly identifiable instead of collapsing to muddy
+                // on the dark row background. Palette is 6-char hex
+                // throughout (see COLLECTION_PALETTE), so an 8-char
+                // hex suffix is safe.
                 const accentBorderColor = rowState === 'watch'
-                  ? `${accentColor}8c`
+                  ? `${accentColor}cc`
                   : accentColor;
                 // Fresh-mint flash — same green pulse the dashboard
                 // uses for fresh sales. Two parts:

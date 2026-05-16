@@ -228,9 +228,9 @@ export function NFTThumb({ color, abbr, size = 36 }: { color: string; abbr: stri
   return (
     <div style={{
       width: size, height: size, borderRadius: 6, flexShrink: 0,
-      background: `linear-gradient(135deg, ${color}38 0%, ${color}14 100%)`,
-      border: `1px solid ${color}22`,
-      boxShadow: `inset 0 1px 0 ${color}14, 0 1px 2px rgba(0,0,0,0.3)`,
+      background: `linear-gradient(135deg, ${color}4d 0%, ${color}1f 100%)`,
+      border: `1px solid ${color}33`,
+      boxShadow: `inset 0 1px 0 ${color}1f, 0 1px 2px rgba(0,0,0,0.3)`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.28, fontWeight: 700, color: color + 'cc', userSelect: 'none',
     }}>{abbr}</div>
