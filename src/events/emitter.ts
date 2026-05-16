@@ -138,6 +138,7 @@ export type MintDisplayState  = 'incubating' | 'shown' | 'cooled';
 export type MintSourceLabel =
   | 'LaunchMyNFT'
   | 'VVV'
+  | 'GRAVE'
   | 'ME'
   | 'Metaplex Candy Machine'
   | 'Metaplex Core'

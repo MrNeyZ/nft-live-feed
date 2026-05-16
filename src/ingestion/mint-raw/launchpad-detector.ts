@@ -91,7 +91,22 @@ export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZN
  *  `getMintTrackerVvvTreasuryGateEnabled`. */
 export const VVVSO_PLATFORM_TREASURY = 'EQCaFM2JHFd5RrDPNhS96KLxdmiAK9eeWJyJWest31tm';
 
-export type LaunchpadSource = 'LaunchMyNFT' | 'VVV';
+/** gravemint.io platform signer. Writable, deliberately-vanity-prefixed
+ *  keypair that signs every confirmed Gravemint Core CreateV2 mint
+ *  observed to date (5/5 in audit). Position varies (idx 1 or 2 in the
+ *  signer slots), so we check via `signerKeys.includes` rather than a
+ *  fixed index. As a signer it cannot be spoofed without the launchpad's
+ *  private key, making it the strongest on-chain fingerprint of the
+ *  three platforms tracked (LMNFT outer program, vvv treasury, this). */
+export const GRAVEMINT_PLATFORM_SIGNER   = 'DEADsTGdpwgudGq4SUMPqzETzoaqAuDHbQovkTzTEA1R';
+/** gravemint.io treasury / fee-collector. Writable non-signer present
+ *  alongside `GRAVEMINT_PLATFORM_SIGNER` in 5/5 audit samples. Used as
+ *  belt-and-suspenders alongside the signer check to ensure we never
+ *  match a future tx where the launchpad signer is reused for an
+ *  unrelated, non-mint instruction. */
+export const GRAVEMINT_PLATFORM_TREASURY = '4rUxPzDvQXfjZuHfApV7Bhf1uxsAjJDxgtYy7UaQMq24';
+
+export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
  *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
@@ -338,6 +353,28 @@ function isVvvSoTx(shape: ParsedTxShape): boolean {
   return false;
 }
 
+/** True iff `tx` matches the gravemint.io direct-Core mint pattern.
+ *
+ *  Triple-gate fingerprint:
+ *    1. MPL Core program present (cheap structural prerequisite),
+ *    2. `GRAVEMINT_PLATFORM_SIGNER` present as an actual signer — the
+ *       primary identity; unspoofable without the launchpad's secret,
+ *    3. `GRAVEMINT_PLATFORM_TREASURY` present in `accountKeys` — guards
+ *       against the launchpad signer being reused for a non-mint ix
+ *       in some future flow,
+ *    4. a `Program log: Instruction: CreateV2` log line — confirms this
+ *       is a Core mint, not e.g. an update / transfer.
+ *
+ *  All four must hold. Mutually exclusive with `isVvvSoTx` (different
+ *  signer, different treasury, different header `numReadonlySignedAccounts`
+ *  shape) and with the LMNFT branches (no `LAUNCHMYNFT_PROGRAM` account). */
+function isGraveMintTx(shape: ParsedTxShape): boolean {
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
+  if (!shape.signerKeys.includes(GRAVEMINT_PLATFORM_SIGNER)) return false;
+  if (!shape.accountKeys.includes(GRAVEMINT_PLATFORM_TREASURY)) return false;
+  return shape.logs.some((line) => line.includes('Instruction: CreateV2'));
+}
+
 /** Pull the asset/mint, payer, and (best-effort) collection out of the
  *  inner MPL Core CPI in `tx`. Both LMNFT and vvv.so allocate the new
  *  asset via Core's Create / CreateV2 (LMNFT as an inner CPI from its
@@ -542,6 +579,21 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       matchedNeedle:     'Instruction: CreateV2',
     };
   }
+  // Gravemint.io targeted detector — runs AFTER vvv so a tx that
+  // somehow carried both fingerprints (none seen) would still resolve
+  // as VVV (older, more samples). Flag-gated; OFF by default.
+  if (getMintTrackerGraveGateEnabled() && isGraveMintTx(shape)) {
+    const core = extractCoreMintFromInner(tx, shape);
+    if (!core) return null;
+    return {
+      source:            'GRAVE',
+      standard:          'core',
+      mintAddress:       core.mintAddress,
+      collectionAddress: core.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     'Instruction: CreateV2',
+    };
+  }
   // LMNFT Token-Metadata mint variant. Gated on the dual-signal pair
   // (LMNFT outer program + strict `Instruction: MintTm` log + Token
   // Metadata program present) so a stand-alone TM Create from a wallet
@@ -604,4 +656,13 @@ export function getMintTrackerCoreV2ScorerEnabled(): boolean {
  *  fallback scorer when that flag is also on. */
 export function getMintTrackerVvvTreasuryGateEnabled(): boolean {
   return process.env.MINT_TRACKER_VVV_TREASURY_GATE === '1';
+}
+
+/** Feature-flagged gravemint.io targeted detector. OFF by default;
+ *  only active when `MINT_TRACKER_GRAVE_GATE=1`. Coverage is unchanged
+ *  — Gravemint Core CreateV2 mints already surface via the v2-core
+ *  fallback scorer; this flag only relabels them from `Metaplex Core`
+ *  to `GRAVE`. */
+export function getMintTrackerGraveGateEnabled(): boolean {
+  return process.env.MINT_TRACKER_GRAVE_GATE === '1';
 }
