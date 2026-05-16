@@ -1420,7 +1420,15 @@ body[data-bottombar="1"] .feed-root {
    tint on hover; no border/shadow change. Card-style hover (no transform
    / no scale) so the right pane keeps its "card list" feel and never
    inherits the table-row scale lift used on the left tracker. */
-.mints-feed-row { cursor: default; }
+.mints-feed-row {
+  cursor: default;
+  /* Scope style + layout recalc to each card so a single card class
+     flip (fresh→recent→stale) or hover doesn't walk the whole feed
+     list's recalc tree. Paint is intentionally NOT contained so the
+     `-recent` outer halo can extend past the card box. Tracker rows
+     get the same containment via `.tools-offer-row` (see above). */
+  contain: layout style;
+}
 .mints-feed-row:hover {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(168, 144, 232, 0.22);
@@ -1441,21 +1449,24 @@ body[data-bottombar="1"] .feed-root {
    transform, no layout shift. */
 .mints-feed-row-recent {
   background: rgba(168, 144, 232, 0.05);
+  /* Outer-blur tightened 14 → 8 px and the outer-alpha trimmed
+     slightly. At any given moment 20-40 cards sit in the 2.5-15 s
+     window in a busy market; 14 px blurred shadows are some of the
+     priciest compositor operations, so this is where we trim. The
+     1-px ring keeps the "new" cue strong; the soft halo still
+     reads. Pure paint, no layout. */
   box-shadow:
     0 0 0 1px rgba(168, 144, 232, 0.20),
-    0 0 14px rgba(168, 144, 232, 0.12);
+    0 0 8px  rgba(168, 144, 232, 0.10);
 }
 
-/* Subtle image polish for the right-pane card thumbnails ONLY.
-   Scoped via the `.mints-feed-row` ancestor selector so left-tracker
-   thumbs (`.mints-tracker-row img`), source-icon mini-images
-   (Tensor / ME pngs in the tracker), and any other `<img>` on the
-   page are unaffected. Tiny saturate + contrast bump (~5% / ~2%)
-   keeps under-exposed PFP thumbs from reading as washed-out next to
-   the card's dark chrome — cheap GPU filter, no blur. */
-.mints-feed-row img {
-  filter: saturate(1.06) contrast(1.02);
-}
+/* Previously: `.mints-feed-row img { filter: saturate(1.06) contrast(1.02) }`
+   removed in the /mints perf pass. The filter promoted every feed
+   thumbnail to its own compositor layer (≤150 mounted cards = ≤150
+   per-frame GPU filter operations) for a 5 %/2 % adjustment that
+   isn't visually distinguishable on real PFP thumbs. Dropping it
+   is the single biggest /mints GPU win. No replacement — thumbs
+   render with the source's native saturation. */
 
 /* /mints — fresh-insert animation. Plays once when a brand-new SSE
    mint event lands at the top of the live feed list (cache-restored
@@ -1463,9 +1474,15 @@ body[data-bottombar="1"] .feed-root {
    Combined slide-down + soft green glow, mirrors /feed's flashBuy
    pattern but tuned shorter (2 s vs 3.6 s) since /mints rows are
    denser and the operator scans them faster. */
+/* Slide-in is now opacity + transform only — `max-height` was
+   removed because it forces a layout recalc on every frame for
+   220 ms × N concurrent fresh cards (during bursts, 4-8 can be
+   animating at once). Opacity + translateY are both composited;
+   no layout, no main-thread work. Visually near-identical: cards
+   still appear to slide down from above as they fade in. */
 @keyframes mintsFeedSlideIn {
-  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
-  to   { opacity: 1; transform: none;             max-height: 120px; }
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none;             }
 }
 @keyframes mintsFeedFreshFlash {
   0%   { background: rgba(92, 224, 160, 0.22); border-color: rgba(92, 224, 160, 0.45); }
