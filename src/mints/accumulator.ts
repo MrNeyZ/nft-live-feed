@@ -119,6 +119,21 @@ interface Accum {
    *  `patchAccumulatorLmnft` once the homepage-featured lookup returns. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** Authoritative total minted in the drop, decoded from the MPL Core
+   *  `CollectionV1.num_minted` u32 by the core-supply refresher. Null
+   *  until the refresher visits this collection. Once set, increases
+   *  monotonically (the refresher never overwrites with a smaller
+   *  value — protects against transient RPC results). */
+  supplyMintedOnChain?: number | null;
+  /** Running session-local count of accepted mints into this group.
+   *  Incremented in `recordMint` on every accepted event regardless of
+   *  programSource. Used as the optimistic fallback when no on-chain
+   *  authority has been resolved yet. */
+  supplyMintedLocal:    number;
+  /** Wall-clock ms of the last successful on-chain decode for this
+   *  group. Used by the refresher to throttle per-collection refresh
+   *  frequency. Undefined until the first successful decode. */
+  supplyVerifiedAt?:    number;
 }
 
 const map = new Map<string, Accum>();
@@ -152,6 +167,39 @@ export function getMintAuditCounts(): { accepted: number; emitted: number } {
  *  has been since the tracker last saw a mint event — the primary
  *  health signal when sales mode is OFF and the trade endpoints are
  *  silent. Cheap O(N) over the in-memory accumulator (bounded). */
+/** Snapshot of `(groupingKey, collectionAddress, lastVerifiedAt)` for
+ *  every MPL Core group with a real collection address. Used by the
+ *  core-supply refresher to pick its next batch (filter by TTL +
+ *  recency). Bounded — only one entry per group, even very long
+ *  uptime stays O(active rows). Non-Core / cNFT / placeholder
+ *  collections are excluded; the refresher's batch is Core-specific. */
+export function coreCollectionSupplyTargets(): Array<{
+  groupingKey:       string;
+  collectionAddress: string;
+  lastVerifiedAt:    number | undefined;
+  lastMintAt:        number;
+}> {
+  const out: Array<{ groupingKey: string; collectionAddress: string; lastVerifiedAt: number | undefined; lastMintAt: number }> = [];
+  for (const a of map.values()) {
+    if (a.programSource !== 'mpl_core') continue;
+    const coll = a.collectionAddress;
+    if (!coll) continue;
+    // Skip placeholder/synthetic grouping addresses (the targeted
+    // detector occasionally emits `authority:` / `pool:` style keys
+    // for borderline rows). A real Core CollectionV1 always has a
+    // base58 32-byte pubkey, so the colon-prefix shape is a safe
+    // negative gate.
+    if (/^(authority|program|owner|pool):/.test(coll)) continue;
+    out.push({
+      groupingKey:       a.groupingKey,
+      collectionAddress: coll,
+      lastVerifiedAt:    a.supplyVerifiedAt,
+      lastMintAt:        a.lastMintAt,
+    });
+  }
+  return out;
+}
+
 export function lastObservedMintAt(): number {
   let last = 0;
   for (const a of map.values()) {
@@ -295,6 +343,17 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
     lmntfCollectionId: a.lmntfCollectionId ?? null,
+    // Authoritative on-chain count when the core-supply refresher has
+    // visited; otherwise the session-local running count so the
+    // frontend's SUPPLY column has something to show for Core/VVV/GRAVE
+    // rows where `maxSupply` (planned cap) is unknown. The two paths
+    // are distinguishable via `supplyVerified` below — UI mutes
+    // unverified values per spec.
+    supplyMinted:
+      typeof a.supplyMintedOnChain === 'number' && a.supplyMintedOnChain >= 0
+        ? Math.max(a.supplyMintedOnChain, a.supplyMintedLocal)
+        : (a.supplyMintedLocal > 0 ? a.supplyMintedLocal : null),
+    supplyVerified: typeof a.supplyMintedOnChain === 'number' && a.supplyMintedOnChain >= 0,
   };
 }
 
@@ -384,6 +443,7 @@ export function recordMint(ev: MintEventWire): void {
       paidCount:         0,
       unknownCount:      0,
       displayState:      'incubating',
+      supplyMintedLocal: 0,
     };
     map.set(ev.groupingKey, a);
   }
@@ -396,6 +456,7 @@ export function recordMint(ev: MintEventWire): void {
   // be a non-NFT pubkey).
   if (ev.mintAddress) a.lastMintAddress = ev.mintAddress;
   a.observedMints++;
+  a.supplyMintedLocal++;
   a.lastMintAt = now;
   const item: RingItem = { ts: now, priceLamports: ev.priceLamports };
   a.events60s.push(item);
@@ -642,6 +703,36 @@ export function patchAccumulatorLmnft(
     `collectionId=${nextId ?? 'null'} href=${href ?? 'null'} ` +
     `maxSupply=${nextSupply ?? 'null'}`,
   );
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
+/** Patch a group's authoritative on-chain minted count. Called by the
+ *  core-supply refresher once a CollectionV1 account has been decoded.
+ *  Monotonic: never overwrites a higher previous value with a smaller
+ *  one (guards against transient RPC results returning a stale account
+ *  snapshot — possible across validator forks during a heavy burst).
+ *  Re-emits one mint_status frame so connected clients see the SUPPLY
+ *  column flip from optimistic to verified without waiting for the
+ *  next mint. */
+export function patchAccumulatorCoreSupply(
+  groupingKey: string,
+  numMinted:   number,
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  if (!Number.isFinite(numMinted) || numMinted < 0) return;
+  const prev = typeof a.supplyMintedOnChain === 'number' ? a.supplyMintedOnChain : -1;
+  const next = numMinted < prev ? prev : numMinted;
+  const verifiedAtChanged = !a.supplyVerifiedAt;
+  if (prev === next && !verifiedAtChanged) {
+    // Value unchanged AND we already had a verifiedAt — still bump
+    // the timestamp so the refresher's throttle uses the latest poll
+    // time, but no need to re-emit downstream.
+    a.supplyVerifiedAt = Date.now();
+    return;
+  }
+  a.supplyMintedOnChain = next;
+  a.supplyVerifiedAt    = Date.now();
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 

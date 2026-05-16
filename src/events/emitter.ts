@@ -222,6 +222,21 @@ export interface MintStatusWire {
    *  Either being null falls back to a plain-text source pill. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** Total NFTs minted in this drop so far. For MPL Core collections
+   *  populated from the on-chain CollectionV1 `num_minted` u32 by the
+   *  core-supply refresher. Until the refresher has visited the
+   *  collection, mirrors the running optimistic count (`observedMints`
+   *  worth seen this session) so the SUPPLY column has something to
+   *  show; `supplyVerified` distinguishes "authoritative on-chain
+   *  number" from "running local count". Distinct from `maxSupply`
+   *  (planned cap, currently LMNFT-only) and `mintedCount` (DAS proxy
+   *  used for MINTED column on LMNFT rows). */
+  supplyMinted?:     number | null;
+  /** True iff `supplyMinted` came from a successful on-chain decode
+   *  of the collection's CollectionV1 account. False/undefined means
+   *  the value is the session-local optimistic count and may lag /
+   *  miss mints from before the row was opened. */
+  supplyVerified?:   boolean;
   displayState:      MintDisplayState;
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;

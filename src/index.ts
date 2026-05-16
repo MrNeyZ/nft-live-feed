@@ -12,6 +12,7 @@ import './health/source-health';
 // is started below in main() once the bus is wired.
 import './mints/accumulator';
 import { startMintDetector } from './mints/detector';
+import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
@@ -65,6 +66,11 @@ async function main() {
   // unconditionally at boot — it'll only see events once a runtime mode
   // is selected and the listener begins emitting.
   startMintDetector();
+  // Core-supply refresher polls MPL Core CollectionV1 accounts in
+  // ≤100-address batches every 30s to populate the SUPPLY column for
+  // Core/VVV/GRAVE rows. Bounded RPC cost (one getMultipleAccounts per
+  // tick); no effect when /mints is empty.
+  startCoreSupplyRefresher();
 
   // Mint tracker runs 24/7 independent of trade runtime mode. When
   // `MINT_TRACKER_ENABLED` is set (default ON), the listener spins up

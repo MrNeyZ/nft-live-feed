@@ -49,6 +49,16 @@ interface MintStatus {
    *  build the deep-link; either null falls back to a plain pill. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** Total NFTs minted in this drop so far. Backend populates from
+   *  on-chain MPL Core `CollectionV1.num_minted` (Core/VVV/GRAVE
+   *  rows); until the core-supply refresher has visited the row this
+   *  mirrors the running session-local count. Used as the SUPPLY
+   *  column fallback when `maxSupply` (planned cap) is unknown. */
+  supplyMinted?:     number | null;
+  /** True iff `supplyMinted` came from a successful on-chain decode
+   *  rather than the optimistic local counter. UI mutes unverified
+   *  values slightly so the operator can tell at a glance. */
+  supplyVerified?:   boolean;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -1477,6 +1487,12 @@ export default function MintsPage() {
               mintedCount:       null,
               lmntfOwner:        null,
               lmntfCollectionId: null,
+              // Left null/false on the synthetic placeholder — the next
+              // mint_status frame (fires in the same SSE batch) carries
+              // the real session-local optimistic count and, after the
+              // refresher's first tick, the on-chain verified count.
+              supplyMinted:      null,
+              supplyVerified:    false,
             };
             next.set(ev.groupingKey, merged);
             schedulePersistedCollections(next);
@@ -2357,22 +2373,48 @@ export default function MintsPage() {
                         </td>
                       );
                     })()}
-                    {/* SUPPLY — planned cap (when known). Bright row
-                        colour matches the MINTS column so the table
-                        reads as a single tier of values rather than a
-                        ladder of fade levels. */}
-                    <td
-                      title={
-                        typeof r.maxSupply === 'number' && r.maxSupply > 0
-                          ? `Max supply for this collection`
-                          : `Max supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`
+                    {/* SUPPLY — planned cap when known (LMNFT path,
+                        from the homepage scraper / on-chain decoder);
+                        otherwise the running on-chain `num_minted`
+                        count for MPL Core collections (Core / VVV /
+                        GRAVE rows), which the backend pulls from each
+                        collection's CollectionV1 account on a 30 s
+                        cadence and seeds with the optimistic
+                        session-local count between refreshes.
+                        Unverified (optimistic) values render slightly
+                        muted so they read as "still resolving". Bright
+                        row colour matches the MINTS column so the
+                        table reads as a single tier of values rather
+                        than a ladder of fade levels. */}
+                    {(() => {
+                      const cap = typeof r.maxSupply === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
+                      const minted = typeof r.supplyMinted === 'number' && r.supplyMinted >= 0 ? r.supplyMinted : null;
+                      const verified = r.supplyVerified === true;
+                      let display: string;
+                      let title: string;
+                      let color = '#f0eef8';
+                      if (cap !== null) {
+                        display = cap.toLocaleString();
+                        title   = 'Max supply for this collection';
+                      } else if (minted !== null) {
+                        display = minted.toLocaleString();
+                        title   = verified
+                          ? `On-chain num_minted from CollectionV1 (verified)`
+                          : `Minted so far (optimistic — awaiting on-chain refresh)`;
+                        if (!verified) color = '#a8a6c4';
+                      } else {
+                        display = '—';
+                        title   = `Supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`;
                       }
-                      style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color: '#f0eef8', fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
-                    >
-                      {typeof r.maxSupply === 'number' && r.maxSupply > 0
-                        ? r.maxSupply.toLocaleString()
-                        : '—'}
-                    </td>
+                      return (
+                        <td
+                          title={title}
+                          style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                        >
+                          {display}
+                        </td>
+                      );
+                    })()}
                     <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       {fmtAge(r.lastMintAt)}
                     </td>
