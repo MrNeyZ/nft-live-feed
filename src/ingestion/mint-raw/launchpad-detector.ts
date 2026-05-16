@@ -82,6 +82,15 @@ function deriveCnftAssetId(merkleTree: string, nonceLe: Buffer): string | null {
  *  (program, IDL discriminator) is identified. */
 export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZNrn';
 
+/** vvv.so platform treasury / fee-collector. Writable non-signer in
+ *  every confirmed vvv.so Core CreateV2 mint observed to date
+ *  (13/13 across an 11-month sample spanning 2025-06 → 2026-05),
+ *  including the two newest drops where vvv has rotated the platform
+ *  signer at index 2 away from VVVSO_PLATFORM_SIGNER. Used only as a
+ *  flag-gated fallback fingerprint in `isVvvSoTx`; see
+ *  `getMintTrackerVvvTreasuryGateEnabled`. */
+export const VVVSO_PLATFORM_TREASURY = 'EQCaFM2JHFd5RrDPNhS96KLxdmiAK9eeWJyJWest31tm';
+
 export type LaunchpadSource = 'LaunchMyNFT' | 'VVV';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
@@ -302,14 +311,29 @@ function lmnftCnftNeedleIfPresent(shape: ParsedTxShape): string | null {
   return null;
 }
 
-/** True iff `tx` matches the vvv.so direct-Core mint pattern. The
- *  platform signer's presence as an actual signer (not just an account
- *  reference) plus a Core `CreateV2` log is the fingerprint. */
+/** True iff `tx` matches the vvv.so direct-Core mint pattern.
+ *
+ *  Primary fingerprint: canonical platform signer
+ *  `VVVSO_PLATFORM_SIGNER` present as an actual signer (not just an
+ *  account reference) plus a Core `CreateV2` log. Catches 11/11
+ *  classic vvv.so drops sampled across an 11-month window.
+ *
+ *  Secondary fingerprint (flag-gated): canonical signer absent, but
+ *  `VVVSO_PLATFORM_TREASURY` present as a writable non-signer account
+ *  alongside the same Core `CreateV2` log. Catches the newest drops
+ *  where vvv has rotated the platform signer per-collection. Off by
+ *  default — only active when `MINT_TRACKER_VVV_TREASURY_GATE=1`. */
 function isVvvSoTx(shape: ParsedTxShape): boolean {
-  if (!shape.signerKeys.includes(VVVSO_PLATFORM_SIGNER)) return false;
-  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))     return false;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
+  let hasCreateV2 = false;
   for (const line of shape.logs) {
-    if (line.includes('Instruction: CreateV2')) return true;
+    if (line.includes('Instruction: CreateV2')) { hasCreateV2 = true; break; }
+  }
+  if (!hasCreateV2) return false;
+  if (shape.signerKeys.includes(VVVSO_PLATFORM_SIGNER)) return true;
+  if (getMintTrackerVvvTreasuryGateEnabled()
+      && shape.accountKeys.includes(VVVSO_PLATFORM_TREASURY)) {
+    return true;
   }
   return false;
 }
@@ -568,4 +592,16 @@ export function getMintTrackerMode(): MintTrackerMode {
  *  detector; never overrides a targeted hit. */
 export function getMintTrackerCoreV2ScorerEnabled(): boolean {
   return process.env.MINT_TRACKER_CORE_V2_SCORER === '1';
+}
+
+/** Feature-flagged vvv.so treasury fingerprint, used as a fallback
+ *  gate inside `isVvvSoTx` when the canonical platform signer is
+ *  absent (signer-rotated drops). OFF by default — production
+ *  behaviour is byte-identical unless the operator sets
+ *  `MINT_TRACKER_VVV_TREASURY_GATE=1`. Improves source labelling
+ *  (`VVV` instead of generic `Metaplex Core`) without expanding
+ *  coverage — accepted txs would already be picked up by the v2-core
+ *  fallback scorer when that flag is also on. */
+export function getMintTrackerVvvTreasuryGateEnabled(): boolean {
+  return process.env.MINT_TRACKER_VVV_TREASURY_GATE === '1';
 }
