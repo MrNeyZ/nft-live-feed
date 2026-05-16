@@ -41,8 +41,10 @@ import type {
 import {
   detectLaunchpadMint,
   getMintTrackerMode,
+  getMintTrackerCoreV2ScorerEnabled,
   LAUNCHMYNFT_PROGRAM,
 } from './launchpad-detector';
+import { detectCoreCreateV2NftCandidate } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -426,6 +428,52 @@ export async function ingestMintRaw(
       );
     }
     if (!lp) {
+      // Feature-flagged Direct MPL Core CreateV2 fallback. OFF by
+      // default (MINT_TRACKER_CORE_V2_SCORER unset). When ON, we run
+      // the conservative new scorer on the same tx the targeted
+      // detector just rejected. Accepts produce a `Metaplex Core`
+      // row (label already in the SourceLabel union + frontend
+      // badge); rejects log an audit line and fall through to the
+      // normal `unknown_launchpad` reject.
+      if (getMintTrackerCoreV2ScorerEnabled()) {
+        const v2 = detectCoreCreateV2NftCandidate(tx);
+        if (v2) {
+          if (v2.accept && v2.mintAddress && v2.collectionAddress) {
+            logV2CoreAccept(sig, v2.score, v2.reasons, v2.mintAddress, v2.collectionAddress);
+            const priceLamports = extractSignerLamportsPaid(tx);
+            const mintType      = classifyMintType(priceLamports);
+            const groupingKey   = `collection:${v2.collectionAddress}`;
+            const groupingKind: MintEventWire['groupingKind'] = 'collection';
+            const blockTime = tx.blockTime
+              ? new Date((tx.blockTime as number) * 1000).toISOString()
+              : new Date().toISOString();
+            recordMint({
+              signature:         sig,
+              blockTime,
+              programSource:     'mpl_core',
+              mintAddress:       v2.mintAddress,
+              collectionAddress: v2.collectionAddress,
+              groupingKey,
+              groupingKind,
+              mintType,
+              priceLamports,
+              minter:            v2.minter,
+              // Reuse the existing `Metaplex Core` label so the
+              // frontend's `sourceBadge` renders it as `CORE` and
+              // none of the LMNFT/VVV-specific code paths fire.
+              sourceLabel:       'Metaplex Core',
+            });
+            enqueueMintEnrichment(groupingKey, v2.mintAddress);
+            // Parser already supplied a collection address. Schedule
+            // the same async DAS confirmation the targeted Core
+            // branch uses — drops the row later if DAS can't
+            // confirm the grouping.
+            scheduleCollectionConfirmation(groupingKey, v2.mintAddress, v2.collectionAddress, sig);
+            return;
+          }
+          logV2CoreReject(sig, v2.score, v2.rejectReason ?? 'unknown', v2.reasons);
+        }
+      }
       if (sig === DEBUG_SIG) {
         console.log(`[mints/debug-sig] sig=${sig} decision=reject reason=unknown_launchpad`);
       }
@@ -1056,6 +1104,41 @@ function noteFilterReject(reason: string, sig: string, mint: string | null): voi
     `[mints/REJECT] reason=${reason} sig=${sig.slice(0, 20)}… ` +
     `mint=${mint ?? '—'}`,
   );
+}
+
+// Direct Core CreateV2 fallback (feature-flagged) log helpers.
+// Accepts are rare and signal-rich → unsampled. Rejects are sampled
+// (1st + every 25th per reason) so a noisy reject category doesn't
+// drown out the audit signal. Operator can grep `[mints/v2-core]`
+// to see only this path's verdicts. Used by the
+// `MINT_TRACKER_CORE_V2_SCORER=1` fallback block above.
+function logV2CoreAccept(
+  sig:        string,
+  score:      number,
+  reasons:    string[],
+  mint:       string,
+  collection: string,
+): void {
+  console.log(
+    `[mints/v2-core] accept score=${score} reasons=${reasons.join(',')} ` +
+    `mint=${mint} collection=${collection} sig=${sig}`,
+  );
+}
+const _v2CoreRejectCount = new Map<string, number>();
+function logV2CoreReject(
+  sig:     string,
+  score:   number,
+  reason:  string,
+  reasons: string[],
+): void {
+  const n = (_v2CoreRejectCount.get(reason) ?? 0) + 1;
+  _v2CoreRejectCount.set(reason, n);
+  if (n === 1 || n % 25 === 0) {
+    console.log(
+      `[mints/v2-core] reject reason=${reason} count=${n} score=${score} ` +
+      `reasons=${reasons.join(',')} sig=${sig.slice(0, 20)}…`,
+    );
+  }
 }
 
 // Targeted-mode launchpad log helpers — unsampled accept lines (rare,

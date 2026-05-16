@@ -558,3 +558,14 @@ export function getMintTrackerMode(): MintTrackerMode {
   const raw = process.env.MINT_TRACKER_MODE;
   return raw === 'legacy' ? 'legacy' : 'targeted';
 }
+
+/** Feature-flagged Direct MPL Core CreateV2 fallback scorer. OFF by
+ *  default — production behaviour is unchanged unless the operator
+ *  explicitly sets `MINT_TRACKER_CORE_V2_SCORER=1`. When enabled, the
+ *  fallback runs ONLY in the `unknown_launchpad` branch of targeted
+ *  mode (i.e. after `detectLaunchpadMint` returns null). Intended for
+ *  side-by-side comparison vs. the existing LMNFT/vvv targeted
+ *  detector; never overrides a targeted hit. */
+export function getMintTrackerCoreV2ScorerEnabled(): boolean {
+  return process.env.MINT_TRACKER_CORE_V2_SCORER === '1';
+}
