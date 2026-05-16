@@ -2367,7 +2367,12 @@ export default function MintsPage() {
                       return (
                         <td
                           title={tip}
-                          style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#f0eef8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                          // Same green family as RATE (#5ce0a0) but
+                          // softer — keeps MINTS in the same family
+                          // visually while leaving RATE the brightest
+                          // value. fontWeight 800 stays unchanged so
+                          // the column still reads heavy / structural.
+                          style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                         >
                           {tfCount.toLocaleString()}
                         </td>
@@ -2392,7 +2397,14 @@ export default function MintsPage() {
                       const verified = r.supplyVerified === true;
                       let display: string;
                       let title: string;
-                      let color = '#f0eef8';
+                      // SUPPLY sits below MINTS + RATE in the visual
+                      // hierarchy: muted by default, even quieter when
+                      // the value is still optimistic (not yet refreshed
+                      // from on-chain). Verified / cap-known cases use
+                      // the same secondary-tier gray; unverified drops
+                      // another step so the "still resolving" state
+                      // reads as in-flight without being unreadable.
+                      let color = '#a8a6c4';
                       if (cap !== null) {
                         display = cap.toLocaleString();
                         title   = 'Max supply for this collection';
@@ -2401,7 +2413,7 @@ export default function MintsPage() {
                         title   = verified
                           ? `On-chain num_minted from CollectionV1 (verified)`
                           : `Minted so far (optimistic — awaiting on-chain refresh)`;
-                        if (!verified) color = '#a8a6c4';
+                        if (!verified) color = '#7c7a98';
                       } else {
                         display = '—';
                         title   = `Supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`;
