@@ -861,17 +861,18 @@ function shortKey(k: string): string {
  *  family so accents read as "tag", not "alert". FNV-1a over the
  *  address gives a stable index without per-render allocation. */
 const COLLECTION_PALETTE: readonly string[] = [
-  '#8068d8',  // VL purple (default fallback)
-  '#a890e8',  // light purple
-  '#5fa8e6',  // teal-blue
+  '#22d3ee',  // cyan
   '#36b868',  // green
-  '#e8c14a',  // amber (muted)
+  '#e8c14a',  // amber
+  '#e87a5e',  // orange
   '#e87ab0',  // pink
+  '#7c93e0',  // blue
+  '#a78bfa',  // violet
+  '#e85f6f',  // red
+  '#2dd4bf',  // teal
+  '#a3e635',  // lime
+  '#5fa8e6',  // sky blue
   '#5ce0a0',  // mint
-  '#c084fc',  // lavender
-  '#7a63c4',  // dim purple
-  '#4e8cd4',  // blue
-  '#28a878',  // dark green
 ];
 function colorForCollection(addr: string | null | undefined): string {
   if (!addr) return COLLECTION_PALETTE[0];
