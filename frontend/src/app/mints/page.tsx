@@ -2028,7 +2028,7 @@ export default function MintsPage() {
                   </td>
                 </tr>
               )}
-              {sorted.map((r, i) => {
+              {(() => { const now = Date.now(); return sorted.map((r, i) => {
                 // Belt-and-suspenders against whitespace-only names that
                 // pre-date the backend trim (still cached in localStorage)
                 // or that slip through any future enrichment path. `??`
@@ -2086,7 +2086,7 @@ export default function MintsPage() {
                 //      is dropped automatically on the next
                 //      `force()` tick (5 s cadence) — well beyond
                 //      animation end, so no visible cut-off.
-                const isFreshMint = (Date.now() - r.lastMintAt) < 3600;
+                const isFreshMint = (now - r.lastMintAt) < 3600;
                 return (
                   <tr
                     key={`${r.groupingKey}:${r.lastMintAt}`}
@@ -2434,7 +2434,7 @@ export default function MintsPage() {
                     })()}
                   </tr>
                 );
-              })}
+              }); })()}
             </tbody>
           </table>
         </div>
@@ -2516,7 +2516,7 @@ export default function MintsPage() {
                   : 'No non-cNFT mints in the buffer — toggle cNFT ON to see hidden rows.'}
               </div>
             )}
-            {visibleEvents.map(ev => {
+            {(() => { const now = Date.now(); return visibleEvents.map(ev => {
               const group       = rows.get(ev.groupingKey);
               // NFT name vs. collection name. Per the targeted-mode
               // spec, these are distinct lines on the card: the NFT's
@@ -2602,7 +2602,7 @@ export default function MintsPage() {
               // force tick (same cadence used by the age-tier color
               // below) — a 14 s card flips off within 5 s of crossing
               // the threshold.
-              const ageMsCard    = Date.now() - ev.receivedAt;
+              const ageMsCard    = now - ev.receivedAt;
               const isFreshFlash = ageMsCard < 2500;
               const isRecent     = !isFreshFlash && ageMsCard < 15000;
               return (
@@ -2808,7 +2808,7 @@ export default function MintsPage() {
                     // Re-evaluated on the page-level 5 s force tick;
                     // boundary precision is fine for this surface
                     // (avoids a per-card 1 s timer on 150 cards).
-                    const ageMs = Date.now() - ev.receivedAt;
+                    const ageMs = now - ev.receivedAt;
                     const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : '#877496';
                     const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
                     return (
@@ -2819,7 +2819,7 @@ export default function MintsPage() {
                   })()}
                 </div>
               );
-            })}
+            }); })()}
           </div>
         </div>
       )}

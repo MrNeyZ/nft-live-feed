@@ -40,6 +40,20 @@ const RECENTLY_ATTEMPTED_TTL_MS = 20 * 60_000;
 const inflight = new Set<string>();
 const recentlyAttempted = new TtlCache<string, true>(RECENTLY_ATTEMPTED_TTL_MS, 60_000);
 
+/* Per-collection rolling-window ceiling. Per-mint dedup + 20-min
+ * backoff above already gate individual mints; this layer caps the
+ * *batch* rate during a launch where hundreds of unique mints share
+ * one collection and the image host is flapping. Rolling 60s window,
+ * 50 retries/collection — beyond that we skip (a missing image is
+ * fine; runaway DAS credits aren't). Log throttled to every 25 skips
+ * to keep the channel readable. Pure in-memory, no timers — entries
+ * are pruned lazily on each scheduleImageRetry call. */
+const COLLECTION_WINDOW_MS      = 60_000;
+const COLLECTION_RETRY_LIMIT    = 50;
+const COLLECTION_SKIP_LOG_EVERY = 25;
+const collectionRetries = new Map<string, number[]>();
+const collectionSkips   = new Map<string, number>();
+
 interface ScheduleArgs {
   mintAddress:       string;
   signature:         string;
@@ -64,6 +78,41 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
     return;
   }
   if (inflight.has(mint) || recentlyAttempted.has(mint)) return;
+
+  // Per-collection ceiling check. Skipped when no collectionAddress
+  // is known (can't bucket without a key — falls back to per-mint
+  // dedup alone, same behaviour as before this patch).
+  if (args.collectionAddress) {
+    const ts     = Date.now();
+    const cutoff = ts - COLLECTION_WINDOW_MS;
+    let bucket = collectionRetries.get(args.collectionAddress);
+    if (bucket) {
+      // In-place prune of entries older than the rolling window.
+      let writeIdx = 0;
+      for (let i = 0; i < bucket.length; i++) {
+        if (bucket[i] >= cutoff) bucket[writeIdx++] = bucket[i];
+      }
+      bucket.length = writeIdx;
+      if (writeIdx === 0) {
+        collectionRetries.delete(args.collectionAddress);
+        collectionSkips.delete(args.collectionAddress);
+        bucket = undefined;
+      }
+    }
+    const count = bucket?.length ?? 0;
+    if (count >= COLLECTION_RETRY_LIMIT) {
+      const next = (collectionSkips.get(args.collectionAddress) ?? 0) + 1;
+      collectionSkips.set(args.collectionAddress, next);
+      if (next % COLLECTION_SKIP_LOG_EVERY === 0) {
+        console.log(
+          `[mints/image-retry] collection ceiling hit collection=${args.collectionAddress.slice(0, 8)}… skipped=${next}`,
+        );
+      }
+      return;
+    }
+    if (bucket) bucket.push(ts);
+    else        collectionRetries.set(args.collectionAddress, [ts]);
+  }
 
   inflight.add(mint);
   recentlyAttempted.set(mint, true);
