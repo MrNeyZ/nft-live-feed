@@ -19,7 +19,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 type ProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
 type MintRollupType = 'free' | 'paid' | 'unknown' | 'mixed';
 type SourceLabel =
-  | 'LaunchMyNFT' | 'VVV' | 'ME'
+  | 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'ME'
   | 'Metaplex Candy Machine' | 'Metaplex Core' | 'Metaplex'
   | 'Bubblegum' | 'Unknown';
 
@@ -779,6 +779,7 @@ function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } 
   switch (s) {
     case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' };
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
+    case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#e87ab0' };
     case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
     case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
@@ -2792,16 +2793,17 @@ export default function MintsPage() {
                   {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
                       Background + foreground tinted by sourceLabel so
                       the eye associates the type pill with the
-                      launchpad: LMNFT → yellow, VVV → cyan, anything
-                      else → existing purple default. Tones are the
-                      *same* values used by `sourceBadge()` for the
-                      adjacent source pill, so the two read as one
-                      colour family per source. Right-pane only —
+                      launchpad: LMNFT → yellow, VVV → cyan, GRAVE →
+                      gray, anything else → existing purple default.
+                      Tones are the *same* values used by `sourceBadge()`
+                      for the adjacent source pill, so the two read as
+                      one colour family per source. Right-pane only —
                       tracker pills untouched. */}
                   {(() => {
                     const tint =
                       ev.sourceLabel === 'LaunchMyNFT' ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
                       ev.sourceLabel === 'VVV'         ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
+                      ev.sourceLabel === 'GRAVE'       ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
                                                          { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
                     return (
                       <span style={{
