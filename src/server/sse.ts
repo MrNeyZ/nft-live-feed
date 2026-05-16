@@ -482,7 +482,13 @@ let mintsSseSentCount = 0;
 saleEventBus.onMint(           (m)      => {
   enqueue(buildMintFrame(m));
   mintsSseSentCount++;
-  console.log(`[mints/sse] sent mint sig=${m.signature.slice(0, 12)}…`);
+  // Per-mint `[mints/sse] sent mint sig=…` log removed — under a hot
+  // launch (50–200 mints/sec) it drowned every other line and the 60 s
+  // `[mints/audit]` rollup below already tracks `sseSent` against
+  // `accepted` / `emitted`, which is the metric the operator actually
+  // watches. Counter is still incremented so the audit log stays
+  // accurate.
+  void m;
 });
 saleEventBus.onMintStatus(     (s)      => enqueue(buildMintStatusFrame(s)));
 saleEventBus.onMintMeta(       (p)      => enqueue(buildMintMetaFrame(p)));

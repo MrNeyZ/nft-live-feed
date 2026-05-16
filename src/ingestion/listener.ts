@@ -163,11 +163,16 @@ const pollerLimiter = new Limiter(4, 25, 0, () => isAnyIngestActive());  // poll
 
 // ─── Seen-signature dedup (shared by listener + poller) ──────────────────────
 
-// 5000 entries at ~5 genuinely-new sigs/s ≈ 1000s (16 min) before oldest evicts.
-// 1000 was too small: a startup burst of 120 sigs fills it in 25s, evicting
-// seeded sigs from low-activity programs (tamm/tcomp) and causing them to be
-// re-ingested as "new" — the root cause of the high-blockAge stale-sig problem.
-const SEEN_MAX = 5_000;
+// 25 000 entries at ~70 sigs/s aggregate across 6 watched programs ≈ ~6 min
+// before oldest evicts — safely past the 10 min `MAX_BLOCK_AGE_S` recency
+// gate even during a sustained mpl_core mint launch. Previously 5 000:
+// sufficient for steady state but could wrap inside the 10 min window under
+// a hot mpl_core + simultaneous me_v2 burst, causing the same sig to be
+// dispatched to fetchRawTx twice (one extra getTransaction credit per
+// wrap). Memory cost is trivial (each sig string ~88 B → ~2.2 MB at full
+// capacity, vs. 800M `max_memory_restart`). The earlier eviction-of-seeded-
+// sigs problem the original comment described is now over-engineered for.
+const SEEN_MAX = 25_000;
 const seenSigs  = new Set<string>();
 const seenQueue: string[] = [];   // insertion-order FIFO for bounded eviction
 

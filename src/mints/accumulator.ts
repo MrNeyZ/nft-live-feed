@@ -259,6 +259,30 @@ function rollupType(a: Accum): MintType | 'mixed' {
  *  has already gone out. */
 function scheduleMintedCountRefresh(a: Accum, now: number): void {
   if (!a.collectionAddress) return;
+  // MPL Core short-circuit. The core-supply refresher
+  // (`core-supply-refresher.ts`) decodes `CollectionV1.num_minted`
+  // directly from the on-chain account every 30 s, which is strictly
+  // more authoritative than DAS `searchAssets` (and one
+  // `getMultipleAccounts` per ≤100 collections is much cheaper than
+  // N independent `searchAssets` calls). When the refresher has
+  // already populated `supplyMintedOnChain` for a Core row, mirror
+  // that into `mintedCount` and skip the DAS call entirely. Legacy /
+  // pNFT / cNFT / unknown rows fall through to the DAS path unchanged.
+  if (a.programSource === 'mpl_core'
+      && typeof a.supplyMintedOnChain === 'number'
+      && a.supplyMintedOnChain >= 0) {
+    const next = Math.max(a.supplyMintedOnChain, a.observedMints);
+    if (a.mintedCount !== next) {
+      a.mintedCount     = next;
+      a.mintedFetchedAt = now;
+      saleEventBus.emitMintStatus(buildStatus(a, now));
+    } else {
+      // Value unchanged — still bump the throttle clock so the next
+      // check fires on the same per-row cadence the DAS path uses.
+      a.mintedFetchedAt = now;
+    }
+    return;
+  }
   if (a.mintedFetchedAt && now - a.mintedFetchedAt < MINTED_REFRESH_MIN_MS) return;
   a.mintedFetchedAt = now;
   const collection = a.collectionAddress;

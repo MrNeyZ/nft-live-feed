@@ -13,8 +13,14 @@ const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change freq
 const FLOOR_MISS_TTL_MS = 5 * 60 * 1000; // 5 min — backoff after a total floor lookup miss
 const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster than floor
 
-const successCache = new TtlCache<string, NftMetadata>(SUCCESS_TTL_MS);
-const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS);
+// Active sweep on every cache so write-once-never-reread entries
+// (the long-tail of one-shot mint metadata + slugs whose floor / offer
+// lookup happens once per session) can't pin memory indefinitely.
+// Lazy expiry inside `get()` still applies for fast reads; the sweep
+// only deletes already-expired keys, so behaviour is unchanged except
+// the map shrinks on schedule instead of growing without bound.
+const successCache = new TtlCache<string, NftMetadata>(SUCCESS_TTL_MS, 60_000);
+const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS, 60_000);
 /** Keyed by ME collection slug → floor price in lamports. Active sweep
  *  on a 60 s cadence — slugs we've populated but never re-read should
  *  not pin memory. Lazy expiry inside `get()` still applies for fast
@@ -22,12 +28,12 @@ const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS);
 const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS, 60_000);
 /** Keyed by slug → marker that recent ME+Tensor floor lookups both failed.
  *  Prevents per-event refresh storms for slugs with no resolvable floor. */
-const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS);
+const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS, 60_000);
 /** Slugs with an in-flight background floor refresh — dedup so concurrent
  *  events don't fan out into duplicate ME/Tensor calls. */
 const floorRefreshInFlight = new Set<string>();
 /** Keyed by ME collection slug → top offer price in lamports. */
-const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS);
+const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS, 60_000);
 
 interface MeTokenData {
   slug:           string | null;
