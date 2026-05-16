@@ -884,6 +884,85 @@ function colorForCollection(addr: string | null | undefined): string {
   return COLLECTION_PALETTE[h % COLLECTION_PALETTE.length];
 }
 
+/** Subtle collection-tinted gray variant of `COLLECTION_PALETTE` for
+ *  the Live Mint Feed's collection-name text. Earlier passes painted
+ *  this line in the full collection accent (then softened to 80 %
+ *  alpha), but the brighter hues still read as a "second headline"
+ *  rather than secondary metadata against the bright-white NFT title.
+ *
+ *  Each entry is computed once at module load by blending the full
+ *  palette colour 25 % with a neutral gray (#9c9cb8) — the same gray
+ *  the line used to be hardcoded to. The result is a desaturated
+ *  hue-tinted gray (S ≈ 10-15 %, L ≈ 60-65 %): same collections still
+ *  visually group together, but the line now reads as "gray text
+ *  with a subtle collection tint", not as another active colour.
+ *
+ *  Stripe / tracker / fallback-avatar surfaces keep using
+ *  `COLLECTION_PALETTE` directly — only the text surface gets the
+ *  muted variant. Same FNV-1a hash + same index so the muted text
+ *  always matches the full-strength stripe on the same card. */
+const COLLECTION_PALETTE_MUTED: readonly string[] = COLLECTION_PALETTE.map((hex) => {
+  // Neutral substrate the previous static text colour resolved to.
+  const NR = 0x9c, NG = 0x9c, NB = 0xb8;
+  // Fraction of the original colour preserved; the rest blends to
+  // neutral. 0.25 lands the user-requested ~25 % hue / ~75 % gray.
+  const MIX = 0.25;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const mr = Math.round(r * MIX + NR * (1 - MIX));
+  const mg = Math.round(g * MIX + NG * (1 - MIX));
+  const mb = Math.round(b * MIX + NB * (1 - MIX));
+  const toHex = (n: number) => n.toString(16).padStart(2, '0');
+  return '#' + toHex(mr) + toHex(mg) + toHex(mb);
+});
+function colorForCollectionMuted(addr: string | null | undefined): string {
+  if (!addr) return COLLECTION_PALETTE_MUTED[0];
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < addr.length; i++) {
+    h ^= addr.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return COLLECTION_PALETTE_MUTED[h % COLLECTION_PALETTE_MUTED.length];
+}
+
+/** Per-wallet muted-tint palette for the minter line on the Live Mint
+ *  Feed. Deliberately separate from `COLLECTION_PALETTE` so a wallet
+ *  hash never visually pairs with a collection hash by coincidence.
+ *  Tuned for *hue distance* over a tighter L/S band: the previous
+ *  12-entry version clustered five entries in the cool-grey-blue zone
+ *  (slate/steel/dust/periwinkle/mauve) and two near-greys (moss /
+ *  graphite-green), so distinct wallets read as the same colour. This
+ *  10-entry version walks the wheel in ~36° steps — coral, sand,
+ *  amber, olive, mint, teal, cyan, blue, lavender, rose — at uniform
+ *  L≈60 / S≈25 % so brightness/saturation stay consistent and the
+ *  line still reads as muted tertiary metadata. No red, no green, no
+ *  neon, no pure white. Same FNV-1a hash family as
+ *  `colorForCollection`. */
+const WALLET_PALETTE: readonly string[] = [
+  '#b58885',  // coral
+  '#b3957a',  // sand
+  '#b3a378',  // amber
+  '#9aac80',  // olive
+  '#7eb59a',  // mint
+  '#7baea8',  // teal
+  '#7eaab8',  // cyan
+  '#8497b8',  // blue
+  '#9a8ab8',  // lavender
+  '#b08aa0',  // rose
+];
+function colorForWallet(addr: string | null | undefined): string {
+  // Existing muted-metadata grey is the sentinel when no minter is on
+  // the wire — keeps the cell visually neutral until a hash lands.
+  if (!addr) return '#7a7a94';
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < addr.length; i++) {
+    h ^= addr.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return WALLET_PALETTE[h % WALLET_PALETTE.length];
+}
+
 /** Strict Solana pubkey check (base58, 32–44 chars). Used as a final
  *  guard before linking to Solscan so we never emit a URL pointing at
  *  a prefix-tagged groupingKey ('authority:…', 'pool:…') or any other
@@ -2470,15 +2549,17 @@ export default function MintsPage() {
                 ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim()
                 : null;
               // Final collection line. Order:
-              //   1. stripped backend name when distinct from nftName
-              //   2. short collection address (always renders SOMETHING
-              //      pubkey-ish, never empty or '—')
-              //   3. literal "—" only when NEITHER is available
-              // Also guard against `strippedCollection === nftName`
-              // (true when backend hasn't resolved a real collection
-              // name and we'd duplicate the title line).
+              //   1. stripped backend name whenever it resolves to a
+              //      real string (preferred — even when it duplicates
+              //      `nftName`; the collection-accent colour applied
+              //      to this line below visually disambiguates the
+              //      two and an honest collection name beats a
+              //      base58 stub every time).
+              //   2. short collection address — only when no name
+              //      has resolved yet.
+              //   3. literal "—" when neither is available.
               const collectionLine =
-                (strippedCollection && strippedCollection.length > 0 && strippedCollection !== nftName)
+                (strippedCollection && strippedCollection.length > 0)
                   ? strippedCollection
                   : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
               const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
@@ -2610,16 +2691,29 @@ export default function MintsPage() {
                       // nothing useful.
                       const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
                       const baseStyle: React.CSSProperties = {
-                        // Secondary tier in the card's text hierarchy:
-                        // NFT title above is the bright primary (#f0eef8,
-                        // weight 600); collection name sits a clear step
-                        // darker so the two lines don't read as equally
-                        // bright (the prior #d4d4e8 was too close to the
-                        // title and flattened the hierarchy). Wallet
-                        // below stays at #7a7a94 — the muted-metadata
-                        // bottom tier — preserving the four-tier ladder
-                        // (title → collection → wallet → age/source).
-                        fontSize: 11, color: '#9c9cb8', fontWeight: 500,
+                        // Collection tier in the card's text hierarchy:
+                        // NFT title above is the bright primary
+                        // (#f0eef8, weight 600); collection name here
+                        // takes the muted-tint variant of the same
+                        // deterministic accent the stripe / tracker /
+                        // fallback-avatar use (see
+                        // `COLLECTION_PALETTE_MUTED`) — each entry is
+                        // pre-blended 25 % collection hue / 75 %
+                        // neutral gray so collections still visually
+                        // group by colour, but the line reads as
+                        // gray-with-a-tint rather than a second
+                        // headline. Real desaturation, not an alpha
+                        // overlay (the previous `+'cc'` form just
+                        // darkened bright hues; it didn't pull them
+                        // toward neutral). Wallet line below takes
+                        // its own muted wallet palette so bots /
+                        // repeat minters cluster visually. Four-tier
+                        // ladder (title → collection → wallet →
+                        // age/source) preserved; only the *colours*
+                        // changed, not the size/weight/position.
+                        fontSize: 11,
+                        color: colorForCollectionMuted(ev.collectionAddress ?? ev.groupingKey),
+                        fontWeight: 500,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                         // `minWidth: 0` + `flex: 1` let the name truncate
@@ -2680,7 +2774,7 @@ export default function MintsPage() {
                         when the field isn't on the wire (some replays
                         / cNFT paths). */}
                     {ev.minter && (
-                      <div style={{ fontSize: 10.5, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <a
                           href={`https://solscan.io/account/${ev.minter}`}
                           target="_blank"
