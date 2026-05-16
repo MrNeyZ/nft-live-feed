@@ -2789,12 +2789,28 @@ export default function MintsPage() {
                       </div>
                     )}
                   </div>
-                  {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT). */}
-                  <span style={{
-                    display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                    background: 'rgba(168,144,232,0.15)', color: '#a890e8',
-                    letterSpacing: '0.3px', flexShrink: 0,
-                  }}>{nftTypeLabel}</span>
+                  {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
+                      Background + foreground tinted by sourceLabel so
+                      the eye associates the type pill with the
+                      launchpad: LMNFT → yellow, VVV → cyan, anything
+                      else → existing purple default. Tones are the
+                      *same* values used by `sourceBadge()` for the
+                      adjacent source pill, so the two read as one
+                      colour family per source. Right-pane only —
+                      tracker pills untouched. */}
+                  {(() => {
+                    const tint =
+                      ev.sourceLabel === 'LaunchMyNFT' ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
+                      ev.sourceLabel === 'VVV'         ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
+                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
+                    return (
+                      <span style={{
+                        display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+                        background: tint.bg, color: tint.fg,
+                        letterSpacing: '0.3px', flexShrink: 0,
+                      }}>{nftTypeLabel}</span>
+                    );
+                  })()}
                   <span style={{
                     minWidth: 64, textAlign: 'right',
                     fontSize: 13, fontWeight: 700, color: priceColor,
