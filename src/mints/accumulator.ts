@@ -22,6 +22,7 @@ import {
 import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
+import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
  *  trigger at most one DAS `searchAssets` call per this window even if
@@ -424,6 +425,19 @@ function tryPromote(a: Accum, now: number): void {
  *  tracked gate (i.e. should be persisted by the caller — though we
  *  don't persist in this MVP). Always emits `mint` + `mint_status`. */
 export function recordMint(ev: MintEventWire): void {
+  // Hard collection blacklist — drops the event BEFORE any state
+  // mutation. Suppresses /mints table, recentMints ring, `mint` and
+  // `mint_status` SSE frames in one place. `mint_meta` patches are
+  // dropped at their own out-of-band emit site
+  // (`collection-confirm.ts`). Detector branch agnostic — works
+  // uniformly for LMNFT / VVV / GRAVE / v2-core fallback / legacy
+  // classifier and any future detector that calls recordMint. Log
+  // gated to once per unique address per process lifetime so a hot
+  // launch in the muted collection can't flood the log.
+  if (isCollectionBlacklisted(ev.collectionAddress)) {
+    noteBlacklistDrop(ev.collectionAddress as string);
+    return;
+  }
   // Sticky non-NFT skip — once the enricher's DAS check rejected this
   // group, every subsequent mint for the same key is dropped before it
   // hits the accumulator / SSE bus. Without this, a fungible's

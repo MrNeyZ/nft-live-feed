@@ -24,6 +24,7 @@ import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft, getAccumulatorName } from './accumulator';
 import { saleEventBus } from '../events/emitter';
 import { cleanName, nameLooksPerAsset } from './clean-name';
+import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
 
 /** "Looks like a short-address fallback" — `<6chars>…<4chars>`, the
  *  shape `shortKey()` produces on the frontend. Treat such names as
@@ -346,16 +347,35 @@ async function runAttempt(entry: Pending): Promise<void> {
     // Per-mint patch — fans out to the Live Mint Feed cards on the
     // frontend, swapping shortMint placeholders for the real NFT
     // name + image. Distinct from the collection-row patch above.
-    saleEventBus.emitMintMeta({
-      signature:   entry.signature,
-      mintAddress: entry.mintAddress,
-      nftName:     nftName ?? null,
-      imageUrl:    imageUrl ?? null,
-    });
-    console.log(
-      `[mints/meta] patched mint=${entry.mintAddress} ` +
-      `name=${nftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
-    );
+    //
+    // Hard collection blacklist gate. recordMint already blocked the
+    // mint / mint_status frames + accumulator entry; this catches the
+    // out-of-band mint_meta patch that runs from the enricher AFTER
+    // recordMint and would otherwise still surface on the wire (the
+    // frontend keys mint_meta by signature, not collection, so it
+    // would land on any tab that happened to have an older session
+    // still showing the row from localStorage). Resolves to either
+    // the parser-supplied address or the DAS-resolved address —
+    // whichever is non-null first matches.
+    const blacklistAddr = isCollectionBlacklisted(dasCollection)
+      ? dasCollection
+      : isCollectionBlacklisted(entry.parserCollection)
+        ? entry.parserCollection
+        : null;
+    if (blacklistAddr) {
+      noteBlacklistDrop(blacklistAddr);
+    } else {
+      saleEventBus.emitMintMeta({
+        signature:   entry.signature,
+        mintAddress: entry.mintAddress,
+        nftName:     nftName ?? null,
+        imageUrl:    imageUrl ?? null,
+      });
+      console.log(
+        `[mints/meta] patched mint=${entry.mintAddress} ` +
+        `name=${nftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
+      );
+    }
     // Bump the per-collection resolved counter only when this attempt
     // surfaced something the UI cares about (image OR a real name).
     // Adaptive-retry consults this counter on subsequent enqueues for
