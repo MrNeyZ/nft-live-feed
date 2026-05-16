@@ -2047,6 +2047,21 @@ export default function MintsPage() {
                       // the inline status pill, so dimming the row body
                       // only made images and values look washed out.
                       opacity: 1,
+                      // Burst-promoted rows get a paint-only warm
+                      // amber outline as the trending cue (replaces
+                      // the prior inline fire marker / louder pill
+                      // variant). `outline` is used rather than
+                      // `boxShadow` because `.tools-offer-row:hover`
+                      // owns the row's box-shadow for the hover ring;
+                      // an inline boxShadow would beat that on hover
+                      // via inline-style specificity and break the
+                      // hover affordance. Outline is independent of
+                      // box-shadow, scales with the hover transform,
+                      // and is gated on rowState === 'active' so a
+                      // burst row that has since sold out (SOLD wash)
+                      // doesn't carry conflicting warm + red cues.
+                      outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.26)' : undefined,
+                      outlineOffset: isBurst && rowState === 'active' ? '-1px' : undefined,
                     }}
                   >
                     {/* COLLECTION cell — matches Dashboard rows:
@@ -2082,7 +2097,7 @@ export default function MintsPage() {
                               style={STATUS_BADGE_SOLD}
                             >SOLD</span>
                           ) : isActive ? (
-                            <span title={r.shownReason === 'burst' ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} style={STATUS_BADGE_ACTIVE}>ACTIVE</span>
+                            <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} style={STATUS_BADGE_ACTIVE}>ACTIVE</span>
                           ) : (
                             <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
                           )}
@@ -2101,14 +2116,7 @@ export default function MintsPage() {
                             const titleHref = titleAnchor
                               ? `https://solscan.io/token/${titleAnchor}`
                               : null;
-                            const titleInner = (
-                              <>
-                                {displayName}
-                                {isBurst && (
-                                  <span title="Burst-detected — recent velocity spike" style={{ marginLeft: 6, fontSize: 10, color: '#e87a5e' }}>🔥</span>
-                                )}
-                              </>
-                            );
+                            const titleInner = (<>{displayName}</>);
                             const titleStyle: React.CSSProperties = {
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
                               color: '#f0eef8', textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
@@ -2177,6 +2185,28 @@ export default function MintsPage() {
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src="/brand/tensor.png" alt="Tensor" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
+                          )}
+                          {/* X (Twitter) live-search badge — links to a
+                              Live tab search for the collection name so
+                              the user can pivot from "what's minting" to
+                              "what's the chatter" in one click. Suppressed
+                              when we don't have a real name (only the
+                              shortKey fallback) — searching a base58
+                              prefix yields nothing useful. URL form mirrors
+                              the user-spec'd template; encodeURIComponent
+                              keeps spaces / specials safe. */}
+                          {trimmed && trimmed.length > 0 && (
+                            <a
+                              href={`https://x.com/search?q=${encodeURIComponent(trimmed)}&src=recent_search_click`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`X · live search "${trimmed}"`}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           )}
                           {/* Source badge — moved inline from the
@@ -2574,6 +2604,11 @@ export default function MintsPage() {
                         recognise it as interactive. */}
                     {(() => {
                       const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
+                      // X badge eligible only when we have a real
+                      // collection name (`strippedCollection`), not the
+                      // short-address fallback — searching base58 yields
+                      // nothing useful.
+                      const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
                       const baseStyle: React.CSSProperties = {
                         // Secondary tier in the card's text hierarchy:
                         // NFT title above is the bright primary (#f0eef8,
@@ -2585,10 +2620,15 @@ export default function MintsPage() {
                         // bottom tier — preserving the four-tier ladder
                         // (title → collection → wallet → age/source).
                         fontSize: 11, color: '#9c9cb8', fontWeight: 500,
-                        marginTop: 2, overflow: 'hidden',
+                        overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        // `minWidth: 0` + `flex: 1` let the name truncate
+                        // inside the row-flex wrapper below; without
+                        // these flexbox stretches the element past its
+                        // intended width and the ellipsis never fires.
+                        minWidth: 0, flex: 1,
                       };
-                      return lmnftHref ? (
+                      const nameEl = lmnftHref ? (
                         <a
                           href={lmnftHref}
                           target="_blank"
@@ -2600,11 +2640,37 @@ export default function MintsPage() {
                           }}
                           onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {collectionLine}
                         </a>
                       ) : (
                         <div style={baseStyle}>{collectionLine}</div>
+                      );
+                      // Single flex wrapper hosts the name + the optional
+                      // X badge sibling. The wrapper takes the marginTop
+                      // that used to sit on `baseStyle` so the vertical
+                      // rhythm between title / collection / wallet is
+                      // unchanged. When no `xName` is available the
+                      // wrapper still renders so layout is identical
+                      // across rows with/without the badge.
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, minWidth: 0 }}>
+                          {nameEl}
+                          {xName && (
+                            <a
+                              href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`X · live search "${xName}"`}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
+                          )}
+                        </div>
                       );
                     })()}
                     {/* Minter wallet — compact mono styling matching
