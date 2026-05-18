@@ -8,7 +8,7 @@
 
 import type { MintStatus, SourceLabel } from './types';
 import { vvvSlugify } from './format';
-import { SOL_PUBKEY_RE } from './palette';
+import { SOL_PUBKEY_RE, isSolPubkey } from './palette';
 
 // LMNFT URL pattern:
 //   https://www.launchmynft.io/collections/{lmntfOwner}/{lmntfCollectionId}
@@ -90,6 +90,18 @@ export function sourceHref(row: MintStatus): string | null {
       if (!c) return null;
       if (/^(authority|program|owner|pool):/.test(c)) return null;
       return `https://gravemint.io/mint/${c}`;
+    }
+    case 'Metaplex Core': {
+      // Magic Eden item-details using the row's `lastMintAddress` — the
+      // most-recent accepted on-chain mint for the group. Same URL
+      // shape the small ME icon-anchor in the title row already uses,
+      // so the CORE source pill and the ME icon resolve to the same
+      // destination. Skipped when no real mint address is on the wire
+      // yet (e.g. cNFT placeholder rows whose first sample didn't
+      // carry a leaf address) — the badge falls back to a plain pill
+      // rather than emitting a dead link.
+      if (!isSolPubkey(row.lastMintAddress)) return null;
+      return `https://magiceden.io/item-details/${row.lastMintAddress}`;
     }
     default:
       return null;

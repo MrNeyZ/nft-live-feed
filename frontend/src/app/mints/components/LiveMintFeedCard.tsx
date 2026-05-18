@@ -12,7 +12,7 @@ import {
   colorForCollection, colorForCollectionMuted, colorForWallet, isSolPubkey,
 } from '../lib/palette';
 import { fmtAge, shortMint, thumb200 } from '../lib/format';
-import { buildLaunchMyNftUrl } from '../lib/source';
+import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
 
 interface Props {
   event: MintEvent;
@@ -284,19 +284,44 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
           purple default. Tones are the *same* values used by
           `sourceBadge()` for the adjacent source pill, so the two
           read as one colour family per source. Right-pane only —
-          tracker pills untouched. */}
+          tracker pills untouched.
+          Clickable when the shared `sourceHref(group)` resolves to a
+          per-collection deep-link — same destination logic the left
+          mints-table source badge uses (`MintsSourceBadge` →
+          `sourceHref`). LMNFT / VVV / GRAVE / Metaplex-Core (item-
+          details via `lastMintAddress`) all route through one helper;
+          rows where the helper returns null render the prior plain
+          span. Visual chrome (padding, fontSize, borderRadius,
+          letterSpacing) is verbatim — only `<span>` becomes `<a>`. */}
       {(() => {
         const tint =
           ev.sourceLabel === 'LaunchMyNFT' ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
           ev.sourceLabel === 'VVV'         ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'       ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
                                              { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
-        return (
-          <span style={{
-            display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-            background: tint.bg, color: tint.fg,
-            letterSpacing: '0.3px', flexShrink: 0,
-          }}>{nftTypeLabel}</span>
+        const pillStyle: React.CSSProperties = {
+          display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          background: tint.bg, color: tint.fg,
+          letterSpacing: '0.3px', flexShrink: 0,
+          textDecoration: 'none',
+        };
+        // Derive the link via the same helper the mints table uses.
+        // `group` is the per-collection rollup pre-looked-up by the
+        // page; absent only for the first event of a brand-new
+        // collection. When absent, fall through to a plain pill so
+        // the visual matches the prior behaviour exactly.
+        const href = group ? sourceHref(group) : null;
+        return href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Open ${nftTypeLabel} on Magic Eden / launchpad`}
+            style={{ ...pillStyle, cursor: 'pointer' }}
+            onClick={(e) => e.stopPropagation()}
+          >{nftTypeLabel}</a>
+        ) : (
+          <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
       <span style={{
