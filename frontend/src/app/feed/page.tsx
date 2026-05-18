@@ -714,37 +714,49 @@ const FeedCard = memo(function FeedCard({
               element in this row. */}
           <div style={FC_PRICE_ROW_STYLE}>
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
-            <span style={{
+            {(() => {
               // Trimmed BUY/SELL/AMM pill — width 50, padding 1px 0,
-              // fontSize 10.5. ASYMMETRIC chrome by side:
+              // fontSize 10.5. ASYMMETRIC chrome — three variants:
               //   • BUY (and neutral): glassy treatment — inset
               //     top highlight + inset bottom shadow read as a
               //     softly raised glass chip, matching "calm
               //     profit" intent.
               //   • SELL: flat framed treatment — a single 1 px
-              //     inset ring at the side color (alpha 0.55)
-              //     replaces the glassy shadows. Reads as a
-              //     tight terminal chip, no embossing, matching
-              //     "sharp exit" intent. Same pill geometry, so
-              //     adjacent BUY/SELL rows stay aligned.
+              //     red inset ring at α 0.62 replaces the glassy
+              //     shadows. Reads as a tight terminal chip, no
+              //     embossing, matching "sharp exit" intent.
+              //     Tighter radius (3 vs 4) reinforces the
+              //     rectangular/terminal feel.
+              //   • AMM (buyAmm | sellAmm): violet outlined chip
+              //     — same geometry as BUY, but with a 1 px violet
+              //     inset ring at α 0.55 and no glassy shadows.
+              //     Audit v2 H-03: AMM is a ROUTING class, not a
+              //     direction; separating it onto the lilac accent
+              //     channel stops it reading as SELL at a glance.
+              //     The card's side accent stripe (.buy-card /
+              //     .sell-card) still tracks direction via
+              //     `borderTone`, so direction stays legible at
+              //     the row level.
               // SELL text-shadow stays: a 1 px dark halo crisps
-              // the letterforms against the now-redder bg.
-              width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-              padding: '1px 0', fontSize: 10.5, fontWeight: 700,
-              // SELL-only tighter radius (3 vs 4) + denser inset ring
-              // (α 0.75 vs the prior 0.55) — corners feel more
-              // rectangular/terminal, ring reads as a hard edge.
-              // Combined with the near-opaque SELL bg in KIND_STYLES,
-              // the pill drops from "translucent glass" to "physical
-              // chip" without changing geometry.
-              borderRadius: style.borderTone === 'sell' ? 3 : 4,
-              background: style.bg, color: style.fg, letterSpacing: '0.2px',
-              boxShadow: style.borderTone === 'sell'
-                ? 'inset 0 0 0 1px rgba(245, 88, 102, 0.62)'
-                : 'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
-                  ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
-              textShadow: style.borderTone === 'sell' ? '0 0 1px rgba(0, 0, 0, 0.30)' : undefined,
-            }}>{style.label}</span>
+              // the letterforms against the redder bg.
+              const isSell  = !!style && style.borderTone === 'sell' && (kind === 'sell');
+              const isAmm   = kind === 'buyAmm' || kind === 'sellAmm';
+              return (
+                <span style={{
+                  width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
+                  padding: '1px 0', fontSize: 10.5, fontWeight: 700,
+                  borderRadius: isSell ? 3 : 4,
+                  background: style.bg, color: style.fg, letterSpacing: '0.2px',
+                  boxShadow: isSell
+                    ? 'inset 0 0 0 1px rgba(245, 88, 102, 0.62)'
+                    : isAmm
+                      ? 'inset 0 0 0 1px rgba(168, 144, 232, 0.55)'
+                      : 'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
+                        ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
+                  textShadow: isSell ? '0 0 1px rgba(0, 0, 0, 0.30)' : undefined,
+                }}>{style.label}</span>
+              );
+            })()}
             <span style={FC_PRICE_TEXT_STYLE}>
               {safePrice == null ? '—' : formatFeedPrice(safePrice)}{' '}
               <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>

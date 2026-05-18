@@ -17,35 +17,42 @@ export const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settleme
 export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
 
 
-// Direction palette — asymmetric tuning so SELL reads sharper than BUY
-// (trader-UI semantics: profit calm, exit urgent). The previous SELL
-// at rgb(255,90,90) bg 0.10 still read as burgundy because G = B = 90
-// means 35 % of the red channel was neutral grey, which mixed into the
-// dark purple bg as red-grey-purple = burgundy. Fixing it required
-// dropping G aggressively (not bumping R further):
-//   BUY  → unchanged: rgb(64,212,168) bg 0.18 — calm soft emerald.
-//   SELL → rgb(255,70,86) bg 0.14 — G dropped 90 → 70 cuts grey
-//          washout ~22 %, so red dominates instead of red+grey.
-//          B = 86 (slightly > G) gives a subtle cool lean matching
-//          Hyperliquid #F6465D / Binance #F84960 / TradingView
-//          #F23645 — modern perp terminal reds all live at G ≤ 73.
-//          bg α nudged 0.10 → 0.14: with the cooler/sharper hue, the
-//          bg can be visibly present without re-introducing the
-//          burgundy mud.
-// Pill chrome is asymmetric (see pill JSX below): BUY keeps the
+// Direction + routing palette.
+//
+// Direction (BUY / SELL): green / red — trader convention preserved.
+//   BUY  → rgb(64,212,168) bg 0.18 — calm soft emerald.
+//   SELL → rgb(255,70,86)  bg 0.14 — cool-leaning red matching
+//          Hyperliquid #F6465D / Binance #F84960 / TradingView #F23645.
+// Pill chrome is asymmetric (see pill JSX in page.tsx): BUY keeps a
 // glassy inset highlight + bottom shadow; SELL replaces it with a
-// crisp 1 px inset ring. Same geometry, different emotional weight.
+// crisp 1 px red inset ring. Same geometry, different emotional weight.
+//
+// Routing (AMM): violet, decoupled from direction. v2 audit H-03 fix:
+// when both buyAmm and sellAmm shared the green/red palette, AMM read
+// as a direction signal — particularly sellAmm, which was visually
+// indistinguishable from SELL at a glance, conflating "pool route"
+// with "exit". AMM is a routing CLASS, not a direction, so both
+// buyAmm and sellAmm now wear the project's canonical lilac accent
+// (#a890e8) as an outlined chip. The card's left/right edge stripe
+// stays direction-driven via `borderTone` (the .buy-card / .sell-card
+// CSS classes) — so a sellAmm tx still has a red side accent at the
+// card level, only the pill itself reads neutral-route.
+//
+// Why this specific violet: `rgb(168,144,232)` matches the rest of
+// the VictoryLabs accent family (Metaplex Core source badge, COLL
+// marker, tools-row hover ring). Reusing the same hex keeps the AMM
+// pill in the same colour-family as every other "this is a class
+// tag, not a direction" cue in the product.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',  bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  // sellAmm fg darkened 245→215 (~12 %) to differentiate "direct sell"
-  // (SELL pill) from "pool sell" (AMM pill). Same scarlet family, same
-  // cool lean (B − G = 15), just slightly lower contrast — the pill
-  // reads "in family but secondary" without leaving the unified red
-  // palette.
-  sellAmm: { label: 'AMM',  fg: 'rgb(215,80,95)',   bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',   bg: 'rgba(64,212,168,0.18)',   borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',   bg: 'rgba(36,14,20,0.85)',     borderTone: 'sell' },
+  // AMM badges now share one routing palette regardless of side.
+  // `borderTone` still tracks direction so the card edge keeps the
+  // buy/sell colour signal (audit H-03 explicitly preserves this:
+  // direction lives on the card, routing lives on the pill).
+  buyAmm:  { label: 'AMM',  fg: 'rgb(168,144,232)',  bg: 'rgba(168,144,232,0.12)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: 'rgb(168,144,232)',  bg: 'rgba(168,144,232,0.12)',  borderTone: 'sell' },
+  unknown: { label: '—',    fg: '#8f8fa8',           bg: 'rgba(255,255,255,0.05)',  borderTone: 'neutral' },
 };
 
 export function saleKind(saleTypeRaw: string | null): SaleKind {
