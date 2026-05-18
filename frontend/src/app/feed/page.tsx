@@ -726,27 +726,48 @@ const FeedCard = memo(function FeedCard({
               // is removed: it made SELL feel heavier than BUY and
               // pulled AMM off the direction axis.
               //
-              // AMM differentiator: a faint OUTER halo at the same
-              // hue as the direction (green for buyAmm, red for
-              // sellAmm). 5 px blur at α 0.30 is visible only on
-              // closer inspection — "this is the same direction,
-              // just pool-routed". No neon, no spread, no inset.
+              // AMM differentiator: OUTER halo at the direction hue,
+              // built as a two-layer shadow — a brighter inner ring
+              // (defines the chip's "energy") plus a softer outer
+              // falloff (ambient glow that fades into the feed
+              // background). Asymmetric strength by design: sellAmm
+              // halo is harder than buyAmm because sell-side
+              // pressure is the more actionable signal at scroll
+              // speed and was getting lost on the prior single-layer
+              // 5 px / α 0.30 setting.
+              //
+              //   buyAmm   inner 6 px  α 0.40   outer 12 px α 0.20
+              //                      ~+40 % over the prior pass; slightly
+              //                      wider blur so the halo reads as
+              //                      "energy around the chip" rather
+              //                      than a thin outline.
+              //   sellAmm  inner 7 px α 0.55 + 1 px spread
+              //            outer 14 px α 0.28
+              //                      ~+80 % over the prior pass. The
+              //                      +1 px spread on the inner layer is
+              //                      what makes sellAmm pop above
+              //                      adjacent BUY rows in a moving
+              //                      feed; the soft outer layer keeps
+              //                      it from reading as a neon stamp.
+              //
+              // Direct BUY / direct SELL get no halo — only the inset
+              // glassy chrome. Halo is exclusively a routing cue.
               const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
-              const haloColor = isAmm
-                ? (kind === 'buyAmm' ? 'rgba(64,212,168,0.30)' : 'rgba(245,88,102,0.30)')
-                : null;
               const insetChrome =
                 'inset 0 1px 0 rgba(255,255,255,0.06),' +
                 ' inset 0 -1px 0 rgba(0,0,0,0.16)';
+              const ammHalo = isAmm
+                ? (kind === 'buyAmm'
+                    ? ', 0 0 6px rgba(64,212,168,0.40), 0 0 12px rgba(64,212,168,0.20)'
+                    : ', 0 0 7px 1px rgba(245,88,102,0.55), 0 0 14px rgba(245,88,102,0.28)')
+                : '';
               return (
                 <span style={{
                   width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
                   padding: '1px 0', fontSize: 10.5, fontWeight: 700,
                   borderRadius: 4,
                   background: style.bg, color: style.fg, letterSpacing: '0.2px',
-                  boxShadow: haloColor
-                    ? `${insetChrome}, 0 0 5px ${haloColor}`
-                    : insetChrome,
+                  boxShadow: insetChrome + ammHalo,
                 }}>{style.label}</span>
               );
             })()}
