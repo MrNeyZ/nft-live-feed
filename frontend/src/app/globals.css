@@ -1057,6 +1057,14 @@ a { color: inherit; text-decoration: none; }
      --accent-row-alpha can't reach those pages. */
   border-bottom: 1px solid rgba(255, 255, 255, var(--accent-row-alpha, 0.04)) !important;
 }
+/* EXPIRED offer rows on /tools — muted to 0.45 opacity at rest so the
+   stale +1973 % / +600 % outliers don't pull foveal attention away
+   from the live ACTIVE rows above. The hover rule below restores full
+   opacity for inspection; the existing `.tools-offer-row:hover` lift +
+   ring still applies on top.  Audit P1-4. */
+.tools-offer-row-expired { opacity: 0.45; transition: opacity 180ms ease-out; }
+.tools-offer-row-expired:hover { opacity: 1; }
+
 .tools-offer-row:hover {
   transform: scale(1.015);
   background: rgba(168,144,232,0.07);

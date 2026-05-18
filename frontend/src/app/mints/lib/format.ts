@@ -51,11 +51,32 @@ export function vvvSlugify(input: string): string {
   return s;
 }
 
+// Mints SOL formatter. Phase 1 polish: single decimal precision per
+// magnitude bucket, mirroring `formatFeedPrice` so any future surface
+// that places a mints price next to a feed price in the same column
+// stays decimal-aligned. The numeric columns on /mints use
+// `font-variant-numeric: tabular-nums` already, so 3-dp uniformity in
+// the 0.001..10 SOL band lets the decimal point land at the same
+// column row-to-row.
+//
+// Bands:
+//   ≥ 100         → 0 dp
+//   ≥ 10          → 2 dp
+//   0.001..10     → 3 dp (decimals align row-to-row in common case)
+//   < 0.001       → shared formatSol (5–6 dp dust tail)
+//
+// Sentinel values:
+//   null lamports → "—"
+//   0    lamports → "FREE"
 export function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
   if (lamports === 0)   return 'FREE';
-  // Shared formatter: ≥0.1 → 2 decimals, <0.1 → 3 decimals.
-  return formatSol(lamports / 1e9);
+  const sol = lamports / 1e9;
+  if (!Number.isFinite(sol) || sol < 0) return formatSol(sol);
+  if (sol >= 100)   return sol.toFixed(0);
+  if (sol >= 10)    return sol.toFixed(2);
+  if (sol >= 0.001) return sol.toFixed(3);
+  return formatSol(sol);
 }
 
 export function fmtAge(ts: number): string {

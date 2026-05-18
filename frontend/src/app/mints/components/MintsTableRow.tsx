@@ -378,18 +378,27 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
         const stats   = tfStatsByKey.get(r.groupingKey);
         const tfCount = stats?.count ?? 0;
         const coef    = computeCoef(r);
-        const display = tfCount < 2
-          ? '—'
-          : coef >= 10 ? coef.toFixed(0)
-          : coef.toFixed(1);
-        const tip = tfCount < 2
-          ? `Need ≥ 2 mints in last ${mintTf} to compute COEF`
-          : `RATE ÷ baseline (count / ${mintTf}) ≈ ${display}` +
-            ` · higher = bursty, ~1 = steady`;
+        const hasValue = tfCount >= 2;
+        const display = hasValue
+          ? (coef >= 10 ? coef.toFixed(0) : coef.toFixed(1))
+          : '—';
+        const tip = hasValue
+          ? `RATE ÷ baseline (count / ${mintTf}) ≈ ${display}` +
+            ` · higher = bursty, ~1 = steady`
+          : `Need ≥ 2 mints in last ${mintTf} to compute COEF`;
+        // Phase 1 polish: when the cell renders the em-dash placeholder
+        // (count<2), drop the colour an extra tier (#8a82b0 → #45455e)
+        // so a column of mostly-empty rows recedes into the row tint
+        // instead of stacking into a vertical wall of em-dashes. The
+        // resolved-value branch keeps the existing #8a82b0 so present
+        // values still read as "secondary to RATE". Tooltip and
+        // numeric content are unchanged — value cell remains
+        // interactive on hover (the row's own hover lift applies).
+        const cellColor = hasValue ? '#8a82b0' : '#45455e';
         return (
           <td
             title={tip}
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: '#8a82b0', letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
           </td>

@@ -681,7 +681,17 @@ export default function ToolsPage() {
                 // out. UNLISTED-but-ACTIVE rows stay full-opacity (still
                 // actionable). The lilac UNLISTED pill carries the
                 // listing-state signal on its own.
-                const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1;
+                //
+                // Phase 1 polish: the EXPIRED dim moved from an inline
+                // opacity (0.5) to a `tools-offer-row-expired` class so
+                // the row's `:hover` rule can restore full opacity for
+                // inspection. The 1973 % / 600 % outliers in old
+                // offers were pulling foveal attention away from the
+                // (typically 3) live rows above; 0.45 at rest leaves
+                // them legible but unambiguously secondary, and the
+                // hover-restore preserves the prior workflow of
+                // mousing onto an expired row to read the value.
+                const isExpired = row.bestOfferStatus === 'EXPIRED';
                 const oState = offerState(row.bestOfferStatus);
                 const lState = listingState(row);
                 // NEW pill: surfaces fresh offers based on the offer's own
@@ -695,9 +705,8 @@ export default function ToolsPage() {
                   && offerAgeSec < 24 * 60 * 60
                   && row.bestOfferStatus !== 'EXPIRED';
                 return (
-                  <tr key={row.mint} className="tools-offer-row" style={{
+                  <tr key={row.mint} className={`tools-offer-row${isExpired ? ' tools-offer-row-expired' : ''}`} style={{
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    opacity: rowOpacity,
                     // Trader-terminal "actionable row" cue — a 3 px inset
                     // strip in the active-green at low alpha sits on the
                     // row's left edge, giving ACTIVE rows positive emphasis
