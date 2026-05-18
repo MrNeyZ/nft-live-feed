@@ -105,7 +105,7 @@ function TimeAgo({ ts }: { ts: number }) {
   // negative ages already collapse into the `ageMs < 5000` branch
   // below ("just now") since `<` evaluates true for any negative.
   if (!Number.isFinite(ts)) {
-    return <span style={{ fontSize: 11, color: TIMEAGO_COLOR, fontWeight: 500 }}>—</span>;
+    return <span style={{ fontSize: 11, color: '#877496', fontWeight: 500 }}>—</span>;
   }
   // SSR-safe: getTickServerSnapshot returns 0; first client paint
   // will reconcile to a real `now` on the next tick (≤1 s). Falling back
@@ -113,21 +113,21 @@ function TimeAgo({ ts }: { ts: number }) {
   // older than the static-render boundary.
   const liveNow = now > 0 ? now : ts; // age=0 ("just now") on the SSR pass
   const ageMs = liveNow - ts;
-  // Phase 1 polish: drop the prior age-tier hue ramp (pink <15 s /
-  // amber 15 s–3 min / muted violet >3 min). Timestamps are reference
-  // data, not signal — coloring them on a hue axis fires the visual
-  // warning channel for what is purely "when did this happen". The
-  // freshness cue is already carried by:
-  //   1. the row-insert flash (`.new-buy`/`.new-sell`/`.new-listing`
-  //      classes, 3.6 s ease-out background pulse), and
-  //   2. the age-bucket walker (`data-age-bucket="mid|old"` dims the
-  //      whole card 1.00 → 0.92 → 0.86 over 2 / 5 min).
-  // The 6 s rapid fresh-window keeps a single weight bump so the
-  // operator still has a brief "this just landed" cue in the
-  // timestamp itself; everything past that decays to the neutral
-  // wallet-text tier (#7e7e9c) so timestamps drop out of the foveal
-  // scan and the price/badge cluster regains attention.
-  const weight: 500 | 600 = ageMs < 6000 ? 600 : 500;
+  let color: string;
+  let weight: 500 | 600 = 500;
+  if (ageMs < 15000) {
+    color  = '#e87ab0'; // pink — covers both "just now" (<5s) and 6-15s
+    weight = 600;
+  } else if (ageMs < 180000) {
+    color  = '#c7b479'; // yellow — 16s to 3min
+  } else {
+    // Stale tier — bumped from #877496 → #a094c0 so the operator
+    // can still scan ages past 3 min without the timestamp washing
+    // into the card background. Pink/yellow tiers are unchanged
+    // (already prominent), so the hierarchy "fresh = louder, stale
+    // = quieter" is preserved, just with a higher floor on quiet.
+    color  = '#a094c0';
+  }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   // tabular-nums locks digit width so the right-edge timestamp lane
   // doesn't jitter as the count climbs ("9 min ago" → "10 min ago"
@@ -136,7 +136,7 @@ function TimeAgo({ ts }: { ts: number }) {
   // feel without dropping the proportional font.
   return (
     <span style={{
-      fontSize: 11, color: TIMEAGO_COLOR, fontWeight: weight,
+      fontSize: 11, color, fontWeight: weight,
       fontVariantNumeric: 'tabular-nums',
       letterSpacing: '0.1px',
     }}>
@@ -144,11 +144,6 @@ function TimeAgo({ ts }: { ts: number }) {
     </span>
   );
 }
-/** Single neutral hue for every TimeAgo render. Matches the wallet-
- *  link tier the recent visual-polish pass landed on so the card's
- *  secondary-metadata row reads as one unified family — title (bright)
- *  → wallet + timestamp (muted) → label + icon (quietest). */
-const TIMEAGO_COLOR = '#7e7e9c';
 
 // ── Wallet links + "YOU" badge ──────────────────────────────────────────────
 //
