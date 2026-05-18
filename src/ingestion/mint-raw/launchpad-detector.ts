@@ -92,18 +92,21 @@ export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZN
 export const VVVSO_PLATFORM_TREASURY = 'EQCaFM2JHFd5RrDPNhS96KLxdmiAK9eeWJyJWest31tm';
 
 /** gravemint.io platform signer. Writable, deliberately-vanity-prefixed
- *  keypair that signs every confirmed Gravemint Core CreateV2 mint
- *  observed to date (5/5 in audit). Position varies (idx 1 or 2 in the
- *  signer slots), so we check via `signerKeys.includes` rather than a
- *  fixed index. As a signer it cannot be spoofed without the launchpad's
- *  private key, making it the strongest on-chain fingerprint of the
- *  three platforms tracked (LMNFT outer program, vvv treasury, this). */
+ *  (`DEAD…`) keypair that signs every confirmed Gravemint Core CreateV2
+ *  mint observed to date. Position varies — idx 1 or 2 in normal
+ *  buyer-pays drops, idx 0 in house-pays drops where Gravemint itself
+ *  is the fee-payer — so we check via `signerKeys.includes` rather
+ *  than a fixed index. As a signer it cannot be spoofed without the
+ *  launchpad's private key, making it the strongest on-chain
+ *  fingerprint of the four launchpads tracked. */
 export const GRAVEMINT_PLATFORM_SIGNER   = 'DEADsTGdpwgudGq4SUMPqzETzoaqAuDHbQovkTzTEA1R';
 /** gravemint.io treasury / fee-collector. Writable non-signer present
- *  alongside `GRAVEMINT_PLATFORM_SIGNER` in 5/5 audit samples. Used as
- *  belt-and-suspenders alongside the signer check to ensure we never
- *  match a future tx where the launchpad signer is reused for an
- *  unrelated, non-mint instruction. */
+ *  alongside `GRAVEMINT_PLATFORM_SIGNER` in the original 5/5 audit
+ *  samples but ABSENT in the leaner house-mint shape (e.g.
+ *  37jWw1BSXQx5FMTyv4AuFUdhogevo1pmRkUG46LyHEiTZh8oBMFw6BiAH71V5FQagCF2MnQSf46oHQCTRjtAgvM5
+ *  — 6-key tx, no treasury, no fee charged to a buyer). Kept as a
+ *  diagnostic-only constant: presence is recorded on the matchedNeedle
+ *  for forensic value, but it is no longer required by the gate. */
 export const GRAVEMINT_PLATFORM_TREASURY = '4rUxPzDvQXfjZuHfApV7Bhf1uxsAjJDxgtYy7UaQMq24';
 
 export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE';
@@ -358,20 +361,25 @@ function isVvvSoTx(shape: ParsedTxShape): boolean {
  *  Triple-gate fingerprint:
  *    1. MPL Core program present (cheap structural prerequisite),
  *    2. `GRAVEMINT_PLATFORM_SIGNER` present as an actual signer — the
- *       primary identity; unspoofable without the launchpad's secret,
- *    3. `GRAVEMINT_PLATFORM_TREASURY` present in `accountKeys` — guards
- *       against the launchpad signer being reused for a non-mint ix
- *       in some future flow,
- *    4. a `Program log: Instruction: CreateV2` log line — confirms this
+ *       primary identity; unspoofable without the launchpad's private
+ *       key (vanity-prefixed `DEAD…`),
+ *    3. a `Program log: Instruction: CreateV2` log line — confirms this
  *       is a Core mint, not e.g. an update / transfer.
  *
- *  All four must hold. Mutually exclusive with `isVvvSoTx` (different
- *  signer, different treasury, different header `numReadonlySignedAccounts`
- *  shape) and with the LMNFT branches (no `LAUNCHMYNFT_PROGRAM` account). */
+ *  The treasury account `GRAVEMINT_PLATFORM_TREASURY` is no longer
+ *  required: a confirmed Gravemint house-mint shape was observed where
+ *  the treasury is absent entirely (Gravemint pays both fee and rent
+ *  itself, no buyer route, no fee transfer — see signature
+ *  37jWw1BSXQx5FMTyv4AuFUdhogevo1pmRkUG46LyHEiTZh8oBMFw6BiAH71V5FQagCF2MnQSf46oHQCTRjtAgvM5).
+ *  Dropping the treasury gate is safe because the signer is the
+ *  primary identity and CreateV2 + MPL Core already prove it's a mint.
+ *
+ *  Mutually exclusive with `isVvvSoTx` (different signer; vvv's
+ *  detector runs first) and with the LMNFT branches (no LMNFT outer
+ *  program in account keys). */
 function isGraveMintTx(shape: ParsedTxShape): boolean {
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
   if (!shape.signerKeys.includes(GRAVEMINT_PLATFORM_SIGNER)) return false;
-  if (!shape.accountKeys.includes(GRAVEMINT_PLATFORM_TREASURY)) return false;
   return shape.logs.some((line) => line.includes('Instruction: CreateV2'));
 }
 
@@ -585,13 +593,19 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
   if (getMintTrackerGraveGateEnabled() && isGraveMintTx(shape)) {
     const core = extractCoreMintFromInner(tx, shape);
     if (!core) return null;
+    // Record whether the treasury was present so future audits can
+    // distinguish the two confirmed shapes (buyer-pays w/ treasury vs.
+    // house-pays w/o treasury) without re-decoding the tx.
+    const treasuryPresent = shape.accountKeys.includes(GRAVEMINT_PLATFORM_TREASURY);
     return {
       source:            'GRAVE',
       standard:          'core',
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     'Instruction: CreateV2',
+      matchedNeedle:     treasuryPresent
+        ? 'Instruction: CreateV2 + treasury'
+        : 'Instruction: CreateV2',
     };
   }
   // LMNFT Token-Metadata mint variant. Gated on the dual-signal pair

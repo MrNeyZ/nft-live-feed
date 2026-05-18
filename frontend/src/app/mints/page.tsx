@@ -766,7 +766,9 @@ function buildVvvCollectionUrl(name: string | null | undefined): string | null {
  *  sources where we can't safely build a per-collection deep link —
  *  the badge then renders as a plain pill (no anchor). LMNFT requires
  *  per-row owner + collectionId from the wire; VVV uses the collection
- *  name slugified into the vvv.so per-collection URL shape. */
+ *  name slugified into the vvv.so per-collection URL shape; GRAVE
+ *  uses the on-chain collection address (the Core CollectionV1
+ *  account) directly. */
 function sourceHref(row: MintStatus): string | null {
   switch (row.sourceLabel) {
     case 'LaunchMyNFT':
@@ -780,6 +782,20 @@ function sourceHref(row: MintStatus): string | null {
       // Plain pill when no name yet (mirrors the LMNFT "wait for the
       // wire to populate" pattern — no point linking to a homepage).
       return buildVvvCollectionUrl(row.name);
+    case 'GRAVE': {
+      // gravemint.io per-collection mint page. The launchpad's path
+      // shape is `/mint/<collectionAddress>` where collectionAddress
+      // is the Core collection (`CollectionV1`) pubkey — NOT the
+      // individual asset mint. Skip when we don't have one, or when
+      // the grouping key is one of the synthetic prefixed forms
+      // (`authority:` / `program:` / `owner:` / `pool:`) the
+      // accumulator sometimes emits before a real collection key is
+      // resolved — those aren't valid gravemint.io URLs.
+      const c = row.collectionAddress;
+      if (!c) return null;
+      if (/^(authority|program|owner|pool):/.test(c)) return null;
+      return `https://gravemint.io/mint/${c}`;
+    }
     default:
       return null;
   }
@@ -2328,14 +2344,17 @@ export default function MintsPage() {
                             const plainTitle = r.sourceLabel === 'LaunchMyNFT'
                               ? 'LaunchMyNFT mint page unavailable'
                               : r.sourceLabel;
-                            // Linked-pill tooltip: VVV gets "Open on VVV"
-                            // per the per-collection deep-link UX so users
-                            // know clicking opens the launchpad's page.
+                            // Linked-pill tooltip: VVV / GRAVE get an
+                            // explicit "Open on …" hint per the
+                            // per-collection deep-link UX so users know
+                            // clicking opens the launchpad's page.
                             // Other sources keep the raw label as the
                             // hover hint.
                             const linkTitle = r.sourceLabel === 'VVV'
                               ? 'Open on VVV'
-                              : r.sourceLabel;
+                              : r.sourceLabel === 'GRAVE'
+                                ? 'Open on gravemint.io'
+                                : r.sourceLabel;
                             return href ? (
                               <a
                                 href={href}
