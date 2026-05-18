@@ -13,7 +13,7 @@
  */
 
 import { verifyAndFetchAsset } from '../enrichment/helius-das';
-import { patchAccumulatorMeta, evictMintGroup } from './accumulator';
+import { patchAccumulatorMeta, patchAccumulatorCoreCollection, evictMintGroup } from './accumulator';
 
 const REQUEST_GAP_MS    = 500;
 const PENDING_MAX       = 200;
@@ -99,6 +99,15 @@ async function runWorker(): Promise<void> {
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
+      // DAS belt-and-suspenders for Core collection assets: if the
+      // parser missed the `Instruction: CreateCollection` log (e.g. a
+      // future launchpad routes the create through a different path),
+      // DAS will still classify the asset as `MplCoreCollection`. The
+      // patcher is idempotent and no-ops when the flag was already set
+      // at parse time, so the LMNFT-routed example stays a no-op here.
+      if (verdict.kind === 'core_collection') {
+        patchAccumulatorCoreCollection(next.groupingKey);
+      }
       if (meta.imageUrl || meta.nftName || meta.collectionName) {
         patchAccumulatorMeta(next.groupingKey, {
           name:     meta.collectionName ?? meta.nftName ?? undefined,

@@ -188,6 +188,16 @@ export interface MintEventWire {
   priceLamports:     number | null;
   minter:            string | null;
   sourceLabel:       MintSourceLabel;
+  /** True when this tx CREATED a Core collection asset (MPL Core
+   *  `Instruction: CreateCollection` family) rather than a regular
+   *  Core NFT mint. Only meaningful for `programSource === 'mpl_core'`.
+   *  Parser-set at ingest; DAS verifies the same signal via
+   *  `interface === 'MplCoreCollection'` on the warm path so a
+   *  collection that slipped past the parser still gets the flag
+   *  patched in via the enricher. Frontend uses this to render a
+   *  COLL marker alongside the source pill instead of CORE.
+   *  Defaults to undefined (treated as false everywhere). */
+  isCoreCollection?: boolean;
 }
 
 /** Per-collection rollup snapshot, fired every time the accumulator
@@ -248,6 +258,13 @@ export interface MintStatusWire {
   mintType:          MintType | 'mixed';
   priceLamports:     number | null;
   sourceLabel:       MintSourceLabel;
+  /** True when this row represents a Core collection CREATION event
+   *  (MPL Core CreateCollection family) rather than a normal Core NFT
+   *  mint. Set sticky from the first observed event for the
+   *  groupingKey; also patched in late by the enricher when DAS
+   *  classifies the asset as `MplCoreCollection`. Frontend renders a
+   *  distinct COLL marker when set. Defaults to undefined. */
+  isCoreCollection?: boolean;
   /** Soft metadata, populated lazily (may be undefined for many ticks). */
   name?:             string;
   imageUrl?:         string;

@@ -88,7 +88,7 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
 // group. Returns both the verdict (`ok / reason / kind`) and the
 // metadata so the enricher can use them in a single round-trip.
 
-export type NftKind = 'core' | 'pnft' | 'legacy';
+export type NftKind = 'core' | 'core_collection' | 'pnft' | 'legacy';
 export interface NftVerdict {
   ok:      boolean;
   kind?:   NftKind;
@@ -122,6 +122,13 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
 
   // ── Accepts ──
   if (iface === 'MplCoreAsset')                      return { ok: true, kind: 'core' };
+  // Core collection asset — `CreateCollection` family event creates
+  // this. The asset itself is a real Core account (decimals 0, supply
+  // 1) so the fallback used to silently accept it as `legacy`; that
+  // mislabelled the row CORE on the frontend. Accept it explicitly so
+  // the enricher can patch the accumulator's `isCoreCollection` flag
+  // and the UI renders the COLL marker.
+  if (iface === 'MplCoreCollection')                 return { ok: true, kind: 'core_collection' };
   if (iface === 'ProgrammableNFT')                   return { ok: true, kind: 'pnft' };
   if (iface === 'V1_NFT')                            return { ok: true, kind: 'legacy' };
   if (tokenStandard === 'NonFungible')               return { ok: true, kind: 'legacy' };

@@ -83,13 +83,19 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
   const priceColor     = ev.priceLamports == null
     ? '#55556e'
     : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
-  // NFT-type pill. We only know `programSource` on the wire (no
-  // separate nftType today), so Core → CORE; everything else
-  // collapses to the spec's "NFT" fallback.
+  // NFT-type pill. We only know `programSource` on the wire plus
+  // an optional `isCoreCollection` flag set by the backend when the
+  // tx CREATED a Core collection asset (DAS interface
+  // `MplCoreCollection`) rather than a regular Core NFT mint.
+  // mpl_core + isCoreCollection → COLL
+  // mpl_core                    → CORE
+  // bubblegum                   → cNFT
+  // anything else               → NFT (spec fallback)
   const nftTypeLabel: string =
-    ev.programSource === 'mpl_core'   ? 'CORE'   :
-    ev.programSource === 'bubblegum'  ? 'cNFT'   :
-    'NFT';
+    ev.programSource === 'mpl_core'
+      ? (ev.isCoreCollection ? 'COLL' : 'CORE')
+    : ev.programSource === 'bubblegum'  ? 'cNFT'
+    : 'NFT';
   // Two-tier freshness on the right Live Mint Feed:
   //   • `mints-feed-row-fresh`  (< 2.5 s) — one-shot slide-in +
   //     green flash for brand-new SSE arrivals (cache-restored
@@ -132,23 +138,34 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
       {/* 56×56 thumbnail rendered from a 200×200 /thumb source so
           hi-DPI displays render crisply without enlarging the card
           footprint. Falls back to the shared abbr/color placeholder
-          when no image yet. */}
-      <ItemThumb
-        imageUrl={thumb200(cardImage)}
-        /* When a real per-NFT image lands we keep the collection-
-           color tint behind it (matches the row accent stripe).
-           When it's the placeholder path we seed by `mintAddress`
-           instead so two cards in the same collection paint visibly
-           different tiles — otherwise the abbr is the only varying
-           pixel and the tiles read as duplicates. */
-        color={colorForCollection(
-          cardImage
-            ? (ev.collectionAddress ?? ev.groupingKey)
-            : (ev.mintAddress ?? ev.signature)
-        )}
-        abbr={abbr}
-        size={56}
-      />
+          when no image yet. Core collection-creation events get a
+          thin lilac outline (1 px, 1 px offset) — sits one ring
+          outside the thumbnail so it doesn't shift layout, stays
+          inside the Core/violet palette so it reads as "Core, but
+          a different kind", not as alert chrome. */}
+      <span style={{
+        display: 'inline-flex', flexShrink: 0, lineHeight: 0,
+        outline: ev.isCoreCollection ? '1px solid rgba(168,144,232,0.35)' : undefined,
+        outlineOffset: ev.isCoreCollection ? 1 : undefined,
+        borderRadius: ev.isCoreCollection ? 6 : undefined,
+      }}>
+        <ItemThumb
+          imageUrl={thumb200(cardImage)}
+          /* When a real per-NFT image lands we keep the collection-
+             color tint behind it (matches the row accent stripe).
+             When it's the placeholder path we seed by `mintAddress`
+             instead so two cards in the same collection paint visibly
+             different tiles — otherwise the abbr is the only varying
+             pixel and the tiles read as duplicates. */
+          color={colorForCollection(
+            cardImage
+              ? (ev.collectionAddress ?? ev.groupingKey)
+              : (ev.mintAddress ?? ev.signature)
+          )}
+          abbr={abbr}
+          size={56}
+        />
+      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}

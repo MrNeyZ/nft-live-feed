@@ -78,6 +78,15 @@ export interface MintStatus {
    *  rather than the optimistic local counter. UI mutes unverified
    *  values slightly so the operator can tell at a glance. */
   supplyVerified?:   boolean;
+  /** True when this row represents an MPL Core collection-creation
+   *  event (the asset DAS classifies as `MplCoreCollection`) rather
+   *  than a regular Core NFT mint. Backend-set: either at parse time
+   *  via the `Instruction: CreateCollection` family log, or late by
+   *  the enricher when DAS confirms the interface. Sticky once set.
+   *  Frontend renders a small `COLL` marker alongside the source pill
+   *  + a subtle lilac outline on the live-feed thumbnail. Optional —
+   *  treated as false / absent for all normal Core NFT mints. */
+  isCoreCollection?: boolean;
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst';
   observedMints:     number;
@@ -126,6 +135,11 @@ export interface MintEvent {
   priceLamports:     number | null;
   minter:            string | null;
   sourceLabel:       SourceLabel;
+  /** Mirror of `MintStatus.isCoreCollection` on the per-mint event so
+   *  a Live Mint Feed card rendered before the status frame arrives
+   *  (or for a single-event row not yet in the table) still surfaces
+   *  the distinct COLL marker. Backend-set; defaults to absent. */
+  isCoreCollection?: boolean;
   /** Wall-clock receive time (ms). Drives the "Xs ago" column without
    *  re-parsing blockTime on every tick. */
   receivedAt:        number;
