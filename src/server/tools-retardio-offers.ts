@@ -21,6 +21,9 @@
  */
 
 import { Router, Request, Response } from 'express';
+/** Alias the global fetch `Response` so `meGet` is unambiguous — the
+ *  Express `Response` import above otherwise shadows it. */
+type FetchResponse = globalThis.Response;
 import { rateLimit } from './rate-limit';
 import {
   deriveBuyerEscrowPda,
@@ -368,31 +371,138 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/** Marker error for transient Magic Eden listings outages. The route
- *  handler `instanceof`-checks this to return a structured 503 with a
- *  friendly errorCode the frontend can recognise, instead of the
- *  generic 500 / `scan failed` payload that otherwise renders raw. */
+/** Marker error for transient Magic Eden listings outages — 5xx, timeout,
+ *  or anything we read as "ME is unhealthy right now". The route handler
+ *  `instanceof`-checks this to return a structured 503 with a friendly
+ *  errorCode the frontend can recognise, instead of the generic 500 /
+ *  `scan failed` payload that otherwise renders raw. */
 class MeListingsUpstreamError extends Error {
   readonly upstreamStatus:     number;
   readonly upstreamStatusText: string;
-  constructor(slug: string, status: number, statusText: string) {
-    super(`ME listings upstream error for slug=${slug}: ${status} ${statusText}`.trim());
+  /** Best-effort endpoint label that errored, for log diagnostics. */
+  readonly endpoint:           string;
+  constructor(endpoint: string, status: number, statusText: string) {
+    super(`ME upstream error at ${endpoint}: ${status} ${statusText}`.trim());
     this.name              = 'MeListingsUpstreamError';
     this.upstreamStatus     = status;
     this.upstreamStatusText = statusText;
+    this.endpoint           = endpoint;
   }
+}
+
+/** Distinct marker for ME 429 responses. Separated from
+ *  `MeListingsUpstreamError` so:
+ *    1. the frontend can show a precise "rate limited, retry in Xs"
+ *       banner with a countdown, instead of the generic outage copy;
+ *    2. the per-mint best-effort fetchers (`fetchOffersReceived`,
+ *       `fetchTokenInfo`) can let it propagate up through Promise.all
+ *       to abort the rest of the scan, rather than swallowing it and
+ *       caching a misleading empty-offers result;
+ *    3. the route handler can set a process-wide cooldown so a
+ *       follow-up scan against a DIFFERENT collection won't immediately
+ *       trigger another 429 (ME rate-limits per-IP, not per-slug). */
+class MeRateLimitError extends Error {
+  readonly retryAfterSec: number;
+  readonly endpoint:      string;
+  constructor(endpoint: string, retryAfterSec: number) {
+    super(`ME rate limit at ${endpoint}; retry in ~${retryAfterSec}s`);
+    this.name          = 'MeRateLimitError';
+    this.retryAfterSec = retryAfterSec;
+    this.endpoint      = endpoint;
+  }
+}
+
+/** Process-wide ME cooldown timestamp (epoch ms). Updated whenever ANY
+ *  ME fetch sees a 429 — the limit is per-IP, so a 429 on one slug means
+ *  every other slug is also blocked from ME's perspective for the same
+ *  window. `meGet` short-circuits with `MeRateLimitError` while the
+ *  cooldown is active so we don't burn requests we already know will fail
+ *  and stack up additional 429s. Reset implicitly by the elapsed time —
+ *  no setTimeout required. */
+let meCooldownUntilMs = 0;
+
+/** Hard ceiling on Retry-After (or our own default backoff). ME's
+ *  observed retry windows are 30-60 s; we cap at 5 min so a hostile /
+ *  malformed header can't pin the scanner offline. */
+const ME_COOLDOWN_MAX_SEC = 300;
+/** Default cooldown applied when ME 429s without a usable Retry-After
+ *  header (which is the common case for ME — they typically don't ship
+ *  one). 60 s is the published guidance window for their public API. */
+const ME_COOLDOWN_DEFAULT_SEC = 60;
+
+function parseRetryAfter(v: string | null): number | null {
+  if (!v) return null;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 0) {
+    return Math.min(ME_COOLDOWN_MAX_SEC, Math.ceil(n));
+  }
+  const t = Date.parse(v);
+  if (Number.isFinite(t)) {
+    const sec = Math.ceil((t - Date.now()) / 1000);
+    if (sec > 0) return Math.min(ME_COOLDOWN_MAX_SEC, sec);
+  }
+  return null;
+}
+
+/** Public for the route handler so the pre-flight check can short-circuit
+ *  with `ME_RATE_LIMITED` before runScan starts (and burns at least one
+ *  ME listings request). Returns 0 when no cooldown is active. */
+function getMeCooldownRemainingSec(): number {
+  const ms = meCooldownUntilMs - Date.now();
+  return ms > 0 ? Math.ceil(ms / 1000) : 0;
+}
+
+interface MeGetOpts {
+  endpoint:  string;
+  timeoutMs: number;
+}
+
+/** Central wrapper around `fetch` for ME endpoints. Enforces the
+ *  process-wide 429 cooldown, classifies error responses into
+ *  `MeRateLimitError` / `MeListingsUpstreamError`, and lets the caller
+ *  decide what to do with non-429 4xx (returns the Response for the
+ *  caller to read `.ok` / `.json()` — same shape as the prior direct
+ *  fetch call sites). Timeouts and network errors map to a synthetic
+ *  upstream error so the caller's existing 5xx branch handles them. */
+async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
+  const cooldownLeft = getMeCooldownRemainingSec();
+  if (cooldownLeft > 0) {
+    throw new MeRateLimitError(opts.endpoint, cooldownLeft);
+  }
+  let r: FetchResponse;
+  try {
+    r = await fetch(url, { signal: AbortSignal.timeout(opts.timeoutMs) });
+  } catch (err) {
+    throw new MeListingsUpstreamError(
+      opts.endpoint,
+      0,
+      (err as Error)?.message?.slice(0, 80) ?? 'network',
+    );
+  }
+  if (r.status === 429) {
+    const ra = parseRetryAfter(r.headers.get('Retry-After'));
+    const retryAfter = ra ?? ME_COOLDOWN_DEFAULT_SEC;
+    meCooldownUntilMs = Math.max(meCooldownUntilMs, Date.now() + retryAfter * 1000);
+    throw new MeRateLimitError(opts.endpoint, retryAfter);
+  }
+  return r;
 }
 
 async function fetchListings(slug: string): Promise<MeListing[]> {
   const out: MeListing[] = [];
   let offset = 0;
-  // Up to SCAN_LIMIT_MAX listings via single LISTINGS_PAGE pages.
   while (out.length < SCAN_LIMIT_MAX) {
+    const endpoint = `/collections/${slug}/listings`;
     const url = `${ME_API_BASE}/collections/${encodeURIComponent(slug)}/listings?offset=${offset}&limit=${LISTINGS_PAGE}`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+    // `meGet` throws on a live 429 (→ MeRateLimitError) and on
+    // network / timeout failure (→ MeListingsUpstreamError). It does
+    // NOT throw on non-429 4xx / 5xx response codes — those flow through
+    // here so a 404 (slug typo) reads as "no listings" rather than as
+    // an outage, while a 5xx still triggers the offset===0 throw below.
+    const r = await meGet(url, { endpoint, timeoutMs: 6_000 });
     if (!r.ok) {
-      // First-page upstream failure (429 / 5xx / network glitch) is NOT
-      // "this collection has no listings" — it's a transient ME outage.
+      // First-page upstream failure (5xx / parse glitch) is NOT "this
+      // collection has no listings" — it's a transient ME outage.
       // Throw so the route handler returns a structured error and we
       // don't cache / persist a misleading zero-listings result.
       // Without this throw, a single ME hiccup poisons:
@@ -402,14 +512,14 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
       // Subsequent-page failures keep whatever we already paged in —
       // partial results are still useful and we shouldn't bin them.
       if (offset === 0) {
-        throw new MeListingsUpstreamError(slug, r.status, r.statusText || '');
+        throw new MeListingsUpstreamError(endpoint, r.status, r.statusText || '');
       }
       break;
     }
     const page = await r.json() as MeListing[];
     if (!Array.isArray(page) || page.length === 0) break;
     out.push(...page);
-    if (page.length < LISTINGS_PAGE) break;       // last page
+    if (page.length < LISTINGS_PAGE) break;
     offset += LISTINGS_PAGE;
     await sleep(REQUEST_GAP_MS);
   }
@@ -417,13 +527,20 @@ async function fetchListings(slug: string): Promise<MeListing[]> {
 }
 
 async function fetchOffersReceived(mint: string): Promise<MeOffer[]> {
+  const endpoint = `/tokens/${mint}/offers_received`;
   const url = `${ME_API_BASE}/tokens/${encodeURIComponent(mint)}/offers_received?limit=20`;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    const r = await meGet(url, { endpoint, timeoutMs: 5_000 });
     if (!r.ok) return [];
     const data = await r.json() as MeOffer[];
     return Array.isArray(data) ? data : [];
-  } catch {
+  } catch (err) {
+    // Mid-scan 429 must NOT be swallowed here: if we silently treat it
+    // as "no offers" we'd cache a poisoned empty-offers result and the
+    // frontend's localStorage would persist zeros indefinitely. Let it
+    // propagate so the worker pool aborts and the route handler returns
+    // ME_RATE_LIMITED to the user.
+    if (err instanceof MeRateLimitError) throw err;
     return [];
   }
 }
@@ -442,13 +559,15 @@ interface MeTokenInfo {
  *  a name/image for the row. Errors return `null` so the caller can
  *  fall back gracefully. */
 async function fetchTokenInfo(mint: string): Promise<MeTokenInfo | null> {
+  const endpoint = `/tokens/${mint}`;
   try {
-    const r = await fetch(`${ME_API_BASE}/tokens/${encodeURIComponent(mint)}`, {
-      signal: AbortSignal.timeout(5_000),
+    const r = await meGet(`${ME_API_BASE}/tokens/${encodeURIComponent(mint)}`, {
+      endpoint, timeoutMs: 5_000,
     });
     if (!r.ok) return null;
     return await r.json() as MeTokenInfo;
-  } catch {
+  } catch (err) {
+    if (err instanceof MeRateLimitError) throw err;
     return null;
   }
 }
@@ -508,10 +627,11 @@ async function fetchActivityCandidateMints(
 
   for (let page = 0; page < maxPages; page++) {
     const offset = page * ACTIVITY_PAGE_LIMIT;
+    const endpoint = `/collections/${slug}/activities`;
     const url = `${ME_API_BASE}/collections/${encodeURIComponent(slug)}/activities?offset=${offset}&limit=${ACTIVITY_PAGE_LIMIT}`;
     let rows: MeActivity[] = [];
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(ACTIVITY_FETCH_TIMEOUT_MS) });
+      const r = await meGet(url, { endpoint, timeoutMs: ACTIVITY_FETCH_TIMEOUT_MS });
       if (!r.ok) {
         warning = `activities_upstream_${r.status} at offset=${offset}`;
         break;
@@ -519,6 +639,10 @@ async function fetchActivityCandidateMints(
       const body = await r.json();
       rows = Array.isArray(body) ? body as MeActivity[] : [];
     } catch (err) {
+      // 429 propagates so the scan short-circuits with a structured
+      // ME_RATE_LIMITED response (the cooldown is already set by meGet).
+      // Activity-page generic upstream / timeout becomes a warning.
+      if (err instanceof MeRateLimitError) throw err;
       warning = `activities_fetch_failed at offset=${offset}: ${(err as Error).message?.slice(0, 80) ?? 'unknown'}`;
       break;
     }
@@ -1021,6 +1145,24 @@ export function createRetardioOffersRouter(): Router {
       return res.json({ ...cached.result, fromCache: true });
     }
 
+    // Pre-flight ME cooldown gate. If a previous scan (any slug) saw
+    // a 429 from ME and the published cooldown hasn't elapsed yet, every
+    // ME call we'd make in this scan is going to 429 too — ME limits per
+    // IP, not per slug. Short-circuit with ME_RATE_LIMITED so the user
+    // sees a precise countdown immediately instead of waiting 5–10 s for
+    // runScan to start, hit ME, get rate-limited, and fail the same way.
+    {
+      const cooldownLeft = getMeCooldownRemainingSec();
+      if (cooldownLeft > 0) {
+        return res.status(503).json({
+          ok:            false,
+          errorCode:     'ME_RATE_LIMITED',
+          message:       `Magic Eden rate limited — retry in ${cooldownLeft}s`,
+          retryAfterSec: cooldownLeft,
+        });
+      }
+    }
+
     const startedAt = Date.now();
     try {
       const result = await runScan({ slug, scanLimit, minOfferSol, recentActivityDays, activityMaxPages, debugMint });
@@ -1040,15 +1182,36 @@ export function createRetardioOffersRouter(): Router {
       // notice (instead of the raw `HTTP 500 — {"ok":false,...}` blob).
       // The cache is intentionally NOT updated so the next click after
       // ME recovers does a real scan.
+      if (err instanceof MeRateLimitError) {
+        const cooldownLeft = getMeCooldownRemainingSec() || err.retryAfterSec;
+        console.warn(
+          `[tools/retardio-me-offer-scan] ME rate-limited at ${err.endpoint} ` +
+          `slug=${slug} retryAfter=${cooldownLeft}s`,
+        );
+        return res.status(503).json({
+          ok:            false,
+          errorCode:     'ME_RATE_LIMITED',
+          message:       `Magic Eden rate limited — retry in ${cooldownLeft}s`,
+          retryAfterSec: cooldownLeft,
+        });
+      }
       if (err instanceof MeListingsUpstreamError) {
         console.warn(
-          `[tools/retardio-me-offer-scan] upstream listings ${err.upstreamStatus} ` +
-          `${err.upstreamStatusText} slug=${slug}`,
+          `[tools/retardio-me-offer-scan] upstream ${err.upstreamStatus} ` +
+          `at ${err.endpoint} (${err.upstreamStatusText}) slug=${slug}`,
         );
+        // Distinguish timeout / network (status === 0) from a real 5xx so
+        // the frontend can render slightly different copy. Both reuse the
+        // ME_LISTINGS_UPSTREAM code — they're the same actionable state
+        // for the operator ("ME is unhealthy, wait and retry") — but the
+        // payload carries the underlying status for diagnostics.
+        const isTimeout = err.upstreamStatus === 0;
         return res.status(503).json({
           ok:                false,
           errorCode:         'ME_LISTINGS_UPSTREAM',
-          message:           'Magic Eden listings API temporarily unavailable. Try again in a minute.',
+          message:           isTimeout
+            ? 'Magic Eden listings API timed out. Try again in a minute.'
+            : 'Magic Eden listings API temporarily unavailable. Try again in a minute.',
           upstreamStatus:     err.upstreamStatus,
           upstreamStatusText: err.upstreamStatusText,
         });

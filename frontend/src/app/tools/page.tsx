@@ -390,6 +390,7 @@ export default function ToolsPage() {
         body:    JSON.stringify(body),
       });
       if (r.status === 429) {
+        // Our backend's own per-IP rate limiter fired (6 scans/min).
         // Soft path: surface a non-fatal warning, keep cached rows in
         // place, and start a 45 s cooldown so the operator can't
         // hammer the endpoint right back into another rate-limit.
@@ -400,17 +401,34 @@ export default function ToolsPage() {
       }
       if (!r.ok) {
         // Try to parse the structured error envelope first — the
-        // backend returns `{ok:false, errorCode, message}` for known
-        // failure modes (currently `ME_LISTINGS_UPSTREAM`). Falls back
-        // to the raw-text message for unknown shapes.
+        // backend returns `{ok:false, errorCode, message, ...}` for
+        // known failure modes. Falls back to the raw-text message for
+        // unknown shapes.
         const errBody = await r.json().catch(() => null) as
-          | { ok?: boolean; errorCode?: string; message?: string; error?: string }
+          | { ok?: boolean; errorCode?: string; message?: string; error?: string; retryAfterSec?: number }
           | null;
+        // ME's per-IP rate-limit has tripped — this is shared across
+        // every collection (ME rate-limits per-IP, not per-slug), so
+        // we lock the Scan button across the entire tool until the
+        // backend-published `retryAfterSec` window elapses. Cached rows
+        // for the currently-selected slug stay visible since we don't
+        // touch `result`.
+        if (errBody && errBody.errorCode === 'ME_RATE_LIMITED') {
+          const sec = typeof errBody.retryAfterSec === 'number' && errBody.retryAfterSec > 0
+            ? Math.min(300, Math.ceil(errBody.retryAfterSec))
+            : 60;
+          setIs429(true);
+          setError(errBody.message ?? `Magic Eden rate limited — retry in ${sec}s`);
+          setCooldownUntilMs(Date.now() + sec * 1000);
+          return;
+        }
         if (errBody && errBody.errorCode === 'ME_LISTINGS_UPSTREAM') {
           // Soft warning — keep existing `result` (and its localStorage
           // copy) intact so cached rows stay visible. Scan button stays
           // enabled (no cooldown) so the user can retry as soon as ME
-          // recovers — there's no rate-limit involved here.
+          // recovers — there's no rate-limit involved here, just a 5xx
+          // / timeout. The backend message already distinguishes the
+          // two sub-cases.
           setIsUpstreamErr(true);
           setError(errBody.message ?? 'Magic Eden listings API temporarily unavailable. Try again in a minute.');
           return;
