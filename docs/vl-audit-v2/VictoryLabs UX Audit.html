@@ -1,0 +1,998 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VictoryLabs — UX/UI Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #0a0814;
+    --bg-1:      #100c1f;
+    --bg-2:      #15102a;
+    --panel:     #16112b;
+    --panel-2:   #1c1638;
+    --line:      #251d44;
+    --line-2:    #2e2452;
+    --text:      #e7e3f4;
+    --text-dim:  #a39bbe;
+    --text-mute: #6e6689;
+    --violet:    #b69dff;
+    --violet-2:  #8a6cff;
+    --violet-3:  #5a3fcf;
+    --green:     #5be3a8;
+    --red:       #ff6b8a;
+    --amber:     #f1c46a;
+    --cyan:      #7adfff;
+    --high:      #ff6b8a;
+    --med:       #f1c46a;
+    --low:       #7adfff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(138,108,255,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(91,227,168,.04), transparent 60%),
+      var(--bg);
+    min-height:100vh;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+  .serif{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400}
+
+  /* ============ TOP BAR ============ */
+  .topbar{
+    position:sticky;top:0;z-index:20;
+    background:rgba(10,8,20,.85);
+    backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--line);
+    padding:10px 28px;
+    display:flex;align-items:center;gap:18px;
+  }
+  .brand{display:flex;align-items:baseline;gap:0;font-weight:700;letter-spacing:-0.01em;font-size:18px}
+  .brand .v{color:var(--violet);font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:22px}
+  .brand .l{color:var(--text);font-weight:600;font-size:15px;margin-left:2px}
+  .topbar nav{display:flex;gap:2px;margin-left:18px;font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.08em}
+  .topbar nav a{color:var(--text-mute);text-decoration:none;padding:6px 10px;border-radius:6px;text-transform:uppercase;transition:color .15s, background .15s}
+  .topbar nav a:hover{color:var(--text);background:var(--panel)}
+  .topbar nav a.active{color:var(--violet);background:rgba(138,108,255,.10)}
+  .topbar .meta{margin-left:auto;display:flex;gap:18px;align-items:center;color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .topbar .meta .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);display:inline-block;margin-right:6px;vertical-align:middle}
+
+  /* ============ LAYOUT ============ */
+  .wrap{max-width:1480px;margin:0 auto;padding:36px 28px 80px;display:grid;grid-template-columns:1fr;gap:48px}
+
+  /* ============ HERO ============ */
+  .hero{padding:8px 0 4px;border-bottom:1px solid var(--line);padding-bottom:24px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--violet);margin-bottom:14px;display:flex;gap:10px;align-items:center}
+  .kicker::before{content:"";display:inline-block;width:6px;height:6px;background:var(--violet);border-radius:50%;box-shadow:0 0 10px var(--violet)}
+  h1{font-size:44px;line-height:1.05;margin:0 0 10px;font-weight:600;letter-spacing:-0.02em}
+  h1 .em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--violet)}
+  .hero p.lede{max-width:780px;color:var(--text-dim);font-size:16px;line-height:1.6;margin:14px 0 0}
+  .hero .stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin-top:28px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stat{padding:14px 18px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute)}
+  .stat .val{font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--text);margin-top:4px;font-weight:500}
+  .stat .val.red{color:var(--red)}
+  .stat .val.amber{color:var(--amber)}
+  .stat .val.green{color:var(--green)}
+  .stat .val.violet{color:var(--violet)}
+
+  /* ============ SECTION ============ */
+  section.s{display:grid;grid-template-columns:200px 1fr;gap:32px;align-items:start}
+  section.s .label{position:sticky;top:84px;padding-top:6px}
+  section.s .label .num{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--text-mute)}
+  section.s .label .name{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--violet);text-transform:uppercase;margin-top:6px}
+  section.s h2{font-size:28px;font-weight:600;letter-spacing:-0.01em;margin:0 0 6px}
+  section.s h2 .em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--violet)}
+  section.s .desc{color:var(--text-dim);max-width:740px;font-size:14.5px;line-height:1.65}
+
+  /* ============ EXEC SUMMARY ============ */
+  .exec{display:grid;grid-template-columns:1.4fr 1fr;gap:24px;margin-top:20px}
+  .exec .block{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel),var(--bg-1));padding:22px}
+  .exec h3{margin:0 0 12px;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--violet);font-family:'JetBrains Mono',monospace;font-weight:500}
+  .exec p{color:var(--text-dim);margin:0 0 10px;font-size:14px;line-height:1.65}
+  .exec p strong{color:var(--text);font-weight:600}
+  .verdict{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .verdict .v{padding:18px;background:var(--panel)}
+  .verdict .v .lbl{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-mute);margin-bottom:8px}
+  .verdict .v .big{font-size:30px;font-weight:600;letter-spacing:-0.01em}
+  .verdict .v.good .big{color:var(--green)}
+  .verdict .v.bad .big{color:var(--red)}
+  .verdict .v.mid .big{color:var(--amber)}
+  .verdict .v .sub{color:var(--text-dim);font-size:12.5px;margin-top:6px;line-height:1.5}
+
+  /* ============ REC CARDS ============ */
+  .recs{display:grid;grid-template-columns:1fr;gap:14px;margin-top:18px}
+  .rec{
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:linear-gradient(180deg,var(--panel),var(--bg-1));
+    padding:0;
+    overflow:hidden;
+  }
+  .rec-head{
+    display:grid;
+    grid-template-columns:auto 1fr auto auto;
+    align-items:center;
+    gap:14px;
+    padding:14px 20px;
+    border-bottom:1px solid var(--line);
+    background:rgba(255,255,255,.012);
+  }
+  .rec-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-mute);letter-spacing:.08em}
+  .rec-title{font-size:16px;font-weight:600;letter-spacing:-0.005em;color:var(--text)}
+  .impact{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;border-radius:4px;border:1px solid}
+  .impact.high{color:var(--red);border-color:rgba(255,107,138,.4);background:rgba(255,107,138,.08)}
+  .impact.med{color:var(--amber);border-color:rgba(241,196,106,.4);background:rgba(241,196,106,.08)}
+  .impact.low{color:var(--cyan);border-color:rgba(122,223,255,.4);background:rgba(122,223,255,.08)}
+  .cplx{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:4px 8px;border-radius:4px;border:1px dashed var(--line-2);color:var(--text-dim)}
+  .rec-body{padding:6px 20px 18px;display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+  .rec-body .col{padding:12px 0 0}
+  .rec-body dt{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--violet);margin:8px 0 4px}
+  .rec-body dd{margin:0 0 6px;color:var(--text-dim);font-size:13.5px;line-height:1.6}
+  .rec-body dd strong{color:var(--text);font-weight:600}
+  .rec-body dd code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg-2);border:1px solid var(--line);padding:1px 6px;border-radius:4px;color:var(--violet)}
+  .rec-body dd em{font-style:normal;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg-2);padding:1px 6px;border-radius:4px}
+  .rec-body .full{grid-column:1/-1}
+
+  .pages{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .page-tag{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);background:var(--bg-2);border:1px solid var(--line);padding:3px 7px;border-radius:4px}
+
+  /* ============ TOP 5 ============ */
+  .top5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}
+  .t5{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel-2),var(--panel));padding:16px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}
+  .t5::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--violet),transparent)}
+  .t5 .rank{font-family:'Instrument Serif',serif;font-style:italic;font-size:38px;line-height:1;color:var(--violet);font-weight:400;margin:-4px 0 0}
+  .t5 .h{font-size:14px;font-weight:600;line-height:1.3}
+  .t5 .p{color:var(--text-dim);font-size:12.5px;line-height:1.5;flex:1}
+  .t5 .roi{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.10em;color:var(--green);text-transform:uppercase;border-top:1px solid var(--line);padding-top:8px}
+
+  /* ============ FIX / POLISH / KEEP ============ */
+  .triptych{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px}
+  .col-card{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel),var(--bg-1));overflow:hidden}
+  .col-card .h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .col-card.fix .h{color:var(--red)}
+  .col-card.polish .h{color:var(--amber)}
+  .col-card.keep .h{color:var(--green)}
+  .col-card .h::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+  .col-card ul{margin:0;padding:14px 18px 18px;list-style:none}
+  .col-card li{position:relative;padding-left:18px;color:var(--text-dim);font-size:13px;line-height:1.55;margin-bottom:10px}
+  .col-card li::before{content:"";position:absolute;left:0;top:8px;width:8px;height:1px;background:var(--text-mute)}
+  .col-card li strong{color:var(--text);font-weight:600}
+
+  /* ============ ANNOTATION BLOCK ============ */
+  .annot{margin-top:20px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg-1)}
+  .annot .h{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute)}
+  .annot .h .pg{color:var(--violet)}
+  .annot .body{padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .annot .mock{border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:14px;display:flex;flex-direction:column;gap:10px}
+  .annot .mock .row{display:grid;grid-template-columns:36px 1fr auto auto;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;background:var(--bg-1);border:1px solid var(--line);position:relative}
+  .annot .mock .row .av{width:30px;height:30px;border-radius:5px;background:linear-gradient(135deg,#2a1f55,#5a3fcf)}
+  .annot .mock .row .nm{font-size:13px;font-weight:600}
+  .annot .mock .row .nm .sub{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--text-mute);margin-left:6px;font-weight:400}
+  .annot .mock .row .pct{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green);padding:1px 6px;border:1px solid rgba(91,227,168,.3);background:rgba(91,227,168,.06);border-radius:3px}
+  .annot .mock .row .pct.r{color:var(--red);border-color:rgba(255,107,138,.3);background:rgba(255,107,138,.06)}
+  .annot .mock .row .px{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:600;color:var(--text)}
+  .annot .mock .row .px .u{font-size:10px;color:var(--text-mute);margin-left:4px}
+  .annot .mock .row .ago{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-mute)}
+  .annot .mock.bad{position:relative}
+  .annot .mock.bad .row{padding:14px 12px;gap:14px}
+  .annot .mock.bad .row .av{width:54px;height:54px;border-radius:8px}
+  .annot .mock.bad .row .nm .sub{display:block;margin-left:0;margin-top:2px}
+  .annot .mock.bad .row .ago{color:var(--red);font-size:11px}
+  .annot .label-tag{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.12em;display:inline-block;padding:2px 7px;border-radius:3px;border:1px solid}
+  .annot .label-tag.before{color:var(--red);border-color:rgba(255,107,138,.4);background:rgba(255,107,138,.08)}
+  .annot .label-tag.after{color:var(--green);border-color:rgba(91,227,168,.4);background:rgba(91,227,168,.08)}
+  .annot .desc{margin-top:10px;color:var(--text-mute);font-size:12px;line-height:1.55}
+  .annot .desc strong{color:var(--text-dim);font-weight:500}
+
+  /* ============ DIVIDER ============ */
+  .divider{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);margin:8px 0}
+
+  /* ============ FOOTER ============ */
+  footer{padding:40px 28px 24px;max-width:1480px;margin:0 auto;border-top:1px solid var(--line);color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center}
+  footer .right{display:flex;gap:18px}
+
+  @media (max-width:1100px){
+    section.s{grid-template-columns:1fr}
+    section.s .label{position:static}
+    .exec, .rec-body{grid-template-columns:1fr}
+    .top5{grid-template-columns:repeat(2,1fr)}
+    .triptych{grid-template-columns:1fr}
+    .hero .stats{grid-template-columns:repeat(3,1fr)}
+    .annot .body{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div class="brand"><span class="v">Victory</span><span class="l">Labs</span></div>
+  <nav>
+    <a href="#summary" class="active">Summary</a>
+    <a href="#findings">Findings</a>
+    <a href="#high">High</a>
+    <a href="#medium">Medium</a>
+    <a href="#low">Low</a>
+    <a href="#top5">Top 5 ROI</a>
+    <a href="#triptych">Fix / Polish / Keep</a>
+  </nav>
+  <div class="meta">
+    <span><span class="dot"></span>Audit · v1.0</span>
+    <span>4 screens reviewed</span>
+    <span>May 18, 2026</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="kicker">UX / UI AUDIT · INTERNAL · FOR DESIGN + ENG REVIEW</div>
+    <h1>A <span class="em">terminal</span> wants to disappear.<br/>Right now yours is asking to be looked at.</h1>
+    <p class="lede">
+      VictoryLabs reads as a premium dark product — the type ramp, the violet accent, the muted chrome are all working.
+      But four issues compound across every screen: <strong>content is centered into ~50% of the viewport</strong> on a desktop-first product;
+      <strong>color is overloaded</strong> (green/red carry direction <em>and</em> status <em>and</em> identity);
+      <strong>badges multiply</strong> next to primary text and steal scan-time from prices and timestamps;
+      and <strong>row density is comfortable, not tight</strong> — a feed that updates 150 rows/s should feel like a tape, not a list.
+      Fixing four to six tokens-level decisions removes most of the noise without changing your identity.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><div class="lbl">Screens reviewed</div><div class="val">04</div></div>
+      <div class="stat"><div class="lbl">Findings</div><div class="val">22</div></div>
+      <div class="stat"><div class="lbl">High impact</div><div class="val red">07</div></div>
+      <div class="stat"><div class="lbl">Medium</div><div class="val amber">09</div></div>
+      <div class="stat"><div class="lbl">Low / polish</div><div class="val">06</div></div>
+      <div class="stat"><div class="lbl">Overall grade</div><div class="val violet">B –</div></div>
+    </div>
+  </header>
+
+  <!-- ============ EXECUTIVE SUMMARY ============ -->
+  <section class="s" id="summary">
+    <div class="label">
+      <div class="num">§ 01</div>
+      <div class="name">Executive summary</div>
+    </div>
+    <div>
+      <h2>What this product <span class="em">is</span> vs. what it currently <span class="em">looks like</span>.</h2>
+      <div class="desc">
+        Reading the four screens as a stranger, I would describe VictoryLabs as <em>"a premium NFT analytics tool that aspires to be a terminal but is currently presented as a content site."</em>
+        The aspiration is correct. The execution is being held back by layout cadence, color semantics, and a few small but compounding density choices. None of this is identity-level work.
+      </div>
+
+      <div class="exec">
+        <div class="block">
+          <h3>The diagnosis</h3>
+          <p><strong>1. Viewport utilization.</strong> Every screen renders the working table inside a narrow centered card with very large left/right gutters. On a 27" monitor that is the single most expensive thing in the design — you are paying for screen real estate you are not using. Real terminals fill edge-to-edge with rule-based gutters, not cards.</p>
+          <p><strong>2. Color is doing too many jobs.</strong> Green means <em>buy</em>, <em>active</em>, <em>positive delta</em>, <em>watch state</em>, and <em>live indicator</em> simultaneously. The same is true for red, and amber leaks between "warning" and "timestamp." The eye cannot pre-attentively distinguish status from value.</p>
+          <p><strong>3. Badge density.</strong> Row headers carry up to five small pills (<em>WATCH</em>, <em>ME</em>, <em>↑</em>, <em>X</em>, <em>LMNFT</em>) before you reach a number. A trader scans numbers; pills should be secondary.</p>
+          <p><strong>4. Row height is comfortable, not tight.</strong> Avatars run ~54–80px tall in the Feed, which forces a comfy line-height and limits visible rows to ~7. A tape should show 25–40.</p>
+        </div>
+        <div class="verdict">
+          <div class="v good"><div class="lbl">Working</div><div class="big">Identity</div><div class="sub">Violet accent + dark canvas + Instrument-Serif italic mark is distinctive and not Web3 cliché.</div></div>
+          <div class="v bad"><div class="lbl">Hurting</div><div class="big">Density</div><div class="sub">Rows are 1.6–2× taller than a trader's instinct expects. Feed and Mints both.</div></div>
+          <div class="v mid"><div class="lbl">Drifting</div><div class="big">Semantics</div><div class="sub">Green/red overload + amber timestamps blur status, direction, and class.</div></div>
+          <div class="v bad"><div class="lbl">Wasting</div><div class="big">Width</div><div class="sub">~30–45% of every screen is dead horizontal space. Single biggest fix.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HIGH IMPACT ============ -->
+  <section class="s" id="high">
+    <div class="label">
+      <div class="num">§ 02 · IMPACT/HIGH</div>
+      <div class="name">Must fix</div>
+    </div>
+    <div>
+      <h2>High-impact: <span class="em">scan speed</span> and <span class="em">density</span>.</h2>
+      <div class="desc">
+        Each of these is the kind of finding a senior trader would call out in 30 seconds of using the product.
+        They are mostly token-level or component-level changes — not redesigns — and they unlock everything downstream.
+      </div>
+
+      <div class="recs">
+
+        <!-- H-01 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-01</span>
+            <span class="rec-title">Kill the centered card. Let the working surface fill the viewport.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Medium</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>On every screen, the table sits inside a rounded panel with ~25–30% empty space on each side. On a 1440–1920px display this means a trader sees ~7 feed rows where they could see 18–25. Width is the cheapest density lever you have.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Information density &gt; chrome.</strong> Terminals (Bloomberg, IB TWS, OptionsHouse, Hyperliquid) anchor data to the viewport edges and use thin internal rules — not cards — to separate regions. The card aesthetic is a SaaS convention; it does not belong on a tape.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Some users like the framed feel. Mitigate by keeping a thin 12–16px outer gutter and a 1px outer rule, but drop the panel background and rounded radius on the main work surface.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints</span><span class="page-tag">Tools</span><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-02 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-02</span>
+            <span class="rec-title">Cut row height by 35–45% on the Feed. Shrink avatars from ~54–80px to 24–28px.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>The Live Events feed currently shows ~7 rows above the fold. Each row carries one identifier, one price, one delta — three pieces of information per ~110px of vertical space. Target: ~32–40px per row, 20–30 rows visible.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Fitts' law + foveal scan.</strong> When events arrive at &gt;1/s, the user is not clicking individual rows — they are pattern-matching streams (clusters, repeats, outliers). Pattern-match requires many rows in the foveal cone simultaneously.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Avatars become harder to recognize at 24px. Mitigate: keep the larger avatar in a hover preview / right-rail detail panel. Or — better — expose <code>density</code> as a per-page setting (you already have Tape/Compact/Comfy modes; the Feed defaults to Comfy when it should default to Compact).</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints sidebar</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-03 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-03</span>
+            <span class="rec-title">Fix color semantics. Green/red is for <em>direction</em>, not for <em>class</em>.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>BUY badges are green, AMM badges are red — but AMM is not "bad," it is a routing class. Meanwhile, +42.8 spread on the Tools page is green (good for buyer, bad for seller — but the page is about seller offers, so green here is reversed). The same colors are also used for delta arrows, live dots, status pills. The result: a glance does not tell you direction.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>One channel, one meaning.</strong> Reserve saturated green/red for <em>signed numeric deltas</em> only. Use a third color family (violet / cyan) for class tags, and use luminance (not hue) for status (active = full, expired = 40% opacity).</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Existing users have learned the current palette. Migrate behind a setting (<em>color v2</em>) and ship with both available for two weeks before flipping default. The change is small CSS but the muscle-memory cost is real.</dd>
+              <dt>Concrete swaps</dt>
+              <dd>BUY → neutral chip on white text · AMM → violet outline · SPREAD → invert sign-color on offers page (negative = good for seller) · LIVE/ACTIVE dot → keep green, but desaturate the timestamp pink/amber.</dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-04 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-04</span>
+            <span class="rec-title">Stop coloring timestamps. <em>"14s ago"</em> should not be pink.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>On the Feed, timestamps render in a salmon/pink that reads as a warning state. On the Mints sidebar, they render in amber — which reads as <em>caution</em>. Neither is what the data means; both pull foveal attention away from the price.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Don't paint metadata.</strong> Timestamps are reference, not signal. They belong at ~50–60% luminance on the neutral ramp, never on a hue axis. Use color only when a timestamp <em>itself</em> crosses a threshold (e.g. &lt;5s ago = subtle green pulse).</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>None. This is a one-token change. If you want freshness signaling, layer it as a 200ms opacity flash on row insert instead.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints sidebar</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-05 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-05</span>
+            <span class="rec-title">Collapse the badge wall next to collection names.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>On Mints, a row reads: <em>"WATCH · GAQQ · ME · ↑ · X · LMNFT"</em> before you reach the first number. That's six tokens and five different visual treatments competing with the collection name itself. A trader's eye should land on <em>GAQQ</em>, then on the price — not be parsed left-to-right like a sentence.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Primary nouns get primary weight.</strong> The collection name is the noun. Everything else is a secondary attribute — and secondary attributes belong in the row's right-side actions group, a hover-revealed tray, or a single status dot.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Watch / active status genuinely needs to be glanceable. Mitigate: encode WATCH/ACTIVE as a single 4px colored left edge (you almost do this already — commit to it and remove the pill). Move ME/X/LMNFT to a right-side icon tray.</dd>
+              <dt>Concrete</dt>
+              <dd>4 badges → 1 left-edge state · 3 marketplace icons grouped right · collection name +1 weight step.</dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-06 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-06</span>
+            <span class="rec-title">Unify the SPREAD column's color logic on the Tools page.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>The Tools page is "personal offers received on <em>your</em> listings." A spread of <strong>+42.8</strong> means an offer 42% <em>above</em> your listing — that's <em>good</em> for you. But it renders green simply because the number is positive. Meanwhile <strong>−36.1%</strong> renders red and is in fact a deep lowball. The arithmetic sign is doing the semantic work, but the semantics are reversed.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Color should encode meaning, not arithmetic.</strong> The user does not care that 42.8 is positive; they care that 42.8 is <em>favorable</em>.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Inverting feels wrong to anyone who has internalized the current behavior. Ship a small inline tooltip on first hover: <em>"green = favorable to you (offer ≥ listing)"</em>. Then never speak of it again.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Tools / ME offers</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-07 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-07</span>
+            <span class="rec-title">Tabular figures + consistent decimal places for all SOL prices.</span>
+            <span class="impact high">High impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>On the Feed: <strong>0.080</strong>, <strong>0.79</strong>, <strong>0.036</strong>, <strong>0.014</strong>, <strong>1.09</strong>. Five different decimal precisions in five rows. The decimal point shifts horizontally row to row, so the user cannot pre-attentively compare magnitudes. The price column should be a tabular figures monospace with right-aligned decimals.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Align on the decimal.</strong> This is universal in trading UIs and the single highest-leverage change for numeric scanability. Cost: a font-feature-setting and a CSS class.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>You may need 3–4 decimals on sub-0.01 prices and 2 decimals on &gt;1 SOL prices. Pick a single precision per price bucket and right-align on the decimal separator, not the number's right edge.</dd>
+              <dt>Concrete</dt>
+              <dd>Use <code>font-variant-numeric: tabular-nums</code> + a custom decimal-aligned formatter. Apply globally to <em>.price</em>, <em>.spread</em>, <em>.delta</em>.</dd>
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- ============ ANNOTATED BEFORE / AFTER ============ -->
+      <div class="annot">
+        <div class="h"><span>Annotated comparison · <span class="pg">Feed row</span></span><span>Density · Color · Hierarchy</span></div>
+        <div class="body">
+          <div>
+            <span class="label-tag before">Current</span>
+            <div class="mock bad" style="margin-top:8px">
+              <div class="row">
+                <div class="av"></div>
+                <div class="nm">uAPE #24<span class="sub">seller F9Qh…WMJu · buyer Emkp…HQJh</span></div>
+                <div class="pct">+34%</div>
+                <div class="px">0.080<span class="u">SOL</span></div>
+                <div class="ago" style="position:absolute;top:8px;right:12px">14s ago</div>
+              </div>
+              <div class="row">
+                <div class="av" style="background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="nm">Absurd Ape #3468<span class="sub">seller 6jKj…DwWv · buyer 3Y6c…AMFp</span></div>
+                <div class="pct r">+5%</div>
+                <div class="px">0.036<span class="u">SOL</span></div>
+                <div class="ago" style="position:absolute;top:8px;right:12px">2m ago</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Issues:</strong> tall row · oversized avatar · pink timestamp · two competing badges (delta + class) · address strings get more weight than the price · 7 rows visible per viewport.</p>
+          </div>
+          <div>
+            <span class="label-tag after">Proposed</span>
+            <div class="mock" style="margin-top:8px;gap:0">
+              <div class="row" style="grid-template-columns:24px 16px 1fr auto auto auto;gap:12px;padding:6px 10px">
+                <div class="av" style="width:18px;height:18px;border-radius:3px"></div>
+                <div class="ago" style="color:var(--text-mute)">14s</div>
+                <div class="nm" style="font-size:13px;font-weight:500">uAPE #24 <span class="sub" style="color:var(--text-mute);font-weight:400">F9Qh→Emkp</span></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--violet);letter-spacing:.04em">BUY</div>
+                <div class="pct" style="background:none;border:none;padding:0">+34%</div>
+                <div class="px" style="font-size:13px">0.080</div>
+              </div>
+              <div class="row" style="grid-template-columns:24px 16px 1fr auto auto auto;gap:12px;padding:6px 10px">
+                <div class="av" style="width:18px;height:18px;border-radius:3px;background:linear-gradient(135deg,#3b1a2a,#a04060)"></div>
+                <div class="ago" style="color:var(--text-mute)">1m</div>
+                <div class="nm" style="font-size:13px;font-weight:500">Wizard #188 <span class="sub" style="color:var(--text-mute);font-weight:400">3Y6c→2pum</span></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--violet);letter-spacing:.04em">BUY</div>
+                <div class="pct" style="background:none;border:none;padding:0">+20%</div>
+                <div class="px" style="font-size:13px">0.790</div>
+              </div>
+              <div class="row" style="grid-template-columns:24px 16px 1fr auto auto auto;gap:12px;padding:6px 10px">
+                <div class="av" style="width:18px;height:18px;border-radius:3px;background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="ago" style="color:var(--text-mute)">2m</div>
+                <div class="nm" style="font-size:13px;font-weight:500">Absurd Ape #3468 <span class="sub" style="color:var(--text-mute);font-weight:400">6jKj→3Y6c</span></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:.04em">AMM</div>
+                <div class="pct" style="background:none;border:none;padding:0">+5%</div>
+                <div class="px" style="font-size:13px">0.036</div>
+              </div>
+              <div class="row" style="grid-template-columns:24px 16px 1fr auto auto auto;gap:12px;padding:6px 10px">
+                <div class="av" style="width:18px;height:18px;border-radius:3px;background:linear-gradient(135deg,#3b1a2a,#a04060)"></div>
+                <div class="ago" style="color:var(--text-mute)">4m</div>
+                <div class="nm" style="font-size:13px;font-weight:500">MallStreet <span class="sub" style="color:var(--text-mute);font-weight:400">CYQr→YOU</span></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:.04em">AMM</div>
+                <div class="pct r" style="background:none;border:none;padding:0">−11%</div>
+                <div class="px" style="font-size:13px">0.014</div>
+              </div>
+              <div class="row" style="grid-template-columns:24px 16px 1fr auto auto auto;gap:12px;padding:6px 10px">
+                <div class="av" style="width:18px;height:18px;border-radius:3px;background:linear-gradient(135deg,#5a3fcf,#b69dff)"></div>
+                <div class="ago" style="color:var(--text-mute)">4m</div>
+                <div class="nm" style="font-size:13px;font-weight:500">Wassieverse #517 <span class="sub" style="color:var(--text-mute);font-weight:400">CH1R→Ef9S</span></div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--cyan);letter-spacing:.04em">AMM</div>
+                <div class="pct r" style="background:none;border:none;padding:0">−3%</div>
+                <div class="px" style="font-size:13px">1.090</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Wins:</strong> ~5× more rows per viewport · timestamp returns to neutral · class (BUY/AMM) is a typographic chip, not a colored pill · delta gets the only saturated color · decimals align on a single tabular column · address pair becomes <em>from→to</em> instead of two stacked lines.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ MEDIUM IMPACT ============ -->
+  <section class="s" id="medium">
+    <div class="label">
+      <div class="num">§ 03 · IMPACT/MED</div>
+      <div class="name">Polish that compounds</div>
+    </div>
+    <div>
+      <h2>Medium-impact: <span class="em">consistency</span> and <span class="em">interaction language</span>.</h2>
+      <div class="desc">
+        These don't change the product's perceived quality on first sight, but they remove the small frictions that make a power-user feel like they're working <em>on</em> the tool instead of <em>through</em> it.
+      </div>
+
+      <div class="recs">
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-01</span>
+            <span class="rec-title">Unify the row-state language across pages.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Medium</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>Feed rows have a violet left edge. Mints rows have green/red/yellow left edges. Tools rows have a colored left edge for some rows and not others. Board rows have small red/green edges. The same visual signal means four different things across four pages.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>One mark, one meaning, everywhere.</strong> Pick one semantic for the left edge (recommendation: <em>row freshness / time-decay</em> — full opacity at insert, fading over 30s) and apply it on every list.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Loses some category-coding on Mints. Replace with a small classification icon at the row's left, after the edge.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints</span><span class="page-tag">Tools</span><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-02</span>
+            <span class="rec-title">Replace the "—" coef/avg placeholder with a dim numeric zero or empty cell.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>"—" reads as <em>"this thing is here, but missing"</em> and creates visual weight every time. In a column of mostly-empty values, that weight stacks into a vertical wall.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Absence should be quiet.</strong> Either render nothing (true empty) or render a 25% opacity <code>·</code>. Reserve "—" for cases where the value is meaningfully <em>not-applicable</em> versus simply <em>not-yet-computed</em>.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>None substantive. Test with a column-toggle so users who want the placeholder back can opt in.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Mints</span><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-03</span>
+            <span class="rec-title">Standardize sparkline color: only <em>two</em> hues, mapped to 7d-delta sign.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>On Board, sparklines render in blue, green, red, and purple — apparently per-collection identity. This is not signal. It is decoration that competes with the actual signal (the slope of the line).</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Color where there's no other channel.</strong> A sparkline already encodes change via slope and shape. Use color only to encode the <em>sign</em> of the 7d delta. One green hue, one red hue, neutral otherwise.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Loses per-row "color-coding" which some users may have grown attached to. Replace with a single 2px colored tick at the line's end-cap if you need a per-row identifier.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-04</span>
+            <span class="rec-title">Make hover/focus states visible at terminal speeds.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>The screenshots don't show hover, but inferring from common dark-terminal patterns: hover is probably a 4% background lift. On a fast-scrolling tape that's invisible. A trader needs to know <em>where the row will commit</em> before clicking.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Hover is feedback, not flair.</strong> Use a 1px violet left-rule appearing on hover (already part of your vocabulary) + an 8% background lift + a subtle 1px outer outline at the row's right-edge action group.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Hover-flash on rapidly-arriving rows can feel jittery. Disable hover-lift while the row is &lt;1s old and the feed is unpaused.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">All</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-05</span>
+            <span class="rec-title">Animation budget: insert and price-flash only. Nothing else.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>Subtle is your stated philosophy and the screenshots back this — but on a 150-row tape, even one unnecessary transition compounds. Codify it: <em>row-insert</em> uses a 120ms opacity+y-translate; <em>price flash</em> uses a 180ms background pulse; everything else is instantaneous.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Perceived responsiveness = first paint &lt; 100ms.</strong> Transitions on filter changes, mode switches, tab toggles should not animate. They feel slow even at 150ms.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Some surfaces (Tools page mode switches) genuinely benefit from a 100ms crossfade. Allow it, but cap at 120ms.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">All</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-06</span>
+            <span class="rec-title">"ME OK" / "MINTS ON" / "OFF" status chips: too many, too prominent.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>The top bar reads <em>"MODE: SALES ONLY · MINTS ON · OFF"</em> — three controls in three different visual treatments (label-value, outlined chip, outlined chip in red). The hierarchy implies they're peers; the colors imply they're not.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Toggle visual = toggle behavior.</strong> Mode switches that toggle the same kind of state should look identical. Either all three are pill toggles, or all three are dropdowns.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>OFF is currently red to signal "kill switch" — that semantic is worth keeping, but should be a single iconic kill button (square, red outline) clearly separated from the toggles.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Global header</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-07</span>
+            <span class="rec-title">Tools page: dim EXPIRED rows to ~40% opacity. Don't show price/spread in full.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>EXPIRED rows currently show full-weight prices, full-color spreads (+1973.7%, +600%, +468%) — they compete with the 3 ACTIVE rows above for attention. The eye is drawn to the largest number, which is a dead offer.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>State drives weight.</strong> Inactive data should be ~40–50% opacity by default, with a hover-restore to full opacity for inspection.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>None. Users who care about expired data can still see it; users who don't aren't distracted.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Tools</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-08</span>
+            <span class="rec-title">Page titles ("Live events", "Live mint tracker", "Trending collections") are typographically weak.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Trivial</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>Each page introduces itself with a 20–22px sentence-case label. Compare to the typographic weight of the data below it — the title is doing less work than a single row. A terminal doesn't need a page title at all if the nav already tells you where you are.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>If the nav says it, the page shouldn't repeat it.</strong> Option A: drop the title entirely; show only the live-state meta line. Option B: use the Instrument Serif italic at 14–16px as a refined byline ("<em>live events</em>").</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Removing a title can feel disorienting on first load. Keep it but cap at 16px and pair with the count + live-dot inline.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">All</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-09</span>
+            <span class="rec-title">Footer / status bar: 8 chips, no hierarchy. Trader's most-watched numbers are buried.</span>
+            <span class="impact med">Medium impact</span>
+            <span class="cplx">Complexity · Small</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Why it matters</dt>
+              <dd>The footer reads: <em>Discord · Twitter · 0 alerts · FEES · SOUND · TPS 3 538 · SOL $83.61 · live · EVENTS 100</em>. These are six classes of data given one weight. SOL price + TPS are the two most-watched terminal numbers; they should be biggest. Discord/Twitter are vanity links; smallest.</dd>
+              <dt>UX principle</dt>
+              <dd><strong>Status bar = market dashboard.</strong> Bloomberg's status bar shows: time, latency, P&L, market state. Yours has the right ingredients; they need ranking.</dd>
+            </div>
+            <div class="col">
+              <dt>Risk / tradeoff</dt>
+              <dd>Rebalancing might break muscle memory for power users. Ship behind a v2 toggle.</dd>
+              <dt>Affected</dt>
+              <dd class="pages"><span class="page-tag">Global footer</span></dd>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LOW IMPACT ============ -->
+  <section class="s" id="low">
+    <div class="label">
+      <div class="num">§ 04 · IMPACT/LOW</div>
+      <div class="name">Nice polish</div>
+    </div>
+    <div>
+      <h2>Low-impact: <span class="em">craftsmanship</span>.</h2>
+      <div class="desc">
+        Nothing here is a problem. These are the moves that take a B+ product to an A — the kinds of details that traders notice subconsciously and that elevate perceived quality without you having to point at them.
+      </div>
+
+      <div class="recs">
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-01</span><span class="rec-title">Address truncation: switch from "F9Qh…WMJu" to "F9Qh→WMJu" or middle-ellipsis with monospace.</span><span class="impact low">Low</span><span class="cplx">Trivial</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>The ellipsis "…" is visually heavier than the surrounding glyphs in most monospaced fonts. A right-arrow or a narrow ellipsis (U+2026 in a tighter font, or a 2-dot leader) reads cleaner at small sizes.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>None. Pure type detail.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-02</span><span class="rec-title">Use Instrument Serif italic for a single editorial accent per page — not for the brand mark <em>and</em> nothing else.</span><span class="impact low">Low</span><span class="cplx">Trivial</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>Right now the serif italic lives in the logo and nowhere else. It's a beautiful asset earning its keep in one place. Apply it sparingly: section labels ("<em>live</em>", "<em>trending</em>") or empty-state copy.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>Overuse defeats the rarity. Cap at one italic phrase per page.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-03</span><span class="rec-title">Search bar is 50% of viewport width and visually heavier than the nav. Shrink to ~28% and right-align.</span><span class="impact low">Low</span><span class="cplx">Trivial</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>Search is a secondary action on a tape — primary use is observation, not discovery. The "/" keyboard shortcut indicator suggests power users use the hotkey, so the visual weight is wasted.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>Some users discover collections via search-as-you-type. Keep that working; just shrink the field.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-04</span><span class="rec-title">Number formatting: use a thin space (U+202F) as thousand-separator, not a regular space.</span><span class="impact low">Low</span><span class="cplx">Trivial</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>"11 776" and "3 538" currently use a full space. At tight row heights the gap looks like a column break. A thin or hair space is unambiguous.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>None.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-05</span><span class="rec-title">Top-right MODE/MINTS/OFF cluster: add a 1px vertical rule between MODE and the toggles.</span><span class="impact low">Low</span><span class="cplx">Trivial</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>Mode (read-only state) and toggles (interactive) are different classes. A 1px rule groups them appropriately without adding chrome.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>None.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-06</span><span class="rec-title">PC / LAPTOP / PHONE density switcher: relocate to a "<em>density</em>" menu inside settings instead of always-on bottom right.</span><span class="impact low">Low</span><span class="cplx">Small</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Why</dt><dd>Power users set density once. After that the switcher is always-on chrome with no recurring value. Move to settings; expose via keyboard shortcut.</dd></div>
+            <div class="col"><dt>Risk</dt><dd>Discoverability drops on first visit. Mitigate with a 5-second toast on first session.</dd></div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TOP 5 ROI ============ -->
+  <section class="s" id="top5">
+    <div class="label">
+      <div class="num">§ 05</div>
+      <div class="name">Top 5 ROI</div>
+    </div>
+    <div>
+      <h2>If you ship <span class="em">five</span> things, ship these.</h2>
+      <div class="desc">Ranked by (perceived-quality lift) ÷ (engineering hours). Each is independently shippable in a sprint or less.</div>
+
+      <div class="top5">
+        <div class="t5">
+          <div class="rank">01</div>
+          <div class="h">Decimal-aligned tabular figures globally.</div>
+          <div class="p">Single CSS class. Touches every number column. Largest perceived-quality lift per line of code in the entire audit.</div>
+          <div class="roi">ROI · ~30 min eng · huge</div>
+        </div>
+        <div class="t5">
+          <div class="rank">02</div>
+          <div class="h">Neutralize timestamps.</div>
+          <div class="p">Remove the pink/amber on "14s ago." Timestamps are reference data; they don't belong on a hue axis. One token change.</div>
+          <div class="roi">ROI · 15 min eng · large</div>
+        </div>
+        <div class="t5">
+          <div class="rank">03</div>
+          <div class="h">Cut Feed row height by ~40%.</div>
+          <div class="p">Avatars from ~80px → 24px. Padding from comfy → compact. 20+ rows per viewport instead of 7. This is what makes it feel like a terminal.</div>
+          <div class="roi">ROI · ~2 hrs eng · transformative</div>
+        </div>
+        <div class="t5">
+          <div class="rank">04</div>
+          <div class="h">Kill the centered card; fill viewport.</div>
+          <div class="p">Drop the rounded panel on the main work surface. Edge-to-edge tables with thin internal rules. Reclaims ~35% of every screen.</div>
+          <div class="roi">ROI · ~half day eng · transformative</div>
+        </div>
+        <div class="t5">
+          <div class="rank">05</div>
+          <div class="h">Collapse the badge wall.</div>
+          <div class="p">WATCH/ACTIVE → left-edge stripe. ME/X/LMNFT → right-side icon tray. Collection name becomes the primary read again.</div>
+          <div class="roi">ROI · ~1 day eng · large</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRIPTYCH ============ -->
+  <section class="s" id="triptych">
+    <div class="label">
+      <div class="num">§ 06</div>
+      <div class="name">Fix · Polish · Keep</div>
+    </div>
+    <div>
+      <h2>The cheat sheet.</h2>
+      <div class="desc">If you only read one section: this one. Action items split into three buckets — what to fix this sprint, what to polish over time, and what to <em>not touch under any circumstances</em>.</div>
+
+      <div class="triptych">
+        <div class="col-card fix">
+          <div class="h">Must fix · this quarter</div>
+          <ul>
+            <li><strong>Decimal alignment</strong> on every numeric column (tabular-nums + formatter).</li>
+            <li><strong>Compress Feed row height</strong> to ~32–40px; default to Compact density.</li>
+            <li><strong>De-color timestamps.</strong> Move "14s ago" to the neutral ramp.</li>
+            <li><strong>Fix SPREAD semantics</strong> on Tools page (sign is not direction).</li>
+            <li><strong>Collapse badge stack</strong> next to collection names.</li>
+            <li><strong>Fill the viewport.</strong> Remove the centered card panel on tables.</li>
+            <li><strong>Unify left-edge meaning</strong> across Feed/Mints/Tools/Board.</li>
+          </ul>
+        </div>
+        <div class="col-card polish">
+          <div class="h">Nice polish · over time</div>
+          <ul>
+            <li><strong>Sparkline color</strong> → two-hue (sign of 7d delta) only.</li>
+            <li><strong>Dim EXPIRED rows</strong> to 40% opacity on Tools page.</li>
+            <li><strong>Animation budget</strong> — codify insert (120ms) and price-flash (180ms); nothing else.</li>
+            <li><strong>Hover visibility</strong> — 8% lift + 1px violet left-rule on row hover.</li>
+            <li><strong>Address arrows</strong> — <em>F9Qh→WMJu</em> instead of stacked seller/buyer lines.</li>
+            <li><strong>Status bar reranking</strong> — SOL price + TPS get top weight; social links get bottom.</li>
+            <li><strong>Editorial italic</strong> — one Instrument Serif accent per page, not zero, not three.</li>
+          </ul>
+        </div>
+        <div class="col-card keep">
+          <div class="h">Do NOT touch</div>
+          <ul>
+            <li><strong>The violet accent system.</strong> It's distinctive without being Web3-tacky. Don't drift toward cyan, don't drift toward neon.</li>
+            <li><strong>The dark canvas.</strong> Resist any "light mode" request. It's wrong for a terminal.</li>
+            <li><strong>The information density philosophy.</strong> Stated and observed — don't let SaaS habits pad it back out.</li>
+            <li><strong>Density modes</strong> (PC/Laptop/Phone/Tape/Compact/Comfy). Keep them; just fix the <em>default</em> per page.</li>
+            <li><strong>The serif italic VictoryLabs mark.</strong> It's the strongest piece of identity on the screen.</li>
+            <li><strong>The card-less Board sparklines and the inline volume bars.</strong> Those mini-vis are well-judged.</li>
+            <li><strong>Keyboard shortcuts (the "/" hint).</strong> Power-user respect. Add more, never fewer.</li>
+            <li><strong>The "Pause" + "Filters" placement</strong> on the Feed. Right-aligned, secondary weight — correct.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PER-PAGE NOTES ============ -->
+  <section class="s">
+    <div class="label">
+      <div class="num">§ 07</div>
+      <div class="name">Per-page notes</div>
+    </div>
+    <div>
+      <h2>Quick reads, page by page.</h2>
+      <div class="desc">A skim layer for the leads who don't read the whole audit. One paragraph per screen.</div>
+
+      <div class="recs" style="margin-top:18px">
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-01</span><span class="rec-title">Feed</span><span class="impact high">Most upside</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.65">The hardest-working page in the product and the one currently doing the least with its space. Single biggest win: drop avatars to 24px, halve row padding, kill the centered card, and re-neutralize timestamps. After those four changes the Feed will feel like a different product without changing a single concept.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-02</span><span class="rec-title">Mints</span><span class="impact med">High noise</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.65">The split layout (main table + right sidebar feed) is structurally good — the right rail is doing real work. The badge wall next to each collection name is the headline problem. Once those collapse, the visual hierarchy of MINTS / SUPPLY / LAST MINT / COEF / RATE columns will read clearly. Secondary: the COEF column's "—" placeholders need to recede.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-03</span><span class="rec-title">Tools · ME personal offers</span><span class="impact med">Semantic bug</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.65">Color semantics on SPREAD are the loudest issue — the column is currently more confusing than helpful. After flipping, dim the 5+ EXPIRED rows. The page then becomes a tight 3-row actionable list with historical context dimmed below, which is exactly what an offers-management tool should be.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-04</span><span class="rec-title">Board · trending collections</span><span class="impact low">Closest to right</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.65">The most polished page in the audit. The combination of rank-number, avatar, name, and inline sparkline + bar-chart is doing real work and shouldn't be touched structurally. Only two changes needed: collapse sparkline color to two hues (sign of 7d delta), and clarify what the SALES column's red vs. green encoding actually means — right now it reads as ambiguous (volume threshold? momentum? direction?).</div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING NOTE ============ -->
+  <section class="s">
+    <div class="label">
+      <div class="num">§ 08</div>
+      <div class="name">Closing</div>
+    </div>
+    <div>
+      <h2>The <span class="em">honest</span> read.</h2>
+      <div class="desc" style="max-width:780px">
+        VictoryLabs is good. The instincts behind it — dense, dark, violet accent, restrained chrome — are correct, and most of the design vocabulary is already in place. What's holding it back is not vision but discipline at the token layer: a half-dozen decisions about color semantics, row height, and viewport utilization are being made differently on every page. Codify those at the tokens level, ship the seven Must-Fix items, and the perceived quality will jump a full grade without the user being able to explain why. The Top-5 ROI list is the place to start. Nothing else in this document matters until those are done.
+      </div>
+      <div style="margin-top:18px;padding:16px 20px;border-left:2px solid var(--violet);background:rgba(138,108,255,.06);border-radius:0 6px 6px 0;color:var(--text-dim);font-size:13.5px;line-height:1.65">
+        <strong style="color:var(--text)">A note on what was deliberately not recommended.</strong>
+        No new charts. No new widgets. No accessibility-compliance boilerplate. No glassmorphism. No light theme. No mobile-first padding. No SaaS hero sections. No identity changes. No removal of density. This is on purpose: a trading terminal's job is to disappear into the data, and most "redesigns" make the chrome more visible, not less.
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div>VictoryLabs · UX/UI audit · prepared by design</div>
+  <div class="right">
+    <span>22 findings · 7 high / 9 medium / 6 low</span>
+    <span>Grade · B –</span>
+    <span><span style="color:var(--green)">●</span> internal</span>
+  </div>
+</footer>
+
+</body>
+</html>

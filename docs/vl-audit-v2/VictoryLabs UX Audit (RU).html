@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VictoryLabs — UX/UI аудит · v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:        #0a0814;
+    --bg-1:      #100c1f;
+    --bg-2:      #15102a;
+    --panel:     #16112b;
+    --panel-2:   #1c1638;
+    --line:      #251d44;
+    --line-2:    #2e2452;
+    --text:      #e7e3f4;
+    --text-dim:  #a39bbe;
+    --text-mute: #6e6689;
+    --violet:    #b69dff;
+    --violet-2:  #8a6cff;
+    --violet-3:  #5a3fcf;
+    --green:     #5be3a8;
+    --red:       #ff6b8a;
+    --amber:     #f1c46a;
+    --cyan:      #7adfff;
+    --pink:      #ff8ec3;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(138,108,255,.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(91,227,168,.04), transparent 60%),
+      var(--bg);
+    min-height:100vh;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+  .serif{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400}
+
+  /* ============ TOP BAR ============ */
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(10,8,20,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:10px 28px;display:flex;align-items:center;gap:18px}
+  .brand{display:flex;align-items:baseline;gap:0;font-weight:700;letter-spacing:-0.01em;font-size:18px}
+  .brand .v{color:var(--violet);font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:22px}
+  .brand .l{color:var(--text);font-weight:600;font-size:15px;margin-left:2px}
+  .topbar .v2{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--violet);letter-spacing:.12em;padding:3px 7px;border:1px solid rgba(138,108,255,.4);background:rgba(138,108,255,.08);border-radius:4px;margin-left:8px;text-transform:uppercase}
+  .topbar nav{display:flex;gap:2px;margin-left:18px;font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.08em}
+  .topbar nav a{color:var(--text-mute);text-decoration:none;padding:6px 10px;border-radius:6px;text-transform:uppercase;transition:color .15s, background .15s}
+  .topbar nav a:hover{color:var(--text);background:var(--panel)}
+  .topbar nav a.active{color:var(--violet);background:rgba(138,108,255,.10)}
+  .topbar .meta{margin-left:auto;display:flex;gap:18px;align-items:center;color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .topbar .meta .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);display:inline-block;margin-right:6px;vertical-align:middle}
+
+  /* ============ LAYOUT ============ */
+  .wrap{max-width:1480px;margin:0 auto;padding:36px 28px 80px;display:grid;grid-template-columns:1fr;gap:48px}
+
+  /* ============ HERO ============ */
+  .hero{padding:8px 0 4px;border-bottom:1px solid var(--line);padding-bottom:24px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--violet);margin-bottom:14px;display:flex;gap:10px;align-items:center}
+  .kicker::before{content:"";display:inline-block;width:6px;height:6px;background:var(--violet);border-radius:50%;box-shadow:0 0 10px var(--violet)}
+  h1{font-size:42px;line-height:1.08;margin:0 0 10px;font-weight:600;letter-spacing:-0.02em}
+  h1 .em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--violet)}
+  .hero p.lede{max-width:840px;color:var(--text-dim);font-size:16px;line-height:1.7;margin:14px 0 0}
+  .hero p.lede strong{color:var(--text);font-weight:600}
+  .hero .v1-note{margin-top:18px;padding:12px 16px;border-left:2px solid var(--amber);background:rgba(241,196,106,.06);border-radius:0 6px 6px 0;color:var(--text-dim);font-size:13px;line-height:1.65;max-width:840px}
+  .hero .v1-note strong{color:var(--amber);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:4px}
+  .hero .stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:0;margin-top:28px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stat{padding:14px 18px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute)}
+  .stat .val{font-family:'JetBrains Mono',monospace;font-size:20px;color:var(--text);margin-top:4px;font-weight:500}
+  .stat .val.red{color:var(--red)}
+  .stat .val.amber{color:var(--amber)}
+  .stat .val.green{color:var(--green)}
+  .stat .val.violet{color:var(--violet)}
+
+  /* ============ SECTION ============ */
+  section.s{display:grid;grid-template-columns:220px 1fr;gap:32px;align-items:start}
+  section.s .label{position:sticky;top:84px;padding-top:6px}
+  section.s .label .num{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--text-mute)}
+  section.s .label .name{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--violet);text-transform:uppercase;margin-top:6px}
+  section.s h2{font-size:28px;font-weight:600;letter-spacing:-0.01em;margin:0 0 6px}
+  section.s h2 .em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;color:var(--violet)}
+  section.s .desc{color:var(--text-dim);max-width:820px;font-size:14.5px;line-height:1.7}
+
+  /* ============ EXEC SUMMARY ============ */
+  .exec{display:grid;grid-template-columns:1.4fr 1fr;gap:24px;margin-top:20px}
+  .exec .block{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel),var(--bg-1));padding:22px}
+  .exec h3{margin:0 0 12px;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--violet);font-family:'JetBrains Mono',monospace;font-weight:500}
+  .exec p{color:var(--text-dim);margin:0 0 10px;font-size:14px;line-height:1.7}
+  .exec p strong{color:var(--text);font-weight:600}
+  .verdict{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .verdict .v{padding:18px;background:var(--panel)}
+  .verdict .v .lbl{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-mute);margin-bottom:8px}
+  .verdict .v .big{font-size:22px;font-weight:600;letter-spacing:-0.01em;line-height:1.2}
+  .verdict .v.good .big{color:var(--green)}
+  .verdict .v.bad .big{color:var(--red)}
+  .verdict .v.mid .big{color:var(--amber)}
+  .verdict .v.viol .big{color:var(--violet)}
+  .verdict .v .sub{color:var(--text-dim);font-size:12.5px;margin-top:6px;line-height:1.55}
+
+  /* ============ REC CARDS ============ */
+  .recs{display:grid;grid-template-columns:1fr;gap:14px;margin-top:18px}
+  .rec{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel),var(--bg-1));padding:0;overflow:hidden}
+  .rec-head{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.012)}
+  .rec-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-mute);letter-spacing:.08em}
+  .rec-title{font-size:16px;font-weight:600;letter-spacing:-0.005em;color:var(--text)}
+  .impact{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.10em;text-transform:uppercase;padding:4px 8px;border-radius:4px;border:1px solid;white-space:nowrap}
+  .impact.high{color:var(--red);border-color:rgba(255,107,138,.4);background:rgba(255,107,138,.08)}
+  .impact.med{color:var(--amber);border-color:rgba(241,196,106,.4);background:rgba(241,196,106,.08)}
+  .impact.low{color:var(--cyan);border-color:rgba(122,223,255,.4);background:rgba(122,223,255,.08)}
+  .cplx{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.10em;text-transform:uppercase;padding:4px 8px;border-radius:4px;border:1px dashed var(--line-2);color:var(--text-dim);white-space:nowrap}
+  .rec-body{padding:6px 20px 18px;display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+  .rec-body .col{padding:12px 0 0}
+  .rec-body dt{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--violet);margin:8px 0 4px}
+  .rec-body dd{margin:0 0 6px;color:var(--text-dim);font-size:13.5px;line-height:1.65}
+  .rec-body dd strong{color:var(--text);font-weight:600}
+  .rec-body dd code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg-2);border:1px solid var(--line);padding:1px 6px;border-radius:4px;color:var(--violet)}
+  .rec-body dd em{font-style:normal;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--bg-2);padding:1px 6px;border-radius:4px}
+  .rec-body .full{grid-column:1/-1}
+
+  .pages{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .page-tag{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);background:var(--bg-2);border:1px solid var(--line);padding:3px 7px;border-radius:4px}
+
+  /* ============ TOP 5 ============ */
+  .top5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}
+  .t5{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel-2),var(--panel));padding:16px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}
+  .t5::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--violet),transparent)}
+  .t5 .rank{font-family:'Instrument Serif',serif;font-style:italic;font-size:38px;line-height:1;color:var(--violet);font-weight:400;margin:-4px 0 0}
+  .t5 .h{font-size:14px;font-weight:600;line-height:1.35}
+  .t5 .p{color:var(--text-dim);font-size:12.5px;line-height:1.55;flex:1}
+  .t5 .roi{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.10em;color:var(--green);text-transform:uppercase;border-top:1px solid var(--line);padding-top:8px}
+
+  /* ============ FIX / POLISH / KEEP ============ */
+  .triptych{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:18px}
+  .col-card{border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--panel),var(--bg-1));overflow:hidden}
+  .col-card .h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+  .col-card.fix .h{color:var(--red)}
+  .col-card.polish .h{color:var(--amber)}
+  .col-card.keep .h{color:var(--green)}
+  .col-card .h::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+  .col-card ul{margin:0;padding:14px 18px 18px;list-style:none}
+  .col-card li{position:relative;padding-left:18px;color:var(--text-dim);font-size:13px;line-height:1.6;margin-bottom:10px}
+  .col-card li::before{content:"";position:absolute;left:0;top:9px;width:8px;height:1px;background:var(--text-mute)}
+  .col-card li strong{color:var(--text);font-weight:600}
+
+  /* ============ ANNOTATION BLOCKS ============ */
+  .annot{margin-top:20px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg-1)}
+  .annot .h{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute)}
+  .annot .h .pg{color:var(--violet)}
+  .annot .body{padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .annot .label-tag{font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.12em;display:inline-block;padding:2px 7px;border-radius:3px;border:1px solid}
+  .annot .label-tag.before{color:var(--red);border-color:rgba(255,107,138,.4);background:rgba(255,107,138,.08)}
+  .annot .label-tag.after{color:var(--green);border-color:rgba(91,227,168,.4);background:rgba(91,227,168,.08)}
+  .annot .desc{margin-top:10px;color:var(--text-mute);font-size:12px;line-height:1.6}
+  .annot .desc strong{color:var(--text-dim);font-weight:500}
+
+  /* MOCK FEED ROW */
+  .feedmock{border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:10px;display:flex;flex-direction:column;gap:6px;margin-top:8px}
+  .feedmock .r{display:grid;grid-template-columns:48px 1fr auto auto auto auto;gap:14px;align-items:center;padding:10px 12px;border-radius:6px;background:var(--bg-1);border:1px solid var(--line);position:relative}
+  .feedmock .r .av{width:42px;height:42px;border-radius:6px;background:linear-gradient(135deg,#2a1f55,#5a3fcf)}
+  .feedmock .r .nm{font-size:14px;font-weight:600;color:var(--text)}
+  .feedmock .r .nm .addr{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-mute);margin-left:8px;font-weight:400}
+  .feedmock .r .chip{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.04em;padding:2px 7px;border-radius:3px;border:1px solid}
+  .feedmock .r .chip.buy{color:var(--green);border-color:rgba(91,227,168,.35);background:rgba(91,227,168,.06)}
+  .feedmock .r .chip.amm{color:var(--violet);border-color:rgba(138,108,255,.35);background:rgba(138,108,255,.06)}
+  .feedmock .r .pct{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--green)}
+  .feedmock .r .pct.neg{color:var(--red)}
+  .feedmock .r .px{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600;color:var(--text);text-align:right;min-width:80px}
+  .feedmock .r .px .u{font-size:10px;color:var(--text-mute);margin-left:3px;font-weight:400}
+  .feedmock .r .ago{font-family:'JetBrains Mono',monospace;font-size:11px;min-width:42px;text-align:right}
+  .feedmock .r .ago.veryfresh{color:var(--pink)}
+  .feedmock .r .ago.fresh{color:var(--amber)}
+  .feedmock .r .ago.older{color:var(--text-mute)}
+
+  /* MINTS MOCK */
+  .mintmock{border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:10px;display:flex;flex-direction:column;gap:6px;margin-top:8px}
+  .mintmock .r{display:grid;grid-template-columns:32px 1fr 110px auto auto auto;gap:14px;align-items:center;padding:8px 12px;border-radius:6px;background:var(--bg-1);border:1px solid var(--line)}
+  .mintmock .r .av{width:28px;height:28px;border-radius:5px;background:linear-gradient(135deg,#2a1f55,#5a3fcf)}
+  .mintmock .r .nm{display:flex;align-items:center;gap:10px;min-width:0}
+  .mintmock .r .nm .t{font-size:13.5px;font-weight:600;color:var(--text)}
+  .mintmock .r .badges{display:flex;gap:4px;flex-shrink:0}
+  .mintmock .r .badges .grp{display:flex;gap:2px;padding:2px 5px;border:1px solid var(--line);border-radius:4px;background:var(--bg-2)}
+  .mintmock .r .badges .grp .b{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--text-dim);padding:1px 3px;border-radius:2px;cursor:pointer}
+  .mintmock .r .badges .grp .b:hover{background:var(--panel);color:var(--violet)}
+  .mintmock .r .badges .src{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--violet);padding:2px 6px;border:1px dashed rgba(138,108,255,.4);background:rgba(138,108,255,.04);border-radius:3px;text-transform:uppercase;letter-spacing:.05em}
+  .mintmock .r .mints{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:13px;color:var(--text);display:flex;align-items:baseline;gap:0}
+  .mintmock .r .mints .observed{color:var(--violet);font-weight:600}
+  .mintmock .r .mints .sep{color:var(--text-mute);margin:0 4px;font-weight:400}
+  .mintmock .r .mints .supply{color:var(--text-dim);font-weight:400}
+  .mintmock .r .mints .bar{position:relative;width:60px;height:3px;background:var(--line);border-radius:2px;margin-left:10px;overflow:hidden}
+  .mintmock .r .mints .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--violet);border-radius:2px}
+  .mintmock .r .ago{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber);min-width:40px;text-align:right}
+  .mintmock .r .ago.fresh{color:var(--pink)}
+  .mintmock .r .rate{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-dim);min-width:46px;text-align:right}
+  .mintmock .r .ev{font-family:'JetBrains Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:.08em;padding:1px 6px;border-radius:3px;border:1px solid;white-space:nowrap}
+  .mintmock .r .ev.create{color:var(--amber);border-color:rgba(241,196,106,.4);background:rgba(241,196,106,.05)}
+  .mintmock .r .ev.mint{color:var(--text-mute);border-color:var(--line)}
+
+  footer{padding:40px 28px 24px;max-width:1480px;margin:0 auto;border-top:1px solid var(--line);color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.06em;display:flex;justify-content:space-between;align-items:center}
+  footer .right{display:flex;gap:18px}
+
+  @media (max-width:1100px){
+    section.s{grid-template-columns:1fr}
+    section.s .label{position:static}
+    .exec, .rec-body{grid-template-columns:1fr}
+    .top5{grid-template-columns:repeat(2,1fr)}
+    .triptych{grid-template-columns:1fr}
+    .hero .stats{grid-template-columns:repeat(3,1fr)}
+    .annot .body{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div class="brand"><span class="v">Victory</span><span class="l">Labs</span><span class="v2">v2 · revised</span></div>
+  <nav>
+    <a href="#summary" class="active">Резюме</a>
+    <a href="#high">High</a>
+    <a href="#medium">Medium</a>
+    <a href="#low">Low</a>
+    <a href="#top5">Топ-5 ROI</a>
+    <a href="#triptych">Чинить / Полировать / Не трогать</a>
+    <a href="#pages">По экранам</a>
+  </nav>
+  <div class="meta">
+    <span><span class="dot"></span>Аудит · v2</span>
+    <span>после фидбэка</span>
+    <span>18 мая 2026</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="kicker">UX / UI АУДИТ · v2 · ПЕРЕСОБРАН ПО ПРАВИЛЬНЫМ ПРЕДПОСЫЛКАМ</div>
+    <h1>Не <span class="em">плотность</span> ради плотности — а <span class="em">ясность</span> сигнала.</h1>
+    <p class="lede">
+      VictoryLabs — это не Bloomberg-тейп. Каждая строка в Feed — это <strong>отдельный значимый sale-event</strong>, который трейдер действительно рассматривает; крупный аватар нужен, потому что NFT часто узнаётся быстрее визуально, чем по тексту. Цвета таймстампов — это <strong>freshness-сигнал</strong>, а не декорация. Бейджи в Mints — это <strong>функциональные ссылки</strong> на маркетплейсы и лаунчпады, а не визуальный шум. BUY/SELL — <strong>направление</strong>; AMM — <strong>routing</strong>. Всё это нужно сохранить.
+    </p>
+    <p class="lede" style="margin-top:14px">
+      Где же реальные проблемы? Они тоньше: <strong>иерархия внутри строки</strong> (что ловит глаз первым — не всегда то, что важнее), <strong>смешение «наблюдённого live» и «реального supply»</strong> в Mints, <strong>неотличимость collection creation от обычного Core mint</strong>, <strong>EXPIRED-строки в Tools конкурируют с ACTIVE</strong>, <strong>AMM визуально выглядит как SELL</strong> (оба красные — путает routing с направлением), <strong>цены не выровнены по точке</strong> при сканировании, и <strong>организация бейджей</strong> в Mints (их не убирать, а лучше группировать). Это и есть фокус v2.
+    </p>
+    <div class="v1-note">
+      <strong>Чем v2 отличается от v1</strong>
+      Аудит v1 предлагал делать VictoryLabs «терминалом ради плотности» по шаблону Bloomberg — сжать строки, обесцветить таймстампы, убрать бейджи, обнулить green/red, паддить цены нулями. Это всё <strong style="color:var(--red)">отменено</strong>. Эти сигналы — часть продуктовой логики, а не визуальный шум. v2 строится из <em>реальных болевых точек</em> трейдера, а не из generic terminal-эстетики.
+    </p>
+
+    <div class="stats">
+      <div class="stat"><div class="lbl">Экранов</div><div class="val">04</div></div>
+      <div class="stat"><div class="lbl">Находок</div><div class="val">16</div></div>
+      <div class="stat"><div class="lbl">High</div><div class="val red">06</div></div>
+      <div class="stat"><div class="lbl">Medium</div><div class="val amber">06</div></div>
+      <div class="stat"><div class="lbl">Low</div><div class="val">04</div></div>
+      <div class="stat"><div class="lbl">Цель</div><div class="val violet">scan + clarity</div></div>
+    </div>
+  </header>
+
+  <!-- ============ EXECUTIVE SUMMARY ============ -->
+  <section class="s" id="summary">
+    <div class="label">
+      <div class="num">§ 01</div>
+      <div class="name">Резюме</div>
+    </div>
+    <div>
+      <h2>Где продукт <span class="em">реально</span> теряет скорость принятия решения.</h2>
+      <div class="desc">
+        Шесть мест, в которых трейдеру нужно сделать лишнюю работу глазом или мозгом — и где её можно убрать без удаления функционала и без выравнивания продукта под чужой «terminal aesthetic».
+      </div>
+
+      <div class="exec">
+        <div class="block">
+          <h3>Диагноз v2</h3>
+          <p><strong>1. «Наблюдённое live» vs «реальный supply» в Mints.</strong> Колонки MINTS и SUPPLY сейчас выглядят одинаково по весу. Трейдер вынужден помнить, какая из цифр — что VictoryLabs увидел в стриме, а какая — реальный on-chain supply. Это решается одним типографическим различием + опциональным прогресс-индикатором.</p>
+          <p><strong>2. Collection creation ≠ Core mint.</strong> Это два разных события, которые сейчас визуально слиты. Сам пункт ваш — и он того стоит: маленький pre-row маркер <em>CREATION</em> vs <em>MINT</em> убирает реальную путаницу.</p>
+          <p><strong>3. AMM выглядит как SELL.</strong> Оба красные. Direction и routing смешались. AMM — это <em>класс маршрута</em> (не «плохо»), его место — на другой цветовой оси (фиолетовый/циан), а зелёный/красный остаются за направлением.</p>
+          <p><strong>4. Цены не выравниваются по десятичной точке.</strong> Решение — НЕ паддить нулями (0.79, не 0.790), а выровнять колонку по точке (table layout + tabular-nums + право/лево разделить по точке). Это даст порядок без потери естественной точности.</p>
+          <p><strong>5. EXPIRED перетягивает внимание у ACTIVE в Tools.</strong> Истёкшие офферы рендерятся на полной плотности и крадут foveal attention у actionable-строк.</p>
+          <p><strong>6. Бейджи в Mints — не убирать, а группировать.</strong> Кластер маркетплейсов (ME, X) отдельно от кластера лаунчпадов (LMNFT, VVV, GRAVE) отдельно от формата (CORE) — функционал сохранён, scan-стоимость падает.</p>
+        </div>
+        <div class="verdict">
+          <div class="v good"><div class="lbl">Сохранить</div><div class="big">Density · Freshness · Badges</div><div class="sub">Высота строк в Feed, цвета таймстампов, функциональные бейджи — это сигналы, а не шум.</div></div>
+          <div class="v viol"><div class="lbl">Уточнить</div><div class="big">Hierarchy внутри строки</div><div class="sub">Что глаз ловит первым — должно совпадать с тем, что важнее по задаче экрана.</div></div>
+          <div class="v mid"><div class="lbl">Развести</div><div class="big">Direction vs Routing</div><div class="sub">BUY/SELL — зелёный/красный. AMM — другой канал (фиолетовый). Сейчас оба на одной оси.</div></div>
+          <div class="v bad"><div class="lbl">Снизить</div><div class="big">Шум от истёкшего и неактуального</div><div class="sub">EXPIRED-строки в Tools, «—» в COEF — должны уходить на задний план.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HIGH IMPACT ============ -->
+  <section class="s" id="high">
+    <div class="label">
+      <div class="num">§ 02 · ИМПАКТ/HIGH</div>
+      <div class="name">Реальные фиксы</div>
+    </div>
+    <div>
+      <h2>High-импакт: <span class="em">ясность сигнала</span>, не плотность.</h2>
+      <div class="desc">
+        Эти шесть пунктов напрямую ускоряют принятие решения — каждый снимает одну конкретную ментальную нагрузку, не удаляя ни одного функционального элемента продукта.
+      </div>
+
+      <div class="recs">
+
+        <!-- H-01 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-01</span>
+            <span class="rec-title">Mints: визуально развести «live observed» и «real supply».</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Ваша заявленная боль: <em>«хочу меньше путаницы между live observed mints и real supply»</em>. Сейчас колонки MINTS и SUPPLY рендерятся одной типографикой — две колонки чисел рядом, без визуальной подсказки о том, что это разные классы данных.</dd>
+              <dt>Предложение</dt>
+              <dd>Объединить в одну ячейку формата <code>47 / 1000</code>, где «47» — фиолетовый/акцентный (наш реалтайм-сигнал), «/» — серый сепаратор, «1000» — приглушённый. Опционально: тонкий 3px progress-bar под числами, показывающий долю наблюдённого. Колонка SUPPLY остаётся как fallback на широких разрешениях.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Связанные данные должны быть в одной visual unit.</strong> Если две цифры — это «часть» и «целое», они должны читаться как дробь, а не как два независимых числа в соседних колонках.</dd>
+              <dt>Риск</dt>
+              <dd>Пользователи, которые сейчас читают каждую колонку отдельно, могут не сразу адаптироваться. Решение: оставить классическую двухколоночную раскладку в режиме density=Comfy, а слитную дробь — в Compact/Tape.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Mints</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-02 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-02</span>
+            <span class="rec-title">Mints / Feed: явно отличать <em>collection creation</em> от обычного Core mint.</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Ваша заявленная боль: <em>«хочу отличать collection creation от normal Core mint»</em>. Сейчас два разных по смыслу события смешаны в одном потоке. Creation — это момент инициализации коллекции (важно: alpha-сигнал, можно успеть раньше), Core mint — рутинный минт в уже-существующую коллекцию.</dd>
+              <dt>Предложение</dt>
+              <dd>Маленький pre-row тип-маркер: <em>CREATION</em> (амбер, контурный) vs <em>MINT</em> (приглушённый текст, без рамки). Дополнительно — отдельный фильтр в шапке: «only creations». Можно усилить вспышкой при insert именно для creation-event.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Семантически разные события — разные визуальные классы.</strong> Если два пункта в ленте имеют разный actionability для трейдера, нельзя их рендерить одинаково.</dd>
+              <dt>Риск</dt>
+              <dd>Минимальный. Альтернатива: разные иконки (плюс vs точка) — менее «громкая» опция, если амбер кажется перебором.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Mints</span><span class="page-tag">Feed (если creation там тоже видно)</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-03 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-03</span>
+            <span class="rec-title">Развести AMM и SELL: оба сейчас красные, что смешивает routing с направлением.</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · тривиальная</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>BUY/SELL — это <strong>направление</strong>, зелёный/красный — корректно. AMM — это <strong>класс маршрута</strong>, не «плохо». Сейчас AMM-бейдж красный и читается как SELL, особенно мельком. Trader-конвенция green/red остаётся, но AMM нужно вынести на другой цветовой канал.</dd>
+              <dt>Предложение</dt>
+              <dd>AMM → фиолетовый контурный чип (наш акцент, нейтрален к направлению). BUY → зелёный текст/чип. SELL → красный текст/чип. Если на сделке одновременно SELL через AMM — два независимых маркера (направление + routing) могут сосуществовать.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Один канал — один смысл.</strong> Зелёный/красный полностью отдаются направлению; routing получает свой канал (hue, не яркость).</dd>
+              <dt>Риск</dt>
+              <dd>Минимальный. Это уточнение, а не пересмотр палитры — direction-конвенция сохранена.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Feed</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-04 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-04</span>
+            <span class="rec-title">Выровнять цены по десятичной точке — <em>без</em> паддинга нулями.</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · тривиальная</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Ваша заявленная боль: <em>«не хочу 0.790 вместо 0.79»</em>. v1 предлагал именно паддинг — это <strong>отменено</strong>. Правильный фикс — выровнять колонку по точке: «0.79», «0.08», «0.036», «1.09» все стоят так, что точка попадает в одну вертикаль, а естественная точность сохраняется.</dd>
+              <dt>Как сделать</dt>
+              <dd>Использовать <code>font-variant-numeric: tabular-nums</code> + двухколоночный layout цены (целая часть — правое выравнивание; дробная — левое, с разделителем-точкой по центру). Альтернатива: моноширинный рендер с символом-точкой как visual-anchor.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Выравнивание по «значимой» позиции, не по краю.</strong> При сравнении цен глаз сравнивает порядки величин, а порядок задаётся положением точки. Точка должна быть якорем.</dd>
+              <dt>Риск</dt>
+              <dd>Нет. Естественная точность сохраняется, паддинг отсутствует. Это лучшее обоих миров.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints</span><span class="page-tag">Tools</span><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-05 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-05</span>
+            <span class="rec-title">Mints: группировать бейджи по функции — НЕ убирать.</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Бейджи в Mints — это кликабельные ссылки на источники (ME → marketplace, X → Twitter, LMNFT/VVV/GRAVE → launchpads, CORE → формат коллекции). Это функционал, его удалять нельзя. Но они сейчас выложены в одну линейку и читаются как длинная строка — глаз вынужден парсить каждый, чтобы понять что куда.</dd>
+              <dt>Предложение</dt>
+              <dd>Кластеризовать визуально по типу: <em>marketplace-кластер</em> (ME, X) — один сгруппированный блок; <em>launchpad-кластер</em> (LMNFT, VVV, GRAVE) — отдельный блок; <em>format-маркер</em> (CORE) — отдельно, как pre-row тип. Один и тот же кластер бейджей даёт одинаковую раскладку → можно ловить по позиции, а не по чтению.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Group by function, lock by position.</strong> Если бейджи всегда в одних и тех же кластерах в одних и тех же позициях, трейдер начинает узнавать их по «силуэту строки», а не по тексту.</dd>
+              <dt>Риск</dt>
+              <dd>Не у всех коллекций все источники → пустые слоты или «прыгающая» раскладка. Решение: фиксированные позиции, пустые слоты рендерятся как минимальное место (без видимой рамки), а не сжимаются.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Mints</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <!-- H-06 -->
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">H-06</span>
+            <span class="rec-title">Tools: затемнить EXPIRED до ~40%, выделить ACTIVE как primary focus.</span>
+            <span class="impact high">High</span>
+            <span class="cplx">Сложность · тривиальная</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Tools — это actionable-инструмент: трейдер пришёл управлять <em>живыми</em> офферами. EXPIRED-строки сейчас рендерятся в полную плотность и со страшно большими спредами (+1973.7%, +600%) — глаз тянется к ним, хотя они мёртвые.</dd>
+              <dt>Предложение</dt>
+              <dd>EXPIRED-строки → opacity 40%, без насыщенных цветов в spread. ACTIVE-строки → полная плотность + лёгкий violet-edge слева как «actionable» маркер. На ховере EXPIRED-строка восстанавливается до 100% — для инспекции.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Состояние диктует визуальный вес.</strong> Actionable важнее historical. Historical должно быть доступно, но не конкурировать.</dd>
+              <dt>Риск</dt>
+              <dd>Нет.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Tools</span></dd>
+            </div>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- ============ MINTS MOCK ============ -->
+      <div class="annot">
+        <div class="h"><span>Демо · <span class="pg">Mints — группировка бейджей + observed/supply</span></span><span>H-01 + H-02 + H-05 вместе</span></div>
+        <div class="body">
+          <div>
+            <span class="label-tag before">Сейчас</span>
+            <div class="mintmock" style="margin-top:8px">
+              <div class="r" style="grid-template-columns:32px 1fr auto auto auto">
+                <div class="av"></div>
+                <div class="nm" style="gap:6px"><span class="t">GAQQ</span>
+                  <div class="badges" style="gap:3px;flex-wrap:wrap">
+                    <span class="src" style="border-style:solid">WATCH</span>
+                    <span class="src" style="border-style:solid">ME</span>
+                    <span class="src" style="border-style:solid">↑</span>
+                    <span class="src" style="border-style:solid">X</span>
+                    <span class="src" style="border-style:solid">LMNFT</span>
+                  </div>
+                </div>
+                <div class="mints" style="color:var(--text)">47 1000</div>
+                <div class="rate">12/m</div>
+                <div class="ago">2m ago</div>
+              </div>
+              <div class="r" style="grid-template-columns:32px 1fr auto auto auto">
+                <div class="av" style="background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="nm" style="gap:6px"><span class="t">RUGGEDS</span>
+                  <div class="badges" style="gap:3px;flex-wrap:wrap">
+                    <span class="src" style="border-style:solid">WATCH</span>
+                    <span class="src" style="border-style:solid">ME</span>
+                    <span class="src" style="border-style:solid">VVV</span>
+                    <span class="src" style="border-style:solid">CORE</span>
+                  </div>
+                </div>
+                <div class="mints" style="color:var(--text)">8 333</div>
+                <div class="rate">3/m</div>
+                <div class="ago">14s ago</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Проблема:</strong> бейджи лежат «лентой» — каждый нужно прочитать, чтобы понять класс. MINTS и SUPPLY — два соседних числа без визуальной подсказки, что одно — часть другого. Тип события (creation / mint) не виден.</p>
+          </div>
+          <div>
+            <span class="label-tag after">Предлагаемое</span>
+            <div class="mintmock" style="margin-top:8px">
+              <div class="r">
+                <div class="av"></div>
+                <div class="nm">
+                  <span class="t">GAQQ</span>
+                  <span class="ev create">creation</span>
+                  <div class="badges">
+                    <span class="grp" title="marketplaces"><span class="b">ME</span><span class="b">X</span></span>
+                    <span class="grp" title="launchpad"><span class="b">LMNFT</span></span>
+                  </div>
+                </div>
+                <div class="mints">
+                  <span class="observed">47</span><span class="sep">/</span><span class="supply">1000</span>
+                  <span class="bar"><i style="width:4.7%"></i></span>
+                </div>
+                <div class="rate">12/m</div>
+                <div class="ago fresh">2m</div>
+              </div>
+              <div class="r">
+                <div class="av" style="background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="nm">
+                  <span class="t">RUGGEDS</span>
+                  <span class="ev mint">core</span>
+                  <div class="badges">
+                    <span class="grp" title="marketplaces"><span class="b">ME</span></span>
+                    <span class="grp" title="launchpad"><span class="b">VVV</span></span>
+                  </div>
+                </div>
+                <div class="mints">
+                  <span class="observed">8</span><span class="sep">/</span><span class="supply">333</span>
+                  <span class="bar"><i style="width:2.4%"></i></span>
+                </div>
+                <div class="rate">3/m</div>
+                <div class="ago fresh">14s</div>
+              </div>
+              <div class="r">
+                <div class="av" style="background:linear-gradient(135deg,#5a3fcf,#b69dff)"></div>
+                <div class="nm">
+                  <span class="t">VOIDLINGS</span>
+                  <span class="ev mint">core</span>
+                  <div class="badges">
+                    <span class="grp" title="marketplaces"><span class="b">ME</span><span class="b">X</span></span>
+                    <span class="grp" title="launchpad"><span class="b">GRAVE</span></span>
+                  </div>
+                </div>
+                <div class="mints">
+                  <span class="observed">214</span><span class="sep">/</span><span class="supply">2222</span>
+                  <span class="bar"><i style="width:9.6%"></i></span>
+                </div>
+                <div class="rate">28/m</div>
+                <div class="ago">4m</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Что изменилось:</strong> бейджи в кластерах по функции (marketplaces · launchpad) — функционал и кликабельность сохранены, но <em>силуэт</em> строки одинаков → можно ловить по позиции · MINTS/SUPPLY = «47/1000» с разной типографикой, плюс тонкий прогресс-бар · <em>creation</em> и <em>core</em> — два разных маркера события · цены/числа выровнены по точке через tabular-nums.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ FEED MOCK ============ -->
+      <div class="annot">
+        <div class="h"><span>Демо · <span class="pg">Feed — иерархия строки + AMM ≠ SELL</span></span><span>H-03 + H-04 вместе · плотность сохранена</span></div>
+        <div class="body">
+          <div>
+            <span class="label-tag before">Сейчас</span>
+            <div class="feedmock" style="margin-top:8px">
+              <div class="r">
+                <div class="av"></div>
+                <div class="nm">uAPE #24<br/><span class="addr">F9Qh…WMJu → Emkp…HQJh</span></div>
+                <div class="chip" style="color:var(--red);border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.06)">AMM</div>
+                <div class="pct">+34%</div>
+                <div class="px">0.080<span class="u">SOL</span></div>
+                <div class="ago veryfresh">14s</div>
+              </div>
+              <div class="r">
+                <div class="av" style="background:linear-gradient(135deg,#3b1a2a,#a04060)"></div>
+                <div class="nm">Wizard #188<br/><span class="addr">3Y6c…AMFp → 2pum…XK1L</span></div>
+                <div class="chip buy">BUY</div>
+                <div class="pct">+20%</div>
+                <div class="px">0.79<span class="u">SOL</span></div>
+                <div class="ago fresh">1m</div>
+              </div>
+              <div class="r">
+                <div class="av" style="background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="nm">Absurd Ape #3468<br/><span class="addr">6jKj…DwWv → 3Y6c…AMFp</span></div>
+                <div class="chip" style="color:var(--red);border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.06)">AMM</div>
+                <div class="pct">+5%</div>
+                <div class="px">0.036<span class="u">SOL</span></div>
+                <div class="ago older">4m</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Проблема:</strong> AMM рендерится красным и мельком читается как SELL · цены не выровнены по точке (0.080, 0.79, 0.036 — десятичная точка плавает) · адреса в две строки внутри ячейки добавляют веса, но не сигнала.</p>
+          </div>
+          <div>
+            <span class="label-tag after">Предлагаемое</span>
+            <div class="feedmock" style="margin-top:8px">
+              <div class="r" style="grid-template-columns:48px 1fr auto auto 90px auto">
+                <div class="av"></div>
+                <div class="nm">uAPE #24 <span class="addr">F9Qh → Emkp</span></div>
+                <div class="chip amm">AMM</div>
+                <div class="pct">+34%</div>
+                <div class="px"><span style="display:inline-block;min-width:18px;text-align:right">0</span><span>.08</span><span class="u">SOL</span></div>
+                <div class="ago veryfresh">14s</div>
+              </div>
+              <div class="r" style="grid-template-columns:48px 1fr auto auto 90px auto">
+                <div class="av" style="background:linear-gradient(135deg,#3b1a2a,#a04060)"></div>
+                <div class="nm">Wizard #188 <span class="addr">3Y6c → 2pum</span></div>
+                <div class="chip buy">BUY</div>
+                <div class="pct">+20%</div>
+                <div class="px"><span style="display:inline-block;min-width:18px;text-align:right">0</span><span>.79</span><span class="u">SOL</span></div>
+                <div class="ago fresh">1m</div>
+              </div>
+              <div class="r" style="grid-template-columns:48px 1fr auto auto 90px auto">
+                <div class="av" style="background:linear-gradient(135deg,#1a4030,#5be3a8)"></div>
+                <div class="nm">Absurd Ape #3468 <span class="addr">6jKj → 3Y6c</span></div>
+                <div class="chip amm">AMM</div>
+                <div class="pct">+5%</div>
+                <div class="px"><span style="display:inline-block;min-width:18px;text-align:right">0</span><span>.036</span><span class="u">SOL</span></div>
+                <div class="ago older">4m</div>
+              </div>
+              <div class="r" style="grid-template-columns:48px 1fr auto auto 90px auto">
+                <div class="av" style="background:linear-gradient(135deg,#3b1a2a,#a04060)"></div>
+                <div class="nm">MallStreet <span class="addr">CYQr → YOU</span></div>
+                <div class="chip" style="color:var(--red);border-color:rgba(255,107,138,.35);background:rgba(255,107,138,.06)">SELL</div>
+                <div class="pct neg">−11%</div>
+                <div class="px"><span style="display:inline-block;min-width:18px;text-align:right">0</span><span>.014</span><span class="u">SOL</span></div>
+                <div class="ago older">4m</div>
+              </div>
+            </div>
+            <p class="desc"><strong>Что изменилось:</strong> аватары и плотность строки <em>сохранены</em> · freshness-цвета таймстампов <em>сохранены</em> (розовый/амбер/серый) · AMM — фиолетовый (routing), SELL — красный (direction), BUY — зелёный (direction) · цены выровнены по точке без паддинга нулями · адреса однострочные F9Qh→Emkp вместо двухстрочного блока.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ MEDIUM IMPACT ============ -->
+  <section class="s" id="medium">
+    <div class="label">
+      <div class="num">§ 03 · ИМПАКТ/MED</div>
+      <div class="name">Консистентность</div>
+    </div>
+    <div>
+      <h2>Medium-импакт: <span class="em">меньше микро-фрикций</span>.</h2>
+      <div class="desc">
+        Эти пункты не делают продукт другим — они просто убирают мелкие места, где трейдер делает лишнюю мышечную/глазную работу. Каждый шипится отдельно за пару часов–полдня.
+      </div>
+
+      <div class="recs">
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-01</span>
+            <span class="rec-title">Кодифицировать freshness-шкалу таймстампов и применить одинаково на Feed/Mints.</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Цвета таймстампов — это <strong>сигнал, который нужно сохранить</strong>. Но сейчас пороги, кажется, отличаются между Feed и Mints (или ощущаются разными). Стоит явно зафиксировать: <em>very fresh / recent / older</em> = pink / amber / gray (или ваша точная шкала из кода) — и применить одну и ту же на всех экранах.</dd>
+              <dt>Предложение</dt>
+              <dd>Вынести пороги в токены (<code>--freshness-veryfresh-ms</code>, <code>--freshness-recent-ms</code>) и цвета (<code>--ts-veryfresh</code>, <code>--ts-recent</code>, <code>--ts-older</code>). Один источник истины для всего продукта.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Одна шкала — везде.</strong> Сигнал ценен только если пользователь не пере-калибруется при переходе между экранами.</dd>
+              <dt>Риск</dt>
+              <dd>Нет. Это рефакторинг существующего сигнала, не его изменение.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Feed</span><span class="page-tag">Mints</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-02</span>
+            <span class="rec-title">Адресная пара: F9Qh…WMJu → Emkp…HQJh в одну строку с явной стрелкой.</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · тривиальная</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Сейчас seller/buyer лежат в две строки внутри ячейки имени. Это добавляет вертикали к каждой строке, но <em>не</em> добавляет сигнала — направление сделки очевидно и без двух меток «seller/» «buyer/». Это сэкономит вертикаль <em>без</em> сжатия аватара.</dd>
+              <dt>Предложение</dt>
+              <dd>Одна строка вида <code>F9Qh → Emkp</code> (или с полным усечением, как сейчас, но в линию). Аватар и название NFT — visual primary, адреса — secondary.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Меньше визуальных строк ≠ меньше плотности.</strong> Это про чистоту иерархии: основной идентификатор (NFT) и метаданные (адреса) на разных уровнях, но не на разных строках.</dd>
+              <dt>Риск</dt>
+              <dd>Нет.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Feed</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-03</span>
+            <span class="rec-title">Видимый hover при быстрой ленте.</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>На ленте, где строки прилетают часто, hover должен говорить трейдеру <em>«ты сейчас попадёшь сюда»</em>. Если hover слабый (4% lift), он теряется при прокрутке.</dd>
+              <dt>Предложение</dt>
+              <dd>1px фиолетовое левое правило при ховере (уже часть словаря) + ~8% bg-lift + лёгкий outer outline на правой группе действий. Отключать первые 1s после insert, чтобы не «дёргалось» на свеже-прилетевших.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Hover — это обратная связь, а не флэр.</strong> Должен быть однозначным даже периферийным зрением.</dd>
+              <dt>Риск</dt>
+              <dd>Перебор с интенсивностью на быстрых лентах. Калибровать на компонент.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Все</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-04</span>
+            <span class="rec-title">Унифицировать визуальный язык переключателей в шапке (MODE / MINTS / OFF).</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Сейчас три контрола в шапке выглядят как три разных класса (label-value, контурный чип, красный контурный чип). Иерархия подсказывает, что они равноправны; цвета — что нет.</dd>
+              <dt>Предложение</dt>
+              <dd>Тогглы одного класса (MINTS on/off) — одинаковые. Kill-switch (OFF) — выраженно отделён (квадратная иконка, красный outline), как отдельный класс действия.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Одинаковое поведение — одинаковый визуал.</strong></dd>
+              <dt>Риск</dt>
+              <dd>Нет.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Глобальный header</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-05</span>
+            <span class="rec-title">Бюджет анимаций: только <em>insert</em> и <em>price-flash</em>.</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · малая</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Закрепить вашу заявленную философию сдержанных анимаций как формальный budget: <em>row-insert</em> = 120ms opacity+y-translate, <em>price-flash</em> = 180ms bg-pulse, всё остальное мгновенно. Это снимает вопрос «надо ли тут transition?» с каждой будущей фичи.</dd>
+              <dt>Принцип</dt>
+              <dd><strong>Воспринимаемая отзывчивость = first paint &lt;100ms.</strong> Переходы на смене фильтров и режимов могут не анимироваться вовсе.</dd>
+            </div>
+            <div class="col">
+              <dt>Риск</dt>
+              <dd>Жёсткие правила лишают гибкости. Допустить опциональный 100ms crossfade для контента-замены, но не дольше.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Все</span></dd>
+            </div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head">
+            <span class="rec-id">M-06</span>
+            <span class="rec-title">Board: дать SALES-колонке явную легенду или tooltip — что значат красный/зелёный счётчики.</span>
+            <span class="impact med">Medium</span>
+            <span class="cplx">Сложность · тривиальная</span>
+          </div>
+          <div class="rec-body">
+            <div class="col">
+              <dt>Что чинит</dt>
+              <dd>Board — обзорный экран, заход на него часто после паузы. Сейчас колонка SALES показывает «15» / «8» в разных цветах, и без onboard-объяснения непонятно: это направление? моментум? порог объёма? Свои пользователи знают; новые/возвращающиеся — нет.</dd>
+              <dt>Предложение</dt>
+              <dd>На header колонки — мелкий «?» с hover-объяснением (1 строка), либо подзаголовок (например, «buys / sells»), либо легенда внизу таблицы. Не менять сам визуал.</dd>
+            </div>
+            <div class="col">
+              <dt>UX-принцип</dt>
+              <dd><strong>Discoverability ≠ chrome.</strong> Сигнал можно сохранить полностью, добавив только seekable объяснение.</dd>
+              <dt>Риск</dt>
+              <dd>Нет.</dd>
+              <dt>Затронуто</dt>
+              <dd class="pages"><span class="page-tag">Board</span></dd>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LOW IMPACT ============ -->
+  <section class="s" id="low">
+    <div class="label">
+      <div class="num">§ 04 · ИМПАКТ/LOW</div>
+      <div class="name">Полировка</div>
+    </div>
+    <div>
+      <h2>Low-импакт: <span class="em">мелочи ремесла</span>.</h2>
+      <div class="desc">
+        Здесь ничего не сломано. Эти штрихи поднимают воспринимаемое качество — без изменения функционала.
+      </div>
+
+      <div class="recs">
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-01</span><span class="rec-title">Тонкий пробел (U+202F) как разделитель тысяч.</span><span class="impact low">Low</span><span class="cplx">Тривиальная</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Почему</dt><dd>«11 776» и «3 538» сейчас с обычным пробелом — в плотных строках выглядит как разрыв колонки. Hair-space (U+202F) делает это однозначным.</dd></div>
+            <div class="col"><dt>Риск</dt><dd>Нет.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-02</span><span class="rec-title">Стрелка <code>→</code> в адресах вместо middle-ellipsis.</span><span class="impact low">Low</span><span class="cplx">Тривиальная</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Почему</dt><dd>«…» визуально тяжелее окружающих моноширинных глифов. <code>F9Qh→WMJu</code> сразу читается как направление сделки, а не как обрезание двух разных id.</dd></div>
+            <div class="col"><dt>Риск</dt><dd>Нет. Чистая типографическая деталь.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-03</span><span class="rec-title">Mints: дать пустому «—» в COEF/AVG прозрачность 30%.</span><span class="impact low">Low</span><span class="cplx">Тривиальная</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Почему</dt><dd>«—» — это не сигнал «здесь чего-то не хватает», это «пока не посчитано». В колонке, где половина значений отсутствует, это создаёт вертикальную «стену» прочерков. Снижение прозрачности до 30% возвращает прочерки в фон, но сохраняет плейсхолдер.</dd></div>
+            <div class="col"><dt>Риск</dt><dd>Нет.</dd></div>
+          </div>
+        </article>
+
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">L-04</span><span class="rec-title">Использовать Instrument Serif italic один раз на странице как редакторский акцент.</span><span class="impact low">Low</span><span class="cplx">Тривиальная</span></div>
+          <div class="rec-body">
+            <div class="col"><dt>Почему</dt><dd>Сейчас курсив serif живёт только в логотипе. Это сильный ассет — стоит применять скупо в одном месте (подзаголовок секции, пустое состояние) для редакторской теплоты. Не везде — иначе теряет редкость.</dd></div>
+            <div class="col"><dt>Риск</dt><dd>Перебор. Максимум один acceнт на страницу.</dd></div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TOP 5 ROI ============ -->
+  <section class="s" id="top5">
+    <div class="label">
+      <div class="num">§ 05</div>
+      <div class="name">Топ-5 ROI</div>
+    </div>
+    <div>
+      <h2>Если шипить только <span class="em">пять</span> вещей.</h2>
+      <div class="desc">Ранжировано по влиянию на скорость принятия решения ÷ часы инженеринга. Каждое — независимо шипится.</div>
+
+      <div class="top5">
+        <div class="t5">
+          <div class="rank">01</div>
+          <div class="h">AMM ≠ SELL. Развести routing и direction по цветовым каналам.</div>
+          <div class="p">Один CSS-токен. Снимает реальную семантическую путаницу — фиолетовый AMM перестаёт читаться как красный SELL мельком.</div>
+          <div class="roi">ROI · ~15 мин · большой</div>
+        </div>
+        <div class="t5">
+          <div class="rank">02</div>
+          <div class="h">Live observed / real supply — «47 / 1000» с разной типографикой.</div>
+          <div class="p">Прямое попадание в вашу заявленную боль. Одно типографическое решение убирает рекурсивное переспрашивание мозга «какая колонка — что».</div>
+          <div class="roi">ROI · ~1 ч · большой</div>
+        </div>
+        <div class="t5">
+          <div class="rank">03</div>
+          <div class="h">Creation ≠ Core mint. Маркер CREATION на ленте Mints.</div>
+          <div class="p">Прямое попадание в вашу вторую боль. Один компонент — два класса событий, два визуальных тира.</div>
+          <div class="roi">ROI · ~2 ч · большой</div>
+        </div>
+        <div class="t5">
+          <div class="rank">04</div>
+          <div class="h">Группировка бейджей по функции (без удаления).</div>
+          <div class="p">Marketplaces · launchpad · format — три устойчивых слота. Функционал сохранён, силуэт строки повторяющийся, узнавание по позиции, а не по чтению.</div>
+          <div class="roi">ROI · ~полдня · большой</div>
+        </div>
+        <div class="t5">
+          <div class="rank">05</div>
+          <div class="h">Decimal-aligned цены без паддинга нулями.</div>
+          <div class="p">0.79 остаётся «0.79» — не «0.790». Колонка выровнена по точке через tabular-nums + два под-блока (целая/дробная). Лучшее обоих миров.</div>
+          <div class="roi">ROI · ~1 ч · средний</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRIPTYCH ============ -->
+  <section class="s" id="triptych">
+    <div class="label">
+      <div class="num">§ 06</div>
+      <div class="name">Чинить · Полировать · Не трогать</div>
+    </div>
+    <div>
+      <h2>Шпаргалка.</h2>
+      <div class="desc">Если читать только одну секцию — эту. Action items в трёх корзинах.</div>
+
+      <div class="triptych">
+        <div class="col-card fix">
+          <div class="h">Чинить · в этот квартал</div>
+          <ul>
+            <li><strong>AMM-бейдж — на другой цветовой канал</strong> (фиолетовый), отделить от SELL.</li>
+            <li><strong>MINTS / SUPPLY</strong> объединить в «47 / 1000» с разной типографикой + опциональный прогресс-бар.</li>
+            <li><strong>CREATION vs Core mint</strong> — два визуально разных типа события.</li>
+            <li><strong>Decimal alignment</strong> без паддинга нулями.</li>
+            <li><strong>Группировка бейджей</strong> в Mints по функции, фиксированные позиции.</li>
+            <li><strong>EXPIRED-строки</strong> в Tools на 40% opacity; ACTIVE — primary focus.</li>
+          </ul>
+        </div>
+        <div class="col-card polish">
+          <div class="h">Полировка · со временем</div>
+          <ul>
+            <li><strong>Кодифицировать freshness-шкалу</strong> и применить одинаково на всех экранах.</li>
+            <li><strong>Адреса в одну строку</strong> с явной стрелкой <code>→</code>.</li>
+            <li><strong>Видимый hover</strong> при быстрой ленте — 1px violet edge + bg-lift.</li>
+            <li><strong>Унифицировать MODE / MINTS / OFF</strong> — kill-switch отделить от тогглов.</li>
+            <li><strong>Бюджет анимаций</strong> — формализовать insert (120ms) и price-flash (180ms).</li>
+            <li><strong>Board SALES-колонка</strong> — добавить hint/легенду для красного vs зелёного счётчика.</li>
+          </ul>
+        </div>
+        <div class="col-card keep">
+          <div class="h">НЕ трогать</div>
+          <ul>
+            <li><strong>Высоту строк в Feed.</strong> Это разные события, не tape. Аватары крупные нужны.</li>
+            <li><strong>Цвета таймстампов.</strong> Это freshness-сигнал, не декор.</li>
+            <li><strong>Функциональные бейджи</strong> в Mints. Ссылки на источники не убирать.</li>
+            <li><strong>Зелёный/красный для direction.</strong> Trader-конвенция, сохранить.</li>
+            <li><strong>Фиолетовую акцентную систему.</strong> Узнаваемо, не Web3-вульгарно.</li>
+            <li><strong>Тёмный канвас.</strong> Никакого light mode.</li>
+            <li><strong>Курсивный VictoryLabs-логотип.</strong> Сильнейший фрагмент идентичности.</li>
+            <li><strong>Режимы плотности</strong> (PC/Laptop/Phone/Tape/Compact/Comfy). Только калибровать дефолты per-page.</li>
+            <li><strong>Спарклайны и инлайн-бары</strong> в Board. Выверенные микро-визуалы.</li>
+            <li><strong>Хоткеи и подсказку «/».</strong> Уважение к power-юзерам.</li>
+            <li><strong>Размещение Pause/Filters</strong> в Feed. Справа, secondary — корректно.</li>
+            <li><strong>Карточный фрейм основной поверхности</strong> (если он у вас интенциональный для focus). v1 ошибочно предлагал его убрать — отменено до тех пор, пока вы сами не решите иначе.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PER-PAGE NOTES ============ -->
+  <section class="s" id="pages">
+    <div class="label">
+      <div class="num">§ 07</div>
+      <div class="name">По экранам</div>
+    </div>
+    <div>
+      <h2>Что чинить на каждом — кратко.</h2>
+      <div class="desc">По одному абзацу. Если читать в спешке — этого достаточно.</div>
+
+      <div class="recs" style="margin-top:18px">
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-01</span><span class="rec-title">Feed · отдельные значимые sale-events</span><span class="impact high">Главное: AMM vs SELL + decimal</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.7">Высота строки и крупные аватары — правильные. Реальные фиксы: (1) AMM-бейдж должен перестать быть красным; (2) цены выровнять по десятичной точке без паддинга нулями; (3) адреса seller/buyer в одну строку с явной стрелкой — сэкономит вертикаль без потери сигнала; (4) hover должен быть видимым при потоке событий. Freshness-цвета таймстампов — сохранить как есть, только зафиксировать пороги в токенах.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-02</span><span class="rec-title">Mints · охота за active mint / early collection</span><span class="impact high">Главное: observed/supply + creation/mint + группировка</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.7">Самая высокая концентрация ваших заявленных болей. (1) Развести «наблюдённое live» и «реальный supply» — формат «47 / 1000» с разной типографикой плюс опциональный прогресс-бар; (2) разделить collection creation и обычный Core mint двумя визуальными классами события; (3) бейджи не убирать — они функциональные, но сгруппировать по типу (marketplaces / launchpad / format) и зафиксировать позиции, чтобы силуэт строки повторялся. COEF с «—» — снизить прозрачность плейсхолдера, не выбрасывать символ.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-03</span><span class="rec-title">Tools · управление личными офферами</span><span class="impact med">Главное: ACTIVE vs EXPIRED</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.7">Главное — затемнить EXPIRED-строки до ~40%, оставить ACTIVE на полной плотности с violet-edge как маркером actionable. Гигантские EXPIRED-спреды (+1973%, +600%) перестанут перетягивать внимание у живых офферов. Цвет SPREAD — оставить как есть; v1 предлагал переосмыслить семантику, но это спорно и не было запрошено — отменено.</div></div>
+        </article>
+        <article class="rec">
+          <div class="rec-head"><span class="rec-id">P-04</span><span class="rec-title">Board · обзор / выбор что мониторить</span><span class="impact low">Главное: SALES-колонке нужен hint</span><span class="cplx">—</span></div>
+          <div class="rec-body"><div class="full" style="padding:8px 0 0;color:var(--text-dim);line-height:1.7">Самая отполированная страница. Спарклайны и инлайн-бары — выверены, не трогать. Единственное: колонка SALES с красными/зелёными счётчиками нуждается в seekable объяснении (header «?» или подзаголовок «buys / sells», или ваша актуальная формула) — постоянные пользователи знают, но для возвращающихся после паузы это слепое пятно.</div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING NOTE ============ -->
+  <section class="s">
+    <div class="label">
+      <div class="num">§ 08</div>
+      <div class="name">Заключение</div>
+    </div>
+    <div>
+      <h2>Что v2 на самом деле говорит.</h2>
+      <div class="desc" style="max-width:840px">
+        Большая часть продукта работает. Density, color-сигналы, бейджи, идентичность — всё это часть рабочего продуктового языка, и трогать их без понимания значит ломать функционал. Реальные точки приложения — там, где <em>смысл</em> сейчас визуально не разводится: AMM vs SELL, observed vs supply, creation vs mint, ACTIVE vs EXPIRED. Это всё снимаемо за один спринт без перезаписи дизайн-системы. Топ-5 ROI — точка старта.
+      </div>
+      <div style="margin-top:18px;padding:16px 20px;border-left:2px solid var(--violet);background:rgba(138,108,255,.06);border-radius:0 6px 6px 0;color:var(--text-dim);font-size:13.5px;line-height:1.7">
+        <strong style="color:var(--text)">Что v2 принципиально не делает.</strong>
+        Не предлагает сжать строки ради «Bloomberg-feel». Не убирает freshness-цвет таймстампов. Не удаляет функциональные бейджи. Не трогает зелёный/красный для direction. Не предлагает редизайн идентичности, light mode, новые виджеты, новые графики, mobile-first паддинги или accessibility-boilerplate. Сохранена философия «плотного премиума» — целью является ускорение принятия решения, а не визуальная косметика.
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div>VictoryLabs · UX/UI аудит · v2 · после фидбэка</div>
+  <div class="right">
+    <span>16 находок · 6 high / 6 medium / 4 low</span>
+    <span>Фокус · scan + clarity</span>
+    <span><span style="color:var(--green)">●</span> internal</span>
+  </div>
+</footer>
+
+</body>
+</html>

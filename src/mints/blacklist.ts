@@ -25,6 +25,8 @@
 export const BLACKLISTED_COLLECTIONS: ReadonlySet<string> = new Set([
   // phygitals___ (Magic Eden slug) — operator request.
   'phygZDQZJZVHvJGYPGoKPYUtXw7mstSYtTtcuh8LJcC',
+  // collectiblescom (Magic Eden slug) — operator request.
+  'EuZxduirhpWBYk4vKsrwzsrZk311FsTiKmQ57UFhGHh9',
 ]);
 
 /** Lifetime-bounded log gate: each blacklisted collection logs once
