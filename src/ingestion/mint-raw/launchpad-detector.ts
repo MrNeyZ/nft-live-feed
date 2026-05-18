@@ -92,13 +92,14 @@ export const VVVSO_PLATFORM_SIGNER = 'AY5tENt66T5DhG7rKjh1kRMjeZTq7trMLJhk4cXAZN
 export const VVVSO_PLATFORM_TREASURY = 'EQCaFM2JHFd5RrDPNhS96KLxdmiAK9eeWJyJWest31tm';
 
 /** gravemint.io platform signer. Writable, deliberately-vanity-prefixed
- *  (`DEAD…`) keypair that signs every confirmed Gravemint Core CreateV2
- *  mint observed to date. Position varies — idx 1 or 2 in normal
- *  buyer-pays drops, idx 0 in house-pays drops where Gravemint itself
- *  is the fee-payer — so we check via `signerKeys.includes` rather
- *  than a fixed index. As a signer it cannot be spoofed without the
- *  launchpad's private key, making it the strongest on-chain
- *  fingerprint of the four launchpads tracked. */
+ *  (`DEAD…`) keypair that signs the direct-Core ("shape A") family of
+ *  Gravemint mints — both buyer-pays drops and lean house-mints where
+ *  Gravemint pays everything itself. The signer can appear at idx 0,
+ *  1, or 2 across observed shapes, so we check via `signerKeys.includes`
+ *  rather than a fixed index. The newer program-wrapped family
+ *  ("shape B", `GRAVEMINT_PROGRAM` below) does NOT sign with this key
+ *  — DEAD appears only as a writable non-signer receiving a System
+ *  transfer — so shape B is matched via the program ID instead. */
 export const GRAVEMINT_PLATFORM_SIGNER   = 'DEADsTGdpwgudGq4SUMPqzETzoaqAuDHbQovkTzTEA1R';
 /** gravemint.io treasury / fee-collector. Writable non-signer present
  *  alongside `GRAVEMINT_PLATFORM_SIGNER` in the original 5/5 audit
@@ -108,6 +109,19 @@ export const GRAVEMINT_PLATFORM_SIGNER   = 'DEADsTGdpwgudGq4SUMPqzETzoaqAuDHbQov
  *  diagnostic-only constant: presence is recorded on the matchedNeedle
  *  for forensic value, but it is no longer required by the gate. */
 export const GRAVEMINT_PLATFORM_TREASURY = '4rUxPzDvQXfjZuHfApV7Bhf1uxsAjJDxgtYy7UaQMq24';
+/** gravemint.io on-chain program. Anchor dispatcher with an
+ *  `Instruction: MintCore` handler that CPIs into MPL Core CreateV2.
+ *  Used as the primary fingerprint for "shape B" mints — the
+ *  program-wrapped family where the buyer pays directly, DEAD does
+ *  NOT sign, and the platform receives revenue via System transfers
+ *  in inner ixs. Reference tx:
+ *    AjieZ9mqBPM8eXkvzx8mGzNqhQcGJHRtaCQFptNhxAgrVwgFmGJwUx1517VYrwssdoA4HxGyVsAcP6bd94AsbcN
+ *  The program ID is unspoofable in the same sense as a signer key:
+ *  someone would have to own upgrade authority of that exact program
+ *  to issue an instruction under it. We additionally require MPL Core
+ *  + CreateV2 log so a hypothetical non-mint Gravemint ix (config
+ *  update, etc.) cannot match. */
+export const GRAVEMINT_PROGRAM           = 'GRVMNt7b2Pojom2fTF6HytLRm2hfQCN8iHm9wLvSFWVJ';
 
 export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE';
 /** Underlying NFT standard for this hit.
@@ -356,31 +370,45 @@ function isVvvSoTx(shape: ParsedTxShape): boolean {
   return false;
 }
 
-/** True iff `tx` matches the gravemint.io direct-Core mint pattern.
+/** True iff `tx` matches one of the two confirmed gravemint.io mint
+ *  shapes.
  *
- *  Triple-gate fingerprint:
- *    1. MPL Core program present (cheap structural prerequisite),
- *    2. `GRAVEMINT_PLATFORM_SIGNER` present as an actual signer — the
- *       primary identity; unspoofable without the launchpad's private
- *       key (vanity-prefixed `DEAD…`),
- *    3. a `Program log: Instruction: CreateV2` log line — confirms this
- *       is a Core mint, not e.g. an update / transfer.
+ *  Shared prerequisites (cheap, structural):
+ *    a. MPL Core program present,
+ *    b. a `Program log: Instruction: CreateV2` log line — confirms a
+ *       Core mint, not an update / transfer.
  *
- *  The treasury account `GRAVEMINT_PLATFORM_TREASURY` is no longer
- *  required: a confirmed Gravemint house-mint shape was observed where
- *  the treasury is absent entirely (Gravemint pays both fee and rent
- *  itself, no buyer route, no fee transfer — see signature
- *  37jWw1BSXQx5FMTyv4AuFUdhogevo1pmRkUG46LyHEiTZh8oBMFw6BiAH71V5FQagCF2MnQSf46oHQCTRjtAgvM5).
- *  Dropping the treasury gate is safe because the signer is the
- *  primary identity and CreateV2 + MPL Core already prove it's a mint.
+ *  Plus EITHER (any one is sufficient — the shapes are disjoint):
  *
- *  Mutually exclusive with `isVvvSoTx` (different signer; vvv's
- *  detector runs first) and with the LMNFT branches (no LMNFT outer
- *  program in account keys). */
+ *    Shape A — direct-Core, DEAD signs:
+ *      `GRAVEMINT_PLATFORM_SIGNER` is an actual signer. Covers both
+ *      the original buyer-pays drops (5/5 audit samples, treasury
+ *      present) and the lean house-pays shape (37jWw1…AgvM5, no
+ *      treasury). The vanity-prefixed `DEAD…` keypair is unspoofable
+ *      without the launchpad's private key.
+ *
+ *    Shape B — program-wrapped, GRVMNt dispatches:
+ *      `GRAVEMINT_PROGRAM` (`GRVMNt…WVJ`) appears in `accountKeys`.
+ *      Here Gravemint's own Anchor program is the outer dispatcher
+ *      with an `Instruction: MintCore` handler that CPIs into Core
+ *      CreateV2; the buyer signs, DEAD is a writable non-signer that
+ *      receives a System transfer, treasury is present. Reference tx:
+ *      AjieZ9mqBPM8eXkvzx8mGzNqhQcGJHRtaCQFptNhxAgrVwgFmGJwUx1517VYrwssdoA4HxGyVsAcP6bd94AsbcN.
+ *      Treating the program ID as a fingerprint is consistent with
+ *      `lmnftCoreNeedleIfPresent`, which keys off
+ *      `LAUNCHMYNFT_PROGRAM` the same way.
+ *
+ *  Mutually exclusive with `isVvvSoTx` (different signer / treasury /
+ *  program) and with the LMNFT branches (no LMNFT outer program in
+ *  account keys). */
 function isGraveMintTx(shape: ParsedTxShape): boolean {
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
-  if (!shape.signerKeys.includes(GRAVEMINT_PLATFORM_SIGNER)) return false;
-  return shape.logs.some((line) => line.includes('Instruction: CreateV2'));
+  if (!shape.logs.some((line) => line.includes('Instruction: CreateV2'))) return false;
+  // Shape A — DEAD signs.
+  if (shape.signerKeys.includes(GRAVEMINT_PLATFORM_SIGNER)) return true;
+  // Shape B — GRVMNt Anchor program orchestrates.
+  if (shape.accountKeys.includes(GRAVEMINT_PROGRAM)) return true;
+  return false;
 }
 
 /** Pull the asset/mint, payer, and (best-effort) collection out of the
@@ -593,19 +621,25 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
   if (getMintTrackerGraveGateEnabled() && isGraveMintTx(shape)) {
     const core = extractCoreMintFromInner(tx, shape);
     if (!core) return null;
-    // Record whether the treasury was present so future audits can
-    // distinguish the two confirmed shapes (buyer-pays w/ treasury vs.
-    // house-pays w/o treasury) without re-decoding the tx.
+    // Record which shape matched so future audits can distinguish the
+    // confirmed variants without re-decoding the tx. Shape B (Anchor
+    // program) wins precedence when both signals fire — none observed
+    // simultaneously, but a future buyer-pays drop under the new
+    // program could.
+    const shapeB = shape.accountKeys.includes(GRAVEMINT_PROGRAM);
     const treasuryPresent = shape.accountKeys.includes(GRAVEMINT_PLATFORM_TREASURY);
+    const matchedNeedle = shapeB
+      ? 'Instruction: CreateV2 (GRVMNt program)'
+      : treasuryPresent
+        ? 'Instruction: CreateV2 + treasury'
+        : 'Instruction: CreateV2';
     return {
       source:            'GRAVE',
       standard:          'core',
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     treasuryPresent
-        ? 'Instruction: CreateV2 + treasury'
-        : 'Instruction: CreateV2',
+      matchedNeedle,
     };
   }
   // LMNFT Token-Metadata mint variant. Gated on the dual-signal pair
