@@ -1143,46 +1143,96 @@ export default function MintsPage() {
   // events have rolled off the buffer — same trade-off as the existing
   // `recent`-tab filter.
   //
-  // RATE = count / tfMinutes. Audit fix: the previous formula divided by
-  // the *active span* (gap between first and last mint, floored at 1 min),
-  // which made RATE proportional to count for sparse rows and biased the
-  // velocity-desc sort toward stale collections that happened to drop 2
-  // mints in the same minute. Example from the audit fixture in the 1H
-  // window:
-  //   COLORS NFTs v2  count=2  oldRate=2.0   newRate=0.033
-  //   poliworld       count=24 oldRate=0.52  newRate=0.400
-  // Old formula put COLORS above poliworld; new formula puts poliworld
-  // ~12× above COLORS, matching trader intuition. Tradeoff: a 50-mint
-  // burst in the first minute of a 1H window now scores the same as a
-  // 50-mint flat distribution across the hour — the burst-detection
-  // signal moves to COEF (see computeCoef below).
+  // RATE = HEAT composite (Option C): throughput × supplyMult × recencyMult.
+  // Option A (the previous fix, `count / tfMinutes`) corrected the
+  // active-span inversion but reduced RATE to a near-clone of the MINTS
+  // column — both are linear in count once divided by a row-invariant
+  // constant. HEAT adds the two trader-relevant dimensions Option A is
+  // blind to: how big a fraction of the planned drop got minted in the
+  // window, and how recently in the window the activity happened.
   //
-  // firstTs/lastTs stay on Stats because computeCoef still reads them to
-  // derive cluster compactness independently of RATE.
+  //   throughput   = count / tfMinutes                          (≈ Option A)
+  //   supplyFrac   = clamp(count / max(maxSupply, 50), 0, 1)    (% of cap consumed)
+  //   supplyMult   = 1 + supplyFrac × 4                          (1× … 5×)
+  //   recencyFrac  = mintsInLastQuarter / count                  (% of activity at tail)
+  //   recencyMult  = 0.5 + recencyFrac                           (0.5× … 1.5×)
+  //   HEAT         = throughput × supplyMult × recencyMult
+  //
+  // Sanity choices:
+  //   • Supply floor of 50 keeps 1/1 art pieces & 5–20-supply
+  //     collections from dominating: supplyFrac stays ≤ count / 50.
+  //   • supplyMult caps at 5×: a sold-out drop boosts strongly but
+  //     doesn't run away.
+  //   • recencyMult range 0.5–1.5: stale activity is halved, tail-
+  //     loaded activity is 1.5×'d. Never zero (so a steady mid-window
+  //     stream isn't punished into invisibility).
+  //   • maxSupply unknown ⇒ supplyMult = 1 (neutral; the row is
+  //     ranked purely on throughput × recency).
+  //
+  // Audit fixture (1H window):
+  //   COLORS NFTs v2  count=2  supply=3884  uniform
+  //     throughput 0.033 × supplyMult 1.00 × recencyMult 0.50 = 0.017
+  //   poliworld       count=24 supply=104   uniform
+  //     throughput 0.400 × supplyMult 1.92 × recencyMult 0.75 = 0.576
+  //   → poliworld outranks COLORS by ~34× (vs. ~12× under Option A).
+  //
+  // firstTs/lastTs stay on Stats because computeCoef still reads them
+  // to derive cluster compactness independently of RATE.
   const tfStatsByKey = useMemo(() => {
-    const cutoff   = Date.now() - MINT_TF_MS[mintTf];
-    const tfMin    = MINT_TF_MS[mintTf] / 60_000;
-    type Stats     = { count: number; firstTs: number; lastTs: number; mintPerMin: number };
-    const m        = new Map<string, Stats>();
+    const now            = Date.now();
+    const tfMs           = MINT_TF_MS[mintTf];
+    const cutoff         = now - tfMs;
+    const tfQuarterStart = now - (tfMs / 4);
+    const tfMin          = tfMs / 60_000;
+    type Stats           = {
+      count:    number;
+      firstTs:  number;
+      lastTs:   number;
+      recentQ:  number;   // mints in the last 25 % of the timeframe
+      mintPerMin: number; // HEAT composite (name kept for cross-module compat)
+    };
+    const m = new Map<string, Stats>();
     for (const ev of events) {
       if (ev.receivedAt < cutoff) continue;
+      const isRecent = ev.receivedAt >= tfQuarterStart ? 1 : 0;
       const cur = m.get(ev.groupingKey);
       if (!cur) {
-        m.set(ev.groupingKey, { count: 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt, mintPerMin: 0 });
+        m.set(ev.groupingKey, {
+          count: 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt,
+          recentQ: isRecent, mintPerMin: 0,
+        });
       } else {
-        cur.count += 1;
+        cur.count   += 1;
+        cur.recentQ += isRecent;
         if (ev.receivedAt < cur.firstTs) cur.firstTs = ev.receivedAt;
         if (ev.receivedAt > cur.lastTs)  cur.lastTs  = ev.receivedAt;
       }
     }
-    for (const s of m.values()) {
-      s.mintPerMin = s.count / tfMin;
+    // Compute HEAT once we know the group counts. Reads maxSupply
+    // from the rollup row when present; defaults supplyMult = 1
+    // (neutral) when supply is unknown so cNFT / pre-resolved rows
+    // aren't penalized.
+    for (const [key, s] of m) {
+      const throughput  = s.count / tfMin;
+      const row         = rows.get(key);
+      const supply      = (typeof row?.maxSupply === 'number' && row.maxSupply > 0)
+        ? row.maxSupply
+        : null;
+      const supplyFrac  = supply !== null
+        ? Math.min(1, s.count / Math.max(supply, 50))
+        : 0;
+      const supplyMult  = 1 + supplyFrac * 4;
+      const recencyMult = s.count > 0 ? 0.5 + s.recentQ / s.count : 0.5;
+      s.mintPerMin      = throughput * supplyMult * recencyMult;
     }
     return m;
   // `tick` re-evaluates the cutoff every 5 s so events that age past
   // the selected window drop out without waiting for new SSE traffic.
+  // `rows` joined so supplyMult sees the latest maxSupply once
+  // launchpad / on-chain resolvers populate it. Recompute cost is
+  // O(events) ≤ 150 — trivially cheap.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, mintTf, tick]);
+  }, [events, mintTf, tick, rows]);
 
   // COEF — cluster-compactness ratio: how tightly the visible mints
   // packed in time relative to the selected timeframe. Algebraically

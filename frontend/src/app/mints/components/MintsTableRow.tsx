@@ -9,6 +9,7 @@
 
 import { ItemThumb } from '@/soloist/shared';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats } from '../lib/types';
+import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
 import { fmtAge, shortKey, thumb64 } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
@@ -398,18 +399,20 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
           </td>
         );
       })()}
-      {/* RATE — count ÷ timeframe minutes (average mint throughput
-          across the selected window). With <2 mints we surface the
-          raw count (0 or 1) so the cell isn't ever empty. Primary
-          activity metric — green, weight 700.
-          Audit fix: previously this divided by the *active span*
-          (gap between first/last mint, floored at 1 min), which
-          made the velocity-desc sort over-rank sparse stale
-          collections that happened to land 2 mints in the same
-          minute. Now using the full timeframe as the divisor so
-          fresh launches with sustained activity outrank cluster-
-          and-die rows naturally. The cluster signal moves to COEF
-          (timeframe ÷ active span) to its left. */}
+      {/* RATE — HEAT composite (Option C):
+            throughput   = count / tfMinutes
+            supplyMult   = 1 + clamp(count / max(supply, 50), 0, 1) × 4   (1× … 5×)
+            recencyMult  = 0.5 + (mints in last ¼ of window / count)      (0.5× … 1.5×)
+            HEAT         = throughput × supplyMult × recencyMult
+          Option A's throughput-only formula reduced RATE to a near-
+          clone of MINTS. HEAT brings in the two dimensions trader
+          intuition actually weighs: how much of the planned supply
+          got consumed (small-cap drops with strong fill outrank
+          stale large-caps with sparse activity) and how recent the
+          activity was in the window (late-window front-loaded beats
+          first-quarter-and-die). With <2 mints we surface the raw
+          count (0 or 1) so the cell isn't ever empty. Primary
+          activity metric — green, weight 700. */}
       {(() => {
         const stats   = tfStatsByKey.get(r.groupingKey);
         const tfCount = stats?.count ?? 0;
@@ -419,9 +422,23 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
                        : rate >= 10 ? rate.toFixed(0)
                        : rate >= 1  ? rate.toFixed(1)
                        : rate.toFixed(2);
+        // Tooltip exposes the three multipliers so a power user can
+        // see why a row scored what it did. supplyMult shows 1.00
+        // when maxSupply is unknown (cNFT / unresolved launchpad).
+        const tfMin       = MINT_TF_MS[mintTf] / 60_000;
+        const throughput  = tfCount / tfMin;
+        const supply      = (typeof r.maxSupply === 'number' && r.maxSupply > 0) ? r.maxSupply : null;
+        const supplyFrac  = supply !== null ? Math.min(1, tfCount / Math.max(supply, 50)) : 0;
+        const supplyMult  = 1 + supplyFrac * 4;
+        const recencyMult = stats && stats.count > 0
+          ? 0.5 + stats.recentQ / stats.count
+          : 0.5;
         const tip = tfCount < 2
-          ? `${tfCount} mint(s) in last ${mintTf} — not enough data for a rate`
-          : `${tfCount.toLocaleString()} mints in last ${mintTf} ≈ ${display} /min (avg over the window)`;
+          ? `${tfCount} mint(s) in last ${mintTf} — not enough data for HEAT`
+          : `HEAT ${display}  =  throughput ${throughput.toFixed(2)} × supply ×${supplyMult.toFixed(2)} × recency ×${recencyMult.toFixed(2)}`
+            + `\n${tfCount.toLocaleString()} mints in last ${mintTf}`
+            + (supply !== null ? ` · ${(supplyFrac * 100).toFixed(1)}% of ${supply.toLocaleString()}-supply` : '')
+            + ` · ${(recencyMult >= 1 ? '+' : '−') }${Math.abs((recencyMult - 1) * 100).toFixed(0)}% recency`;
         return (
           <td
             title={tip}

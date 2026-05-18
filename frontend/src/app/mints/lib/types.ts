@@ -103,6 +103,17 @@ export interface MintsTimeframeStats {
   count:      number;
   firstTs:    number;
   lastTs:     number;
+  /** Mints that landed in the last quarter of the timeframe window.
+   *  Used by the HEAT-score render to compute the recency multiplier
+   *  (`recencyMult = 0.5 + recentQ / count`) alongside the page-side
+   *  HEAT calculation. Counted in the same useMemo so the two
+   *  formulas can never drift. */
+  recentQ:    number;
+  /** HEAT composite — throughput × supplyMult × recencyMult.
+   *  Field name kept as `mintPerMin` for cross-module backwards
+   *  compatibility with the prior "mints/min" semantic; the value
+   *  is no longer a raw rate. See the comment block above
+   *  `tfStatsByKey` in page.tsx for the formula and tunings. */
   mintPerMin: number;
 }
 
