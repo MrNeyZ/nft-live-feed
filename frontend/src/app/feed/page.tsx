@@ -715,45 +715,38 @@ const FeedCard = memo(function FeedCard({
           <div style={FC_PRICE_ROW_STYLE}>
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
-              // Trimmed BUY/SELL/AMM pill — width 50, padding 1px 0,
-              // fontSize 10.5. ASYMMETRIC chrome — three variants:
-              //   • BUY (and neutral): glassy treatment — inset
-              //     top highlight + inset bottom shadow read as a
-              //     softly raised glass chip, matching "calm
-              //     profit" intent.
-              //   • SELL: flat framed treatment — a single 1 px
-              //     red inset ring at α 0.62 replaces the glassy
-              //     shadows. Reads as a tight terminal chip, no
-              //     embossing, matching "sharp exit" intent.
-              //     Tighter radius (3 vs 4) reinforces the
-              //     rectangular/terminal feel.
-              //   • AMM (buyAmm | sellAmm): violet outlined chip
-              //     — same geometry as BUY, but with a 1 px violet
-              //     inset ring at α 0.55 and no glassy shadows.
-              //     Audit v2 H-03: AMM is a ROUTING class, not a
-              //     direction; separating it onto the lilac accent
-              //     channel stops it reading as SELL at a glance.
-              //     The card's side accent stripe (.buy-card /
-              //     .sell-card) still tracks direction via
-              //     `borderTone`, so direction stays legible at
-              //     the row level.
-              // SELL text-shadow stays: a 1 px dark halo crisps
-              // the letterforms against the redder bg.
-              const isSell  = !!style && style.borderTone === 'sell' && (kind === 'sell');
-              const isAmm   = kind === 'buyAmm' || kind === 'sellAmm';
+              // Unified BUY/SELL/AMM pill — every variant shares the
+              // same footprint (width 50, padding 1px 0, fontSize 10.5,
+              // weight 700, radius 4, letterSpacing 0.2 px) and the
+              // same glassy inset chrome (top highlight + bottom
+              // shadow). Direction is carried by fg + bg from
+              // KIND_STYLES (green for buy/buyAmm, red for sell/
+              // sellAmm). The earlier asymmetric chrome (SELL's red
+              // inset ring + tighter radius, AMM's violet inset ring)
+              // is removed: it made SELL feel heavier than BUY and
+              // pulled AMM off the direction axis.
+              //
+              // AMM differentiator: a faint OUTER halo at the same
+              // hue as the direction (green for buyAmm, red for
+              // sellAmm). 5 px blur at α 0.30 is visible only on
+              // closer inspection — "this is the same direction,
+              // just pool-routed". No neon, no spread, no inset.
+              const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
+              const haloColor = isAmm
+                ? (kind === 'buyAmm' ? 'rgba(64,212,168,0.30)' : 'rgba(245,88,102,0.30)')
+                : null;
+              const insetChrome =
+                'inset 0 1px 0 rgba(255,255,255,0.06),' +
+                ' inset 0 -1px 0 rgba(0,0,0,0.16)';
               return (
                 <span style={{
                   width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
                   padding: '1px 0', fontSize: 10.5, fontWeight: 700,
-                  borderRadius: isSell ? 3 : 4,
+                  borderRadius: 4,
                   background: style.bg, color: style.fg, letterSpacing: '0.2px',
-                  boxShadow: isSell
-                    ? 'inset 0 0 0 1px rgba(245, 88, 102, 0.62)'
-                    : isAmm
-                      ? 'inset 0 0 0 1px rgba(168, 144, 232, 0.55)'
-                      : 'inset 0 1px 0 rgba(255, 255, 255, 0.06),' +
-                        ' inset 0 -1px 0 rgba(0, 0, 0, 0.16)',
-                  textShadow: isSell ? '0 0 1px rgba(0, 0, 0, 0.30)' : undefined,
+                  boxShadow: haloColor
+                    ? `${insetChrome}, 0 0 5px ${haloColor}`
+                    : insetChrome,
                 }}>{style.label}</span>
               );
             })()}

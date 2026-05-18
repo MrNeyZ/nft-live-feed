@@ -17,42 +17,38 @@ export const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settleme
 export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
 
 
-// Direction + routing palette.
+// Direction-first palette with subtle AMM glow.
 //
 // Direction (BUY / SELL): green / red — trader convention preserved.
-//   BUY  → rgb(64,212,168) bg 0.18 — calm soft emerald.
-//   SELL → rgb(255,70,86)  bg 0.14 — cool-leaning red matching
+//   BUY  → rgb(64,212,168) bg α 0.18 — calm soft emerald.
+//   SELL → rgb(245,88,102) bg α 0.16 — cool-leaning red matching
 //          Hyperliquid #F6465D / Binance #F84960 / TradingView #F23645.
-// Pill chrome is asymmetric (see pill JSX in page.tsx): BUY keeps a
-// glassy inset highlight + bottom shadow; SELL replaces it with a
-// crisp 1 px red inset ring. Same geometry, different emotional weight.
+//          Bg lightened from the previous near-opaque burgundy
+//          (rgba(36,14,20,0.85)) to a translucent red so SELL pills
+//          share BUY's chip paradigm: matching visual weight, same
+//          glassy inset chrome, only the hue differs.
 //
-// Routing (AMM): violet, decoupled from direction. v2 audit H-03 fix:
-// when both buyAmm and sellAmm shared the green/red palette, AMM read
-// as a direction signal — particularly sellAmm, which was visually
-// indistinguishable from SELL at a glance, conflating "pool route"
-// with "exit". AMM is a routing CLASS, not a direction, so both
-// buyAmm and sellAmm now wear the project's canonical lilac accent
-// (#a890e8) as an outlined chip. The card's left/right edge stripe
-// stays direction-driven via `borderTone` (the .buy-card / .sell-card
-// CSS classes) — so a sellAmm tx still has a red side accent at the
-// card level, only the pill itself reads neutral-route.
+// AMM (buyAmm / sellAmm): direction-coloured pill identical to its
+// BUY / SELL sibling — visual sidedness comes first. The "pool route"
+// distinction is carried by a soft outer halo at the same hue, added
+// in the pill render (see page.tsx). The prior violet AMM treatment
+// was reverted because it over-separated routing from direction:
+// sellAmm pills no longer read as sell-side pressure at a glance.
+// New convention: hue carries direction, halo carries route.
 //
-// Why this specific violet: `rgb(168,144,232)` matches the rest of
-// the VictoryLabs accent family (Metaplex Core source badge, COLL
-// marker, tools-row hover ring). Reusing the same hex keeps the AMM
-// pill in the same colour-family as every other "this is a class
-// tag, not a direction" cue in the product.
+// The card's left/right edge stripe stays direction-driven via
+// `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',   bg: 'rgba(64,212,168,0.18)',   borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',   bg: 'rgba(36,14,20,0.85)',     borderTone: 'sell' },
-  // AMM badges now share one routing palette regardless of side.
-  // `borderTone` still tracks direction so the card edge keeps the
-  // buy/sell colour signal (audit H-03 explicitly preserves this:
-  // direction lives on the card, routing lives on the pill).
-  buyAmm:  { label: 'AMM',  fg: 'rgb(168,144,232)',  bg: 'rgba(168,144,232,0.12)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: 'rgb(168,144,232)',  bg: 'rgba(168,144,232,0.12)',  borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#8f8fa8',           bg: 'rgba(255,255,255,0.05)',  borderTone: 'neutral' },
+  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',  bg: 'rgba(245,88,102,0.16)',  borderTone: 'sell' },
+  // AMM siblings match their direction parent for fg+bg; pill render
+  // appends a faint outer halo at the same hue when kind is buyAmm /
+  // sellAmm so the route distinction is a "lean in to spot" signal,
+  // not a hue swap. Same `borderTone` values keep the card edge
+  // direction-consistent.
+  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: 'rgb(245,88,102)',  bg: 'rgba(245,88,102,0.16)',  borderTone: 'sell' },
+  unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 export function saleKind(saleTypeRaw: string | null): SaleKind {
