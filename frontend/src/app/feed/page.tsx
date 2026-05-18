@@ -200,10 +200,13 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 
 const WALLET_LINK_STYLE: React.CSSProperties = {
   // Wallet text sits one tier above the row label (`seller:` /
-  // `buyer:` at #45455e) and one tier below the title (#f0eef8) —
-  // bumped from #7a7a94 → #8e8eb0 so addresses are scan-readable
-  // without competing with the title or price for attention.
-  color: '#8e8eb0', fontWeight: 500,
+  // `buyer:` at #45455e) and one tier below the title (#f0eef8).
+  // Visual-polish pass: dimmed #8e8eb0 → #7e7e9c (one tier quieter).
+  // Combined with the title bump 14 → 15 px above, the seller/buyer
+  // line now reads as clearly secondary rather than near-equal to
+  // the title. Still scan-readable — same hue family, just one step
+  // further from #ffffff so the eye lands on the title first.
+  color: '#7e7e9c', fontWeight: 500,
   fontFamily: "'SF Mono','Fira Code',monospace",
   // No persistent decoration — matches the NFT-name link's behavior.
   // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
@@ -329,13 +332,20 @@ const FC_MIDDLE_COL_STYLE: React.CSSProperties = {
 const FC_NAME_ROW_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline', gap: 8, overflow: 'hidden',
 };
+// NFT title — bumped 14 → 15 px and letterSpacing nudged -0.2 → -0.3
+// in the visual-polish pass: the title now reads one tier above the
+// seller/buyer wallet text (color/weight unchanged) so the card has a
+// clearer three-tier hierarchy (title → wallet → label). Bigger
+// negative tracking compensates for the tighter optical density of a
+// 15 px sans without changing line-height (the row still fits inside
+// the same 56 px thumb-driven card height).
 const FC_NAME_LINK_STYLE: React.CSSProperties = {
-  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+  fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   textDecoration: 'none', cursor: 'pointer',
 };
 const FC_NAME_SPAN_STYLE: React.CSSProperties = {
-  fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px',
+  fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#e8e6f2' };
@@ -677,7 +687,18 @@ const FeedCard = memo(function FeedCard({
               the discount reads alongside the action it modifies). */}
           <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
             <TimeAgo ts={event.ts} />
-            <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
+            {/* Feed-scoped opacity nudge (visual-polish pass): the
+                marketplace icon is supporting metadata, not a focal
+                point — its pink ME mark / cyan Tensor mark were
+                pulling attention away from the price + BUY/SELL pill.
+                Wrapping at 0.78 keeps the icon scan-recognisable but
+                drops one tier in the visual hierarchy. Implemented as
+                a wrapper span so the shared `MktIconBadge` component
+                stays untouched (dashboard / mints consumers see no
+                change). */}
+            <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, opacity: 0.78 }}>
+              <MktIconBadge mp={event.marketplace} href={marketplaceUrl(event)} />
+            </span>
           </div>
           {/* price-row: fixed badge slot + min-width tabular-num price keeps
               badges vertically aligned across rows and prices anchored to a

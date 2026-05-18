@@ -54,7 +54,11 @@
      scoped selectors below. Thumb size is currently JS-driven via
      <ItemThumb size={...}> + CSS-only phone/tape overrides; not
      tokenized in this pass to avoid img/wrapper-size conflicts. */
-  --feed-card-pad:     7px 11px;
+  /* Card padding bumped 7/11 → 8/12 (visual-polish pass): adds ~2 px
+     of vertical breathing per card without changing the 56 px thumb
+     or row count budget. Pairs with the `.feed-row-wrap` 3→4 px
+     bump below for one tier of additional row-to-row air. */
+  --feed-card-pad:     8px 12px;
   --feed-card-gap:     10px;
   --feed-thumb-size:   56px;
   /* Visual-accent tokens — bumped in PC mode to compensate for the
@@ -94,7 +98,10 @@
 html[data-layout="pc"] {
   --shell-x:            40px;
   --page-x:             24px;
-  --feed-max:           880px;
+  /* PC feed column widened 880 → 960 (visual-polish pass): reduces
+     excessive empty side margins on dense monitors without affecting
+     laptop / phone (which keep the 660 default / 100 % respectively). */
+  --feed-max:           960px;
   --dashboard-max:     1280px;
   --tools-max:         1400px;
   --mints-max:         1600px;
@@ -592,11 +599,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ── Feed card wrapper + flash animations ──────────────────────────────── */
 
-/* Tighten between-card spacing from 4 px → 3 px (= 6 px gap visually
-   instead of 8). Combined with the card padding drop below, each card
-   loses ~6 px of vertical real estate so the operator sees noticeably
-   more activity per screen without the layout reading cramped. */
-.feed-row-wrap          { padding: 3px 0; animation: slideDown 0.45s ease; }
+/* Row-to-row spacing: 3 → 4 px (visual-polish pass) restores ~2 px of
+   vertical air between cards. The earlier 4 → 3 step prioritised
+   activity density; with the card-pad bump (7/11 → 8/12) the row no
+   longer reads cramped, so we hand one px back as breathing room. */
+.feed-row-wrap          { padding: 4px 0; animation: slideDown 0.45s ease; }
 .new-buy     .feed-card { animation: flashBuy 3.6s ease-out; }
 .new-sell    .feed-card { animation: flashSell 3.6s ease-out; }
 .new-listing .feed-card { animation: flashListingFeed 3.6s ease-out; }
@@ -641,12 +648,26 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid rgba(255, 255, 255, var(--accent-card-alpha, 0.06));
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
+  /* Glass-slab depth (visual-polish pass): three-stop top-to-bottom
+     wash (was two-stop, ending at 65 %). Same near-imperceptible
+     highlight at the top, a faint mid-stop for an extra hint of
+     volume, then fully transparent at 100 %. Paired with the
+     bottom-inset shadow below, the card reads as a thin lit panel
+     instead of a flat rectangle. No new blur, no new gradient
+     direction — same performance profile. */
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.025) 0%,
-    rgba(255, 255, 255, 0)     65%
+    rgba(255, 255, 255, 0.030) 0%,
+    rgba(255, 255, 255, 0.010) 50%,
+    rgba(255, 255, 255, 0)     100%
   );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  /* Top highlight + faint bottom inset shadow: gives the card a
+     visible top + bottom rim without competing with the per-card
+     buy/sell tint. Alpha kept tiny so a 150-row list doesn't read
+     as "loud" — purely a depth nudge.  */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
   cursor: pointer;
   position: relative;
   /* `box-shadow` is intentionally NOT in this transition list: the
@@ -674,11 +695,14 @@ a { color: inherit; text-decoration: none; }
 }
 
 .feed-card:hover {
-  /* Subtle terminal-row hover: scale 1.005 + bumped bg lift (0.06 →
-     0.07, ~17 % stronger) for better mouse-tracking readability
-     while scanning. Inset ring + outer glow unchanged — only the
-     base bg lift moved. No new animations. */
-  transform: scale(1.005);
+  /* Subtle terminal-row hover: 1 px vertical lift + scale 1.005 +
+     bumped bg lift (0.06 → 0.07, ~17 % stronger) for better
+     mouse-tracking readability while scanning. The translateY(-1px)
+     reads as a true "lift off the page" rather than just growth in
+     place; combined with the inset ring + outer glow, the focused
+     row feels like a card that just rose 1 px out of the tape.
+     Same 200 ms ease-out as before; no new animations. */
+  transform: translateY(-1px) scale(1.005);
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
   box-shadow:
@@ -720,20 +744,23 @@ a { color: inherit; text-decoration: none; }
    unchanged from the prior commit (~0.030 α at rest, 0.060 α on
    hover). */
 .feed-card.buy-card  {
-  border-left:  3px solid rgba( 64, 212, 168, 0.40);
-  border-right: 3px solid rgba( 64, 212, 168, 0.40);
+  /* Side accent thinned 3 → 2 px (visual-polish pass). Same color,
+     same alpha — the cleaner thinner line reads as more confident
+     directional cue without expanding the card's effective width. */
+  border-left:  2px solid rgba( 64, 212, 168, 0.40);
+  border-right: 2px solid rgba( 64, 212, 168, 0.40);
   background:   rgba( 64, 212, 168, 0.030);
 }
 .feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.066); }
 .feed-card.sell-card    {
-  border-left:  3px solid rgba(245,  88, 102, 0.45);
-  border-right: 3px solid rgba(245,  88, 102, 0.45);
+  border-left:  2px solid rgba(245,  88, 102, 0.45);
+  border-right: 2px solid rgba(245,  88, 102, 0.45);
   background:   rgba(245,  88, 102, 0.025);
 }
 .feed-card.sell-card:hover { background: rgba(245,  88, 102, 0.060); }
 .feed-card.listing-card {
-  border-left:  3px solid rgba(168, 144, 232, 0.95);
-  border-right: 3px solid rgba(168, 144, 232, 0.95);
+  border-left:  2px solid rgba(168, 144, 232, 0.95);
+  border-right: 2px solid rgba(168, 144, 232, 0.95);
 }
 
 /* /feed Filters panel — terminal control surface. Sits as a darker
@@ -901,7 +928,10 @@ a { color: inherit; text-decoration: none; }
    instead of restating `.feed-card { padding/gap }` rules. The
    feed-row-wrap padding and the tape thumb size aren't tokenized
    here — they stay scoped to the density class. */
-.feed-density-comfy { --feed-card-pad: 11px 14px; --feed-card-gap: 14px; }
+/* COMFY: +1 px vertical pad over the prior 11/14 — keeps the step
+   from compact (now 8/12) → comfy (12/14) at 4 px so the densities
+   feel evenly spaced. Gap unchanged. */
+.feed-density-comfy { --feed-card-pad: 12px 14px; --feed-card-gap: 14px; }
 .feed-density-comfy .feed-row-wrap { padding: 5px 0; }
 
 .feed-density-tape  { --feed-card-pad: 5px 10px;  --feed-card-gap: 8px; --feed-thumb-size: 40px; }
@@ -910,10 +940,14 @@ a { color: inherit; text-decoration: none; }
 
 /* Edge-accent middle-glow stripes for buy/sell cards. Vertical span
    `top: 18 %` to `bottom: 18 %` covers the centre 64 % of the card
-   height; alpha 1.0 with a 6 px outer glow makes the middle read
+   height; alpha 1.0 with a soft outer glow makes the middle read
    bright while the surrounding faded border (0.40 α above) carries
-   the soft top/bottom tail. Sits on top of the existing 3 px
-   border, scoped via `position: relative` on `.feed-card`. */
+   the soft top/bottom tail. Sits flush against the (now 2 px) side
+   border, scoped via `position: relative` on `.feed-card`.
+   Visual-polish pass: width and offset trimmed 3 → 2 px in lockstep
+   with the side border above so the bright-stripe-over-faded-tail
+   geometry is preserved (only thinner). Glow blur trimmed 6→4 px
+   (buy) and 4→3 px (sell) so the thinner stripe doesn't read mushy. */
 .feed-card.buy-card::before,
 .feed-card.buy-card::after,
 .feed-card.sell-card::before,
@@ -921,14 +955,14 @@ a { color: inherit; text-decoration: none; }
   content: '';
   position: absolute;
   top: 18%; bottom: 18%;
-  width: 3px;
+  width: 2px;
   pointer-events: none;
-  border-radius: 1.5px;
+  border-radius: 1px;
 }
-.feed-card.buy-card::before  { left: -3px;  background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
-.feed-card.buy-card::after   { right: -3px; background: rgb(64, 212, 168);  box-shadow: 0 0 6px rgba(64, 212, 168, 0.45); }
-.feed-card.sell-card::before { left: -3px;  background: rgb(245,  88, 102); box-shadow: 0 0 4px rgba(245,  88, 102, 0.32); }
-.feed-card.sell-card::after  { right: -3px; background: rgb(245,  88, 102); box-shadow: 0 0 4px rgba(245,  88, 102, 0.32); }
+.feed-card.buy-card::before  { left: -2px;  background: rgb(64, 212, 168);  box-shadow: 0 0 4px rgba(64, 212, 168, 0.45); }
+.feed-card.buy-card::after   { right: -2px; background: rgb(64, 212, 168);  box-shadow: 0 0 4px rgba(64, 212, 168, 0.45); }
+.feed-card.sell-card::before { left: -2px;  background: rgb(245,  88, 102); box-shadow: 0 0 3px rgba(245,  88, 102, 0.32); }
+.feed-card.sell-card::after  { right: -2px; background: rgb(245,  88, 102); box-shadow: 0 0 3px rgba(245,  88, 102, 0.32); }
 
 .feed-thumb {
   width: 56px;
