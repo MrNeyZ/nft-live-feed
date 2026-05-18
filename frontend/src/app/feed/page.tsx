@@ -3,7 +3,7 @@
 // Soloist — Live Feed (design port of feed.html)
 // Snapshot via REST + live updates via SSE; mapped through `fromBackend`.
 
-import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   FeedEvent, Side,
   formatSol, shortWallet, timeAgo,
@@ -18,6 +18,9 @@ import {
 } from '@/soloist/feed-store';
 import { isCnftDust } from '@/soloist/cnft-filter';
 import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
+import type {
+  Density, FilterKey, SaleKind, KindStyle, FeedCardProps,
+} from './lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
@@ -37,100 +40,16 @@ const SNAPSHOT_LIMIT = 100;
 // < cap) is byte-identical to before.
 const MAX_RENDERED_ROWS = 150;
 
-// Display-only price formatter for the live-feed cards. Diverges from the
-// shared `formatSol` only in the 0.001..0.01 SOL band: that range used to
-// render as 4 decimals ("0.0060"), which made every low-priced row read as
-// dust noise. New rule: max 3 decimals with trailing zeros trimmed
-// (0.006, 0.007). Sub-0.001 SOL keeps the shared formatter's 5/6-decimal
-// path so a 0.00025 SOL sale still renders meaningfully instead of
-// collapsing to "0.000". Larger prices (≥ 0.01) fall through to the shared
-// formatter unchanged so dashboard / collection / tools displays stay in
-// lockstep. Does NOT touch raw priceSol, filters, sorting, or floor%.
-function formatFeedPrice(n: number): string {
-  if (n >= 0.001 && n < 0.01) {
-    return n.toFixed(3).replace(/\.?0+$/, '');
-  }
-  return formatSol(n);
-}
+import { formatFeedPrice, sellerCountKey, safeFiniteNumber } from './lib/format';
 
 // ── Persisted seller-remaining counts ──────────────────────────────────────
-// Map of `${seller}-${collection}` → count, JSON-encoded into localStorage.
-// Backend emits the count asynchronously over SSE (event: seller_count)
-// keyed by the same composite. Storing by seller+collection — instead of
-// the prior signature key — means one resolved value lights up every row
-// from the same wallet+collection (mid-dump or post-reload), and old
-// signature-keyed entries from prior versions are simply ignored on
-// hydration since they don't match the new key shape.
-const SELLER_COUNT_STORAGE_KEY = 'vl.feed.sellerCount.v2';
-const SELLER_COUNT_MAX_ENTRIES = 500;
-
-function sellerCountKey(seller: string | null | undefined, collection: string | null | undefined): string | null {
-  if (!seller || !collection) return null;
-  return `${seller}-${collection}`;
-}
-
-function loadSellerCounts(): Map<string, number> {
-  if (typeof window === 'undefined') return new Map();
-  try {
-    const raw = window.localStorage.getItem(SELLER_COUNT_STORAGE_KEY);
-    if (!raw) return new Map();
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    if (!obj || typeof obj !== 'object') return new Map();
-    const m = new Map<string, number>();
-    for (const [k, v] of Object.entries(obj)) {
-      if (typeof k === 'string' && typeof v === 'number' && Number.isFinite(v)) m.set(k, v);
-    }
-    return m;
-  } catch { return new Map(); }
-}
-
-function persistSellerCounts(map: Map<string, number>): void {
-  if (typeof window === 'undefined') return;
-  try {
-    if (map.size > SELLER_COUNT_MAX_ENTRIES) {
-      const overflow = map.size - SELLER_COUNT_MAX_ENTRIES;
-      const it = map.keys();
-      for (let i = 0; i < overflow; i++) {
-        const k = it.next().value;
-        if (k != null) map.delete(k);
-      }
-    }
-    window.localStorage.setItem(SELLER_COUNT_STORAGE_KEY, JSON.stringify(Object.fromEntries(map)));
-  } catch { /* quota / serialize error — fail silent */ }
-}
-
-/** Debounced wrapper around `persistSellerCounts`. The previous behavior
- *  ran a full Object.fromEntries + JSON.stringify of a ~500-entry Map on
- *  every `seller_count` SSE frame; under a multi-collection dump that
- *  fires many times per second, blocking the main thread. Coalescing on
- *  a 1.5 s timer keeps the persisted store eventually-consistent without
- *  the per-frame serialize cost. A `beforeunload` flush (registered at
- *  module load) guarantees the latest map survives a tab close. */
-const SELLER_COUNT_DEBOUNCE_MS = 1500;
-let sellerCountFlushTimer: ReturnType<typeof setTimeout> | null = null;
-let sellerCountPendingMap:  Map<string, number> | null = null;
-
-function flushSellerCountsNow(): void {
-  if (sellerCountFlushTimer != null) {
-    clearTimeout(sellerCountFlushTimer);
-    sellerCountFlushTimer = null;
-  }
-  if (sellerCountPendingMap) {
-    persistSellerCounts(sellerCountPendingMap);
-    sellerCountPendingMap = null;
-  }
-}
-
-function schedulePersistSellerCounts(map: Map<string, number>): void {
-  if (typeof window === 'undefined') return;
-  // Capture the live ref — caller mutates the same Map between flushes,
-  // so we always serialize the latest state at flush time, not a stale
-  // snapshot.
-  sellerCountPendingMap = map;
-  if (sellerCountFlushTimer != null) return;
-  sellerCountFlushTimer = setTimeout(flushSellerCountsNow, SELLER_COUNT_DEBOUNCE_MS);
-}
-
+// Helpers (load / persist / debounced flush) live in lib/seller-count-storage.
+// The pagehide/beforeunload listener is registered here at module load so the
+// page lifecycle owns the side-effect; the helpers themselves remain pure
+// re: the page state.
+import {
+  loadSellerCounts, flushSellerCountsNow, schedulePersistSellerCounts,
+} from './lib/seller-count-storage';
 if (typeof window !== 'undefined') {
   // Best-effort flush on tab close. `pagehide` is the more reliable
   // mobile-safe sibling of `beforeunload`; both fire synchronously and
@@ -164,45 +83,9 @@ const FEED_SLUG_BLACKLIST = new Set<string>([
 const FEED_NAME_SUBSTRING_BLACKLIST: readonly string[] = ['drip'];
 
 // ── Shared 1 s tick (powers all TimeAgo leaves) ──────────────────────────────
-// Previously every TimeAgo card owned its own setInterval. With ~200 cards
-// that's 200 timer fires/sec doing 200 tiny rerenders — measurable jank on
-// weaker hardware. One module-level interval pushes a single `Date.now()`
-// snapshot into a pub-sub; each TimeAgo subscribes via useSyncExternalStore
-// and rerenders exactly once per tick (same visible behavior, 1× the timer
-// cost). The interval is lazily created when the first leaf subscribes and
-// torn down when the last leaf unsubscribes — zero work on pages that
-// don't render any TimeAgo.
-let sharedNow: number = typeof window === 'undefined' ? 0 : Date.now();
-const tickListeners = new Set<() => void>();
-let tickInterval: ReturnType<typeof setInterval> | null = null;
-
-function ensureTicker(): void {
-  if (tickInterval != null || typeof window === 'undefined') return;
-  tickInterval = setInterval(() => {
-    sharedNow = Date.now();
-    // Snapshot the listener set first — a subscriber that triggers a
-    // synchronous unsubscribe inside its callback would otherwise mutate
-    // the Set mid-iteration.
-    for (const cb of Array.from(tickListeners)) cb();
-  }, 1000);
-}
-function subscribeTick(cb: () => void): () => void {
-  tickListeners.add(cb);
-  ensureTicker();
-  return () => {
-    tickListeners.delete(cb);
-    if (tickListeners.size === 0 && tickInterval != null) {
-      clearInterval(tickInterval);
-      tickInterval = null;
-    }
-  };
-}
-function getTickSnapshot(): number { return sharedNow; }
-function getTickServerSnapshot(): number { return 0; }
-
-function useSharedNow(): number {
-  return useSyncExternalStore(subscribeTick, getTickSnapshot, getTickServerSnapshot);
-}
+// Pub-sub + lazy interval lives in lib/shared-now. Page just consumes
+// the hook below.
+import { useSharedNow } from './lib/shared-now';
 
 // ── Time-ago leaf ────────────────────────────────────────────────────────────
 // Reads from the shared ticker above. 1 s cadence gives smooth seconds in the
@@ -366,13 +249,6 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 //                    Routine sales near floor blend into the row.
 //   • |Δ| >= 25 %  → BRIGHT (saturated green / red, faint fill).
 //                    Big-mover sales stand out at a glance.
-/** Display-time guard against NaN / Infinity / non-numeric inputs from
- *  malformed wire frames. Returns the value when it's a usable finite
- *  number, else null so render sites can substitute a placeholder. */
-function safeFiniteNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
 const FLOOR_BRIGHT_THRESHOLD = 0.25;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -426,42 +302,10 @@ function FloorChip({ delta }: { delta: number }) {
  *  the thumb (56 → 40) and tightens padding for an ultra-dense
  *  trading-tape look. CSS rules under `.feed-density-{comfy,
  *  compact,tape}` carry the layout deltas (globals.css). */
-type Density = 'comfy' | 'compact' | 'tape';
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
 const DENSITY_LS_KEY = 'vl.feed.density';
 function isDensity(v: unknown): v is Density {
   return v === 'comfy' || v === 'compact' || v === 'tape';
-}
-
-interface FeedCardProps {
-  event: FeedEvent;
-  /** LMB on avatar → open a small centered image preview. */
-  onPreview: (url: string) => void;
-  /** Current "Inclusive fees" toggle state from BottomStatusBar. Only
-   *  AMM_SELL rows actually branch on this; passed down to every card
-   *  so the price re-renders the moment the toggle flips. */
-  inclusiveFees: boolean;
-  /** Frontend fallback floor (SOL) for this card's slug. Used only
-   *  when `event.floorDelta` is missing — backend's value always wins
-   *  when present. Sourced from the existing `floorBySlug` cache (the
-   *  cNFT-dust resolver), so the fallback fires for slugs that cache
-   *  has already populated; no new fetches are added on this path. */
-  slugFloor?: number | null;
-  /** Number of sell-side rows this seller+collection has in the
-   *  currently visible feed. Drives the noise-cut on the
-   *  seller-remaining badge: a single sell from a seller with high
-   *  inventory is quieter than two-in-a-row, which is when the
-   *  "active dumping" signal becomes meaningful. */
-  sellerSellCountInFeed: number;
-  /** True when this row is the most-recent sell in the feed for its
-   *  seller+collection pair. The badge only renders on the newest row
-   *  so older sibling rows don't repeat the same number. */
-  isNewestSellForSellerColl: boolean;
-  /** Card density mode. Drives the thumb size (TAPE shrinks to 40 px,
-   *  others stay at 56 px); other density deltas (padding, gaps,
-   *  thumb wrapper width) are owned by CSS rules scoped to
-   *  `.feed-density-{comfy,compact,tape}` on the parent feed-list. */
-  density: Density;
 }
 
 // Static FeedCard inline styles hoisted to module scope. These objects
@@ -893,7 +737,6 @@ const FeedCard = memo(function FeedCard({
 
 // ── Feed App ─────────────────────────────────────────────────────────────────
 
-type FilterKey = 'all' | Side | 'buyAmm' | 'sellAmm' | 'listing';
 
 const FILTERS: { key: FilterKey; label: string; color: string }[] = [
   { key: 'all',     label: 'All',        color: '#a890e8' },
@@ -948,98 +791,10 @@ const DENSITY_PILL_ACTIVE_STYLE: React.CSSProperties = {
   fontWeight:    700,
 };
 
-/** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
- *  Listings is intentionally absent — the backend does not yet emit listing
- *  events, so the Listings filter is wired but renders empty. */
-const SALE_TYPE_BUY      = 'normal_sale'; // default buy / list buy
-const SALE_TYPE_SELL     = 'bid_sell';    // sell into bid
-const SALE_TYPE_BUY_AMM  = 'pool_buy';    // buy from AMM/pool
-const SALE_TYPE_SELL_AMM = 'pool_sale';   // sell into AMM/pool
-const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settlement
-const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
-
-type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'unknown';
-
-interface KindStyle {
-  label: string;
-  /** Foreground / accent color for the badge text + border tint. */
-  fg: string;
-  /** Translucent background tint for the badge. */
-  bg: string;
-  /** 'buy' tone or 'sell' tone — drives the card's left/right border color. */
-  borderTone: 'buy' | 'sell' | 'neutral';
-}
-
-// Direction palette — asymmetric tuning so SELL reads sharper than BUY
-// (trader-UI semantics: profit calm, exit urgent). The previous SELL
-// at rgb(255,90,90) bg 0.10 still read as burgundy because G = B = 90
-// means 35 % of the red channel was neutral grey, which mixed into the
-// dark purple bg as red-grey-purple = burgundy. Fixing it required
-// dropping G aggressively (not bumping R further):
-//   BUY  → unchanged: rgb(64,212,168) bg 0.18 — calm soft emerald.
-//   SELL → rgb(255,70,86) bg 0.14 — G dropped 90 → 70 cuts grey
-//          washout ~22 %, so red dominates instead of red+grey.
-//          B = 86 (slightly > G) gives a subtle cool lean matching
-//          Hyperliquid #F6465D / Binance #F84960 / TradingView
-//          #F23645 — modern perp terminal reds all live at G ≤ 73.
-//          bg α nudged 0.10 → 0.14: with the cooler/sharper hue, the
-//          bg can be visibly present without re-introducing the
-//          burgundy mud.
-// Pill chrome is asymmetric (see pill JSX below): BUY keeps the
-// glassy inset highlight + bottom shadow; SELL replaces it with a
-// crisp 1 px inset ring. Same geometry, different emotional weight.
-const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',  bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  // sellAmm fg darkened 245→215 (~12 %) to differentiate "direct sell"
-  // (SELL pill) from "pool sell" (AMM pill). Same scarlet family, same
-  // cool lean (B − G = 15), just slightly lower contrast — the pill
-  // reads "in family but secondary" without leaving the unified red
-  // palette.
-  sellAmm: { label: 'AMM',  fg: 'rgb(215,80,95)',   bg: 'rgba(36,14,20,0.85)',    borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
-};
-
-function saleKind(saleTypeRaw: string | null): SaleKind {
-  switch (saleTypeRaw) {
-    case SALE_TYPE_BUY:      return 'buy';
-    case SALE_TYPE_SELL:     return 'sell';
-    case SALE_TYPE_BUY_AMM:  return 'buyAmm';
-    case SALE_TYPE_SELL_AMM: return 'sellAmm';
-    // Lucky Buy is still a buy from the seller's perspective; the
-    // 🍀 marker rendered next to the NFT name communicates the
-    // raffle origin separately.
-    case SALE_TYPE_LUCKY:    return 'buy';
-    // Pack open is a buy from the user's perspective — they paid for
-    // a pack and received this NFT. The 🃏 marker next to the NFT
-    // name communicates the pack-origin separately.
-    case SALE_TYPE_PACK:     return 'buy';
-    default:                 return 'unknown';
-  }
-}
-
-/**
- * NFT-type → thin border color for the card thumbnail. Backend values:
- *   legacy / pnft        → pale yellow
- *   metaplex_core / core → pale pink
- *   cnft                 → pale purple (visibly distinct from pink)
- *   anything else        → null (no border)
- */
-function getNftBorderColor(nftType: string): string | null {
-  // Full-opacity colors — the inset dark ring (applied at the call site)
-  // gives contrast against light NFTs, so we don't need translucency to
-  // soften the colored line; full saturation keeps it readable on dark
-  // NFTs and against the feed background.
-  switch (nftType) {
-    case 'legacy':
-    case 'pnft':          return '#ffe082';  // pale yellow
-    case 'metaplex_core':
-    case 'core':          return '#ff9eb8';  // pale pink
-    case 'cnft':          return '#ba8aff';  // pale purple — clearly cooler than pink
-    default:              return null;
-  }
-}
+import {
+  SALE_TYPE_BUY, SALE_TYPE_SELL, SALE_TYPE_BUY_AMM, SALE_TYPE_SELL_AMM,
+  KIND_STYLES, saleKind, getNftBorderColor,
+} from './lib/sale-kind';
 
 export default function FeedPage() {
   // Read query directly off window.location to stay compatible with
