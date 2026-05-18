@@ -369,11 +369,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
         {fmtAge(r.lastMintAt)}
       </td>
-      {/* COEF — burstiness: RATE ÷ baseline (count over full selected
-          timeframe), floor 0.01. With <2 mints there's no two-point
-          span, so we render "—". Rendered MUTED (gray-lilac, weight
-          500) so it reads as secondary to the RATE column to its
-          right — RATE is the primary activity metric. */}
+      {/* COEF — cluster-compactness ratio: timeframe minutes ÷ active
+          span (gap between first and last mint in the window, floored
+          at 1 min). High = mints packed tightly into a small slice of
+          the timeframe. ~1 = spread evenly across the window. With <2
+          mints there's no two-point span, so we render "—". Rendered
+          MUTED (gray-lilac, weight 500) so it reads as secondary to
+          the RATE column to its right — RATE is the primary activity
+          metric. */}
       {(() => {
         const stats   = tfStatsByKey.get(r.groupingKey);
         const tfCount = stats?.count ?? 0;
@@ -384,8 +387,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
           : coef.toFixed(1);
         const tip = tfCount < 2
           ? `Need ≥ 2 mints in last ${mintTf} to compute COEF`
-          : `RATE ÷ baseline (count / ${mintTf}) ≈ ${display}` +
-            ` · higher = bursty, ~1 = steady`;
+          : `${mintTf} ÷ active span ≈ ${display}` +
+            ` · higher = mints packed tightly · ~1 = spread evenly`;
         return (
           <td
             title={tip}
@@ -395,26 +398,30 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
           </td>
         );
       })()}
-      {/* RATE — count ÷ active-window minutes inside the selected
-          timeframe, floored at 1 minute. Header renamed from MINT/MIN
-          to avoid implying "average over the full timeframe" (which
-          it isn't). With <2 mints we surface the raw count (0 or 1).
-          Primary activity metric — green, weight 700. */}
+      {/* RATE — count ÷ timeframe minutes (average mint throughput
+          across the selected window). With <2 mints we surface the
+          raw count (0 or 1) so the cell isn't ever empty. Primary
+          activity metric — green, weight 700.
+          Audit fix: previously this divided by the *active span*
+          (gap between first/last mint, floored at 1 min), which
+          made the velocity-desc sort over-rank sparse stale
+          collections that happened to land 2 mints in the same
+          minute. Now using the full timeframe as the divisor so
+          fresh launches with sustained activity outrank cluster-
+          and-die rows naturally. The cluster signal moves to COEF
+          (timeframe ÷ active span) to its left. */}
       {(() => {
-        const stats     = tfStatsByKey.get(r.groupingKey);
-        const tfCount   = stats?.count ?? 0;
-        const rate      = stats?.mintPerMin ?? 0;
-        const display   = tfCount < 2
-                         ? tfCount.toString()
-                         : rate >= 10 ? rate.toFixed(0)
-                         : rate >= 1  ? rate.toFixed(1)
-                         : rate.toFixed(2);
-        const activeMin = stats && stats.count >= 2
-          ? Math.max(1, (stats.lastTs - stats.firstTs) / 60_000)
-          : 0;
+        const stats   = tfStatsByKey.get(r.groupingKey);
+        const tfCount = stats?.count ?? 0;
+        const rate    = stats?.mintPerMin ?? 0;
+        const display = tfCount < 2
+                       ? tfCount.toString()
+                       : rate >= 10 ? rate.toFixed(0)
+                       : rate >= 1  ? rate.toFixed(1)
+                       : rate.toFixed(2);
         const tip = tfCount < 2
           ? `${tfCount} mint(s) in last ${mintTf} — not enough data for a rate`
-          : `${tfCount.toLocaleString()} mints over ${activeMin.toFixed(1)} active min ≈ ${display} /min`;
+          : `${tfCount.toLocaleString()} mints in last ${mintTf} ≈ ${display} /min (avg over the window)`;
         return (
           <td
             title={tip}

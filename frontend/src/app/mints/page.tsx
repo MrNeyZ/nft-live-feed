@@ -1135,7 +1135,7 @@ export default function MintsPage() {
    *  This keeps the previous active-only behaviour as a strict subset
    *  while surfacing pre-burst activity at the bottom of the table. */
   // Per-collection stats inside the currently selected timeframe window.
-  // Drives the MINTS column (count) and MINT/MIN column (mintPerMin) so
+  // Drives the MINTS column (count) and the RATE column (mintPerMin) so
   // the table metrics react to 5M / 10M / … / 1D pills instead of showing
   // the cumulative session-lifetime number. Counted from the live events
   // buffer, which is bounded at LIVE_FEED_MAX (150 newest); for very hot
@@ -1143,17 +1143,27 @@ export default function MintsPage() {
   // events have rolled off the buffer — same trade-off as the existing
   // `recent`-tab filter.
   //
-  // MINT/MIN is intentionally NOT (count / fullTimeframeMinutes). That
-  // math is misleading: a single mint 4 minutes ago in a 15M window would
-  // render as 0.07/min even though the collection wasn't minting for 14
-  // of those 15 minutes. Instead we compute the rate over the *active*
-  // span — distance between the earliest and latest mint timestamps in
-  // the window, floored at 1 minute. With <2 mints we can't infer a span,
-  // so we surface the raw count (0 or 1) directly.
+  // RATE = count / tfMinutes. Audit fix: the previous formula divided by
+  // the *active span* (gap between first and last mint, floored at 1 min),
+  // which made RATE proportional to count for sparse rows and biased the
+  // velocity-desc sort toward stale collections that happened to drop 2
+  // mints in the same minute. Example from the audit fixture in the 1H
+  // window:
+  //   COLORS NFTs v2  count=2  oldRate=2.0   newRate=0.033
+  //   poliworld       count=24 oldRate=0.52  newRate=0.400
+  // Old formula put COLORS above poliworld; new formula puts poliworld
+  // ~12× above COLORS, matching trader intuition. Tradeoff: a 50-mint
+  // burst in the first minute of a 1H window now scores the same as a
+  // 50-mint flat distribution across the hour — the burst-detection
+  // signal moves to COEF (see computeCoef below).
+  //
+  // firstTs/lastTs stay on Stats because computeCoef still reads them to
+  // derive cluster compactness independently of RATE.
   const tfStatsByKey = useMemo(() => {
-    const cutoff = Date.now() - MINT_TF_MS[mintTf];
-    type Stats = { count: number; firstTs: number; lastTs: number; mintPerMin: number };
-    const m = new Map<string, Stats>();
+    const cutoff   = Date.now() - MINT_TF_MS[mintTf];
+    const tfMin    = MINT_TF_MS[mintTf] / 60_000;
+    type Stats     = { count: number; firstTs: number; lastTs: number; mintPerMin: number };
+    const m        = new Map<string, Stats>();
     for (const ev of events) {
       if (ev.receivedAt < cutoff) continue;
       const cur = m.get(ev.groupingKey);
@@ -1166,13 +1176,7 @@ export default function MintsPage() {
       }
     }
     for (const s of m.values()) {
-      if (s.count >= 2) {
-        const activeMin = Math.max(1, (s.lastTs - s.firstTs) / 60_000);
-        s.mintPerMin = s.count / activeMin;
-      } else {
-        // count===1 → show 1 (no two-point span yet); count===0 unreachable here.
-        s.mintPerMin = s.count;
-      }
+      s.mintPerMin = s.count / tfMin;
     }
     return m;
   // `tick` re-evaluates the cutoff every 5 s so events that age past
@@ -1180,28 +1184,33 @@ export default function MintsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, mintTf, tick]);
 
-  // COEF — burstiness coefficient: ratio of the active-window RATE
-  // (count / activeMinutes) to the baseline rate spread across the
-  // FULL selected timeframe (count / timeframeMinutes). The baseline
-  // is floored at 0.01 so very-sparse-but-bursty cases still surface
-  // a meaningful value instead of saturating at 1.
+  // COEF — cluster-compactness ratio: how tightly the visible mints
+  // packed in time relative to the selected timeframe. Algebraically
+  //   COEF = tfMinutes / activeMin
+  // where activeMin is the span between the earliest and latest mint
+  // in the window (floored at 1 min). Same value the previous formula
+  // computed via `activeRate / baselineRate` — the count cancels out
+  // either way. Now derived directly from the timestamps because the
+  // RATE-side activeRate term was removed in the audit fix above
+  // (mintPerMin is now count / tfMinutes, which would collapse the
+  // ratio to 1 if reused here).
   // Examples (verified):
   //   • 1 mint in 30M  → count<2, returns 0 (cell renders "—")
-  //   • 3 mints in 2 active min inside 30M:
-  //       activeRate = 3 / 2  = 1.5
-  //       baseline   = 3 / 30 = 0.1
-  //       coef       = 1.5 / max(0.01, 0.1) = 15
-  //   • 4 mints in 4 active min inside 4H:
-  //       activeRate = 4 / 4    = 1
-  //       baseline   = 4 / 240  ≈ 0.0167
-  //       coef       = 1 / max(0.01, 0.0167) ≈ 60
+  //   • 3 mints in 2 active min inside 30M  → COEF = 30 / 2  = 15
+  //   • 4 mints in 4 active min inside 4H   → COEF = 240 / 4 = 60
+  //
+  // Caveat: COEF still rewards stale-cluster behaviour (a single
+  // back-to-back 2-mint burst on an old collection produces a very
+  // high COEF in long timeframes). A future audit-v2 H-01 follow-up
+  // is planned to repurpose this column as "% of supply minted in
+  // the window"; this change preserves the existing semantic so the
+  // column doesn't break in the interim.
   const computeCoef = (r: MintStatus): number => {
     const stats = tfStatsByKey.get(r.groupingKey);
     if (!stats || stats.count < 2) return 0;
-    const tfMinutes    = MINT_TF_MS[mintTf] / 60_000;
-    const baselineRate = stats.count / tfMinutes;
-    const activeRate   = stats.mintPerMin;
-    return activeRate / Math.max(0.01, baselineRate);
+    const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
+    const activeMin = Math.max(1, (stats.lastTs - stats.firstTs) / 60_000);
+    return tfMinutes / activeMin;
   };
 
   // Effective sort = manual override when set, else per-tab default.
