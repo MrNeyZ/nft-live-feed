@@ -6,6 +6,15 @@ import { createHash } from 'crypto';
 export const ME_V2_PROGRAM    = 'M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K';
 /** Magic Eden AMM (mmm pools). Open source: github.com/magiceden-oss/mmm */
 export const ME_AMM_PROGRAM   = 'mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc';
+/** Magic Eden cNFT marketplace (separate program from ME v2 — handles
+ *  Bubblegum compressed-NFT direct listings). The on-chain `buy_now`
+ *  instruction CPIs into Bubblegum's leaf-replace path and emits the
+ *  standard cNFT activity that ME's UI surfaces as a normal sale.
+ *  Confirmed via the `wegens` collection coverage gap audit:
+ *  7/8 recent sales (e.g. 3RggSHw8…, 2S8tP67Y…, 3iTTPC5B…) routed
+ *  through this program and were invisible to our listener until it
+ *  was added to the subscription list.  */
+export const ME_CNFT_PROGRAM  = 'M3mxk5W2tt27WGT7THox7PmgRDp4m6NEhL5xvxrBfS1';
 
 // Supporting programs — used to classify asset type from inner instruction chain
 export const TOKEN_METADATA_PROGRAM  = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
@@ -324,7 +333,70 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
   },
 ];
 
+// ─── ME cNFT marketplace instructions ─────────────────────────────────────────
+//
+// Magic Eden's standalone Bubblegum / cNFT marketplace (`M3mxk5W2…`).
+// Distinct on-chain program from ME v2; same surface in the ME UI.
+// One sale instruction observed in the live audit: `buy_now` (Anchor
+// disc f22ab84d859876cc, computed via anchorDisc('buy_now')).
+//
+// Account layout (verified against the 7 wegens fixtures listed in the
+// coverage-gap audit, e.g. 3RggSHw8…):
+//   accounts[0]  = buyer (signer, fee payer)            ← SOL outflow
+//   accounts[1]  = seller                                ← SOL inflow
+//   accounts[2]  = ME cosigner (NTYeYJ…)
+//   accounts[3]  = referral / fee receiver
+//   accounts[4]  = notary
+//   accounts[5]  = merkle tree (cNFT collection-equivalent group anchor)
+//                  — verified against DAS `compression.tree` for four
+//                  wegens fixtures; all four resolve to the shared
+//                  `88fLq9b2Hk1TLj3H9MQiGL1x5n8BAdvqk8SGMgbzmfSH` tree
+//   accounts[6]  = noop program (SPL)
+//   accounts[7]  = Bubblegum program
+//   accounts[8]  = system program
+//   accounts[9]  = SPL account-compression program
+//   accounts[10] = per-listing PDA (varies per tx — NOT the tree)
+//   accounts[11..15] = tree-config / leaf-delegate / hash-buf
+//   accounts[16+] = merkle proof leaves
+//
+// Data layout:  [8 disc][8 price u64 LE][...remainder = root/data-hash/
+//               creator-hash/nonce/index — not consumed by the parser].
+// Confirmed price extraction: `f22ab84d859876cc` + bytes[8..16] u64 LE
+// = 109_000_000 = 0.109 SOL on fixture 3RggSHw8… (matches ME activity).
+
+export interface MeCnftIxDef {
+  name: string;
+  disc: Buffer;
+  verified: boolean;
+  /** outer-ix account index of the buyer. */
+  buyerAcctIdx:  number;
+  /** outer-ix account index of the seller. */
+  sellerAcctIdx: number;
+  /** outer-ix account index of the merkle tree — used both as the
+   *  collection-equivalent group key (cNFTs have no per-asset mint
+   *  account) and as the `mint_address` placeholder downstream, same
+   *  shape MMM `cnftFulfillBuy` uses. */
+  merkleTreeIdx: number;
+  /** byte offset in the instruction data where the price u64 LE
+   *  starts. 8 for every Anchor ix that takes price as the first arg. */
+  priceOffset:   number;
+}
+
+export const ME_CNFT_SALE_INSTRUCTIONS: MeCnftIxDef[] = [
+  {
+    // ✅ CONFIRMED — discriminator computed (= anchorDisc('buy_now'))
+    //    and observed in 6 live wegens fixtures (2026-05-18).
+    name:          'buy_now',
+    disc:          anchorDisc('buy_now'),  // f22ab84d859876cc
+    verified:      true,
+    buyerAcctIdx:  0,
+    sellerAcctIdx: 1,
+    merkleTreeIdx: 5,
+    priceOffset:   8,
+  },
+];
+
 // ─── Combined lookup ──────────────────────────────────────────────────────────
 
 /** Set of all ME-related program addresses. Used for fast "is this an ME tx?" check. */
-export const ME_PROGRAMS = new Set([ME_V2_PROGRAM, ME_AMM_PROGRAM]);
+export const ME_PROGRAMS = new Set([ME_V2_PROGRAM, ME_AMM_PROGRAM, ME_CNFT_PROGRAM]);

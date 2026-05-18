@@ -25,7 +25,7 @@ import { SaleEvent, Marketplace, NftType } from '../../models/sale-event';
 import { trace } from '../../trace';
 import { extractPaymentInfo, extractNftMint, extractNftMintsInvolved, extractPartiesFromTokenFlow } from './price';
 import { extractCoreAssetFromInnerIx } from './decoder';
-import { ME_V2_PROGRAM, ME_AMM_PROGRAM } from './programs';
+import { ME_V2_PROGRAM, ME_AMM_PROGRAM, ME_CNFT_PROGRAM } from './programs';
 import bs58 from 'bs58';
 import { Limiter, Priority } from '../concurrency';
 import { incTxFetch, incTxNull, startTelemetry } from '../telemetry';
@@ -461,8 +461,9 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
 // identify gaps in ME_V2_SALE_INSTRUCTIONS / MMM_SALE_INSTRUCTIONS.
 
 const ME_PROGRAM_LABELS: Record<string, string> = {
-  [ME_V2_PROGRAM]:  'me_v2',
-  [ME_AMM_PROGRAM]: 'mmm',
+  [ME_V2_PROGRAM]:   'me_v2',
+  [ME_AMM_PROGRAM]:  'mmm',
+  [ME_CNFT_PROGRAM]: 'me_cnft',
 };
 
 interface IxScan { program: string; disc: string; }

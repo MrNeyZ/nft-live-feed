@@ -66,6 +66,18 @@ const TARGETS: Target[] = [
     program: 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg',
     ingest:  ingestTensorRaw,
   },
+  {
+    // Magic Eden cNFT marketplace. Distinct on-chain program from ME
+    // v2 (`M2mx93ekt…`) — handles Bubblegum-backed compressed-NFT
+    // listings via the `buy_now` Anchor instruction. Added after the
+    // `wegens` coverage-gap audit found 7/8 recent ME-displayed sales
+    // routed through this program were invisible to our listener.
+    // Same ingestion entry as ME v2 / MMM — the parser dispatches on
+    // outer-ix program ID.
+    name:    'me_cnft',
+    program: 'M3mxk5W2tt27WGT7THox7PmgRDp4m6NEhL5xvxrBfS1',
+    ingest:  ingestMeRaw,
+  },
   // ─── Mint targets ─────────────────────────────────────────────────────────
   // MPL Core: low-volume, allow both WS + cursor poll like sales programs.
   {

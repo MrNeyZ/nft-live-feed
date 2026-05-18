@@ -3,11 +3,13 @@ import { RawSolanaTx, RawInstruction, resolveAccountKey } from './types';
 import {
   ME_V2_PROGRAM,
   ME_AMM_PROGRAM,
+  ME_CNFT_PROGRAM,
   ME_PROGRAMS,
   TOKEN_AUTH_RULES_PROGRAM,
   MPL_CORE_PROGRAM,
   ME_V2_SALE_INSTRUCTIONS,
   MMM_SALE_INSTRUCTIONS,
+  ME_CNFT_SALE_INSTRUCTIONS,
 } from './programs';
 import { NftType } from '../../models/sale-event';
 
@@ -136,6 +138,48 @@ export function findMmmSaleIx(tx: RawSolanaTx): MmmMatch | null {
           coreAssetIdx:  def.coreAssetIdx,
           ix,
           accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+// ─── ME cNFT marketplace (M3mxk5W2…) detection ────────────────────────────────
+
+export interface MeCnftMatch {
+  kind: 'me_cnft';
+  instructionName: string;
+  verified: boolean;
+  buyerAcctIdx:  number;
+  sellerAcctIdx: number;
+  merkleTreeIdx: number;
+  priceOffset:   number;
+  ix: RawInstruction;
+  /** Resolved account pubkeys for this instruction (in order). */
+  accounts: string[];
+  /** Decoded instruction data buffer — caller reads the price u64 LE
+   *  at `priceOffset` instead of re-decoding base58 on the parser side. */
+  data:     Buffer;
+}
+
+export function findMeCnftSaleIx(tx: RawSolanaTx): MeCnftMatch | null {
+  for (const { ix } of allInstructions(tx)) {
+    if (programAt(tx, ix) !== ME_CNFT_PROGRAM) continue;
+    const data = decodeIxData(ix.data);
+    for (const def of ME_CNFT_SALE_INSTRUCTIONS) {
+      if (matchesDisc(data, def.disc)) {
+        return {
+          kind: 'me_cnft',
+          instructionName: def.name,
+          verified: def.verified,
+          buyerAcctIdx:  def.buyerAcctIdx,
+          sellerAcctIdx: def.sellerAcctIdx,
+          merkleTreeIdx: def.merkleTreeIdx,
+          priceOffset:   def.priceOffset,
+          ix,
+          accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
+          data,
         };
       }
     }

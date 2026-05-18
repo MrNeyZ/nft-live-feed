@@ -26,6 +26,7 @@ import {
   isMeTransaction,
   findMeV2SaleIx,
   findMmmSaleIx,
+  findMeCnftSaleIx,
   extractCoreAssetFromInnerIx,
 } from './decoder';
 import {
@@ -119,6 +120,12 @@ export function parseRawMeTransaction(tx: RawSolanaTx): ParseResult {
   // Try ME v2 fixed-price.
   const meV2Match = findMeV2SaleIx(tx);
   if (meV2Match) return parseMeV2Sale(tx, meV2Match);
+
+  // ME cNFT marketplace (`M3mxk5W2…`). Distinct program from ME v2,
+  // single confirmed sale instruction (`buy_now`). Closes the coverage
+  // gap surfaced by the `wegens` audit (7/8 missing sales).
+  const meCnftMatch = findMeCnftSaleIx(tx);
+  if (meCnftMatch) return parseMeCnftSale(tx, meCnftMatch);
 
   return { ok: false, reason: 'no recognised ME sale instruction' };
 }
@@ -458,6 +465,85 @@ function parseMmmSale(
       // path. Detection is by program presence in the tx account
       // universe (mirrors the lucky-buy approach).
       ...(isPackOpenTx(tx) ? { _subtype: 'pack_open' as const } : {}),
+    },
+    nftName:           null,
+    imageUrl:          null,
+    collectionName:    null,
+    magicEdenUrl:      null,
+  };
+
+  return { ok: true, event };
+}
+
+// ─── ME cNFT marketplace (M3mxk5W2…) ──────────────────────────────────────────
+//
+// Magic Eden's standalone Bubblegum / cNFT marketplace program. Single
+// confirmed sale instruction (`buy_now`) — a direct buyer-side fulfilment
+// of a listed cNFT. Account / data layout reverse-engineered against the
+// `wegens` coverage-gap audit fixtures (3RggSHw8…, 2S8tP67Y…, 3iTTPC5B…,
+// 3knsHxac…, 4AzFBi9A…, 4tkQBb4S…). All six match the layout encoded in
+// `ME_CNFT_SALE_INSTRUCTIONS`.
+//
+// cNFT specifics:
+//   - No on-chain mint account. Following the existing MMM
+//     `cnftFulfillBuy` convention, we place the merkle tree at
+//     `accounts[10]` into `mintAddress` as a stable, dedup-friendly
+//     placeholder. The signature remains the per-sale unique key.
+//   - Buyer / seller / price are read deterministically from the outer
+//     instruction — no SOL-flow / token-flow heuristic needed for this
+//     path (data layout is fixed by the Anchor program).
+
+function parseMeCnftSale(
+  tx: RawSolanaTx,
+  match: NonNullable<ReturnType<typeof findMeCnftSaleIx>>,
+): ParseResult {
+  const accs = match.accounts;
+
+  const buyer       = accs[match.buyerAcctIdx]  ?? null;
+  const seller      = accs[match.sellerAcctIdx] ?? null;
+  const merkleTree  = accs[match.merkleTreeIdx] ?? null;
+
+  if (!buyer || !seller || buyer === seller) {
+    return { ok: false, reason: `me_cnft(${match.instructionName}): could not determine buyer/seller` };
+  }
+  if (!merkleTree) {
+    return { ok: false, reason: `me_cnft(${match.instructionName}): missing merkle tree at accs[${match.merkleTreeIdx}]` };
+  }
+  if (match.data.length < match.priceOffset + 8) {
+    return { ok: false, reason: `me_cnft(${match.instructionName}): instruction data too short for price (${match.data.length} B)` };
+  }
+  const priceLamports = match.data.readBigUInt64LE(match.priceOffset);
+  if (priceLamports <= 0n) {
+    return { ok: false, reason: `me_cnft(${match.instructionName}): zero price` };
+  }
+
+  // sellerNet for cNFTs falls through to `computeSellerNetLamports`
+  // which reads the seller's lamport delta from balanceDeltas — that's
+  // the same authoritative source the ME V2 / MMM paths use.
+  const sellerNet = computeSellerNetLamports(tx, seller);
+
+  const event: SaleEvent = {
+    signature:         tx.signature,
+    blockTime:         new Date(tx.blockTime! * 1000),
+    marketplace:       'magic_eden',
+    nftType:           'cnft',
+    // Merkle tree placeholder — same shape MMM cnftFulfillBuy uses for
+    // its accs[7]. Downstream consumers (sale_events, /feed) treat
+    // mintAddress as a stable identifier; the merkle tree is the
+    // collection-equivalent group anchor for compressed assets.
+    mintAddress:       merkleTree,
+    collectionAddress: merkleTree,
+    seller,
+    buyer,
+    priceLamports,
+    priceSol:          Number(priceLamports) / 1e9,
+    sellerNetLamports: sellerNet,
+    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
+    currency:          'SOL',
+    rawData:           {
+      _parser:      'me_cnft_raw',
+      _instruction: match.instructionName,
+      _verified:    match.verified,
     },
     nftName:           null,
     imageUrl:          null,
