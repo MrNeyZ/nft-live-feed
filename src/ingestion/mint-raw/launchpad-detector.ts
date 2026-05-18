@@ -152,16 +152,6 @@ export interface LaunchpadHit {
   /** Core path: collection group address from the inner Core CPI.
    *  cNFT path: the Merkle tree address (functions as the group). */
   collectionAddress: string | null;
-  /** True when this tx CREATED a Core collection asset (MPL Core
-   *  `Instruction: CreateCollection` family) rather than minting a
-   *  regular Core NFT under an existing collection (`Instruction:
-   *  Create` family). Only meaningful when `standard === 'core'`;
-   *  callers downstream (accumulator → frontend) use this to render
-   *  a distinct COLL label instead of CORE so the operator can tell
-   *  a collection-setup event apart from a normal mint at a glance.
-   *  DAS confirms the same signal via `interface === 'MplCoreCollection'`
-   *  on the warm path. Defaults to undefined / treated as false. */
-  isCoreCollection?: boolean;
   /** Optional: matched needle for diagnostics. */
   matchedNeedle?:    string;
 }
@@ -207,35 +197,13 @@ function readTxShape(tx: RawSolanaTx): ParsedTxShape | null {
  *  Strict end-of-line match to avoid `Instruction: CreateTokenAccount`
  *  (Token program) collisions; ATA's create logs as `Program log:
  *  Create` (no `Instruction:` prefix) so it's also disjoint. */
-/** Two disjoint sub-needles for the MPL Core create family.
- *
- *  Asset variants — minting a regular Core NFT (the common case):
- *    Create | CreateV1 | CreateV2
- *
- *  Collection variants — CREATING a Core collection asset, NOT a mint
- *  under an existing collection. LMNFT routes both flows through its
- *  outer dispatcher; the example reference tx is
- *    4ryq9SE1U6SiZytSzSk24Wfy13B4p7swCc4Tg9W4SUiXu9nhSZbK32ovxwDJrDwfh4yVgPVABLte2qVjiE7FEgvV
- *  whose new asset (`APBdc6frvHncNRYFyf16Jj9s6vHtwRMAsv6xHb5ZvyUV`)
- *  resolves on DAS as `interface: 'MplCoreCollection'`.
- *
- *  Split (was a single combined regex pre-refactor) so we can tag
- *  the resulting hit with `isCoreCollection` and let the frontend
- *  render `COLL` instead of `CORE` for these events. The accept
- *  decision is unchanged — both branches still accept; only the
- *  tag differs. */
-const CORE_ASSET_CREATE_LOG_REGEX      = /^Program log: Instruction: (Create|CreateV1|CreateV2)$/;
-const CORE_COLLECTION_CREATE_LOG_REGEX = /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateCollectionV2)$/;
-
-interface LmnftCoreNeedle { needle: string; isCollection: boolean; }
-function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): LmnftCoreNeedle | null {
+const CORE_CREATE_LOG_REGEX = /^Program log: Instruction: (Create|CreateV1|CreateV2|CreateCollection|CreateCollectionV1)$/;
+function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
   if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))    return null;
   for (const line of shape.logs) {
-    const a = line.match(CORE_ASSET_CREATE_LOG_REGEX);
-    if (a) return { needle: `Instruction: ${a[1]}`, isCollection: false };
-    const c = line.match(CORE_COLLECTION_CREATE_LOG_REGEX);
-    if (c) return { needle: `Instruction: ${c[1]}`, isCollection: true };
+    const m = line.match(CORE_CREATE_LOG_REGEX);
+    if (m) return `Instruction: ${m[1]}`;
   }
   return null;
 }
@@ -585,15 +553,14 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       // `extractCoreMintFromInner` if a new Core-create variant
       // surfaces with a different account layout.
       console.log(
-        `[mints/lmnft-core-skip] sig=${tx.signature ?? '—'} reason=no_core_create coreIx=${lmnftCoreNeedle.needle}`,
+        `[mints/lmnft-core-skip] sig=${tx.signature ?? '—'} reason=no_core_create coreIx=${lmnftCoreNeedle}`,
       );
       return null;
     }
     console.log(
-      `[mints/lmnft-core-create] sig=${tx.signature ?? '—'} coreIx=${lmnftCoreNeedle.needle} ` +
+      `[mints/lmnft-core-create] sig=${tx.signature ?? '—'} coreIx=${lmnftCoreNeedle} ` +
       `mint=${core.mintAddress} collection=${core.collectionAddress ?? 'null'} ` +
-      `minter=${shape.signerKeys[0] ?? 'null'}` +
-      (lmnftCoreNeedle.isCollection ? ' kind=core_collection' : ''),
+      `minter=${shape.signerKeys[0] ?? 'null'}`,
     );
     return {
       source:            'LaunchMyNFT',
@@ -601,8 +568,7 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       mintAddress:       core.mintAddress,
       collectionAddress: core.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     lmnftCoreNeedle.needle,
-      isCoreCollection:  lmnftCoreNeedle.isCollection || undefined,
+      matchedNeedle:     lmnftCoreNeedle,
     };
   }
   // LMNFT outer present but NO Core-create log → skipped here as

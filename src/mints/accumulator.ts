@@ -135,12 +135,6 @@ interface Accum {
    *  group. Used by the refresher to throttle per-collection refresh
    *  frequency. Undefined until the first successful decode. */
   supplyVerifiedAt?:    number;
-  /** True when this row represents a Core collection CREATION (MPL Core
-   *  CreateCollection family) rather than a regular Core NFT mint. Set
-   *  sticky from the first event for the groupingKey and also patched
-   *  in by the enricher when DAS classifies the asset as
-   *  `MplCoreCollection`. Frontend renders a distinct COLL marker. */
-  isCoreCollection?:    boolean;
 }
 
 const map = new Map<string, Accum>();
@@ -385,12 +379,6 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
         ? Math.max(a.supplyMintedOnChain, a.supplyMintedLocal)
         : (a.supplyMintedLocal > 0 ? a.supplyMintedLocal : null),
     supplyVerified: typeof a.supplyMintedOnChain === 'number' && a.supplyMintedOnChain >= 0,
-    // Surface the Core-collection-creation flag onto the wire so the
-    // frontend can render the COLL marker on the tracker row. Mirrors
-    // the per-event flag the parser sets in `recordMint`; the enricher
-    // patches this in late via `patchAccumulatorCoreCollection` when
-    // DAS classifies the asset as `MplCoreCollection`.
-    isCoreCollection:  a.isCoreCollection || undefined,
   };
 }
 
@@ -494,18 +482,8 @@ export function recordMint(ev: MintEventWire): void {
       unknownCount:      0,
       displayState:      'incubating',
       supplyMintedLocal: 0,
-      // Sticky from the first event for this group. If a later
-      // mint somehow lands without the flag (e.g. a different
-      // detector branch missed the CreateCollection log) the flag
-      // is preserved; if a later mint sets it, the sticky escalation
-      // below ORs it in.
-      isCoreCollection:  ev.isCoreCollection,
     };
     map.set(ev.groupingKey, a);
-  } else if (ev.isCoreCollection && !a.isCoreCollection) {
-    // Escalate but never de-escalate — once a Core-collection signal
-    // has fired for the group it stays sticky.
-    a.isCoreCollection = true;
   }
   if (ev.collectionAddress && !a.collectionAddress) {
     a.collectionAddress = ev.collectionAddress;
@@ -663,20 +641,6 @@ export function currentMintStatuses(): MintStatusWire[] {
  *  the current row's `name`, or null/undefined when unset. */
 export function getAccumulatorName(groupingKey: string): string | null | undefined {
   return map.get(groupingKey)?.name;
-}
-
-/** Patch a group as a Core-collection-creation row. Called from the
- *  enricher when DAS classifies the latest mintAddress as
- *  `interface: 'MplCoreCollection'`. Sticky — never unsets. Re-emits
- *  one mint_status frame so the frontend re-renders with the COLL
- *  marker on the next tick. Idempotent and no-op when the flag is
- *  already set. */
-export function patchAccumulatorCoreCollection(groupingKey: string): void {
-  const a = map.get(groupingKey);
-  if (!a) return;
-  if (a.isCoreCollection) return;
-  a.isCoreCollection = true;
-  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
 /** Optional metadata patch from background enrichment. */

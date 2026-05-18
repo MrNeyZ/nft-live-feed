@@ -295,26 +295,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
               </a>
             )}
             <MintsSourceBadge row={r} />
-            {r.isCoreCollection && (
-              // COLL marker — only fires for MPL Core CreateCollection
-              // events (DAS interface `MplCoreCollection`). Sibling pill
-              // alongside the regular source badge so the LMNFT / CORE
-              // identity stays visible while the operator gets a clear
-              // "this is a collection-setup event, not a mint" cue.
-              // Lilac fg/bg inside the Core/violet family so it doesn't
-              // read as alert; bg α 0.10 (lighter than CORE's 0.15) so
-              // the marker reads as annotation rather than primary
-              // identity.
-              <span
-                title="Core collection-creation event — not a regular mint"
-                style={{
-                  display: 'inline-block', padding: '1px 6px', fontSize: 9, fontWeight: 700,
-                  borderRadius: 3, background: 'rgba(168,144,232,0.10)', color: '#a890e8',
-                  border: '1px solid rgba(168,144,232,0.32)', letterSpacing: '0.4px',
-                  flexShrink: 0, lineHeight: '13px', textTransform: 'uppercase',
-                }}
-              >COLL</span>
-            )}
           </span>
         </div>
       </td>

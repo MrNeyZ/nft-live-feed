@@ -611,12 +611,6 @@ export async function ingestMintRaw(
       priceLamports,
       minter:            lp.minter,
       sourceLabel:       lp.source,
-      // Parser-time tag for Core CreateCollection family — see
-      // launchpad-detector.ts `lmnftCoreNeedleIfPresent`. Surfaces the
-      // distinct COLL marker on the frontend right away; the enricher
-      // also patches the flag if the parser missed it (DAS sees
-      // `interface: MplCoreCollection`).
-      isCoreCollection:  lp.isCoreCollection,
     });
     enqueueMintEnrichment(groupingKey, lp.mintAddress);
     // LMNFT featured-set lookup. Synchronous cache read — hits surface
