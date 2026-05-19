@@ -257,15 +257,30 @@ export interface MintStatusWire {
    *  does NOT use this as a default fallback (avoids the "every card
    *  looks identical" failure mode). */
   imageUrl?:         string;
-  /** Representative per-NFT image — first valid `imageUrl` observed
-   *  for any mint in this collection (set by `collection-confirm.ts`
-   *  on a successful DAS resolve, sticky write-once). Used by the
-   *  tracker table thumbnail as a 2nd-tier fallback when the
-   *  collection hero is missing or broken, so a drop with working
-   *  per-NFT art doesn't degrade to fallback initials.
-   *  Distinct from per-mint `nftImageUrl` (sent via `mint_meta`) —
-   *  this is a single sticky URL per collection, not per-mint. */
+  /** Representative per-NFT image — a confidently-unique per-mint
+   *  image URL from this collection, set by `collection-confirm.ts`
+   *  ONLY after the launchpad has been observed serving variety
+   *  (>=2 distinct image URLs across mints in this drop) AND the
+   *  URL being patched is unique to its own mint. Sticky write-once.
+   *  Used by the tracker table thumbnail as a 2nd-tier fallback
+   *  when the collection hero is missing/broken, and by the live-
+   *  feed card as a 2nd-tier fallback when the per-mint URL turns
+   *  out to be a shared placeholder. Distinct from per-mint
+   *  `nftImageUrl` (sent via `mint_meta`) — this is a single sticky
+   *  URL per collection, not per-mint. */
   representativeImageUrl?: string;
+  /** Shared-placeholder image URL — the URL the launchpad serves
+   *  pre-reveal as a single shared image for many/all mints in
+   *  this collection. Set by `collection-confirm.ts` once we
+   *  observe the same URL on >=2 distinct mints. NOT sticky —
+   *  refreshed as new placeholders are detected (rare; one drop
+   *  usually has one pre-reveal asset). Frontend live-feed card
+   *  compares `ev.nftImageUrl` against this and falls through to
+   *  the representative/initials chain when they match — so a
+   *  pre-reveal drop doesn't paint every card with the same
+   *  shared placeholder, which erases the "this NFT just minted"
+   *  signal the live feed exists to convey. */
+  sharedPlaceholderImageUrl?: string;
 }
 
 /**

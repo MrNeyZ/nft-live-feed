@@ -26,6 +26,7 @@ import {
   patchAccumulatorMeta,
   patchAccumulatorLmnft,
   patchAccumulatorRepresentativeImage,
+  patchAccumulatorSharedPlaceholderImage,
   getAccumulatorName,
 } from './accumulator';
 import { saleEventBus } from '../events/emitter';
@@ -167,6 +168,17 @@ function imageLooksRepeated(collection: string | null, image: string): boolean {
   if (!perColl) return false;
   const mints = perColl.get(image);
   return !!mints && mints.size >= 2;
+}
+/** Count of distinct image URLs observed for a collection. Used as
+ *  a confidence gate on `patchAccumulatorRepresentativeImage`: only
+ *  promote a per-NFT image to the row's sticky representative once
+ *  the launchpad has demonstrated variety (>= 2 distinct URLs) —
+ *  this prevents a pre-reveal placeholder shared across every mint
+ *  from being treated as a "real per-NFT image". */
+function countDistinctImages(collection: string | null): number {
+  if (!collection) return 0;
+  const perColl = imageUseCount.get(collection);
+  return perColl?.size ?? 0;
 }
 
 interface Pending {
@@ -340,8 +352,9 @@ async function runAttempt(entry: Pending): Promise<void> {
     // collection's actual base art.
     let imageSource: 'nft' | 'collection' | 'placeholder' = 'placeholder';
     let repeated = false;
+    let usesInCollection = 0;
     if (imageUrl) {
-      const usesInCollection = noteImageUse(dasCollection, imageUrl, entry.mintAddress);
+      usesInCollection = noteImageUse(dasCollection, imageUrl, entry.mintAddress);
       repeated = usesInCollection >= 2;
       imageSource = repeated ? 'collection' : 'nft';
     }
@@ -371,15 +384,39 @@ async function runAttempt(entry: Pending): Promise<void> {
     if (blacklistAddr) {
       noteBlacklistDrop(blacklistAddr);
     } else {
-      // Sticky-set the collection's representative per-NFT image so
-      // the tracker table can fall back from a missing / broken
-      // collection hero to a real working image instead of fallback
-      // initials. Sticky guard in `patchAccumulatorRepresentativeImage`
-      // means only the first valid URL wins; later patches with
-      // worse URLs (broken / null) are silently dropped. Costs
-      // nothing on the hot path — same data we're about to emit on
-      // the `mint_meta` channel below.
-      if (imageUrl) {
+      // Image classification — two separate sticky/non-sticky writes
+      // depending on what this URL is confidently shown to be:
+      //
+      //  * `usesInCollection >= 2` (repeated) → this URL is the
+      //    launchpad's shared pre-reveal asset. Patch as
+      //    `sharedPlaceholderImageUrl` (non-sticky; updated on
+      //    every refresh of "what the placeholder currently is")
+      //    so the frontend live-feed card can detect "ev.nftImageUrl
+      //    is a shared placeholder, not per-mint identity" and skip
+      //    rendering it on the card.
+      //
+      //  * `usesInCollection === 1 && countDistinctImages >= 2` →
+      //    this URL is unique to its mint AND the launchpad has
+      //    demonstrated variety (≥2 distinct URLs seen). Confident
+      //    enough to lock it in as the `representativeImageUrl`
+      //    (sticky), used as a 2nd-tier fallback on both the
+      //    tracker table thumbnail and the live-feed card when
+      //    the per-mint URL turns out to be a placeholder.
+      //
+      // For a pre-reveal-only drop (Flork today): distinct stays at
+      // 1 forever, representative is NEVER set, the placeholder
+      // is recorded. Cards skip the placeholder → initials. The
+      // tracker table still gets the collection hero from
+      // enrichLaunchpadCollectionMeta — separate, unaffected path.
+      //
+      // For a drop with mid-stream reveal: the first post-reveal
+      // unique URL trips both gates and locks in as representative,
+      // surfacing real art on cards whose `ev.nftImageUrl` is still
+      // the now-defunct placeholder.
+      if (imageUrl && repeated) {
+        patchAccumulatorSharedPlaceholderImage(entry.groupingKey, imageUrl);
+      } else if (imageUrl && usesInCollection === 1
+                 && countDistinctImages(dasCollection) >= 2) {
         patchAccumulatorRepresentativeImage(entry.groupingKey, imageUrl);
       }
       saleEventBus.emitMintMeta({

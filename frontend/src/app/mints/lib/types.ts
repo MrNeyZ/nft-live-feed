@@ -91,14 +91,22 @@ export interface MintStatus {
   /** Collection-level hero art. Tracker table's PRIMARY thumbnail
    *  source. Live-feed cards do NOT use this as a default fallback. */
   imageUrl?:         string;
-  /** First valid per-NFT image observed for any mint in this
-   *  collection — sticky, backend-side. Tracker table's 2nd-tier
-   *  fallback: when `imageUrl` is missing/broken, ItemThumb's error
-   *  chain swaps to this so a drop with working per-NFT art doesn't
-   *  degrade to fallback initials. NOT used by live-feed cards
-   *  (per-mint images flow on the `mint_meta` channel into
-   *  `MintEvent.nftImageUrl`). */
+  /** Confidently-unique per-NFT image observed in this drop —
+   *  sticky, backend-side. Only set after the launchpad has been
+   *  observed serving variety (≥2 distinct URLs) so a pre-reveal
+   *  placeholder shared across every mint is NOT promoted to this
+   *  slot. Used as 2nd-tier fallback by the tracker table thumbnail
+   *  AND by the live-feed card (when `ev.nftImageUrl` turns out to
+   *  match the shared placeholder URL below). */
   representativeImageUrl?: string;
+  /** Shared-placeholder image URL detected in this drop — set
+   *  backend-side once the same URL is observed on ≥2 distinct
+   *  mints. Live-feed card compares `ev.nftImageUrl` against this
+   *  and falls through to representative / initials when they
+   *  match — keeps cards from painting the same pre-reveal asset
+   *  on every mint. Tracker table ignores this field; a shared
+   *  placeholder is fine as a collection-row image. */
+  sharedPlaceholderImageUrl?: string;
 }
 
 /** Per-collection rollup of mint events that fell inside the user's

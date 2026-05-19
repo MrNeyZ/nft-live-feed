@@ -101,16 +101,25 @@ interface Accum {
 
   name?:     string;
   imageUrl?: string;
-  /** Representative per-NFT image — first valid per-NFT `imageUrl`
-   *  seen for any mint in this collection. Sticky write-once. Used
-   *  by the tracker table thumbnail as a 2nd-tier fallback when the
-   *  collection hero (`imageUrl`) is missing or broken, so a drop
-   *  whose collection asset DAS hasn't indexed (or whose collection
-   *  hero is hosted on a degraded gateway) can still surface a real
-   *  image instead of fallback initials. Patched by
-   *  `patchAccumulatorRepresentativeImage` from `collection-confirm`
-   *  whenever a per-mint DAS resolve succeeds. */
+  /** Representative per-NFT image — a confidently-unique per-mint
+   *  URL from this drop. Sticky write-once. Patched only after
+   *  `collection-confirm.ts` observes the launchpad serving
+   *  variety (>=2 distinct image URLs) AND the URL being patched
+   *  is unique to its own mint. Used as a 2nd-tier fallback by
+   *  both the tracker table thumbnail (when the collection hero
+   *  is missing/broken) and the live-feed card (when the per-mint
+   *  URL turns out to be the shared placeholder). */
   representativeImageUrl?: string;
+  /** Shared-placeholder image URL — set by `collection-confirm.ts`
+   *  once the same URL is observed on 2+ distinct mints in this
+   *  collection. Not sticky; refreshed as new placeholders surface.
+   *  Live-feed card uses this to detect "ev.nftImageUrl is a
+   *  shared pre-reveal asset, not per-NFT identity" and skip
+   *  rendering the placeholder on the card surface (cards must
+   *  represent individual mint identity). The tracker table is
+   *  unaffected — a shared placeholder is still a valid
+   *  collection-level image for that row. */
+  sharedPlaceholderImageUrl?: string;
   /** Max planned supply (LMNFT `max_items`, MPL Core master-edition
    *  `maxSupply`). Distinct from `observedMints`. Populated lazily by
    *  `setMintMaxSupply()` once a launchpad-specific resolver decodes
@@ -374,7 +383,8 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     sourceLabel:       a.sourceLabel,
     name:              a.name,
     imageUrl:          a.imageUrl,
-    representativeImageUrl: a.representativeImageUrl,
+    representativeImageUrl:    a.representativeImageUrl,
+    sharedPlaceholderImageUrl: a.sharedPlaceholderImageUrl,
     maxSupply:         a.maxSupply ?? null,
     mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
@@ -762,6 +772,35 @@ export function patchAccumulatorRepresentativeImage(
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
+/** Mark a URL as the collection's shared-placeholder image. Called
+ *  by `collection-confirm.ts` once the same image URL has been
+ *  observed on >=2 distinct mints in this drop — strong evidence
+ *  the launchpad is serving one pre-reveal asset across many
+ *  mintings.
+ *
+ *  NOT sticky: a drop can in theory rotate its placeholder, and
+ *  the field should reflect the most recently-detected shared URL.
+ *  In practice we expect one placeholder per drop until reveal,
+ *  then unique-per-NFT URLs (none of which will be detected as
+ *  shared, so the field stays pointing at the now-defunct
+ *  placeholder — harmless: the frontend compares against
+ *  `ev.nftImageUrl`, which for post-reveal mints won't match).
+ *
+ *  Re-emits one `mint_status` frame so connected clients can
+ *  update their card-image decisions in real time. Idempotent
+ *  when the value is unchanged. */
+export function patchAccumulatorSharedPlaceholderImage(
+  groupingKey: string,
+  imageUrl: string | null | undefined,
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  if (!isUsableImageUrl(imageUrl)) return;
+  if (a.sharedPlaceholderImageUrl === imageUrl) return;
+  a.sharedPlaceholderImageUrl = imageUrl;
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 /** Patch a group's max planned supply once a launchpad-specific
  *  resolver decodes it. Re-emits one mint_status frame so connected
  *  clients see the SUPPLY column populate without waiting for the
@@ -967,7 +1006,8 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       shownAt:           r.displayState === 'shown' ? r.lastMintAt : undefined,
       name:              r.name,
       imageUrl:          r.imageUrl,
-      representativeImageUrl: r.representativeImageUrl,
+      representativeImageUrl:    r.representativeImageUrl,
+      sharedPlaceholderImageUrl: r.sharedPlaceholderImageUrl,
       maxSupply:         r.maxSupply ?? null,
       mintedCount:       r.mintedCount ?? null,
       lmntfOwner:        r.lmntfOwner ?? null,

@@ -66,21 +66,32 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
       ? strippedCollection
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
   const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
-  // Image priority on the live-feed CARD: per-NFT identity ONLY.
-  // Cards represent individual mints — using the collection hero as
-  // a default fallback (the prior tried-and-reverted approach) made
-  // every card in a drop visually identical and erased the "X just
-  // minted #Y" signal the feed exists to convey.
+  // Image priority on the live-feed CARD:
+  //   1. `ev.nftImageUrl` — per-mint asset image, ONLY when it's NOT
+  //      the launchpad's shared pre-reveal placeholder (detected
+  //      backend-side once the same URL appears on ≥2 distinct
+  //      mints, surfaced as `group.sharedPlaceholderImageUrl`).
+  //      Without this gate a drop like Flork pre-reveal would paint
+  //      every card with the same shared "Unknown Flork" asset,
+  //      erasing the per-mint identity the feed exists to convey.
+  //   2. `group?.representativeImageUrl` — confidently-unique per-NFT
+  //      image from elsewhere in this drop, picked backend-side only
+  //      after variety is established (≥2 distinct URLs). When the
+  //      per-mint URL is a placeholder this gives the card SOMETHING
+  //      credible instead of initials.
+  //   3. null → ItemThumb renders abbr + colour-seeded placeholder.
   //
-  //   1. `ev.nftImageUrl` — per-mint asset image from `mint_meta`.
-  //   2. null → ItemThumb renders abbr + colour-seeded placeholder.
-  //
-  // We deliberately do NOT fall back to `group?.imageUrl` here. The
-  // tracker table on the left uses a separate, more conservative
-  // chain (collection hero → representative per-NFT → initials) —
-  // see `MintsTableRow`. The two surfaces have opposite optimal
-  // behaviour and we keep them independent on purpose.
-  const cardImage      = ev.nftImageUrl ?? null;
+  // We deliberately do NOT fall back to `group?.imageUrl` (collection
+  // hero) here. The tracker table on the left uses a separate chain
+  // (collection hero → representative → initials) — see
+  // `MintsTableRow`. The two surfaces have opposite optimal behaviour
+  // on purpose.
+  const evIsPlaceholder = !!ev.nftImageUrl
+    && !!group?.sharedPlaceholderImageUrl
+    && ev.nftImageUrl === group.sharedPlaceholderImageUrl;
+  const cardImage      = (ev.nftImageUrl && !evIsPlaceholder)
+    ? ev.nftImageUrl
+    : (group?.representativeImageUrl ?? null);
   const priceText      = ev.priceLamports == null
     ? '—'
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
