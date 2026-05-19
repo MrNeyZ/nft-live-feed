@@ -26,19 +26,33 @@ const DEBUG = process.env.NEXT_PUBLIC_THUMB_DEBUG === '1';
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const sp  = req.nextUrl.searchParams;
-  const url = sp.get('url');
+  let   url = sp.get('url');
   if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) {
     return new NextResponse('bad url', { status: 400 });
   }
 
-  // Bypass — wsrv refuses irys.xyz hosts ("Domain or TLD blocked"); the
-  // raw upstream renders better than a broken proxy response. compressImage()
-  // already short-circuits on irys, but defend in depth at the route too.
-  if (url.includes('irys.xyz')) {
-    const res = NextResponse.redirect(url, 302);
-    res.headers.set('Cache-Control', 'public, max-age=86400');
-    return res;
-  }
+  // Rewrite `gateway.irys.xyz/<txid>(?ext=…)?` → `arweave.net/<txid>`.
+  // The irys Cloudflare gateway has started 404-ing on legitimate
+  // Arweave txids (observed: Flork CG collection asset
+  // `_xvCIarsFOqM9CZ7k8LCCgwR5c18Iqo7Kkmk2Y8hEDc` — gateway.irys.xyz
+  // returns 404 while arweave.net serves the same byte-identical
+  // PNG). DAS still surfaces irys URLs as the canonical `links.image`
+  // for many collections, so we rewrite at the proxy edge — single
+  // line, no upstream / backend / accumulator change, no DAS retry
+  // loop. arweave.net is the canonical Arweave HTTP gateway (302s to
+  // a CDN-fronted real host); wsrv proxies it cleanly, so the rest
+  // of the pipeline (size, fit, output, cache headers) applies
+  // unchanged. The earlier irys-bypass branch is removed: pointing
+  // a redirect at a known-404 host produced exactly the symptom
+  // we're fixing here.
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'gateway.irys.xyz') {
+      u.hostname = 'arweave.net';
+      u.search   = '';            // drop ?ext=png et al — arweave.net wants the bare txid
+      url = u.toString();
+    }
+  } catch { /* malformed URL — drop through to the existing bad-url guard above */ }
 
   const w      = sp.get('w')      ?? '128';
   const h      = sp.get('h')      ?? '128';
