@@ -85,10 +85,14 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
     : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
-  // collapses to the spec's "NFT" fallback.
+  // collapses to the spec's "NFT" fallback. Candy Machine rows
+  // override the generic "NFT" label so the type pill reads CANDY,
+  // matching the adjacent source pill — paired pinks read as one
+  // colour family at a glance, and "NFT" was uninformative there.
   const nftTypeLabel: string =
-    ev.programSource === 'mpl_core'   ? 'CORE'   :
-    ev.programSource === 'bubblegum'  ? 'cNFT'   :
+    ev.programSource === 'mpl_core'              ? 'CORE'  :
+    ev.programSource === 'bubblegum'             ? 'cNFT'  :
+    ev.sourceLabel   === 'Metaplex Candy Machine' ? 'CANDY' :
     'NFT';
   // Two-tier freshness on the right Live Mint Feed:
   //   • `mints-feed-row-fresh`  (< 2.5 s) — one-shot slide-in +
@@ -298,7 +302,7 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
           ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
           ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(220,138,168,0.18)', fg: '#dc8aa8' } :
+          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
         const pillStyle: React.CSSProperties = {
           display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,

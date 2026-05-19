@@ -340,8 +340,21 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           tier of values rather than a ladder of fade levels. */}
       {(() => {
         const cap = typeof r.maxSupply === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
-        const minted = typeof r.supplyMinted === 'number' && r.supplyMinted >= 0 ? r.supplyMinted : null;
-        const verified = r.supplyVerified === true;
+        // Prefer `supplyMinted` (on-chain CollectionV1.num_minted via the
+        // core-supply refresher, or items_redeemed from the CMv3 state
+        // decoder — both authoritative). Fall back to `mintedCount`
+        // (DAS searchAssets resolved count on the LMNFT path) when the
+        // primary is null — covers the case where a quiet LMNFT-Core
+        // row has neither an observed mint this process lifetime nor
+        // a fresh 30s refresher tick yet, but its DAS-resolved count
+        // is already on the wire. Same field is preserved in MintStatus
+        // (types.ts: `mintedCount?: number | null`), no backend change.
+        const minted = (typeof r.supplyMinted === 'number' && r.supplyMinted >= 0) ? r.supplyMinted
+                     : (typeof r.mintedCount  === 'number' && r.mintedCount  >= 0) ? r.mintedCount
+                     : null;
+        const mintedFromFallback = minted !== null
+          && !(typeof r.supplyMinted === 'number' && r.supplyMinted >= 0);
+        const verified = r.supplyVerified === true && !mintedFromFallback;
         let display: string;
         let title: string;
         // SUPPLY sits below MINTS + RATE in the visual hierarchy:
@@ -351,6 +364,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // unverified drops another step so the "still resolving"
         // state reads as in-flight without being unreadable.
         let color = '#a8a6c4';
+        const mintedLabel = mintedFromFallback ? 'DAS-resolved' : (verified ? 'verified on-chain' : 'optimistic — awaiting on-chain refresh');
         if (minted !== null && cap !== null) {
           // Both known — show progress against the planned cap.
           // Previously the cap-only branch fired first and the
@@ -358,18 +372,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           // values (Core via num_minted + LMNFT planned cap) read
           // as if the drop was already at max.
           display = `${minted.toLocaleString()} / ${cap.toLocaleString()}`;
-          title   = verified
-            ? `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (verified on-chain)`
-            : `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (optimistic — awaiting on-chain refresh)`;
+          title   = `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (${mintedLabel})`;
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
           title   = 'Max supply for this collection';
         } else if (minted !== null) {
           display = minted.toLocaleString();
-          title   = verified
-            ? `On-chain num_minted from CollectionV1 (verified)`
-            : `Minted so far (optimistic — awaiting on-chain refresh)`;
+          title   = mintedFromFallback
+            ? `DAS-resolved minted count for this collection`
+            : (verified
+                ? `On-chain num_minted from CollectionV1 (verified)`
+                : `Minted so far (optimistic — awaiting on-chain refresh)`);
           if (!verified) color = '#7c7a98';
         } else {
           display = '—';

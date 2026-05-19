@@ -114,7 +114,7 @@ export function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: st
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
     case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#e87ab0' };
-    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(220,138,168,0.18)', fg: '#dc8aa8' };
+    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
     case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
     case 'Metaplex':               return { label: 'METAPLEX', bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
     case 'Bubblegum':              return { label: 'cNFT',     bg: 'rgba(92,224,160,0.15)',  fg: '#5ce0a0' };

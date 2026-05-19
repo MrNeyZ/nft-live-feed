@@ -54,23 +54,40 @@ import { getCollectionOwner, getAsset } from '../../enrichment/helius-das';
 import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
 import { patchAccumulatorLmnft, patchAccumulatorMeta, setMintMaxSupply, patchAccumulatorCoreSupply } from '../../mints/accumulator';
 
-/** Candy-Guard collection-asset metadata cache — keyed by collection
+/** Launchpad collection-asset metadata cache — keyed by collection
  *  address. Each entry stores the resolved {name, imageUrl} from a
- *  one-shot `getAsset(collectionAddress)` so a burst of CG mints in
- *  one drop only burns one DAS call. The collection asset (the drop's
+ *  one-shot `getAsset(collectionAddress)` so a burst of mints in one
+ *  drop only burns one DAS call. The collection asset (the drop's
  *  parent NFT) is created up front and indexed by DAS long before any
- *  child mint, so this lookup succeeds where per-mint DAS doesn't.
- *  Empty/null result is also cached so we don't retry forever on
- *  genuinely-missing collections. Memory bounded indirectly by the
- *  number of distinct CG collections seen by the process. */
-const cgCollectionMetaCache = new Map<string, { name: string | null; imageUrl: string | null }>();
+ *  child mint, so this lookup succeeds where per-mint DAS doesn't —
+ *  applies equally to CG (TM/pNFT collection asset) and LMNFT-Core
+ *  (MPL Core collection asset, e.g. `95T74bL…`/Delusionals whose
+ *  per-NFT enrichment never landed an image). Empty/null result is
+ *  also cached so we don't retry forever on genuinely-missing
+ *  collections. Memory bounded indirectly by the number of distinct
+ *  launchpad collections seen by the process. */
+const launchpadCollectionMetaCache = new Map<string, { name: string | null; imageUrl: string | null }>();
 
-async function enrichCgCollectionMeta(collectionAddress: string, groupingKey: string): Promise<void> {
-  const cached = cgCollectionMetaCache.get(collectionAddress);
+/** Patch the accumulator with collection-asset name + image fetched
+ *  from DAS. `patchName` defaults to true (CG: DAS is the only name
+ *  source); LMNFT-Core callers pass `false` because the LMNFT
+ *  scraper's collection name is authoritative and would otherwise
+ *  race-lose to a DAS-derived label. Image is patched on both paths
+ *  — for LMNFT-Core rows it's the only source today, and for CG
+ *  rows DAS reliably returns `content.links.image` from the hydrated
+ *  off-chain JSON. */
+async function enrichLaunchpadCollectionMeta(
+  collectionAddress: string,
+  groupingKey: string,
+  opts: { patchName?: boolean; logTag?: string } = {},
+): Promise<void> {
+  const patchName = opts.patchName ?? true;
+  const logTag   = opts.logTag    ?? 'launchpad-meta';
+  const cached = launchpadCollectionMetaCache.get(collectionAddress);
   if (cached) {
-    if (cached.name || cached.imageUrl) {
+    if (cached.imageUrl || (patchName && cached.name)) {
       patchAccumulatorMeta(groupingKey, {
-        name:     cached.name     ?? undefined,
+        name:     patchName ? (cached.name ?? undefined) : undefined,
         imageUrl: cached.imageUrl ?? undefined,
       });
     }
@@ -82,15 +99,16 @@ async function enrichCgCollectionMeta(collectionAddress: string, groupingKey: st
     // surfaces when the asset is a child of a higher-order collection.
     const meta = await getAsset(collectionAddress);
     const entry = { name: meta.nftName, imageUrl: meta.imageUrl };
-    cgCollectionMetaCache.set(collectionAddress, entry);
-    if (entry.name || entry.imageUrl) {
+    launchpadCollectionMetaCache.set(collectionAddress, entry);
+    if (entry.imageUrl || (patchName && entry.name)) {
       patchAccumulatorMeta(groupingKey, {
-        name:     entry.name     ?? undefined,
+        name:     patchName ? (entry.name ?? undefined) : undefined,
         imageUrl: entry.imageUrl ?? undefined,
       });
       console.log(
-        `[mints/candyguard-meta] collection=${collectionAddress} ` +
-        `name=${entry.name ?? '—'} image=${entry.imageUrl ? 'yes' : 'no'}`,
+        `[mints/${logTag}] collection=${collectionAddress} ` +
+        `name=${entry.name ?? '—'} image=${entry.imageUrl ? 'yes' : 'no'}` +
+        `${patchName ? '' : ' nameSkipped=scraper-owned'}`,
       );
     }
   } catch (e) {
@@ -98,9 +116,9 @@ async function enrichCgCollectionMeta(collectionAddress: string, groupingKey: st
     // mint in the same drop while it's still indexing. The next
     // process restart re-attempts; per-mint enrichment retries continue
     // independently in collection-confirm.ts.
-    cgCollectionMetaCache.set(collectionAddress, { name: null, imageUrl: null });
+    launchpadCollectionMetaCache.set(collectionAddress, { name: null, imageUrl: null });
     console.log(
-      `[mints/candyguard-meta] collection=${collectionAddress} ` +
+      `[mints/${logTag}] collection=${collectionAddress} ` +
       `error=${e instanceof Error ? e.message : String(e)}`,
     );
   }
@@ -795,6 +813,20 @@ export async function ingestMintRaw(
           name:         lmntf.collectionName,
         });
       }
+      // Collection-asset DAS lookup — image only. The scraper above
+      // is authoritative for the collection NAME on LMNFT (it's the
+      // operator-set display title; DAS's `content.metadata.name` may
+      // diverge), so `patchName: false`. The image, however, has no
+      // other source today: `getCollectionOwner` discards it, and
+      // `enricher.ts` only patches per-NFT images which routinely
+      // return null on freshly-indexed Core mints. Surfaces the
+      // hydrated `content.links.image` from DAS as the row thumbnail
+      // for both featured and non-featured LMNFT-Core / LMNFT-TM
+      // drops. Cached per collection — no DAS spam.
+      void enrichLaunchpadCollectionMeta(collectionAddress, groupingKey, {
+        patchName: false,
+        logTag:    'lmnft-meta',
+      });
       // Path B — on-chain decoder. Walks the tx's account universe,
       // finds the LMNFT-program-owned config account, decodes
       // {owner, maxSupply, collectionMint} at confirmed offsets.
@@ -855,7 +887,10 @@ export async function ingestMintRaw(
     // Cached per-collection so a burst of CG mints in one drop only
     // burns one DAS call.
     if (lp.source === 'CandyMachine' && collectionAddress) {
-      void enrichCgCollectionMeta(collectionAddress, groupingKey);
+      void enrichLaunchpadCollectionMeta(collectionAddress, groupingKey, {
+        patchName: true,                     // CG has no other name source
+        logTag:    'candyguard-meta',
+      });
       // Candy Machine v3 state account holds items_redeemed +
       // items_available — read those directly so the SUPPLY column
       // shows "<minted> / <max>" instead of "—" / observed-session
