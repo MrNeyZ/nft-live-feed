@@ -448,6 +448,41 @@ body         { transition: font-size 0.28s ease; }
 }
 .feed-thumb  { transition: width 0.28s ease, height 0.28s ease; }
 
+/* Page column max-width transitions for every main page. Each page
+   (/feed, /mints, /dashboard, /tools) sets an inline
+   `style={{ maxWidth: 'var(--<page>-max, …px)' }}` on its content
+   column; that variable's value flips between PC / Laptop / Phone
+   via the rules at the top of this file (--feed-max / --mints-max /
+   --dashboard-max / --tools-max). Without a transition the column
+   snapped to the new width on mode change; /feed had this smoothed
+   via an inline transition while the others teleported. The
+   attribute selectors below catch ALL current consumers in one
+   place — pages don't have to opt in per element — and target only
+   `max-width` + `padding` so row heights / fonts / images don't get
+   pulled into the animation (no row-height jank, no text blur).
+   The `embedded` modes (iframe) set maxWidth to 'none' inline, so
+   the selector doesn't match there and embedded panels behave
+   exactly as before. */
+.feed-root [style*="var(--feed-max"],
+.feed-root [style*="var(--mints-max"],
+.feed-root [style*="var(--dashboard-max"],
+.feed-root [style*="var(--tools-max"] {
+  transition: max-width 0.28s ease, padding 0.28s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  body,
+  #__next,
+  .feed-root,
+  .feed-card,
+  .feed-thumb,
+  .feed-root [style*="var(--feed-max"],
+  .feed-root [style*="var(--mints-max"],
+  .feed-root [style*="var(--dashboard-max"],
+  .feed-root [style*="var(--tools-max"] {
+    transition: none;
+  }
+}
+
 /* Phone-mode floating layout switcher is rendered as a separate component
    (PhoneLayoutModeSwitcher in shared.tsx, mounted from Gate). Position +
    chrome live on the component's inline style so the inline TopNav
