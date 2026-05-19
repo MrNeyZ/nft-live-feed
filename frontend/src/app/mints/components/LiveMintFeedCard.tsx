@@ -79,19 +79,37 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
   //      after variety is established (≥2 distinct URLs). When the
   //      per-mint URL is a placeholder this gives the card SOMETHING
   //      credible instead of initials.
-  //   3. null → ItemThumb renders abbr + colour-seeded placeholder.
-  //
-  // We deliberately do NOT fall back to `group?.imageUrl` (collection
-  // hero) here. The tracker table on the left uses a separate chain
-  // (collection hero → representative → initials) — see
-  // `MintsTableRow`. The two surfaces have opposite optimal behaviour
-  // on purpose.
+  //   3. `group?.imageUrl` (collection hero) — ONLY when we have
+  //      positive evidence this card is a pre-reveal placeholder
+  //      (`evIsPlaceholder === true`) AND no usable representative
+  //      per-NFT image has surfaced yet. Pre-reveal CG drops (Flork
+  //      today) ship the same `Unknown Flork` placeholder for every
+  //      mint so `countDistinctImages` stays at 1 forever and the
+  //      representative gate normally never trips — without this
+  //      tier those cards fall through to initials ("UN") despite
+  //      the backend already holding the real Flork collection hero
+  //      from `enrichLaunchpadCollectionMeta`. Gated on
+  //      `evIsPlaceholder` so it does NOT fire for collections whose
+  //      per-mint art already resolved (ZARK / Liminals / Colony etc
+  //      keep their real per-NFT images), preserving the "every card
+  //      looks identical" failure mode only for the case where there
+  //      IS no per-mint identity to preserve. "Usable representative"
+  //      treats `representativeImageUrl === sharedPlaceholderImageUrl`
+  //      as effectively absent: a polluted sticky rep (snapshot-rehydrated
+  //      from a moment when distinct briefly hit 2 before convergence)
+  //      would otherwise pin the card to the same dead placeholder
+  //      URL and re-introduce the abbr fallback.
+  //   4. null → ItemThumb renders abbr + colour-seeded placeholder.
   const evIsPlaceholder = !!ev.nftImageUrl
     && !!group?.sharedPlaceholderImageUrl
     && ev.nftImageUrl === group.sharedPlaceholderImageUrl;
+  const repIsUsable     = !!group?.representativeImageUrl
+    && group.representativeImageUrl !== group.sharedPlaceholderImageUrl;
   const cardImage      = (ev.nftImageUrl && !evIsPlaceholder)
     ? ev.nftImageUrl
-    : (group?.representativeImageUrl ?? null);
+    : (repIsUsable
+       ? group!.representativeImageUrl!
+       : (evIsPlaceholder ? (group?.imageUrl ?? null) : null));
   const priceText      = ev.priceLamports == null
     ? '—'
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
