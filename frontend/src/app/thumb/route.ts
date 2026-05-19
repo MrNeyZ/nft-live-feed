@@ -45,11 +45,39 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // unchanged. The earlier irys-bypass branch is removed: pointing
   // a redirect at a known-404 host produced exactly the symptom
   // we're fixing here.
+  //
+  // Rewrite `<sub>.mypinata.cloud/ipfs/<CID>` → `ipfs.io/ipfs/<CID>`.
+  // Mints whose metadata cites a project-owned Pinata dedicated
+  // gateway lose their thumbnails once that project's free plan
+  // hits its monthly cap — the gateway then returns `403 The limits
+  // on this dedicated gateway's free plan have been exceeded` for
+  // BOTH the off-chain JSON and the image. Helius's `cdn_uri`
+  // proxies the same dead origin so it inherits the 403; DAS,
+  // off-chain JSON, and ME's token API all surface the same dead
+  // URL with no alternative field. Observed against Flork CG mints
+  // (CID `bafkreigoeozi6ccaik6rimfz73s7ia4w3wuuje536frho2tsl5by5xwkea`
+  // served from `emerald-effective-vulture-629.mypinata.cloud` —
+  // ME renders the brown-paper-bag art from their own CDN cache).
+  // The CID itself is content-addressable so any working public
+  // gateway returns byte-identical art; ipfs.io is the canonical
+  // one and verified 200 OK for the case above. Scoped to hostnames
+  // ENDING in `.mypinata.cloud` so only dedicated-gateway
+  // subdomains are touched — `pinata.cloud` apex and
+  // `gateway.pinata.cloud` (their public gateway, which is healthy)
+  // are not subdomains of `.mypinata.cloud` and pass through
+  // unchanged. The pathname guard (`/ipfs/`) means a non-IPFS path
+  // on a dedicated gateway falls through to the original URL — we
+  // don't know how to rewrite it.
   try {
     const u = new URL(url);
     if (u.hostname === 'gateway.irys.xyz') {
       u.hostname = 'arweave.net';
       u.search   = '';            // drop ?ext=png et al — arweave.net wants the bare txid
+      url = u.toString();
+    } else if (u.hostname.endsWith('.mypinata.cloud')
+               && u.pathname.startsWith('/ipfs/')) {
+      u.hostname = 'ipfs.io';
+      u.search   = '';            // dedicated-gateway query params are unauthenticated noise on ipfs.io
       url = u.toString();
     }
   } catch { /* malformed URL — drop through to the existing bad-url guard above */ }
