@@ -11,6 +11,8 @@ import './health/source-health';
 // Side-effect import: mint accumulator runs its 30s sweep timer. Detector
 // is started below in main() once the bus is wired.
 import './mints/accumulator';
+import { currentMintStatuses, hydrateAccumulatorFromSnapshot } from './mints/accumulator';
+import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
@@ -45,6 +47,22 @@ async function main() {
   const pool = getPool();
   await pool.query('SELECT 1');
   console.log('[db] connected');
+
+  // Restore /mints accumulator from the on-disk snapshot so quiet
+  // collections survive a pm2 restart / deploy. Must run BEFORE the
+  // HTTP server starts accepting connections — the SSE bootstrap
+  // in `currentMintStatuses()` ships whatever's in the map at the
+  // moment a client connects. Fail-soft: a missing / corrupt file
+  // returns null and we proceed with an empty map (the prior
+  // pre-snapshot behaviour). Periodic save + graceful-shutdown
+  // flush start right after so we don't drift if no fresh mints
+  // arrive before the next restart.
+  const snapshotRows = loadSnapshot();
+  if (snapshotRows && snapshotRows.length > 0) {
+    const n = hydrateAccumulatorFromSnapshot(snapshotRows);
+    console.log(`[mints/snapshot] hydrated rows=${n}`);
+  }
+  startSnapshotPersistence(() => currentMintStatuses());
 
   const app = createApp();
   app.listen(PORT, () => {

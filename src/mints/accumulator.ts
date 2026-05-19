@@ -814,3 +814,78 @@ export function evictMintGroup(groupingKey: string): void {
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
   map.delete(groupingKey);
 }
+
+/** Rehydrate the accumulator from a previously-saved snapshot of
+ *  `MintStatusWire` rows (see `src/mints/snapshot.ts`). Only fields
+ *  that the snapshot carries are restored — the volatile state used
+ *  by promotion / sweep (event ring buffers, free/paid/unknown
+ *  tallies, idle-eviction timers, mintedFetchedAt throttle clock) is
+ *  reconstructed empty.
+ *
+ *  The intent is UI continuity, not full state restoration:
+ *    - `displayState` / `shownReason` / `name` / `imageUrl` / supply
+ *      fields survive so the same row paints in the tracker
+ *      immediately after restart.
+ *    - velocity windows reset to empty; sweep's COOLDOWN_MS demotion
+ *      still runs on burst-shown rows that go quiet, so a stale row
+ *      naturally `shown` → `cooled` after ~30 min of no fresh mints.
+ *    - threshold-shown rows stay `shown` permanently (matches the
+ *      pre-snapshot behaviour for the same row pre-restart).
+ *    - skips rows whose `groupingKey` is already present — a snapshot
+ *      restore racing against an early `recordMint` should never
+ *      overwrite live state with a frozen rebuild.
+ *
+ *  Idempotent: calling twice is a no-op the second time. Returns the
+ *  number of rows actually written into the map. */
+export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
+  let written = 0;
+  for (const r of rows) {
+    if (map.has(r.groupingKey)) continue;
+    // Reconstruct an Accum from the wire shape. Fields not in the
+    // snapshot (events60s, events5m, free/paid/unknown counts,
+    // firstObservedAt, mintedFetchedAt, supplyMintedLocal,
+    // supplyVerifiedAt) are reset to safe defaults; live activity
+    // will repopulate them. We seed `supplyMintedLocal` from the
+    // snapshot's `supplyMinted` (verified case takes
+    // `supplyMintedOnChain` instead) so the SUPPLY column doesn't
+    // briefly flicker to null between restore and the next mint.
+    const verified = r.supplyVerified === true
+      && typeof r.supplyMinted === 'number'
+      && r.supplyMinted >= 0;
+    const a: Accum = {
+      groupingKey:       r.groupingKey,
+      groupingKind:      r.groupingKind,
+      programSource:     r.programSource,
+      collectionAddress: r.collectionAddress,
+      lastMintAddress:   r.lastMintAddress ?? null,
+      sourceLabel:       r.sourceLabel,
+      observedMints:     r.observedMints,
+      events60s:         [],
+      events5m:          [],
+      firstObservedAt:   r.lastMintAt,
+      lastMintAt:        r.lastMintAt,
+      freeCount:         0,
+      paidCount:         0,
+      unknownCount:      0,
+      displayState:      r.displayState,
+      shownReason:       r.shownReason,
+      shownAt:           r.displayState === 'shown' ? r.lastMintAt : undefined,
+      name:              r.name,
+      imageUrl:          r.imageUrl,
+      maxSupply:         r.maxSupply ?? null,
+      mintedCount:       r.mintedCount ?? null,
+      lmntfOwner:        r.lmntfOwner ?? null,
+      lmntfCollectionId: r.lmntfCollectionId ?? null,
+      supplyMintedOnChain:
+        verified ? (r.supplyMinted as number) : null,
+      supplyMintedLocal:
+        !verified && typeof r.supplyMinted === 'number' && r.supplyMinted >= 0
+          ? r.supplyMinted
+          : 0,
+      supplyVerifiedAt:  verified ? r.lastMintAt : undefined,
+    };
+    map.set(r.groupingKey, a);
+    written++;
+  }
+  return written;
+}
