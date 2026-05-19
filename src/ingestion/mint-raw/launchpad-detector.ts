@@ -124,18 +124,19 @@ export const GRAVEMINT_PLATFORM_TREASURY = '4rUxPzDvQXfjZuHfApV7Bhf1uxsAjJDxgtYy
 export const GRAVEMINT_PROGRAM           = 'GRVMNt7b2Pojom2fTF6HytLRm2hfQCN8iHm9wLvSFWVJ';
 
 /** Metaplex Candy Guard — the standard outer wrapper for Candy
- *  Machine v3 mints. Every "Mint" page that runs on a CM v3 deploy
- *  hits this program first; the program then CPIs into
- *  `CANDY_MACHINE_V3_PROGRAM` below. As a deployed program ID it's
- *  unspoofable: only Metaplex's account holds upgrade authority. */
+ *  Machine v3 (and any future Metaplex-issued CM variants that route
+ *  through the same Guard). Used as the **launchpad fingerprint** in
+ *  the same sense LMNFT's outer program is — single deployed program
+ *  ID, unspoofable (only Metaplex holds upgrade authority), and
+ *  present on every Guarded mint regardless of inner-CPI details. */
 export const CANDY_GUARD_PROGRAM         = 'Guard1JwRhJkVH6XZhzoYxeBVQe872VH6QggF4BWmS9g';
 
-/** Metaplex Candy Machine v3 — invoked as an inner CPI from Candy
- *  Guard for every CM v3 mint. The pair must both be present in
- *  account keys for a tx to be recognised as a CM v3 mint; neither
- *  alone is sufficient (Candy Guard alone could be a non-mint config
- *  ix; Candy Machine v3 alone shouldn't happen in practice but
- *  belt-and-suspenders). Reference fixtures:
+/** Metaplex Candy Machine v3 — the CPI target Candy Guard reaches
+ *  into for a CM v3-backed mint. Kept as a **secondary evidence**
+ *  anchor (the launchpad fingerprint above is primary): a Candy
+ *  Guard tx with no Token Metadata account and no CM v3 account
+ *  isn't a mint we can extract. Reference fixtures:
+ *    3FCeEkMFnZRpjyHgypUY87uy6WnP8jVdxf7GabUU3k5TDjr9xovihDdgf3PVeZTFtGRYBbGj7qmWvFhGBep3ZPKQ
  *    3RkBDYSBba8NtvPWrec8Z2QY1xiWpMQAo1dYHAbrh7MU272mt9e3MJPXgcnqrUhf22BeL7Xi7egM2PdGRjhBxDRk
  *    4KZKMGiHhekCbeoGf4noBmskEHMivrij1PtBdqd9pp3entizNgrkVdR94tTjV1AJYDXmXhpkP9vfM8QRKk5n45JW */
 export const CANDY_MACHINE_V3_PROGRAM    = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR';
@@ -244,31 +245,44 @@ function lmnftTmNeedleIfPresent(shape: ParsedTxShape): string | null {
   return null;
 }
 
-/** Strict needle for a Metaplex Candy Machine v3 mint via Candy Guard.
- *  Four-gate fingerprint, ALL of which must hold:
- *    1. `CANDY_GUARD_PROGRAM` in accountKeys      (outer dispatcher)
- *    2. `CANDY_MACHINE_V3_PROGRAM` in accountKeys (inner CPI target)
- *    3. `TOKEN_METADATA_PROGRAM` in accountKeys   (the new NFT lives in TM)
- *    4. `Program log: Instruction: MintV2` log line present
+/** Candy Guard mint needle — first-class targeted launchpad path,
+ *  mirroring the LMNFT branches above. The launchpad fingerprint is
+ *  Candy Guard's deployed program ID alone (same idea as LMNFT's
+ *  outer program); CM v3 and Token Metadata serve as evidence that
+ *  this particular Guard ix is a real mint we can extract a
+ *  mintAddress from.
  *
- *  Both program IDs being CPI'd in is unspoofable: only Metaplex
- *  holds upgrade authority on either address, and any non-mint
- *  config / update / revoke instruction on Candy Guard wouldn't
- *  also reach into Candy Machine v3 + Token Metadata. The dual gate
- *  is the anti-noise mechanism — we are NOT accepting generic TM
- *  Create / MintTo activity, NOT accepting Candy Guard alone, and
- *  NOT accepting Candy Machine v3 alone. The MintV2 log is the
- *  Anchor handler name shared by both Candy Guard's outer and
- *  Candy Machine v3's inner mint ixs; the strict end-of-line regex
- *  prevents `Instruction: MintV2WithRemainingAccounts` (or similar
- *  future variants) from matching without a deliberate audit. */
-const CM_V3_LOG_REGEX = /^Program log: Instruction: MintV2$/;
-function cmV3NeedleIfPresent(shape: ParsedTxShape): string | null {
-  if (!shape.accountKeys.includes(CANDY_GUARD_PROGRAM))      return null;
-  if (!shape.accountKeys.includes(CANDY_MACHINE_V3_PROGRAM)) return null;
-  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM))   return null;
+ *  Gate (all required):
+ *    1. `CANDY_GUARD_PROGRAM` in accountKeys — the launchpad
+ *       fingerprint. Unspoofable: only Metaplex holds upgrade
+ *       authority on this program.
+ *    2. `TOKEN_METADATA_PROGRAM` OR `CANDY_MACHINE_V3_PROGRAM`
+ *       in accountKeys — the standard-evidence anchor. Config /
+ *       `Initialize` / `Update` / `Route` / `Set…` Guard ixs never
+ *       reach into TM or CM v3, so this anchor rejects them.
+ *    3. A `Program log: Instruction: Mint(V\d+)?` log line —
+ *       Guard's Anchor mint handler family. Strict end-of-line so
+ *       future `…WithRemainingAccounts` style suffix variants
+ *       surface for explicit audit before silent acceptance.
+ *    4. (caller) An extractable mintAddress via
+ *       `extractTmMintFromInner` — if the inner TM Create CPI
+ *       shape doesn't yield a mint slot the Guard hit is rejected
+ *       in the dispatch with a `candyguard-skip` log line.
+ *
+ *  This deliberately does NOT require BOTH CM v3 + TM nor a strict
+ *  exact-MintV2 log: Candy Guard already fronts non-CM mint paths
+ *  and the strict 4-gate predecessor missed real mints. Spam
+ *  guard is preserved by (a) the Guard program fingerprint, which
+ *  random TM sales never carry, and (b) the mint-only log family
+ *  + extractor success in the dispatch. */
+const CG_MINT_LOG_REGEX = /^Program log: Instruction: (Mint|MintV\d+)$/;
+function candyGuardNeedleIfPresent(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(CANDY_GUARD_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM)
+      && !shape.accountKeys.includes(CANDY_MACHINE_V3_PROGRAM)) return null;
   for (const line of shape.logs) {
-    if (CM_V3_LOG_REGEX.test(line)) return 'Instruction: MintV2';
+    const m = line.match(CG_MINT_LOG_REGEX);
+    if (m) return `Instruction: ${m[1]}`;
   }
   return null;
 }
@@ -717,30 +731,27 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       matchedNeedle:     tmNeedle,
     };
   }
-  // Metaplex Candy Machine v3 via Candy Guard. Strict dual-program +
-  // TM + MintV2-log gate; see `cmV3NeedleIfPresent` above. Runs AFTER
-  // the LMNFT TM branch so an (unlikely) tx that somehow carried
-  // both LMNFT outer + Candy Guard outer would resolve as LMNFT —
-  // older detector wins for backwards compat. Reuses the same
-  // `extractTmMintFromInner` extractor: the inner TM Create CPI
-  // shape is identical regardless of which launchpad wrapped it.
-  const cmV3Needle = cmV3NeedleIfPresent(shape);
-  if (cmV3Needle) {
+  // Candy Guard — first-class targeted detector. Single program
+  // fingerprint (Candy Guard) + TM / CM v3 evidence + a Mint-family
+  // log; mirrors the LMNFT branches above. Runs AFTER the LMNFT TM
+  // branch so an (unlikely) tx carrying both LMNFT outer + Candy
+  // Guard outer would resolve as LMNFT — older detector wins for
+  // backwards compat. Reuses `extractTmMintFromInner`: the inner TM
+  // Create CPI shape is identical regardless of which launchpad
+  // wrapped it.
+  const cgNeedle = candyGuardNeedleIfPresent(shape);
+  if (cgNeedle) {
     const tm = extractTmMintFromInner(tx, shape);
     if (!tm) {
-      // Dual-program + MintV2 log matched but the inner TM Create
-      // shape was wrong — hard-log so an operator can capture a
-      // sample if Candy Guard ships a future variant with a
-      // different inner layout.
       console.log(
-        `[mints/cmv3-skip] sig=${tx.signature ?? '—'} reason=no_tm_create`,
+        `[mints/candyguard-skip] sig=${tx.signature ?? '—'} reason=no_tm_create needle=${cgNeedle}`,
       );
       return null;
     }
     console.log(
-      `[mints/cmv3] sig=${tx.signature ?? '—'} mint=${tm.mintAddress} ` +
+      `[mints/candyguard] sig=${tx.signature ?? '—'} mint=${tm.mintAddress} ` +
       `collection=${tm.collectionAddress ?? 'null'} ` +
-      `minter=${shape.signerKeys[0] ?? 'null'}`,
+      `minter=${shape.signerKeys[0] ?? 'null'} needle=${cgNeedle}`,
     );
     return {
       source:            'CandyMachine',
@@ -748,7 +759,7 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       mintAddress:       tm.mintAddress,
       collectionAddress: tm.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     'Instruction: MintV2 (Candy Machine v3)',
+      matchedNeedle:     `${cgNeedle} (Candy Guard)`,
     };
   }
   return null;
