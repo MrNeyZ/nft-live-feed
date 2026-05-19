@@ -612,6 +612,102 @@ function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string }
 
 import { colorForCollection, isSolPubkey } from './lib/palette';
 
+type FeedTypeKey   = 'all' | 'cnft' | 'core' | 'candy';
+type FeedSourceKey = 'all' | 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY';
+
+/** Two-axis filter control for the LIVE MINT FEED panel. Renders as a
+ *  compact pill-button; click opens a small terminal-violet popover
+ *  anchored below-right with two rows of Pills (Type, Source). Closes
+ *  on outside click / Escape. The popover never participates in the
+ *  table's filter — caller wires only the right-pane state in. */
+function FeedFiltersPopover({
+  feedType, feedSource, setFeedType, setFeedSource, activeCount,
+}: {
+  feedType:      FeedTypeKey;
+  feedSource:    FeedSourceKey;
+  setFeedType:   (v: FeedTypeKey)   => void;
+  setFeedSource: (v: FeedSourceKey) => void;
+  activeCount:   number;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Close on outside-click + Escape. The mousedown listener fires before
+  // a re-render triggered by an inside click, so we always re-check
+  // containment via the ref — never closes the popover on a click that
+  // landed inside it.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown',   onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown',   onKey);
+    };
+  }, [open]);
+  const label = activeCount > 0 ? `Filters · ${activeCount}` : 'Filters';
+  return (
+    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        title="Filter the Live Mint Feed by type and launchpad source"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          background: activeCount > 0 ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.04)',
+          color:      activeCount > 0 ? '#a890e8' : '#8f8fa8',
+          border:     activeCount > 0 ? '1px solid rgba(168,144,232,0.42)' : '1px solid rgba(255,255,255,0.08)',
+          letterSpacing: '0.4px', cursor: 'pointer', userSelect: 'none',
+          textTransform: 'uppercase',
+        }}
+      >
+        {label}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+            // Matches the terminal-violet popover style used by the
+            // top-nav search dropdown (shared.tsx ~L1100) — same
+            // gradient surface, same violet hairline, same shadow.
+            background: 'linear-gradient(180deg, #1a1430 0%, #14102a 100%)',
+            border: '1px solid rgba(168,144,232,0.28)',
+            borderRadius: 6,
+            boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.3)',
+            padding: 10, minWidth: 260, zIndex: 30,
+            // Keep within the right-pane width on narrow viewports —
+            // when the panel itself is < 280 px, cap the popover so it
+            // doesn't push off-screen.
+            maxWidth: 'calc(100vw - 16px)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: '#56566e', minWidth: 42, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Type</span>
+            <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" />
+            <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" />
+            <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" />
+            <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="CANDY" size="sm" />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: '#56566e', minWidth: 42, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Source</span>
+            <Pill active={feedSource === 'all'}   onClick={() => setFeedSource('all')}   label="Any"   size="sm" />
+            <Pill active={feedSource === 'LMNFT'} onClick={() => setFeedSource('LMNFT')} label="LMNFT" size="sm" />
+            <Pill active={feedSource === 'VVV'}   onClick={() => setFeedSource('VVV')}   label="VVV"   size="sm" />
+            <Pill active={feedSource === 'GRAVE'} onClick={() => setFeedSource('GRAVE')} label="GRAVE" size="sm" />
+            <Pill active={feedSource === 'CANDY'} onClick={() => setFeedSource('CANDY')} label="CANDY" size="sm" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Per-row external links cluster: Solscan + Magic Eden.
  *  Solscan path branches on programSource — MPL Core assets/collections
  *  are first-class accounts (`/account/`), Token Metadata mints are SPL
@@ -719,22 +815,45 @@ export default function MintsPage() {
     try { window.localStorage.setItem('vl.mints.tf', mintTf); } catch { /* noop */ }
   }, [mintTf]);
 
-  // cNFT visibility toggle for the LIVE MINT FEED panel. cNFT (Bubblegum)
-  // mints arrive in massive bursts (free airdrop drops can saturate the
-  // feed for minutes). The toggle hides them from the right-pane stream
-  // without affecting the LEFT collections table or backend ingest —
-  // it's a pure render filter. Persisted in localStorage so the
-  // preference survives reloads. Default ON (show everything).
-  const [showCnft, setShowCnft] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
+  // Legacy global "show cNFT everywhere" gate. The UI control that used
+  // to toggle this lived in the LIVE MINT FEED header and was replaced
+  // by the per-feed Filters popover below — the right pane now has its
+  // own `feedType` ('cnft' | 'core' | 'candy' | 'all') instead. We KEEP
+  // the state pinned to `true` (no UI) so the left collection table's
+  // filter line (`r => showCnft || !isCnftLike(r)`) is preserved bit-
+  // identical per "do not alter table filters" — cNFT rows in the table
+  // continue to be visible by default, which matches the prior default.
+  const showCnft = true;
+
+  // Live Mint Feed filters — independent from the LEFT tracker table.
+  // Two orthogonal axes that combine with AND:
+  //   feedType   — NFT standard / Candy Machine bucket
+  //   feedSource — launchpad origin (sourceLabel)
+  // Both default to 'all' (no filter). Persisted in localStorage so the
+  // preference survives reloads. Affects ONLY the right-pane events
+  // memo; left-table memo never reads these.
+  const FEED_TYPE_KEYS:   ReadonlyArray<FeedTypeKey>   = ['all', 'cnft', 'core', 'candy'];
+  const FEED_SOURCE_KEYS: ReadonlyArray<FeedSourceKey> = ['all', 'LMNFT', 'VVV', 'GRAVE', 'CANDY'];
+  const [feedType, setFeedType] = useState<FeedTypeKey>(() => {
+    if (typeof window === 'undefined') return 'all';
     try {
-      const v = window.localStorage.getItem('vl.mints.feed.showCnft');
-      return v === null ? true : v === '1';
-    } catch { return true; }
+      const v = window.localStorage.getItem('vl.mints.feed.type');
+      return FEED_TYPE_KEYS.includes(v as FeedTypeKey) ? (v as FeedTypeKey) : 'all';
+    } catch { return 'all'; }
+  });
+  const [feedSource, setFeedSource] = useState<FeedSourceKey>(() => {
+    if (typeof window === 'undefined') return 'all';
+    try {
+      const v = window.localStorage.getItem('vl.mints.feed.source');
+      return FEED_SOURCE_KEYS.includes(v as FeedSourceKey) ? (v as FeedSourceKey) : 'all';
+    } catch { return 'all'; }
   });
   useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.feed.showCnft', showCnft ? '1' : '0'); } catch { /* quota — fail silent */ }
-  }, [showCnft]);
+    try { window.localStorage.setItem('vl.mints.feed.type', feedType); } catch { /* quota */ }
+  }, [feedType]);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.feed.source', feedSource); } catch { /* quota */ }
+  }, [feedSource]);
 
   // Source filter — narrows the LEFT tracker table to a single launchpad.
   // 'all' = no filter. Persisted in localStorage. Filter keys map to
@@ -776,15 +895,41 @@ export default function MintsPage() {
   }, [statusFilter]);
 
   // Render-time view of `events` for the LIVE MINT FEED panel. Pure
-  // filter — does not touch the persisted store, so flipping the toggle
-  // never drops anything from localStorage. Uses the shared `isCnftLike`
-  // detector so the same rule applies to the COLLECTIONS table memo
-  // below — a single CNFT ON/OFF toggle in the header consistently
-  // hides/shows cNFTs in both surfaces.
-  const visibleEvents = useMemo(
-    () => showCnft ? events : events.filter(ev => !isCnftLike(ev)),
-    [events, showCnft],
-  );
+  // filter — never mutates the persisted store, so toggling filters
+  // doesn't drop anything from localStorage. Two-axis AND:
+  //   feedType:   programSource / sourceLabel bucket
+  //   feedSource: launchpad sourceLabel exact match
+  // CANDY is intentionally matched by `sourceLabel === 'Metaplex Candy
+  // Machine'` rather than `programSource === 'mpl_token_metadata'`:
+  // Candy Machine drops happen to ship token_metadata under the hood,
+  // but the user-facing identity is the launchpad, not the standard.
+  // Matching by sourceLabel keeps CANDY narrow (only real CG rows, not
+  // every generic Metaplex mint).
+  const visibleEvents = useMemo(() => {
+    return events.filter(ev => {
+      // Type axis
+      if (feedType !== 'all') {
+        if (feedType === 'cnft'  && ev.programSource !== 'bubblegum')        return false;
+        if (feedType === 'core'  && ev.programSource !== 'mpl_core')         return false;
+        if (feedType === 'candy' && ev.sourceLabel   !== 'Metaplex Candy Machine') return false;
+      }
+      // Source axis
+      if (feedSource !== 'all') {
+        if (feedSource === 'LMNFT' && ev.sourceLabel !== 'LaunchMyNFT')             return false;
+        if (feedSource === 'VVV'   && ev.sourceLabel !== 'VVV')                      return false;
+        if (feedSource === 'GRAVE' && ev.sourceLabel !== 'GRAVE')                    return false;
+        if (feedSource === 'CANDY' && ev.sourceLabel !== 'Metaplex Candy Machine')   return false;
+      }
+      return true;
+    });
+  }, [events, feedType, feedSource]);
+
+  // Count of non-default filter axes — drives the "Filters · N" badge
+  // on the popover button so the active state is visible without opening
+  // the popover. 0 hides the badge; 1 or 2 surfaces it.
+  const activeFeedFilterCount =
+    (feedType   !== 'all' ? 1 : 0) +
+    (feedSource !== 'all' ? 1 : 0);
 
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
@@ -1767,28 +1912,20 @@ export default function MintsPage() {
                   ? 'waiting…'
                   : `${visibleEvents.length} recent · max ${LIVE_FEED_MAX}`}
               </span>
-              {/* cNFT visibility toggle. Pill style mirrors the small
-                  pills used elsewhere on the page (CORE/cNFT/NFT). When
-                  ON the cNFT-hidden state lights up red-ish so it's
-                  obvious the feed is filtered; OFF state is muted. */}
-              <button
-                type="button"
-                onClick={() => setShowCnft(v => !v)}
-                title={showCnft
-                  ? 'Showing cNFT mints in feed and table — click to hide'
-                  : 'Hiding cNFT mints from feed and table — click to show'}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-                  background: showCnft ? 'rgba(92,224,160,0.15)' : 'rgba(239,120,120,0.15)',
-                  color: showCnft ? '#5ce0a0' : '#ef7878',
-                  border: '1px solid transparent',
-                  letterSpacing: '0.4px', cursor: 'pointer', userSelect: 'none',
-                  textTransform: 'uppercase',
-                }}
-              >
-                cNFT {showCnft ? 'ON' : 'OFF'}
-              </button>
+              {/* Feed Filters popover — replaces the prior cNFT ON/OFF
+                  pill. Two orthogonal axes (type + source) that the
+                  user toggles independently; both default to Any. The
+                  popover anchors to the button via the relative wrapper
+                  and closes on outside click. Active-axis count surfaces
+                  on the button as "Filters · N" so the user sees the
+                  filtered state without opening the popover. */}
+              <FeedFiltersPopover
+                feedType={feedType}
+                feedSource={feedSource}
+                setFeedType={setFeedType}
+                setFeedSource={setFeedSource}
+                activeCount={activeFeedFilterCount}
+              />
             </div>
           </div>
           <div className="scroll-area" style={{
@@ -1804,7 +1941,9 @@ export default function MintsPage() {
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
                 {events.length === 0
                   ? 'Waiting for individual mint events…'
-                  : 'No non-cNFT mints in the buffer — toggle cNFT ON to see hidden rows.'}
+                  : activeFeedFilterCount > 0
+                    ? 'No mints match the current filters — open Filters to widen.'
+                    : 'Waiting for individual mint events…'}
               </div>
             )}
             {(() => { const now = Date.now(); return visibleEvents.map(ev => (
