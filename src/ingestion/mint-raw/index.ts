@@ -85,6 +85,14 @@ async function enrichLaunchpadCollectionMeta(
   const logTag   = opts.logTag    ?? 'launchpad-meta';
   const cached = launchpadCollectionMetaCache.get(collectionAddress);
   if (cached) {
+    // RE-PATCH on every cache hit so a new groupingKey (different mint
+    // referencing the same collection) immediately gets the cached
+    // collection-level name + image, even after another path (e.g. the
+    // per-NFT enricher running half a second later) cleared the
+    // accumulator's name/image fields. Previously this only patched on
+    // the FIRST cache hit; subsequent mints in the same drop relied on
+    // the accumulator still holding the meta from the original patch,
+    // which the per-NFT enricher then clobbered with a per-NFT image.
     if (cached.imageUrl || (patchName && cached.name)) {
       patchAccumulatorMeta(groupingKey, {
         name:     patchName ? (cached.name ?? undefined) : undefined,
@@ -93,6 +101,12 @@ async function enrichLaunchpadCollectionMeta(
     }
     return;
   }
+  // Pre-DAS marker so we always see when this path was reached, even
+  // when a transient infra failure makes the try/catch block exit early
+  // before either log line below would fire.
+  console.log(
+    `[mints/${logTag}] collection=${collectionAddress} status=fetching`,
+  );
   try {
     // For a collection asset, `nftName` IS the collection name (the
     // asset itself is the collection NFT); `collectionName` only
@@ -105,12 +119,12 @@ async function enrichLaunchpadCollectionMeta(
         name:     patchName ? (entry.name ?? undefined) : undefined,
         imageUrl: entry.imageUrl ?? undefined,
       });
-      console.log(
-        `[mints/${logTag}] collection=${collectionAddress} ` +
-        `name=${entry.name ?? '—'} image=${entry.imageUrl ? 'yes' : 'no'}` +
-        `${patchName ? '' : ' nameSkipped=scraper-owned'}`,
-      );
     }
+    console.log(
+      `[mints/${logTag}] collection=${collectionAddress} ` +
+      `name=${entry.name ?? '—'} image=${entry.imageUrl ? 'yes' : 'no'}` +
+      `${patchName ? '' : ' nameSkipped=scraper-owned'}`,
+    );
   } catch (e) {
     // Cache a null entry so we don't hammer DAS on every subsequent
     // mint in the same drop while it's still indexing. The next

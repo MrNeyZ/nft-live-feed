@@ -1031,8 +1031,20 @@ export default function MintsPage() {
               mintType:          ev.mintType,
               priceLamports:     ev.priceLamports,
               sourceLabel:       ev.sourceLabel,
-              name:              ev.nftName ?? undefined,
-              imageUrl:          ev.nftImageUrl ?? undefined,
+              // Per-NFT identity intentionally NOT seeded on the
+              // synthesized collection row. `ev.nftName` /
+              // `ev.nftImageUrl` are per-MINT fields that arrive via
+              // the `mint_meta` SSE channel — for a Candy Machine drop
+              // they look like "Unknown Flork 5857" / a single child's
+              // art, never the collection's "Flork" / hero image.
+              // Leaving them undefined lets the next `mint_status`
+              // frame (carrying the backend's collection-asset DAS
+              // patch) fill in the real collection name + image. The
+              // `mint_meta` handler below also respects this: a strong
+              // collection-level name is no longer clobbered by the
+              // per-NFT title.
+              name:              undefined,
+              imageUrl:          undefined,
               maxSupply:         null,
               mintedCount:       null,
               lmntfOwner:        null,
@@ -1094,8 +1106,38 @@ export default function MintsPage() {
               if (!groupingKey) return prev;
               const cur = prev.get(groupingKey);
               if (!cur) return prev;
-              const stripped = p.nftName ? p.nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
-              const nextName  = (stripped && stripped.length > 0) ? stripped : cur.name;
+              // Strip per-asset suffixes BEFORE deciding whether to use
+              // this as a collection-row name. Three shapes matter for
+              // launchpad drops where every NFT has a unique title:
+              //   1. "Foo #42"            (Metaplex/Core convention)
+              //   2. "Foo - 42" / "Foo 1/1" (LMNFT / 1-of-1 / edition)
+              //   3. "Foo 5857"           (Candy Machine: "Unknown Flork 5857")
+              // Shape #3 was the gap: the previous regex (`\s*#\s*\d+`)
+              // only caught `#`-style. Per-NFT names like "Unknown Flork
+              // 5857" passed through unstripped and were then written
+              // into the row title, replacing the real "Flork".
+              const stripped = p.nftName
+                ? p.nftName
+                    .replace(/\s*#\s*\d+\s*$/, '')   // " #42"
+                    .replace(/\s+-\s+\d+\s*$/, '')   // " - 42"
+                    .replace(/\s+\d+\s*\/\s*\d+\s*$/, '') // " 1/1"
+                    .replace(/\s+\d{3,}\s*$/, '')    // " 5857" (3+ digits — avoids "Vol 2")
+                    .trim()
+                : null;
+              // Sticky-merge: a per-mint name should NEVER overwrite a
+              // collection-level name that already resolved to something
+              // real. Treat the current row name as weak only if it's
+              // empty/missing or shaped like a short-key fallback
+              // (`Abcdef…ghij`). Once a real "Flork" lands via
+              // `mint_status` (from the backend's collection-asset DAS
+              // patch), no per-mint nftName can replace it.
+              const curName = (cur.name ?? '').trim();
+              const curIsWeak =
+                curName.length === 0 ||
+                /^[1-9A-HJ-NP-Za-km-z]{4,8}…[1-9A-HJ-NP-Za-km-z]{4,8}$/.test(curName);
+              const nextName  = (curIsWeak && stripped && stripped.length > 0)
+                ? stripped
+                : cur.name;
               const nextImage = cur.imageUrl;   // per-NFT images don't belong on the collection row
               if (cur.name === nextName && cur.imageUrl === nextImage) return prev;
               const next = new Map(prev);

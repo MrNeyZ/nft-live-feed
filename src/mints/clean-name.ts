@@ -50,6 +50,15 @@ const PER_ASSET_DASH_NUM_RE = /\s+-\s+\d+\s*$/;
  *  middle of a name (e.g. "Vol 1/2 Special") is left alone. */
 const PER_ASSET_NN_FRAC_RE  = /\s+\d+\s*\/\s*\d+\s*$/;
 
+/** Trailing " <digits>" without any separator — per-asset numbering on
+ *  launches that name every NFT "<Project> <N>" with a bare space, no
+ *  `#` and no dash ("Unknown Flork 5857", "Cryptobeezz 1342"). Requires
+ *  3+ digits so legitimate names ending in a small number aren't
+ *  stripped ("Vol 2", "Tesla Model 3", "PS5"). 3+ digits ⇒ serial
+ *  index of a 100+ supply drop, never a real word fragment. The 2-digit
+ *  case is the ambiguous one — leave it alone. */
+const PER_ASSET_BARE_NUM_RE = /\s+\d{3,}\s*$/;
+
 /** Trailing run of "#tag" tokens after non-hashtag content. cNFT /
  *  Core metadata often appends hashtag spam to the on-chain name for
  *  marketplace discovery ("Beez … #NFT #Nature #Solana #öko #BeezHip").
@@ -70,6 +79,7 @@ export function nameLooksPerAsset(s: string | null | undefined): boolean {
   if (typeof s !== 'string' || s.length === 0) return false;
   if (PER_ASSET_DASH_NUM_RE.test(s))     return true;
   if (PER_ASSET_NN_FRAC_RE.test(s))      return true;
+  if (PER_ASSET_BARE_NUM_RE.test(s))     return true;
   if (PER_ASSET_HASHTAG_TAIL_RE.test(s)) return true;
   return false;
 }
@@ -88,7 +98,10 @@ function stripPerAssetSuffixes(s: string): string {
     if (prefix.length > 0) out = prefix;
   }
   for (let i = 0; i < 2; i++) {
-    out = out.replace(PER_ASSET_NN_FRAC_RE, '').replace(PER_ASSET_DASH_NUM_RE, '');
+    out = out
+      .replace(PER_ASSET_NN_FRAC_RE, '')
+      .replace(PER_ASSET_DASH_NUM_RE, '')
+      .replace(PER_ASSET_BARE_NUM_RE, '');
   }
   return out.trim();
 }

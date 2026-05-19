@@ -99,19 +99,24 @@ async function runWorker(): Promise<void> {
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
-      // Patch GROUP-level fields only. The per-NFT `nftName` fallback
-      // is intentionally dropped here: drops with unique per-NFT names
-      // (e.g. Candy Guard / Flork → "Unknown Flork 5619") would
-      // otherwise clobber any stable collection-level name set by
-      // launchpad-specific resolvers (cgCollectionMetaCache, LMNFT
-      // scraper, collection-confirm's sticky strong-source path).
-      // Per-NFT identity is delivered to clients via the `mint_meta`
-      // SSE channel from `collection-confirm.ts` where the sticky
-      // strong/weak guard lives — that's the correct surface for it.
-      if (meta.imageUrl || meta.collectionName) {
+      // Patch GROUP-level fields only. Both per-NFT `nftName` AND per-NFT
+      // `imageUrl` are intentionally dropped here: this DAS call resolves
+      // a specific mintAddress, so `meta.imageUrl` is the asset image of
+      // ONE NFT in the drop, not the collection's hero art. Writing it
+      // into the accumulator's `imageUrl` made the collection row paint
+      // a single child's image (Flork CG: row showed UN fallback because
+      // the cached per-NFT image was then re-overwritten in flight, but
+      // the symptom on other drops was "row icon = mint #1's art").
+      // Only `collectionName` is collection-level here — that one we
+      // can safely patch. Per-NFT identity (`nftName` + `imageUrl`)
+      // is delivered to clients via the `mint_meta` SSE channel from
+      // `collection-confirm.ts` where the sticky strong/weak guard
+      // lives — that's the correct surface for it. Collection image
+      // is supplied separately by `enrichLaunchpadCollectionMeta`
+      // (CG / LMNFT-Core paths) which calls `getAsset(collectionAddress)`.
+      if (meta.collectionName) {
         patchAccumulatorMeta(next.groupingKey, {
-          name:     meta.collectionName ?? undefined,
-          imageUrl: meta.imageUrl       ?? undefined,
+          name: meta.collectionName,
         });
       }
     } catch {
