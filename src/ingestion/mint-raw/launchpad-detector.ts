@@ -172,6 +172,13 @@ export interface LaunchpadHit {
   collectionAddress: string | null;
   /** Optional: matched needle for diagnostics. */
   matchedNeedle?:    string;
+  /** Candy Machine v3 state account pubkey, when the hit came in via
+   *  Candy Guard. The CG `MintV2` outer ix carries this at accs[2]
+   *  (after `candy_guard` at [0] and `candy_machine_program` at [1]).
+   *  Used by the supply resolver to read `items_redeemed` /
+   *  `items_available` directly off the on-chain state. Null for
+   *  every other source. */
+  candyMachineState?: string | null;
 }
 
 interface ParsedTxShape {
@@ -322,6 +329,22 @@ function extractTmMintFromInner(
   let collectionAddress: string | null = null;
 
   // Pass 1: first TM CPI is the Create call. Pull metadata PDA + mint.
+  //
+  // The mint-slot index depends on the TM `Create` variant in use,
+  // identified by the first byte of the instruction data:
+  //
+  //    disc 0   CreateMetadataAccount    │ accs[0]=metadata accs[1]=MINT
+  //    disc 16  CreateMetadataAccountV2  │ accs[0]=metadata accs[1]=MINT
+  //    disc 33  CreateMetadataAccountV3  │ accs[0]=metadata accs[1]=MINT
+  //    disc 42  Create (V1 / pNFT)       │ accs[0]=metadata accs[1]=master_edition accs[2]=MINT
+  //
+  // LMNFT MintTm routes through the legacy CreateMetadataAccountV3
+  // family (slot 1). Candy Guard's MintV2 wraps the new pNFT
+  // `Create` (disc=42) which puts the master edition at accs[1] and
+  // the mint at accs[2] — reading accs[1] there would surface the
+  // master-edition pubkey as the "mint", which DAS doesn't index
+  // (every downstream `getAsset` returns `RecordNotFound`) and
+  // collapses per-NFT enrichment for the entire flow.
   outer1:
   for (const grp of inner) {
     if (!Array.isArray(grp.instructions)) continue;
@@ -337,9 +360,18 @@ function extractTmMintFromInner(
       const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
         typeof a === 'string' ? a : shape.accountKeys[a],
       );
-      if (accs.length >= 2 && typeof accs[0] === 'string' && typeof accs[1] === 'string') {
+      // Decode discriminator byte to pick the mint slot. Default to
+      // slot 1 (legacy family) when the data is missing / undecodable.
+      let mintSlot = 1;
+      try {
+        const data = Buffer.from(bs58.decode(ixAny.data));
+        if (data.length > 0 && data[0] === 42) mintSlot = 2;
+      } catch { /* default mintSlot=1 */ }
+      if (accs.length > mintSlot
+          && typeof accs[0]        === 'string'
+          && typeof accs[mintSlot] === 'string') {
         metadataPDA = accs[0];
-        mintAddress = accs[1];
+        mintAddress = accs[mintSlot];
       }
       break outer1;
     }
@@ -347,11 +379,29 @@ function extractTmMintFromInner(
 
   if (!mintAddress) return null;
 
-  // Pass 2: locate the Verify CPI by anchoring on metadataPDA at accs[2].
-  // This is the only TM ix in the flow whose 3rd account equals the asset's
-  // metadata PDA we just allocated; both Create (metadata at accs[0]) and
-  // Mint (metadata at accs[2] but accs[3]=mint, not a distinct collection)
-  // are excluded by the additional `accs[3] !== mintAddress` guard.
+  // Pass 2: locate the Verify CPI by discriminator + metadataPDA anchor.
+  //
+  // Both Verify and Mint have `metadata` at accs[2] in their account
+  // layouts, so anchoring on metadataPDA alone isn't enough — the
+  // previous `accs[3] !== mintAddress` guard relied on accs[3] being
+  // the master_edition in the Mint ix and matching the (incorrectly-
+  // extracted) `mintAddress` to filter out that case. With the disc-
+  // aware Pass 1 above mintAddress is now the actual mint, so the
+  // Mint ix would otherwise sneak through and surface its
+  // master_edition pubkey as the "collection". Decode the candidate
+  // ix's discriminator and accept ONLY the Verify family:
+  //
+  //    disc 14  VerifyCollection                (legacy)
+  //    disc 17  VerifySizedCollectionItem       (legacy sized)
+  //    disc 21  SetAndVerifyCollection          (legacy)
+  //    disc 22  SetAndVerifySizedCollectionItem (legacy sized)
+  //    disc 52  Verify(VerifyArgs)              (pNFT / TM v1 generic)
+  //
+  // The Verify (disc 52) collection mint is at accs[3] — confirmed
+  // against both Candy Guard MintV2 inner CPIs and LMNFT MintTm
+  // inner CPIs. Mint ixs (disc 43, 44, etc.) and Update / metadata
+  // ixs are skipped outright.
+  const VERIFY_DISCS = new Set([14, 17, 21, 22, 52]);
   if (metadataPDA) {
     for (const grp of inner) {
       if (!Array.isArray(grp.instructions)) continue;
@@ -364,10 +414,16 @@ function extractTmMintFromInner(
             ? shape.accountKeys[ixAny.programIdIndex]
             : '';
         if (programId !== TOKEN_METADATA_PROGRAM) continue;
+        let disc: number | null = null;
+        try {
+          const data = Buffer.from(bs58.decode(ixAny.data));
+          if (data.length > 0) disc = data[0];
+        } catch { /* leave disc=null → skip */ }
+        if (disc === null || !VERIFY_DISCS.has(disc)) continue;
         const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
           typeof a === 'string' ? a : shape.accountKeys[a],
         );
-        if (accs.length >= 6
+        if (accs.length >= 4
             && accs[2] === metadataPDA
             && typeof accs[3] === 'string'
             && accs[3] !== mintAddress) {
@@ -748,10 +804,18 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       );
       return null;
     }
+    // Pull the candy_machine state pubkey from the outer CG MintV2
+    // ix. Layout: accs[0]=candy_guard, accs[1]=candy_machine_program,
+    // accs[2]=candy_machine (state). Pubkey is unspoofable since the
+    // outer ix only succeeds when the program CPIs into this exact
+    // state account; we forward it to the supply resolver in
+    // `ingestMintRaw` for items_redeemed / items_available decode.
+    const candyMachineState = extractCandyMachineState(tx, shape);
     console.log(
       `[mints/candyguard] sig=${tx.signature ?? '—'} mint=${tm.mintAddress} ` +
       `collection=${tm.collectionAddress ?? 'null'} ` +
-      `minter=${shape.signerKeys[0] ?? 'null'} needle=${cgNeedle}`,
+      `minter=${shape.signerKeys[0] ?? 'null'} needle=${cgNeedle} ` +
+      `cmState=${candyMachineState ?? 'null'}`,
     );
     return {
       source:            'CandyMachine',
@@ -760,7 +824,35 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       collectionAddress: tm.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     `${cgNeedle} (Candy Guard)`,
+      candyMachineState,
     };
+  }
+  return null;
+}
+
+/** Pull the candy_machine state pubkey from the outer Candy Guard
+ *  MintV2 ix. The CG `MintV2` account layout (Metaplex
+ *  mpl-candy-guard) puts `candy_guard` at accs[0],
+ *  `candy_machine_program` at accs[1], and the candy_machine state
+ *  PDA at accs[2]. Top-level scan only — Candy Guard is always the
+ *  outer ix in observed CG mints. Null when the layout doesn't match
+ *  (defensive — caller skips the supply resolver in that case). */
+function extractCandyMachineState(tx: RawSolanaTx, shape: ParsedTxShape): string | null {
+  const message = tx.transaction?.message;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const top = (message as any)?.instructions as Array<{ programIdIndex?: number; programId?: string; accounts?: Array<number | string> }> | undefined;
+  if (!Array.isArray(top)) return null;
+  for (const ix of top) {
+    const programId = typeof ix.programId === 'string'
+      ? ix.programId
+      : typeof ix.programIdIndex === 'number'
+        ? shape.accountKeys[ix.programIdIndex]
+        : '';
+    if (programId !== CANDY_GUARD_PROGRAM) continue;
+    const accs = (ix.accounts ?? []).map(a => typeof a === 'string' ? a : shape.accountKeys[a]);
+    if (accs.length < 3) return null;
+    if (accs[1] !== CANDY_MACHINE_V3_PROGRAM) return null;
+    return typeof accs[2] === 'string' ? accs[2] : null;
   }
   return null;
 }

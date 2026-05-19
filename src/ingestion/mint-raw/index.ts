@@ -52,7 +52,7 @@ import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
 import { getCollectionOwner, getAsset } from '../../enrichment/helius-das';
 import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
-import { patchAccumulatorLmnft, patchAccumulatorMeta } from '../../mints/accumulator';
+import { patchAccumulatorLmnft, patchAccumulatorMeta, setMintMaxSupply, patchAccumulatorCoreSupply } from '../../mints/accumulator';
 
 /** Candy-Guard collection-asset metadata cache — keyed by collection
  *  address. Each entry stores the resolved {name, imageUrl} from a
@@ -101,6 +101,84 @@ async function enrichCgCollectionMeta(collectionAddress: string, groupingKey: st
     cgCollectionMetaCache.set(collectionAddress, { name: null, imageUrl: null });
     console.log(
       `[mints/candyguard-meta] collection=${collectionAddress} ` +
+      `error=${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+/** Candy Machine v3 supply cache + refresh policy.
+ *
+ *  Keyed by candy_machine state pubkey. Each entry stores the most
+ *  recent `items_redeemed` / `items_available` decoded from the
+ *  account, plus the wall-clock ms of the last successful refresh.
+ *  Refreshes are throttled per-state: a burst of mints in the same
+ *  drop reuses the cached value within `CM_SUPPLY_TTL_MS` instead of
+ *  burning one `getAccountInfo` per mint. `items_available` is
+ *  immutable for a given drop; `items_redeemed` advances on every
+ *  mint, so the TTL controls how often we re-read it.
+ *
+ *  Account layout (with the 8-byte Anchor discriminator prefix):
+ *    offset   0  Anchor discriminator   (8 bytes)
+ *    offset   8  features               (u64, 8 bytes)
+ *    offset  16  authority              (Pubkey, 32 bytes)
+ *    offset  48  mint_authority         (Pubkey, 32 bytes)
+ *    offset  80  collection_mint        (Pubkey, 32 bytes)
+ *    offset 112  items_redeemed         (u64, 8 bytes)
+ *    offset 120  data.items_available   (u64, 8 bytes) — first field of CandyMachineData
+ *
+ *  Both u64s are little-endian; offsets are fixed regardless of the
+ *  variable-length CandyMachineData tail (we never read past 128). */
+interface CmSupplyEntry { itemsRedeemed: number; itemsAvailable: number; fetchedAt: number; }
+const cmSupplyCache = new Map<string, CmSupplyEntry>();
+const CM_SUPPLY_TTL_MS = 15_000;
+
+async function enrichCgSupply(candyMachineState: string, groupingKey: string): Promise<void> {
+  const now = Date.now();
+  const cached = cmSupplyCache.get(candyMachineState);
+  if (cached && (now - cached.fetchedAt) < CM_SUPPLY_TTL_MS) {
+    setMintMaxSupply(groupingKey, cached.itemsAvailable);
+    patchAccumulatorCoreSupply(groupingKey, cached.itemsRedeemed);
+    return;
+  }
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return;
+  try {
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'cm-supply',
+        method: 'getAccountInfo',
+        params: [candyMachineState, { encoding: 'base64' }],
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json() as { result?: { value?: { data?: [string, string]; owner?: string } } };
+    const value = json.result?.value;
+    if (!value?.data) {
+      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} status=account_not_found`);
+      return;
+    }
+    const buf = Buffer.from(value.data[0], 'base64');
+    if (buf.length < 128) {
+      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} status=short_data len=${buf.length}`);
+      return;
+    }
+    // u64 → Number is safe up to 2^53; drop sizes well within that.
+    const itemsRedeemed  = Number(buf.readBigUInt64LE(112));
+    const itemsAvailable = Number(buf.readBigUInt64LE(120));
+    cmSupplyCache.set(candyMachineState, { itemsRedeemed, itemsAvailable, fetchedAt: now });
+    setMintMaxSupply(groupingKey, itemsAvailable);
+    patchAccumulatorCoreSupply(groupingKey, itemsRedeemed);
+    console.log(
+      `[mints/candyguard-supply] cmState=${candyMachineState} ` +
+      `redeemed=${itemsRedeemed} available=${itemsAvailable}`,
+    );
+  } catch (e) {
+    console.log(
+      `[mints/candyguard-supply] cmState=${candyMachineState} ` +
       `error=${e instanceof Error ? e.message : String(e)}`,
     );
   }
@@ -778,6 +856,14 @@ export async function ingestMintRaw(
     // burns one DAS call.
     if (lp.source === 'CandyMachine' && collectionAddress) {
       void enrichCgCollectionMeta(collectionAddress, groupingKey);
+      // Candy Machine v3 state account holds items_redeemed +
+      // items_available — read those directly so the SUPPLY column
+      // shows "<minted> / <max>" instead of "—" / observed-session
+      // count. The detector populates `candyMachineState` from the
+      // outer CG MintV2 ix; null on layout drift falls through silently.
+      if (lp.candyMachineState) {
+        void enrichCgSupply(lp.candyMachineState, groupingKey);
+      }
     }
     // Async DAS confirmation only when the accept relied on the
     // parser-extracted collection (the DAS path is already verified).

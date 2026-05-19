@@ -99,9 +99,18 @@ async function runWorker(): Promise<void> {
         continue;
       }
       noteFilterAccept(verdict.kind ?? 'unknown', next.mintAddress);
-      if (meta.imageUrl || meta.nftName || meta.collectionName) {
+      // Patch GROUP-level fields only. The per-NFT `nftName` fallback
+      // is intentionally dropped here: drops with unique per-NFT names
+      // (e.g. Candy Guard / Flork → "Unknown Flork 5619") would
+      // otherwise clobber any stable collection-level name set by
+      // launchpad-specific resolvers (cgCollectionMetaCache, LMNFT
+      // scraper, collection-confirm's sticky strong-source path).
+      // Per-NFT identity is delivered to clients via the `mint_meta`
+      // SSE channel from `collection-confirm.ts` where the sticky
+      // strong/weak guard lives — that's the correct surface for it.
+      if (meta.imageUrl || meta.collectionName) {
         patchAccumulatorMeta(next.groupingKey, {
-          name:     meta.collectionName ?? meta.nftName ?? undefined,
+          name:     meta.collectionName ?? undefined,
           imageUrl: meta.imageUrl       ?? undefined,
         });
       }

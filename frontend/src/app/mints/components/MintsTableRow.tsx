@@ -351,7 +351,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // unverified drops another step so the "still resolving"
         // state reads as in-flight without being unreadable.
         let color = '#a8a6c4';
-        if (cap !== null) {
+        if (minted !== null && cap !== null) {
+          // Both known — show progress against the planned cap.
+          // Previously the cap-only branch fired first and the
+          // current minted count was hidden, so rows with both
+          // values (Core via num_minted + LMNFT planned cap) read
+          // as if the drop was already at max.
+          display = `${minted.toLocaleString()} / ${cap.toLocaleString()}`;
+          title   = verified
+            ? `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (verified on-chain)`
+            : `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (optimistic — awaiting on-chain refresh)`;
+          if (!verified) color = '#7c7a98';
+        } else if (cap !== null) {
           display = cap.toLocaleString();
           title   = 'Max supply for this collection';
         } else if (minted !== null) {
