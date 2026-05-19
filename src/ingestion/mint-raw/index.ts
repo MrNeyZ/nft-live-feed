@@ -43,6 +43,7 @@ import {
   getMintTrackerMode,
   getMintTrackerCoreV2ScorerEnabled,
   LAUNCHMYNFT_PROGRAM,
+  CANDY_GUARD_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
 import { detectCoreCreateV2NftCandidate } from './core-v2-detector';
@@ -225,6 +226,17 @@ export function hasMintInstructionLog(logs: unknown): boolean {
     if (line.includes(LAUNCHMYNFT_PROGRAM)) {
       // LMNFT outer program present but MintCore needle on a different
       // line — still admit; the per-tx detector resolves accept/reject.
+      return true;
+    }
+    // Candy Guard outer dispatcher — single program presence in any log
+    // line is the launchpad fingerprint, same idea as the LMNFT branches
+    // above. The strict NFT-program + needle pass below would shed Candy
+    // Guard mints because their `Program log: Instruction: MintV2` line
+    // doesn't match any MINT_LOG_NEEDLES (deliberately — `MintV2` would
+    // also admit SPL Token-2022's `MintV2`). Admitting on CG presence
+    // alone lets the per-tx detector resolve accept/reject downstream;
+    // CG is unspoofable (only Metaplex holds upgrade authority).
+    if (line.includes(CANDY_GUARD_PROGRAM)) {
       return true;
     }
   }
