@@ -1,17 +1,17 @@
 // VictoryLabs — Mints: a single row in the COLLECTIONS table.
-// Extracted from page.tsx so the page file stays maintainable. JSX is
-// byte-identical to the prior inline block — same className stack,
-// same style objects, same column order, same nested IIFEs for title /
-// MINTS / SUPPLY / COEF / RATE. The closure surface is small and
-// explicit: row + index + now + mintTf + tfStatsByKey + computeCoef.
-// Status pill style consts live here because they have no other
-// consumer; the SOURCE pill is the existing `<MintsSourceBadge>`.
+// Extracted from page.tsx so the page file stays maintainable. Same
+// className stack, same style objects, same column order, same nested
+// IIFEs for title / MINTS / SUPPLY / PRICE / RATE. The closure surface
+// is small and explicit: row + index + now + mintTf + tfStatsByKey +
+// lastPriceByKey. Status pill style consts live here because they
+// have no other consumer; the SOURCE pill is the existing
+// `<MintsSourceBadge>`.
 
 import { ItemThumb } from '@/soloist/shared';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
-import { fmtAge, shortKey, thumb64 } from '../lib/format';
+import { fmtAge, fmtSol, shortKey, thumb64 } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
 
 /** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
@@ -57,10 +57,16 @@ interface Props {
   now:          number;
   mintTf:       MintTimeframe;
   tfStatsByKey: Map<string, MintsTimeframeStats>;
-  computeCoef:  (r: MintStatus) => number;
+  /** Latest observed mint priceLamports per groupingKey, derived from
+   *  the live-feed event ring buffer in page.tsx. Drives the PRICE
+   *  column. Map miss → row hasn't surfaced an event yet (cell
+   *  renders "—"); value === null → most recent event had no price
+   *  (cell renders "—"); value === 0 → confirmed free; value > 0 →
+   *  paid (cell renders fmtSol). NOT an average. */
+  lastPriceByKey: Map<string, number | null>;
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, computeCoef }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey }: Props) {
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -370,30 +376,34 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, com
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
         {fmtAge(r.lastMintAt)}
       </td>
-      {/* COEF — cluster-compactness ratio: timeframe minutes ÷ active
-          span (gap between first and last mint in the window, floored
-          at 1 min). High = mints packed tightly into a small slice of
-          the timeframe. ~1 = spread evenly across the window. With <2
-          mints there's no two-point span, so we render "—". Rendered
-          MUTED (gray-lilac, weight 500) so it reads as secondary to
-          the RATE column to its right — RATE is the primary activity
-          metric. */}
+      {/* PRICE — latest observed mint price for this collection.
+          Source is the most recent event for the groupingKey from
+          the live-feed ring buffer (newest-first), surfaced via
+          `lastPriceByKey`. NOT an average — launchpads run phased
+          pricing (OG / WL / Public) and an average would mix
+          stages. The cell updates the moment a new event with a
+          different price arrives. Display tiers:
+            null / map miss → "—" (muted, dim — no mint observed yet)
+            0 lamports      → "FREE" (green family)
+            > 0 lamports    → fmtSol value (default muted-bright,
+                              mirrors SUPPLY column tone) */}
       {(() => {
-        const stats   = tfStatsByKey.get(r.groupingKey);
-        const tfCount = stats?.count ?? 0;
-        const coef    = computeCoef(r);
-        const display = tfCount < 2
-          ? '—'
-          : coef >= 10 ? coef.toFixed(0)
-          : coef.toFixed(1);
-        const tip = tfCount < 2
-          ? `Need ≥ 2 mints in last ${mintTf} to compute COEF`
-          : `${mintTf} ÷ active span ≈ ${display}` +
-            ` · higher = mints packed tightly · ~1 = spread evenly`;
+        const price     = lastPriceByKey.get(r.groupingKey);
+        const display   = (typeof price === 'number') ? fmtSol(price) : '—';
+        const isUnknown = display === '—';
+        const isFree    = display === 'FREE';
+        const cellColor = isFree     ? '#5ce0a0'
+                        : isUnknown  ? '#45455e'
+                        :              '#a8a6c4';
+        const tip = isUnknown
+          ? `No mint price observed yet for this collection`
+          : isFree
+            ? `Latest observed mint: FREE`
+            : `Latest observed mint price: ${display} SOL · not averaged — updates when a new mint event lands at a different price`;
         return (
           <td
             title={tip}
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 500, color: '#8a82b0', letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
           </td>

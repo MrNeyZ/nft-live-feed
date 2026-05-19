@@ -597,7 +597,7 @@ import { thumb64, fmtAge, shortKey } from './lib/format';
 import { MintsTableRow } from './components/MintsTableRow';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 
-type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'coef' | 'velocity';
+type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'velocity';
 type SortDir = 'asc' | 'desc';
 type MintTab = 'active' | 'recent';
 
@@ -1234,34 +1234,38 @@ export default function MintsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, mintTf, tick, rows]);
 
-  // COEF — cluster-compactness ratio: how tightly the visible mints
-  // packed in time relative to the selected timeframe. Algebraically
-  //   COEF = tfMinutes / activeMin
-  // where activeMin is the span between the earliest and latest mint
-  // in the window (floored at 1 min). Same value the previous formula
-  // computed via `activeRate / baselineRate` — the count cancels out
-  // either way. Now derived directly from the timestamps because the
-  // RATE-side activeRate term was removed in the audit fix above
-  // (mintPerMin is now count / tfMinutes, which would collapse the
-  // ratio to 1 if reused here).
-  // Examples (verified):
-  //   • 1 mint in 30M  → count<2, returns 0 (cell renders "—")
-  //   • 3 mints in 2 active min inside 30M  → COEF = 30 / 2  = 15
-  //   • 4 mints in 4 active min inside 4H   → COEF = 240 / 4 = 60
+  // Latest observed mint price per groupingKey. Walk events newest-
+  // first (the live-feed buffer is maintained newest-at-index-0) and
+  // take the first entry per group. Drives the PRICE column.
   //
-  // Caveat: COEF still rewards stale-cluster behaviour (a single
-  // back-to-back 2-mint burst on an old collection produces a very
-  // high COEF in long timeframes). A future audit-v2 H-01 follow-up
-  // is planned to repurpose this column as "% of supply minted in
-  // the window"; this change preserves the existing semantic so the
-  // column doesn't break in the interim.
-  const computeCoef = (r: MintStatus): number => {
-    const stats = tfStatsByKey.get(r.groupingKey);
-    if (!stats || stats.count < 2) return 0;
-    const tfMinutes = MINT_TF_MS[mintTf] / 60_000;
-    const activeMin = Math.max(1, (stats.lastTs - stats.firstTs) / 60_000);
-    return tfMinutes / activeMin;
-  };
+  // Important: NOT an average. Launchpads run phased pricing (OG /
+  // WL / Public) so the price changes mid-drop; an average would
+  // mix stages and read incorrectly. The price the PRICE column
+  // shows is "the most recent observed mint price for this row",
+  // which naturally updates the moment a new event with a different
+  // price arrives. priceLamports semantics:
+  //    null  → unknown (free or paid?); cell renders "—"
+  //    0     → confirmed free mint;     cell renders "FREE"
+  //    >0    → paid mint, lamports;     cell renders fmtSol(value)
+  //
+  // No tfMs/timeframe dep — the latest price persists across tf
+  // changes and only updates on a new event for the group.
+  const lastPriceByKey = useMemo(() => {
+    const m = new Map<string, number | null>();
+    for (const ev of events) {
+      if (m.has(ev.groupingKey)) continue;
+      m.set(ev.groupingKey, ev.priceLamports);
+    }
+    return m;
+  }, [events]);
+
+  // (COEF column removed; its slot in the table now hosts PRICE.
+  //  `lastPriceByKey` above feeds the new column; `computeCoef` was
+  //  only used by the old COEF cell + sort comparator, both of which
+  //  are gone, so the function and its derived `coefBy` map were
+  //  dropped to keep this surface lean. If a future audit asks for
+  //  cluster-compactness back, the formula is `tfMinutes / activeMin`
+  //  using `tfStatsByKey.get(key).{firstTs,lastTs}`.)
 
   // Effective sort = manual override when set, else per-tab default.
   // ACTIVE defaults to RATE desc; RECENT defaults to LAST MINT desc so
@@ -1321,9 +1325,6 @@ export default function MintsPage() {
     // value, not the formatted string, so e.g. SUPPLY sorts 8 < 88 <
     // 888, not lexically 8 < 88 < 888 (happens to match here, but the
     // pattern matters for floats / negatives elsewhere).
-    const coefBy = new Map<string, number>();
-    for (const r of arr) coefBy.set(r.groupingKey, computeCoef(r));
-
     const cmpAsc = (a: MintStatus, b: MintStatus): number => {
       switch (effectiveSortKey) {
         case 'collection': {
@@ -1347,8 +1348,18 @@ export default function MintsPage() {
         case 'last': {
           return a.lastMintAt - b.lastMintAt;
         }
-        case 'coef': {
-          return (coefBy.get(a.groupingKey) ?? 0) - (coefBy.get(b.groupingKey) ?? 0);
+        case 'price': {
+          // Rows with no observed price (null) sink to the bottom of
+          // the ascending order so an asc-click clusters paid rows
+          // first; a desc-click puts the highest mint price on top
+          // and pushes unknowns to the bottom. FREE (0 lamports) is
+          // a real observed value and sorts as 0 — appears at the
+          // top of an asc-click as "cheapest = free".
+          const ap = lastPriceByKey.get(a.groupingKey);
+          const bp = lastPriceByKey.get(b.groupingKey);
+          const av = (typeof ap === 'number') ? ap : Number.POSITIVE_INFINITY;
+          const bv = (typeof bp === 'number') ? bp : Number.POSITIVE_INFINITY;
+          return av - bv;
         }
         case 'velocity': {
           const av = tfStatsByKey.get(a.groupingKey)?.mintPerMin ?? 0;
@@ -1382,7 +1393,7 @@ export default function MintsPage() {
   // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
   // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, sourceFilter, statusFilter, tfStatsByKey, tick]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, sourceFilter, statusFilter, tfStatsByKey, lastPriceByKey, tick]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1517,9 +1528,9 @@ export default function MintsPage() {
 
         {/* Tracker microcopy — explains in one short line that the
             timeframe pills above don't just filter rows but also drive
-            RATE/COEF math. Without this, users were misreading why
+            the RATE math. Without this, users were misreading why
             collections appear/disappear when toggling 15M ↔ 1H, and
-            mistaking RATE/COEF for cumulative session metrics. Tiny
+            mistaking RATE for a cumulative session metric. Tiny
             italic text in the same muted lilac as the secondary
             metadata elsewhere — visible always (no tooltip-only
             solution) but quiet enough that it doesn't compete with
@@ -1537,7 +1548,7 @@ export default function MintsPage() {
             flexShrink: 0,
           }}
         >
-          Window controls table rows, RATE and COEF
+          Window controls table rows and RATE
         </div>
 
         {/* Collapsible filters — Source narrows the table to one launchpad;
@@ -1572,7 +1583,7 @@ export default function MintsPage() {
               <col style={{ width: 90 }}  /> {/* MINTS    */}
               <col style={{ width: 100 }} /> {/* SUPPLY   */}
               <col style={{ width: 110 }} /> {/* LAST     */}
-              <col style={{ width: 80 }}  /> {/* COEF     */}
+              <col style={{ width: 80 }}  /> {/* PRICE    */}
               <col style={{ width: 110 }} /> {/* RATE     */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
@@ -1597,17 +1608,19 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
                   LAST MINT {sortArrow(effectiveSortKey, effectiveSortDir, 'last')}
                 </th>
-                {/* COEF — burstiness coefficient: active-window RATE
-                    divided by the baseline rate (count over the full
-                    selected timeframe). High = burst; ~1 = steady. See
-                    `computeCoef` near the sorted memo. Secondary metric
-                    visually — RATE is the primary activity number. */}
+                {/* PRICE — latest observed mint price for the
+                    collection (the most recent event's priceLamports
+                    for this groupingKey). NOT an average — launchpads
+                    run phased pricing (OG / WL / Public) and an
+                    average would mix stages. Updates the moment a
+                    new mint event with a different price arrives.
+                    Sortable but not a default sort.  */}
                 <th
-                  title="COEF — burstiness: active-window RATE divided by the selected timeframe's average rate. High = burst, ~1 = steady."
+                  title="PRICE — most recent observed mint price for this collection (updates when a new mint event with a different price lands)."
                   style={{ ...thStyle, cursor: 'pointer' }}
-                  onClick={() => handleSortClick('coef')}
+                  onClick={() => handleSortClick('price')}
                 >
-                  COEF {sortArrow(effectiveSortKey, effectiveSortDir, 'coef')}
+                  PRICE {sortArrow(effectiveSortKey, effectiveSortDir, 'price')}
                 </th>
                 {/* RATE — formerly MINT/MIN, primary activity number.
                     Last column on the right, so it needs a wider
@@ -1662,7 +1675,7 @@ export default function MintsPage() {
                   now={now}
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
-                  computeCoef={computeCoef}
+                  lastPriceByKey={lastPriceByKey}
                 />
               )); })()}
             </tbody>
