@@ -50,9 +50,61 @@ import { detectCoreCreateV2NftCandidate } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
-import { getCollectionOwner } from '../../enrichment/helius-das';
+import { getCollectionOwner, getAsset } from '../../enrichment/helius-das';
 import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
-import { patchAccumulatorLmnft } from '../../mints/accumulator';
+import { patchAccumulatorLmnft, patchAccumulatorMeta } from '../../mints/accumulator';
+
+/** Candy-Guard collection-asset metadata cache — keyed by collection
+ *  address. Each entry stores the resolved {name, imageUrl} from a
+ *  one-shot `getAsset(collectionAddress)` so a burst of CG mints in
+ *  one drop only burns one DAS call. The collection asset (the drop's
+ *  parent NFT) is created up front and indexed by DAS long before any
+ *  child mint, so this lookup succeeds where per-mint DAS doesn't.
+ *  Empty/null result is also cached so we don't retry forever on
+ *  genuinely-missing collections. Memory bounded indirectly by the
+ *  number of distinct CG collections seen by the process. */
+const cgCollectionMetaCache = new Map<string, { name: string | null; imageUrl: string | null }>();
+
+async function enrichCgCollectionMeta(collectionAddress: string, groupingKey: string): Promise<void> {
+  const cached = cgCollectionMetaCache.get(collectionAddress);
+  if (cached) {
+    if (cached.name || cached.imageUrl) {
+      patchAccumulatorMeta(groupingKey, {
+        name:     cached.name     ?? undefined,
+        imageUrl: cached.imageUrl ?? undefined,
+      });
+    }
+    return;
+  }
+  try {
+    // For a collection asset, `nftName` IS the collection name (the
+    // asset itself is the collection NFT); `collectionName` only
+    // surfaces when the asset is a child of a higher-order collection.
+    const meta = await getAsset(collectionAddress);
+    const entry = { name: meta.nftName, imageUrl: meta.imageUrl };
+    cgCollectionMetaCache.set(collectionAddress, entry);
+    if (entry.name || entry.imageUrl) {
+      patchAccumulatorMeta(groupingKey, {
+        name:     entry.name     ?? undefined,
+        imageUrl: entry.imageUrl ?? undefined,
+      });
+      console.log(
+        `[mints/candyguard-meta] collection=${collectionAddress} ` +
+        `name=${entry.name ?? '—'} image=${entry.imageUrl ? 'yes' : 'no'}`,
+      );
+    }
+  } catch (e) {
+    // Cache a null entry so we don't hammer DAS on every subsequent
+    // mint in the same drop while it's still indexing. The next
+    // process restart re-attempts; per-mint enrichment retries continue
+    // independently in collection-confirm.ts.
+    cgCollectionMetaCache.set(collectionAddress, { name: null, imageUrl: null });
+    console.log(
+      `[mints/candyguard-meta] collection=${collectionAddress} ` +
+      `error=${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
 
 // ─── Known launchpad program IDs ─────────────────────────────────────────────
 //
@@ -710,6 +762,22 @@ export async function ingestMintRaw(
           patchAccumulatorLmnft(groupingKey, { owner: dasOwner });
         }
       })();
+    }
+    // Candy Guard collection-asset enrichment. Unlike LMNFT we have no
+    // launchpad-specific scraper / on-chain decoder for name+image, and
+    // the per-mint DAS retry path in collection-confirm.ts routinely
+    // returns `Asset Not Found` for freshly-minted CG NFTs through all
+    // 4 retries (-32000 from DAS until indexing completes, which is
+    // longer than the 15s+60s+180s+300s window). Result: rows get
+    // evicted with `evict_after_retries` before any name/image lands.
+    //
+    // Sidestep that by reading the COLLECTION asset directly — it's
+    // long-indexed (the drop's parent NFT is created upfront) and
+    // returns the collection name + collection image immediately.
+    // Cached per-collection so a burst of CG mints in one drop only
+    // burns one DAS call.
+    if (lp.source === 'CandyMachine' && collectionAddress) {
+      void enrichCgCollectionMeta(collectionAddress, groupingKey);
     }
     // Async DAS confirmation only when the accept relied on the
     // parser-extracted collection (the DAS path is already verified).
