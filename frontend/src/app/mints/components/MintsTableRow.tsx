@@ -366,13 +366,21 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         let color = '#a8a6c4';
         const mintedLabel = mintedFromFallback ? 'DAS-resolved' : (verified ? 'verified on-chain' : 'optimistic — awaiting on-chain refresh');
         if (minted !== null && cap !== null) {
-          // Both known — show progress against the planned cap.
-          // Previously the cap-only branch fired first and the
-          // current minted count was hidden, so rows with both
-          // values (Core via num_minted + LMNFT planned cap) read
-          // as if the drop was already at max.
-          display = `${minted.toLocaleString()} / ${cap.toLocaleString()}`;
-          title   = `${minted.toLocaleString()} of ${cap.toLocaleString()} minted (${mintedLabel})`;
+          // Both known — visible cell shows ONLY the current minted
+          // count; the "minted / max (pct)" detail moves into the
+          // tooltip. The previous "2 222 / 5 533" form crowded the
+          // column at glance; the value users actually need is the
+          // current count, with the cap available on hover.
+          // Percent: integer when >= 10%, one decimal below that, so a
+          // sub-1% drop reads as "0.4%" not "0%". cap is guaranteed
+          // > 0 here (typed check above), so no divide-by-zero.
+          const pct = (minted / cap) * 100;
+          const pctText = !Number.isFinite(pct)
+            ? '—'
+            : pct >= 10 ? `${Math.round(pct)}%`
+            : `${pct.toFixed(1)}%`;
+          display = minted.toLocaleString();
+          title   = `Minted: ${minted.toLocaleString()} / ${cap.toLocaleString()} (${pctText}) — ${mintedLabel}`;
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
