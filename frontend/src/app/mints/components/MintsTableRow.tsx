@@ -174,7 +174,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
           <ItemThumb
+            // Three-tier image priority: collection hero → representative
+            // per-NFT (first valid one observed for the drop) → initials.
+            // ItemThumb's onError chain handles the swap automatically;
+            // either or both URLs can be null without breaking the
+            // chain (a null fallback just collapses to the prior 2-step
+            // proxy+raw behaviour for the primary URL).
             imageUrl={thumb64(r.imageUrl ?? null)}
+            fallbackImageUrl={thumb64(r.representativeImageUrl ?? null)}
             color={colorForCollection(r.collectionAddress ?? r.groupingKey)}
             abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
             size={42}

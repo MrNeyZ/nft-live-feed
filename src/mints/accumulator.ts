@@ -101,6 +101,16 @@ interface Accum {
 
   name?:     string;
   imageUrl?: string;
+  /** Representative per-NFT image — first valid per-NFT `imageUrl`
+   *  seen for any mint in this collection. Sticky write-once. Used
+   *  by the tracker table thumbnail as a 2nd-tier fallback when the
+   *  collection hero (`imageUrl`) is missing or broken, so a drop
+   *  whose collection asset DAS hasn't indexed (or whose collection
+   *  hero is hosted on a degraded gateway) can still surface a real
+   *  image instead of fallback initials. Patched by
+   *  `patchAccumulatorRepresentativeImage` from `collection-confirm`
+   *  whenever a per-mint DAS resolve succeeds. */
+  representativeImageUrl?: string;
   /** Max planned supply (LMNFT `max_items`, MPL Core master-edition
    *  `maxSupply`). Distinct from `observedMints`. Populated lazily by
    *  `setMintMaxSupply()` once a launchpad-specific resolver decodes
@@ -364,6 +374,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     sourceLabel:       a.sourceLabel,
     name:              a.name,
     imageUrl:          a.imageUrl,
+    representativeImageUrl: a.representativeImageUrl,
     maxSupply:         a.maxSupply ?? null,
     mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
@@ -715,6 +726,42 @@ export function patchAccumulatorMeta(
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
+/** Sticky write of the first valid per-NFT image observed for this
+ *  collection. Called by `collection-confirm.ts` whenever a DAS
+ *  resolve of a specific mintAddress returns a usable image. Once
+ *  set the value never changes — same rationale as the sticky
+ *  `imageUrl` write in `patchAccumulatorMeta`: a later patch with a
+ *  broken / null / placeholder URL must never downgrade a row that
+ *  already has working art on it.
+ *
+ *  Distinct from `imageUrl` (collection hero, set by
+ *  `enrichLaunchpadCollectionMeta`): the tracker table thumbnail
+ *  uses `imageUrl` first, this as 2nd-tier fallback, and initials
+ *  only when both are missing or broken. The live-feed card path
+ *  uses neither — per-mint images flow on the `mint_meta` channel.
+ *
+ *  Re-emits one `mint_status` frame so connected clients pick up
+ *  the new fallback in real time. */
+export function patchAccumulatorRepresentativeImage(
+  groupingKey: string,
+  imageUrl: string | null | undefined,
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  if (a.representativeImageUrl) return;             // sticky — write-once
+  if (!isUsableImageUrl(imageUrl)) return;          // empty / non-http(s) / data: — reject
+  a.representativeImageUrl = imageUrl;
+  // Re-evaluate promotion: the identity gate already passes on
+  // collection name + collection image, but a row that has neither
+  // (rare: launchpad with no scraper, DAS hasn't indexed collection
+  // asset yet) can now satisfy `hasUsableIdentity` on this URL alone
+  // and promote. `hasUsableIdentity` reads collection-level fields
+  // only today, so this is a no-op unless we widen the gate — kept
+  // here for symmetry with patchAccumulatorMeta.
+  tryPromote(a, Date.now());
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 /** Patch a group's max planned supply once a launchpad-specific
  *  resolver decodes it. Re-emits one mint_status frame so connected
  *  clients see the SUPPLY column populate without waiting for the
@@ -920,6 +967,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       shownAt:           r.displayState === 'shown' ? r.lastMintAt : undefined,
       name:              r.name,
       imageUrl:          r.imageUrl,
+      representativeImageUrl: r.representativeImageUrl,
       maxSupply:         r.maxSupply ?? null,
       mintedCount:       r.mintedCount ?? null,
       lmntfOwner:        r.lmntfOwner ?? null,

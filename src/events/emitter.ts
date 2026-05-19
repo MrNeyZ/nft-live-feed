@@ -250,7 +250,22 @@ export interface MintStatusWire {
   sourceLabel:       MintSourceLabel;
   /** Soft metadata, populated lazily (may be undefined for many ticks). */
   name?:             string;
+  /** Collection-level hero art. Sticky write-once — only
+   *  `enrichLaunchpadCollectionMeta` populates it. Render priority on
+   *  the tracker table is `imageUrl → representativeImageUrl →
+   *  initials`; the live-feed card prefers per-mint `nftImageUrl` and
+   *  does NOT use this as a default fallback (avoids the "every card
+   *  looks identical" failure mode). */
   imageUrl?:         string;
+  /** Representative per-NFT image — first valid `imageUrl` observed
+   *  for any mint in this collection (set by `collection-confirm.ts`
+   *  on a successful DAS resolve, sticky write-once). Used by the
+   *  tracker table thumbnail as a 2nd-tier fallback when the
+   *  collection hero is missing or broken, so a drop with working
+   *  per-NFT art doesn't degrade to fallback initials.
+   *  Distinct from per-mint `nftImageUrl` (sent via `mint_meta`) —
+   *  this is a single sticky URL per collection, not per-mint. */
+  representativeImageUrl?: string;
 }
 
 /**

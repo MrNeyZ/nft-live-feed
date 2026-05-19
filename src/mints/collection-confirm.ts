@@ -21,7 +21,13 @@
 import { getAsset } from '../enrichment/helius-das';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
-import { evictMintGroup, patchAccumulatorMeta, patchAccumulatorLmnft, getAccumulatorName } from './accumulator';
+import {
+  evictMintGroup,
+  patchAccumulatorMeta,
+  patchAccumulatorLmnft,
+  patchAccumulatorRepresentativeImage,
+  getAccumulatorName,
+} from './accumulator';
 import { saleEventBus } from '../events/emitter';
 import { cleanName, nameLooksPerAsset } from './clean-name';
 import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
@@ -365,6 +371,17 @@ async function runAttempt(entry: Pending): Promise<void> {
     if (blacklistAddr) {
       noteBlacklistDrop(blacklistAddr);
     } else {
+      // Sticky-set the collection's representative per-NFT image so
+      // the tracker table can fall back from a missing / broken
+      // collection hero to a real working image instead of fallback
+      // initials. Sticky guard in `patchAccumulatorRepresentativeImage`
+      // means only the first valid URL wins; later patches with
+      // worse URLs (broken / null) are silently dropped. Costs
+      // nothing on the hot path — same data we're about to emit on
+      // the `mint_meta` channel below.
+      if (imageUrl) {
+        patchAccumulatorRepresentativeImage(entry.groupingKey, imageUrl);
+      }
       saleEventBus.emitMintMeta({
         signature:   entry.signature,
         mintAddress: entry.mintAddress,

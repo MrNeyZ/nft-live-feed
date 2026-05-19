@@ -117,7 +117,7 @@ const _imgFailCount: Map<string, number> = (() => {
   if (!g.__vlImgFail) g.__vlImgFail = new Map();
   return g.__vlImgFail;
 })();
-function noteImageFail(stage: 'proxy_fail' | 'raw_fallback', src: string): void {
+function noteImageFail(stage: 'proxy_fail' | 'raw_fallback' | 'primary_exhausted', src: string): void {
   if (typeof window === 'undefined') return;
   let host = '';
   try {
@@ -169,25 +169,38 @@ function rawUpstreamImage(u: string): string {
 // missing or fails to load. Lazy + async so a long list never blocks first
 // paint on image decode.
 export const ItemThumb = memo(function ItemThumb({
-  imageUrl, color, abbr, size,
-}: { imageUrl: string | null | undefined; color: string; abbr: string; size: number }) {
-  const [errored, setErrored] = useState(false);
-  const [fellBack, setFellBack] = useState(false);
-  // Reset both error flags whenever the imageUrl prop changes. Without
-  // this, a card whose first image attempt failed (transient network
-  // blip, wsrv 5xx, upstream timeout) is pinned to the placeholder
-  // forever — even if a fresh mint_meta patch later supplies a perfectly
-  // valid URL. The component is `memo`-wrapped so it re-renders on prop
-  // change without remounting; that's why the state survived without
-  // this hook.
+  imageUrl, fallbackImageUrl, color, abbr, size,
+}: {
+  imageUrl: string | null | undefined;
+  /** Optional 2nd-tier URL tried after the primary chain (proxy + raw)
+   *  exhausts. Each URL gets its own proxy→raw retry pair; initials
+   *  only fire when ALL candidates fail. Wired by the /mints tracker
+   *  table so a row with a broken collection hero can still show a
+   *  working per-NFT image instead of degrading to initials. */
+  fallbackImageUrl?: string | null | undefined;
+  color: string;
+  abbr: string;
+  size: number;
+}) {
+  // Stage machine — primary URL gets proxy + raw fallbacks; if both
+  // fail and a `fallbackImageUrl` was supplied, swap to it and run
+  // the same proxy+raw pair on it; only after BOTH candidates exhaust
+  // do we render the initials placeholder.
+  const [useFallback, setUseFallback] = useState(false);
+  const [fellBack,    setFellBack]    = useState(false);
+  const [errored,     setErrored]     = useState(false);
+  // Reset all stage flags whenever either URL changes. Without this,
+  // a card whose first image attempt failed is pinned to the
+  // placeholder forever even if a fresh mint_meta patch later
+  // supplies a working URL. memo-wrapped → re-renders without remount.
   useEffect(() => {
-    setErrored(false);
+    setUseFallback(false);
     setFellBack(false);
-  }, [imageUrl]);
-  if (!imageUrl || errored) return <NFTThumb color={color} abbr={abbr} size={size} />;
-  // On first load error try the raw upstream URL (wsrv may have refused the
-  // host). If that fails too, fall back to the initials placeholder.
-  const src = fellBack ? rawUpstreamImage(imageUrl) : imageUrl;
+    setErrored(false);
+  }, [imageUrl, fallbackImageUrl]);
+  const activeUrl = useFallback ? fallbackImageUrl : imageUrl;
+  if (!activeUrl || errored) return <NFTThumb color={color} abbr={abbr} size={size} />;
+  const src = fellBack ? rawUpstreamImage(activeUrl) : activeUrl;
   return (
     <img
       src={src}
@@ -204,17 +217,21 @@ export const ItemThumb = memo(function ItemThumb({
       fetchPriority="low"
       onError={() => {
         if (!fellBack) {
-          // First failure — wsrv proxy returned an error or the upstream
-          // host hung past the browser's load timeout. Sampled & grouped
-          // by host (see noteImageFail). Then fall back to the raw
-          // upstream URL — the browser can sometimes follow redirect
-          // chains wsrv refuses (e.g. cross-host IPFS gateway hops).
+          // First failure — proxy refused / upstream timeout. Try raw
+          // upstream of the active URL (browser may follow redirect
+          // chains wsrv refused, e.g. cross-host IPFS gateway hops).
           noteImageFail('proxy_fail', src);
           setFellBack(true);
+        } else if (!useFallback && fallbackImageUrl) {
+          // Primary URL fully exhausted (proxy + raw both failed) and
+          // a fallback URL was supplied. Swap to it and reset the
+          // proxy/raw subchain so it gets its own two-step retry.
+          noteImageFail('primary_exhausted', src);
+          setUseFallback(true);
+          setFellBack(false);
         } else {
-          // Second failure — raw upstream is also dead (most often
-          // genuine upstream content loss, e.g. a CID that fell out of
-          // the IPFS DHT). Render the initials placeholder.
+          // No fallback URL left (either was never supplied or has
+          // also exhausted). Render initials.
           noteImageFail('raw_fallback', src);
           setErrored(true);
         }

@@ -88,7 +88,17 @@ export interface MintStatus {
   priceLamports:     number | null;
   sourceLabel:       SourceLabel;
   name?:             string;
+  /** Collection-level hero art. Tracker table's PRIMARY thumbnail
+   *  source. Live-feed cards do NOT use this as a default fallback. */
   imageUrl?:         string;
+  /** First valid per-NFT image observed for any mint in this
+   *  collection — sticky, backend-side. Tracker table's 2nd-tier
+   *  fallback: when `imageUrl` is missing/broken, ItemThumb's error
+   *  chain swaps to this so a drop with working per-NFT art doesn't
+   *  degrade to fallback initials. NOT used by live-feed cards
+   *  (per-mint images flow on the `mint_meta` channel into
+   *  `MintEvent.nftImageUrl`). */
+  representativeImageUrl?: string;
 }
 
 /** Per-collection rollup of mint events that fell inside the user's
