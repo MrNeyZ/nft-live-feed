@@ -643,7 +643,46 @@ export function getAccumulatorName(groupingKey: string): string | null | undefin
   return map.get(groupingKey)?.name;
 }
 
-/** Optional metadata patch from background enrichment. */
+/** True iff `s` is a non-empty `http(s)` URL string. Caller-side
+ *  validation — rejects empty / whitespace-only / non-URL values and
+ *  the rare `data:`/`blob:` sentinel that can slip through DAS for
+ *  off-chain placeholders. Cheap regex; no allocations on the happy
+ *  path (regex compiles once at module load). */
+const HTTP_URL_RE = /^https?:\/\/\S+$/i;
+function isUsableImageUrl(u: unknown): u is string {
+  if (typeof u !== 'string') return false;
+  const t = u.trim();
+  if (t.length === 0) return false;
+  return HTTP_URL_RE.test(t);
+}
+
+/** Optional metadata patch from background enrichment.
+ *
+ *  imageUrl contract — collection-level, write-once-sticky:
+ *    1. The accumulator's `imageUrl` field is the collection's hero
+ *       art (the row thumbnail on /mints + the fallback for live-
+ *       feed cards). It is NEVER a per-NFT image.
+ *    2. Only `enrichLaunchpadCollectionMeta` (CG / LMNFT-Core paths)
+ *       is allowed to populate it today, via this function. The
+ *       per-NFT enricher and the collection-confirm retry chain
+ *       both explicitly drop imageUrl from their patches.
+ *    3. Once set, it stays. A later patch with a different URL is
+ *       ignored — a row that already resolved a real collection
+ *       image must never be downgraded by:
+ *         - an empty / null URL,
+ *         - a temporary DAS unresolved blank,
+ *         - a per-NFT image leaking through a future bug,
+ *         - a re-resolve to a different launchpad host that may
+ *           later break.
+ *  Sticky also defends against the bug-of-the-day where some new
+ *  code path starts calling patchAccumulatorMeta with a per-NFT
+ *  image: the first good collection write wins for the row's
+ *  lifetime in this process.
+ *
+ *  Name has the same trim/reject-empty rule but is not sticky:
+ *  upgrading a short-address fallback to a real collection name on
+ *  a later patch is intentional behaviour and lives in
+ *  `collection-confirm.ts`'s weak/strong gate, not here. */
 export function patchAccumulatorMeta(
   groupingKey: string,
   patch: { name?: string; imageUrl?: string },
@@ -656,8 +695,17 @@ export function patchAccumulatorMeta(
   // whitespace-only inputs; we then skip the write so an existing good
   // name on the row isn't clobbered with null.
   const cleaned = cleanName(patch.name);
-  if (cleaned)        a.name     = cleaned;
-  if (patch.imageUrl) a.imageUrl = patch.imageUrl;
+  if (cleaned) a.name = cleaned;
+  // Sticky-merge + URL validity. Three gates, in order:
+  //   1. patch.imageUrl must be a usable http(s) URL (rejects
+  //      empty / whitespace / data:/blob: / malformed).
+  //   2. accumulator must not already have an imageUrl (write-once).
+  //   3. patch must differ from a known-bad sentinel — currently the
+  //      gate is just `isUsableImageUrl`; extend here if we see a
+  //      collection start advertising e.g. a fixed placeholder URL.
+  if (isUsableImageUrl(patch.imageUrl) && !a.imageUrl) {
+    a.imageUrl = patch.imageUrl;
+  }
   // Re-evaluate promotion AFTER the patch fields are written. A row
   // held back by the identity gate (no name AND no image) at the
   // last burst tick can now satisfy `hasUsableIdentity` and flip to

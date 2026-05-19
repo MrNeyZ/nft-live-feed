@@ -66,17 +66,28 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
       ? strippedCollection
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
   const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
-  // Per-mint image only. We deliberately do NOT fall back to
-  // `group?.imageUrl` here — that produced the bug where every
-  // card in a collection painted the same image:
-  // `patchAccumulatorMeta` used to write the FIRST resolved
-  // per-NFT image into the collection row, and every other card
-  // without its own resolved image inherited it via this fallback.
-  // Collection-row image is unaffected (renders in the trending
-  // table only); unresolved live cards now show a per-mint
-  // placeholder (mintAddress-seeded color + shortMint initials)
-  // until their own DAS retry lands a unique image.
-  const cardImage      = ev.nftImageUrl ?? null;
+  // Image priority: collection > per-NFT > placeholder.
+  //   1. `group?.imageUrl` — the stable collection-level hero art,
+  //      patched into the accumulator only by
+  //      `enrichLaunchpadCollectionMeta` (CG / LMNFT-Core paths).
+  //   2. `ev.nftImageUrl` — per-mint asset image from the `mint_meta`
+  //      SSE channel. Used only when the row hasn't resolved a
+  //      collection image yet (e.g. a brand-new drop where the
+  //      collection-asset DAS call hasn't landed).
+  //   3. null → ItemThumb renders abbr + colour-seeded placeholder.
+  //
+  // Why we PREFER collection over per-NFT here (the prior version
+  // did the opposite): per-NFT URLs are flakier — they're often
+  // late-arriving, hosted on degraded gateways (gateway.irys.xyz
+  // started 404'ing recently), or temporarily blank during DAS index
+  // lag. Showing the collection's hero art on every card in a drop
+  // is the correct trade-off — a unified visual reads as "drop X is
+  // minting now" instead of half-rendered scattered tiles. The
+  // earlier "every card looks the same" bug only mattered when the
+  // collection row was being poisoned by a per-NFT image leak; that
+  // leak is closed (patchAccumulatorMeta sticky guard, see backend),
+  // so the collection image really is the collection image now.
+  const cardImage      = group?.imageUrl ?? ev.nftImageUrl ?? null;
   const priceText      = ev.priceLamports == null
     ? '—'
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
