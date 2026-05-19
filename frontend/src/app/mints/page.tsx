@@ -692,7 +692,18 @@ function FeedFiltersPopover({
             <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" />
             <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" />
             <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" />
-            <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="CANDY" size="sm" />
+            {/* Visible label "NFT" — narrower than the umbrella sense the
+                label implies, by design: this pill maps to the existing
+                `feedType==='candy'` state which targets Candy Machine /
+                Candy Guard mints only (the filter rule is
+                `sourceLabel === 'Metaplex Candy Machine'`). The
+                rename is UI-only — keeping the state key, the
+                localStorage value, and the filter predicate unchanged
+                preserves anyone's persisted preference and avoids a
+                breaking migration. The adjacent Source-row CANDY pill
+                is the unambiguous launchpad name for the same family,
+                so they're not in tension. */}
+            <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="NFT"   size="sm" />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 10, color: '#56566e', minWidth: 42, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Source</span>
