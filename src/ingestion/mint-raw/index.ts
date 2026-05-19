@@ -43,6 +43,7 @@ import {
   getMintTrackerMode,
   getMintTrackerCoreV2ScorerEnabled,
   LAUNCHMYNFT_PROGRAM,
+  type LaunchpadSource,
 } from './launchpad-detector';
 import { detectCoreCreateV2NftCandidate } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
@@ -78,6 +79,21 @@ function programSourceLabel(s: MintProgramSource): MintSourceLabel {
   if (s === 'mpl_core')           return 'Metaplex Core';
   if (s === 'mpl_token_metadata') return 'Metaplex';
   return 'Bubblegum';
+}
+
+/** Map the targeted detector's `LaunchpadSource` to the wire-level
+ *  `MintSourceLabel`. Most launchpad sources already share the
+ *  exact wire label name and pass through; `CandyMachine` is the
+ *  only entry that needs the renaming step (the wire label is
+ *  `'Metaplex Candy Machine'` for badge-rendering compat — the
+ *  frontend already styles that label as a `CANDY` pill). */
+function launchpadSourceLabel(s: LaunchpadSource): MintSourceLabel {
+  switch (s) {
+    case 'LaunchMyNFT':  return 'LaunchMyNFT';
+    case 'VVV':          return 'VVV';
+    case 'GRAVE':        return 'GRAVE';
+    case 'CandyMachine': return 'Metaplex Candy Machine';
+  }
 }
 
 function detectSourceLabel(
@@ -519,7 +535,7 @@ export async function ingestMintRaw(
         mintType,
         priceLamports,
         minter:            lp.minter,
-        sourceLabel:       lp.source,
+        sourceLabel:       launchpadSourceLabel(lp.source),
       });
       // No `enqueueMintEnrichment` — DAS verification is keyed off a
       // mintAddress; cNFTs would no-op anyway.
@@ -610,7 +626,7 @@ export async function ingestMintRaw(
       mintType,
       priceLamports,
       minter:            lp.minter,
-      sourceLabel:       lp.source,
+      sourceLabel:       launchpadSourceLabel(lp.source),
     });
     enqueueMintEnrichment(groupingKey, lp.mintAddress);
     // LMNFT featured-set lookup. Synchronous cache read — hits surface
