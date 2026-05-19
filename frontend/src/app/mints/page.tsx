@@ -737,14 +737,22 @@ export default function MintsPage() {
   }, [showCnft]);
 
   // Source filter — narrows the LEFT tracker table to a single launchpad.
-  // 'all' preserves the prior cosmetic-LMNFT-pill default (which did
-  // nothing). Persisted in localStorage. Backend wire enum: 'LaunchMyNFT'
-  // and 'VVV' are the two operator-facing launchpads today.
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'LMNFT' | 'VVV'>(() => {
+  // 'all' = no filter. Persisted in localStorage. Filter keys map to
+  // backend `MintStatus.sourceLabel` values:
+  //   LMNFT → 'LaunchMyNFT', VVV → 'VVV', CANDY → 'Metaplex Candy Machine',
+  //   CORE  → 'Metaplex Core', GRAVE → 'GRAVE'.
+  // ME / Bubblegum / generic Metaplex / Unknown are intentionally NOT
+  // surfaced here: ME is a sales label not a mint launchpad; Bubblegum
+  // has its own CNFT toggle in the LIVE FEED column; generic Metaplex /
+  // Unknown are catch-all buckets that wouldn't usefully narrow a
+  // tracker row set.
+  type SourceFilterKey = 'all' | 'LMNFT' | 'VVV' | 'CANDY' | 'CORE' | 'GRAVE';
+  const SOURCE_FILTER_KEYS: ReadonlyArray<SourceFilterKey> = ['all', 'LMNFT', 'VVV', 'CANDY', 'CORE', 'GRAVE'];
+  const [sourceFilter, setSourceFilter] = useState<SourceFilterKey>(() => {
     if (typeof window === 'undefined') return 'all';
     try {
       const v = window.localStorage.getItem('vl.mints.sourceFilter');
-      return v === 'LMNFT' || v === 'VVV' ? v : 'all';
+      return SOURCE_FILTER_KEYS.includes(v as SourceFilterKey) ? (v as SourceFilterKey) : 'all';
     } catch { return 'all'; }
   });
   useEffect(() => {
@@ -1342,11 +1350,21 @@ export default function MintsPage() {
       // every detected mint.
       .filter(r => isUsefulTrackerCollection(r))
       // Source filter — narrows to one launchpad. 'all' = no filter.
-      .filter(r =>
-        sourceFilter === 'all' ||
-        (sourceFilter === 'LMNFT' && r.sourceLabel === 'LaunchMyNFT') ||
-        (sourceFilter === 'VVV'   && r.sourceLabel === 'VVV')
-      )
+      // Filter keys map to MintStatus.sourceLabel values 1:1; the table
+      // type and the wire union are kept in sync via the `MintStatus`
+      // shape, so an unrecognised key here falls through to `false`
+      // (row hidden) — safer than passing through unmapped sources.
+      .filter(r => {
+        if (sourceFilter === 'all') return true;
+        switch (sourceFilter) {
+          case 'LMNFT': return r.sourceLabel === 'LaunchMyNFT';
+          case 'VVV':   return r.sourceLabel === 'VVV';
+          case 'CANDY': return r.sourceLabel === 'Metaplex Candy Machine';
+          case 'CORE':  return r.sourceLabel === 'Metaplex Core';
+          case 'GRAVE': return r.sourceLabel === 'GRAVE';
+          default:      return false;
+        }
+      })
       // Status filter — strict sold-out determination. Requires both
       // maxSupply and mintedCount known; unknown-supply rows are treated
       // as still active because the backend can't prove sell-through.
@@ -1578,21 +1596,6 @@ export default function MintsPage() {
             solution) but quiet enough that it doesn't compete with
             the tab/timeframe row above. flexShrink: 0 keeps the band
             present even when the scroll-area squeezes vertically. */}
-        <div
-          style={{
-            padding: '5px 12px',
-            fontSize: 10,
-            color: '#56566e',
-            letterSpacing: '0.3px',
-            fontStyle: 'italic',
-            background: 'rgba(168,144,232,0.018)',
-            borderBottom: '1px solid rgba(255,255,255,0.035)',
-            flexShrink: 0,
-          }}
-        >
-          Window controls table rows and RATE
-        </div>
-
         {/* Collapsible filters — Source narrows the table to one launchpad;
             Status uses strict sold-out semantics (only fires when backend
             knows both maxSupply and mintedCount). Mirrors the dashboard
@@ -1604,6 +1607,9 @@ export default function MintsPage() {
             <Pill active={sourceFilter === 'all'}   onClick={() => setSourceFilter('all')}   label="Any"   size="sm" />
             <Pill active={sourceFilter === 'LMNFT'} onClick={() => setSourceFilter('LMNFT')} label="LMNFT" size="sm" />
             <Pill active={sourceFilter === 'VVV'}   onClick={() => setSourceFilter('VVV')}   label="VVV"   size="sm" />
+            <Pill active={sourceFilter === 'CANDY'} onClick={() => setSourceFilter('CANDY')} label="CANDY" size="sm" />
+            <Pill active={sourceFilter === 'CORE'}  onClick={() => setSourceFilter('CORE')}  label="CORE"  size="sm" />
+            <Pill active={sourceFilter === 'GRAVE'} onClick={() => setSourceFilter('GRAVE')} label="GRAVE" size="sm" />
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
             <span style={{ fontSize: 10, color: '#56566e' }}>Status:</span>
             <Pill active={statusFilter === 'any'}     onClick={() => setStatusFilter('any')}     label="Any"         size="sm" />
