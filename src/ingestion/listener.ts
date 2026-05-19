@@ -132,16 +132,29 @@ function isTargetActive(targetName: string): boolean {
   return MINT_TARGET_NAMES.has(targetName) && isMintTrackerEnabled();
 }
 
-/** Targets that must never enter the `getSignaturesForAddress` poll loop.
- *  Token Metadata's volume is too high for cursor polling to keep up
- *  meaningfully. MPL Core stays in this set for the SHARED `pollAll`
- *  loop (which targets sale programs at fast/healthy cadences), but
- *  `pollTarget` accepts a `force` option that bypasses this gate —
- *  used by the dedicated `mpl_core` cursor-poll loop below to backstop
- *  Helius WS misses for launchpad mints. `candy_guard` is in the same
- *  bucket: shared pollAll skips it; the dedicated CG cursor-poll loop
- *  (below) backstops with `force: true` at a CG-tuned cadence. */
-const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata', 'candy_guard']);
+/** Targets the SHARED `pollAll` loop must skip.
+ *
+ *  Two reasons a target ends up here:
+ *
+ *  (a) Mint targets where shared-loop cadence would either flood RPC
+ *      (`token_metadata`'s firehose) or duplicate a dedicated cursor-
+ *      poll loop tuned for that surface (`mpl_core`, `candy_guard`).
+ *      Those dedicated loops bypass this gate via `force: true` on
+ *      every `pollTarget` call.
+ *
+ *  (b) Sale targets already polled by the persistent-cursor
+ *      `amm-poller` (`me_v2` / `mmm` / `tcomp` / `tamm` / `me_cnft`).
+ *      `amm-poller` runs every 2.5s with a DB-persisted cursor and is
+ *      the canonical sales-path poller; the listener's shared pollAll
+ *      previously re-fetched the same programs at 1.5s-10s intervals,
+ *      doubling `getSignaturesForAddress` cost on the four programs
+ *      that already had complete coverage. Removing them from the
+ *      shared loop is purely a redundancy cut — amm-poller continues
+ *      to backstop the WS listener exactly as before. */
+const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set([
+  'mpl_core', 'token_metadata', 'candy_guard',
+  'me_v2', 'mmm', 'tcomp', 'tamm', 'me_cnft',
+]);
 
 // ─── mpl_core cursor-poll fallback ──────────────────────────────────────────
 // Helius WS isn't reliable enough alone for /mints — confirmed by the
@@ -152,8 +165,12 @@ const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_me
 // Defaults: enabled, 4 s interval, 30 sigs per sweep. Tunable via env
 // (`MINT_MPL_CORE_POLL_*`).
 const MPL_CORE_POLL_ENABLED     = process.env.MINT_MPL_CORE_POLL_ENABLED !== '0';
-const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '4000', 10) || 4000;
-const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '30',   10) || 30;
+// Cadence relaxed 2026-05-19 (4000ms/limit=30 → 15000ms/limit=15) to
+// cut idle credit drain. The WS path stays primary; this fallback
+// catches Helius dropouts and the 3-min hard-refresh window — both
+// of which tolerate 15s catch-up easily. Tunable via env.
+const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '15000', 10) || 15000;
+const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '15',   10) || 15;
 let   mplCorePollSweeps   = 0;
 let   mplCorePollFetched  = 0;
 let   mplCorePollAccepted = 0;
@@ -173,8 +190,12 @@ let   mplCorePollLastTs   = 0;
 // Metadata WS went silent and Candy Guard mints fronted by Candy Guard
 // disappeared from ingestion. Tunable via env (`MINT_CANDY_GUARD_POLL_*`).
 const CANDY_GUARD_POLL_ENABLED     = process.env.MINT_CANDY_GUARD_POLL_ENABLED !== '0';
-const CANDY_GUARD_POLL_INTERVAL_MS = parseInt(process.env.MINT_CANDY_GUARD_POLL_INTERVAL_MS ?? '6000', 10) || 6000;
-const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '20',   10) || 20;
+// Cadence relaxed 2026-05-19 (6000ms/limit=20 → 30000ms/limit=10) to
+// cut idle credit drain. CG drop volume is small (single-digit
+// mints/min at peak) and the WS subscription is the primary path;
+// the prior 6s cadence was over-provisioned by ~5×. Tunable via env.
+const CANDY_GUARD_POLL_INTERVAL_MS = parseInt(process.env.MINT_CANDY_GUARD_POLL_INTERVAL_MS ?? '30000', 10) || 30000;
+const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '10',   10) || 10;
 let   candyGuardPollSweeps   = 0;
 let   candyGuardPollFetched  = 0;
 let   candyGuardPollAccepted = 0;

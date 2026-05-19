@@ -298,7 +298,7 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
           ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
           ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(220,146,173,0.15)', fg: '#dc92ad' } :
+          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(220,138,168,0.18)', fg: '#dc8aa8' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
         const pillStyle: React.CSSProperties = {
           display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
