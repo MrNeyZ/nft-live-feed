@@ -67,49 +67,37 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
   const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
   // Image priority on the live-feed CARD:
-  //   1. `ev.nftImageUrl` — per-mint asset image, ONLY when it's NOT
-  //      the launchpad's shared pre-reveal placeholder (detected
-  //      backend-side once the same URL appears on ≥2 distinct
-  //      mints, surfaced as `group.sharedPlaceholderImageUrl`).
-  //      Without this gate a drop like Flork pre-reveal would paint
-  //      every card with the same shared "Unknown Flork" asset,
-  //      erasing the per-mint identity the feed exists to convey.
+  //   1. `ev.nftImageUrl` — the per-mint asset image surfaced by DAS
+  //      via `mint_meta`. We use it even when it's the launchpad's
+  //      shared pre-reveal placeholder (the same URL recurs on every
+  //      mint). That's not a bug: it IS the official per-mint
+  //      metadata image — Magic Eden paints the same brown-bag /
+  //      sock-puppet placeholder on every card during a pre-reveal
+  //      drop, and showing the on-chain truth beats hiding it. The
+  //      `/thumb` proxy rewrites broken dedicated gateways
+  //      (`*.mypinata.cloud/ipfs/<CID>` → `ipfs.io/ipfs/<CID>`,
+  //      `gateway.irys.xyz/<txid>` → `arweave.net/<txid>`) so the
+  //      bytes resolve even when the URL the metadata cites has
+  //      gone 403/404 on its origin.
   //   2. `group?.representativeImageUrl` — confidently-unique per-NFT
-  //      image from elsewhere in this drop, picked backend-side only
-  //      after variety is established (≥2 distinct URLs). When the
-  //      per-mint URL is a placeholder this gives the card SOMETHING
-  //      credible instead of initials.
-  //   3. `group?.imageUrl` (collection hero) — ONLY when we have
-  //      positive evidence this card is a pre-reveal placeholder
-  //      (`evIsPlaceholder === true`) AND no usable representative
-  //      per-NFT image has surfaced yet. Pre-reveal CG drops (Flork
-  //      today) ship the same `Unknown Flork` placeholder for every
-  //      mint so `countDistinctImages` stays at 1 forever and the
-  //      representative gate normally never trips — without this
-  //      tier those cards fall through to initials ("UN") despite
-  //      the backend already holding the real Flork collection hero
-  //      from `enrichLaunchpadCollectionMeta`. Gated on
-  //      `evIsPlaceholder` so it does NOT fire for collections whose
-  //      per-mint art already resolved (ZARK / Liminals / Colony etc
-  //      keep their real per-NFT images), preserving the "every card
-  //      looks identical" failure mode only for the case where there
-  //      IS no per-mint identity to preserve. "Usable representative"
-  //      treats `representativeImageUrl === sharedPlaceholderImageUrl`
-  //      as effectively absent: a polluted sticky rep (snapshot-rehydrated
-  //      from a moment when distinct briefly hit 2 before convergence)
-  //      would otherwise pin the card to the same dead placeholder
-  //      URL and re-introduce the abbr fallback.
+  //      image observed elsewhere in this drop (sticky write-once
+  //      from `collection-confirm.ts` once variety is established).
+  //      Used when no per-mint image has arrived yet for THIS card —
+  //      better than initials.
+  //   3. `group?.imageUrl` — collection hero from
+  //      `enrichLaunchpadCollectionMeta` (Candy Guard / LMNFT-Core
+  //      paths). Last-resort image fallback before initials.
   //   4. null → ItemThumb renders abbr + colour-seeded placeholder.
-  const evIsPlaceholder = !!ev.nftImageUrl
-    && !!group?.sharedPlaceholderImageUrl
-    && ev.nftImageUrl === group.sharedPlaceholderImageUrl;
-  const repIsUsable     = !!group?.representativeImageUrl
-    && group.representativeImageUrl !== group.sharedPlaceholderImageUrl;
-  const cardImage      = (ev.nftImageUrl && !evIsPlaceholder)
-    ? ev.nftImageUrl
-    : (repIsUsable
-       ? group!.representativeImageUrl!
-       : (evIsPlaceholder ? (group?.imageUrl ?? null) : null));
+  //
+  // The earlier `evIsPlaceholder`-based suppression of tier 1 is
+  // intentionally gone: it was preserving "per-mint identity" for
+  // drops where there genuinely is none pre-reveal, and the cost
+  // was either initials or an unrelated collection hero — neither
+  // of which matches what the on-chain metadata actually says.
+  const cardImage = ev.nftImageUrl
+    ?? group?.representativeImageUrl
+    ?? group?.imageUrl
+    ?? null;
   const priceText      = ev.priceLamports == null
     ? '—'
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
