@@ -20,6 +20,7 @@ import {
   hasMintInstructionLog,
   MPL_CORE_PROGRAM,
   TOKEN_METADATA_PROGRAM,
+  CANDY_GUARD_PROGRAM,
 } from './mint-raw';
 import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
@@ -95,18 +96,32 @@ const TARGETS: Target[] = [
     program: TOKEN_METADATA_PROGRAM,
     ingest:  ingestMintRaw,
   },
+  // Metaplex Candy Guard: low-volume Anchor dispatcher fronting every
+  // Candy Machine v3 mint. Subscribed directly so CG mints don't depend
+  // on the Token Metadata firehose (which Helius back-pressures into
+  // silence for stretches). Every CG tx is a mint candidate — the
+  // per-tx `detectLaunchpadMint` resolves accept/reject downstream and
+  // the prefilter is bypassed (see `MINT_PREFILTER_TARGETS` below).
+  {
+    name:    'candy_guard',
+    program: CANDY_GUARD_PROGRAM,
+    ingest:  ingestMintRaw,
+  },
 ];
 
 /** Targets that handle their own log shape — drop on the listener side
  *  before fetchRawTx. Same pattern as TENSOR_PREFILTER_TARGETS / the ME v2
- *  deny-list, but additive: the listener checks them in order. */
+ *  deny-list, but additive: the listener checks them in order.
+ *  `candy_guard` is deliberately NOT in this set: every CG tx is a
+ *  mint candidate, the per-tx detector resolves accept/reject, and
+ *  CG volume is small enough that the prefilter would only add latency. */
 const MINT_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
 
 /** Targets that belong to the mint tracker. These keep flowing even
  *  when trade runtime mode is OFF as long as `MINT_TRACKER_ENABLED`
  *  isn't '0'. Sales-program targets (me_v2, mmm, tcomp, tamm) are
  *  always gated on `getMode() !== 'off'`. */
-const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata', 'candy_guard']);
 
 /** Per-target activity gate — replaces the global `getMode() !== 'off'`
  *  check at every WS / poll entry point. Sales targets stop with mode
@@ -123,8 +138,10 @@ function isTargetActive(targetName: string): boolean {
  *  loop (which targets sale programs at fast/healthy cadences), but
  *  `pollTarget` accepts a `force` option that bypasses this gate —
  *  used by the dedicated `mpl_core` cursor-poll loop below to backstop
- *  Helius WS misses for launchpad mints. */
-const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata']);
+ *  Helius WS misses for launchpad mints. `candy_guard` is in the same
+ *  bucket: shared pollAll skips it; the dedicated CG cursor-poll loop
+ *  (below) backstops with `force: true` at a CG-tuned cadence. */
+const MINT_NO_POLL_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata', 'candy_guard']);
 
 // ─── mpl_core cursor-poll fallback ──────────────────────────────────────────
 // Helius WS isn't reliable enough alone for /mints — confirmed by the
@@ -146,6 +163,23 @@ let   mplCorePollDeduped  = 0;
  *  `/api/mints/runtime` so operators can confirm the fallback poller
  *  is alive even when WS is silent. 0 until the first sweep lands. */
 let   mplCorePollLastTs   = 0;
+
+// ─── candy_guard cursor-poll fallback ───────────────────────────────────────
+// Same backstop pattern as the mpl_core poller above, applied to the
+// Candy Guard program. Candy Guard's on-chain volume is small (single
+// digits / minute at peak), so the cursor poll can run at a relaxed
+// cadence with a modest limit and still cover any Helius WS dropouts
+// — the failure mode we hit in the Y2P2 / mVThyLe trace where Token
+// Metadata WS went silent and Candy Guard mints fronted by Candy Guard
+// disappeared from ingestion. Tunable via env (`MINT_CANDY_GUARD_POLL_*`).
+const CANDY_GUARD_POLL_ENABLED     = process.env.MINT_CANDY_GUARD_POLL_ENABLED !== '0';
+const CANDY_GUARD_POLL_INTERVAL_MS = parseInt(process.env.MINT_CANDY_GUARD_POLL_INTERVAL_MS ?? '6000', 10) || 6000;
+const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '20',   10) || 20;
+let   candyGuardPollSweeps   = 0;
+let   candyGuardPollFetched  = 0;
+let   candyGuardPollAccepted = 0;
+let   candyGuardPollDeduped  = 0;
+let   candyGuardPollLastTs   = 0;
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -1061,14 +1095,16 @@ async function pollTarget(
 
   const nowSec = Date.now() / 1000;
 
-  // Per-sweep counters for the dedicated mpl_core fallback path. Only
-  // tallied when `opts.force` is set so the existing pollAll loop's
-  // shared accumulators don't double-count.
-  const isMplCoreForce = !!opts?.force && target.name === 'mpl_core';
+  // Per-sweep counters for the dedicated fallback paths (mpl_core +
+  // candy_guard). Only tallied when `opts.force` is set so the existing
+  // pollAll loop's shared accumulators don't double-count.
+  const isMplCoreForce    = !!opts?.force && target.name === 'mpl_core';
+  const isCandyGuardForce = !!opts?.force && target.name === 'candy_guard';
 
   for (const row of rows) {
     fetched++;
-    if (isMplCoreForce) mplCorePollFetched++;
+    if (isMplCoreForce)    mplCorePollFetched++;
+    if (isCandyGuardForce) candyGuardPollFetched++;
 
     // Drop on-chain failures.
     if (!row.signature || row.err !== null) { skipped++; continue; }
@@ -1093,6 +1129,12 @@ async function pollTarget(
           console.log(`[mints/dedupe] sig=${row.signature.slice(0, 12)}… source=poll reason=seen`);
         }
       }
+      if (isCandyGuardForce) {
+        candyGuardPollDeduped++;
+        if (candyGuardPollDeduped <= 5 || candyGuardPollDeduped % 10 === 0) {
+          console.log(`[mints/dedupe] sig=${row.signature.slice(0, 12)}… source=poll/cg reason=seen`);
+        }
+      }
       continue;
     }
 
@@ -1108,6 +1150,10 @@ async function pollTarget(
       // a sig the WS firehose missed (or hasn't processed yet). Log
       // each so an operator can verify the fallback is doing real work.
       console.log(`[mints/poller] caught_missed sig=${sig} source=poll`);
+    }
+    if (isCandyGuardForce) {
+      candyGuardPollAccepted++;
+      console.log(`[mints/poller] caught_missed sig=${sig} source=poll/cg`);
     }
 
     // Step 3 — dispatching to target.ingest() via pollerLimiter.
@@ -1264,6 +1310,48 @@ export function startListener(): void {
     console.log('[mints/poller] disabled (MINT_MPL_CORE_POLL_ENABLED=0)');
   }
 
+  // Dedicated candy_guard cursor-poll fallback — backstops Helius WS
+  // dropouts on the Candy Guard subscription (same failure mode that
+  // killed Token Metadata WS during the Y2P2 / mVThyLe investigation).
+  // CG volume is small enough that a 6 s / 20-sig sweep keeps up
+  // cheaply and the dedup-by-seenSigs prevents double ingestion when
+  // both WS and poller deliver the same sig.
+  if (CANDY_GUARD_POLL_ENABLED) {
+    const cgTarget = TARGETS.find(t => t.name === 'candy_guard');
+    if (cgTarget) {
+      console.log(
+        `[mints/poller] start target=candy_guard interval=${CANDY_GUARD_POLL_INTERVAL_MS}ms ` +
+        `limit=${CANDY_GUARD_POLL_LIMIT}`,
+      );
+      const tick = setInterval(() => {
+        if (!running)                       return;
+        if (!isMintTrackerEnabled())        return;
+        if (!isTargetActive('candy_guard')) return;
+        candyGuardPollSweeps++;
+        candyGuardPollLastTs = Date.now();
+        pollTarget(cgTarget, { force: true, limitOverride: CANDY_GUARD_POLL_LIMIT })
+          .catch(() => { /* fail-soft; next tick retries */ });
+      }, CANDY_GUARD_POLL_INTERVAL_MS);
+      tick.unref();
+      intervalHandles.push(tick);
+
+      const audit = setInterval(() => {
+        if (candyGuardPollSweeps === 0 && candyGuardPollFetched === 0) return;
+        console.log(
+          `[mints/poller-audit] target=candy_guard sweeps=${candyGuardPollSweeps} ` +
+          `fetched=${candyGuardPollFetched} accepted=${candyGuardPollAccepted} ` +
+          `deduped=${candyGuardPollDeduped}`,
+        );
+      }, 60_000);
+      audit.unref();
+      intervalHandles.push(audit);
+    } else {
+      console.log('[mints/poller] cannot start — candy_guard target not found');
+    }
+  } else {
+    console.log('[mints/poller/cg] disabled (MINT_CANDY_GUARD_POLL_ENABLED=0)');
+  }
+
   // Watchdog — checked every 15s, three independent tiers:
   //
   //  1. Slot stale (>20s)  → full restart: the underlying TCP connection is dead.
@@ -1379,9 +1467,15 @@ export function getMintListenerStatus(): {
   lastPollAt: number;
 } {
   const wsRunning =
-    activeSockets.has('mpl_core') || activeSockets.has('token_metadata');
-  const pollerRunning = running && MPL_CORE_POLL_ENABLED;
-  return { wsRunning, pollerRunning, lastPollAt: mplCorePollLastTs };
+    activeSockets.has('mpl_core')
+    || activeSockets.has('token_metadata')
+    || activeSockets.has('candy_guard');
+  const pollerRunning = running && (MPL_CORE_POLL_ENABLED || CANDY_GUARD_POLL_ENABLED);
+  // Most recent fallback sweep across either dedicated poller. Either
+  // one alive is enough to claim the backstop is doing work, so we
+  // report the max.
+  const lastPollAt = Math.max(mplCorePollLastTs, candyGuardPollLastTs);
+  return { wsRunning, pollerRunning, lastPollAt };
 }
 
 // ─── WS-health check + self-rescheduling poll loop ──────────────────────────

@@ -114,6 +114,12 @@ function detectSourceLabel(
 
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
+/** Re-export so the listener can subscribe to Candy Guard directly
+ *  as a dedicated low-volume target. Source of truth is the
+ *  launchpad-detector module; this mirror keeps the listener's
+ *  program-id imports consistent with the existing
+ *  MPL_CORE_PROGRAM / TOKEN_METADATA_PROGRAM pattern. */
+export { CANDY_GUARD_PROGRAM } from './launchpad-detector';
 
 /** SPL Token-2022 program ID. NFT product rules (Metaplex Core / pNFT /
  *  legacy NFT) are all served by the original SPL Token program; any
