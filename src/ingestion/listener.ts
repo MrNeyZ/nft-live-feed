@@ -209,14 +209,59 @@ let   candyGuardPollDeduped  = 0;
 let   candyGuardPollLastTs   = 0;
 
 // ── Warm (low-power) mode tuning ────────────────────────────────────────────
-// When the mint tracker is in WARM mode the dedicated pollers keep running but
-// at a much longer cadence and a tiny page size, with no WS-driven fetches and
-// no catch-up — just enough to keep background awareness of what's minting.
-// Expensive paths (enrichment / collection-confirm / supply refresh) stay off.
-const MINT_WARM_INTERVAL_MS = parseInt(process.env.MINT_WARM_INTERVAL_MS ?? '180000', 10) || 180000; // 3 min
-const MINT_WARM_LIMIT       = parseInt(process.env.MINT_WARM_LIMIT       ?? '3',      10) || 3;       // 1 small page
-let   mplCoreWarmLastTs   = 0;
-let   candyGuardWarmLastTs = 0;
+// In WARM mode the dedicated pollers keep running but at a long cadence and a
+// tiny page size, with no WS-driven fetches and no catch-up — just enough to
+// keep background awareness of what's minting. Expensive paths (enrichment /
+// collection-confirm / supply refresh) stay off. The two targets are STAGGERED
+// (different base intervals + a candy_guard phase offset) so their getTx bursts
+// never land in the same moment — smoother Helius graph. An idle backoff
+// stretches the interval (×2 then ×3, capped) when a target sees no new mints.
+const MINT_WARM_LIMIT = parseInt(process.env.MINT_WARM_LIMIT ?? '2', 10) || 2;   // ≤ getTx per warm sweep
+const MINT_WARM_MPL_CORE_INTERVAL_MS     = parseInt(process.env.MINT_WARM_MPL_CORE_INTERVAL_MS     ?? '180000', 10) || 180000; // 3 min
+const MINT_WARM_CANDY_GUARD_INTERVAL_MS  = parseInt(process.env.MINT_WARM_CANDY_GUARD_INTERVAL_MS  ?? '300000', 10) || 300000; // 5 min
+const MINT_WARM_CANDY_GUARD_OFFSET_MS    = parseInt(process.env.MINT_WARM_CANDY_GUARD_OFFSET_MS    ?? '90000',  10) || 90000;  // 90 s phase
+const MINT_WARM_MAX_INTERVAL_MS          = parseInt(process.env.MINT_WARM_MAX_INTERVAL_MS          ?? '600000', 10) || 600000; // 10 min cap
+
+interface WarmSched { nextDueTs: number; idleStreak: number; acceptedSnap: number; }
+const warmMplCore:    WarmSched = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0 };
+const warmCandyGuard: WarmSched = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0 };
+
+/** Idle backoff multiplier: base interval ×1 normally, ×2 after 3 empty
+ *  sweeps, ×3 after 6 — capped by MINT_WARM_MAX_INTERVAL_MS at the call site. */
+function warmIntervalMultiplier(idleStreak: number): number {
+  if (idleStreak >= 6) return 3;
+  if (idleStreak >= 3) return 2;
+  return 1;
+}
+
+/** Decide whether a warm sweep is due for a target, updating its schedule.
+ *  `acceptedNow` is the target's cumulative poll-accepted counter; the delta
+ *  since the previous sweep drives the idle streak (no pollTarget changes —
+ *  reads the existing audit counter). Returns true iff the caller should poll.
+ *  Logs one low-noise line per actual sweep. */
+function warmSweepDue(
+  s: WarmSched, baseMs: number, offsetMs: number, acceptedNow: number,
+  now: number, targetName: string,
+): boolean {
+  if (s.nextDueTs === 0) {
+    // First scheduling — apply the stagger offset before the first sweep so
+    // the two targets don't fire together at boot.
+    s.nextDueTs    = now + offsetMs;
+    s.acceptedSnap = acceptedNow;
+    if (offsetMs > 0) return false;
+  }
+  if (now < s.nextDueTs) return false;
+  const delta = acceptedNow - s.acceptedSnap;
+  s.acceptedSnap = acceptedNow;
+  if (delta > 0) s.idleStreak = 0;
+  else           s.idleStreak += 1;
+  const mult     = warmIntervalMultiplier(s.idleStreak);
+  const interval = Math.min(baseMs * mult, MINT_WARM_MAX_INTERVAL_MS);
+  s.nextDueTs    = now + interval;
+  console.log(`[mints/warm] sweep target=${targetName} limit=${MINT_WARM_LIMIT} interval=${interval}`);
+  if (mult > 1) console.log(`[mints/warm] idle target=${targetName} streak=${s.idleStreak} interval=${interval}`);
+  return true;
+}
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -1341,13 +1386,12 @@ export function startListener(): void {
         if (!isTargetActive('mpl_core')) return;
         const now = Date.now();
         if (getMintTrackerRuntimeMode() !== 'live') {
-          // WARM: long cadence, 1 small page, no catch-up. Enrichment /
-          // confirm / supply stay gated off (isMintTrackerEnabled === false).
-          if (now - mplCoreWarmLastTs < MINT_WARM_INTERVAL_MS) return;
-          mplCoreWarmLastTs = now;
+          // WARM: staggered + adaptive cadence, ≤MINT_WARM_LIMIT getTx/sweep,
+          // no catch-up. Enrichment / confirm / supply stay gated off
+          // (isMintTrackerEnabled === false). offset=0 → fires first.
+          if (!warmSweepDue(warmMplCore, MINT_WARM_MPL_CORE_INTERVAL_MS, 0, mplCorePollAccepted, now, 'mpl_core')) return;
           mplCorePollSweeps++;
           mplCorePollLastTs = now;
-          console.log('[mints/warm] sweep target=mpl_core');
           pollTarget(mplCoreTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
             .catch(() => { /* fail-soft */ });
           return;
@@ -1398,12 +1442,11 @@ export function startListener(): void {
         if (!isTargetActive('candy_guard')) return;
         const now = Date.now();
         if (getMintTrackerRuntimeMode() !== 'live') {
-          // WARM: long cadence, 1 small page, no catch-up.
-          if (now - candyGuardWarmLastTs < MINT_WARM_INTERVAL_MS) return;
-          candyGuardWarmLastTs = now;
+          // WARM: staggered (90s phase offset) + adaptive cadence,
+          // ≤MINT_WARM_LIMIT getTx/sweep, no catch-up.
+          if (!warmSweepDue(warmCandyGuard, MINT_WARM_CANDY_GUARD_INTERVAL_MS, MINT_WARM_CANDY_GUARD_OFFSET_MS, candyGuardPollAccepted, now, 'candy_guard')) return;
           candyGuardPollSweeps++;
           candyGuardPollLastTs = now;
-          console.log('[mints/warm] sweep target=candy_guard');
           pollTarget(cgTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
             .catch(() => { /* fail-soft */ });
           return;
