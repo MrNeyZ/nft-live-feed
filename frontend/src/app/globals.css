@@ -810,10 +810,11 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
   display: flex; flex-direction: column;
   gap: 4px;
-  padding: 8px 14px 10px;
+  padding: 8px 16px 9px;
   background: rgba(0, 0, 0, 0.18);
   border-top: 1px solid rgba(168, 144, 232, 0.10);
-  border-bottom: 1px solid rgba(168, 144, 232, 0.10);
+  /* Very subtle separator between the settings panel and the feed. */
+  border-bottom: 1px solid rgba(168, 144, 232, 0.08);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02),
@@ -823,24 +824,134 @@ a { color: inherit; text-decoration: none; }
 .feed-filters-panel-open  { animation: feedFiltersIn  200ms ease-out; }
 .feed-filters-panel-close { animation: feedFiltersOut 180ms ease-in forwards; }
 
-/* Settings panel layout — two balanced columns on desktop/tablet so the
-   controls use the full width instead of stacking left with a big empty
-   void on the right. LEFT = Type/Density/Watch, RIGHT = Price/Hover/Blacklist.
+/* ── Settings panel: three semantic groups (Content · Display · Lists) ──
+   Laid out as a flex row so the panel uses the full width (no empty void
+   on the right) and stays short. Thin vertical separators between groups.
    Collapses to a single column on narrow widths. */
-.feed-settings-grid {
+/* Two columns: Content (top-left) + Lists (bottom-left), Display spans both
+   rows on the right. Balances heights (left two short groups ≈ Display's
+   three rows), keeps every control on one line, and fills the full width. */
+.feed-settings {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px 28px;
+  gap: 6px 24px;
   align-items: start;
 }
-.feed-settings-col {
+.feed-set-group {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;   /* let inputs/pills shrink inside the column instead of overflowing */
+  min-width: 0;
 }
+.feed-set-group--content { grid-column: 1; grid-row: 1; }
+.feed-set-group--lists   { grid-column: 1; grid-row: 2; }
+.feed-set-group--display {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  border-left: 1px solid rgba(168, 144, 232, 0.08);
+  padding-left: 24px;
+}
+.feed-set-group-hd {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.30);
+  margin-bottom: 1px;
+}
+/* Aligned label/control rows — fixed label column so every control begins
+   on the same vertical line within its group. */
+.feed-srow {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 24px;
+}
+.feed-srow-lbl {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.38);
+  text-align: right;
+}
+.feed-srow-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.feed-seg { gap: 3px; }   /* segmented selectors sit a touch tighter */
+.feed-srow-hint {
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+/* iOS-style switch (hover-pause). Muted track when off, purple when on,
+   with a small thumb slide. No heavy glow. */
+.vl-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 30px; height: 17px;
+  padding: 0;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-shrink: 0;
+}
+.vl-switch-thumb {
+  position: absolute;
+  left: 2px; top: 50%;
+  transform: translateY(-50%);
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #cfcfe0;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.30);
+  transition: transform 0.16s ease, background 0.15s ease;
+}
+.vl-switch-on {
+  background: rgba(168, 144, 232, 0.45);
+  border-color: rgba(168, 144, 232, 0.60);
+}
+.vl-switch-on .vl-switch-thumb {
+  transform: translate(13px, -50%);
+  background: #f4f1fb;
+}
+
+/* Watch / Blacklist chips — compact, low-weight. Colour set per variant. */
+.feed-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 4px 1px 7px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.2px;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  max-width: 180px; overflow: hidden;
+}
+.feed-chip-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; padding: 0; border-radius: 3px;
+  border: none; background: transparent; cursor: pointer;
+  font-size: 10px; line-height: 1; color: inherit;
+}
+.feed-chip-watch { border: 1px solid #a890e855; background: #a890e81e; color: #b9a6ef; }
+.feed-chip-bl    { border: 1px solid #e58aa355; background: #e58aa31e; color: #ec9fb4; }
+
 @media (max-width: 720px) {
-  .feed-settings-grid { grid-template-columns: 1fr; gap: 4px; }
+  .feed-settings { grid-template-columns: 1fr; gap: 8px 0; }
+  .feed-set-group--content,
+  .feed-set-group--lists,
+  .feed-set-group--display { grid-column: 1; grid-row: auto; }
+  .feed-set-group--display {
+    border-left: none; padding-left: 0;
+    border-top: 1px solid rgba(168, 144, 232, 0.08); padding-top: 8px;
+  }
 }
 
 /* Priority row — Density. The visual emphasis lives on the pills
@@ -902,10 +1013,13 @@ a { color: inherit; text-decoration: none; }
   background: rgba(0, 0, 0, 0.32);
   color: #e8e6f2;
   outline: none;
-  /* Grow to fill the column (was a fixed 200px min that overflowed a
-     half-width settings column); shrinks cleanly on narrow widths. */
-  flex: 1 1 120px;
+  /* Compact field that flexes within its group column but never grows into
+     a giant full-width input; shrinks cleanly on narrow widths. */
+  flex: 1 1 110px;
   min-width: 0;
+  max-width: 170px;
+  height: 22px;
+  box-sizing: border-box;
   font-family: 'SF Mono', 'Fira Code', monospace;
   letter-spacing: 0.2px;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.30);
