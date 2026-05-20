@@ -1532,6 +1532,28 @@ function wsIsHealthy(): boolean {
   return true;
 }
 
+// ─── Sales-WS-dead detector (emergency cost guard) ──────────────────────────
+// True when EVERY sales-side logsSubscribe target has gone silent (no REAL
+// notification) for longer than SALES_WS_DEAD_MS. Used by amm-poller to
+// degrade sales polling — when WS delivers nothing, polling fetches a
+// getTransaction for every program-touching sig (mostly non-sale), burning
+// Helius credits. `lastRealNotifTs` is seeded to boot time and only advanced
+// by genuine WS messages, so this naturally grants a SALES_WS_DEAD_MS grace
+// after start AND can never be masked by polling activity (recovery is
+// strictly WS-driven). Mint targets (mpl_core/candy_guard/token_metadata) are
+// intentionally NOT included — the mint tracker is unaffected.
+const SALES_WS_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm', 'tcomp', 'tamm']);
+const SALES_WS_DEAD_MS = 5 * 60_000; // 5 minutes
+export function isSalesWsDead(): boolean {
+  const now = Date.now();
+  for (const name of SALES_WS_TARGETS) {
+    const ts = lastRealNotifTs.get(name) ?? 0;
+    // Any sales target with recent real WS traffic ⇒ WS is alive.
+    if (now - ts <= SALES_WS_DEAD_MS) return false;
+  }
+  return true;
+}
+
 let currentPollMode: 'fast' | 'healthy' | null = null;
 function schedulePollTick(): void {
   if (!running) return;  // stopListener() — don't re-arm
