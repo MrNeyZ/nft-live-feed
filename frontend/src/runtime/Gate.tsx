@@ -55,6 +55,25 @@ export function Gate({ children }: { children: ReactNode }) {
 
   useEffect(() => { void resolve(); }, [resolve]);
 
+  // Watchdog — the Gate must NEVER sit on the loading shell forever. `resolve`
+  // normally completes in well under a second (fetchMode itself times out at
+  // 7s). If anything still leaves us in `loading` past this deadline (a hung
+  // request the abort didn't catch, AbortController unavailable, etc.), fail
+  // safe OUT of the loader using only synchronous local state: re-login if not
+  // authed, the Mint Tracker if explicitly chosen, otherwise the mode-select
+  // screen. Only acts while still loading, so the happy path is untouched.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setState(prev => {
+        if (prev.kind !== 'loading') return prev;
+        if (!isAuthed()) return { kind: 'login' };
+        if (getRuntimeChoice() === 'mints') return { kind: 'active', mode: 'mints' };
+        return { kind: 'mode-select' };
+      });
+    }, 9000);
+    return () => clearTimeout(t);
+  }, []);
+
   if (state.kind === 'loading') {
     return <GateShell><div style={{ color: '#55556e', fontSize: 12 }}>…</div></GateShell>;
   }

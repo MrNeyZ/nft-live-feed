@@ -34,14 +34,28 @@ export function setRuntimeChoice(choice: RuntimeChoice | null): void {
   } catch { /* ignore */ }
 }
 
+// Hard timeout so a stalled /api/runtime/mode request (hung keep-alive, a proxy
+// or Cloudflare edge that never responds, a flaky PC connection) can NEVER hang
+// the Gate. Without this, `await fetchMode()` could pend forever and leave the
+// app stuck on the loading shell (black screen + `…`). On timeout/error we
+// return null, which the Gate treats as "mode unknown" → mode-select/login.
+const MODE_FETCH_TIMEOUT_MS = 7000;
+
 export async function fetchMode(): Promise<RuntimeMode | null> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), MODE_FETCH_TIMEOUT_MS) : null;
   try {
-    const res = await fetch(`${API_BASE}/api/runtime/mode`);
+    const res = await fetch(`${API_BASE}/api/runtime/mode`, {
+      signal: ctrl?.signal,
+      cache:  'no-store',   // never serve a stale cached mode response
+    });
     if (!res.ok) return null;
     const body = await res.json() as { mode?: RuntimeMode };
     return body.mode ?? null;
   } catch {
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
