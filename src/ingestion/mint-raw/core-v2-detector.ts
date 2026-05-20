@@ -61,6 +61,27 @@ const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy';
  *  `Program log: Instruction: CreateV2` we already gate on. */
 const CORE_CREATE_V2_DISC = 20;
 
+/** mpl-core `Create` (V1) instruction discriminator. The MPL **Core** Candy
+ *  Machine mints assets via this (logs `Instruction: Create`), not CreateV2. */
+const CORE_CREATE_V1_DISC = 0;
+
+/** Discriminators that create a Core asset — either form. Used by the Core
+ *  Candy Machine detector below (CMv3-core emits the V1 `Create`). */
+const CORE_CREATE_DISCS: ReadonlySet<number> = new Set([CORE_CREATE_V1_DISC, CORE_CREATE_V2_DISC]);
+
+/** MPL **Core** Candy Machine + Candy Guard program ids. These are DISTINCT
+ *  from the legacy Token-Metadata candy machine (`CndyV3…`) and the legacy
+ *  candy guard (`Guard1Jw…`) the targeted detector / `candy_guard` WS target
+ *  already cover. A modern CMv3-core mint chains:
+ *    Core Candy Guard (CMAGAK, MintV1) → Core Candy Machine (CMACYFEN,
+ *    MintAsset) → mpl-core Create — and many launchpads wrap that chain.
+ *  The candy-machine program lands in `accountKeys` at any CPI depth, so its
+ *  presence is the robust trigger for direct / guard / wrapper variants. */
+const CORE_CANDY_MACHINE_PROGRAM = 'CMACYFENjoBMHzapRXyo1JZkVS6EtaDDzkjMrmQLvr4J';
+const CORE_CANDY_GUARD_PROGRAM   = 'CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ';
+void CORE_CANDY_GUARD_PROGRAM; // referenced for documentation; detection keys on the machine
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+
 /** Trusted NFT metadata host fragments. Matched substring-style on
  *  the parsed URI (lowercased). Conservative bonus, not a gate. */
 const TRUSTED_URI_HOST_HINTS: readonly string[] = [
@@ -184,7 +205,11 @@ interface FoundCreateV2 {
   dataB58:  string;
   viaInner: boolean;
 }
-function findCreateV2Ix(tx: RawSolanaTx, accountKeys: string[]): FoundCreateV2 | null {
+function findCreateV2Ix(
+  tx: RawSolanaTx,
+  accountKeys: string[],
+  discSet: ReadonlySet<number> = new Set([CORE_CREATE_V2_DISC]),
+): FoundCreateV2 | null {
   const message = tx.transaction?.message;
   if (!message) return null;
   const isCreateV2 = (programId: string, dataB58: string): boolean => {
@@ -194,7 +219,7 @@ function findCreateV2Ix(tx: RawSolanaTx, accountKeys: string[]): FoundCreateV2 |
     // decode anyway for accuracy — bs58 of a single byte is 2 chars.
     try {
       const buf = Buffer.from(bs58.decode(dataB58));
-      return buf.length >= 1 && buf[0] === CORE_CREATE_V2_DISC;
+      return buf.length >= 1 && discSet.has(buf[0]);
     } catch { return false; }
   };
 
@@ -397,5 +422,65 @@ export function detectCoreCreateV2NftCandidate(tx: RawSolanaTx): CoreV2Detection
     name:              args.name,
     uri:               args.uri,
     pluginsCount:      args.pluginsCount,
+  };
+}
+
+/** MPL **Core** Candy Machine mint detector (CMv3-core).
+ *
+ *  Covers the path the targeted detector + CreateV2 scorer both miss: a Core
+ *  Candy Machine (`CMACYFEN…`) mint whose asset is created by an inner
+ *  mpl-core `Create` (V1, disc 0) — not a direct `CreateV2`. Robust to:
+ *    - direct candy-machine `MintAsset`
+ *    - Core Candy Guard (`CMAGAK…`, `MintV1`) wrapping it
+ *    - launchpad programs that invoke the candy machine internally
+ *  …because the candy-machine program id lands in `accountKeys` at any CPI
+ *  depth, and the asset-create ix is found across top + inner instructions.
+ *
+ *  Conservative: requires the Core Candy Machine program present, a freshly
+ *  created asset (lamports 0 → >0), and a real collection (≠ asset / program /
+ *  system). No URI/name gate — candy machines are NFT drops by construction,
+ *  the V1 `Create` carries no inline metadata (DAS confirms name/image later),
+ *  and the DeFi/Token-2022 rejects below guard against the rare pool case.
+ *
+ *  Returns null when the Core Candy Machine isn't involved (caller no-ops). */
+export function detectCoreCandyMachineMint(tx: RawSolanaTx): CoreV2Detection | null {
+  const shape = readShape(tx);
+  if (!shape) return null;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(CORE_CANDY_MACHINE_PROGRAM)) return null;
+
+  const rej = (rejectReason: string, mint: string | null = null, collection: string | null = null): CoreV2Detection => ({
+    accept: false, score: 0, reasons: ['core_candy_machine'], rejectReason,
+    mintAddress: mint, collectionAddress: collection, minter: shape.signerKeys[0] ?? null,
+    name: null, uri: null, pluginsCount: null,
+  });
+
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return rej('defi_program_present');
+  }
+  if (shape.accountKeys.includes(TOKEN_2022_PROGRAM)) return rej('token_2022_present');
+
+  // The asset is minted by an mpl-core Create (V1) or CreateV2 inner ix.
+  const found = findCreateV2Ix(tx, shape.accountKeys, CORE_CREATE_DISCS);
+  if (!found) return null; // candy machine present but no asset-create ix we model
+
+  const accIxs = found.accounts;
+  const asset      = accIxs.length > 0 && accIxs[0] >= 0 ? shape.accountKeys[accIxs[0]] ?? null : null;
+  const collection = accIxs.length > 1 && accIxs[1] >= 0 ? shape.accountKeys[accIxs[1]] ?? null : null;
+  const minter     = shape.signerKeys[0] ?? null;
+  if (!asset) return rej('no_asset_account', null, collection);
+
+  const hasRealCollection = !!collection
+    && collection !== MPL_CORE_PROGRAM
+    && collection !== asset
+    && collection !== SYSTEM_PROGRAM;
+  if (!hasRealCollection) return rej('no_collection', asset, collection);
+  if (!isFresh(shape, asset)) return rej('asset_not_fresh', asset, collection);
+
+  return {
+    accept: true, score: 2, reasons: ['core_candy_machine', 'collection_present'],
+    rejectReason: null,
+    mintAddress: asset, collectionAddress: collection, minter,
+    name: null, uri: null, pluginsCount: null,
   };
 }

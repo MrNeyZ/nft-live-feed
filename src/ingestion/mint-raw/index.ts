@@ -46,7 +46,7 @@ import {
   CANDY_GUARD_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
-import { detectCoreCreateV2NftCandidate } from './core-v2-detector';
+import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -624,6 +624,43 @@ export async function ingestMintRaw(
       );
     }
     if (!lp) {
+      // MPL Core Candy Machine (CMv3-core) — always on. Covers Core Candy
+      // Guard + launchpad wrappers that the targeted detector and the
+      // CreateV2 scorer both miss (asset minted via inner mpl-core `Create`,
+      // not a direct CreateV2). Reaches us via the existing mpl_core WS/poll
+      // (the tx mentions the Core program), so no new subscription/poll.
+      const cm = detectCoreCandyMachineMint(tx);
+      if (cm && cm.accept && cm.mintAddress && cm.collectionAddress) {
+        logV2CoreAccept(sig, cm.score, cm.reasons, cm.mintAddress, cm.collectionAddress);
+        const priceLamports = extractSignerLamportsPaid(tx);
+        const mintType      = classifyMintType(priceLamports);
+        const groupingKey   = `collection:${cm.collectionAddress}`;
+        const blockTime = tx.blockTime
+          ? new Date((tx.blockTime as number) * 1000).toISOString()
+          : new Date().toISOString();
+        recordMint({
+          signature:         sig,
+          blockTime,
+          programSource:     'mpl_core',
+          mintAddress:       cm.mintAddress,
+          collectionAddress: cm.collectionAddress,
+          groupingKey,
+          groupingKind:      'collection',
+          mintType,
+          priceLamports,
+          minter:            cm.minter,
+          // Reuse the existing `Metaplex Core` label → frontend renders CORE.
+          sourceLabel:       'Metaplex Core',
+        });
+        enqueueMintEnrichment(groupingKey, cm.mintAddress);
+        scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
+        return;
+      }
+      if (cm && !cm.accept && cm.rejectReason && cm.rejectReason !== 'no_collection') {
+        // Surface only the informative rejects (skip the common pre-reveal
+        // no_collection noise) so the path stays observable without flooding.
+        logV2CoreReject(sig, cm.score, cm.rejectReason, cm.reasons);
+      }
       // Feature-flagged Direct MPL Core CreateV2 fallback. OFF by
       // default (MINT_TRACKER_CORE_V2_SCORER unset). When ON, we run
       // the conservative new scorer on the same tx the targeted
