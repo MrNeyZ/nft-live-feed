@@ -632,8 +632,9 @@ function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string }
 
 import { colorForCollection, isSolPubkey } from './lib/palette';
 
-type FeedTypeKey   = 'all' | 'cnft' | 'core' | 'candy';
-type FeedSourceKey = 'all' | 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY';
+// Specific multi-select filter keys (no 'all'). An empty Set means "Any".
+type FeedTypeKey   = 'cnft' | 'core' | 'candy';
+type FeedSourceKey = 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY';
 
 /** Two-axis filter control for the LIVE MINT FEED panel. Renders as a
  *  compact pill-button; click opens a small terminal-violet popover
@@ -656,13 +657,14 @@ const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
 });
 
 function FeedFiltersPopover({
-  feedType, feedSource, setFeedType, setFeedSource, activeCount,
+  selectedTypes, selectedSources, toggleType, toggleSource, activeCount,
 }: {
-  feedType:      FeedTypeKey;
-  feedSource:    FeedSourceKey;
-  setFeedType:   (v: FeedTypeKey)   => void;
-  setFeedSource: (v: FeedSourceKey) => void;
-  activeCount:   number;
+  selectedTypes:   ReadonlySet<FeedTypeKey>;
+  selectedSources: ReadonlySet<FeedSourceKey>;
+  // null clears the group ("Any"); a specific key toggles it on/off.
+  toggleType:      (k: FeedTypeKey   | null) => void;
+  toggleSource:    (k: FeedSourceKey | null) => void;
+  activeCount:     number;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -723,23 +725,22 @@ function FeedFiltersPopover({
           <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
             <span className="feed-srow-lbl">Type</span>
             <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-              <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" style={feedType === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" style={feedType === 'cnft'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" style={feedType === 'core'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              {/* "NFT" maps to the existing `feedType==='candy'` state
-                  (Candy Machine / Candy Guard). UI-only label; state key,
-                  localStorage value, and filter predicate unchanged. */}
-              <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="NFT"   size="sm" style={feedType === 'candy' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedTypes.size === 0} onClick={() => toggleType(null)}   label="Any"  size="sm" style={selectedTypes.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedTypes.has('cnft')} onClick={() => toggleType('cnft')} label="cNFT" size="sm" style={selectedTypes.has('cnft') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedTypes.has('core')} onClick={() => toggleType('core')} label="CORE" size="sm" style={selectedTypes.has('core') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              {/* "NFT" maps to the 'candy' key (Candy Machine / Candy Guard).
+                  UI-only label; key, persistence, and predicate unchanged. */}
+              <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT" size="sm" style={selectedTypes.has('candy') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
             </div>
           </div>
           <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
             <span className="feed-srow-lbl">Source</span>
             <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-              <Pill active={feedSource === 'all'}   onClick={() => setFeedSource('all')}   label="Any"   size="sm" style={feedSource === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedSource === 'LMNFT'} onClick={() => setFeedSource('LMNFT')} label="LMNFT" size="sm" style={feedSource === 'LMNFT' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedSource === 'VVV'}   onClick={() => setFeedSource('VVV')}   label="VVV"   size="sm" style={feedSource === 'VVV'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedSource === 'GRAVE'} onClick={() => setFeedSource('GRAVE')} label="GRAVE" size="sm" style={feedSource === 'GRAVE' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={feedSource === 'CANDY'} onClick={() => setFeedSource('CANDY')} label="CANDY" size="sm" style={feedSource === 'CANDY' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}    label="Any"   size="sm" style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedSources.has('LMNFT')} onClick={() => toggleSource('LMNFT')} label="LMNFT" size="sm" style={selectedSources.has('LMNFT') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedSources.has('VVV')}   onClick={() => toggleSource('VVV')}   label="VVV"   size="sm" style={selectedSources.has('VVV')   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedSources.has('GRAVE')} onClick={() => toggleSource('GRAVE')} label="GRAVE" size="sm" style={selectedSources.has('GRAVE') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={selectedSources.has('CANDY')} onClick={() => toggleSource('CANDY')} label="CANDY" size="sm" style={selectedSources.has('CANDY') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
             </div>
           </div>
         </div>
@@ -875,28 +876,50 @@ export default function MintsPage() {
   // Both default to 'all' (no filter). Persisted in localStorage so the
   // preference survives reloads. Affects ONLY the right-pane events
   // memo; left-table memo never reads these.
-  const FEED_TYPE_KEYS:   ReadonlyArray<FeedTypeKey>   = ['all', 'cnft', 'core', 'candy'];
-  const FEED_SOURCE_KEYS: ReadonlyArray<FeedSourceKey> = ['all', 'LMNFT', 'VVV', 'GRAVE', 'CANDY'];
-  const [feedType, setFeedType] = useState<FeedTypeKey>(() => {
-    if (typeof window === 'undefined') return 'all';
+  // Multi-select TYPE / SOURCE filters as Sets of specific keys. An EMPTY set
+  // means "Any" (no filtering for that group). Persisted as CSV; back-compat
+  // with the old single-value keys ('all' / 'core' / 'LMNFT' / …).
+  const FEED_TYPE_KEYS:   ReadonlyArray<FeedTypeKey>   = ['cnft', 'core', 'candy'];
+  const FEED_SOURCE_KEYS: ReadonlyArray<FeedSourceKey> = ['LMNFT', 'VVV', 'GRAVE', 'CANDY'];
+  function loadFeedSet<K extends string>(lsKey: string, valid: ReadonlyArray<K>): Set<K> {
+    const out = new Set<K>();
+    if (typeof window === 'undefined') return out;
     try {
-      const v = window.localStorage.getItem('vl.mints.feed.type');
-      return FEED_TYPE_KEYS.includes(v as FeedTypeKey) ? (v as FeedTypeKey) : 'all';
-    } catch { return 'all'; }
-  });
-  const [feedSource, setFeedSource] = useState<FeedSourceKey>(() => {
-    if (typeof window === 'undefined') return 'all';
-    try {
-      const v = window.localStorage.getItem('vl.mints.feed.source');
-      return FEED_SOURCE_KEYS.includes(v as FeedSourceKey) ? (v as FeedSourceKey) : 'all';
-    } catch { return 'all'; }
-  });
+      const raw = window.localStorage.getItem(lsKey) ?? '';
+      for (const part of raw.split(',')) {
+        const v = part.trim();
+        if (v && v !== 'all' && (valid as readonly string[]).includes(v)) out.add(v as K);
+      }
+    } catch { /* ignore */ }
+    return out;
+  }
+  const [selectedTypes, setSelectedTypes] = useState<Set<FeedTypeKey>>(
+    () => loadFeedSet('vl.mints.feed.type', FEED_TYPE_KEYS),
+  );
+  const [selectedSources, setSelectedSources] = useState<Set<FeedSourceKey>>(
+    () => loadFeedSet('vl.mints.feed.source', FEED_SOURCE_KEYS),
+  );
   useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.feed.type', feedType); } catch { /* quota */ }
-  }, [feedType]);
+    try { window.localStorage.setItem('vl.mints.feed.type', [...selectedTypes].join(',')); } catch { /* quota */ }
+  }, [selectedTypes]);
   useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.feed.source', feedSource); } catch { /* quota */ }
-  }, [feedSource]);
+    try { window.localStorage.setItem('vl.mints.feed.source', [...selectedSources].join(',')); } catch { /* quota */ }
+  }, [selectedSources]);
+  // Toggle a specific key; passing null = "Any" clears the whole group. ANY
+  // and specific keys are mutually exclusive (ANY = empty set), and disabling
+  // the last specific key leaves the set empty → ANY automatically.
+  const toggleType = (k: FeedTypeKey | null) => setSelectedTypes(prev => {
+    if (k === null) return new Set();
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
+  const toggleSource = (k: FeedSourceKey | null) => setSelectedSources(prev => {
+    if (k === null) return new Set();
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
 
   // Source filter — narrows the LEFT tracker table to a single launchpad.
   // 'all' = no filter. Persisted in localStorage. Filter keys map to
@@ -950,29 +973,31 @@ export default function MintsPage() {
   // every generic Metaplex mint).
   const visibleEvents = useMemo(() => {
     return events.filter(ev => {
-      // Type axis
-      if (feedType !== 'all') {
-        if (feedType === 'cnft'  && ev.programSource !== 'bubblegum')        return false;
-        if (feedType === 'core'  && ev.programSource !== 'mpl_core')         return false;
-        if (feedType === 'candy' && ev.sourceLabel   !== 'Metaplex Candy Machine') return false;
+      // Type axis — OR within the group. Empty set = Any (no filter).
+      if (selectedTypes.size > 0) {
+        const ok =
+          (selectedTypes.has('cnft')  && ev.programSource === 'bubblegum') ||
+          (selectedTypes.has('core')  && ev.programSource === 'mpl_core')  ||
+          (selectedTypes.has('candy') && ev.sourceLabel   === 'Metaplex Candy Machine');
+        if (!ok) return false;
       }
-      // Source axis
-      if (feedSource !== 'all') {
-        if (feedSource === 'LMNFT' && ev.sourceLabel !== 'LaunchMyNFT')             return false;
-        if (feedSource === 'VVV'   && ev.sourceLabel !== 'VVV')                      return false;
-        if (feedSource === 'GRAVE' && ev.sourceLabel !== 'GRAVE')                    return false;
-        if (feedSource === 'CANDY' && ev.sourceLabel !== 'Metaplex Candy Machine')   return false;
+      // Source axis — OR within the group; ANDs with the type axis above.
+      if (selectedSources.size > 0) {
+        const ok =
+          (selectedSources.has('LMNFT') && ev.sourceLabel === 'LaunchMyNFT')          ||
+          (selectedSources.has('VVV')   && ev.sourceLabel === 'VVV')                  ||
+          (selectedSources.has('GRAVE') && ev.sourceLabel === 'GRAVE')                ||
+          (selectedSources.has('CANDY') && ev.sourceLabel === 'Metaplex Candy Machine');
+        if (!ok) return false;
       }
       return true;
     });
-  }, [events, feedType, feedSource]);
+  }, [events, selectedTypes, selectedSources]);
 
-  // Count of non-default filter axes — drives the "Filters · N" badge
-  // on the popover button so the active state is visible without opening
-  // the popover. 0 hides the badge; 1 or 2 surfaces it.
-  const activeFeedFilterCount =
-    (feedType   !== 'all' ? 1 : 0) +
-    (feedSource !== 'all' ? 1 : 0);
+  // Total number of active specific filters across both groups — drives the
+  // "Settings · N" badge so the active state shows without opening the popup.
+  // 0 (both groups = Any) hides the badge.
+  const activeFeedFilterCount = selectedTypes.size + selectedSources.size;
 
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
@@ -1964,10 +1989,10 @@ export default function MintsPage() {
                   on the button as "Filters · N" so the user sees the
                   filtered state without opening the popover. */}
               <FeedFiltersPopover
-                feedType={feedType}
-                feedSource={feedSource}
-                setFeedType={setFeedType}
-                setFeedSource={setFeedSource}
+                selectedTypes={selectedTypes}
+                selectedSources={selectedSources}
+                toggleType={toggleType}
+                toggleSource={toggleSource}
                 activeCount={activeFeedFilterCount}
               />
             </div>
