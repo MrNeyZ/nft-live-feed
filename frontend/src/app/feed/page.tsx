@@ -886,6 +886,19 @@ export default function FeedPage() {
   const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
+  // Temporary, frontend-only collection blacklist (independent of WATCH).
+  // Normalized lowercased slugs/names; resets with component state (same
+  // lifecycle as WATCH — never persisted, never sent to the backend).
+  const [blacklistSlugs, setBlacklistSlugs] = useState<string[]>([]);
+  const [blInput, setBlInput] = useState('');
+  const addBlacklist = (raw: string) => {
+    const v = raw.trim().toLowerCase();
+    if (!v) return;
+    setBlacklistSlugs((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    setBlInput('');
+  };
+  const removeBlacklist = (slug: string) =>
+    setBlacklistSlugs((prev) => prev.filter((s) => s !== slug));
   const [paused, setPaused] = useState(false);
   // Per-source data health (defaults to 'ok' before the backend's first
   // `status` frame lands so a brand-new mount doesn't show a false alert).
@@ -1384,6 +1397,16 @@ export default function FeedPage() {
     // Lowercase comparison matches NAME_BLACKLIST in src/db/blacklist.ts.
     if (e.collectionName && FEED_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) return false;
     if (e.meCollectionSlug && FEED_SLUG_BLACKLIST.has(e.meCollectionSlug)) return false;
+    // User blacklist (temporary, frontend-only). Same slug field WATCH uses,
+    // plus collectionName so a slug-less event can still be matched by its
+    // exact collection identifier. Exact (lowercased) match — never a
+    // substring — so a typed slug can't accidentally hide unrelated rows.
+    if (blacklistSlugs.length > 0) {
+      const slug = e.meCollectionSlug?.toLowerCase() ?? '';
+      const name = e.collectionName?.toLowerCase() ?? '';
+      if ((slug && blacklistSlugs.includes(slug)) ||
+          (name && blacklistSlugs.includes(name))) return false;
+    }
     // Substring fallback — covers slug-only matches the exact-set above
     // misses (e.g. `paulcharlesart_drip` slug, "Paul Charles Art" name).
     {
@@ -1417,7 +1440,7 @@ export default function FeedPage() {
     if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
     if (filter === 'listing') return false; // backend does not emit listings in v1
     return true;
-  }), [events, filter, priceFilter, collFilter, floorBySlug]);
+  }), [events, filter, priceFilter, collFilter, blacklistSlugs, floorBySlug]);
 
   // Per seller+collection sell-side aggregator over the visible feed.
   // Drives the noise-cut on the seller-remaining badge: only the most
@@ -1758,6 +1781,67 @@ export default function FeedPage() {
                           >✕</button>
                         </span>
                       )}
+                    </div>
+                  </div>
+                  {/* BLACKLIST row — temporary, frontend-only collection
+                      exclude. Mirrors the WATCH row's input / "+" / chip
+                      styling (pink accent to read as "exclude" vs WATCH's
+                      purple "narrow"). Independent of WATCH: WATCH narrows,
+                      BLACKLIST always excludes. Multi-slug with removable
+                      chips; never persisted, never sent to the backend. */}
+                  <div className="feed-filter-row">
+                    <span className="feed-filter-label">Blacklist</span>
+                    <div className="feed-filter-pills">
+                      <input
+                        className="feed-coll-input"
+                        value={blInput}
+                        onChange={(e) => setBlInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
+                        placeholder="collection slug…"
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                      <Pill
+                        active
+                        color="#e58aa3"
+                        onClick={() => addBlacklist(blInput)}
+                        label="+"
+                        title="Add to blacklist (Enter)"
+                        size="sm"
+                        style={{
+                          padding: '2px 9px', fontWeight: 700,
+                          background: 'rgba(229, 138, 163, 0.20)',
+                          border: '1px solid rgba(229, 138, 163, 0.50)',
+                          boxShadow: '0 0 0 1px rgba(229, 138, 163, 0.18), 0 0 6px rgba(229, 138, 163, 0.14)',
+                        }}
+                      />
+                      {blacklistSlugs.map((slug) => (
+                        <span key={slug} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
+                          borderRadius: 4, letterSpacing: '0.2px',
+                          border: '1px solid #e58aa366',
+                          background: '#e58aa322',
+                          color: '#e58aa3',
+                          fontFamily: "'SF Mono','Fira Code',monospace",
+                          maxWidth: 240, overflow: 'hidden',
+                        }}>
+                          <span style={{
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }}>{slug}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeBlacklist(slug)}
+                            title="Remove from blacklist"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 14, height: 14, padding: 0, borderRadius: 3,
+                              border: 'none', background: 'transparent',
+                              color: '#e58aa3', cursor: 'pointer', fontSize: 11, lineHeight: 1,
+                            }}
+                          >✕</button>
+                        </span>
+                      ))}
                     </div>
                   </div>
                 </div>
