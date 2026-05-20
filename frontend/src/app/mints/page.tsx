@@ -1712,34 +1712,66 @@ export default function MintsPage() {
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden',
       }}>
-        {/* Card header — title band: collection count + live indicator.
-            ACTIVE/RECENT + Timeframe + the filters now live in the embedded
-            filter section below (not in this header). */}
+        {/* Header line — dense operator strip: ACTIVE/RECENT tabs + collection
+            count + live dot (left), Timeframe segmented control (right). No
+            "VIEW" label; tabs/count/timeframe integrated on one line so the
+            filter section below stays short and the table starts high. */}
         <div style={{
-          padding: '7px 12px', borderBottom: '1px solid rgba(168,144,232,0.12)', flexShrink: 0,
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(168,144,232,0.04)',
+          padding: '6px 12px', borderBottom: '1px solid rgba(168,144,232,0.12)', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'rgba(168,144,232,0.04)', flexWrap: 'wrap', gap: '6px 8px',
         }}>
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
-            {sorted.length.toLocaleString()} <span style={{ color: '#3a3a52', fontWeight: 500 }}>collections</span>
-          </span>
-          <LiveDot />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {(['active', 'recent'] as const).map(t => (
+              <Pill
+                key={t}
+                active={mintTab === t}
+                onClick={() => setMintTab(t)}
+                label={t}
+                style={{ padding: '3px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+                         textTransform: 'uppercase',
+                         border: mintTab === t ? '1px solid rgba(168,144,232,0.44)' : '1px solid transparent',
+                         background: mintTab === t ? 'rgba(168,144,232,0.20)' : 'transparent',
+                         color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
+              />
+            ))}
+            <span style={{ width: 1, height: 13, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
+              {sorted.length.toLocaleString()} <span style={{ color: '#3a3a52' }}>collections</span>
+            </span>
+            <span style={{ marginLeft: 6 }}><LiveDot /></span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, color: '#3a3a52', letterSpacing: '0.4px' }}>Timeframe</span>
+            {/* Old dense segmented styling (tight pills in a dark shell). */}
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+              {MINT_TIMEFRAMES.map(t => (
+                <Pill
+                  key={t}
+                  active={mintTf === t}
+                  onClick={() => setMintTf(t)}
+                  label={t}
+                  size="sm"
+                  title={MINT_TF_DESC[t]}
+                  style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
+                           background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Embedded filter section — a real settings block between the card
-            header and the table header. Same aligned row-grid system as the
-            Live Events settings (.feed-srow / .feed-srow-lbl / .feed-seg):
-            three compact rows, Source / Status on their OWN rows, View hosts
-            the ACTIVE/RECENT tabs + the Timeframe segmented control (which
-            also drives the RATE math). State + persistence unchanged. */}
+        {/* Embedded filter section — compact Source / Status rows on the same
+            aligned grid as the Live Events settings (.feed-srow). Tight
+            padding + small row gap keep it a low-profile operator panel, not a
+            settings form. State + persistence unchanged. */}
         <div style={{
-          padding: '12px 16px',
+          padding: '6px 12px 7px',
           background: 'rgba(168,144,232,0.04)',
           borderBottom: '1px solid rgba(168,144,232,0.08)',
           flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 6,
+          display: 'flex', flexDirection: 'column', gap: 3,
         }}>
-          {/* SOURCE */}
           <div className="feed-srow">
             <span className="feed-srow-lbl">Source</span>
             <div className="feed-srow-ctl feed-seg">
@@ -1750,7 +1782,6 @@ export default function MintsPage() {
               ))}
             </div>
           </div>
-          {/* STATUS */}
           <div className="feed-srow">
             <span className="feed-srow-lbl">Status</span>
             <div className="feed-srow-ctl feed-seg">
@@ -1759,43 +1790,6 @@ export default function MintsPage() {
                   label={lbl} size="sm"
                   style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               ))}
-            </div>
-          </div>
-          {/* VIEW — Active/Recent tabs + Timeframe (old segmented styling). */}
-          <div className="feed-srow" role="group" aria-label="View and timeframe">
-            <span className="feed-srow-lbl">View</span>
-            <div className="feed-srow-ctl" style={{ gap: 10 }}>
-              <div className="feed-seg" style={{ display: 'flex', gap: 3 }}>
-                {(['active', 'recent'] as const).map(t => (
-                  <Pill
-                    key={t}
-                    active={mintTab === t}
-                    onClick={() => setMintTab(t)}
-                    label={t}
-                    style={{ padding: '3px 13px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
-                             textTransform: 'uppercase',
-                             border: mintTab === t ? '1px solid rgba(168,144,232,0.44)' : '1px solid transparent',
-                             background: mintTab === t ? 'rgba(168,144,232,0.20)' : 'transparent',
-                             color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
-                  />
-                ))}
-              </div>
-              <span style={{ width: 1, height: 14, background: 'rgba(168,144,232,0.16)', margin: '0 4px' }} />
-              <span style={{ fontSize: 10, color: '#3a3a52', letterSpacing: '0.4px', textTransform: 'uppercase' }}>Timeframe</span>
-              <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
-                {MINT_TIMEFRAMES.map(t => (
-                  <Pill
-                    key={t}
-                    active={mintTf === t}
-                    onClick={() => setMintTf(t)}
-                    label={t}
-                    size="sm"
-                    title={MINT_TF_DESC[t]}
-                    style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
-                             background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
-                  />
-                ))}
-              </div>
             </div>
           </div>
         </div>
