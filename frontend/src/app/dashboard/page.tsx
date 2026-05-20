@@ -13,7 +13,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay } from '@/soloist/shared';
+import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { isCnftDust } from '@/soloist/cnft-filter';
 
@@ -353,7 +353,12 @@ function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null
 
 function FilterPill({ label }: { label: string }) {
   const [active, setActive] = useState(false);
-  return <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm" />;
+  // Canonical settings-pill styling (shared with Live Feed / Mint Tracker).
+  // Behavior unchanged — still a self-contained cosmetic toggle.
+  return (
+    <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm"
+      style={active ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+  );
 }
 
 // ── Timeframe pills ──────────────────────────────────────────────────────────
@@ -1092,50 +1097,67 @@ export default function Dashboard() {
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Pill
+            {/* Canonical shared Settings toggle — same control as Live Feed and
+                Mint Tracker. Toggles the embedded filter panel inline. The
+                "Timeframe:" text label is dropped to match the other pages
+                (the segmented control is self-evident). */}
+            <SettingsToggle
               active={filtersOpen}
               onClick={() => setFiltersOpen(o => !o)}
-              title="Filters"
-              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-              label="Filters"
-              size="sm"
+              title="Settings — show/hide collection filters"
             />
-            <span style={{ fontSize: 10, color: '#3a3a52' }}>Timeframe:</span>
             <TimeframePills active={tf} onChange={handleTfChange} />
           </div>
         </div>
 
-        {/* Collapsible filters */}
+        {/* Collapsible filters — canonical VictoryLabs settings surface
+            (.feed-filters-panel) with two semantic groups (Market | Volume) on
+            the shared two-column grid + divider. Same control language as Live
+            Feed / Mint Tracker. State + (cosmetic) behavior unchanged. */}
         {filtersOpen && (
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: 'rgba(255,255,255,0.015)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Marketplace:</span>
-              {([
-                { k: 'all',    l: 'All',        c: '#a890e8' },
-                { k: 'me',     l: 'Magic Eden', c: '#e87ab0' },
-                { k: 'tensor', l: 'Tensor',     c: '#a890e8' },
-              ] as const).map(f => (
-                <Pill
-                  key={f.k}
-                  active={mkt === f.k}
-                  color={f.c}
-                  onClick={() => setMkt(f.k)}
-                  label={f.l}
-                  size="sm"
-                />
-              ))}
-              <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
-              <span style={{ fontSize: 10, color: '#56566e', marginRight: 2 }}>Min volume:</span>
-              <FilterPill label="any" />
-              <FilterPill label="100 SOL" />
-              <FilterPill label="1K SOL" />
-              <FilterPill label="10K SOL" />
-              <div style={{ flex: 1 }} />
-              <button style={{
-                padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-                border: '1px solid rgba(92,224,160,0.4)', background: 'rgba(92,224,160,0.12)',
-                color: '#5ce0a0', cursor: 'pointer',
-              }}>+ Watchlist</button>
+          <div className="feed-filters-panel feed-filters-panel-open"
+            style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
+            <div className="feed-settings">
+              <div className="feed-set-group feed-set-group--content">
+                <div className="feed-set-group-hd">Market</div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Source</span>
+                  <div className="feed-srow-ctl feed-seg">
+                    {([
+                      { k: 'all',    l: 'All',        c: '#a890e8' },
+                      { k: 'me',     l: 'Magic Eden', c: '#e87ab0' },
+                      { k: 'tensor', l: 'Tensor',     c: '#a890e8' },
+                    ] as const).map(f => (
+                      <Pill
+                        key={f.k}
+                        active={mkt === f.k}
+                        color={f.c}
+                        onClick={() => setMkt(f.k)}
+                        label={f.l}
+                        size="sm"
+                        style={mkt === f.k ? settingsPillActive(f.c) : SETTINGS_PILL_INACTIVE}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="feed-set-group feed-set-group--display">
+                <div className="feed-set-group-hd">Volume</div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Min</span>
+                  <div className="feed-srow-ctl feed-seg">
+                    <FilterPill label="any" />
+                    <FilterPill label="100 SOL" />
+                    <FilterPill label="1K SOL" />
+                    <FilterPill label="10K SOL" />
+                    <button style={{
+                      padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+                      border: '1px solid rgba(92,224,160,0.4)', background: 'rgba(92,224,160,0.12)',
+                      color: '#5ce0a0', cursor: 'pointer', marginLeft: 4,
+                    }}>+ Watchlist</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
