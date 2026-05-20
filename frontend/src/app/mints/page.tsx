@@ -687,33 +687,29 @@ function FeedFiltersPopover({
   const label = activeCount > 0 ? `Settings · ${activeCount}` : 'Settings';
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
-      <button
-        type="button"
+      {/* Same Pill as the Mint Tracker "Settings" toggle — mixed-case label,
+          gear icon, identical sizing/typography (no more all-caps custom
+          button). Active when the popover is open or a filter is set. */}
+      <Pill
+        active={open || activeCount > 0}
         onClick={() => setOpen(v => !v)}
         title="Settings — filter the Live Mint Feed by type and launchpad source"
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
-          background: activeCount > 0 ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.04)',
-          color:      activeCount > 0 ? '#a890e8' : '#8f8fa8',
-          border:     activeCount > 0 ? '1px solid rgba(168,144,232,0.42)' : '1px solid rgba(255,255,255,0.08)',
-          letterSpacing: '0.4px', cursor: 'pointer', userSelect: 'none',
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </button>
+        icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+        label={label}
+        size="sm"
+      />
       {open && (
         <div
           style={{
             position: 'absolute', top: 'calc(100% + 4px)', right: 0,
             // Flat, embedded terminal control surface — not a floating modal.
-            // Minimal shadow + faint hairline so it reads as inline controls
-            // dropping down, not a card hovering over the page.
-            background: 'rgba(18,14,34,0.98)',
-            border: '1px solid rgba(168,144,232,0.12)',
+            // Lighter violet tone (matches the Mint Tracker card / settings
+            // panel rather than near-black) with a soft hairline + minimal
+            // shadow so it reads as inline controls dropping down.
+            background: 'rgba(42,35,70,0.98)',
+            border: '1px solid rgba(168,144,232,0.16)',
             borderRadius: 5,
-            boxShadow: '0 4px 14px rgba(0,0,0,0.38)',
+            boxShadow: '0 4px 14px rgba(0,0,0,0.30)',
             padding: '6px 10px', minWidth: 270, zIndex: 30,
             // Keep within the right-pane width on narrow viewports —
             // when the panel itself is < 280 px, cap the popover so it
@@ -1805,14 +1801,16 @@ export default function MintsPage() {
             flexShrink: 0, background: 'rgba(255,255,255,0.015)',
             display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 4px',
           }}>
-            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 6 }}>Source</span>
+            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 8 }}>Source</span>
             {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
               <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
                 label={s === 'all' ? 'Any' : s} size="sm"
                 style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
             ))}
-            <span style={{ width: 1, height: 13, background: 'rgba(255,255,255,0.07)', margin: '0 10px' }} />
-            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 6 }}>Status</span>
+            {/* Group separator — breathing room between Source and Status
+                without going back to two full rows. */}
+            <span style={{ width: 1, height: 13, background: 'rgba(168,144,232,0.16)', margin: '0 18px' }} />
+            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 8 }}>Status</span>
             {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
               <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
                 label={lbl} size="sm"
