@@ -823,6 +823,26 @@ a { color: inherit; text-decoration: none; }
 .feed-filters-panel-open  { animation: feedFiltersIn  200ms ease-out; }
 .feed-filters-panel-close { animation: feedFiltersOut 180ms ease-in forwards; }
 
+/* Settings panel layout — two balanced columns on desktop/tablet so the
+   controls use the full width instead of stacking left with a big empty
+   void on the right. LEFT = Type/Density/Watch, RIGHT = Price/Hover/Blacklist.
+   Collapses to a single column on narrow widths. */
+.feed-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 28px;
+  align-items: start;
+}
+.feed-settings-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;   /* let inputs/pills shrink inside the column instead of overflowing */
+}
+@media (max-width: 720px) {
+  .feed-settings-grid { grid-template-columns: 1fr; gap: 4px; }
+}
+
 /* Priority row — Density. The visual emphasis lives on the pills
    themselves (larger sizing, stronger active glow — see
    DENSITY_PILL_* style constants in feed/page.tsx), so the row
@@ -863,6 +883,10 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+  /* Take the rest of the row after the fixed label so controls span the
+     column width (the slug inputs grow to fill) instead of clustering left. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* Collection-slug input — inset terminal field with a subtle focus
@@ -878,7 +902,10 @@ a { color: inherit; text-decoration: none; }
   background: rgba(0, 0, 0, 0.32);
   color: #e8e6f2;
   outline: none;
-  min-width: 200px;
+  /* Grow to fill the column (was a fixed 200px min that overflowed a
+     half-width settings column); shrinks cleanly on narrow widths. */
+  flex: 1 1 120px;
+  min-width: 0;
   font-family: 'SF Mono', 'Fira Code', monospace;
   letter-spacing: 0.2px;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.30);
