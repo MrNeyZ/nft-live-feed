@@ -1479,6 +1479,18 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   }
 }
 
+/* Pressed-glass active capsule — a very subtle top sheen layered over the
+   indicator's gradient. No glow/border; just a faint light fade at the top
+   edge so the active tab reads as elevated glass. */
+.topnav-active-indicator::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 45%);
+  pointer-events: none;
+}
+
 /* TopNav sliding indicator — disable transitions when the user has
    asked the OS to reduce motion. The indicator still snaps to the
    active tab; only the slide animation is suppressed. */

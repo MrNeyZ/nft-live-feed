@@ -952,12 +952,18 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // weaker lift/glow) so it reads closer to the layout-switcher
               // capsule's language: a "selected terminal tab", not a clickable
               // neon button. Wash / radius / size / animations unchanged.
-              borderRadius: 6,
-              // Subtle filled active state — neutral white wash, no outline, no
-              // glow (purple identity now lives in the chrome haze + runtime
-              // module, not on every nav tab). The slide animation is kept.
-              background: 'rgba(255,255,255,0.07)',
-              boxShadow: 'none',
+              borderRadius: 7,
+              // "Pressed glass" active capsule — a soft top→bottom white wash
+              // with an inset top highlight + inset bottom shadow for depth,
+              // and a tiny upward lift. No border, no outer glow. The ::before
+              // sheen (globals.css) adds a very subtle top gradient. Reads as a
+              // selected, slightly elevated terminal tab. Slide animation kept.
+              background:
+                'linear-gradient(180deg, rgba(255,255,255,0.065) 0%, rgba(255,255,255,0.035) 100%)',
+              boxShadow:
+                'inset 0 1px 0 rgba(255,255,255,0.06), ' +
+                'inset 0 -1px 0 rgba(0,0,0,0.18)',
+              transform: 'translateY(-1px)',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
                 'width 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -978,20 +984,20 @@ export function TopNav({ active }: { active?: Page } = {}) {
             // TOOLS <button> trigger so both render pixel-identically.
             const tabStyle: React.CSSProperties = {
               position: 'relative', zIndex: 1,
-              padding: '4px 16px', fontSize: 12, fontWeight: 600,
-              // Inactive links must read clearly on the dark chrome (not look
-              // "disabled") — #aaaabf, well above the old too-dark #4f4f66.
-              // Active + hover go full white; state difference is carried by the
-              // background (sliding capsule for active, subtle tint on hover),
-              // not by weight. All tabs share fontWeight 600.
+              padding: '4px 16px', fontSize: 12,
+              // Active label: pure white, slightly heavier (700), lifted 1px to
+              // match the pressed-glass capsule behind it. Inactive: #aaaabf,
+              // 600 weight — clearly readable, not "disabled". Hover: white.
+              fontWeight: isActive ? 700 : 600,
               color: isActive ? '#ffffff' : (isHover ? '#ffffff' : '#aaaabf'),
-              letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
+              transform: isActive ? 'translateY(-1px)' : 'none',
+              letterSpacing: '0.5px', borderRadius: 7, textDecoration: 'none',
               // Background + box-shadow removed — handled by the
               // sliding indicator behind the labels (except for the
               // hover-highlight, which paints its own subtle tint when
               // the tab isn't already active).
-              background: isHover ? 'rgba(255,255,255,0.04)' : 'transparent',
-              transition: 'color 160ms ease-out, background 160ms ease-out',
+              background: isHover ? 'rgba(255,255,255,0.035)' : 'transparent',
+              transition: 'color 140ms ease, background 140ms ease, transform 140ms ease',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
             // NOT navigate — it's purely a dropdown trigger; navigation
