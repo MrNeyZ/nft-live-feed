@@ -1764,7 +1764,7 @@ export default function MintsPage() {
                          color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
               />
             ))}
-            <span style={{ width: 1, height: 13, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
+            <span style={{ width: 1, height: 13, background: 'rgba(168,144,232,0.12)', margin: '0 6px' }} />
             <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
               {sorted.length.toLocaleString()} <span style={{ color: '#3a3a52' }}>collections</span>
             </span>
@@ -1834,6 +1834,23 @@ export default function MintsPage() {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Collapsed summary — a single subtle line, shown only when the
+            Settings filter section is closed AND a filter is off-default, so
+            the operator sees active Source/Status without expanding. Hidden
+            entirely when everything is default (no extra height in the common
+            case). Subtle text only — no pill/glow. */}
+        {!settingsOpen && (sourceFilter !== 'all' || statusFilter !== 'any') && (
+          <div style={{
+            padding: '6px 18px', fontSize: 10, color: '#6a6a84',
+            letterSpacing: '0.3px', flexShrink: 0,
+            borderBottom: '1px solid rgba(168,144,232,0.06)',
+          }}>
+            Source: {sourceFilter === 'all' ? 'Any' : sourceFilter}
+            {' · '}Status: {statusFilter === 'any' ? 'Any' : statusFilter === 'active' ? 'Active' : 'Sold'}
+            {' · '}Time: {mintTf}
           </div>
         )}
 
