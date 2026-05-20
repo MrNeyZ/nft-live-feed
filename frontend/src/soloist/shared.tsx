@@ -956,7 +956,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // Subtle filled active state — neutral white wash, no outline, no
               // glow (purple identity now lives in the chrome haze + runtime
               // module, not on every nav tab). The slide animation is kept.
-              background: 'rgba(255,255,255,0.05)',
+              background: 'rgba(255,255,255,0.07)',
               boxShadow: 'none',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -979,15 +979,18 @@ export function TopNav({ active }: { active?: Page } = {}) {
             const tabStyle: React.CSSProperties = {
               position: 'relative', zIndex: 1,
               padding: '4px 16px', fontSize: 12, fontWeight: 600,
-              // Inactive a notch more muted; active text noticeably brighter
-              // (the sliding capsule behind it carries the rest of the weight).
-              color: isActive ? '#e7e0f6' : (isHover ? '#b4b4c8' : '#4f4f66'),
+              // Inactive links must read clearly on the dark chrome (not look
+              // "disabled") — #aaaabf, well above the old too-dark #4f4f66.
+              // Active + hover go full white; state difference is carried by the
+              // background (sliding capsule for active, subtle tint on hover),
+              // not by weight. All tabs share fontWeight 600.
+              color: isActive ? '#ffffff' : (isHover ? '#ffffff' : '#aaaabf'),
               letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               // Background + box-shadow removed — handled by the
               // sliding indicator behind the labels (except for the
               // hover-highlight, which paints its own subtle tint when
               // the tab isn't already active).
-              background: isHover ? 'rgba(255,255,255,0.025)' : 'transparent',
+              background: isHover ? 'rgba(255,255,255,0.04)' : 'transparent',
               transition: 'color 160ms ease-out, background 160ms ease-out',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
@@ -1040,7 +1043,10 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   style={{
                     ...tabStyle,
                     border: 'none', outline: 'none',
-                    font: 'inherit', cursor: 'pointer',
+                    // fontFamily only — `font: 'inherit'` would reset the
+                    // tabStyle weight/size and make TOOLS lighter than the
+                    // other tabs. All nav items must share fontWeight 600.
+                    fontFamily: 'inherit', cursor: 'pointer',
                   }}
                 >{p.label}</button>
                 {toolsOpen && (
@@ -1108,10 +1114,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
             style={{
               position: 'relative', zIndex: 1,
               padding: '4px 16px', fontSize: 12, fontWeight: 600,
-              color: '#4f4f66',
+              // Match the readable inactive nav color (was the too-dark #4f4f66).
+              color: '#aaaabf',
               letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               background: 'transparent',
-              border: 'none', outline: 'none', font: 'inherit', cursor: 'pointer',
+              border: 'none', outline: 'none', fontFamily: 'inherit', cursor: 'pointer',
             }}
           >OTHER</button>
         </div>
