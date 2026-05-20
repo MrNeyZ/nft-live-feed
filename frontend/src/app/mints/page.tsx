@@ -709,20 +709,20 @@ function FeedFiltersPopover({
             border: '1px solid rgba(168,144,232,0.16)',
             borderRadius: 6,
             boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
-            padding: '6px 10px', minWidth: 270, zIndex: 100,
-            // Keep within the right-pane width on narrow viewports —
-            // when the panel itself is < 280 px, cap the popover so it
-            // doesn't push off-screen.
-            maxWidth: 'calc(100vw - 16px)',
+            padding: '6px 10px', zIndex: 100,
+            // Widened to ~one feed-card width so the Type and Source rows each
+            // fit on a single line (no wrapping). Capped to the viewport so it
+            // never overflows the panel on narrow screens.
+            width: 356, maxWidth: 'calc(100vw - 16px)',
             display: 'flex', flexDirection: 'column', gap: 3,
           }}
         >
           {/* Aligned label/control rows + compact low-weight pills — same
               system as the Live Feed settings panel. No group header: keeps
               it feeling like inline controls rather than a titled card. */}
-          <div className="feed-srow">
+          <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
             <span className="feed-srow-lbl">Type</span>
-            <div className="feed-srow-ctl feed-seg">
+            <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
               <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" style={feedType === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" style={feedType === 'cnft'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" style={feedType === 'core'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
@@ -732,9 +732,9 @@ function FeedFiltersPopover({
               <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="NFT"   size="sm" style={feedType === 'candy' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
             </div>
           </div>
-          <div className="feed-srow">
+          <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
             <span className="feed-srow-lbl">Source</span>
-            <div className="feed-srow-ctl feed-seg">
+            <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
               <Pill active={feedSource === 'all'}   onClick={() => setFeedSource('all')}   label="Any"   size="sm" style={feedSource === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               <Pill active={feedSource === 'LMNFT'} onClick={() => setFeedSource('LMNFT')} label="LMNFT" size="sm" style={feedSource === 'LMNFT' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               <Pill active={feedSource === 'VVV'}   onClick={() => setFeedSource('VVV')}   label="VVV"   size="sm" style={feedSource === 'VVV'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
