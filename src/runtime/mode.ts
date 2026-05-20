@@ -45,21 +45,34 @@ export function isActive(): boolean { return current !== 'off'; }
  *  transitions and continues to ingest LMNFT / vvv.so / Core / TM
  *  mints — only sale targets pause. */
 let mintTrackerEnabled: boolean = process.env.MINT_TRACKER_ENABLED !== '0';
+/** True only in LIVE mode. Expensive mint paths (per-mint getAsset
+ *  enrichment, collection-confirm retries, Core supply refresh) gate on
+ *  this so they run ONLY when the tracker is fully on — and stay off in
+ *  warm mode. */
 export function isMintTrackerEnabled(): boolean { return mintTrackerEnabled; }
 
-/** Toggle the mint tracker. When the trade mode is OFF the listener
- *  itself is started/stopped to match — there's no other reason for it
- *  to be running in that state. When trade mode is on, the listener
- *  stays up either way and `isTargetActive()` handles per-target
- *  gating internally. Idempotent; safe to call from API handlers. */
+/** Mint tracker has two runtime modes (no hard-off for now):
+ *    'live' — full tracker: WS + fast pollers + enrichment + confirm + supply.
+ *    'warm' — low-power background: slow pollers only (1 small page, long
+ *             cadence, no WS-driven fetches, no catch-up, no enrichment /
+ *             confirm / supply). Keeps the accumulator + snapshot warm so the
+ *             UI has recent background context after re-enabling. */
+export type MintTrackerRuntime = 'live' | 'warm';
+export function getMintTrackerRuntimeMode(): MintTrackerRuntime {
+  return mintTrackerEnabled ? 'live' : 'warm';
+}
+
+/** Toggle the mint tracker between live and warm. The listener stays up in
+ *  BOTH modes (warm runs slow background pollers), so we never stop it here —
+ *  just flip the flag; `isTargetActive()` + the poller ticks read the mode
+ *  each cycle. Idempotent; safe to call from API handlers. */
 export function setMintTrackerEnabled(enabled: boolean): boolean {
   if (mintTrackerEnabled === enabled) return mintTrackerEnabled;
   mintTrackerEnabled = enabled;
-  console.log(`[mints/runtime] enabled=${enabled}`);
-  if (current === 'off') {
-    if (enabled) startListener();
-    else         stopListener();
-  }
+  console.log(`[mints/runtime] mode=${enabled ? 'live' : 'warm'}`);
+  // Ensure the listener is up (idempotent). Warm needs it for slow pollers;
+  // we never tear it down on a live↔warm toggle.
+  startListener();
   return mintTrackerEnabled;
 }
 
@@ -100,13 +113,11 @@ async function applyTransition(next: RuntimeMode): Promise<void> {
   console.log(`[runtime] mode ${prev} → ${next}  generation=${generation}`);
 
   if (next === 'off') {
-    // Mint tracker is independent of trade mode. When enabled the
-    // listener stays up — its per-target gating sheds sale-target
-    // notifications during mode=off but continues processing mints.
-    // AMM poller is sales-only and always stops on mode=off.
-    if (!isMintTrackerEnabled()) {
-      stopListener();
-    }
+    // Mint tracker is independent of trade mode and never hard-stops — it
+    // keeps running in warm (low-power) mode even at mode=off, so the
+    // listener stays up regardless of the mint flag. Sale-target
+    // notifications are shed via isTargetActive(); the AMM poller is
+    // sales-only and always stops on mode=off.
     stopAmmPoller();
     current = next;
     return;

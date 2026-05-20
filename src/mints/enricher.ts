@@ -31,10 +31,18 @@ const pending: PendingEntry[]  = [];
 const verifiedMints            = new Set<string>();
 let workerScheduled            = false;
 
+let warmEnrichSkips = 0;
 export function enqueueMintEnrichment(groupingKey: string, mintAddress: string): void {
   if (!mintAddress) return;
-  // Mint tracker disabled → never spend DAS (getAsset) credits enriching mints.
-  if (!isMintTrackerEnabled()) return;
+  // Warm (low-power) mode → never spend per-mint DAS (getAsset) credits.
+  // Sampled log so the operator can see warm mode is shedding enrichment
+  // without flooding the console under a hot launch.
+  if (!isMintTrackerEnabled()) {
+    if (warmEnrichSkips++ % 50 === 0) {
+      console.log(`[mints/warm] skipped enrichment because warm mode (count=${warmEnrichSkips})`);
+    }
+    return;
+  }
   if (verifiedMints.has(mintAddress)) return;       // already attempted
   verifiedMints.add(mintAddress);
   pending.push({ groupingKey, mintAddress });

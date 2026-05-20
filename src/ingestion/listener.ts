@@ -29,7 +29,7 @@ import { dispatchMmmDeferred } from './mmm-prefilter';
 import { isSigTarget, saleDebug } from './sale-debug';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
-import { getMode, currentGeneration, isMintTrackerEnabled, isAnyIngestActive } from '../runtime/mode';
+import { getMode, currentGeneration, getMintTrackerRuntimeMode, isAnyIngestActive } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -131,7 +131,10 @@ const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metad
  *  spending mint RPC (getTransaction) while sales keep flowing, and
  *  `off + mint_tracker=on` keep mints flowing while sales are silent. */
 function isTargetActive(targetName: string): boolean {
-  if (MINT_TARGET_NAMES.has(targetName)) return isMintTrackerEnabled();
+  // Mint targets are never hard-off: they're active in live AND warm mode
+  // (warm just polls slowly + skips WS-driven fetches, gated at the call
+  // sites below). Sales targets follow the trade runtime mode.
+  if (MINT_TARGET_NAMES.has(targetName)) return true;
   return getMode() !== 'off';
 }
 
@@ -204,6 +207,16 @@ let   candyGuardPollFetched  = 0;
 let   candyGuardPollAccepted = 0;
 let   candyGuardPollDeduped  = 0;
 let   candyGuardPollLastTs   = 0;
+
+// ── Warm (low-power) mode tuning ────────────────────────────────────────────
+// When the mint tracker is in WARM mode the dedicated pollers keep running but
+// at a much longer cadence and a tiny page size, with no WS-driven fetches and
+// no catch-up — just enough to keep background awareness of what's minting.
+// Expensive paths (enrichment / collection-confirm / supply refresh) stay off.
+const MINT_WARM_INTERVAL_MS = parseInt(process.env.MINT_WARM_INTERVAL_MS ?? '180000', 10) || 180000; // 3 min
+const MINT_WARM_LIMIT       = parseInt(process.env.MINT_WARM_LIMIT       ?? '3',      10) || 3;       // 1 small page
+let   mplCoreWarmLastTs   = 0;
+let   candyGuardWarmLastTs = 0;
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -682,8 +695,14 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // Existing seenSigs + recentSigs dedup means any sig already processed by
     // the regular poller (if HTTP stayed up) is skipped at no cost.
     if (isReconnect) {
-      console.log(`[listener/${target.name}] catch-up poll after reconnect`);
-      pollTarget(target).catch(() => {});
+      // Warm mode: skip the catch-up sweep for mint targets (keeps RPC low —
+      // warm explicitly tolerates incomplete/delayed coverage).
+      if (MINT_TARGET_NAMES.has(target.name) && getMintTrackerRuntimeMode() !== 'live') {
+        // no catch-up in warm
+      } else {
+        console.log(`[listener/${target.name}] catch-up poll after reconnect`);
+        pollTarget(target).catch(() => {});
+      }
     }
   });
 
@@ -693,6 +712,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // so mint targets keep flowing across mode=off when the env-gated
     // mint tracker is enabled.
     if (!running || !isTargetActive(target.name)) return;
+    // Warm mode: do NOT process WS-driven mint notifications — each one would
+    // trigger a getTransaction fetch. Warm background discovery comes from the
+    // slow poller only. Sales targets are unaffected (live/warm is mint-only).
+    if (MINT_TARGET_NAMES.has(target.name) && getMintTrackerRuntimeMode() !== 'live') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -1314,11 +1337,23 @@ export function startListener(): void {
         `limit=${MPL_CORE_POLL_LIMIT}`,
       );
       const tick = setInterval(() => {
-        if (!running)             return;
-        if (!isMintTrackerEnabled()) return;
+        if (!running)                    return;
         if (!isTargetActive('mpl_core')) return;
+        const now = Date.now();
+        if (getMintTrackerRuntimeMode() !== 'live') {
+          // WARM: long cadence, 1 small page, no catch-up. Enrichment /
+          // confirm / supply stay gated off (isMintTrackerEnabled === false).
+          if (now - mplCoreWarmLastTs < MINT_WARM_INTERVAL_MS) return;
+          mplCoreWarmLastTs = now;
+          mplCorePollSweeps++;
+          mplCorePollLastTs = now;
+          console.log('[mints/warm] sweep target=mpl_core');
+          pollTarget(mplCoreTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
+            .catch(() => { /* fail-soft */ });
+          return;
+        }
         mplCorePollSweeps++;
-        mplCorePollLastTs = Date.now();
+        mplCorePollLastTs = now;
         pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })
           .catch(() => { /* fail-soft; next tick retries */ });
       }, MPL_CORE_POLL_INTERVAL_MS);
@@ -1360,10 +1395,21 @@ export function startListener(): void {
       );
       const tick = setInterval(() => {
         if (!running)                       return;
-        if (!isMintTrackerEnabled())        return;
         if (!isTargetActive('candy_guard')) return;
+        const now = Date.now();
+        if (getMintTrackerRuntimeMode() !== 'live') {
+          // WARM: long cadence, 1 small page, no catch-up.
+          if (now - candyGuardWarmLastTs < MINT_WARM_INTERVAL_MS) return;
+          candyGuardWarmLastTs = now;
+          candyGuardPollSweeps++;
+          candyGuardPollLastTs = now;
+          console.log('[mints/warm] sweep target=candy_guard');
+          pollTarget(cgTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
+            .catch(() => { /* fail-soft */ });
+          return;
+        }
         candyGuardPollSweeps++;
-        candyGuardPollLastTs = Date.now();
+        candyGuardPollLastTs = now;
         pollTarget(cgTarget, { force: true, limitOverride: CANDY_GUARD_POLL_LIMIT })
           .catch(() => { /* fail-soft; next tick retries */ });
       }, CANDY_GUARD_POLL_INTERVAL_MS);
