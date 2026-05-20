@@ -705,28 +705,31 @@ function FeedFiltersPopover({
             display: 'flex', flexDirection: 'column', gap: 3,
           }}
         >
-          {/* Aligned label/control rows + compact low-weight pills — same
-              system as the Live Feed settings panel. No group header: keeps
-              it feeling like inline controls rather than a titled card. */}
-          <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
-            <span className="feed-srow-lbl">Type</span>
-            <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-              <Pill active={selectedTypes.size === 0} onClick={() => toggleType(null)}   label="Any"  size="sm" style={selectedTypes.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedTypes.has('cnft')} onClick={() => toggleType('cnft')} label="cNFT" size="sm" style={selectedTypes.has('cnft') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedTypes.has('core')} onClick={() => toggleType('core')} label="CORE" size="sm" style={selectedTypes.has('core') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              {/* "NFT" maps to the 'candy' key (Candy Machine / Candy Guard).
-                  UI-only label; key, persistence, and predicate unchanged. */}
-              <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT" size="sm" style={selectedTypes.has('candy') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+          {/* Miniature of the main Mint Tracker settings panel — same
+              .feed-set-group + header + aligned .feed-srow rows + compact pills,
+              just on the floating popover surface. One system, two surfaces. */}
+          <div className="feed-set-group">
+            <div className="feed-set-group-hd">Filters</div>
+            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+              <span className="feed-srow-lbl">Type</span>
+              <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
+                <Pill active={selectedTypes.size === 0} onClick={() => toggleType(null)}   label="Any"  size="sm" style={selectedTypes.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedTypes.has('cnft')} onClick={() => toggleType('cnft')} label="cNFT" size="sm" style={selectedTypes.has('cnft') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedTypes.has('core')} onClick={() => toggleType('core')} label="CORE" size="sm" style={selectedTypes.has('core') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                {/* "NFT" maps to the 'candy' key (Candy Machine / Candy Guard).
+                    UI-only label; key, persistence, and predicate unchanged. */}
+                <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT" size="sm" style={selectedTypes.has('candy') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              </div>
             </div>
-          </div>
-          <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
-            <span className="feed-srow-lbl">Source</span>
-            <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-              <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}    label="Any"   size="sm" style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedSources.has('LMNFT')} onClick={() => toggleSource('LMNFT')} label="LMNFT" size="sm" style={selectedSources.has('LMNFT') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedSources.has('VVV')}   onClick={() => toggleSource('VVV')}   label="VVV"   size="sm" style={selectedSources.has('VVV')   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedSources.has('GRAVE')} onClick={() => toggleSource('GRAVE')} label="GRAVE" size="sm" style={selectedSources.has('GRAVE') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              <Pill active={selectedSources.has('CANDY')} onClick={() => toggleSource('CANDY')} label="CANDY" size="sm" style={selectedSources.has('CANDY') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+              <span className="feed-srow-lbl">Source</span>
+              <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
+                <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}    label="Any"   size="sm" style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedSources.has('LMNFT')} onClick={() => toggleSource('LMNFT')} label="LMNFT" size="sm" style={selectedSources.has('LMNFT') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedSources.has('VVV')}   onClick={() => toggleSource('VVV')}   label="VVV"   size="sm" style={selectedSources.has('VVV')   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedSources.has('GRAVE')} onClick={() => toggleSource('GRAVE')} label="GRAVE" size="sm" style={selectedSources.has('GRAVE') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedSources.has('CANDY')} onClick={() => toggleSource('CANDY')} label="CANDY" size="sm" style={selectedSources.has('CANDY') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              </div>
             </div>
           </div>
         </div>
@@ -907,44 +910,47 @@ export default function MintsPage() {
     return next;
   });
 
-  // Source filter — narrows the LEFT tracker table to a single launchpad.
-  // 'all' = no filter. Persisted in localStorage. Filter keys map to
-  // backend `MintStatus.sourceLabel` values:
+  // Multi-select SOURCE / STATUS filters for the LEFT tracker table — same
+  // Set-based system as the Live Mint Feed popover (empty set = "Any", OR
+  // within a group, AND across groups). Persisted as CSV.
+  // Source keys map to backend `MintStatus.sourceLabel`:
   //   LMNFT → 'LaunchMyNFT', VVV → 'VVV', CANDY → 'Metaplex Candy Machine',
   //   CORE  → 'Metaplex Core', GRAVE → 'GRAVE'.
-  // ME / Bubblegum / generic Metaplex / Unknown are intentionally NOT
-  // surfaced here: ME is a sales label not a mint launchpad; Bubblegum
-  // has its own CNFT toggle in the LIVE FEED column; generic Metaplex /
-  // Unknown are catch-all buckets that wouldn't usefully narrow a
-  // tracker row set.
-  type SourceFilterKey = 'all' | 'LMNFT' | 'VVV' | 'CANDY' | 'CORE' | 'GRAVE';
-  const SOURCE_FILTER_KEYS: ReadonlyArray<SourceFilterKey> = ['all', 'LMNFT', 'VVV', 'CANDY', 'CORE', 'GRAVE'];
-  const [sourceFilter, setSourceFilter] = useState<SourceFilterKey>(() => {
-    if (typeof window === 'undefined') return 'all';
-    try {
-      const v = window.localStorage.getItem('vl.mints.sourceFilter');
-      return SOURCE_FILTER_KEYS.includes(v as SourceFilterKey) ? (v as SourceFilterKey) : 'all';
-    } catch { return 'all'; }
-  });
+  // ME / Bubblegum / generic Metaplex / Unknown are intentionally NOT surfaced
+  // (ME is a sales label not a launchpad; Bubblegum has the LIVE FEED cNFT
+  // toggle; catch-alls wouldn't usefully narrow the table).
+  // Status keys mirror the row badge (MintsTableRow): SOLD = observedMints ≥
+  // maxSupply, ACTIVE = displayState 'shown', WATCH = incubating (everything
+  // else). Priority SOLD > ACTIVE > WATCH, matching the badge.
+  type TableSourceKey = 'LMNFT' | 'VVV' | 'CANDY' | 'CORE' | 'GRAVE';
+  type TableStatusKey = 'active' | 'watch' | 'sold';
+  const TABLE_SOURCE_KEYS: ReadonlyArray<TableSourceKey> = ['LMNFT', 'VVV', 'CANDY', 'CORE', 'GRAVE'];
+  const TABLE_STATUS_KEYS: ReadonlyArray<TableStatusKey> = ['active', 'watch', 'sold'];
+  const [selectedTableSources, setSelectedTableSources] = useState<Set<TableSourceKey>>(
+    () => loadFeedSet('vl.mints.sourceFilter.multi', TABLE_SOURCE_KEYS),
+  );
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<TableStatusKey>>(
+    () => loadFeedSet('vl.mints.statusFilter.multi', TABLE_STATUS_KEYS),
+  );
   useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.sourceFilter', sourceFilter); } catch { /* noop */ }
-  }, [sourceFilter]);
-
-  // Status filter — strict policy: a row is 'soldOut' only when BOTH
-  // maxSupply (planned cap) and mintedCount (DAS-derived total) are known
-  // and mintedCount >= maxSupply. Unknown-supply rows are treated as
-  // 'active' since the backend can't prove they've sold out. 'any'
-  // preserves prior cosmetic default. Persisted in localStorage.
-  const [statusFilter, setStatusFilter] = useState<'any' | 'active' | 'soldOut'>(() => {
-    if (typeof window === 'undefined') return 'any';
-    try {
-      const v = window.localStorage.getItem('vl.mints.statusFilter');
-      return v === 'active' || v === 'soldOut' ? v : 'any';
-    } catch { return 'any'; }
-  });
+    try { window.localStorage.setItem('vl.mints.sourceFilter.multi', [...selectedTableSources].join(',')); } catch { /* quota */ }
+  }, [selectedTableSources]);
   useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.statusFilter', statusFilter); } catch { /* noop */ }
-  }, [statusFilter]);
+    try { window.localStorage.setItem('vl.mints.statusFilter.multi', [...selectedStatuses].join(',')); } catch { /* quota */ }
+  }, [selectedStatuses]);
+  // ANY (null) clears the group; specific keys toggle; emptying the set → ANY.
+  const toggleTableSource = (k: TableSourceKey | null) => setSelectedTableSources(prev => {
+    if (k === null) return new Set();
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
+  const toggleStatus = (k: TableStatusKey | null) => setSelectedStatuses(prev => {
+    if (k === null) return new Set();
+    const next = new Set(prev);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
 
   // Render-time view of `events` for the LIVE MINT FEED panel. Pure
   // filter — never mutates the persisted store, so toggling filters
@@ -1548,31 +1554,28 @@ export default function MintsPage() {
       // Mint Feed (which doesn't apply this filter) keeps showing
       // every detected mint.
       .filter(r => isUsefulTrackerCollection(r))
-      // Source filter — narrows to one launchpad. 'all' = no filter.
-      // Filter keys map to MintStatus.sourceLabel values 1:1; the table
-      // type and the wire union are kept in sync via the `MintStatus`
-      // shape, so an unrecognised key here falls through to `false`
-      // (row hidden) — safer than passing through unmapped sources.
+      // Source filter — multi-select. Empty set = no filter. OR within the
+      // group; keys map to MintStatus.sourceLabel 1:1.
       .filter(r => {
-        if (sourceFilter === 'all') return true;
-        switch (sourceFilter) {
-          case 'LMNFT': return r.sourceLabel === 'LaunchMyNFT';
-          case 'VVV':   return r.sourceLabel === 'VVV';
-          case 'CANDY': return r.sourceLabel === 'Metaplex Candy Machine';
-          case 'CORE':  return r.sourceLabel === 'Metaplex Core';
-          case 'GRAVE': return r.sourceLabel === 'GRAVE';
-          default:      return false;
-        }
+        if (selectedTableSources.size === 0) return true;
+        return (
+          (selectedTableSources.has('LMNFT') && r.sourceLabel === 'LaunchMyNFT')            ||
+          (selectedTableSources.has('VVV')   && r.sourceLabel === 'VVV')                    ||
+          (selectedTableSources.has('CANDY') && r.sourceLabel === 'Metaplex Candy Machine') ||
+          (selectedTableSources.has('CORE')  && r.sourceLabel === 'Metaplex Core')          ||
+          (selectedTableSources.has('GRAVE') && r.sourceLabel === 'GRAVE')
+        );
       })
-      // Status filter — strict sold-out determination. Requires both
-      // maxSupply and mintedCount known; unknown-supply rows are treated
-      // as still active because the backend can't prove sell-through.
+      // Status filter — multi-select. Empty set = no filter. State is derived
+      // with the SAME logic as the row badge (MintsTableRow): SOLD when the
+      // planned cap is fully minted (observedMints ≥ maxSupply), else ACTIVE
+      // when promoted (displayState 'shown'), else WATCH (incubating). OR
+      // within the group.
       .filter(r => {
-        if (statusFilter === 'any') return true;
-        const cap    = typeof r.maxSupply   === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
-        const minted = typeof r.mintedCount === 'number' ? r.mintedCount : 0;
-        const isSoldOut = cap !== null && minted >= cap;
-        return statusFilter === 'soldOut' ? isSoldOut : !isSoldOut;
+        if (selectedStatuses.size === 0) return true;
+        const isSoldOut = typeof r.maxSupply === 'number' && r.maxSupply > 0 && r.observedMints >= r.maxSupply;
+        const state: TableStatusKey = isSoldOut ? 'sold' : (r.displayState === 'shown' ? 'active' : 'watch');
+        return selectedStatuses.has(state);
       })
       // Timeframe gate — applies to BOTH tabs. A row whose lastMintAt
       // is older than the selected window is hidden, so 30M never
@@ -1652,7 +1655,7 @@ export default function MintsPage() {
   // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
   // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, sourceFilter, statusFilter, tfStatsByKey, lastPriceByKey, tick]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTableSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick]);
 
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
@@ -1798,20 +1801,26 @@ export default function MintsPage() {
               <div className="feed-srow">
                 <span className="feed-srow-lbl">Source</span>
                 <div className="feed-srow-ctl feed-seg">
-                  {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
-                    <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
-                      label={s === 'all' ? 'Any' : s} size="sm"
-                      style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  <Pill active={selectedTableSources.size === 0} onClick={() => toggleTableSource(null)}
+                    label="Any" size="sm"
+                    style={selectedTableSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  {TABLE_SOURCE_KEYS.map(s => (
+                    <Pill key={s} active={selectedTableSources.has(s)} onClick={() => toggleTableSource(s)}
+                      label={s} size="sm"
+                      style={selectedTableSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                   ))}
                 </div>
               </div>
               <div className="feed-srow">
                 <span className="feed-srow-lbl">Status</span>
                 <div className="feed-srow-ctl feed-seg">
-                  {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
-                    <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
+                  <Pill active={selectedStatuses.size === 0} onClick={() => toggleStatus(null)}
+                    label="Any" size="sm"
+                    style={selectedStatuses.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  {([['active','Active'],['watch','Watch'],['sold','Sold']] as const).map(([k,lbl]) => (
+                    <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
                       label={lbl} size="sm"
-                      style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                      style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                   ))}
                 </div>
               </div>
@@ -1824,14 +1833,14 @@ export default function MintsPage() {
             the operator sees active Source/Status without expanding. Hidden
             entirely when everything is default (no extra height in the common
             case). Subtle text only — no pill/glow. */}
-        {!settingsOpen && (sourceFilter !== 'all' || statusFilter !== 'any') && (
+        {!settingsOpen && (selectedTableSources.size > 0 || selectedStatuses.size > 0) && (
           <div style={{
             padding: '6px 18px', fontSize: 10, color: '#6a6a84',
             letterSpacing: '0.3px', flexShrink: 0,
             borderBottom: '1px solid rgba(168,144,232,0.06)',
           }}>
-            Source: {sourceFilter === 'all' ? 'Any' : sourceFilter}
-            {' · '}Status: {statusFilter === 'any' ? 'Any' : statusFilter === 'active' ? 'Active' : 'Sold'}
+            Source: {selectedTableSources.size === 0 ? 'Any' : [...selectedTableSources].join(', ')}
+            {' · '}Status: {selectedStatuses.size === 0 ? 'Any' : [...selectedStatuses].map(s => s === 'active' ? 'Active' : s === 'watch' ? 'Watch' : 'Sold').join(', ')}
             {' · '}Time: {mintTf}
           </div>
         )}
