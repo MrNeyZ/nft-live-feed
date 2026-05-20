@@ -31,7 +31,7 @@ import {
 } from '@/soloist/feed-store';
 import {
   CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TopNav, TypeBadge,
-  compressImage,
+  compressImage, BarIconButton,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { ScatterChart, type ScatterPoint } from '@/soloist/scatter-chart';
@@ -1373,19 +1373,20 @@ export default function CollectionPage() {
                   >MARKET SIGNAL: {cfg.label}</span>
                 );
               })()}
-              <button
+              {/* Alert-sound toggle — same minimal borderless icon control as
+                  the HUD bottom bar (purple on / muted off). Behavior unchanged. */}
+              <BarIconButton
+                on={soundOn}
                 onClick={toggleSound}
                 title={soundOn ? 'Sound alerts on — click to mute' : 'Sound alerts off — click to enable'}
-                style={{
-                  display:'inline-flex', alignItems:'center',
-                  fontSize:9.5, fontWeight:700, letterSpacing:'0.4px',
-                  padding:'1px 6px', borderRadius:3, lineHeight:'14px',
-                  border: soundOn ? '1px solid rgba(168,144,232,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                  background: soundOn ? 'rgba(168,144,232,0.18)' : 'rgba(255,255,255,0.03)',
-                  color: soundOn ? '#c4b3f0' : '#8f8fa8',
-                  cursor:'pointer',
-                }}
-              >SOUND: {soundOn ? 'ON' : 'OFF'}</button>
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 5 6 9H2v6h4l5 4z" />
+                  {soundOn
+                    ? <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                    : <line x1="22" y1="9" x2="16" y2="15" />}
+                </svg>
+              </BarIconButton>
             </div>
             <div style={{ display:'flex', gap:6, marginTop:4 }}>
               {/* Marketplace + social chips — rounded squares to match the
@@ -1430,20 +1431,22 @@ export default function CollectionPage() {
             </div>
             <span style={{ color:'#c9a820' }}>{listings.length > 0 ? '99%' : '—'}</span>
           </div>
+          {/* Utility controls — refined to the HUD language: subtle fills,
+              minimal (low-alpha) outlines, accent reserved for text. */}
           <div style={{ display:'flex', gap:6, alignItems:'center' }}>
             {walletPubkey ? (
               <button onClick={onDisconnectWallet} style={{
                 padding:'4px 10px', fontSize:11, borderRadius:4,
-                border:'1px solid #36b86855', background:'#36b86818', color:'#5ce0a0', cursor:'pointer',
+                border:'1px solid rgba(92,224,160,0.20)', background:'rgba(92,224,160,0.12)', color:'#5ce0a0', cursor:'pointer',
               }} title={walletPubkey}>{shortWallet(walletPubkey)} · disconnect</button>
             ) : (
               <button onClick={onConnectWallet} style={{
                 padding:'4px 10px', fontSize:11, borderRadius:4,
-                border:'1px solid #8068d855', background:'#8068d818', color:'#8068d8', cursor:'pointer',
+                border:'1px solid rgba(168,144,232,0.20)', background:'rgba(168,144,232,0.14)', color:'#cfc6e6', cursor:'pointer',
               }}>Connect Phantom</button>
             )}
-            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'#56566e', cursor:'pointer' }}>id, name or address</button>
-            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid #8068d855', background:'#8068d818', color:'#8068d8', cursor:'pointer' }}>Quick lookup</button>
+            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.04)', color:'#56566e', cursor:'pointer' }}>id, name or address</button>
+            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(168,144,232,0.20)', background:'rgba(168,144,232,0.14)', color:'#cfc6e6', cursor:'pointer' }}>Quick lookup</button>
           </div>
           {walletErr && (
             <span style={{ fontSize:9, color:'#9a7a7a', maxWidth:280, textAlign:'right' }}>{walletErr}</span>
