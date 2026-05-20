@@ -843,6 +843,10 @@ export default function MintsPage() {
         : '1H';
     } catch { return '1H'; }
   });
+  // Collapsible embedded filter section (Source/Status). Closed by default so
+  // the table starts high; the header "Settings" pill toggles it. Not a
+  // floating popover — it expands/collapses inline.
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
     // Tab switch clears manual-sort state so each tab opens with its
@@ -1758,41 +1762,54 @@ export default function MintsPage() {
                 />
               ))}
             </div>
+            {/* Toggles the embedded Source/Status filter section inline
+                (collapsed by default; not a floating popover). */}
+            <Pill
+              active={settingsOpen}
+              onClick={() => setSettingsOpen(o => !o)}
+              title="Settings — show/hide collection filters"
+              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+              label="Settings"
+              size="sm"
+            />
           </div>
         </div>
 
         {/* Embedded filter section — compact Source / Status rows on the same
-            aligned grid as the Live Events settings (.feed-srow). Tight
-            padding + small row gap keep it a low-profile operator panel, not a
-            settings form. State + persistence unchanged. */}
-        <div style={{
-          padding: '6px 12px 7px',
-          background: 'rgba(168,144,232,0.04)',
-          borderBottom: '1px solid rgba(168,144,232,0.08)',
-          flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 3,
-        }}>
-          <div className="feed-srow">
-            <span className="feed-srow-lbl">Source</span>
-            <div className="feed-srow-ctl feed-seg">
-              {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
-                <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
-                  label={s === 'all' ? 'Any' : s} size="sm"
-                  style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              ))}
+            aligned grid as the Live Events settings (.feed-srow). Collapsible
+            inline via the header "Settings" pill (closed by default → table
+            starts higher). Tight padding + small row gap keep it a low-profile
+            operator panel, not a settings form. State + persistence unchanged. */}
+        {settingsOpen && (
+          <div style={{
+            padding: '6px 12px 7px',
+            background: 'rgba(168,144,232,0.04)',
+            borderBottom: '1px solid rgba(168,144,232,0.08)',
+            flexShrink: 0,
+            display: 'flex', flexDirection: 'column', gap: 3,
+          }}>
+            <div className="feed-srow">
+              <span className="feed-srow-lbl">Source</span>
+              <div className="feed-srow-ctl feed-seg">
+                {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
+                  <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
+                    label={s === 'all' ? 'Any' : s} size="sm"
+                    style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                ))}
+              </div>
+            </div>
+            <div className="feed-srow">
+              <span className="feed-srow-lbl">Status</span>
+              <div className="feed-srow-ctl feed-seg">
+                {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
+                  <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
+                    label={lbl} size="sm"
+                    style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                ))}
+              </div>
             </div>
           </div>
-          <div className="feed-srow">
-            <span className="feed-srow-lbl">Status</span>
-            <div className="feed-srow-ctl feed-seg">
-              {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
-                <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
-                  label={lbl} size="sm"
-                  style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              ))}
-            </div>
-          </div>
-        </div>
+        )}
 
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
