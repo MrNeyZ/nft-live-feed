@@ -29,7 +29,7 @@ import { dispatchMmmDeferred } from './mmm-prefilter';
 import { isSigTarget, saleDebug } from './sale-debug';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
-import { getMode, currentGeneration, isMintTrackerEnabled, isAnyIngestActive } from '../runtime/mode';
+import { getMode, currentGeneration, getMintTrackerRuntimeMode, isAnyIngestActive } from '../runtime/mode';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -131,7 +131,10 @@ const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metad
  *  spending mint RPC (getTransaction) while sales keep flowing, and
  *  `off + mint_tracker=on` keep mints flowing while sales are silent. */
 function isTargetActive(targetName: string): boolean {
-  if (MINT_TARGET_NAMES.has(targetName)) return isMintTrackerEnabled();
+  // Mint targets are never hard-off: they're active in live AND warm mode
+  // (warm just polls slowly + skips WS-driven fetches, gated at the call
+  // sites below). Sales targets follow the trade runtime mode.
+  if (MINT_TARGET_NAMES.has(targetName)) return true;
   return getMode() !== 'off';
 }
 
@@ -204,6 +207,61 @@ let   candyGuardPollFetched  = 0;
 let   candyGuardPollAccepted = 0;
 let   candyGuardPollDeduped  = 0;
 let   candyGuardPollLastTs   = 0;
+
+// ── Warm (low-power) mode tuning ────────────────────────────────────────────
+// In WARM mode the dedicated pollers keep running but at a long cadence and a
+// tiny page size, with no WS-driven fetches and no catch-up — just enough to
+// keep background awareness of what's minting. Expensive paths (enrichment /
+// collection-confirm / supply refresh) stay off. The two targets are STAGGERED
+// (different base intervals + a candy_guard phase offset) so their getTx bursts
+// never land in the same moment — smoother Helius graph. An idle backoff
+// stretches the interval (×2 then ×3, capped) when a target sees no new mints.
+const MINT_WARM_LIMIT = parseInt(process.env.MINT_WARM_LIMIT ?? '2', 10) || 2;   // ≤ getTx per warm sweep
+const MINT_WARM_MPL_CORE_INTERVAL_MS     = parseInt(process.env.MINT_WARM_MPL_CORE_INTERVAL_MS     ?? '180000', 10) || 180000; // 3 min
+const MINT_WARM_CANDY_GUARD_INTERVAL_MS  = parseInt(process.env.MINT_WARM_CANDY_GUARD_INTERVAL_MS  ?? '300000', 10) || 300000; // 5 min
+const MINT_WARM_CANDY_GUARD_OFFSET_MS    = parseInt(process.env.MINT_WARM_CANDY_GUARD_OFFSET_MS    ?? '90000',  10) || 90000;  // 90 s phase
+const MINT_WARM_MAX_INTERVAL_MS          = parseInt(process.env.MINT_WARM_MAX_INTERVAL_MS          ?? '600000', 10) || 600000; // 10 min cap
+
+interface WarmSched { nextDueTs: number; idleStreak: number; acceptedSnap: number; }
+const warmMplCore:    WarmSched = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0 };
+const warmCandyGuard: WarmSched = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0 };
+
+/** Idle backoff multiplier: base interval ×1 normally, ×2 after 3 empty
+ *  sweeps, ×3 after 6 — capped by MINT_WARM_MAX_INTERVAL_MS at the call site. */
+function warmIntervalMultiplier(idleStreak: number): number {
+  if (idleStreak >= 6) return 3;
+  if (idleStreak >= 3) return 2;
+  return 1;
+}
+
+/** Decide whether a warm sweep is due for a target, updating its schedule.
+ *  `acceptedNow` is the target's cumulative poll-accepted counter; the delta
+ *  since the previous sweep drives the idle streak (no pollTarget changes —
+ *  reads the existing audit counter). Returns true iff the caller should poll.
+ *  Logs one low-noise line per actual sweep. */
+function warmSweepDue(
+  s: WarmSched, baseMs: number, offsetMs: number, acceptedNow: number,
+  now: number, targetName: string,
+): boolean {
+  if (s.nextDueTs === 0) {
+    // First scheduling — apply the stagger offset before the first sweep so
+    // the two targets don't fire together at boot.
+    s.nextDueTs    = now + offsetMs;
+    s.acceptedSnap = acceptedNow;
+    if (offsetMs > 0) return false;
+  }
+  if (now < s.nextDueTs) return false;
+  const delta = acceptedNow - s.acceptedSnap;
+  s.acceptedSnap = acceptedNow;
+  if (delta > 0) s.idleStreak = 0;
+  else           s.idleStreak += 1;
+  const mult     = warmIntervalMultiplier(s.idleStreak);
+  const interval = Math.min(baseMs * mult, MINT_WARM_MAX_INTERVAL_MS);
+  s.nextDueTs    = now + interval;
+  console.log(`[mints/warm] sweep target=${targetName} limit=${MINT_WARM_LIMIT} interval=${interval}`);
+  if (mult > 1) console.log(`[mints/warm] idle target=${targetName} streak=${s.idleStreak} interval=${interval}`);
+  return true;
+}
 
 /** Mint-prefilter pass counter. Logs the first hit per target (so we
  *  immediately see the wiring is alive) and then samples 1-in-50 to
@@ -682,8 +740,14 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // Existing seenSigs + recentSigs dedup means any sig already processed by
     // the regular poller (if HTTP stayed up) is skipped at no cost.
     if (isReconnect) {
-      console.log(`[listener/${target.name}] catch-up poll after reconnect`);
-      pollTarget(target).catch(() => {});
+      // Warm mode: skip the catch-up sweep for mint targets (keeps RPC low —
+      // warm explicitly tolerates incomplete/delayed coverage).
+      if (MINT_TARGET_NAMES.has(target.name) && getMintTrackerRuntimeMode() !== 'live') {
+        // no catch-up in warm
+      } else {
+        console.log(`[listener/${target.name}] catch-up poll after reconnect`);
+        pollTarget(target).catch(() => {});
+      }
     }
   });
 
@@ -693,6 +757,10 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // so mint targets keep flowing across mode=off when the env-gated
     // mint tracker is enabled.
     if (!running || !isTargetActive(target.name)) return;
+    // Warm mode: do NOT process WS-driven mint notifications — each one would
+    // trigger a getTransaction fetch. Warm background discovery comes from the
+    // slow poller only. Sales targets are unaffected (live/warm is mint-only).
+    if (MINT_TARGET_NAMES.has(target.name) && getMintTrackerRuntimeMode() !== 'live') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let msg: any;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -1314,11 +1382,22 @@ export function startListener(): void {
         `limit=${MPL_CORE_POLL_LIMIT}`,
       );
       const tick = setInterval(() => {
-        if (!running)             return;
-        if (!isMintTrackerEnabled()) return;
+        if (!running)                    return;
         if (!isTargetActive('mpl_core')) return;
+        const now = Date.now();
+        if (getMintTrackerRuntimeMode() !== 'live') {
+          // WARM: staggered + adaptive cadence, ≤MINT_WARM_LIMIT getTx/sweep,
+          // no catch-up. Enrichment / confirm / supply stay gated off
+          // (isMintTrackerEnabled === false). offset=0 → fires first.
+          if (!warmSweepDue(warmMplCore, MINT_WARM_MPL_CORE_INTERVAL_MS, 0, mplCorePollAccepted, now, 'mpl_core')) return;
+          mplCorePollSweeps++;
+          mplCorePollLastTs = now;
+          pollTarget(mplCoreTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
+            .catch(() => { /* fail-soft */ });
+          return;
+        }
         mplCorePollSweeps++;
-        mplCorePollLastTs = Date.now();
+        mplCorePollLastTs = now;
         pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })
           .catch(() => { /* fail-soft; next tick retries */ });
       }, MPL_CORE_POLL_INTERVAL_MS);
@@ -1360,10 +1439,20 @@ export function startListener(): void {
       );
       const tick = setInterval(() => {
         if (!running)                       return;
-        if (!isMintTrackerEnabled())        return;
         if (!isTargetActive('candy_guard')) return;
+        const now = Date.now();
+        if (getMintTrackerRuntimeMode() !== 'live') {
+          // WARM: staggered (90s phase offset) + adaptive cadence,
+          // ≤MINT_WARM_LIMIT getTx/sweep, no catch-up.
+          if (!warmSweepDue(warmCandyGuard, MINT_WARM_CANDY_GUARD_INTERVAL_MS, MINT_WARM_CANDY_GUARD_OFFSET_MS, candyGuardPollAccepted, now, 'candy_guard')) return;
+          candyGuardPollSweeps++;
+          candyGuardPollLastTs = now;
+          pollTarget(cgTarget, { force: true, limitOverride: MINT_WARM_LIMIT })
+            .catch(() => { /* fail-soft */ });
+          return;
+        }
         candyGuardPollSweeps++;
-        candyGuardPollLastTs = Date.now();
+        candyGuardPollLastTs = now;
         pollTarget(cgTarget, { force: true, limitOverride: CANDY_GUARD_POLL_LIMIT })
           .catch(() => { /* fail-soft; next tick retries */ });
       }, CANDY_GUARD_POLL_INTERVAL_MS);

@@ -97,16 +97,14 @@ async function main() {
   // per-target `isTargetActive()` gate keeps sale-program subscriptions
   // dormant until trade mode flips on, so RPC usage stays scoped to
   // mint targets only.
-  if (isMintTrackerEnabled()) {
-    // Two-line boot signal so log scans can confirm 24/7 mint coverage
-    // without needing to know which trade mode the operator booted in.
-    // Format matches the runtime task spec: stable substrings the
-    // operator can grep for in pm2 logs after a restart.
-    console.log(`[mints] tracker enabled mode=${getMintTrackerMode()} independent=true`);
-    console.log(`[mints/runtime] enabled=true salesMode=${getMode()} independent=true`);
+  {
+    // The listener runs 24/7 in BOTH live and warm mode — warm keeps slow
+    // background pollers going so the UI retains recent mint context after a
+    // re-enable. Two-line boot signal with stable substrings for log scans.
+    const mtRuntime = isMintTrackerEnabled() ? 'live' : 'warm';
+    console.log(`[mints] tracker mode=${mtRuntime} (${getMintTrackerMode()}) independent=true`);
+    console.log(`[mints/runtime] mode=${mtRuntime} salesMode=${getMode()} independent=true`);
     startListener();
-  } else {
-    console.log('[mints] tracker disabled');
   }
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
