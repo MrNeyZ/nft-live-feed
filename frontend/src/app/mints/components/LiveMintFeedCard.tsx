@@ -14,6 +14,16 @@ import {
 import { fmtAge, shortMint, thumb200 } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
 
+/** Trim + treat empty-string as "no value". `??` only catches null /
+ *  undefined, so a localStorage payload from an earlier reducer regime
+ *  with `nftImageUrl: ""` would pin the chain to a blank URL even when
+ *  a real fallback existed. */
+function normalizeUrl(v: string | null | undefined): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t.length > 0 ? t : null;
+}
+
 interface Props {
   event: MintEvent;
   /** Pre-looked-up collection-level row for `event.groupingKey`. May
@@ -94,10 +104,27 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
   // drops where there genuinely is none pre-reveal, and the cost
   // was either initials or an unrelated collection hero — neither
   // of which matches what the on-chain metadata actually says.
-  const cardImage = ev.nftImageUrl
-    ?? group?.representativeImageUrl
-    ?? group?.imageUrl
-    ?? null;
+  //
+  // Each candidate is normalized (`trim()` + empty-string→null) before
+  // the `??` chain so a stale localStorage payload with
+  // `nftImageUrl: ""` (a previous reducer regime wrote literal empty
+  // strings — `??` does NOT catch those) doesn't pin the card to a
+  // blank URL and bypass tier 2/3. Belt-and-braces: the hydrator on
+  // page.tsx now also normalizes at read time, but this guard
+  // catches any code path that ever introduces an empty image field
+  // again (defensive — costs one trim per render).
+  const nftImg  = normalizeUrl(ev.nftImageUrl);
+  const repImg  = normalizeUrl(group?.representativeImageUrl);
+  const heroImg = normalizeUrl(group?.imageUrl);
+  const cardImage = nftImg ?? repImg ?? heroImg ?? null;
+  if (group?.name === 'Flork') {
+    // Temporary Flork-only trace — confirms which tier the chain
+    // picks for the current Bu8x… debugging session. Remove once
+    // the brown-bag rendering is visually verified end-to-end.
+    const tier = nftImg ? 'nft' : repImg ? 'representative' : heroImg ? 'collection' : 'initials';
+    // eslint-disable-next-line no-console
+    console.debug(`[mints/flork] sig=${ev.signature.slice(0, 8)}… tier=${tier} url=${cardImage ?? '—'}`);
+  }
   const priceText      = ev.priceLamports == null
     ? '—'
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);

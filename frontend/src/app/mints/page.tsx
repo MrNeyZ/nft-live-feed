@@ -303,6 +303,24 @@ interface PersistedCollections {
   rows:    MintStatus[];
 }
 
+/** Trim + treat empty-string as undefined. Older reducer revs wrote
+ *  literal `""` into `imageUrl` / `representativeImageUrl` /
+ *  `sharedPlaceholderImageUrl` / `nftImageUrl`; on hydrate those
+ *  values short-circuit `??` chains in render code and pin the row to
+ *  a blank URL. Normalize at read-time so rendering can stay simple.
+ *  In-place mutation is safe here — we own this fresh-parsed object. */
+function normalizeImageFieldsOnRow(r: MintStatus): void {
+  for (const k of ['imageUrl', 'representativeImageUrl', 'sharedPlaceholderImageUrl'] as const) {
+    const v = r[k];
+    if (typeof v === 'string' && v.trim().length === 0) r[k] = undefined;
+  }
+}
+function normalizeImageFieldsOnEvent(ev: MintEvent): void {
+  if (typeof ev.nftImageUrl === 'string' && ev.nftImageUrl.trim().length === 0) {
+    ev.nftImageUrl = null;
+  }
+}
+
 function loadPersistedCollections(): Map<string, MintStatus> {
   if (typeof window === 'undefined') return new Map();
   ensureCacheMigration();
@@ -325,6 +343,7 @@ function loadPersistedCollections(): Map<string, MintStatus> {
       // aggregates and evidence-free Metaplex rows resurrected from
       // pre-fix localStorage state. See `isRenderableMintStatus`.
       if (!isRenderableMintStatus(r)) continue;
+      normalizeImageFieldsOnRow(r);
       out.set(r.groupingKey, r);
       if (out.size >= COLLECTIONS_LOAD_MAX) break;
     }
@@ -371,6 +390,7 @@ function loadPersistedFeed(): MintEvent[] {
       if (typeof ev.receivedAt !== 'number')  continue;
       if (seen.has(ev.signature))             continue;
       seen.add(ev.signature);
+      normalizeImageFieldsOnEvent(ev);
       out.push(ev);
     }
     // Sort newest-first by receivedAt (which is anchored to blockTime when
