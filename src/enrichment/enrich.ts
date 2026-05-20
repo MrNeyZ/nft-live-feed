@@ -1,6 +1,6 @@
 import { SaleEvent } from '../models/sale-event';
 import { getAsset, NftMetadata } from './helius-das';
-import { getMetaplexOnchainMetadata } from './metaplex-onchain';
+import { getMetaplexOnchainMetadata, fetchImageFromJsonUri } from './metaplex-onchain';
 import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
@@ -342,8 +342,20 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
           collectionName:    metadata?.collectionName    ?? null,
           collectionAddress: metadata?.collectionAddress ?? null,
           meCollectionSlug:  metadata?.meCollectionSlug  ?? null,
+          jsonUri:           metadata?.jsonUri ?? null,
         };
       }
+    }
+
+    // ── Off-chain JSON via DAS json_uri (covers MPL Core) ─────────────────────
+    // DAS occasionally returns a json_uri but empty content.links/files —
+    // common for freshly-minted MPL Core assets (no Token-Metadata PDA, so the
+    // on-chain fallback above silently no-ops). Fetch the json_uri ONCE and
+    // pull the image straight from the off-chain JSON. Gated on imageUrl still
+    // null, so it never runs when DAS already gave us an image.
+    if (metadata && !metadata.imageUrl && metadata.jsonUri) {
+      const offImg = await fetchImageFromJsonUri(metadata.jsonUri, mint);
+      if (offImg) metadata = { ...metadata, imageUrl: offImg };
     }
 
     // ── Magic Eden token data (slug + optional name/image + collectionName) ─
