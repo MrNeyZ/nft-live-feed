@@ -590,7 +590,18 @@ const wsEverReal = new Map<string, boolean>(TARGETS.map((t) => [t.name, false]))
  * real quiet period for the high-activity programs (me_v2, mmm) while still
  * recovering within the 10-20 minute degradation window the user observes.
  */
-const STALE_TARGET_MS = 120_000; // 2 minutes
+const STALE_TARGET_MS = 120_000; // 2 minutes — busy targets (me_v2, mmm, tcomp, …)
+// Naturally low-volume programs go minutes between real notifications during
+// quiet hours. Restarting them on the 120s timer just churns the WS and fires
+// a wasted catch-up getSignaturesForAddress sweep for no benefit. Give them a
+// much longer stale threshold; the global tier-1/tier-2 watchdog (slot 20s /
+// event 30s) still catches a genuinely dead connection because the busy
+// targets keep `lastEventTs`/`lastSlotTs` fresh.
+const QUIET_TARGETS: ReadonlySet<string> = new Set(['candy_guard', 'tamm', 'me_cnft']);
+const STALE_TARGET_QUIET_MS = 10 * 60_000; // 10 minutes
+function staleThresholdMs(name: string): number {
+  return QUIET_TARGETS.has(name) ? STALE_TARGET_QUIET_MS : STALE_TARGET_MS;
+}
 
 /** Active program WebSocket per target name. */
 const activeSockets = new Map<string, WebSocket>();
@@ -1391,10 +1402,13 @@ export function startListener(): void {
       restartListeners('stale (no events for 30s)');
     } else {
       // Global connection is healthy — check each subscription individually.
+      // Quiet targets use a longer threshold so their natural silence doesn't
+      // trigger pointless restarts (see staleThresholdMs / QUIET_TARGETS).
       for (const target of TARGETS) {
         const last = lastNotificationTs.get(target.name) ?? now;
-        if (now - last > STALE_TARGET_MS) {
-          restartTarget(target, `stale (no notifications for ${STALE_TARGET_MS / 1000}s)`);
+        const threshold = staleThresholdMs(target.name);
+        if (now - last > threshold) {
+          restartTarget(target, `stale (no notifications for ${threshold / 1000}s)`);
         }
       }
     }
@@ -1405,22 +1419,29 @@ export function startListener(): void {
   const statsLog = setInterval(logStats, 60_000);        statsLog.unref(); intervalHandles.push(statsLog);
   const pollLog  = setInterval(logPollSummary, 60_000);  pollLog.unref();  intervalHandles.push(pollLog);
 
-  // ── Hard periodic refresh (temporary reliability workaround) ─────────────
-  // Every 3 minutes, unconditionally restart every target subscription.
-  const HARD_REFRESH_INTERVAL_MS = 3 * 60_000; // 3 minutes
-  let hardRefreshing = false;
+  // ── Hard periodic refresh (reliability backstop) ─────────────────────────
+  // Unconditionally cycle every target subscription on a slow interval. The
+  // watchdog above is the PRIMARY recovery path; this is a backstop for the
+  // silent-WS failure mode it can't always see. Raised 3 min → 15 min to cut
+  // the periodic getSignaturesForAddress/getTransaction catch-up burst, and
+  // the per-target restarts are STAGGERED with jitter so all subscriptions no
+  // longer tear down + reconnect (+ fire catch-up sweeps) in the same instant.
+  const HARD_REFRESH_INTERVAL_MS = 15 * 60_000; // 15 minutes (was 3 min)
+  const HARD_REFRESH_STAGGER_MS  = 1_500;       // base gap between per-target restarts
 
   const hardRefresh = setInterval(() => {
-    if (!running || restarting || hardRefreshing) return;
-    hardRefreshing = true;
-    console.log('[listener] hard-refresh cycle start');
-    try {
-      for (const target of TARGETS) {
-        restartTarget(target, 'hard periodic refresh (3 min)');
-      }
-    } finally {
-      hardRefreshing = false;
-    }
+    if (!running || restarting) return;
+    console.log('[listener] hard-refresh cycle start (staggered, 15 min)');
+    TARGETS.forEach((target, i) => {
+      // i*step + random jitter within one step → spread the reconnect storm
+      // across ~TARGETS.length × step seconds instead of a single instant.
+      const delay = i * HARD_REFRESH_STAGGER_MS + Math.floor(Math.random() * HARD_REFRESH_STAGGER_MS);
+      const t = setTimeout(() => {
+        if (!running || restarting) return;
+        restartTarget(target, 'hard periodic refresh (15 min)');
+      }, delay);
+      t.unref();
+    });
   }, HARD_REFRESH_INTERVAL_MS);
   hardRefresh.unref();
   intervalHandles.push(hardRefresh);

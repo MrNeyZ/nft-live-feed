@@ -50,7 +50,12 @@ const TARGETS: PollTarget[] = [
 // Tightened back to 2.5 s so that right after a mode switch there is at
 // most a ~2.5 s wait before the first catch-up sweep lands. `startAmmPoller`
 // also fires an immediate `tick()` so the very first sweep runs at t≈0.
-const INTERVAL_MS      = 2_500;
+const INTERVAL_MS      = 5_000;
+/** Intra-tick stagger: space the per-target sweeps within a single tick so
+ *  the 4 programs don't fire getSignaturesForAddress in the same instant
+ *  (de-bursts the RPS graph). 4 targets × 600 ms ≈ 1.8 s max offset, well
+ *  inside INTERVAL_MS; each target keeps its own re-entrancy guard. */
+const TICK_STAGGER_MS  = 600;
 /** Slow tick cadence applied when at least one target is in catch-up
  *  (saturated). Caps RPC during gap-recovery so a sustained backlog
  *  drain can't spam getSignaturesForAddress at full 2.5 s rate. */
@@ -541,12 +546,24 @@ function tick(): void {
     console.log(`[poller] resuming preserved backlog  size=${backlog.length}`);
     kickBacklogDrain();
   }
-  // Fire enabled targets in parallel — each has its own re-entrancy guard,
-  // so overlap between ticks for the same target is prevented without
-  // blocking other targets.
+  // Fire enabled targets — each has its own re-entrancy guard, so overlap
+  // between ticks for the same target is prevented without blocking other
+  // targets. Staggered by TICK_STAGGER_MS so the per-program sig calls don't
+  // all land in the same instant (the first target still fires immediately).
+  let slot = 0;
   for (const t of TARGETS) {
     if (isLeanMode(mode) && !LEAN_MODE_TARGETS.has(t.name)) continue;
-    sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
+    const offset = slot * TICK_STAGGER_MS;
+    slot++;
+    if (offset === 0) {
+      sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
+    } else {
+      const h = setTimeout(() => {
+        if (getMode() === 'off') return; // mode flipped during the stagger window
+        sweepTarget(t).catch((err) => console.error(`[${t.name}] unhandled`, err));
+      }, offset);
+      if (typeof h.unref === 'function') h.unref();
+    }
   }
 }
 
@@ -566,7 +583,7 @@ export function startAmmPoller(): void {
     `  interval=${INTERVAL_MS / 1000}s/${SLOW_INTERVAL_MS / 1000}s  page=${PAGE_SIZE}`
   );
   // Self-rescheduling tick. Picks the next delay based on saturation
-  // state: fast (2.5 s) in steady state, slow (10 s) when at least one
+  // state: fast (5 s) in steady state, slow (10 s) when at least one
   // target reported `saturated=true` on its last sweep. setTimeout +
   // re-arm rather than setInterval so the cadence can flex tick-by-tick
   // without a separate timer-management state machine.
