@@ -640,6 +640,21 @@ type FeedSourceKey = 'all' | 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY';
  *  anchored below-right with two rows of Pills (Type, Source). Closes
  *  on outside click / Escape. The popover never participates in the
  *  table's filter — caller wires only the right-pane state in. */
+// Compact, low-weight settings controls — mirror the Live Feed settings
+// panel (SETTINGS_PILL_* in feed/page.tsx) so the two surfaces read as one
+// product. Subtle purple tint + brighter text when active, NO neon glow.
+const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
+  padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+  background: 'rgba(255, 255, 255, 0.025)',
+  border: '1px solid rgba(255, 255, 255, 0.05)',
+  color: '#8a8aa6', boxShadow: 'none',
+};
+const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
+  padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
+  background: `${color}24`, border: `1px solid ${color}44`,
+  color: '#f0eef8', boxShadow: 'none',
+});
+
 function FeedFiltersPopover({
   feedType, feedSource, setFeedType, setFeedSource, activeCount,
 }: {
@@ -669,13 +684,13 @@ function FeedFiltersPopover({
       document.removeEventListener('keydown',   onKey);
     };
   }, [open]);
-  const label = activeCount > 0 ? `Filters · ${activeCount}` : 'Filters';
+  const label = activeCount > 0 ? `Settings · ${activeCount}` : 'Settings';
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        title="Filter the Live Mint Feed by type and launchpad source"
+        title="Settings — filter the Live Mint Feed by type and launchpad source"
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 4,
           padding: '2px 7px', fontSize: 10, fontWeight: 700, borderRadius: 4,
@@ -699,39 +714,38 @@ function FeedFiltersPopover({
             border: '1px solid rgba(168,144,232,0.28)',
             borderRadius: 6,
             boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.3)',
-            padding: 10, minWidth: 260, zIndex: 30,
+            padding: '8px 10px', minWidth: 270, zIndex: 30,
             // Keep within the right-pane width on narrow viewports —
             // when the panel itself is < 280 px, cap the popover so it
             // doesn't push off-screen.
             maxWidth: 'calc(100vw - 16px)',
-            display: 'flex', flexDirection: 'column', gap: 8,
+            display: 'flex', flexDirection: 'column', gap: 4,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 10, color: '#56566e', minWidth: 42, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Type</span>
-            <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" />
-            <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" />
-            <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" />
-            {/* Visible label "NFT" — narrower than the umbrella sense the
-                label implies, by design: this pill maps to the existing
-                `feedType==='candy'` state which targets Candy Machine /
-                Candy Guard mints only (the filter rule is
-                `sourceLabel === 'Metaplex Candy Machine'`). The
-                rename is UI-only — keeping the state key, the
-                localStorage value, and the filter predicate unchanged
-                preserves anyone's persisted preference and avoids a
-                breaking migration. The adjacent Source-row CANDY pill
-                is the unambiguous launchpad name for the same family,
-                so they're not in tension. */}
-            <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="NFT"   size="sm" />
+          {/* Aligned label/control rows + compact low-weight pills — same
+              system as the Live Feed settings panel (.feed-srow / feed-seg). */}
+          <div className="feed-set-group-hd">Content</div>
+          <div className="feed-srow">
+            <span className="feed-srow-lbl">Type</span>
+            <div className="feed-srow-ctl feed-seg">
+              <Pill active={feedType === 'all'}   onClick={() => setFeedType('all')}   label="Any"   size="sm" style={feedType === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedType === 'cnft'}  onClick={() => setFeedType('cnft')}  label="cNFT"  size="sm" style={feedType === 'cnft'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedType === 'core'}  onClick={() => setFeedType('core')}  label="CORE"  size="sm" style={feedType === 'core'  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              {/* "NFT" maps to the existing `feedType==='candy'` state
+                  (Candy Machine / Candy Guard). UI-only label; state key,
+                  localStorage value, and filter predicate unchanged. */}
+              <Pill active={feedType === 'candy'} onClick={() => setFeedType('candy')} label="NFT"   size="sm" style={feedType === 'candy' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 10, color: '#56566e', minWidth: 42, letterSpacing: '0.4px', textTransform: 'uppercase' }}>Source</span>
-            <Pill active={feedSource === 'all'}   onClick={() => setFeedSource('all')}   label="Any"   size="sm" />
-            <Pill active={feedSource === 'LMNFT'} onClick={() => setFeedSource('LMNFT')} label="LMNFT" size="sm" />
-            <Pill active={feedSource === 'VVV'}   onClick={() => setFeedSource('VVV')}   label="VVV"   size="sm" />
-            <Pill active={feedSource === 'GRAVE'} onClick={() => setFeedSource('GRAVE')} label="GRAVE" size="sm" />
-            <Pill active={feedSource === 'CANDY'} onClick={() => setFeedSource('CANDY')} label="CANDY" size="sm" />
+          <div className="feed-srow">
+            <span className="feed-srow-lbl">Source</span>
+            <div className="feed-srow-ctl feed-seg">
+              <Pill active={feedSource === 'all'}   onClick={() => setFeedSource('all')}   label="Any"   size="sm" style={feedSource === 'all'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedSource === 'LMNFT'} onClick={() => setFeedSource('LMNFT')} label="LMNFT" size="sm" style={feedSource === 'LMNFT' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedSource === 'VVV'}   onClick={() => setFeedSource('VVV')}   label="VVV"   size="sm" style={feedSource === 'VVV'   ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedSource === 'GRAVE'} onClick={() => setFeedSource('GRAVE')} label="GRAVE" size="sm" style={feedSource === 'GRAVE' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              <Pill active={feedSource === 'CANDY'} onClick={() => setFeedSource('CANDY')} label="CANDY" size="sm" style={feedSource === 'CANDY' ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+            </div>
           </div>
         </div>
       )}
@@ -1723,10 +1737,11 @@ export default function MintsPage() {
                 active={mintTab === t}
                 onClick={() => setMintTab(t)}
                 label={t}
-                style={{ padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+                style={{ padding: '3px 13px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
                          textTransform: 'uppercase',
-                         border: mintTab === t ? '1px solid rgba(168,144,232,0.5)' : '1px solid transparent',
-                         background: mintTab === t ? 'rgba(168,144,232,0.18)' : 'transparent' }}
+                         border: mintTab === t ? '1px solid rgba(168,144,232,0.44)' : '1px solid transparent',
+                         background: mintTab === t ? 'rgba(168,144,232,0.20)' : 'transparent',
+                         color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
               />
             ))}
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
@@ -1739,13 +1754,13 @@ export default function MintsPage() {
             <Pill
               active={filtersOpen}
               onClick={() => setFiltersOpen(o => !o)}
-              title="Filters"
+              title="Settings"
               icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-              label="Filters"
+              label="Settings"
               size="sm"
             />
             <span style={{ fontSize: 10, color: '#3a3a52' }}>Timeframe:</span>
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+            <div className="feed-seg" style={{ display: 'flex', background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
               {MINT_TIMEFRAMES.map(t => (
                 <Pill
                   key={t}
@@ -1754,8 +1769,7 @@ export default function MintsPage() {
                   label={t}
                   size="sm"
                   title={MINT_TF_DESC[t]}
-                  style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
-                           background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
+                  style={mintTf === t ? settingsPillActive() : SETTINGS_PILL_INACTIVE}
                 />
               ))}
             </div>
@@ -1778,19 +1792,35 @@ export default function MintsPage() {
             collapsible row visually. State persisted in localStorage
             (vl.mints.sourceFilter / vl.mints.statusFilter). */}
         {filtersOpen && (
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: 'rgba(255,255,255,0.015)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: '#56566e' }}>Source:</span>
-            <Pill active={sourceFilter === 'all'}   onClick={() => setSourceFilter('all')}   label="Any"   size="sm" />
-            <Pill active={sourceFilter === 'LMNFT'} onClick={() => setSourceFilter('LMNFT')} label="LMNFT" size="sm" />
-            <Pill active={sourceFilter === 'VVV'}   onClick={() => setSourceFilter('VVV')}   label="VVV"   size="sm" />
-            <Pill active={sourceFilter === 'CANDY'} onClick={() => setSourceFilter('CANDY')} label="CANDY" size="sm" />
-            <Pill active={sourceFilter === 'CORE'}  onClick={() => setSourceFilter('CORE')}  label="CORE"  size="sm" />
-            <Pill active={sourceFilter === 'GRAVE'} onClick={() => setSourceFilter('GRAVE')} label="GRAVE" size="sm" />
-            <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 6px' }} />
-            <span style={{ fontSize: 10, color: '#56566e' }}>Status:</span>
-            <Pill active={statusFilter === 'any'}     onClick={() => setStatusFilter('any')}     label="Any"         size="sm" />
-            <Pill active={statusFilter === 'active'}  onClick={() => setStatusFilter('active')}  label="Active only" size="sm" />
-            <Pill active={statusFilter === 'soldOut'} onClick={() => setStatusFilter('soldOut')} label="Sold out"    size="sm" />
+          /* Settings panel — same aligned label/control system + compact
+             low-weight pills as the Live Feed settings (.feed-srow / feed-seg).
+             Very subtle separator below; denser than the prior loose row. */
+          <div style={{
+            padding: '8px 12px 9px',
+            borderBottom: '1px solid rgba(168,144,232,0.08)',
+            flexShrink: 0, background: 'rgba(255,255,255,0.015)',
+            display: 'flex', flexDirection: 'column', gap: 4,
+          }}>
+            <div className="feed-srow">
+              <span className="feed-srow-lbl">Source</span>
+              <div className="feed-srow-ctl feed-seg">
+                {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
+                  <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
+                    label={s === 'all' ? 'Any' : s} size="sm"
+                    style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                ))}
+              </div>
+            </div>
+            <div className="feed-srow">
+              <span className="feed-srow-lbl">Status</span>
+              <div className="feed-srow-ctl feed-seg">
+                {([['any','Any'],['active','Active only'],['soldOut','Sold out']] as const).map(([k,lbl]) => (
+                  <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
+                    label={lbl} size="sm"
+                    style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
