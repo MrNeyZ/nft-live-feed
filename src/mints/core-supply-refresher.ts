@@ -36,6 +36,7 @@
  */
 
 import { coreCollectionSupplyTargets, patchAccumulatorCoreSupply } from './accumulator';
+import { isMintTrackerEnabled } from '../runtime/mode';
 
 const REFRESHER_TICK_MS    = 30_000;
 /** Minimum gap between successful refreshes for the same collection.
@@ -156,6 +157,9 @@ function selectBatch(now: number): {
 
 async function tick(): Promise<void> {
   if (inFlight) return;
+  // Mint tracker disabled → no Core supply RPC (getMultipleAccounts). The timer
+  // keeps ticking cheaply and auto-resumes when the tracker is re-enabled.
+  if (!isMintTrackerEnabled()) return;
   inFlight = true;
   const now = Date.now();
   try {

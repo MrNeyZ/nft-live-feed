@@ -19,6 +19,7 @@
  * mint_status frame tells every client to drop it.
  */
 import { getAsset } from '../enrichment/helius-das';
+import { isMintTrackerEnabled } from '../runtime/mode';
 import { fetchImageFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
@@ -198,6 +199,8 @@ export function scheduleCollectionConfirmation(
   signature:        string,
 ): void {
   if (!mintAddress || !parserCollection) return;
+  // Mint tracker disabled → never queue DAS (getAsset) confirmation retries.
+  if (!isMintTrackerEnabled())          return;
   if (pending.has(mintAddress))         return;
   if (pending.size >= MAX_PENDING)      return;   // bounded — drop new arrivals on overflow
 
@@ -252,6 +255,9 @@ function scheduleNext(entry: Pending): void {
 }
 
 async function runAttempt(entry: Pending): Promise<void> {
+  // Tracker turned off after this retry was scheduled → abandon it without
+  // spending a getAsset call (drop the pending entry; no reschedule).
+  if (!isMintTrackerEnabled()) { pending.delete(entry.mintAddress); return; }
   let dasCollection: string | null = null;
   let nftName:        string | null = null;
   let imageUrl:       string | null = null;
