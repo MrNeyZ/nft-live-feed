@@ -134,7 +134,13 @@ function PersistentBottomStatusBar() {
 function GateShell({ children }: { children: ReactNode }) {
   return (
     <>
-      <style>{GATE_CSS}</style>
+      {/* Inject the CSS verbatim. Passing GATE_CSS as a text child made React
+          entity-escape it on the server (content: "" → content: &quot;&quot;;)
+          while <style> is a raw-text element the browser leaves un-decoded —
+          so the server text never matched the client's, triggering a
+          document-level hydration bail (blank loading shell in prod).
+          dangerouslySetInnerHTML emits identical raw CSS on both sides. */}
+      <style dangerouslySetInnerHTML={{ __html: GATE_CSS }} />
       <div className="gate-root">{children}</div>
     </>
   );
