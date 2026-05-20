@@ -19,6 +19,7 @@
  * mint_status frame tells every client to drop it.
  */
 import { getAsset } from '../enrichment/helius-das';
+import { fetchImageFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import {
@@ -267,6 +268,14 @@ async function runAttempt(entry: Pending): Promise<void> {
     nftName        = cleanName(meta.nftName);
     imageUrl       = meta.imageUrl           ?? null;
     collectionName = cleanName(meta.collectionName);
+    // DAS gave a json_uri but no resolved image (empty links/files) — common
+    // for freshly-minted MPL Core assets. Fetch the off-chain JSON once and
+    // pull the image from it. Gated on imageUrl still null; once this lands a
+    // unique image the retry loop below stops, so it isn't refetched per retry.
+    if (!imageUrl && meta.jsonUri) {
+      const offImg = await fetchImageFromJsonUri(meta.jsonUri, entry.mintAddress);
+      if (offImg) imageUrl = offImg;
+    }
   } catch {
     // Transient failure — treat as "no answer this round" and let
     // the next retry attempt try again.

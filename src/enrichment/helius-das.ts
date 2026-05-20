@@ -11,6 +11,11 @@ export interface NftMetadata {
   collectionAddress: string | null;
   /** Magic Eden verified collection slug (e.g. "froganas"). Null when unknown. */
   meCollectionSlug: string | null;
+  /** Off-chain metadata URI from DAS `content.json_uri`. Surfaced so the
+   *  enrichment layer can fetch it directly when DAS resolved no image
+   *  (`content.links`/`files` empty) — common for freshly-minted MPL Core
+   *  assets. Optional; absent on the empty/error metadata objects. */
+  jsonUri?: string | null;
 }
 
 // Minimal shape of the Helius DAS getAsset response we care about.
@@ -23,6 +28,7 @@ interface DasAsset {
     metadata?: { name?: string; token_standard?: string };
     links?: { image?: string; animation_url?: string };
     files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>;
+    json_uri?: string;
   };
   grouping?: Array<{
     group_key: string;
@@ -129,6 +135,7 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
     collectionName: collection?.collection_metadata?.name ?? null,
     collectionAddress: collection?.group_value ?? null,
     meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
+    jsonUri: asset?.content?.json_uri ?? null,
   };
 }
 
@@ -234,6 +241,7 @@ export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVer
       collectionName:    collection?.collection_metadata?.name  ?? null,
       collectionAddress: collection?.group_value                ?? null,
       meCollectionSlug:  null,
+      jsonUri:           asset?.content?.json_uri               ?? null,
     };
     return { verdict: classifyDasAsset(asset), meta };
   } catch {

@@ -127,10 +127,26 @@ function parseMetadataAccount(data: Buffer): { name: string; uri: string } | nul
 
 // ─── URI normalisation ────────────────────────────────────────────────────────
 
-/** Converts IPFS / Arweave shorthand URIs to fetchable HTTPS URLs. */
+/** Converts IPFS / Arweave shorthand URIs to fetchable HTTPS URLs, and
+ *  reshapes a dead-prone Pinata dedicated gateway to the public ipfs.io
+ *  gateway. CID is content-addressable so ipfs.io serves byte-identical
+ *  bytes; this mirrors the /thumb edge rewrite, but applied here only when
+ *  fetching the off-chain JSON / resolving its image URL.
+ *
+ *  Note: `gateway.irys.xyz` is deliberately NOT rewritten to arweave.net —
+ *  newer Irys uploads (datasprite CDN) are not mirrored to Arweave and 404
+ *  there, so a blanket rewrite would break them. */
 function normaliseUri(uri: string): string {
   if (uri.startsWith('ipfs://')) return `https://ipfs.io/ipfs/${uri.slice(7)}`;
   if (uri.startsWith('ar://'))   return `https://arweave.net/${uri.slice(5)}`;
+  try {
+    const u = new URL(uri);
+    if (u.hostname.endsWith('.mypinata.cloud') && u.pathname.startsWith('/ipfs/')) {
+      u.hostname = 'ipfs.io';
+      u.search   = '';   // dedicated-gateway query params are noise on ipfs.io
+      return u.toString();
+    }
+  } catch { /* not an absolute URL — leave unchanged */ }
   return uri;
 }
 
@@ -248,5 +264,121 @@ export async function getMetaplexOnchainMetadata(
   } catch (err) {
     console.warn(`[enrich] on-chain meta failed ${mint.slice(0, 8)}...: ${(err as Error).message}`);
     return {};
+  }
+}
+
+// ─── DAS json_uri image fallback ────────────────────────────────────────────
+
+const JSON_FETCH_TIMEOUT_MS = 8_000;
+// Off-chain NFT metadata JSON is tiny (~1–2 KB). Cap defensively so a
+// misbehaving / hostile endpoint can't stream an unbounded body into memory.
+const JSON_MAX_BYTES = 512 * 1024;
+// Extensions we treat as a still image (NOT video) when the off-chain JSON
+// only gives us a URL without a usable MIME type.
+const VIDEO_EXTS = /\.(mp4|mov|webm|m4v)(\?|$)/i;
+
+/**
+ * Picks a still-image URL from a parsed off-chain metadata JSON, in order:
+ *   1. `image`                              — canonical still field
+ *   2. `properties.files[].uri` typed image/* — explicit image MIME
+ *   3. `properties.files[].uri` with image extension
+ *   4. `animation_url`                      — ONLY when it is clearly a static
+ *                                             image (image extension), never video
+ *
+ * A video asset (category "video", a video extension, or a file whose type is
+ * `video/*`) is intentionally NOT returned here — image===animation_url===mp4
+ * is handled by the DAS video branch / ME img-cdn path, not this fallback.
+ */
+function pickOffchainImage(meta: {
+  image?:         string;
+  animation_url?: string;
+  properties?: { files?: Array<{ uri?: string; type?: string }>; category?: string };
+}): string | null {
+  const files    = meta.properties?.files ?? [];
+  const category = meta.properties?.category;
+
+  // 1. canonical `image` — unless it actually points at a video.
+  if (meta.image && category !== 'video' && !VIDEO_EXTS.test(meta.image)) {
+    const matching = files.find((f) => f.uri === meta.image);
+    if (!matching || !matching.type?.startsWith('video/')) return meta.image;
+  }
+  // 2. first file explicitly typed image/*
+  for (const f of files) {
+    if (f.uri && f.type?.startsWith('image/')) return f.uri;
+  }
+  // 3. first file whose URI carries an image extension
+  for (const f of files) {
+    if (isImageUri(f.uri)) return f.uri;
+  }
+  // 4. animation_url only when the extension confirms it is a static image
+  if (isImageUri(meta.animation_url)) return meta.animation_url;
+
+  return null;
+}
+
+/**
+ * Last-resort image resolver: fetch the DAS `content.json_uri` directly and
+ * extract a still-image URL from the off-chain JSON.
+ *
+ * Why this exists: DAS getAsset sometimes returns a `json_uri` but empty
+ * `content.links`/`files` — common for freshly-minted MPL Core assets whose
+ * off-chain JSON Helius hasn't indexed yet (and `getMetaplexOnchainMetadata`
+ * can't help Core — no Token-Metadata PDA). The off-chain JSON itself usually
+ * has a perfectly good `image`. Verified against Syndicate Founder Capos
+ * (mint BZi99puCZvsPy8yo4N2CdXUfW23ovTnTmuL6xcQ4gytA).
+ *
+ * Single fetch, fail-soft (never throws — returns null on any failure so
+ * enrichment keeps `imageUrl` null), timeout + size cap. The returned URL is
+ * gateway-normalised (ipfs:// / ar:// / dead Pinata gateway) so it is directly
+ * usable; `gateway.irys.xyz` URLs are returned as-is (see normaliseUri).
+ */
+export async function fetchImageFromJsonUri(
+  jsonUri: string,
+  mint: string,
+): Promise<string | null> {
+  const tag = mint.slice(0, 8);
+  try {
+    const url = normaliseUri(jsonUri);
+    if (!/^https?:\/\//i.test(url)) {
+      console.log(`[enrich/json-uri] mint=${tag} image=no reason=unsupported_scheme`);
+      return null;
+    }
+
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal:  AbortSignal.timeout(JSON_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.log(`[enrich/json-uri] mint=${tag} image=no reason=http_${res.status}`);
+      return null;
+    }
+
+    const declaredLen = Number(res.headers.get('content-length') ?? '0');
+    if (declaredLen && declaredLen > JSON_MAX_BYTES) {
+      console.log(`[enrich/json-uri] mint=${tag} image=no reason=too_large`);
+      return null;
+    }
+    const text = await res.text();
+    if (text.length > JSON_MAX_BYTES) {
+      console.log(`[enrich/json-uri] mint=${tag} image=no reason=too_large_body`);
+      return null;
+    }
+
+    let parsed: Parameters<typeof pickOffchainImage>[0];
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      console.log(`[enrich/json-uri] mint=${tag} image=no reason=bad_json`);
+      return null;
+    }
+
+    const raw = avifToPng(pickOffchainImage(parsed));
+    const image = raw ? normaliseUri(raw) : null;
+    console.log(`[enrich/json-uri] mint=${tag} image=${image ? 'yes' : 'no'} reason=${image ? 'ok' : 'no_image'}`);
+    return image;
+  } catch (err) {
+    const reason = (err as Error)?.name === 'TimeoutError' ? 'timeout' : 'fetch_error';
+    console.log(`[enrich/json-uri] mint=${tag} image=no reason=${reason}`);
+    return null;
   }
 }
