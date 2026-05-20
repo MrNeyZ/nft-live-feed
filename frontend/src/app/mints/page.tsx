@@ -1746,7 +1746,18 @@ export default function MintsPage() {
             <span style={{ marginLeft: 6 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: '#3a3a52', letterSpacing: '0.4px' }}>Timeframe</span>
+            {/* Settings pill sits where the "Timeframe" text label used to be,
+                then the timeframe segmented control immediately after. Toggles
+                the embedded Source/Status filter section inline (collapsed by
+                default; not a floating popover). */}
+            <Pill
+              active={settingsOpen}
+              onClick={() => setSettingsOpen(o => !o)}
+              title="Settings — show/hide collection filters"
+              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+              label="Settings"
+              size="sm"
+            />
             {/* Old dense segmented styling (tight pills in a dark shell). */}
             <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
               {MINT_TIMEFRAMES.map(t => (
@@ -1762,16 +1773,6 @@ export default function MintsPage() {
                 />
               ))}
             </div>
-            {/* Toggles the embedded Source/Status filter section inline
-                (collapsed by default; not a floating popover). */}
-            <Pill
-              active={settingsOpen}
-              onClick={() => setSettingsOpen(o => !o)}
-              title="Settings — show/hide collection filters"
-              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-              label="Settings"
-              size="sm"
-            />
           </div>
         </div>
 
@@ -1955,11 +1956,6 @@ export default function MintsPage() {
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 10, color: '#55556e' }}>
-                {visibleEvents.length === 0
-                  ? 'waiting…'
-                  : `${visibleEvents.length} recent · max ${LIVE_FEED_MAX}`}
-              </span>
               {/* Feed Filters popover — replaces the prior cNFT ON/OFF
                   pill. Two orthogonal axes (type + source) that the
                   user toggles independently; both default to Any. The
