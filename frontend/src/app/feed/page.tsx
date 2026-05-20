@@ -809,6 +809,24 @@ const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
   color: '#8e8eb0',
 };
 
+/** Compact, low-weight settings pills (~22px). Subtle purple tint + brighter
+ *  text when active — NO neon glow, no thick bright border. Used across the
+ *  refactored settings panel so all controls share one quiet visual weight. */
+const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
+  padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+  background: 'rgba(255, 255, 255, 0.025)',
+  border: '1px solid rgba(255, 255, 255, 0.05)',
+  color: '#8a8aa6',
+  boxShadow: 'none',
+};
+const settingsPillActive = (color: string): React.CSSProperties => ({
+  padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
+  background: `${color}24`,
+  border: `1px solid ${color}44`,
+  color: '#f0eef8',
+  boxShadow: 'none',
+});
+
 /** Density pills are the primary "feed mode" control inside the
  *  filters panel — sized noticeably larger than the Type/Price
  *  utility pills so they read as a segmented control rather than
@@ -883,7 +901,7 @@ export default function FeedPage() {
   // Price-tier quick filter. Independent of `filter` (Type) — both can
   // be active at once. Only one price tier can be selected at a time;
   // clicking the active tier flips back to 'all'.
-  const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01'>('all');
+  const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01' | 'p1'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
   // Temporary, frontend-only collection blacklist (independent of WATCH).
@@ -1440,6 +1458,7 @@ export default function FeedPage() {
       if (!Number.isFinite(candidate) || candidate <= 0) return false;
       if (priceFilter === 'p001' && candidate < 0.01) return false;
       if (priceFilter === 'p01'  && candidate < 0.1)  return false;
+      if (priceFilter === 'p1'   && candidate < 1)    return false;
     }
     const t = e.saleTypeRaw;
     if (filter === 'buy')     return t === SALE_TYPE_BUY;
@@ -1622,278 +1641,199 @@ export default function FeedPage() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {filtersMounted && (
                 <div className={`feed-filters-panel ${filtersOpen ? 'feed-filters-panel-open' : 'feed-filters-panel-close'}`}>
-                  {/* Two balanced columns on desktop/tablet (collapses to one
-                      on narrow widths via CSS): LEFT = Type · Density · Watch,
-                      RIGHT = Price · Hover pause · Blacklist. */}
-                  <div className="feed-settings-grid">
-                  <div className="feed-settings-col">
-                  {/* TYPE row — sale-direction filter. Active pill keeps
-                      its per-color highlight (green for buy / red for
-                      sell / lilac for all + listing); inactive pills go
-                      ghost (transparent bg, faint border) so the active
-                      selection reads at a glance. */}
-                  <div className="feed-filter-row">
-                    <span className="feed-filter-label">Type</span>
-                    <div className="feed-filter-pills">
-                      {FILTERS.map(f => {
-                        const isActive = filter === f.key;
-                        return (
-                          <Pill
-                            key={f.key}
-                            active={isActive}
-                            color={f.color}
-                            onClick={() => setFilter(f.key)}
-                            label={f.label}
-                            size="sm"
-                            style={isActive ? {
-                              background:  `${f.color}38`,
-                              border:      `1px solid ${f.color}`,
-                              boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
-                              fontWeight:  700,
-                            } : FILTER_PILL_INACTIVE_STYLE}
-                          />
-                        );
-                      })}
+                  {/* Settings organized into three semantic groups, each an
+                      aligned label/control grid. Compact, low-weight controls
+                      (see SETTINGS_PILL_* + .feed-srow). Collapses to a single
+                      column on narrow widths via CSS. */}
+                  <div className="feed-settings">
+                    {/* GROUP 1 — CONTENT (sale-direction filter) */}
+                    <div className="feed-set-group feed-set-group--content">
+                      <div className="feed-set-group-hd">Content</div>
+                      <div className="feed-srow">
+                        <span className="feed-srow-lbl">Type</span>
+                        <div className="feed-srow-ctl">
+                          {FILTERS.map(f => {
+                            const isActive = filter === f.key;
+                            return (
+                              <Pill
+                                key={f.key}
+                                active={isActive}
+                                color={f.color}
+                                onClick={() => setFilter(f.key)}
+                                label={f.label}
+                                size="sm"
+                                style={isActive ? settingsPillActive(f.color) : SETTINGS_PILL_INACTIVE}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  {/* DENSITY row — primary control inside the filters
-                      panel (changes the whole feed mode). The lift
-                      lives on the pills themselves: larger sizing
-                      (default `Pill` size, NOT 'sm', plus extra
-                      horizontal padding via DENSITY_PILL_*_STYLE) and
-                      a stronger active glow so the row reads as a
-                      segmented mode control rather than yet another
-                      tiny toggle. The `feed-filter-row-priority`
-                      class only nudges the "Density" label color
-                      brighter — no row-bg wash. State + persistence
-                      (`vl.feed.density` localStorage) unchanged. */}
-                  <div
-                    className="feed-filter-row feed-filter-row-priority"
-                    role="group"
-                    aria-label="Card density"
-                  >
-                    <span className="feed-filter-label">Density</span>
-                    <div className="feed-filter-pills">
-                      {DENSITIES.map(d => {
-                        const isActive = density === d;
-                        const color = '#a890e8';
-                        return (
-                          <Pill
-                            key={d}
-                            active={isActive}
-                            color={color}
-                            onClick={() => setDensity(d)}
-                            label={d.charAt(0).toUpperCase() + d.slice(1)}
-                            title={
-                              d === 'comfy'   ? 'Comfy — slightly more breathing room' :
-                              d === 'compact' ? 'Compact — current polished baseline'  :
-                                                'Tape — ultra-dense trading-tape view'
-                            }
-                            style={isActive ? DENSITY_PILL_ACTIVE_STYLE : DENSITY_PILL_INACTIVE_STYLE}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* WATCH row — slug input + compact "+" Add button +
-                      active-filter chip. "Watch" semantics: pin the
-                      feed to a specific collection slug. Input has its
-                      own `feed-coll-input` class (focus glow,
-                      monospace placeholder) in globals.css. */}
-                  <div className="feed-filter-row">
-                    <span className="feed-filter-label">Watch</span>
-                    <div className="feed-filter-pills">
-                      <input
-                        className="feed-coll-input"
-                        value={collInput}
-                        onChange={(e) => setCollInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const v = collInput.trim();
-                            if (v) { setCollFilter(v); setCollInput(''); }
-                          }
-                        }}
-                        placeholder="collection slug…"
-                        spellCheck={false}
-                        autoComplete="off"
-                      />
-                      <Pill
-                        active
-                        color="#a890e8"
-                        onClick={() => {
-                          const v = collInput.trim();
-                          if (v) { setCollFilter(v); setCollInput(''); }
-                        }}
-                        label="+"
-                        title="Add collection filter (Enter)"
-                        size="sm"
-                        style={{
-                          padding: '2px 9px', fontWeight: 700,
-                          background: 'rgba(168, 144, 232, 0.20)',
-                          border: '1px solid rgba(168, 144, 232, 0.50)',
-                          boxShadow: '0 0 0 1px rgba(168, 144, 232, 0.18), 0 0 6px rgba(168, 144, 232, 0.14)',
-                        }}
-                      />
-                      {collFilter && (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
-                          borderRadius: 4, letterSpacing: '0.2px',
-                          border: '1px solid #a890e866',
-                          background: '#a890e822',
-                          color: '#a890e8',
-                          fontFamily: "'SF Mono','Fira Code',monospace",
-                          maxWidth: 240, overflow: 'hidden',
-                        }}>
-                          <span style={{
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>{collFilter}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCollFilter(null)}
-                            title="Clear collection filter"
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              width: 14, height: 14, padding: 0, borderRadius: 3,
-                              border: 'none', background: 'transparent',
-                              color: '#a890e8', cursor: 'pointer', fontSize: 11, lineHeight: 1,
-                            }}
-                          >✕</button>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  </div>{/* /left column */}
 
-                  <div className="feed-settings-col">
-                  {/* PRICE row — minimum-price toggles. Re-clicking the
-                      active pill clears back to 'all'. */}
-                  <div className="feed-filter-row">
-                    <span className="feed-filter-label">Price</span>
-                    <div className="feed-filter-pills">
-                      {([
-                        { key: 'p001', label: '0.01+' },
-                        { key: 'p01',  label: '0.1+'  },
-                      ] as const).map(p => {
-                        const isActive = priceFilter === p.key;
-                        const color = '#a890e8';
-                        return (
-                          <Pill
-                            key={p.key}
-                            active={isActive}
-                            color={color}
-                            onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
-                            label={p.label}
-                            size="sm"
-                            style={isActive ? {
-                              background:  `${color}38`,
-                              border:      `1px solid ${color}`,
-                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
-                              fontWeight:  700,
-                            } : FILTER_PILL_INACTIVE_STYLE}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* HOVER PAUSE row — segmented On/Off. Moved here from the
-                      top toolbar. Behavior unchanged: when On, hovering the
-                      feed list auto-pauses the stream and leaving resumes;
-                      manual Pause still overrides. Turning Off clears any
-                      in-effect hover pause so the stream resumes immediately. */}
-                  <div className="feed-filter-row" role="group" aria-label="Hover pause">
-                    <span className="feed-filter-label">Hover</span>
-                    <div className="feed-filter-pills">
-                      {([['On', true], ['Off', false]] as const).map(([lbl, val]) => {
-                        const isActive = hoverPauseEnabled === val;
-                        const color = '#a890e8';
-                        return (
-                          <Pill
-                            key={lbl}
-                            active={isActive}
-                            color={color}
-                            onClick={() => setHoverPauseEnabled(prev => {
-                              if (prev === val) return prev;
-                              if (!val) setHoverPaused(false);
-                              return val;
-                            })}
-                            label={lbl}
-                            title={val ? 'Auto-pause the stream while the cursor is over the feed' : 'Disable hover auto-pause'}
-                            size="sm"
-                            style={isActive ? {
-                              background:  `${color}38`,
-                              border:      `1px solid ${color}`,
-                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
-                              fontWeight:  700,
-                            } : FILTER_PILL_INACTIVE_STYLE}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* BLACKLIST row — temporary, frontend-only collection
-                      exclude. Mirrors the WATCH row's input / "+" / chip
-                      styling (pink accent to read as "exclude" vs WATCH's
-                      purple "narrow"). Independent of WATCH: WATCH narrows,
-                      BLACKLIST always excludes. Multi-slug with removable
-                      chips; never persisted, never sent to the backend. */}
-                  <div className="feed-filter-row">
-                    <span className="feed-filter-label">Blacklist</span>
-                    <div className="feed-filter-pills">
-                      <input
-                        className="feed-coll-input"
-                        value={blInput}
-                        onChange={(e) => setBlInput(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
-                        placeholder="collection slug…"
-                        spellCheck={false}
-                        autoComplete="off"
-                      />
-                      <Pill
-                        active
-                        color="#e58aa3"
-                        onClick={() => addBlacklist(blInput)}
-                        label="+"
-                        title="Add to blacklist (Enter)"
-                        size="sm"
-                        style={{
-                          padding: '2px 9px', fontWeight: 700,
-                          background: 'rgba(229, 138, 163, 0.20)',
-                          border: '1px solid rgba(229, 138, 163, 0.50)',
-                          boxShadow: '0 0 0 1px rgba(229, 138, 163, 0.18), 0 0 6px rgba(229, 138, 163, 0.14)',
-                        }}
-                      />
-                      {blacklistSlugs.map((slug) => (
-                        <span key={slug} style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          padding: '2px 4px 2px 8px', fontSize: 10.5, fontWeight: 600,
-                          borderRadius: 4, letterSpacing: '0.2px',
-                          border: '1px solid #e58aa366',
-                          background: '#e58aa322',
-                          color: '#e58aa3',
-                          fontFamily: "'SF Mono','Fira Code',monospace",
-                          maxWidth: 240, overflow: 'hidden',
-                        }}>
-                          <span style={{
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>{slug}</span>
+                    {/* GROUP 2 — DISPLAY (price · density · hover pause) */}
+                    <div className="feed-set-group feed-set-group--display">
+                      <div className="feed-set-group-hd">Display</div>
+                      {/* PRICE — segmented min-price selector. 'Any' clears the
+                          gate; thresholds match the existing filter logic. */}
+                      <div className="feed-srow" role="group" aria-label="Minimum price">
+                        <span className="feed-srow-lbl">Price</span>
+                        <div className="feed-srow-ctl feed-seg">
+                          {([
+                            { key: 'all',  label: 'Any'  },
+                            { key: 'p001', label: '0.01' },
+                            { key: 'p01',  label: '0.1'  },
+                            { key: 'p1',   label: '1.0'  },
+                          ] as const).map(p => {
+                            const isActive = priceFilter === p.key;
+                            return (
+                              <Pill
+                                key={p.key}
+                                active={isActive}
+                                color="#a890e8"
+                                onClick={() => setPriceFilter(p.key)}
+                                label={p.label}
+                                size="sm"
+                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* DENSITY — feed mode (vl.feed.density persistence unchanged) */}
+                      <div className="feed-srow" role="group" aria-label="Card density">
+                        <span className="feed-srow-lbl">Density</span>
+                        <div className="feed-srow-ctl feed-seg">
+                          {DENSITIES.map(d => {
+                            const isActive = density === d;
+                            return (
+                              <Pill
+                                key={d}
+                                active={isActive}
+                                color="#a890e8"
+                                onClick={() => setDensity(d)}
+                                label={d.charAt(0).toUpperCase() + d.slice(1)}
+                                title={
+                                  d === 'comfy'   ? 'Comfy — slightly more breathing room' :
+                                  d === 'compact' ? 'Compact — current polished baseline'  :
+                                                    'Tape — ultra-dense trading-tape view'
+                                }
+                                size="sm"
+                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* HOVER PAUSE — iOS-style switch. Behavior unchanged:
+                          On = hovering the feed list auto-pauses + leaving
+                          resumes; manual Pause overrides. Turning Off clears
+                          any in-effect hover pause so the stream resumes. */}
+                      <div className="feed-srow" role="group" aria-label="Hover pause">
+                        <span className="feed-srow-lbl">Hover</span>
+                        <div className="feed-srow-ctl">
                           <button
                             type="button"
-                            onClick={() => removeBlacklist(slug)}
-                            title="Remove from blacklist"
-                            style={{
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              width: 14, height: 14, padding: 0, borderRadius: 3,
-                              border: 'none', background: 'transparent',
-                              color: '#e58aa3', cursor: 'pointer', fontSize: 11, lineHeight: 1,
-                            }}
-                          >✕</button>
-                        </span>
-                      ))}
+                            role="switch"
+                            aria-checked={hoverPauseEnabled}
+                            title="Auto-pause the stream while the cursor is over the feed"
+                            onClick={() => setHoverPauseEnabled(prev => {
+                              const next = !prev;
+                              if (!next) setHoverPaused(false);
+                              return next;
+                            })}
+                            className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
+                          >
+                            <span className="vl-switch-thumb" />
+                          </button>
+                          <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  </div>{/* /right column */}
-                  </div>{/* /feed-settings-grid */}
+
+                    {/* GROUP 3 — LISTS (watch · blacklist) */}
+                    <div className="feed-set-group feed-set-group--lists">
+                      <div className="feed-set-group-hd">Lists</div>
+                      {/* WATCH — pin the feed to one collection slug. */}
+                      <div className="feed-srow">
+                        <span className="feed-srow-lbl">Watch</span>
+                        <div className="feed-srow-ctl">
+                          <input
+                            className="feed-coll-input"
+                            value={collInput}
+                            onChange={(e) => setCollInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const v = collInput.trim();
+                                if (v) { setCollFilter(v); setCollInput(''); }
+                              }
+                            }}
+                            placeholder="collection slug…"
+                            spellCheck={false}
+                            autoComplete="off"
+                          />
+                          <Pill
+                            active
+                            color="#a890e8"
+                            onClick={() => {
+                              const v = collInput.trim();
+                              if (v) { setCollFilter(v); setCollInput(''); }
+                            }}
+                            label="+"
+                            title="Add collection filter (Enter)"
+                            size="sm"
+                            style={settingsPillActive('#a890e8')}
+                          />
+                          {collFilter && (
+                            <span className="feed-chip feed-chip-watch">
+                              <span className="feed-chip-txt">{collFilter}</span>
+                              <button
+                                type="button"
+                                onClick={() => setCollFilter(null)}
+                                title="Clear collection filter"
+                                className="feed-chip-x"
+                              >✕</button>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* BLACKLIST — temporary, frontend-only excludes (pink).
+                          Multi-slug; never persisted / sent to the backend. */}
+                      <div className="feed-srow">
+                        <span className="feed-srow-lbl">Blacklist</span>
+                        <div className="feed-srow-ctl">
+                          <input
+                            className="feed-coll-input"
+                            value={blInput}
+                            onChange={(e) => setBlInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
+                            placeholder="collection slug…"
+                            spellCheck={false}
+                            autoComplete="off"
+                          />
+                          <Pill
+                            active
+                            color="#e58aa3"
+                            onClick={() => addBlacklist(blInput)}
+                            label="+"
+                            title="Add to blacklist (Enter)"
+                            size="sm"
+                            style={settingsPillActive('#e58aa3')}
+                          />
+                          {blacklistSlugs.map((slug) => (
+                            <span key={slug} className="feed-chip feed-chip-bl">
+                              <span className="feed-chip-txt">{slug}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeBlacklist(slug)}
+                                title="Remove from blacklist"
+                                className="feed-chip-x"
+                              >✕</button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>{/* /feed-settings */}
                 </div>
               )}
 
