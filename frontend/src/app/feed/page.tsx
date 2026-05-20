@@ -1602,30 +1602,13 @@ export default function FeedPage() {
                 <Pill
                   active={filtersOpen}
                   onClick={() => setFiltersOpen(o => !o)}
-                  title="Filters"
+                  title="Settings"
                   icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-                  label="Filters"
+                  label="Settings"
                 />
-                {/* Density moved into the Filters panel below — top
-                    bar reduces to [Filters][Pause] for cleaner
-                    hierarchy (feed cards remain the page focus,
-                    secondary controls live behind the Filters
-                    toggle). Existing `vl.feed.density` localStorage
-                    + state logic unchanged. */}
-                {/* Hover auto-pause toggle. Subtle purple when armed (matches
-                    the WATCH accent), muted when off. Disabling also clears any
-                    in-effect hover pause so the stream resumes immediately. */}
-                <Pill
-                  active={hoverPauseEnabled}
-                  color={hoverPauseEnabled ? '#a890e8' : '#55556e'}
-                  onClick={() => setHoverPauseEnabled(v => {
-                    const next = !v;
-                    if (!next) setHoverPaused(false);
-                    return next;
-                  })}
-                  title="Auto-pause the stream while the cursor is over the feed"
-                  label={hoverPauseEnabled ? '⤓ Hover-pause' : 'Hover-pause off'}
-                />
+                {/* Density + Hover-pause live inside the Settings panel below —
+                    the top bar stays [Settings][Pause]. (vl.feed.density
+                    persistence + pause logic unchanged.) */}
                 <Pill
                   active
                   color={paused ? '#c9a820' : '#5ce0a0'}
@@ -1639,6 +1622,11 @@ export default function FeedPage() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
               {filtersMounted && (
                 <div className={`feed-filters-panel ${filtersOpen ? 'feed-filters-panel-open' : 'feed-filters-panel-close'}`}>
+                  {/* Two balanced columns on desktop/tablet (collapses to one
+                      on narrow widths via CSS): LEFT = Type · Density · Watch,
+                      RIGHT = Price · Hover pause · Blacklist. */}
+                  <div className="feed-settings-grid">
+                  <div className="feed-settings-col">
                   {/* TYPE row — sale-direction filter. Active pill keeps
                       its per-color highlight (green for buy / red for
                       sell / lilac for all + listing); inactive pills go
@@ -1661,36 +1649,6 @@ export default function FeedPage() {
                               background:  `${f.color}38`,
                               border:      `1px solid ${f.color}`,
                               boxShadow:   `0 0 0 1px ${f.color}33, 0 0 8px ${f.color}40`,
-                              fontWeight:  700,
-                            } : FILTER_PILL_INACTIVE_STYLE}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {/* PRICE row — minimum-price toggles. Re-clicking the
-                      active pill clears back to 'all'. */}
-                  <div className="feed-filter-row">
-                    <span className="feed-filter-label">Price</span>
-                    <div className="feed-filter-pills">
-                      {([
-                        { key: 'p001', label: '0.01+' },
-                        { key: 'p01',  label: '0.1+'  },
-                      ] as const).map(p => {
-                        const isActive = priceFilter === p.key;
-                        const color = '#a890e8';
-                        return (
-                          <Pill
-                            key={p.key}
-                            active={isActive}
-                            color={color}
-                            onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
-                            label={p.label}
-                            size="sm"
-                            style={isActive ? {
-                              background:  `${color}38`,
-                              border:      `1px solid ${color}`,
-                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
                               fontWeight:  700,
                             } : FILTER_PILL_INACTIVE_STYLE}
                           />
@@ -1805,6 +1763,74 @@ export default function FeedPage() {
                       )}
                     </div>
                   </div>
+                  </div>{/* /left column */}
+
+                  <div className="feed-settings-col">
+                  {/* PRICE row — minimum-price toggles. Re-clicking the
+                      active pill clears back to 'all'. */}
+                  <div className="feed-filter-row">
+                    <span className="feed-filter-label">Price</span>
+                    <div className="feed-filter-pills">
+                      {([
+                        { key: 'p001', label: '0.01+' },
+                        { key: 'p01',  label: '0.1+'  },
+                      ] as const).map(p => {
+                        const isActive = priceFilter === p.key;
+                        const color = '#a890e8';
+                        return (
+                          <Pill
+                            key={p.key}
+                            active={isActive}
+                            color={color}
+                            onClick={() => setPriceFilter(prev => prev === p.key ? 'all' : p.key)}
+                            label={p.label}
+                            size="sm"
+                            style={isActive ? {
+                              background:  `${color}38`,
+                              border:      `1px solid ${color}`,
+                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
+                              fontWeight:  700,
+                            } : FILTER_PILL_INACTIVE_STYLE}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* HOVER PAUSE row — segmented On/Off. Moved here from the
+                      top toolbar. Behavior unchanged: when On, hovering the
+                      feed list auto-pauses the stream and leaving resumes;
+                      manual Pause still overrides. Turning Off clears any
+                      in-effect hover pause so the stream resumes immediately. */}
+                  <div className="feed-filter-row" role="group" aria-label="Hover pause">
+                    <span className="feed-filter-label">Hover</span>
+                    <div className="feed-filter-pills">
+                      {([['On', true], ['Off', false]] as const).map(([lbl, val]) => {
+                        const isActive = hoverPauseEnabled === val;
+                        const color = '#a890e8';
+                        return (
+                          <Pill
+                            key={lbl}
+                            active={isActive}
+                            color={color}
+                            onClick={() => setHoverPauseEnabled(prev => {
+                              if (prev === val) return prev;
+                              if (!val) setHoverPaused(false);
+                              return val;
+                            })}
+                            label={lbl}
+                            title={val ? 'Auto-pause the stream while the cursor is over the feed' : 'Disable hover auto-pause'}
+                            size="sm"
+                            style={isActive ? {
+                              background:  `${color}38`,
+                              border:      `1px solid ${color}`,
+                              boxShadow:   `0 0 0 1px ${color}33, 0 0 8px ${color}40`,
+                              fontWeight:  700,
+                            } : FILTER_PILL_INACTIVE_STYLE}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
                   {/* BLACKLIST row — temporary, frontend-only collection
                       exclude. Mirrors the WATCH row's input / "+" / chip
                       styling (pink accent to read as "exclude" vs WATCH's
@@ -1866,6 +1892,8 @@ export default function FeedPage() {
                       ))}
                     </div>
                   </div>
+                  </div>{/* /right column */}
+                  </div>{/* /feed-settings-grid */}
                 </div>
               )}
 
