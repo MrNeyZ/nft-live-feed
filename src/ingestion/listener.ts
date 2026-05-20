@@ -124,12 +124,15 @@ const MINT_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['mpl_core', 'token_
 const MINT_TARGET_NAMES: ReadonlySet<string> = new Set(['mpl_core', 'token_metadata', 'candy_guard']);
 
 /** Per-target activity gate — replaces the global `getMode() !== 'off'`
- *  check at every WS / poll entry point. Sales targets stop with mode
- *  off; mint targets stop only when both mode is off AND the env-gated
- *  mint tracker is disabled. */
+ *  check at every WS / poll entry point. The two subsystems are gated
+ *  INDEPENDENTLY: mint targets follow the mint-tracker flag (regardless of
+ *  sales mode), sales targets follow the sales runtime mode (regardless of
+ *  the mint flag). This is what makes `sales_only + mint_tracker=off` stop
+ *  spending mint RPC (getTransaction) while sales keep flowing, and
+ *  `off + mint_tracker=on` keep mints flowing while sales are silent. */
 function isTargetActive(targetName: string): boolean {
-  if (getMode() !== 'off') return true;
-  return MINT_TARGET_NAMES.has(targetName) && isMintTrackerEnabled();
+  if (MINT_TARGET_NAMES.has(targetName)) return isMintTrackerEnabled();
+  return getMode() !== 'off';
 }
 
 /** Targets the SHARED `pollAll` loop must skip.

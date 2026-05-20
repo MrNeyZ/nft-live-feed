@@ -14,6 +14,7 @@
 
 import { verifyAndFetchAsset } from '../enrichment/helius-das';
 import { patchAccumulatorMeta, evictMintGroup } from './accumulator';
+import { isMintTrackerEnabled } from '../runtime/mode';
 
 const REQUEST_GAP_MS    = 500;
 const PENDING_MAX       = 200;
@@ -32,6 +33,8 @@ let workerScheduled            = false;
 
 export function enqueueMintEnrichment(groupingKey: string, mintAddress: string): void {
   if (!mintAddress) return;
+  // Mint tracker disabled → never spend DAS (getAsset) credits enriching mints.
+  if (!isMintTrackerEnabled()) return;
   if (verifiedMints.has(mintAddress)) return;       // already attempted
   verifiedMints.add(mintAddress);
   pending.push({ groupingKey, mintAddress });
@@ -75,6 +78,9 @@ function isConfirmedFungibleVerdict(reason: string | undefined): boolean {
 
 async function runWorker(): Promise<void> {
   while (pending.length > 0) {
+    // Tracker turned off mid-drain → drop the queue and stop spending DAS
+    // calls. New mints can only arrive (and re-enqueue) while it's enabled.
+    if (!isMintTrackerEnabled()) { pending.length = 0; break; }
     const next = pending.shift()!;
     try {
       // One DAS call per mint — returns both the NFT-vs-fungible

@@ -964,7 +964,15 @@ export default function MintsPage() {
   // Matching by sourceLabel keeps CANDY narrow (only real CG rows, not
   // every generic Metaplex mint).
   const visibleEvents = useMemo(() => {
+    // Timeframe gate — same cutoff the LEFT collection table uses
+    // (MINT_TF_MS[mintTf]), so changing the timeframe pills updates BOTH
+    // panels consistently. `receivedAt` is anchored to on-chain blockTime
+    // (see the SSE handler), so a 5M view shows only mints from the last
+    // 5 min in the feed too, matching the table's recent-mint window.
+    // Re-evaluated on `tick` (5s) so events age out without a UI nudge.
+    const feedCutoff = Date.now() - MINT_TF_MS[mintTf];
     return events.filter(ev => {
+      if (ev.receivedAt < feedCutoff) return false;
       // Type axis — OR within the group. Empty set = Any (no filter).
       if (selectedTypes.size > 0) {
         const ok =
@@ -984,7 +992,7 @@ export default function MintsPage() {
       }
       return true;
     });
-  }, [events, selectedTypes, selectedSources]);
+  }, [events, selectedTypes, selectedSources, mintTf, tick]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
