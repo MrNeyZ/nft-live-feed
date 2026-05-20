@@ -1250,10 +1250,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
  *  Exported as a constant so producer + consumer can't drift. */
 export const EVENTS_COUNT_EVENT = 'vl:eventsCount';
 
-/** Minimal bottom-bar icon control — transparent, no border, subtle hover
- *  tint only, ~16px icon. Active state shown via color (purple on / muted
- *  off) rather than a pill/border, keeping the terminal-utility feel. */
-function BarIconButton({ on, onClick, title, children }: {
+/** Minimal HUD icon control — transparent, no border, subtle hover tint only,
+ *  ~16px icon. Active state shown via color (purple on / muted off) rather than
+ *  a pill/border, keeping the terminal-utility feel. Shared by the bottom bar
+ *  and the collection header so audio-style toggles read identically. */
+export function BarIconButton({ on, onClick, title, children }: {
   on: boolean;
   onClick: () => void;
   title: string;
