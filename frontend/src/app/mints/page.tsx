@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, TopNav, ItemThumb, Pill } from '@/soloist/shared';
+import { LiveDot, TopNav, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
@@ -641,20 +641,9 @@ type FeedSourceKey = 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY';
  *  anchored below-right with two rows of Pills (Type, Source). Closes
  *  on outside click / Escape. The popover never participates in the
  *  table's filter — caller wires only the right-pane state in. */
-// Compact, low-weight settings controls — mirror the Live Feed settings
-// panel (SETTINGS_PILL_* in feed/page.tsx) so the two surfaces read as one
-// product. Subtle purple tint + brighter text when active, NO neon glow.
-const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
-  padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-  background: 'rgba(255, 255, 255, 0.025)',
-  border: '1px solid rgba(255, 255, 255, 0.05)',
-  color: '#8a8aa6', boxShadow: 'none',
-};
-const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
-  padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-  background: `${color}24`, border: `1px solid ${color}44`,
-  color: '#f0eef8', boxShadow: 'none',
-});
+// Settings controls (SETTINGS_PILL_INACTIVE / settingsPillActive / SettingsToggle)
+// come from the shared VictoryLabs settings system in @/soloist/shared so this
+// surface and the Live Feed read as one product. Imported at top of file.
 
 function FeedFiltersPopover({
   selectedTypes, selectedSources, toggleType, toggleSource, activeCount,
@@ -686,19 +675,16 @@ function FeedFiltersPopover({
       document.removeEventListener('keydown',   onKey);
     };
   }, [open]);
-  const label = activeCount > 0 ? `Settings · ${activeCount}` : 'Settings';
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
-      {/* Same Pill as the Mint Tracker "Settings" toggle — mixed-case label,
-          gear icon, identical sizing/typography (no more all-caps custom
-          button). Active when the popover is open or a filter is set. */}
-      <Pill
+      {/* Canonical shared Settings toggle — identical control across every
+          VictoryLabs panel. Active when the popover is open or a filter is set;
+          `count` renders the "Settings · N" active-filter badge. */}
+      <SettingsToggle
         active={open || activeCount > 0}
         onClick={() => setOpen(v => !v)}
         title="Settings — filter the Live Mint Feed by type and launchpad source"
-        icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-        label={label}
-        size="sm"
+        count={activeCount}
       />
       {open && (
         <div
@@ -1771,17 +1757,13 @@ export default function MintsPage() {
             <span style={{ marginLeft: 6 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {/* Settings pill sits where the "Timeframe" text label used to be,
-                then the timeframe segmented control immediately after. Toggles
-                the embedded Source/Status filter section inline (collapsed by
-                default; not a floating popover). */}
-            <Pill
+            {/* Canonical shared Settings toggle — same control as Live Feed and
+                the Live Mint Feed popover. Toggles the embedded filter section
+                inline (collapsed by default; not a floating popover). */}
+            <SettingsToggle
               active={settingsOpen}
               onClick={() => setSettingsOpen(o => !o)}
               title="Settings — show/hide collection filters"
-              icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-              label="Settings"
-              size="sm"
             />
             {/* Old dense segmented styling (tight pills in a dark shell). */}
             <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
@@ -1801,37 +1783,37 @@ export default function MintsPage() {
           </div>
         </div>
 
-        {/* Embedded filter section — compact Source / Status rows on the same
-            aligned grid as the Live Events settings (.feed-srow). Collapsible
-            inline via the header "Settings" pill (closed by default → table
-            starts higher). Tight padding + small row gap keep it a low-profile
-            operator panel, not a settings form. State + persistence unchanged. */}
+        {/* Embedded filter section — canonical VictoryLabs settings surface
+            (.feed-filters-panel) + a semantic group (.feed-set-group + header)
+            so it reads as one system with the Live Feed panel. Single column:
+            the Source row carries 6 pills and needs full width to stay on one
+            line — a two-column split would wrap and grow taller, so the two-
+            column/divider variant of the system isn't used here. Collapsible
+            inline via the header Settings toggle. State/persistence unchanged. */}
         {settingsOpen && (
-          <div style={{
-            padding: '6px 12px 7px',
-            background: 'rgba(168,144,232,0.04)',
-            borderBottom: '1px solid rgba(168,144,232,0.08)',
-            flexShrink: 0,
-            display: 'flex', flexDirection: 'column', gap: 3,
-          }}>
-            <div className="feed-srow">
-              <span className="feed-srow-lbl">Source</span>
-              <div className="feed-srow-ctl feed-seg">
-                {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
-                  <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
-                    label={s === 'all' ? 'Any' : s} size="sm"
-                    style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                ))}
+          <div className="feed-filters-panel feed-filters-panel-open"
+            style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
+            <div className="feed-set-group">
+              <div className="feed-set-group-hd">Filters</div>
+              <div className="feed-srow">
+                <span className="feed-srow-lbl">Source</span>
+                <div className="feed-srow-ctl feed-seg">
+                  {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
+                    <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
+                      label={s === 'all' ? 'Any' : s} size="sm"
+                      style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="feed-srow">
-              <span className="feed-srow-lbl">Status</span>
-              <div className="feed-srow-ctl feed-seg">
-                {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
-                  <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
-                    label={lbl} size="sm"
-                    style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                ))}
+              <div className="feed-srow">
+                <span className="feed-srow-lbl">Status</span>
+                <div className="feed-srow-ctl feed-seg">
+                  {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
+                    <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
+                      label={lbl} size="sm"
+                      style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  ))}
+                </div>
               </div>
             </div>
           </div>

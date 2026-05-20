@@ -384,6 +384,59 @@ export function Pill({
   );
 }
 
+/* ─── Canonical VictoryLabs settings system ──────────────────────────────────
+ * One visual language for every settings/filter panel (Live Feed, Mint Tracker,
+ * Dashboard, Rare Feed, future tools). The layout primitives live as shared CSS
+ * classes in globals.css (.feed-filters-panel, .feed-set-group, .feed-set-group-hd,
+ * .feed-srow, .feed-srow-lbl, .feed-srow-ctl, .feed-seg, .vl-switch); the control
+ * styling lives here so all panels render identical pills + Settings buttons.
+ * Compact terminal density — ~22px pills, quiet tint, no neon glow. */
+
+/** Inactive settings pill (~22px) — subtle, low-weight, terminal feel. */
+export const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
+  padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+  background: 'rgba(255, 255, 255, 0.025)',
+  border: '1px solid rgba(255, 255, 255, 0.05)',
+  color: '#8a8aa6',
+  boxShadow: 'none',
+};
+
+/** Active settings pill — purple-tinted (or accent-colored), brighter text,
+ *  NO glow. `color` defaults to the brand purple so callers can omit it. */
+export const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
+  padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
+  background: `${color}24`,
+  border: `1px solid ${color}44`,
+  color: '#f0eef8',
+  boxShadow: 'none',
+});
+
+/** Canonical Settings/⚙ toggle — one shared gear badge used by every panel so
+ *  the control has identical dimensions everywhere. Optional `count` renders a
+ *  "· N" active-filter badge (e.g. "Settings · 4"). Owns no logic. */
+export function SettingsToggle({
+  active, onClick, label = 'Settings', title = 'Settings', count, style,
+}: {
+  active: boolean;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  label?: string;
+  title?: string;
+  count?: number;
+  style?: React.CSSProperties;
+}) {
+  const text = count && count > 0 ? `${label} · ${count}` : label;
+  return (
+    <Pill
+      active={active}
+      onClick={onClick}
+      title={title}
+      icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
+      label={text}
+      style={style}
+    />
+  );
+}
+
 export function LiveDot({ color = '#4fb67d' }: { color?: string }) {
   return (
     <span style={{
