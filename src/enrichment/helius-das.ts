@@ -21,7 +21,8 @@ interface DasAsset {
   interface?: string;
   content?: {
     metadata?: { name?: string; token_standard?: string };
-    links?: { image?: string };
+    links?: { image?: string; animation_url?: string };
+    files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>;
   };
   grouping?: Array<{
     group_key: string;
@@ -37,6 +38,58 @@ interface DasAsset {
 interface DasResponse {
   result?: DasAsset;
   error?: { code: number; message: string };
+}
+
+// Resolve the NFT's still-image URL from a DAS getAsset result.
+//
+// Normal path: return `content.links.image` unchanged (png/jpeg/webp, animated
+// gif that wsrv can static-frame, the Flork mypinata/ipfs gateway rewrite that
+// /thumb applies downstream — all flow through here untouched).
+//
+// Video-only fallback: some NFTs are pure video assets — `links.image` ===
+// `links.animation_url` === a `video/mp4` file, with NO separate still image
+// anywhere in DAS or off-chain metadata (verified: Colony Planet, mint
+// 4qfSRV5HjiqDDF6hXieMxBZ8udT2SbgxVaQuCsUFzaqL). Our /thumb backend (wsrv)
+// can't decode video/mp4, so those render blank. Magic Eden's imgproxy CDN
+// transcodes the first frame to a static JPEG, and the rest of the pipeline
+// (/thumb -> wsrv output=png) renders that unchanged. We detect this case
+// purely from fields already in the getAsset response (no extra DAS call, no
+// ME token API) and substitute the ME img-cdn static-frame URL.
+//
+// Exact host/template verified against the asset above:
+//   img-cdn.magiceden.dev/rs:fill:400:400:0:0/plain/<encoded-url>
+// Do NOT use img.magiceden.dev (does not resolve) or rs:fit (returned 500).
+function extractImageUrl(asset: DasAsset | undefined): string | null {
+  const links        = asset?.content?.links;
+  const stillImage   = links?.image ?? null;
+  const animationUrl = links?.animation_url ?? null;
+  const files        = asset?.content?.files ?? [];
+
+  // Classify "video" strictly from DAS files[].mime — never guess from a bare
+  // URL. A non-video asset short-circuits to the unchanged still-image path.
+  const videoFile = files.find(
+    (f) => typeof f.mime === 'string' && f.mime.startsWith('video/'),
+  );
+  if (videoFile) {
+    const videoUrl =
+      (typeof videoFile.uri === 'string' && videoFile.uri) ||
+      animationUrl ||
+      stillImage ||
+      null;
+
+    // A "separate still" is a links.image that points somewhere OTHER than the
+    // video (a real poster frame); keep that untouched. Only when there is no
+    // distinct still (image absent, or image === the video / === animation_url)
+    // do we route through the ME static-frame transcode.
+    const hasSeparateStill =
+      !!stillImage && stillImage !== videoUrl && stillImage !== animationUrl;
+
+    if (videoUrl && !hasSeparateStill) {
+      return `https://img-cdn.magiceden.dev/rs:fill:400:400:0:0/plain/${encodeURIComponent(videoUrl)}`;
+    }
+  }
+
+  return stillImage;
 }
 
 export async function getAsset(mintAddress: string): Promise<NftMetadata> {
@@ -72,7 +125,7 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
 
   return {
     nftName: asset?.content?.metadata?.name ?? null,
-    imageUrl: asset?.content?.links?.image ?? null,
+    imageUrl: extractImageUrl(asset),
     collectionName: collection?.collection_metadata?.name ?? null,
     collectionAddress: collection?.group_value ?? null,
     meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
@@ -177,7 +230,7 @@ export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVer
     const collection = asset?.grouping?.find((g) => g.group_key === 'collection');
     const meta: NftMetadata = {
       nftName:           asset?.content?.metadata?.name        ?? null,
-      imageUrl:          asset?.content?.links?.image           ?? null,
+      imageUrl:          extractImageUrl(asset),
       collectionName:    collection?.collection_metadata?.name  ?? null,
       collectionAddress: collection?.group_value                ?? null,
       meCollectionSlug:  null,
