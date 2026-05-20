@@ -899,7 +899,14 @@ export default function FeedPage() {
   };
   const removeBlacklist = (slug: string) =>
     setBlacklistSlugs((prev) => prev.filter((s) => s !== slug));
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(false);   // manual Pause button
+  // Hover auto-pause: freeze the stream while the cursor is over the feed
+  // list so fast-scrolling cards/badges stay clickable. Independent of the
+  // manual button — effective pause is the OR of the two. Auto-resume on
+  // mouse-leave only clears the hover pause, never the manual one.
+  const [hoverPauseEnabled, setHoverPauseEnabled] = useState(true);
+  const [hoverPaused, setHoverPaused] = useState(false);
+  const isPaused = paused || hoverPaused;
   // Per-source data health (defaults to 'ok' before the backend's first
   // `status` frame lands so a brand-new mount doesn't show a false alert).
   const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale' }>(
@@ -1036,25 +1043,26 @@ export default function FeedPage() {
   // the reducer's byId Map, so any overlap with snapshot is harmless).
   // Capped at PAUSE_BUFFER_MAX so a long pause can't blow up memory; the
   // oldest entries are dropped first.
-  const pausedRef    = useRef(paused);
+  const pausedRef    = useRef(isPaused);
   const pausedBuffer = useRef<FeedAction[]>([]);
   const PAUSE_BUFFER_MAX = 500;
 
-  // Keep the ref in sync with state. Read from the ref inside the SSE
-  // handlers so the long-lived useEffect closure does not need to remount
-  // when `paused` toggles — the EventSource stays connected.
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  // Keep the ref in sync with the EFFECTIVE pause (manual OR hover). Read
+  // from the ref inside the SSE handlers so the long-lived useEffect closure
+  // does not need to remount when pause toggles — the EventSource stays
+  // connected.
+  useEffect(() => { pausedRef.current = isPaused; }, [isPaused]);
 
   // Drain on resume. captureScroll once before the batch so a user who
   // scrolled mid-pause keeps their viewport.
   useEffect(() => {
-    if (paused) return;
+    if (isPaused) return;
     const buf = pausedBuffer.current;
     if (buf.length === 0) return;
     pausedBuffer.current = [];
     captureScroll();
     for (const action of buf) dispatch(action);
-  }, [paused]);
+  }, [isPaused]);
 
   // Snapshot on mount + live SSE. The connection is opened ONCE per mount
   // and stays open across pause toggles. Pause is implemented inside the
@@ -1604,6 +1612,20 @@ export default function FeedPage() {
                     secondary controls live behind the Filters
                     toggle). Existing `vl.feed.density` localStorage
                     + state logic unchanged. */}
+                {/* Hover auto-pause toggle. Subtle purple when armed (matches
+                    the WATCH accent), muted when off. Disabling also clears any
+                    in-effect hover pause so the stream resumes immediately. */}
+                <Pill
+                  active={hoverPauseEnabled}
+                  color={hoverPauseEnabled ? '#a890e8' : '#55556e'}
+                  onClick={() => setHoverPauseEnabled(v => {
+                    const next = !v;
+                    if (!next) setHoverPaused(false);
+                    return next;
+                  })}
+                  title="Auto-pause the stream while the cursor is over the feed"
+                  label={hoverPauseEnabled ? '⤓ Hover-pause' : 'Hover-pause off'}
+                />
                 <Pill
                   active
                   color={paused ? '#c9a820' : '#5ce0a0'}
@@ -1848,7 +1870,18 @@ export default function FeedPage() {
               )}
 
               {/* Feed list */}
-              <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
+              <div
+                ref={listRef}
+                className={`feed-list feed-density-${density}`}
+                /* Hover auto-pause attaches to the events container ONLY (not
+                   the header/filters). mouseenter/mouseleave don't fire when
+                   moving between child cards, so there's no flicker. Entering
+                   arms hover-pause unless the user already manually paused;
+                   leaving clears only the hover pause (manual stays). */
+                onMouseEnter={() => { if (hoverPauseEnabled && !paused) setHoverPaused(true); }}
+                onMouseLeave={() => { if (hoverPaused) setHoverPaused(false); }}
+                style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}
+              >
                 {filtered.length === 0 && (
                   meStale ? (
                     <div style={{
