@@ -25,6 +25,7 @@ import { incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
 import { dispatchMmmDeferred } from './mmm-prefilter';
+import { isSalesWsDead } from './listener';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,16 @@ const TARGETS: PollTarget[] = [
 // most a ~2.5 s wait before the first catch-up sweep lands. `startAmmPoller`
 // also fires an immediate `tick()` so the very first sweep runs at t≈0.
 const INTERVAL_MS      = 5_000;
+// Emergency cost guard: when the sales-side logsSubscribe is dead (see
+// isSalesWsDead), polling is the only path AND it fetches a getTransaction
+// for every program-touching sig — mostly non-sale on me_v2/mmm/tcomp. To
+// avoid burning credits we degrade: slower cadence + drop the lower-signal
+// programs (tcomp/tamm), keeping the two highest-volume sale programs
+// (me_v2, mmm) on a 15s cadence until WS recovers. Mint ingestion is in
+// listener.ts and is unaffected.
+const DEGRADED_INTERVAL_MS = 15_000;
+const DEGRADED_TARGETS: ReadonlySet<string> = new Set(['poll:me_v2', 'poll:mmm']);
+let salesWsDegraded = false;
 /** Intra-tick stagger: space the per-target sweeps within a single tick so
  *  the 4 programs don't fire getSignaturesForAddress in the same instant
  *  (de-bursts the RPS graph). 4 targets × 600 ms ≈ 1.8 s max offset, well
@@ -546,6 +557,16 @@ function tick(): void {
     console.log(`[poller] resuming preserved backlog  size=${backlog.length}`);
     kickBacklogDrain();
   }
+  // Emergency cost guard: degrade sales polling when the sales WS is dead.
+  // Log once per state transition.
+  const dead = isSalesWsDead();
+  if (dead !== salesWsDegraded) {
+    salesWsDegraded = dead;
+    console.log(dead
+      ? '[poller] sales WS dead → degraded polling (15s, me_v2+mmm only)'
+      : '[poller] sales WS recovered → normal polling (5s, all targets)');
+  }
+
   // Fire enabled targets — each has its own re-entrancy guard, so overlap
   // between ticks for the same target is prevented without blocking other
   // targets. Staggered by TICK_STAGGER_MS so the per-program sig calls don't
@@ -553,6 +574,8 @@ function tick(): void {
   let slot = 0;
   for (const t of TARGETS) {
     if (isLeanMode(mode) && !LEAN_MODE_TARGETS.has(t.name)) continue;
+    // While sales WS is dead, only poll the high-signal programs.
+    if (dead && !DEGRADED_TARGETS.has(t.name)) continue;
     const offset = slot * TICK_STAGGER_MS;
     slot++;
     if (offset === 0) {
@@ -590,7 +613,11 @@ export function startAmmPoller(): void {
   const arm = (delay: number): void => {
     tickHandle = setTimeout(() => {
       tick();
-      const next = saturatedTargets.size > 0 ? SLOW_INTERVAL_MS : INTERVAL_MS;
+      // Degraded cadence wins when sales WS is dead; otherwise slow on
+      // saturation, else normal.
+      const next = isSalesWsDead() ? DEGRADED_INTERVAL_MS
+                 : saturatedTargets.size > 0 ? SLOW_INTERVAL_MS
+                 : INTERVAL_MS;
       arm(next);
     }, delay);
     if (typeof tickHandle.unref === 'function') tickHandle.unref();
