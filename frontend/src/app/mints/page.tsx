@@ -706,25 +706,25 @@ function FeedFiltersPopover({
       {open && (
         <div
           style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 0,
-            // Matches the terminal-violet popover style used by the
-            // top-nav search dropdown (shared.tsx ~L1100) — same
-            // gradient surface, same violet hairline, same shadow.
-            background: 'linear-gradient(180deg, #1a1430 0%, #14102a 100%)',
-            border: '1px solid rgba(168,144,232,0.28)',
-            borderRadius: 6,
-            boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.3)',
-            padding: '8px 10px', minWidth: 270, zIndex: 30,
+            position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+            // Flat, embedded terminal control surface — not a floating modal.
+            // Minimal shadow + faint hairline so it reads as inline controls
+            // dropping down, not a card hovering over the page.
+            background: 'rgba(18,14,34,0.98)',
+            border: '1px solid rgba(168,144,232,0.12)',
+            borderRadius: 5,
+            boxShadow: '0 4px 14px rgba(0,0,0,0.38)',
+            padding: '6px 10px', minWidth: 270, zIndex: 30,
             // Keep within the right-pane width on narrow viewports —
             // when the panel itself is < 280 px, cap the popover so it
             // doesn't push off-screen.
             maxWidth: 'calc(100vw - 16px)',
-            display: 'flex', flexDirection: 'column', gap: 4,
+            display: 'flex', flexDirection: 'column', gap: 3,
           }}
         >
           {/* Aligned label/control rows + compact low-weight pills — same
-              system as the Live Feed settings panel (.feed-srow / feed-seg). */}
-          <div className="feed-set-group-hd">Content</div>
+              system as the Live Feed settings panel. No group header: keeps
+              it feeling like inline controls rather than a titled card. */}
           <div className="feed-srow">
             <span className="feed-srow-lbl">Type</span>
             <div className="feed-srow-ctl feed-seg">
@@ -1760,7 +1760,9 @@ export default function MintsPage() {
               size="sm"
             />
             <span style={{ fontSize: 10, color: '#3a3a52' }}>Timeframe:</span>
-            <div className="feed-seg" style={{ display: 'flex', background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
+            {/* Original timeframe segmented styling (restored) — reads better
+                than the tiny dark settings pills. */}
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
               {MINT_TIMEFRAMES.map(t => (
                 <Pill
                   key={t}
@@ -1769,7 +1771,8 @@ export default function MintsPage() {
                   label={t}
                   size="sm"
                   title={MINT_TF_DESC[t]}
-                  style={mintTf === t ? settingsPillActive() : SETTINGS_PILL_INACTIVE}
+                  style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
+                           background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
                 />
               ))}
             </div>
@@ -1792,35 +1795,29 @@ export default function MintsPage() {
             collapsible row visually. State persisted in localStorage
             (vl.mints.sourceFilter / vl.mints.statusFilter). */}
         {filtersOpen && (
-          /* Settings panel — same aligned label/control system + compact
-             low-weight pills as the Live Feed settings (.feed-srow / feed-seg).
-             Very subtle separator below; denser than the prior loose row. */
+          /* Single compressed control row: Source + Status share one
+             horizontal lane (label · pills · divider · label · pills) and
+             span the full width instead of two stacked full-height rows.
+             Wraps only when the pane is genuinely too narrow. */
           <div style={{
-            padding: '8px 12px 9px',
+            padding: '6px 12px 7px',
             borderBottom: '1px solid rgba(168,144,232,0.08)',
             flexShrink: 0, background: 'rgba(255,255,255,0.015)',
-            display: 'flex', flexDirection: 'column', gap: 4,
+            display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px 4px',
           }}>
-            <div className="feed-srow">
-              <span className="feed-srow-lbl">Source</span>
-              <div className="feed-srow-ctl feed-seg">
-                {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
-                  <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
-                    label={s === 'all' ? 'Any' : s} size="sm"
-                    style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                ))}
-              </div>
-            </div>
-            <div className="feed-srow">
-              <span className="feed-srow-lbl">Status</span>
-              <div className="feed-srow-ctl feed-seg">
-                {([['any','Any'],['active','Active only'],['soldOut','Sold out']] as const).map(([k,lbl]) => (
-                  <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
-                    label={lbl} size="sm"
-                    style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                ))}
-              </div>
-            </div>
+            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 6 }}>Source</span>
+            {(['all','LMNFT','VVV','CANDY','CORE','GRAVE'] as const).map(s => (
+              <Pill key={s} active={sourceFilter === s} onClick={() => setSourceFilter(s)}
+                label={s === 'all' ? 'Any' : s} size="sm"
+                style={sourceFilter === s ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+            ))}
+            <span style={{ width: 1, height: 13, background: 'rgba(255,255,255,0.07)', margin: '0 10px' }} />
+            <span className="feed-srow-lbl" style={{ width: 'auto', textAlign: 'left', marginRight: 6 }}>Status</span>
+            {([['any','Any'],['active','Active'],['soldOut','Sold']] as const).map(([k,lbl]) => (
+              <Pill key={k} active={statusFilter === k} onClick={() => setStatusFilter(k)}
+                label={lbl} size="sm"
+                style={statusFilter === k ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+            ))}
           </div>
         )}
 
