@@ -255,12 +255,15 @@ html[data-layout="phone"] .feed-thumb img {
 }
 .vl-logo .l {
   font-family: var(--vl-font-serif);
-  font-style: italic;
+  /* Upright (was italic) — drops the double-slant so "Labs" reads as a calm
+     secondary against the italic "Victory", reducing wordmark noise. Serif
+     face / weight / size kept so the VictoryLabs identity stays intact. */
+  font-style: normal;
   font-weight: 600;                          /* prototype (kept) */
   font-size: 18px;                           /* prototype (kept) */
   color: #f4f0ff;                            /* prototype used var(--vl-fg) = #f4f0ff; literal here since nft-live-feed has no --vl-fg */
-  margin-left: 1px;                          /* prototype */
-  letter-spacing: -0.2px;                    /* prototype */
+  margin-left: 2px;                          /* +1px breathing room for the upright cut */
+  letter-spacing: -0.1px;                    /* slightly looser than the italic setting */
 }
 
 /* Phone TopNav — drop the logo, the MULTI-TAB tab, and the TPS / SOL /

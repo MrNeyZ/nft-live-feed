@@ -953,12 +953,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // capsule's language: a "selected terminal tab", not a clickable
               // neon button. Wash / radius / size / animations unchanged.
               borderRadius: 6,
-              background: 'linear-gradient(180deg, rgba(130,106,216,0.16) 0%, rgba(112,92,196,0.05) 100%)',
-              boxShadow:
-                '0 2px 8px rgba(118,94,210,0.14), ' +
-                '0 0 14px rgba(140,116,232,0.10), ' +
-                'inset 0 0 0 1px rgba(168,144,232,0.20), ' +
-                'inset 0 1px 0 rgba(255,255,255,0.05)',
+              // Subtle filled active state — neutral white wash, no outline, no
+              // glow (purple identity now lives in the chrome haze + runtime
+              // module, not on every nav tab). The slide animation is kept.
+              background: 'rgba(255,255,255,0.05)',
+              boxShadow: 'none',
               transition:
                 'left 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
                 'width 180ms cubic-bezier(0.22, 1, 0.36, 1), ' +
@@ -988,7 +987,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // sliding indicator behind the labels (except for the
               // hover-highlight, which paints its own subtle tint when
               // the tab isn't already active).
-              background: isHover ? 'rgba(168,144,232,0.08)' : 'transparent',
+              background: isHover ? 'rgba(255,255,255,0.025)' : 'transparent',
               transition: 'color 160ms ease-out, background 160ms ease-out',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
@@ -1160,9 +1159,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
           />
           {!q && (
             <kbd style={{
-              padding: '1px 6px', fontSize: 10, fontFamily: "'SF Mono','Fira Code',monospace",
-              color: '#56566e', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 3, background: 'rgba(255,255,255,0.02)', lineHeight: 1,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              minWidth: 14, height: 15, padding: '0 4px',
+              fontSize: 9.5, fontFamily: "'SF Mono','Fira Code',monospace",
+              color: '#4f4f63', border: 'none',
+              borderRadius: 3, background: 'rgba(255,255,255,0.04)', lineHeight: 1,
             }}>/</kbd>
           )}
         </div>
@@ -1217,18 +1218,12 @@ export function TopNav({ active }: { active?: Page } = {}) {
         )}
       </div>
 
-      <div style={{
+      {/* Unified runtime module: [● Sales · Mints ▾] [⏻]. Layout-mode switcher
+          is a floating bottom-right pill (FloatingLayoutModeSwitcher in Gate). */}
+      <div className="topnav-right" style={{
         display: 'flex', alignItems: 'center', gap: 16, marginRight: 2,
-        fontSize: 12, color: '#4a4a62',
-        fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
-        <ModeBadge />
-        <MintTrackerToggle />
-        {/* Layout-mode switcher is rendered as a floating bottom-right pill
-            in every mode (see FloatingLayoutModeSwitcher mounted in Gate),
-            so the TopNav row no longer carries it — keeps the stats row
-            from clipping at narrow widths. */}
-        <OffButton />
+        <RuntimeControls />
       </div>
     </div>
     </div>
@@ -1254,6 +1249,35 @@ export function TopNav({ active }: { active?: Page } = {}) {
  *  (operator navigates away), which is the desired UX.
  *  Exported as a constant so producer + consumer can't drift. */
 export const EVENTS_COUNT_EVENT = 'vl:eventsCount';
+
+/** Minimal bottom-bar icon control — transparent, no border, subtle hover
+ *  tint only, ~16px icon. Active state shown via color (purple on / muted
+ *  off) rather than a pill/border, keeping the terminal-utility feel. */
+function BarIconButton({ on, onClick, title, children }: {
+  on: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 24, height: 22, padding: 0, borderRadius: 5,
+        background: 'transparent', border: 'none', cursor: 'pointer',
+        color: on ? '#a890e8' : '#5c5c74',
+        transition: 'background 0.12s, color 0.12s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?: number } = {}) {
   const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
@@ -1343,116 +1367,60 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
         width: '100%',
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <a
-            href="https://discord.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}
-          >Discord</a>
-          <a
-            href="https://x.com/VictoryHell_"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}
-          >Twitter</a>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-            <span style={{ color: '#5c5c74' }}>alerts</span>
-          </span>
-        </div>
+        {/* LEFT — live metrics only. Market + live readouts grouped into quiet
+            stat modules; values a notch clearer than their labels. */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          {/* FEES + SOUND — grouped into one platform module so the two
-              toggles read as a single "controls" cluster rather than loose
-              buttons floating in the bar. */}
-          <div style={{ ...groupModule, gap: 8 }}>
-            {/* Pricing-mode toggle. Affects only AMM_SELL display
-                (pool_sale events) — see displayPrice() in
-                `@/soloist/price-mode`. Default OFF. */}
-            <button
-              type="button"
-              onClick={() => setInclusiveFees(!inclusiveFees)}
-              // Tiny hover lift — a hair more fill, no bright/glow hover.
-              // mouse-leave restores the state-correct resting fill.
-              onMouseEnter={(e) => { e.currentTarget.style.background = inclusiveFees ? 'rgba(168,144,232,0.235)' : 'rgba(255,255,255,0.065)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = inclusiveFees ? 'rgba(168,144,232,0.18)'  : 'rgba(255,255,255,0.04)';  }}
-              title={inclusiveFees
-                ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price'
-                : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '1px 10px', fontSize: 10, fontWeight: 700,
-                letterSpacing: '0.4px', textTransform: 'uppercase',
-                borderRadius: 4, cursor: 'pointer',
-                border: inclusiveFees
-                  ? '1px solid rgba(168,144,232,0.55)'
-                  : '1px solid rgba(255,255,255,0.10)',
-                background: inclusiveFees
-                  ? 'rgba(168,144,232,0.18)'
-                  : 'rgba(255,255,255,0.04)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                color:      inclusiveFees ? '#d0c8e4' : '#9494ac',
-                fontFamily: 'inherit',
-                transition: 'all 0.12s',
-              }}
-            >
-              <span style={{
-                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                background: inclusiveFees ? '#a890e8' : '#52526a',
-              }} />
-              Fees
-            </button>
-            {/* UI Sound toggle — synthesised hover/click ticks via WebAudio.
-                Default OFF; enabling persists to localStorage `vl.uiSound`.
-                Visual mirror of the "Incl. fees" pill so the bar looks
-                uniform; behavior gated inside `playUiTick` (no-op when off,
-                when prefers-reduced-motion is set, or before first user
-                gesture has primed the AudioContext). */}
-            <button
-              type="button"
-              onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
-              onMouseEnter={(e) => { e.currentTarget.style.background = uiSoundEnabled ? 'rgba(168,144,232,0.235)' : 'rgba(255,255,255,0.065)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = uiSoundEnabled ? 'rgba(168,144,232,0.18)'  : 'rgba(255,255,255,0.04)';  }}
-              title={uiSoundEnabled
-                ? 'UI sound ON — subtle hover/click ticks'
-                : 'UI sound OFF — click to enable subtle hover/click ticks'}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '1px 10px', fontSize: 10, fontWeight: 700,
-                letterSpacing: '0.4px', textTransform: 'uppercase',
-                borderRadius: 4, cursor: 'pointer',
-                border: uiSoundEnabled
-                  ? '1px solid rgba(168,144,232,0.55)'
-                  : '1px solid rgba(255,255,255,0.10)',
-                background: uiSoundEnabled
-                  ? 'rgba(168,144,232,0.18)'
-                  : 'rgba(255,255,255,0.04)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                color:      uiSoundEnabled ? '#d0c8e4' : '#9494ac',
-                fontFamily: 'inherit',
-                transition: 'all 0.12s',
-              }}
-            >
-              <span style={{
-                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                background: uiSoundEnabled ? '#a890e8' : '#52526a',
-              }} />
-              Sound
-            </button>
-          </div>
-          {/* TPS · SOL · live · EVENTS — grouped into one stats module so the
-              live-market readouts read as a unit. Values sit a notch clearer
-              than their labels for a small, deliberate contrast hierarchy. */}
           <div style={{ ...groupModule, gap: 12 }}>
-            <span><span style={{ color: '#5c5c74' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
             <span><span style={{ color: '#5c5c74' }}>SOL </span><span style={{ color: '#62cb93' }}>${sol}</span></span>
+            <span><span style={{ color: '#5c5c74' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
+          </div>
+          <div style={{ ...groupModule, gap: 10 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <LiveDot />
               <span style={{ color: '#62cb93' }}>live</span>
+              {typeof eventsCount === 'number' && (
+                <span style={{ color: '#5c5c74' }}> · <span style={{ color: '#7e7e98' }}>{eventsCount}</span> events</span>
+              )}
             </span>
-            {typeof eventsCount === 'number' && (
-              <span><span style={{ color: '#5c5c74' }}>EVENTS </span><span style={{ color: '#7e7e98' }}>{eventsCount}</span></span>
-            )}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
+              <span style={{ color: '#5c5c74' }}>alerts</span>
+            </span>
+          </div>
+        </div>
+        {/* RIGHT — controls + socials. Minimal borderless icon controls
+            (sound / fees), then the social links. */}
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            {/* UI Sound toggle — synthesised hover/click ticks (logic unchanged). */}
+            <BarIconButton
+              on={uiSoundEnabled}
+              onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
+              title={uiSoundEnabled ? 'UI sound ON — subtle hover/click ticks' : 'UI sound OFF — click to enable subtle hover/click ticks'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M11 5 6 9H2v6h4l5 4z" />
+                {uiSoundEnabled
+                  ? <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  : <line x1="22" y1="9" x2="16" y2="15" />}
+              </svg>
+            </BarIconButton>
+            {/* Inclusive-fees toggle — affects only AMM_SELL display (logic unchanged). */}
+            <BarIconButton
+              on={inclusiveFees}
+              onClick={() => setInclusiveFees(!inclusiveFees)}
+              title={inclusiveFees ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price' : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="19" y1="5" x2="5" y2="19" />
+                <circle cx="6.5" cy="6.5" r="2.5" />
+                <circle cx="17.5" cy="17.5" r="2.5" />
+              </svg>
+            </BarIconButton>
+          </div>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <a href="https://discord.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}>Discord</a>
+            <a href="https://x.com/VictoryHell_" target="_blank" rel="noopener noreferrer" style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}>Twitter</a>
           </div>
         </div>
       </div>
@@ -1690,117 +1658,160 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
   );
 }
 
-function ModeBadge() {
-  const [mode, setMode] = useState<RuntimeMode | null>(null);
+/**
+ * Unified runtime control module — one compact cluster replacing the old
+ * three competing accents (MODE badge + MINTS ON/OFF + OFF). A status pill
+ * (purple-tinted, ~28px) opens a dropdown to manage runtime; a power button
+ * is the kill switch. All underlying runtime logic is preserved verbatim:
+ * fetchMode (sales mode display), setMintTrackerEnabled (optimistic Mints
+ * toggle), and runtimeSetMode('off') + clearAuth + redirect (power off).
+ */
+function RuntimeControls() {
+  const [mode, setMode]               = useState<RuntimeMode | null>(null);
+  const [mintsEnabled, setMintsEnabled] = useState<boolean | null>(null);
+  const [open, setOpen]               = useState(false);
+  const [mintsBusy, setMintsBusy]     = useState(false);
+  const [offBusy, setOffBusy]         = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let cancelled = false;
     runtimeFetchMode().then(m => { if (!cancelled) setMode(m); });
+    fetchMintTrackerEnabled().then(v => { if (!cancelled) setMintsEnabled(v); });
     return () => { cancelled = true; };
   }, []);
-  if (!mode || mode === 'off') return null;
-  return (
-    <span className="topnav-mode-badge" style={{ color: '#9683dc', fontSize: 10, letterSpacing: '1px', fontWeight: 600 }}>
-      MODE: {mode.replace('_', ' ').toUpperCase()}
-    </span>
-  );
-}
 
-/**
- * Compact MINTS ON/OFF pill — independent from the trade runtime mode.
- * Click to flip. Optimistic UI: state updates immediately, rolls back
- * if the POST fails. Auth-gated on the backend; an unauthenticated
- * click silently fails (the OFF button kicks the user back to /access
- * the next time they try a protected action).
- */
-function MintTrackerToggle() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [busy,    setBusy]    = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    fetchMintTrackerEnabled().then(v => { if (!cancelled) setEnabled(v); });
-    return () => { cancelled = true; };
-  }, []);
-  if (enabled === null) return null;  // hide until first fetch resolves
-  const handle = async () => {
-    if (busy) return;
-    setBusy(true);
-    const next = !enabled;
-    setEnabled(next);  // optimistic
-    const result = await setMintTrackerEnabled(next);
-    if (typeof result === 'boolean') setEnabled(result);
-    else setEnabled(!next);  // rollback on failure
-    setBusy(false);
-  };
-  const isOn = enabled;
-  return (
-    <button
-      type="button"
-      onClick={handle}
-      disabled={busy}
-      title={isOn
-        ? 'Mint tracker is ON — click to stop launchpad mint ingestion'
-        : 'Mint tracker is OFF — click to start launchpad mint ingestion'}
-      style={{
-        // Toned down a tier: padding 3/10 → 2/8, font 10 → 9.5,
-        // letter-spacing 1 → 0.8, border alpha dropped (0.45 → 0.30
-        // ON, 0.32 → 0.22 OFF), text colors slightly desaturated and
-        // resting opacity reduced to 0.78 so the MINTS toggle reads
-        // as a tertiary control rather than a peer of the page-level
-        // MODE pill / OFF button. Hover reveals full opacity for
-        // affordance. The state colors (green = ON, neutral = OFF)
-        // are preserved so the operator still spots the state
-        // change at a glance.
-        padding: '2px 8px', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.8px',
-        color: isOn ? 'rgba(92,224,160,0.85)' : 'rgba(122,122,148,0.85)',
-        background: 'transparent',
-        border: `1px solid ${isOn ? 'rgba(92,224,160,0.30)' : 'rgba(122,122,148,0.22)'}`,
-        borderRadius: 4,
-        cursor: busy ? 'wait' : 'pointer',
-        fontFamily: 'inherit',
-        textTransform: 'uppercase',
-        opacity: busy ? 0.5 : 0.78,
-        transition: 'color 0.12s, border-color 0.12s, opacity 0.12s',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = busy ? '0.5' : '1'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = busy ? '0.5' : '0.78'; }}
-    >
-      MINTS {isOn ? 'ON' : 'OFF'}
-    </button>
-  );
-}
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false); };
+    const onKey  = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
 
-/**
- * OFF button — top-right of the main app chrome.
- *
- * Posts `mode=off` to the backend (stops the listener + AMM gap-healer), then
- * clears the frontend auth session and reloads the page. The reload drops
- * us back into <Gate>, which sees no auth and renders <Login>.
- */
-function OffButton() {
-  const [busy, setBusy] = useState(false);
-  const handle = async () => {
-    if (busy) return;
-    setBusy(true);
-    try { await runtimeSetMode('off'); } catch { /* ignore; we still wipe local state */ }
-    setRuntimeChoice(null);   // reset runtime selection so re-login shows mode-select
+  // Don't paint until the first fetch resolves (avoids a flash of "Idle").
+  if (mode === null && mintsEnabled === null) return null;
+
+  const salesActive = mode != null && mode !== 'off';
+  const mintsActive = mintsEnabled === true;
+  // Tiny status dot: green = both subsystems active, yellow = partial, gray =
+  // none active.
+  const activeCount = (salesActive ? 1 : 0) + (mintsActive ? 1 : 0);
+  const dot = activeCount === 2 ? '#5ce0a0' : activeCount === 1 ? '#e0c45c' : '#6a6a82';
+  const parts: string[] = [];
+  if (salesActive) parts.push('Sales');
+  if (mintsActive) parts.push('Mints');
+  const label = parts.length ? parts.join(' · ') : 'Idle';
+
+  // MINTS toggle — optimistic, rolls back on failure (unchanged logic).
+  const toggleMints = async () => {
+    if (mintsBusy || mintsEnabled === null) return;
+    setMintsBusy(true);
+    const next = !mintsEnabled;
+    setMintsEnabled(next);
+    const result = await setMintTrackerEnabled(next);
+    setMintsEnabled(typeof result === 'boolean' ? result : !next);
+    setMintsBusy(false);
+  };
+  // Kill switch — stop ingestion, drop runtime selection, sign out, reload
+  // into <Gate> (unchanged logic).
+  const powerOff = async () => {
+    if (offBusy) return;
+    setOffBusy(true);
+    try { await runtimeSetMode('off'); } catch { /* ignore; still wipe local state */ }
+    setRuntimeChoice(null);
     runtimeClearAuth();
     window.location.href = '/';
   };
+
   return (
-    <button
-      onClick={handle}
-      disabled={busy}
-      title="Stop ingestion and sign out"
-      style={{
-        padding: '3px 10px', fontSize: 10, fontWeight: 700, letterSpacing: '1px',
-        color: busy ? '#55556e' : '#e06a6a',
-        background: 'transparent',
-        border: '1px solid rgba(224,106,106,0.35)',
-        borderRadius: 4,
-        cursor: busy ? 'not-allowed' : 'pointer',
-        fontFamily: 'inherit',
-      }}>
-      OFF
-    </button>
+    <div ref={rootRef} className="topnav-runtime" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        title="Runtime — click to manage"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          height: 28, padding: '0 10px', borderRadius: 7,
+          background: open ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.08)',
+          border: '1px solid rgba(168,144,232,0.18)',
+          color: '#cfc6e6', fontFamily: 'inherit', fontSize: 11, letterSpacing: '0.4px',
+          cursor: 'pointer', transition: 'background 0.14s, border-color 0.14s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(168,144,232,0.14)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = open ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.08)'; }}
+      >
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, boxShadow: `0 0 6px ${dot}99`, flexShrink: 0 }} />
+        <span className="topnav-mode-badge" style={{ fontWeight: 600 }}>{label}</span>
+        <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+      </button>
+      <button
+        type="button"
+        onClick={powerOff}
+        disabled={offBusy}
+        title="Stop ingestion and sign out"
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 28, height: 28, borderRadius: 7,
+          background: 'rgba(224,106,106,0.08)',
+          border: '1px solid rgba(224,106,106,0.20)',
+          color: offBusy ? '#55556e' : '#e0888a',
+          cursor: offBusy ? 'not-allowed' : 'pointer',
+          transition: 'background 0.14s, color 0.14s',
+        }}
+        onMouseEnter={e => { if (!offBusy) e.currentTarget.style.background = 'rgba(224,106,106,0.16)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(224,106,106,0.08)'; }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="12" y1="2" x2="12" y2="12" />
+          <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute', top: '100%', right: 0, marginTop: 6,
+            minWidth: 200,
+            background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
+            border: '1px solid rgba(168,144,232,0.22)', borderRadius: 8,
+            boxShadow: '0 12px 32px rgba(0,0,0,0.6), 0 0 14px rgba(128,104,216,0.14)',
+            padding: 8, zIndex: 1000,
+            backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'inherit',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: '#7a7a94', textTransform: 'uppercase' }}>Sales</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: salesActive ? '#cfc6e6' : '#6a6a82' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: salesActive ? '#5ce0a0' : '#6a6a82' }} />
+              {salesActive ? mode!.replace('_', ' ').toUpperCase() : 'OFF'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: '#7a7a94', textTransform: 'uppercase' }}>Mints</span>
+            <button
+              type="button"
+              onClick={toggleMints}
+              disabled={mintsBusy || mintsEnabled === null}
+              role="switch"
+              aria-checked={mintsActive}
+              title={mintsActive ? 'Mint tracker ON — click to stop' : 'Mint tracker OFF — click to start'}
+              className={`vl-switch${mintsActive ? ' vl-switch-on' : ''}`}
+              style={{ opacity: mintsBusy ? 0.5 : 1, cursor: mintsBusy ? 'wait' : 'pointer' }}
+            >
+              <span className="vl-switch-thumb" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+/* MintTrackerToggle + OffButton were folded into RuntimeControls above so the
+ * topbar carries one unified runtime module instead of three competing
+ * accents. Their logic (optimistic Mints toggle, OFF kill switch) lives there. */
