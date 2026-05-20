@@ -176,7 +176,16 @@ const MPL_CORE_POLL_ENABLED     = process.env.MINT_MPL_CORE_POLL_ENABLED !== '0'
 // catches Helius dropouts and the 3-min hard-refresh window — both
 // of which tolerate 15s catch-up easily. Tunable via env.
 const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '15000', 10) || 15000;
-const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '15',   10) || 15;
+// CoREEN (the whole MPL Core program) emits ~20 sigs/15s — measured. With the
+// old limit=15 the cursor poll was permanently SATURATED: it grabbed only the
+// 15 newest sigs each 15s and the `until=lastSig` cursor jumped past the
+// overflow (~5/15s), silently dropping launchpad mints (LMNFT-Core, vvv.so,
+// CMv3, direct Core) that landed in the skipped band. Raised to 50 so the limit
+// exceeds the rate with burst headroom. Cost is bounded by the ACTUAL rate (not
+// the limit) because `until` caps the window to sigs newer than the cursor —
+// steady-state ≈ the real ~20/15s, only ~+5/15s vs before. Live mode only;
+// warm mode uses MINT_WARM_LIMIT and is unchanged.
+const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '50',   10) || 50;
 let   mplCorePollSweeps   = 0;
 let   mplCorePollFetched  = 0;
 let   mplCorePollAccepted = 0;
