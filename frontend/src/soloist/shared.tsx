@@ -11,7 +11,7 @@ import {
 } from './mock-data';
 import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
-import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, type RuntimeMode } from '@/runtime/mode';
+import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, setRuntimeChoice, type RuntimeMode } from '@/runtime/mode';
 import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-tracker';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
@@ -1729,6 +1729,7 @@ function OffButton() {
     if (busy) return;
     setBusy(true);
     try { await runtimeSetMode('off'); } catch { /* ignore; we still wipe local state */ }
+    setRuntimeChoice(null);   // reset runtime selection so re-login shows mode-select
     runtimeClearAuth();
     window.location.href = '/';
   };

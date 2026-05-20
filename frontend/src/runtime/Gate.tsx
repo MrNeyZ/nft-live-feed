@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { isAuthed, loginWithSiws, clearAuth } from './auth';
-import { fetchMode, setMode, SELECTABLE_MODES, type RuntimeMode } from './mode';
+import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
+import { setMintTrackerEnabled } from './mint-tracker';
 import { FloatingLayoutModeSwitcher, BottomStatusBar } from '@/soloist/shared';
 import { usePathname } from 'next/navigation';
 
@@ -23,7 +24,10 @@ type GateState =
   | { kind: 'loading' }
   | { kind: 'login' }
   | { kind: 'mode-select' }
-  | { kind: 'active'; mode: Exclude<RuntimeMode, 'off'> };
+  // `mode` is a display tag only (the active branch renders children
+  // regardless). 'mints' = the Mint Tracker runtime (salesMode off + mint
+  // tracker on), surfaced when the user explicitly chose it.
+  | { kind: 'active'; mode: Exclude<RuntimeMode, 'off'> | 'mints' };
 
 export function Gate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>({ kind: 'loading' });
@@ -42,8 +46,11 @@ export function Gate({ children }: { children: ReactNode }) {
   const resolve = useCallback(async () => {
     if (!isAuthed()) { setState({ kind: 'login' }); return; }
     const mode = await fetchMode();
-    if (mode == null || mode === 'off') setState({ kind: 'mode-select' });
-    else setState({ kind: 'active', mode });
+    if (mode != null && mode !== 'off') { setState({ kind: 'active', mode }); return; }
+    // salesMode is off/unknown — but an explicit Mint Tracker choice keeps the
+    // app active (mints run independently of salesMode). Otherwise prompt.
+    if (getRuntimeChoice() === 'mints') { setState({ kind: 'active', mode: 'mints' }); return; }
+    setState({ kind: 'mode-select' });
   }, []);
 
   useEffect(() => { void resolve(); }, [resolve]);
@@ -55,7 +62,7 @@ export function Gate({ children }: { children: ReactNode }) {
     return <GateShell><LoginScreen onSuccess={() => { void resolve(); }} /></GateShell>;
   }
   if (state.kind === 'mode-select') {
-    return <GateShell><ModeSelectScreen onSelected={() => { window.location.href = '/dashboard'; }} /></GateShell>;
+    return <GateShell><ModeSelectScreen /></GateShell>;
   }
   // Active app: render children plus the always-on floating layout-mode
   // switcher. It pins to the bottom-right in every mode/resolution and
@@ -299,27 +306,44 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
 
 // ── Mode select ────────────────────────────────────────────────────────────
 
-const MODE_META: Record<Exclude<RuntimeMode, 'off'>, { num: string; desc: string }> = {
-  full:       { num: '01', desc: 'All sources, all filters.' },
-  budget:     { num: '02', desc: 'Polling paths only.' },
-  sales_only: { num: '03', desc: 'No listings, no stats pipeline.' },
-};
-
-function ModeSelectScreen({ onSelected }: { onSelected: () => void }) {
-  const [busy, setBusy] = useState<RuntimeMode | null>(null);
+// Runtime selection. Three cards, fixed order:
+//   01 FULL        — disabled (visible but inactive; FULL is temporarily off)
+//   02 MINT TRACKER — salesMode off + mint tracker on → routes to /mints
+//   03 SALES ONLY  — sales_only → routes to /feed
+// Each active card sets the backend runtime then hard-navigates to its home
+// route (the reload re-runs Gate.resolve into the active app).
+function ModeSelectScreen() {
+  const [busy, setBusy] = useState<'mints' | 'sales' | null>(null);
   const [err,  setErr]  = useState<string | null>(null);
 
-  const pick = async (m: RuntimeMode) => {
-    if (busy) return;
-    setBusy(m); setErr(null);
-    const result = await setMode(m);
+  const fail = () => {
     setBusy(null);
-    if (result == null) {
-      if (!isAuthed()) { window.location.reload(); return; }
-      setErr('Could not switch mode — try again');
-      return;
-    }
-    onSelected();
+    if (!isAuthed()) { window.location.reload(); return; }
+    setErr('Could not switch mode — try again');
+  };
+
+  // MINT TRACKER: sales off, mints on. salesMode='off' is the backend's
+  // "no sales ingestion" state; the mint tracker runs independently. Persist
+  // the explicit choice so the Gate treats off-sales as the active Mint
+  // Tracker view instead of re-prompting.
+  const pickMintTracker = async () => {
+    if (busy) return;
+    setBusy('mints'); setErr(null);
+    const result = await setMode('off');
+    if (result == null) { fail(); return; }
+    await setMintTrackerEnabled(true);   // ensure mints stay on (independent; default on)
+    setRuntimeChoice('mints');
+    window.location.href = '/mints';
+  };
+
+  // SALES ONLY: lean sale ingestion, no listings/stats pipeline → /feed.
+  const pickSalesOnly = async () => {
+    if (busy) return;
+    setBusy('sales'); setErr(null);
+    const result = await setMode('sales_only');
+    if (result == null) { fail(); return; }
+    setRuntimeChoice('sales');
+    window.location.href = '/feed';
   };
 
   return (
@@ -330,34 +354,47 @@ function ModeSelectScreen({ onSelected }: { onSelected: () => void }) {
         <p className="gate-sub">Choose how the pipeline should run. Switch any time from the top nav.</p>
       </div>
       <div className="gate-mode-stack">
-        {SELECTABLE_MODES.map(m => {
-          const meta = MODE_META[m];
-          const label = m.replace('_', ' ').toUpperCase();
-          const dimmed = busy != null && busy !== m;
-          const isBusy = busy === m;
-          return (
-            <button
-              key={m}
-              className="vl-cta vl-cta--block"
-              onClick={() => pick(m)}
-              disabled={busy != null}
-              data-busy={isBusy ? 'true' : undefined}
-            >
-              <span className="vl-cta-num">{meta.num}</span>
-              <span className="vl-cta-body">
-                <span className="vl-cta-label">{label}</span>
-                <span className="vl-cta-desc">{meta.desc}</span>
-              </span>
-              <span className="vl-cta-chev">
-                {isBusy ? <Dots /> : '›'}
-              </span>
-              {/* Keep the dimmed flag in a data attribute so the visual can
-               *  reflect "other rows dimmed while one is busy" without adding
-               *  a second CSS class. */}
-              <span style={{ display: 'none' }} data-dimmed={dimmed ? 'true' : undefined} />
-            </button>
-          );
-        })}
+        {/* 01 FULL — temporarily disabled. Visible but inactive (dimmed, no
+            hover glow, not clickable via the shared vl-cta[disabled] styles). */}
+        <button className="vl-cta vl-cta--block" disabled aria-disabled="true">
+          <span className="vl-cta-num">01</span>
+          <span className="vl-cta-body">
+            <span className="vl-cta-label">FULL</span>
+            <span className="vl-cta-desc">All sources, all filters.</span>
+            <span className="vl-cta-desc" style={{ opacity: 0.75 }}>Temporarily disabled</span>
+          </span>
+          <span className="vl-cta-chev">›</span>
+        </button>
+
+        {/* 02 MINT TRACKER */}
+        <button
+          className="vl-cta vl-cta--block"
+          onClick={pickMintTracker}
+          disabled={busy != null}
+          data-busy={busy === 'mints' ? 'true' : undefined}
+        >
+          <span className="vl-cta-num">02</span>
+          <span className="vl-cta-body">
+            <span className="vl-cta-label">MINT TRACKER</span>
+            <span className="vl-cta-desc">Mints only, sales off.</span>
+          </span>
+          <span className="vl-cta-chev">{busy === 'mints' ? <Dots /> : '›'}</span>
+        </button>
+
+        {/* 03 SALES ONLY */}
+        <button
+          className="vl-cta vl-cta--block"
+          onClick={pickSalesOnly}
+          disabled={busy != null}
+          data-busy={busy === 'sales' ? 'true' : undefined}
+        >
+          <span className="vl-cta-num">03</span>
+          <span className="vl-cta-body">
+            <span className="vl-cta-label">SALES ONLY</span>
+            <span className="vl-cta-desc">No listings, no stats pipeline.</span>
+          </span>
+          <span className="vl-cta-chev">{busy === 'sales' ? <Dots /> : '›'}</span>
+        </button>
       </div>
       {err && (
         <div className="vl-error">

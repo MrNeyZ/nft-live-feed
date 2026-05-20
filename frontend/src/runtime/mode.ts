@@ -8,6 +8,32 @@ export type RuntimeMode = 'off' | 'full' | 'budget' | 'sales_only';
 export const SELECTABLE_MODES: ReadonlyArray<Exclude<RuntimeMode, 'off'>> =
   ['full', 'budget', 'sales_only'];
 
+// The "Mint Tracker" runtime is backed by salesMode='off' + the independent
+// mint tracker enabled — there is no dedicated backend mode for it. The Gate
+// otherwise treats salesMode='off' as "nothing selected → show mode-select",
+// so we persist the user's explicit choice locally: 'mints' makes the Gate
+// treat an off-sales runtime as the active Mint Tracker view (no re-prompt);
+// 'sales' is non-sticky (sales modes are in-memory backend state that resets,
+// so those correctly fall back to mode-select). Cleared on logout.
+export type RuntimeChoice = 'mints' | 'sales';
+const RUNTIME_CHOICE_KEY = 'vl.runtimeChoice';
+
+export function getRuntimeChoice(): RuntimeChoice | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const v = window.localStorage.getItem(RUNTIME_CHOICE_KEY);
+    return v === 'mints' || v === 'sales' ? v : null;
+  } catch { return null; }
+}
+
+export function setRuntimeChoice(choice: RuntimeChoice | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (choice == null) window.localStorage.removeItem(RUNTIME_CHOICE_KEY);
+    else window.localStorage.setItem(RUNTIME_CHOICE_KEY, choice);
+  } catch { /* ignore */ }
+}
+
 export async function fetchMode(): Promise<RuntimeMode | null> {
   try {
     const res = await fetch(`${API_BASE}/api/runtime/mode`);
