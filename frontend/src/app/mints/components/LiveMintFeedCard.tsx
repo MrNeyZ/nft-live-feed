@@ -117,6 +117,14 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
   const repImg  = normalizeUrl(group?.representativeImageUrl);
   const heroImg = normalizeUrl(group?.imageUrl);
   const cardImage = nftImg ?? repImg ?? heroImg ?? null;
+  // Fallback for ItemThumb. The primary above often resolves to the
+  // per-mint image, which on a pre-reveal drop is the launchpad's shared
+  // placeholder served only via a flaky/over-quota gateway (e.g. Flork's
+  // mypinata→ipfs.io). When that fails to load, fall through to the
+  // collection hero — the same reliable URL the left tracker renders —
+  // instead of degrading to initials. heroImg is preferred over repImg
+  // (repImg is typically the same placeholder as the primary).
+  const cardFallback = heroImg ?? repImg ?? null;
   if (group?.name === 'Flork') {
     // Temporary Flork-only trace — confirms which tier the chain
     // picks for the current Bu8x… debugging session. Remove once
@@ -187,6 +195,9 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
           when no image yet. */}
       <ItemThumb
         imageUrl={thumb200(cardImage)}
+        /* 2nd-tier URL tried (with its own proxy→raw retry) before
+           initials — see cardFallback above. */
+        fallbackImageUrl={thumb200(cardFallback)}
         /* When a real per-NFT image lands we keep the collection-
            color tint behind it (matches the row accent stripe).
            When it's the placeholder path we seed by `mintAddress`
