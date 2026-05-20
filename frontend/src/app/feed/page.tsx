@@ -10,7 +10,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage, EVENTS_COUNT_EVENT } from '@/soloist/shared';
+import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
 import {
   feedReducer, initFeedState, orderedEvents,
@@ -809,23 +809,10 @@ const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
   color: '#8e8eb0',
 };
 
-/** Compact, low-weight settings pills (~22px). Subtle purple tint + brighter
- *  text when active — NO neon glow, no thick bright border. Used across the
- *  refactored settings panel so all controls share one quiet visual weight. */
-const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
-  padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-  background: 'rgba(255, 255, 255, 0.025)',
-  border: '1px solid rgba(255, 255, 255, 0.05)',
-  color: '#8a8aa6',
-  boxShadow: 'none',
-};
-const settingsPillActive = (color: string): React.CSSProperties => ({
-  padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-  background: `${color}24`,
-  border: `1px solid ${color}44`,
-  color: '#f0eef8',
-  boxShadow: 'none',
-});
+/** Settings pill styling (SETTINGS_PILL_INACTIVE / settingsPillActive) and the
+ *  ⚙ SettingsToggle now live in the shared VictoryLabs settings system
+ *  (@/soloist/shared) so Live Feed, Mint Tracker, and future panels render one
+ *  identical control language. Imported below. */
 
 /** Density pills are the primary "feed mode" control inside the
  *  filters panel — sized noticeably larger than the Type/Price
@@ -1618,12 +1605,9 @@ export default function FeedPage() {
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <Pill
+                <SettingsToggle
                   active={filtersOpen}
                   onClick={() => setFiltersOpen(o => !o)}
-                  title="Settings"
-                  icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
-                  label="Settings"
                 />
                 {/* Density + Hover-pause live inside the Settings panel below —
                     the top bar stays [Settings][Pause]. (vl.feed.density
