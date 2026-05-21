@@ -106,7 +106,7 @@ function onMeta(update: MetaUpdate): void {
   // Async, fire-and-forget — never blocks the bus / SSE fan-out.
   void (async () => {
     try {
-      const rarity = await getRarity(mint);
+      const rarity = await getRarity(mint, slug);
       if (rarity.rarityRank == null || rarity.totalSupply == null || rarity.totalSupply <= 0) {
         console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_rarity`);
         return;

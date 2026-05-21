@@ -65,6 +65,22 @@ function fmtPct(p: number | null): string {
   return `${(p * 100).toFixed(p < 0.01 ? 2 : 1)}%`;
 }
 
+/** Source badge palette — which rarity provider supplied the rank. */
+function sourceBadgeStyle(src: string | null): React.CSSProperties {
+  switch (src) {
+    case 'tensor':    return { color: '#6ab8ff', background: 'rgba(106,184,255,0.12)', border: '1px solid rgba(106,184,255,0.4)' };
+    case 'howrare':   return { color: '#5ce0c0', background: 'rgba(92,224,192,0.12)',  border: '1px solid rgba(92,224,192,0.4)' };
+    case 'magiceden': return { color: '#e0a0f0', background: 'rgba(224,160,240,0.12)', border: '1px solid rgba(224,160,240,0.4)' };
+    default:          return { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.3)' };
+  }
+}
+function sourceLabel(src: string | null): string {
+  if (src === 'howrare')   return 'HowRare';
+  if (src === 'tensor')    return 'Tensor';
+  if (src === 'magiceden') return 'ME';
+  return src ?? '?';
+}
+
 function scoreColor(score: number): string {
   if (score >= 80) return '#5ce0a0';
   if (score >= 60) return '#a890e8';
@@ -276,7 +292,13 @@ export default function RareFeedPage() {
                         {e.rarityRank != null ? `#${e.rarityRank}` : '—'}
                         {e.totalSupply != null && <span style={{ color: '#56566e', fontWeight: 500 }}>/{e.totalSupply}</span>}
                       </div>
-                      <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1, color: '#a890e8' }}>{fmtPct(e.rarityPercentile)}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 1 }}>
+                        <span style={{ fontSize: 10, opacity: 0.8, color: '#a890e8' }}>{fmtPct(e.rarityPercentile)}</span>
+                        <span title={`rarity source: ${sourceLabel(e.raritySource)}`} style={{
+                          padding: '0 4px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
+                          borderRadius: 3, lineHeight: 1.4, textTransform: 'uppercase', ...sourceBadgeStyle(e.raritySource),
+                        }}>{sourceLabel(e.raritySource)}</span>
+                      </div>
                     </td>
                     {/* Score */}
                     <td style={{ ...tdNum, fontSize: 15, fontWeight: 800, color: scoreColor(e.rareScore) }}>
