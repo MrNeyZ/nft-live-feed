@@ -31,8 +31,21 @@ const MAX_COLLECTIONS = 200;   // bound the in-memory collection cache
 
 // Built-in ME-slug → HowRare-slug aliases. Extend at runtime via
 // RARE_FEED_HOWRARE_ALIASES="meSlug:howrareSlug,meSlug2:howrareSlug2".
+//
+// Each entry below is HIGH-CONFIDENCE: confirmed by a mint-membership audit
+// over our top-100 highest-volume collections — a real sale mint of the ME
+// slug was found in the mapped HowRare collection's item list (not guessed by
+// name). See the audit in the PR description.
 const BUILTIN_ALIASES: Record<string, string> = {
   solana_monkey_business: 'smb',
+  theheist:               'the_heist',
+  mad_lads:               'madlads',
+  gates_of_brohalla:      'brohalla',
+  elixir_ovols:           'elixirovols',
+  famous_fox_federation:  'famousfoxfederation',
+  mindlings:              'mindfolk_mindlings',
+  smb_gen3:               'smbgen3',
+  solana_feline_business: 'solanafelinebusiness',
 };
 function loadAliases(): Record<string, string> {
   const out = { ...BUILTIN_ALIASES };
