@@ -105,7 +105,7 @@ export default function RareFeedPage() {
   useEffect(() => { document.title = 'VictoryLabs — Rare Feed'; }, []);
 
   const [events, setEvents]   = useState<RareEvent[]>([]);
-  const [minScore, setMinScore] = useState<number>(55);
+  const [minScore, setMinScore] = useState<number>(40);
   const [rarity, setRarity]   = useState<RarityFilter>('all');
   const [error, setError]     = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

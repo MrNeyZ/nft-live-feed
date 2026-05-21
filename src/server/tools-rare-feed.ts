@@ -20,7 +20,7 @@ function envNum(name: string, fallback: number): number {
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
 }
-const DEFAULT_MIN_SCORE = envNum('RARE_FEED_MIN_SCORE', 55);
+const DEFAULT_MIN_SCORE = envNum('RARE_FEED_MIN_SCORE', 40);
 
 export function createRareFeedRouter(): Router {
   const router = Router();

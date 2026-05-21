@@ -7,6 +7,7 @@
  * retention is a bounded periodic + boot cleanup.
  */
 import { getPool } from '../db/client';
+import { cleanupOldRarityCache } from './rarity';
 
 function envInt(name: string, fallback: number): number {
   const raw = (process.env[name] ?? '').trim();
@@ -126,11 +127,20 @@ export async function cleanupOldRareEvents(): Promise<number> {
   return rowCount ?? 0;
 }
 
-/** Boot + periodic retention cleanup. */
-export function startRareFeedRetention(): void {
+/** Boot + periodic retention cleanup for BOTH rare_feed_events and the
+ *  per-mint rarity cache (mint_rarity_cache), which would otherwise grow one
+ *  row per distinct mint forever. */
+function runCleanup(): void {
   void cleanupOldRareEvents()
     .then(n => console.log(`[rare/feed] retention cleanup deleted=${n} (keep ${RETENTION_DAYS}d)`))
     .catch(() => { /* non-fatal */ });
-  const timer = setInterval(() => { void cleanupOldRareEvents().catch(() => {}); }, CLEANUP_INTERVAL_MS);
+  void cleanupOldRarityCache()
+    .then(n => console.log(`[rare/rarity] cleanup deleted=${n}`))
+    .catch(() => { /* non-fatal */ });
+}
+
+export function startRareFeedRetention(): void {
+  runCleanup();
+  const timer = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
   if (typeof timer.unref === 'function') timer.unref();
 }

@@ -33,6 +33,10 @@ function envInt(name: string, fallback: number): number {
 }
 const RARITY_TTL_MS   = envInt('RARE_FEED_RARITY_TTL_MS',   24 * 60 * 60 * 1000);
 const NEGATIVE_TTL_MS = envInt('RARE_FEED_NEGATIVE_TTL_MS', 30 * 60 * 1000);
+/** Row-retention for the rarity cache (days). Far longer than either freshness
+ *  TTL above, so cleanup only ever removes long-stale rows — and stale rows are
+ *  re-fetched on demand anyway, so deletion is lossless. */
+const CACHE_RETENTION_DAYS = envInt('RARE_FEED_RARITY_CACHE_RETENTION_DAYS', 14);
 
 /** Priority order. Tensor first (no-ops without a key), then HowRare, then ME. */
 const PROVIDERS: RarityProvider[] = [tensorProvider, howRareProvider, magicEdenProvider];
@@ -117,6 +121,22 @@ async function writeCache(mint: string, r: Rarity): Promise<void> {
   } catch (err) {
     console.warn(`[rare/rarity] cache write failed mint=${mint.slice(0, 8)}…: ${(err as Error).message}`);
   }
+}
+
+/**
+ * Prune long-stale rows from mint_rarity_cache. Without this the cache grows
+ * one row per distinct mint ever seen, forever (rare_feed_events has retention,
+ * this didn't). Safe + lossless: the cutoff (CACHE_RETENTION_DAYS) is far beyond
+ * both the positive (24h) and negative (30m) freshness TTLs, so only rows that
+ * are already stale — and would be re-fetched on next access anyway — are
+ * removed. Parameterized. Returns rows deleted.
+ */
+export async function cleanupOldRarityCache(): Promise<number> {
+  const { rowCount } = await getPool().query(
+    `DELETE FROM mint_rarity_cache WHERE fetched_at < now() - ($1 || ' days')::interval`,
+    [String(CACHE_RETENTION_DAYS)],
+  );
+  return rowCount ?? 0;
 }
 
 // ─── Provider chain ─────────────────────────────────────────────────────────
