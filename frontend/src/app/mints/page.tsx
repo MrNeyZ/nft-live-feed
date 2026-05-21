@@ -1008,19 +1008,32 @@ export default function MintsPage() {
           (selectedSources.has('CANDY') && ev.sourceLabel === 'Metaplex Candy Machine');
         if (!ok) return false;
       }
-      // Hover scope — ANDs with the axes above. Only mints from the hovered
-      // collection survive. groupingKey is the stable join (rows + events
-      // share it); collectionAddress is a fallback for the rare mismatch.
-      // Order is preserved (events are newest-first) so the scoped list is
-      // consecutive + newest-first with no reordering of the global feed.
-      if (hoveredKey) {
-        const matchesHover = ev.groupingKey === hoveredKey
-          || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
-        if (!matchesHover) return false;
-      }
       return true;
     });
-  }, [events, selectedTypes, selectedSources, mintTf, tick, hoveredKey, hoveredCollAddr]);
+  }, [events, selectedTypes, selectedSources, mintTf, tick]);
+
+  // Hover-scoped feed VIEW. Hover no longer hides non-matching mints — instead
+  // matching mints cluster to the top at full opacity and the rest fade to
+  // ~0.15 (dimmed), so the operator sees the hovered collection's cadence in
+  // context without losing the surrounding stream. Newest-first ordering is
+  // preserved WITHIN each group (matching block + dimmed block are each just a
+  // stable partition of the already-newest-first visibleEvents). When nothing
+  // is hovered, the list is identity (no reorder, no dim). groupingKey is the
+  // stable join; collectionAddress is the fallback for the rare mismatch.
+  const feedView = useMemo(() => {
+    if (!hoveredKey) return visibleEvents.map(ev => ({ ev, dimmed: false }));
+    const match: MintEvent[] = [];
+    const rest:  MintEvent[] = [];
+    for (const ev of visibleEvents) {
+      const isMatch = ev.groupingKey === hoveredKey
+        || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
+      (isMatch ? match : rest).push(ev);
+    }
+    return [
+      ...match.map(ev => ({ ev, dimmed: false })),
+      ...rest.map(ev  => ({ ev, dimmed: true  })),
+    ];
+  }, [visibleEvents, hoveredKey, hoveredCollAddr]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
@@ -2110,21 +2123,24 @@ export default function MintsPage() {
           }}>
             {visibleEvents.length === 0 && (
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
-                {hoveredKey
-                  ? 'No recent mints for this collection in current feed window'
-                  : events.length === 0
-                    ? 'Waiting for individual mint events…'
-                    : activeFeedFilterCount > 0
-                      ? 'No mints match the current filters — open Filters to widen.'
-                      : 'Waiting for individual mint events…'}
+                {events.length === 0
+                  ? 'Waiting for individual mint events…'
+                  : activeFeedFilterCount > 0
+                    ? 'No mints match the current filters — open Filters to widen.'
+                    : 'Waiting for individual mint events…'}
               </div>
             )}
-            {(() => { const now = Date.now(); return visibleEvents.map(ev => (
+            {/* Hover view: matching mints cluster to the top at full opacity,
+                non-matching fade to ~0.15. Keyed by signature so React reorders
+                (not remounts) cards when the hover partition changes — cards
+                keep their size, only position + opacity shift (no layout jump). */}
+            {(() => { const now = Date.now(); return feedView.map(({ ev, dimmed }) => (
               <LiveMintFeedCard
                 key={ev.signature}
                 event={ev}
                 group={rows.get(ev.groupingKey)}
                 now={now}
+                dimmed={dimmed}
               />
             )); })()}
           </div>
