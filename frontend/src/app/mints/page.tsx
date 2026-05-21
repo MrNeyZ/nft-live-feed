@@ -911,6 +911,23 @@ export default function MintsPage() {
     return next;
   });
 
+  // ── Hover-linked feed scoping (frontend-only, temporary) ──────────────────
+  // Hovering a row in the LEFT collections table scopes the RIGHT Live Mint
+  // Feed to that collection's mint events. Pure UI state — never persisted (no
+  // localStorage / URL), cleared on mouse leave. The scope ANDs with the
+  // existing Type/Source feed filters (see visibleEvents). `hoveredKey` is the
+  // collection's `groupingKey` (the same key the rows Map and every MintEvent
+  // carry — stable across Core / Candy / LMNFT / VVV / Grave / cNFT).
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  // collectionAddress fallback for the rare event whose groupingKey differs
+  // from the row's key. Read as a primitive (not the rows Map) so the
+  // visibleEvents memo doesn't recompute on every mint_status update.
+  const hoveredColl = hoveredKey ? rows.get(hoveredKey) ?? null : null;
+  const hoveredCollAddr = hoveredColl?.collectionAddress ?? null;
+  const hoveredName = hoveredColl
+    ? (hoveredColl.name?.trim() || shortKey(hoveredColl.groupingKey))
+    : (hoveredKey ? shortKey(hoveredKey) : null);
+
   // Multi-select SOURCE / STATUS filters for the LEFT tracker table — same
   // Set-based system as the Live Mint Feed popover (empty set = "Any", OR
   // within a group, AND across groups). Persisted as CSV.
@@ -991,9 +1008,19 @@ export default function MintsPage() {
           (selectedSources.has('CANDY') && ev.sourceLabel === 'Metaplex Candy Machine');
         if (!ok) return false;
       }
+      // Hover scope — ANDs with the axes above. Only mints from the hovered
+      // collection survive. groupingKey is the stable join (rows + events
+      // share it); collectionAddress is a fallback for the rare mismatch.
+      // Order is preserved (events are newest-first) so the scoped list is
+      // consecutive + newest-first with no reordering of the global feed.
+      if (hoveredKey) {
+        const matchesHover = ev.groupingKey === hoveredKey
+          || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
+        if (!matchesHover) return false;
+      }
       return true;
     });
-  }, [events, selectedTypes, selectedSources, mintTf, tick]);
+  }, [events, selectedTypes, selectedSources, mintTf, tick, hoveredKey, hoveredCollAddr]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
@@ -2001,6 +2028,8 @@ export default function MintsPage() {
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
                   lastPriceByKey={lastPriceByKey}
+                  onHoverEnter={() => setHoveredKey(r.groupingKey)}
+                  onHoverLeave={() => setHoveredKey(null)}
                 />
               )); })()}
             </tbody>
@@ -2032,11 +2061,26 @@ export default function MintsPage() {
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
           <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <LiveDot />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
                 LIVE MINT FEED
               </span>
+              {/* Hover-scope chip — appears only while a left-table row is
+                  hovered. Subtle terminal-style pill; temporary wording so the
+                  state reads as transient, not a sticky filter. */}
+              {hoveredKey && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
+                  maxWidth: 220, padding: '2px 8px', borderRadius: 4,
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                  color: '#c9bdf0', background: 'rgba(128,104,216,0.16)',
+                  border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
+                }}>
+                  <span style={{ color: '#7a7a94', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{hoveredName}</span>
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* Feed Filters popover — replaces the prior cNFT ON/OFF
@@ -2066,11 +2110,13 @@ export default function MintsPage() {
           }}>
             {visibleEvents.length === 0 && (
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
-                {events.length === 0
-                  ? 'Waiting for individual mint events…'
-                  : activeFeedFilterCount > 0
-                    ? 'No mints match the current filters — open Filters to widen.'
-                    : 'Waiting for individual mint events…'}
+                {hoveredKey
+                  ? 'No recent mints for this collection in current feed window'
+                  : events.length === 0
+                    ? 'Waiting for individual mint events…'
+                    : activeFeedFilterCount > 0
+                      ? 'No mints match the current filters — open Filters to widen.'
+                      : 'Waiting for individual mint events…'}
               </div>
             )}
             {(() => { const now = Date.now(); return visibleEvents.map(ev => (
