@@ -28,7 +28,7 @@ import { extractCoreAssetFromInnerIx } from './decoder';
 import { ME_V2_PROGRAM, ME_AMM_PROGRAM, ME_CNFT_PROGRAM } from './programs';
 import bs58 from 'bs58';
 import { Limiter, Priority } from '../concurrency';
-import { incTxFetch, incTxNull, startTelemetry } from '../telemetry';
+import { incTxFetch, incTxNull, incTxRetry, startTelemetry } from '../telemetry';
 import { saleEventBus } from '../../events/emitter';
 import { getMode, isAnyIngestActive } from '../../runtime/mode';
 
@@ -349,7 +349,7 @@ export async function fetchRawTx(
           if (!isAnyIngestActive()) return null;
           if (bestEffort && Date.now() < cooldownUntil) return null;
           const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
-          return _fetchRawTxRpc(sig, maxRetries);
+          return _fetchRawTxRpc(sig, maxRetries, scope);
         }, priority);
         if (result) cacheTx(sig, result);
         return result;
@@ -391,7 +391,7 @@ export async function fetchRawTx(
   }
 }
 
-async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolanaTx | null> {
+async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope = 'sale'): Promise<RawSolanaTx | null> {
   const body = JSON.stringify({
     jsonrpc: '2.0', id: 1,
     method: 'getTransaction',
@@ -413,7 +413,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
 
       let res: Response;
       try {
-        incTxFetch();
+        incTxFetch(scope);
         res = await fetch(rpcUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -425,6 +425,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
         if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
           if (attempt < maxRetries) {
             const delay = RETRY_BASE_MS * (2 ** attempt);
+            incTxRetry(scope);
             console.warn(`[fetchRawTx] timeout (${FETCH_TIMEOUT_MS}ms), retrying in ${delay}ms  sig=${sig.slice(0, 12)}...`);
             await sleep(delay);
             continue;
@@ -462,7 +463,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number): Promise<RawSolan
       }
 
       if (json.error) throw new Error(`RPC: ${json.error.message}`);
-      if (!json.result) { incTxNull(); return null; }
+      if (!json.result) { incTxNull(scope); return null; }
 
       onFetchSuccess();
       const tx = json.result;
