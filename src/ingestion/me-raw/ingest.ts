@@ -747,11 +747,24 @@ async function _ingestMeRaw(
   const result = parseRawMeTransaction(tx);
 
   if (!result.ok) {
+    // Diagnostic for the pre-getTransaction prefilter audit: the WS deny-list
+    // matches `Program log: Instruction: <name>` strings, so surface those
+    // exact names for every fetched-then-dropped sale-scope tx. Names absent
+    // from the ME-v2/MMM deny-lists that recur here are safe deny candidates.
+    // Behaviour-neutral — just enriches the existing DROP line.
+    const ixLog = Array.isArray((tx.meta as { logMessages?: unknown })?.logMessages)
+      ? [...new Set(
+          ((tx.meta as { logMessages: string[] }).logMessages)
+            .map((l) => /^Program log: Instruction: (.+)$/.exec(l)?.[1]?.toLowerCase())
+            .filter((n): n is string => !!n),
+        )].join(',')
+      : '';
     // Log EVERY failed parse — primary signal for diagnosing missing sales.
     console.log(
       `[me_raw] DROP  sig=${sig.slice(0, 12)}` +
       `  programs=${programsStr}` +
       `  reason="${result.reason}"` +
+      (ixLog ? `  ixlog=[${ixLog}]` : '') +
       (ixScan.length ? `  discs=[${discStr}]` : ''),
     );
 
