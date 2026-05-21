@@ -116,6 +116,22 @@ const recentByScope: Record<FetchScope, Map<string, number>> = {
 const sharedRpcInFlight: Map<string, Promise<RawSolanaTx | null>> = new Map();
 const txCache: Map<string, { tx: RawSolanaTx; expiresAt: number }> = new Map();
 
+// ── Negative cache for null/failed getTransaction results ──────────────────
+// A sig that returns null (not found / failed / not-yet-indexed) on
+// NEG_TX_MIN_NULLS consecutive fetches is cached briefly, so reconnect /
+// catch-up / backlog passes stop re-spending getTransaction on it. Coverage is
+// preserved two ways: (1) the 2-null threshold means a transiently-late tx that
+// resolves on its very next retry is NEVER cached; (2) short TTL → the sig is
+// re-fetchable once the entry expires (no permanent blacklist). Keyed by sig
+// only (a null tx is null for every scope). Fully additive — it never touches
+// recentByScope / inFlight, so existing dedupe semantics are unchanged.
+const NEG_TX_TTL_MS    = parseInt(process.env.RPC_NEG_CACHE_TTL_MS ?? '90000', 10) || 90000; // 90s
+const NEG_TX_MIN_NULLS = 2;
+const NEG_TX_MAX       = 20000;                          // safety cap on the null-count map
+const negTxCache:     Map<string, number> = new Map();   // sig → expiry ms (cached null)
+const negTxNullCount: Map<string, number> = new Map();   // sig → consecutive nulls (pre-cache)
+let   negTxHitLog = 0;
+
 function getCachedTx(sig: string): RawSolanaTx | null {
   const entry = txCache.get(sig);
   if (!entry) return null;
@@ -164,6 +180,12 @@ setInterval(() => {
   for (const [sig, entry] of txCache) {
     if (now >= entry.expiresAt) txCache.delete(sig);
   }
+  for (const [sig, exp] of negTxCache) {
+    if (now >= exp) negTxCache.delete(sig);
+  }
+  // Pre-cache null counters are short-lived by nature; hard-cap to bound memory
+  // (clearing just means a transient single-null sig needs 2 fresh nulls again).
+  if (negTxNullCount.size > NEG_TX_MAX) negTxNullCount.clear();
 }, 2 * 60_000).unref();
 
 /**
@@ -295,6 +317,20 @@ export async function fetchRawTx(
     return cached;
   }
 
+  // Negative cache — skip a sig that has been persistently null (>= 2 fetches)
+  // until the short TTL expires, so reconnect/catch-up/backlog don't re-spend
+  // getTransaction on it. Re-fetchable after expiry (no permanent block).
+  const negExp = negTxCache.get(sig);
+  if (negExp != null) {
+    if (Date.now() < negExp) {
+      if (negTxHitLog++ % 50 === 0) {
+        console.log(`[rpc/cache] negative hit scope=${scope} sig=${sig.slice(0, 12)}… (count=${negTxHitLog})`);
+      }
+      return null;
+    }
+    negTxCache.delete(sig);  // expired → allow a fresh attempt
+  }
+
   inFlightByScope[scope].add(sig);
   try {
     // Cross-scope shared RPC: if another scope is mid-fetch, await its
@@ -329,8 +365,24 @@ export async function fetchRawTx(
     // must stay retryable by subsequent poller / listener passes.
     if (tx) {
       recentByScope[scope].set(sig, Date.now() + SIG_TTL_MS);
+      // A success clears any prior null state so it's never spuriously blocked.
+      negTxCache.delete(sig);
+      negTxNullCount.delete(sig);
       logDedupe(sig, scope, firedNew ? 'fetched_rpc' : 'awaited_in_flight');
     } else {
+      // Null/failed: only cache after NEG_TX_MIN_NULLS consecutive nulls so a
+      // transiently-late tx (resolves on its first retry) is never cached.
+      // Only count the call that actually hit RPC (firedNew) — a shared-inflight
+      // awaiter shouldn't double-count the same null.
+      if (firedNew) {
+        const n = (negTxNullCount.get(sig) ?? 0) + 1;
+        if (n >= NEG_TX_MIN_NULLS) {
+          negTxCache.set(sig, Date.now() + NEG_TX_TTL_MS);
+          negTxNullCount.delete(sig);
+        } else {
+          negTxNullCount.set(sig, n);
+        }
+      }
       logDedupe(sig, scope, 'fetch_null');
     }
     return tx;
