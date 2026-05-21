@@ -18,6 +18,7 @@ import { createCollectionMetaRouter } from './collection-meta';
 import { createMarketRouter } from './market';
 import { createRuntimeRouter } from './runtime';
 import { createRetardioOffersRouter } from './tools-retardio-offers';
+import { createRareFeedRouter } from './tools-rare-feed';
 import { corsMiddleware } from './cors';
 
 export function createApp() {
@@ -111,6 +112,10 @@ export function createApp() {
   // Manual on-demand tools — Retardio personal-offer scanner.
   // POST /api/tools/retardio-me-offer-scan
   app.use('/api', createRetardioOffersRouter());
+
+  // Rare Feed tool — read API for rarity-scored value sales.
+  // GET /api/tools/rare-feed/recent
+  app.use('/api', createRareFeedRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is

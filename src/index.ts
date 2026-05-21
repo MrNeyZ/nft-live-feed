@@ -19,6 +19,7 @@ import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
+import { startRareFeed } from './rare-feed';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -97,6 +98,12 @@ async function main() {
   // Core/VVV/GRAVE rows. Bounded RPC cost (one getMultipleAccounts per
   // tick); no effect when /mints is empty.
   startCoreSupplyRefresher();
+
+  // Rare Feed — bus-listener-only (no RPC, no Helius). Subscribes to the
+  // existing sale + meta events, enriches with ME rarity (DB-cached), scores,
+  // and persists value sales for the /tools/rare-feed page. Safe to start at
+  // boot; it only sees events once ingestion is running.
+  startRareFeed();
 
   // Mint tracker runs 24/7 independent of trade runtime mode. When
   // `MINT_TRACKER_ENABLED` is set (default ON), the listener spins up
