@@ -922,12 +922,20 @@ export default function MintsPage() {
     return next;
   });
 
-  // Multi-select STATUS filter (collection lifecycle). SOURCE is now the
-  // unified `selectedSources` above (shared with the feed); only STATUS is
-  // table-originated, but it applies to BOTH panels too (feed events map to
-  // their collection's status via groupingKey — see matchesStatusEvent).
-  // Status keys mirror the row badge: SOLD = observedMints ≥ maxSupply,
-  // ACTIVE = displayState 'shown', WATCH = incubating.
+  // ── Hover-linked feed scoping (frontend-only, temporary) ──────────────────
+  // Hovering a LEFT-table row emphasises that collection in the RIGHT feed
+  // (matching mints cluster to the top at full opacity, the rest fade — see
+  // feedView). Pure UI state, never persisted, cleared on mouse leave.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const hoveredColl = hoveredKey ? rows.get(hoveredKey) ?? null : null;
+  const hoveredCollAddr = hoveredColl?.collectionAddress ?? null;
+  const hoveredName = hoveredColl
+    ? (hoveredColl.name?.trim() || shortKey(hoveredColl.groupingKey))
+    : (hoveredKey ? shortKey(hoveredKey) : null);
+
+  // Multi-select STATUS filter (collection lifecycle). SOURCE is the unified
+  // `selectedSources` above (shared with the feed); STATUS applies to both
+  // panels too (feed events map to collection status via groupingKey).
   const [selectedStatuses, setSelectedStatuses] = useState<Set<StatusKey>>(
     () => loadFeedSet('vl.mints.statusFilter.multi', STATUS_KEYS),
   );
@@ -982,6 +990,29 @@ export default function MintsPage() {
       && matchesStatusEvent(selectedStatuses, statusByKey, ev.groupingKey),
     );
   }, [events, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick]);
+
+  // Hover-scoped feed VIEW. Hover no longer hides non-matching mints — instead
+  // matching mints cluster to the top at full opacity and the rest fade to
+  // ~0.15 (dimmed), so the operator sees the hovered collection's cadence in
+  // context without losing the surrounding stream. Newest-first ordering is
+  // preserved WITHIN each group (matching block + dimmed block are each just a
+  // stable partition of the already-newest-first visibleEvents). When nothing
+  // is hovered, the list is identity (no reorder, no dim). groupingKey is the
+  // stable join; collectionAddress is the fallback for the rare mismatch.
+  const feedView = useMemo(() => {
+    if (!hoveredKey) return visibleEvents.map(ev => ({ ev, dimmed: false }));
+    const match: MintEvent[] = [];
+    const rest:  MintEvent[] = [];
+    for (const ev of visibleEvents) {
+      const isMatch = ev.groupingKey === hoveredKey
+        || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
+      (isMatch ? match : rest).push(ev);
+    }
+    return [
+      ...match.map(ev => ({ ev, dimmed: false })),
+      ...rest.map(ev  => ({ ev, dimmed: true  })),
+    ];
+  }, [visibleEvents, hoveredKey, hoveredCollAddr]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
@@ -1974,6 +2005,8 @@ export default function MintsPage() {
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
                   lastPriceByKey={lastPriceByKey}
+                  onHoverEnter={() => setHoveredKey(r.groupingKey)}
+                  onHoverLeave={() => setHoveredKey(null)}
                 />
               )); })()}
             </tbody>
@@ -2005,11 +2038,26 @@ export default function MintsPage() {
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
           <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <LiveDot />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
                 LIVE MINT FEED
               </span>
+              {/* Hover-scope chip — appears only while a left-table row is
+                  hovered. Subtle terminal-style pill; temporary wording so the
+                  state reads as transient, not a sticky filter. */}
+              {hoveredKey && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
+                  maxWidth: 220, padding: '2px 8px', borderRadius: 4,
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                  color: '#c9bdf0', background: 'rgba(128,104,216,0.16)',
+                  border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
+                }}>
+                  <span style={{ color: '#7a7a94', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{hoveredName}</span>
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* Feed Filters popover — replaces the prior cNFT ON/OFF
@@ -2046,12 +2094,17 @@ export default function MintsPage() {
                     : 'Waiting for individual mint events…'}
               </div>
             )}
-            {(() => { const now = Date.now(); return visibleEvents.map(ev => (
+            {/* Hover view: matching mints cluster to the top at full opacity,
+                non-matching fade to ~0.15. Keyed by signature so React reorders
+                (not remounts) cards when the hover partition changes — cards
+                keep their size, only position + opacity shift (no layout jump). */}
+            {(() => { const now = Date.now(); return feedView.map(({ ev, dimmed }) => (
               <LiveMintFeedCard
                 key={ev.signature}
                 event={ev}
                 group={rows.get(ev.groupingKey)}
                 now={now}
+                dimmed={dimmed}
               />
             )); })()}
           </div>

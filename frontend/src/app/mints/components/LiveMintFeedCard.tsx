@@ -31,9 +31,13 @@ interface Props {
    *  table yet (typical for the first event of a brand-new drop). */
   group: MintStatus | undefined;
   now:   number;
+  /** Hover-scope dim. When the operator hovers a collection row, mints NOT in
+   *  that collection fade to ~0.15 (matching mints stay full opacity and
+   *  cluster to the top). Pure paint — no layout change. Default false. */
+  dimmed?: boolean;
 }
 
-export function LiveMintFeedCard({ event: ev, group, now }: Props) {
+export function LiveMintFeedCard({ event: ev, group, now, dimmed = false }: Props) {
   // NFT name vs. collection name. Per the targeted-mode spec, these
   // are distinct lines on the card: the NFT's own name is the
   // prominent first line; the collection name (when known) sits
@@ -186,7 +190,12 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
         borderLeft: `3px solid ${colorForCollection(ev.collectionAddress ?? ev.groupingKey)}`,
         borderRadius: 7,
         background: 'rgba(255,255,255,0.02)',
-        transition: 'background 0.12s, border-color 0.12s',
+        // Hover-scope dim — non-matching mints fade out while a collection row
+        // is hovered. Opacity-only (no display/size change) so the card keeps
+        // its footprint and the panel never reflows. Eased so the fade reads
+        // as deliberate rather than a flicker.
+        opacity: dimmed ? 0.15 : 1,
+        transition: 'background 0.12s, border-color 0.12s, opacity 0.15s',
       }}
     >
       {/* 56×56 thumbnail rendered from a 200×200 /thumb source so

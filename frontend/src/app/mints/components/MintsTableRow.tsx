@@ -64,9 +64,14 @@ interface Props {
    *  (cell renders "—"); value === 0 → confirmed free; value > 0 →
    *  paid (cell renders fmtSol). NOT an average. */
   lastPriceByKey: Map<string, number | null>;
+  /** Hover-scope hooks (frontend-only). Fire when the pointer enters/leaves
+   *  this row so the page can temporarily scope the Live Mint Feed to this
+   *  collection. Optional — omitting them leaves row behaviour unchanged. */
+  onHoverEnter?: () => void;
+  onHoverLeave?: () => void;
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave }: Props) {
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -162,6 +167,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
       className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
       style={{
         // Slightly stronger separator alpha (0.05 vs 0.04 before)
         // so the per-row tint reads as a distinct band; still a
