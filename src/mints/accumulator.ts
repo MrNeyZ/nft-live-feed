@@ -234,6 +234,14 @@ export function currentRecentMints(): MintEventWire[] {
   return recentMints.slice();
 }
 
+/** Boot-time hydration: refill the recent-mints ring from the DB-backed
+ *  store (src/mints/event-store.ts) so the SSE replay survives restarts and
+ *  is identical for every client. Pass events in chronological order (oldest
+ *  first) — same order the ring keeps and the SSE replay expects. */
+export function hydrateRecentMints(events: MintEventWire[]): void {
+  for (const ev of events) rememberRecentMint(ev);
+}
+
 /** Sticky reject set: groupingKeys the enricher classified as non-NFT
  *  via DAS. Future `recordMint` calls for these keys are silently
  *  dropped so a fungible's continuing MintTo / metadata-update stream

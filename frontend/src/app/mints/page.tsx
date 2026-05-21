@@ -1060,6 +1060,40 @@ export default function MintsPage() {
     schedulePersistedFeed(events);
   }, [events]);
 
+  // Backend is the source of truth for the recent live feed. localStorage
+  // (loadPersistedFeed) hydrated `events` synchronously for instant paint, but
+  // that's device-local fallback only. On mount, fetch the server snapshot
+  // (DB-backed, identical for every device) and merge it in — this converges
+  // Mac/PC to the same recent feed and the persist-on-change effect above
+  // rewrites localStorage from the backend-normalized set. Runs once; live
+  // updates continue via SSE. Dedupe key is signature:mintAddress everywhere.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/mints/recent?limit=${LIVE_FEED_MAX}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const body = await res.json() as { events?: Array<Omit<MintEvent, 'receivedAt'>> };
+        if (cancelled || !Array.isArray(body.events)) return;
+        const server: MintEvent[] = body.events.map(m => {
+          const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
+          return { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() } as MintEvent;
+        });
+        const k = (e: { signature: string; mintAddress: string | null }) => `${e.signature}:${e.mintAddress ?? ''}`;
+        setEvents(prev => {
+          // Server set is authoritative; keep only live events NOT in it (i.e.
+          // arrived during the fetch). Device-local stale events drop out.
+          const seen = new Set(server.map(k));
+          const liveExtra = prev.filter(e => !seen.has(k(e)));
+          const merged = [...server, ...liveExtra];
+          merged.sort((a, b) => b.receivedAt - a.receivedAt);
+          return merged.slice(0, LIVE_FEED_MAX);
+        });
+      } catch { /* offline / backend down → keep localStorage fallback */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // No periodic age-based eviction — the live feed is bounded purely
   // by LIVE_FEED_MAX (sliding-window trim in the SSE handler). Removing
   // the TTL pass keeps fresh events visible across tab switches and
@@ -1185,8 +1219,12 @@ export default function MintsPage() {
           const receivedAt  = Number.isFinite(blockTimeMs) ? blockTimeMs : Date.now();
           const ev: MintEvent = { ...m, receivedAt };
           setEvents(prev => {
-            if (prev.some(p => p.signature === ev.signature)) {
-              console.log(`[mints/live-miss] reason=dedupe_signature sig=${ev.signature.slice(0,12)}…`);
+            // Dedupe by signature:mintAddress (consistent with the backend
+            // unique key + the /api/mints/recent snapshot). A single tx that
+            // mints multiple assets yields distinct rows; a replay/reconnect of
+            // the same (sig,mint) is dropped.
+            if (prev.some(p => p.signature === ev.signature && (p.mintAddress ?? '') === (ev.mintAddress ?? ''))) {
+              console.log(`[mints/live-miss] reason=dedupe sig=${ev.signature.slice(0,12)}… mint=${ev.mintAddress ?? '—'}`);
               return prev;
             }
             // Insert + maintain newest-first order by receivedAt. Sorting

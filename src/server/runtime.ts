@@ -24,7 +24,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
-import { lastObservedMintAt } from '../mints/accumulator';
+import { lastObservedMintAt, currentRecentMints } from '../mints/accumulator';
+import { recentMintMetaSnapshot } from '../events/emitter';
 import { getMintListenerStatus } from '../ingestion/listener';
 import { rateLimit } from './rate-limit';
 import { issueNonce, verifyLogin, siwsRequired } from '../auth/siws';
@@ -360,6 +361,28 @@ export function createRuntimeRouter(): Router {
       lastMintAt:    lastObservedMintAt(),
       lastPollAt,
     });
+  });
+  // Authoritative recent live-feed snapshot. Served from the in-memory ring
+  // (DB-backed: hydrated from `mint_events` on boot + appended live), merged
+  // with the per-mint meta buffer so names/images come pre-resolved. Newest
+  // first. Zero DB/Helius per request — the frontend fetches this ONCE on
+  // mount to replace its localStorage fallback, so all devices converge.
+  router.get('/mints/recent', (req: Request, res: Response) => {
+    const raw = parseInt(String(req.query.limit ?? '150'), 10);
+    const limit = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), 300) : 150;
+    const meta = new Map<string, { nftName: string | null; imageUrl: string | null }>();
+    for (const p of recentMintMetaSnapshot()) {
+      meta.set(`${p.signature}:${p.mintAddress ?? ''}`, { nftName: p.nftName, imageUrl: p.imageUrl });
+    }
+    const ring = currentRecentMints();        // oldest-first
+    const events = ring
+      .slice(-limit)
+      .reverse()                               // newest-first for the client
+      .map(ev => {
+        const m = meta.get(`${ev.signature}:${ev.mintAddress ?? ''}`);
+        return { ...ev, nftName: m?.nftName ?? null, nftImageUrl: m?.imageUrl ?? null };
+      });
+    res.json({ events });
   });
   router.post('/mints/runtime', modeLimit, requireAuth, (req: Request, res: Response) => {
     const requested = req.body?.enabled;
