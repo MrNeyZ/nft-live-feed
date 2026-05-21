@@ -15,6 +15,7 @@ import { currentMintStatuses, hydrateAccumulatorFromSnapshot } from './mints/acc
 import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
+import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
@@ -63,6 +64,13 @@ async function main() {
     console.log(`[mints/snapshot] hydrated rows=${n}`);
   }
   startSnapshotPersistence(() => currentMintStatuses());
+
+  // Server-side persistence for the live mint feed (Postgres source of truth).
+  // Hydrates the in-memory recent-mints ring + meta buffer from `mint_events`
+  // BEFORE the HTTP server accepts connections, so the SSE replay + the
+  // /api/mints/recent snapshot are identical for every device and survive
+  // restarts. Then subscribes to the bus to persist live events + meta patches.
+  await startMintEventPersistence();
 
   const app = createApp();
   app.listen(PORT, () => {

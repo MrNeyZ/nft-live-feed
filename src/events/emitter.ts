@@ -509,3 +509,10 @@ function rememberRecentMintMeta(p: MintMetaPatch): void {
 export function recentMintMetaSnapshot(): MintMetaPatch[] {
   return recentMintMeta.slice();
 }
+
+/** Boot-time hydration: refill the recent mint_meta replay buffer from the
+ *  DB-backed store so re-opened tabs get enriched names/images for replayed
+ *  events even right after a backend restart. */
+export function hydrateRecentMintMeta(patches: MintMetaPatch[]): void {
+  for (const p of patches) rememberRecentMintMeta(p);
+}
