@@ -269,9 +269,12 @@ function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
 }
 
 function Sparkline({ data, color = '#36b868', w = 80, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
-  if (!data || data.length < 2) return <svg width={w} height={h} />;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
+  if (!Array.isArray(data) || data.length < 2) return <svg width={w} height={h} />;
+  // Guard the spread: a malformed (non-array / huge) `data` makes
+  // `Math.min(...data)` throw and blanks the whole dashboard. Fold instead.
+  let min = Infinity, max = -Infinity;
+  for (const v of data) { if (v < min) min = v; if (v > max) max = v; }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return <svg width={w} height={h} />;
   const range = max - min || 1;
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * (w - 6) + 3;
@@ -936,11 +939,11 @@ export default function Dashboard() {
         // so sparse collections land at the bottom on desc (same convention
         // as me_bid / tnsr_bid).
         const arr = col.floor7d;
-        return arr && arr.length ? (arr[arr.length - 1] ?? 0) : 0;
+        return Array.isArray(arr) && arr.length ? (arr[arr.length - 1] ?? 0) : 0;
       }
       case 'vol_7d': {
         const arr = col.vol7d;
-        return arr && arr.length ? arr.reduce((a, b) => a + b, 0) : 0;
+        return Array.isArray(arr) && arr.length ? arr.reduce((a, b) => a + b, 0) : 0;
       }
     }
   };
