@@ -226,8 +226,11 @@ let   candyGuardPollLastTs   = 0;
 // never land in the same moment — smoother Helius graph. An idle backoff
 // stretches the interval (×2 then ×3, capped) when a target sees no new mints.
 const MINT_WARM_LIMIT = parseInt(process.env.MINT_WARM_LIMIT ?? '2', 10) || 2;   // ≤ getTx per warm sweep
-const MINT_WARM_MPL_CORE_INTERVAL_MS     = parseInt(process.env.MINT_WARM_MPL_CORE_INTERVAL_MS     ?? '180000', 10) || 180000; // 3 min
-const MINT_WARM_CANDY_GUARD_INTERVAL_MS  = parseInt(process.env.MINT_WARM_CANDY_GUARD_INTERVAL_MS  ?? '300000', 10) || 300000; // 5 min
+// Warm base cadences trimmed for the safe credit pass: mpl_core 3m → 5m,
+// candy_guard 5m → 6m. Idle backoff (×2/×3, 10m cap) + stagger unchanged, so
+// background awareness holds while idle warm spend drops further.
+const MINT_WARM_MPL_CORE_INTERVAL_MS     = parseInt(process.env.MINT_WARM_MPL_CORE_INTERVAL_MS     ?? '300000', 10) || 300000; // 5 min
+const MINT_WARM_CANDY_GUARD_INTERVAL_MS  = parseInt(process.env.MINT_WARM_CANDY_GUARD_INTERVAL_MS  ?? '360000', 10) || 360000; // 6 min
 const MINT_WARM_CANDY_GUARD_OFFSET_MS    = parseInt(process.env.MINT_WARM_CANDY_GUARD_OFFSET_MS    ?? '90000',  10) || 90000;  // 90 s phase
 const MINT_WARM_MAX_INTERVAL_MS          = parseInt(process.env.MINT_WARM_MAX_INTERVAL_MS          ?? '600000', 10) || 600000; // 10 min cap
 
