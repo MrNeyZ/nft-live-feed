@@ -87,6 +87,9 @@ export interface MintStatus {
   mintType:          MintRollupType;
   priceLamports:     number | null;
   sourceLabel:       SourceLabel;
+  /** Visual subtype: Core Candy Machine v3 launchpad collection. Renders the
+   *  CORE badge in the CANDY pink palette. Semantics stay CORE. */
+  coreLaunchpad?:    boolean;
   name?:             string;
   /** Collection-level hero art. Tracker table's PRIMARY thumbnail
    *  source. Live-feed cards do NOT use this as a default fallback. */
@@ -155,6 +158,8 @@ export interface MintEvent {
   priceLamports:     number | null;
   minter:            string | null;
   sourceLabel:       SourceLabel;
+  /** Visual subtype: Core Candy Machine v3 launchpad mint → pink CORE badge. */
+  coreLaunchpad?:    boolean;
   /** Wall-clock receive time (ms). Drives the "Xs ago" column without
    *  re-parsing blockTime on every tick. */
   receivedAt:        number;

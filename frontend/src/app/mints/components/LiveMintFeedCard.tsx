@@ -358,6 +358,9 @@ export function LiveMintFeedCard({ event: ev, group, now }: Props) {
           letterSpacing) is verbatim — only `<span>` becomes `<a>`. */}
       {(() => {
         const tint =
+          // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
+          // typeLabel is unchanged); raw Core falls through to purple below.
+          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
           ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
           ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :

@@ -108,7 +108,13 @@ export function sourceHref(row: MintStatus): string | null {
   }
 }
 
-export function sourceBadge(s: SourceLabel): { label: string; bg: string; fg: string } {
+export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: string; bg: string; fg: string } {
+  // Core Candy Machine v3 launchpad mints keep the CORE label + semantics but
+  // borrow the CANDY pink palette so launchpad Core reads differently from raw
+  // Core ecosystem activity. Colours only — exact CANDY bg/fg.
+  if (coreLaunchpad && s === 'Metaplex Core') {
+    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
+  }
   switch (s) {
     case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' };
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };

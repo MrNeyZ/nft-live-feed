@@ -83,6 +83,9 @@ interface Accum {
    *  / authority / merkle-tree pubkey used as the groupingKey). */
   lastMintAddress:   string | null;
   sourceLabel:       MintSourceLabel;
+  /** Visual subtype: sticky-true once any Core Candy Machine v3 mint is seen
+   *  for this collection. Surfaced in MintStatusWire for the pink CORE badge. */
+  coreLaunchpad?:    boolean;
 
   observedMints: number;
   events60s:     RingItem[];
@@ -389,6 +392,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     mintType:          rollupType(a),
     priceLamports:     median,
     sourceLabel:       a.sourceLabel,
+    coreLaunchpad:     a.coreLaunchpad,
     name:              a.name,
     imageUrl:          a.imageUrl,
     representativeImageUrl:    a.representativeImageUrl,
@@ -501,6 +505,7 @@ export function recordMint(ev: MintEventWire): void {
       collectionAddress: ev.collectionAddress,
       lastMintAddress:   ev.mintAddress,
       sourceLabel:       ev.sourceLabel,
+      coreLaunchpad:     ev.coreLaunchpad === true,
       observedMints:     0,
       events60s:         [],
       events5m:          [],
@@ -522,6 +527,9 @@ export function recordMint(ev: MintEventWire): void {
   // something safe to link to (collectionAddress / groupingKey can
   // be a non-NFT pubkey).
   if (ev.mintAddress) a.lastMintAddress = ev.mintAddress;
+  // Sticky-true: once any Core Candy Machine v3 mint is seen for this
+  // collection, the row stays marked as a Core launchpad (pink CORE badge).
+  if (ev.coreLaunchpad === true) a.coreLaunchpad = true;
   a.observedMints++;
   a.supplyMintedLocal++;
   a.lastMintAt = now;
@@ -1001,6 +1009,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       collectionAddress: r.collectionAddress,
       lastMintAddress:   r.lastMintAddress ?? null,
       sourceLabel:       r.sourceLabel,
+      coreLaunchpad:     r.coreLaunchpad === true,
       observedMints:     r.observedMints,
       events60s:         [],
       events5m:          [],
