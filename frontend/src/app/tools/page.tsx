@@ -4,6 +4,7 @@
 // Manual, on-demand scanners. v1: Retardio listings with Magic Eden
 // personal offers.
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
@@ -597,6 +598,46 @@ export default function ToolsPage() {
             </div>
           );
         })()}
+      </div>
+
+      {/* Other tools — discoverable entry to Rare Feed. Reuses the same
+          purple card chrome + hover treatment as the rest of the page; sits
+          between the header and the results card without altering the table
+          layout. */}
+      <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto 12px', padding: '0 4px', boxSizing: 'border-box' }}>
+        <Link
+          href="/tools/rare-feed"
+          prefetch
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px 14px', textDecoration: 'none',
+            background: 'linear-gradient(180deg, rgba(32,26,58,0.6) 0%, rgba(26,21,48,0.6) 100%)',
+            border: '1px solid rgba(168,144,232,0.35)', borderRadius: 10,
+            transition: 'border-color 0.15s, box-shadow 0.15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.65)';
+            e.currentTarget.style.boxShadow = '0 0 14px rgba(128,104,216,0.18)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.35)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          <span aria-hidden style={{
+            flexShrink: 0, width: 32, height: 32, borderRadius: 8,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, color: '#a890e8',
+            background: 'rgba(128,104,216,0.16)', border: '1px solid rgba(168,144,232,0.4)',
+          }}>✦</span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#e8e6f2' }}>Rare Feed</span>
+            <span style={{ display: 'block', fontSize: 11, color: '#7a7a94', marginTop: 1 }}>
+              Rare NFT sales below floor and high-rarity opportunities.
+            </span>
+          </span>
+          <span aria-hidden style={{ flexShrink: 0, fontSize: 16, color: '#8068d8' }}>→</span>
+        </Link>
       </div>
 
       {/* Results card */}
