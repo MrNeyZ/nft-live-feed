@@ -953,14 +953,16 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // capsule's language: a "selected terminal tab", not a clickable
               // neon button. Wash / radius / size / animations unchanged.
               borderRadius: 7,
-              // "Pressed glass" active capsule — a soft top→bottom white wash
-              // with an inset top highlight + inset bottom shadow for depth,
-              // and a tiny upward lift. No border, no outer glow. The ::before
-              // sheen (globals.css) adds a very subtle top gradient. Reads as a
-              // selected, slightly elevated terminal tab. Slide animation kept.
+              // Selected "pressed glass" capsule — a purple-tinted wash (clearly
+              // stronger than the white hover so the current tab reads at a
+              // glance), a subtle purple inner border, an inset top highlight +
+              // bottom depth, and a tiny upward lift. The bottom accent line +
+              // top sheen are the ::after / ::before in globals.css. No outer
+              // glow, no bright outline. Slide animation kept.
               background:
-                'linear-gradient(180deg, rgba(255,255,255,0.065) 0%, rgba(255,255,255,0.035) 100%)',
+                'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)',
               boxShadow:
+                'inset 0 0 0 1px rgba(168,144,232,0.18), ' +
                 'inset 0 1px 0 rgba(255,255,255,0.06), ' +
                 'inset 0 -1px 0 rgba(0,0,0,0.18)',
               transform: 'translateY(-1px)',

@@ -1490,6 +1490,20 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 45%);
   pointer-events: none;
 }
+/* Bottom accent line inside the active capsule — a short centered underline
+   that marks the current section clearly without an outer glow or outline. */
+.topnav-active-indicator::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 45%;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(196, 179, 240, 0.55);
+  pointer-events: none;
+}
 
 /* TopNav sliding indicator — disable transitions when the user has
    asked the OS to reduce motion. The indicator still snaps to the
