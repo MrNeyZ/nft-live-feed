@@ -188,6 +188,12 @@ export interface MintEventWire {
   priceLamports:     number | null;
   minter:            string | null;
   sourceLabel:       MintSourceLabel;
+  /** Visual subtype marker: true for Core Candy Machine v3 / Core Candy Guard
+   *  launchpad mints. Semantics stay CORE (programSource 'mpl_core', sourceLabel
+   *  'Metaplex Core'); the frontend just renders the CORE badge in the CANDY
+   *  pink palette so launchpad Core mints read differently from raw Core
+   *  ecosystem activity. Absent/false on every other path. */
+  coreLaunchpad?:    boolean;
 }
 
 /** Per-collection rollup snapshot, fired every time the accumulator
@@ -248,6 +254,10 @@ export interface MintStatusWire {
   mintType:          MintType | 'mixed';
   priceLamports:     number | null;
   sourceLabel:       MintSourceLabel;
+  /** Visual subtype: true once a Core Candy Machine v3 / Core Candy Guard mint
+   *  has been seen for this collection (sticky). Frontend renders the CORE
+   *  badge in the CANDY pink palette. Semantics stay CORE. */
+  coreLaunchpad?:    boolean;
   /** Soft metadata, populated lazily (may be undefined for many ticks). */
   name?:             string;
   /** Collection-level hero art. Sticky write-once — only

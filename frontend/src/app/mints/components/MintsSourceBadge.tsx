@@ -15,7 +15,7 @@ import type { MintStatus } from '../lib/types';
 import { sourceBadge, sourceHref } from '../lib/source';
 
 export function MintsSourceBadge({ row }: { row: MintStatus }) {
-  const sb = sourceBadge(row.sourceLabel);
+  const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
   const pillStyle: React.CSSProperties = {
     display: 'inline-block', padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,

@@ -492,6 +492,7 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
         // right launchpad even before the first real `mint_status`
         // arrives.
         sourceLabel:       ev.sourceLabel,
+        coreLaunchpad:     ev.coreLaunchpad,
         displayState:      'incubating',
         observedMints:     0,
         v60:               0,
@@ -1276,6 +1277,8 @@ export default function MintsPage() {
               collectionAddress: ev.collectionAddress ?? cur.collectionAddress,
               priceLamports:     ev.priceLamports ?? cur.priceLamports,
               sourceLabel:       ev.sourceLabel,
+              // Sticky-true once a Core Candy v3 mint is seen (pink CORE badge).
+              coreLaunchpad:     ev.coreLaunchpad || cur.coreLaunchpad,
             } : {
               groupingKey:       ev.groupingKey,
               groupingKind:      (ev.groupingKind as MintStatus['groupingKind']) ?? 'collection',
@@ -1290,6 +1293,7 @@ export default function MintsPage() {
               mintType:          ev.mintType,
               priceLamports:     ev.priceLamports,
               sourceLabel:       ev.sourceLabel,
+              coreLaunchpad:     ev.coreLaunchpad,
               // Per-NFT identity intentionally NOT seeded on the
               // synthesized collection row. `ev.nftName` /
               // `ev.nftImageUrl` are per-MINT fields that arrive via

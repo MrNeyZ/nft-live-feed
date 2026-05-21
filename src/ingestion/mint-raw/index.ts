@@ -651,6 +651,9 @@ export async function ingestMintRaw(
           minter:            cm.minter,
           // Reuse the existing `Metaplex Core` label → frontend renders CORE.
           sourceLabel:       'Metaplex Core',
+          // Visual subtype only: Core Candy Machine v3 launchpad mint. Keeps
+          // source=core semantics; the frontend tints the CORE badge pink.
+          coreLaunchpad:     true,
         });
         enqueueMintEnrichment(groupingKey, cm.mintAddress);
         scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
