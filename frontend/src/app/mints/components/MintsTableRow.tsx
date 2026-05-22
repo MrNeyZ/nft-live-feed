@@ -187,8 +187,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
       className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
-      onMouseEnter={onHoverEnter}
-      onMouseLeave={onHoverLeave}
+      // Row hover no longer scopes the live feed — only the SHOW button does
+      // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
+      // lift (tools-offer-row) still applies on row hover.
       style={{
         // Slightly stronger separator alpha (0.05 vs 0.04 before)
         // so the per-row tint reads as a distinct band; still a
@@ -405,20 +406,29 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
               <button
                 type="button"
-                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Pin this collection in the live feed'}
+                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
                 onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  height: 20, padding: '0 9px', borderRadius: 4,
-                  fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  height: 25, padding: '0 12px', borderRadius: 5,
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase',
                   cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: "'SF Mono','Fira Code',monospace",
-                  color:      isPinned ? '#e6def8' : '#7c7a98',
-                  background: isPinned ? 'rgba(128,104,216,0.34)' : 'rgba(168,144,232,0.06)',
-                  border:     isPinned ? '1px solid rgba(168,144,232,0.75)' : '1px solid rgba(168,144,232,0.22)',
+                  color:      isPinned ? '#f0eaff' : '#b6a6e4',
+                  background: isPinned ? 'rgba(128,104,216,0.40)' : 'rgba(168,144,232,0.12)',
+                  border:     isPinned ? '1px solid rgba(168,144,232,0.85)' : '1px solid rgba(168,144,232,0.40)',
                   transition: 'color 120ms, background 120ms, border-color 120ms',
                 }}
-                onMouseEnter={(e) => { if (!isPinned) { const b = e.currentTarget; b.style.color = '#c9bdf0'; b.style.borderColor = 'rgba(168,144,232,0.5)'; b.style.background = 'rgba(128,104,216,0.16)'; } }}
-                onMouseLeave={(e) => { if (!isPinned) { const b = e.currentTarget; b.style.color = '#7c7a98'; b.style.borderColor = 'rgba(168,144,232,0.22)'; b.style.background = 'rgba(168,144,232,0.06)'; } }}
+                // SHOW hover IS the live-feed scope trigger (row hover no
+                // longer scopes). onHoverEnter/Leave are page-gated on
+                // !pinnedKey, so a pin holds; the brighten is local + idle-only.
+                onMouseEnter={(e) => {
+                  onHoverEnter?.();
+                  if (!isPinned) { const b = e.currentTarget; b.style.color = '#f0eaff'; b.style.borderColor = 'rgba(168,144,232,0.7)'; b.style.background = 'rgba(128,104,216,0.26)'; }
+                }}
+                onMouseLeave={(e) => {
+                  onHoverLeave?.();
+                  if (!isPinned) { const b = e.currentTarget; b.style.color = '#b6a6e4'; b.style.borderColor = 'rgba(168,144,232,0.40)'; b.style.background = 'rgba(168,144,232,0.12)'; }
+                }}
               >
                 SHOW
               </button>
