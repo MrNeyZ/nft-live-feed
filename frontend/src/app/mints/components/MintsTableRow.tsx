@@ -220,7 +220,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ position: 'relative', padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 66][name 100][icons+source + SHOW (1fr)].
             The trailing 1fr track holds the icons+source group (hugs left) and
@@ -320,7 +320,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* trailing 1fr cell: icons+source hug left, SHOW centered in the gap */}
+          {/* trailing 1fr cell: icons+source hug left. The focus lane is an
+              absolutely-positioned overlay on the td (see end of cell), so it
+              does NOT live in this flow — its x is fixed regardless of width. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           {/* icons + source — one group that hugs content, so the source badge
               sits immediately after the ME/Tensor/X icons */}
@@ -398,64 +400,59 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* SHOW pin control — centered in the leftover gap before MINTS.
-              Hovering it scopes the live feed to this collection (bubbles to
-              the row's onMouseEnter); clicking pins/locks that scope. Subtle
-              when idle, stronger purple when pinned. */}
-          {onTogglePin && (
-            <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <button
-                type="button"
-                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
-                onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-                style={{
-                  // Pressed-glass purple capsule, same language as the active
-                  // top-HUD tab (layered gradient + inset rim/sheen/depth, no
-                  // flat outline, no neon glow). Inactive = dimmer capsule;
-                  // hover = active-tab brightness; pinned = strongest.
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  height: 25, padding: '0 14px', borderRadius: 7,
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                  cursor: 'pointer', whiteSpace: 'nowrap',
-                  color:      isPinned ? '#ffffff' : '#c9bdf0',
-                  background: isPinned
-                    ? 'linear-gradient(180deg, rgba(168,144,232,0.26) 0%, rgba(168,144,232,0.15) 100%)'
-                    : 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)',
-                  boxShadow: isPinned
-                    ? 'inset 0 0 0 1px rgba(168,144,232,0.34), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.20)'
-                    : 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)',
-                  transform: isPinned ? 'translateY(-1px)' : 'none',
-                  transition: 'color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease',
-                }}
-                // SHOW hover IS the live-feed scope trigger (row hover no
-                // longer scopes). onHoverEnter/Leave are page-gated on
-                // !pinnedKey, so a pin holds; the brighten is local + idle-only
-                // and lifts to the active-tab capsule brightness.
-                onMouseEnter={(e) => {
-                  onHoverEnter?.();
-                  if (!isPinned) { const b = e.currentTarget;
-                    b.style.color = '#ffffff';
-                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)';
-                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.24), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.18)';
-                    b.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  onHoverLeave?.();
-                  if (!isPinned) { const b = e.currentTarget;
-                    b.style.color = '#c9bdf0';
-                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)';
-                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)';
-                    b.style.transform = 'none';
-                  }
-                }}
-              >
-                SHOW
-              </button>
-            </span>
-          )}
           </div>
         </div>
+        {/* ── Focus lane ──────────────────────────────────────────────────
+            A "scope channel" overlay, NOT a button: an absolutely-positioned
+            strip pinned to the right edge of the COLLECTION cell (between the
+            identity group and the MINTS column). Because it's absolute to the
+            td, its x is identical on every row and never moves with name /
+            icon / source-badge width. Idle = near-invisible faint purple
+            strip; hover = soft brighten + right-edge beam implying data flows
+            to the live feed; pinned = stronger purple + solid right beam.
+            ONLY this lane scopes the feed (row hover does not). */}
+        {onTogglePin && (
+          <div
+            role="button"
+            title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to scope the live feed · click to pin'}
+            onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+            onMouseEnter={(e) => {
+              onHoverEnter?.();
+              if (!isPinned) { const d = e.currentTarget;
+                d.style.background = 'linear-gradient(90deg, transparent 0%, rgba(128,104,216,0.16) 100%)';
+                d.style.boxShadow = '8px 0 20px rgba(168,144,232,0.18)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.45)';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#e6def8';
+              }
+            }}
+            onMouseLeave={(e) => {
+              onHoverLeave?.();
+              if (!isPinned) { const d = e.currentTarget;
+                d.style.background = 'linear-gradient(90deg, transparent 0%, rgba(168,144,232,0.06) 100%)';
+                d.style.boxShadow = 'none';
+                d.style.borderRightColor = 'transparent';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.35)';
+              }
+            }}
+            style={{
+              position: 'absolute', top: 0, bottom: 0, right: 0, width: 104,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              cursor: 'pointer', zIndex: 2, userSelect: 'none',
+              background: isPinned
+                ? 'linear-gradient(90deg, transparent 0%, rgba(128,104,216,0.26) 100%)'
+                : 'linear-gradient(90deg, transparent 0%, rgba(168,144,232,0.06) 100%)',
+              boxShadow: isPinned ? '10px 0 22px rgba(168,144,232,0.28)' : 'none',
+              borderRight: isPinned ? '2px solid rgba(168,144,232,0.7)' : '2px solid transparent',
+              transition: 'background 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
+            }}
+          >
+            <span style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+              whiteSpace: 'nowrap', transition: 'color 140ms ease',
+              color: isPinned ? '#e6def8' : 'rgba(201,189,240,0.35)',
+            }}>{isPinned ? 'LIVE ▸' : 'FOCUS ▸'}</span>
+          </div>
+        )}
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
       {/* MINTS — count of mints for this collection seen inside the
