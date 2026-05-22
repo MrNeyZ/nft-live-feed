@@ -1908,12 +1908,16 @@ export default function MintsPage() {
                 layout. COLLECTION is auto (no width = takes the
                 remainder); the others are pinned. */}
             <colgroup>
+              {/* COLLECTION is auto (remainder): tightening the numeric
+                  columns widens this column, which shifts the numeric block
+                  right and opens free center space (reserved for a future
+                  badge) without touching the left-packed identity grid. */}
               <col />                        {/* COLLECTION (auto / remainder) */}
-              <col style={{ width: 80 }}  /> {/* MINTS    */}
-              <col style={{ width: 90 }}  /> {/* SUPPLY   */}
-              <col style={{ width: 100 }} /> {/* LAST     */}
-              <col style={{ width: 90 }}  /> {/* PRICE    */}
-              <col style={{ width: 80 }}  /> {/* RATE     */}
+              <col style={{ width: 70 }}  /> {/* MINTS    */}
+              <col style={{ width: 80 }}  /> {/* SUPPLY   */}
+              <col style={{ width: 90 }}  /> {/* LAST     */}
+              <col style={{ width: 80 }}  /> {/* PRICE    */}
+              <col style={{ width: 70 }}  /> {/* RATE     */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
@@ -1925,7 +1929,7 @@ export default function MintsPage() {
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 13, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('mints')}>

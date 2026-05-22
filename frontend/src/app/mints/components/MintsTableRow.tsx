@@ -199,7 +199,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '14px 8px 14px 12px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed subcontainers so every row aligns identically:
             [rank 36] [image 42] [status badge 78] [name flex+ellipsis]
             [icons/source 130]. The status badge sits in its OWN fixed slot
@@ -209,13 +209,16 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             shrinks first on narrow screens while the numeric columns keep
             their fixed widths. */}
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 28][image 48][status 56][name 180][icons auto][source auto].
-            The status column is a tight fixed width (not `auto`) on purpose:
+            [rank 22][image 46][status 56][name 170][icons auto][source auto].
+            Tightened + left-packed (small column-gap, reduced cell left pad)
+            so rank/image hug the left edge and the remainder of this auto
+            COLLECTION column becomes free center space (reserved for a future
+            badge). The status column stays a tight FIXED width (not `auto`):
             an auto status column would resize per-row to its badge text and
             shove the name's x-position (the staircase). 56px hugs the widest
             badge (ACTIVE) while keeping every name's start x identical. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '28px 48px 56px 180px auto auto', alignItems: 'center', columnGap: 8 }}>
-          <span style={{ width: 28, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 56px 170px auto auto', alignItems: 'center', columnGap: 6 }}>
+          <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
             // primaryImg / fallbackImg are the first two non-null of
