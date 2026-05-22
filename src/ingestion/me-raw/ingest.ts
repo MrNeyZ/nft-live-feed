@@ -32,6 +32,7 @@ import { incTxFetch, incTxNull, incTxRetry, startTelemetry } from '../telemetry'
 import { saleEventBus } from '../../events/emitter';
 import { getMode, isAnyIngestActive } from '../../runtime/mode';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
+import { noteAcceptedSale } from '../poll-useful';
 
 // ─── RPC fetch ────────────────────────────────────────────────────────────────
 
@@ -904,6 +905,7 @@ async function _ingestMeRaw(
 
   // Step 4 — raw parser recognised this as a sale.
   auditRecordOutcome(sig, 'accepted_sale');
+  noteAcceptedSale(result.event.marketplace);  // feeds AMM-poller useful-ratio backoff
   trace(sig, 'parse:ok', `parser=me_v2_raw  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
 
   console.log(

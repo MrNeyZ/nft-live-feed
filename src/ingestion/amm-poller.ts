@@ -26,6 +26,7 @@ import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
 import { dispatchMmmDeferred } from './mmm-prefilter';
 import { isSalesWsDead } from './listener';
+import { getAcceptedCount } from './poll-useful';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -376,6 +377,103 @@ const lowPageStreak: Map<string, number> = new Map();
  *  Targets remove themselves once they return non-saturated. */
 const saturatedTargets: Set<string> = new Set();
 
+// ─── Per-target useful-ratio backoff ─────────────────────────────────────────
+//
+// Only poll:mmm and poll:me_v2 — the two high-volume programs whose poll-path
+// getTransaction was measured ~94-100% parser-dropped during low-sale windows
+// (the poll path has no logs, so it can't shed non-sale sigs before fetch).
+//
+// A target accrues an "idle streak" ONLY on sweeps that dispatched > 0 sigs yet
+// produced 0 accepted sales (v1 is conservative: empty sweeps on a quiet target
+// do NOT degrade cadence). After 3 such sweeps it stretches 5s → 15s; after 8,
+// → 30s. The FIRST accepted sale snaps it back to 5s. Backoff is force-disabled
+// whenever the safety net matters most: WS dead, mid-catch-up (saturated),
+// pending backlog, or first run. Latency added only during proven-idle periods;
+// coverage is never reduced (sweeps still run, just less often).
+const BACKOFF_TARGETS: ReadonlySet<string> = new Set(['poll:mmm', 'poll:me_v2']);
+const BACKOFF_L0_MS = 5_000;
+const BACKOFF_L1_MS = 15_000;
+const BACKOFF_L2_MS = 30_000;
+const BACKOFF_L1_STREAK = 3;
+const BACKOFF_L2_STREAK = 8;
+
+interface BackoffState {
+  level:        0 | 1 | 2;
+  idleStreak:   number;
+  acceptedSnap: number;  // cumulative accepted count at last evaluation
+  nextDueTs:    number;  // sweep skipped while now < nextDueTs
+}
+const backoffState: Map<string, BackoffState> = new Map();
+function backoffFor(name: string): BackoffState {
+  let s = backoffState.get(name);
+  if (!s) {
+    s = { level: 0, idleStreak: 0, acceptedSnap: getAcceptedCount(name), nextDueTs: 0 };
+    backoffState.set(name, s);
+  }
+  return s;
+}
+function intervalForLevel(level: 0 | 1 | 2): number {
+  return level === 2 ? BACKOFF_L2_MS : level === 1 ? BACKOFF_L1_MS : BACKOFF_L0_MS;
+}
+
+/** True when a backoff target's sweep is NOT yet due (skip it this tick).
+ *  Always false for non-backoff targets and when force-normal conditions hold. */
+function backoffSkip(name: string, now: number): boolean {
+  if (!BACKOFF_TARGETS.has(name)) return false;
+  const s = backoffFor(name);
+  if (s.level === 0) return false;
+  return now < s.nextDueTs;
+}
+
+/** Re-evaluate a backoff target's cadence after a sweep completes.
+ *  `dispatched` = sigs handed to ingest this sweep; `forceNormal` collapses
+ *  the level to 0 (catch-up / backlog / WS-dead / first-run). Logs transitions
+ *  only. */
+function evaluateBackoff(
+  name: string, dispatched: number, forceNormal: boolean, now: number,
+): void {
+  if (!BACKOFF_TARGETS.has(name)) return;
+  const s = backoffFor(name);
+  const acceptedNow   = getAcceptedCount(name);
+  const acceptedDelta = acceptedNow - s.acceptedSnap;
+  s.acceptedSnap = acceptedNow;
+  const prevLevel = s.level;
+
+  if (acceptedDelta > 0) {
+    // Recovery — a real sale landed. Snap back to fast cadence immediately.
+    s.idleStreak = 0;
+    s.level = 0;
+    s.nextDueTs = now + BACKOFF_L0_MS;
+    if (prevLevel !== 0) {
+      console.log(`[poll/backoff] target=${name} recovered interval=${BACKOFF_L0_MS} accepted=${acceptedDelta}`);
+    }
+    return;
+  }
+
+  if (forceNormal) {
+    // Coverage-critical window — keep full cadence, don't accrue idle.
+    s.idleStreak = 0;
+    s.level = 0;
+    s.nextDueTs = now + BACKOFF_L0_MS;
+    return;
+  }
+
+  // v1 conservative: only a sweep that did work (dispatched>0) but yielded no
+  // sale counts as "bad". Empty sweeps on a quiet target are NOT idle-accruing.
+  if (dispatched > 0 && acceptedDelta === 0) {
+    s.idleStreak += 1;
+  }
+
+  const newLevel: 0 | 1 | 2 =
+    s.idleStreak >= BACKOFF_L2_STREAK ? 2 :
+    s.idleStreak >= BACKOFF_L1_STREAK ? 1 : 0;
+  s.level = newLevel;
+  s.nextDueTs = now + intervalForLevel(newLevel);
+  if (newLevel !== prevLevel && newLevel > 0) {
+    console.log(`[poll/backoff] target=${name} level=${newLevel} interval=${intervalForLevel(newLevel)} useful=0.0%`);
+  }
+}
+
 async function sweepTarget(target: PollTarget): Promise<void> {
   if (sweepInFlight.get(target.name)) return;
   if (getMode() === 'off') return;
@@ -424,6 +522,13 @@ async function sweepTarget(target: PollTarget): Promise<void> {
         await clearLastSig(`${target.name}:catchup`);
         console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
       }
+      // Empty sweep: dispatched=0 → never idle-accrues in v1, but still let a
+      // WS-driven sale recover the cadence (acceptedDelta>0) and refresh due-ts.
+      evaluateBackoff(
+        target.name, 0,
+        isSalesWsDead() || saturated || backlog.length > 0 || lastSig === null,
+        Date.now(),
+      );
       return;
     }
 
@@ -513,6 +618,16 @@ async function sweepTarget(target: PollTarget): Promise<void> {
       `  fresh=${ingested - backlogged}  backlog=${backlogged}  skipped=${skipped}` +
       (catchup || saturated ? `  catchup=${saturated ? 'active' : 'completing'}` : '')
     );
+
+    // Useful-ratio backoff (poll:mmm / poll:me_v2 only). dispatched=ingested.
+    // Force-normal when coverage matters most: WS dead, mid-catch-up, pending
+    // backlog, or first run (cold cursor). Otherwise idle-accrue on a sweep
+    // that did work but produced no sale.
+    evaluateBackoff(
+      target.name, ingested,
+      isSalesWsDead() || saturated || backlog.length > 0 || lastSig === null,
+      Date.now(),
+    );
   } catch (err: unknown) {
     console.error(`[${target.name}] sweep error`, err);
   } finally {
@@ -572,10 +687,15 @@ function tick(): void {
   // targets. Staggered by TICK_STAGGER_MS so the per-program sig calls don't
   // all land in the same instant (the first target still fires immediately).
   let slot = 0;
+  const now = Date.now();
   for (const t of TARGETS) {
     if (isLeanMode(mode) && !LEAN_MODE_TARGETS.has(t.name)) continue;
     // While sales WS is dead, only poll the high-signal programs.
     if (dead && !DEGRADED_TARGETS.has(t.name)) continue;
+    // Per-target useful-ratio backoff: skip a backed-off target until its
+    // stretched cadence comes due. Non-backoff targets (tcomp/tamm) and the
+    // global tick cadence are unaffected.
+    if (backoffSkip(t.name, now)) continue;
     const offset = slot * TICK_STAGGER_MS;
     slot++;
     if (offset === 0) {
