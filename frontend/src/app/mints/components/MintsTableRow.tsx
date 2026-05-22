@@ -447,7 +447,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // small gap to MINTS while ensuring the lane's left edge stays
               // clear of where the icons/source badges end (a larger right
               // offset pushed the lane left into the badges → overlap).
-              position: 'absolute', top: 0, bottom: 0, right: 12, width: 160,
+              position: 'absolute', top: 0, bottom: 0, right: 12, width: 130,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
