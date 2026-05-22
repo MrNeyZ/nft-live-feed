@@ -222,12 +222,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 66][name 100][icons+source 140][SHOW 90][1fr].
-            icons+source is its OWN fixed 140px slot (content left-aligned) and
-            SHOW is its OWN fixed 90px slot (button centered) — so SHOW sits at
-            the SAME x in every row regardless of name length, icon count, or
-            source-badge width. The trailing 1fr is clean free space before
-            MINTS (reserved for a future badge).
+            [rank 22][image 46][status 66][name 100][icons+source + SHOW (1fr)].
+            The trailing 1fr track holds the icons+source group (hugs left) and
+            the SHOW pin control, centered in the leftover gap before MINTS.
             The name is now display-truncated to ~12 chars, so its slot drops
             to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
             source badge share ONE trailing auto group that hugs content, so
@@ -238,7 +235,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             x-position — 56px hugs the widest badge (ACTIVE) and keeps every
             name's start x identical. The auto column's remainder leaves clean
             free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px 140px 90px 1fr', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -323,10 +320,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* icons + source — own fixed 140px slot, content left-aligned, so
-              the source badge sits right after the ME/Tensor/X icons and SHOW
-              never shifts with source-badge width */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, overflow: 'hidden', justifySelf: 'start' }}>
+          {/* trailing 1fr cell: icons+source hug left, SHOW centered in the gap */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          {/* icons + source — one group that hugs content, so the source badge
+              sits immediately after the ME/Tensor/X icons */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -400,11 +398,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* SHOW pin control — own fixed 90px slot, button centered, so every
-              SHOW aligns in one vertical column. Hovering it scopes the live
-              feed to this collection; clicking pins/locks that scope. */}
-          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {onTogglePin && (
+          {/* SHOW pin control — centered in the leftover gap before MINTS.
+              Hovering it scopes the live feed to this collection (bubbles to
+              the row's onMouseEnter); clicking pins/locks that scope. Subtle
+              when idle, stronger purple when pinned. */}
+          {onTogglePin && (
+            <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
               <button
                 type="button"
                 title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
@@ -453,8 +452,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               >
                 SHOW
               </button>
-            )}
-          </span>
+            </span>
+          )}
+          </div>
         </div>
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
