@@ -148,22 +148,63 @@ export function useUiSoundEnabled(): boolean {
 // `currentTime = 0; play()` round-trip can introduce a few-ms gap on
 // some browsers; rotating eliminates it entirely).
 
-let hoverPool: HTMLAudioElement[] = [];
-let clickPool: HTMLAudioElement[] = [];
+// ── Optional softening (clean/alt only) ─────────────────────────────────────
+// Routes each pooled element through a single shared AudioContext:
+//   MediaElementSource → lowpass (trim harsh highs) → gain (per-play attack).
+// The gain ramps 0→1 over a few ms each play to round off the sharp click
+// transient. Legacy is NEVER routed (bit-identical playback). Falls back to
+// plain HTMLAudio playback when Web Audio is unavailable or routing throws.
+const SOFTEN: Record<'hover' | 'click', { lowpass: number; attackMs: number }> = {
+  hover: { lowpass: 4800, attackMs: 12 },
+  click: { lowpass: 5800, attackMs: 6 },
+};
+let audioCtx: AudioContext | null = null;
+function ensureCtx(): AudioContext | null {
+  if (audioCtx) return audioCtx;
+  if (typeof window === 'undefined') return null;
+  const AC = window.AudioContext
+    || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return null;
+  try { audioCtx = new AC(); } catch { audioCtx = null; }
+  return audioCtx;
+}
+function resumeCtx(): void {
+  if (audioCtx && audioCtx.state === 'suspended') { void audioCtx.resume().catch(() => undefined); }
+}
+
+interface PoolItem { el: HTMLAudioElement; envGain?: GainNode; attackMs?: number; }
+let hoverPool: PoolItem[] = [];
+let clickPool: PoolItem[] = [];
 let hoverIdx = 0;
 let clickIdx = 0;
 let lastHoverAt = 0;
 let lastClickAt = 0;
 let primed = false;
 
-function buildPool(url: string, gain: number): HTMLAudioElement[] {
-  const out: HTMLAudioElement[] = [];
+function buildPool(url: string, gain: number, channel?: 'hover' | 'click'): PoolItem[] {
+  const out: PoolItem[] = [];
+  // Only clean/alt are softened; legacy stays on the plain element path.
+  const soften = channel && activePack !== 'legacy' ? SOFTEN[channel] : null;
+  const ctx = soften ? ensureCtx() : null;
   for (let i = 0; i < POOL_SIZE; i++) {
     try {
       const a = new Audio(url);
       a.preload = 'auto';
       a.volume  = gain;
-      out.push(a);
+      if (soften && ctx) {
+        try {
+          const src = ctx.createMediaElementSource(a);
+          const lp  = ctx.createBiquadFilter();
+          lp.type = 'lowpass';
+          lp.frequency.value = soften.lowpass;
+          const env = ctx.createGain();
+          env.gain.value = 1;
+          src.connect(lp); lp.connect(env); env.connect(ctx.destination);
+          out.push({ el: a, envGain: env, attackMs: soften.attackMs });
+          continue;
+        } catch { /* routing failed — fall back to plain element below */ }
+      }
+      out.push({ el: a });
     } catch { /* skip — partially filled pool still works */ }
   }
   return out;
@@ -173,8 +214,9 @@ function primeAudio(): void {
   if (primed || typeof window === 'undefined') return;
   primed = true;
   try {
-    hoverPool = buildPool(pack().hover, HOVER_GAIN * pack().gain.hover);
-    clickPool = buildPool(pack().click, CLICK_GAIN * pack().gain.click);
+    hoverPool = buildPool(pack().hover, HOVER_GAIN * pack().gain.hover, 'hover');
+    clickPool = buildPool(pack().click, CLICK_GAIN * pack().gain.click, 'click');
+    resumeCtx();
   } catch {
     hoverPool = [];
     clickPool = [];
@@ -187,6 +229,11 @@ function primeAudio(): void {
 // so the switch has zero perceived latency. No new event listeners are added.
 function rebuildForPack(): void {
   primed = false;
+  // Disconnect any Web Audio graph from the old pack before dropping refs
+  // (the shared AudioContext is reused — never recreated).
+  for (const it of [...hoverPool, ...clickPool]) {
+    try { it.envGain?.disconnect(); } catch { /* already gone */ }
+  }
   hoverPool = [];
   clickPool = [];
   deepDiscountAudio = null;
@@ -223,6 +270,7 @@ function installFirstGestureInit(): void {
   gestureInstalled = true;
   const init = () => {
     primeAudio();
+    resumeCtx();  // unlock the AudioContext on the first gesture (clean/alt)
     window.removeEventListener('pointerdown', init);
     window.removeEventListener('keydown',     init);
   };
@@ -298,7 +346,7 @@ function reducedMotion(): boolean {
 interface PoolState { idx: number; }
 
 function playFromPool(
-  pool: HTMLAudioElement[],
+  pool: PoolItem[],
   state: PoolState,
   throttleMs: number,
   lastAt: number,
@@ -308,14 +356,24 @@ function playFromPool(
   if (pool.length === 0) return lastAt;
   const now = performance.now();
   if (now - lastAt < throttleMs) return lastAt;
-  const el = pool[state.idx];
+  const item = pool[state.idx];
   state.idx = (state.idx + 1) % pool.length;
   // currentTime = 0 still cheap; on a fresh pool instance it's usually
   // already 0 anyway. play() returns a Promise — swallow rejections
   // (browsers reject when invoked before the first user gesture).
   try {
-    el.currentTime = 0;
-    void el.play().catch(() => undefined);
+    // Softened (clean/alt) items ramp their envelope gain 0→1 over attackMs to
+    // round off the transient; the lowpass is static. No-op for legacy.
+    if (item.envGain && audioCtx) {
+      resumeCtx();
+      const t = audioCtx.currentTime;
+      const a = (item.attackMs ?? 8) / 1000;
+      item.envGain.gain.cancelScheduledValues(t);
+      item.envGain.gain.setValueAtTime(0, t);
+      item.envGain.gain.linearRampToValueAtTime(1, t + a);
+    }
+    item.el.currentTime = 0;
+    void item.el.play().catch(() => undefined);
   } catch { /* element in invalid state — ignore one tick */ }
   return now;
 }
