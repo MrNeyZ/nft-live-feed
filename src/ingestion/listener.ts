@@ -195,6 +195,15 @@ let   mplCorePollDeduped  = 0;
  *  `/api/mints/runtime` so operators can confirm the fallback poller
  *  is alive even when WS is silent. 0 until the first sweep lands. */
 let   mplCorePollLastTs   = 0;
+// Live-mode adaptive idle backoff for the mpl_core poll. When live sweeps
+// produce no newly-accepted mints for several consecutive cycles, stretch the
+// cadence (15s → 30s → 60s) to cut idle getTransaction drain; restore to 15s
+// on the first accepted mint. Warm mode has its own scheduler (warmMplCore).
+const MPL_CORE_IDLE_L1_CYCLES = 3;
+const MPL_CORE_IDLE_L2_CYCLES = 8;
+const MPL_CORE_IDLE_L1_MS     = 30_000;
+const MPL_CORE_IDLE_L2_MS     = 60_000;
+const liveMplCore = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0, level: 0 };
 
 // ─── candy_guard cursor-poll fallback ───────────────────────────────────────
 // Same backstop pattern as the mpl_core poller above, applied to the
@@ -1412,6 +1421,25 @@ export function startListener(): void {
             .catch(() => { /* fail-soft */ });
           return;
         }
+        // LIVE adaptive idle backoff. The 15s tick gates the actual sweep:
+        // skip until nextDueTs, which stretches with the zero-accepted streak.
+        if (now < liveMplCore.nextDueTs) return;
+        const accepted = mplCorePollAccepted;
+        if (liveMplCore.nextDueTs !== 0) {
+          if (accepted - liveMplCore.acceptedSnap > 0) liveMplCore.idleStreak = 0;
+          else                                          liveMplCore.idleStreak += 1;
+        }
+        liveMplCore.acceptedSnap = accepted;
+        const lvl = liveMplCore.idleStreak >= MPL_CORE_IDLE_L2_CYCLES ? 2
+                  : liveMplCore.idleStreak >= MPL_CORE_IDLE_L1_CYCLES ? 1 : 0;
+        const intervalMs = lvl === 2 ? MPL_CORE_IDLE_L2_MS
+                         : lvl === 1 ? MPL_CORE_IDLE_L1_MS : MPL_CORE_POLL_INTERVAL_MS;
+        if (lvl !== liveMplCore.level) {
+          if (lvl > liveMplCore.level) console.log(`[mints/backoff] target=mpl_core idleLevel=${lvl} interval=${intervalMs}`);
+          else                         console.log(`[mints/backoff] target=mpl_core recovered interval=${intervalMs} accepted=${accepted}`);
+          liveMplCore.level = lvl;
+        }
+        liveMplCore.nextDueTs = now + intervalMs;
         mplCorePollSweeps++;
         mplCorePollLastTs = now;
         pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })
