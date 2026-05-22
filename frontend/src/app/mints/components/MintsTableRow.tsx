@@ -71,6 +71,16 @@ interface Props {
   onHoverLeave?: () => void;
 }
 
+/** Display-only collection-name truncation. Caps the visible label at ~12
+ *  chars (slice 11 + ellipsis) so long names don't dominate the row; the FULL
+ *  name is always kept in the cell's `title` attribute. Short names pass
+ *  through unchanged ("BOBRO" → "BOBRO"). */
+function shortCollectionName(name: string): string {
+  const clean = name.trim();
+  if (clean.length <= 12) return clean;
+  return clean.slice(0, 11).trimEnd() + '…';
+}
+
 export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave }: Props) {
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
@@ -81,6 +91,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   const displayName = (trimmed && trimmed.length > 0)
     ? trimmed
     : shortKey(r.groupingKey);
+  // Visible label (≤12 chars + ellipsis); full name stays in the title attr.
+  const displayShort = shortCollectionName(displayName);
   const isBurst = r.shownReason === 'burst';
   // ACTIVE = promoted (`shown`), WATCH = pre-burst (`incubating`).
   // Drives the inline status pill below and a faint row dim on WATCH
@@ -201,18 +213,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 48][status 56][name 170][icons auto][source auto].
-            Slots stay tight + left-packed (reduced cell left pad) so rank/
-            image hug the left edge and the auto COLLECTION column's remainder
-            becomes free center space (reserved for a future badge). Only the
-            column-gap (8) / icon-gap (6) give the row breathing room — the
-            actual element sizes (thumb 42, STATUS_BADGE_*, MintsSourceBadge,
-            icons 12) are intentionally NOT changed here; spacing only. The
-            status column is a tight FIXED width (not `auto`): an auto status
-            column would resize per row to its badge text and shove the name's
-            x-position (the staircase). 56px hugs the widest badge (ACTIVE)
-            while keeping every name's start x identical. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 48px 56px 170px auto auto', alignItems: 'center', columnGap: 8 }}>
+            [rank 22][image 46][status 56][name 135][icons+source auto].
+            The name is now display-truncated to ~12 chars, so its slot drops
+            to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
+            source badge share ONE trailing auto group that hugs content, so
+            the source pill sits immediately after the icons (no far-away
+            column). Element sizes (thumb 42, STATUS_BADGE_*, MintsSourceBadge,
+            icons 12) are NOT changed here. The status column stays a tight
+            FIXED width (not `auto`) so a wider badge can't shove the name's
+            x-position — 56px hugs the widest badge (ACTIVE) and keeps every
+            name's start x identical. The auto column's remainder leaves clean
+            free center space for a future badge. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 56px 135px auto', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -270,7 +282,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               const titleHref = titleAnchor
                 ? `https://solscan.io/token/${titleAnchor}`
                 : null;
-              const titleInner = (<>{displayName}</>);
+              const titleInner = (<>{displayShort}</>);
               const titleStyle: React.CSSProperties = {
                 display: 'block', width: '100%',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
@@ -293,8 +305,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* icons — own grid slot, hugs content (ME / Tensor / X) */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }}>
+          {/* icons + source — one trailing group that hugs content, so the
+              source badge sits immediately after the ME/Tensor/X icons */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -363,9 +376,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
-          </span>
-          {/* source badge — own grid slot, hugs content (CORE / LMNFT / …) */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', width: 'fit-content' }}>
+            {/* source badge — in the SAME group, right after the icons */}
             <MintsSourceBadge row={r} />
           </span>
         </div>
