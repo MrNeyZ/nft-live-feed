@@ -390,12 +390,17 @@ const saturatedTargets: Set<string> = new Set();
 // whenever the safety net matters most: WS dead, mid-catch-up (saturated),
 // pending backlog, or first run. Latency added only during proven-idle periods;
 // coverage is never reduced (sweeps still run, just less often).
-const BACKOFF_TARGETS: ReadonlySet<string> = new Set(['poll:mmm', 'poll:me_v2']);
 const BACKOFF_L0_MS = 5_000;
-const BACKOFF_L1_MS = 15_000;
-const BACKOFF_L2_MS = 30_000;
-const BACKOFF_L1_STREAK = 3;
-const BACKOFF_L2_STREAK = 8;
+
+// Per-target backoff tuning. mmm is stronger (it was ~95-100% parser-dropped:
+// ~299 dispatched / ~0 accepted in the audit window) so it ramps sooner and
+// further; me_v2 has real fixed-price sales so it stays conservative.
+interface BackoffCfg { l1Ms: number; l2Ms: number; l1Streak: number; l2Streak: number; }
+const BACKOFF_CFG: Record<string, BackoffCfg> = {
+  'poll:mmm':   { l1Ms: 20_000, l2Ms: 60_000, l1Streak: 2, l2Streak: 5 },
+  'poll:me_v2': { l1Ms: 15_000, l2Ms: 30_000, l1Streak: 3, l2Streak: 8 },
+};
+const BACKOFF_TARGETS: ReadonlySet<string> = new Set(Object.keys(BACKOFF_CFG));
 
 interface BackoffState {
   level:        0 | 1 | 2;
@@ -412,8 +417,10 @@ function backoffFor(name: string): BackoffState {
   }
   return s;
 }
-function intervalForLevel(level: 0 | 1 | 2): number {
-  return level === 2 ? BACKOFF_L2_MS : level === 1 ? BACKOFF_L1_MS : BACKOFF_L0_MS;
+function intervalForLevel(name: string, level: 0 | 1 | 2): number {
+  if (level === 0) return BACKOFF_L0_MS;
+  const cfg = BACKOFF_CFG[name];
+  return level === 2 ? cfg.l2Ms : cfg.l1Ms;
 }
 
 /** True when a backoff target's sweep is NOT yet due (skip it this tick).
@@ -464,13 +471,14 @@ function evaluateBackoff(
     s.idleStreak += 1;
   }
 
+  const cfg = BACKOFF_CFG[name];
   const newLevel: 0 | 1 | 2 =
-    s.idleStreak >= BACKOFF_L2_STREAK ? 2 :
-    s.idleStreak >= BACKOFF_L1_STREAK ? 1 : 0;
+    s.idleStreak >= cfg.l2Streak ? 2 :
+    s.idleStreak >= cfg.l1Streak ? 1 : 0;
   s.level = newLevel;
-  s.nextDueTs = now + intervalForLevel(newLevel);
+  s.nextDueTs = now + intervalForLevel(name, newLevel);
   if (newLevel !== prevLevel && newLevel > 0) {
-    console.log(`[poll/backoff] target=${name} level=${newLevel} interval=${intervalForLevel(newLevel)} useful=0.0%`);
+    console.log(`[poll/backoff] target=${name} level=${newLevel} interval=${intervalForLevel(name, newLevel)} useful=0.0%`);
   }
 }
 
