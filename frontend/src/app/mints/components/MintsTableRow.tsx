@@ -409,25 +409,45 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
                 onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
                 style={{
+                  // Pressed-glass purple capsule, same language as the active
+                  // top-HUD tab (layered gradient + inset rim/sheen/depth, no
+                  // flat outline, no neon glow). Inactive = dimmer capsule;
+                  // hover = active-tab brightness; pinned = strongest.
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  height: 25, padding: '0 12px', borderRadius: 5,
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.7px', textTransform: 'uppercase',
-                  cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: "'SF Mono','Fira Code',monospace",
-                  color:      isPinned ? '#f0eaff' : '#b6a6e4',
-                  background: isPinned ? 'rgba(128,104,216,0.40)' : 'rgba(168,144,232,0.12)',
-                  border:     isPinned ? '1px solid rgba(168,144,232,0.85)' : '1px solid rgba(168,144,232,0.40)',
-                  transition: 'color 120ms, background 120ms, border-color 120ms',
+                  height: 25, padding: '0 14px', borderRadius: 7,
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                  color:      isPinned ? '#ffffff' : '#c9bdf0',
+                  background: isPinned
+                    ? 'linear-gradient(180deg, rgba(168,144,232,0.26) 0%, rgba(168,144,232,0.15) 100%)'
+                    : 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)',
+                  boxShadow: isPinned
+                    ? 'inset 0 0 0 1px rgba(168,144,232,0.34), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.20)'
+                    : 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)',
+                  transform: isPinned ? 'translateY(-1px)' : 'none',
+                  transition: 'color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease',
                 }}
                 // SHOW hover IS the live-feed scope trigger (row hover no
                 // longer scopes). onHoverEnter/Leave are page-gated on
-                // !pinnedKey, so a pin holds; the brighten is local + idle-only.
+                // !pinnedKey, so a pin holds; the brighten is local + idle-only
+                // and lifts to the active-tab capsule brightness.
                 onMouseEnter={(e) => {
                   onHoverEnter?.();
-                  if (!isPinned) { const b = e.currentTarget; b.style.color = '#f0eaff'; b.style.borderColor = 'rgba(168,144,232,0.7)'; b.style.background = 'rgba(128,104,216,0.26)'; }
+                  if (!isPinned) { const b = e.currentTarget;
+                    b.style.color = '#ffffff';
+                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)';
+                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.24), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.18)';
+                    b.style.transform = 'translateY(-1px)';
+                  }
                 }}
                 onMouseLeave={(e) => {
                   onHoverLeave?.();
-                  if (!isPinned) { const b = e.currentTarget; b.style.color = '#b6a6e4'; b.style.borderColor = 'rgba(168,144,232,0.40)'; b.style.background = 'rgba(168,144,232,0.12)'; }
+                  if (!isPinned) { const b = e.currentTarget;
+                    b.style.color = '#c9bdf0';
+                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)';
+                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)';
+                    b.style.transform = 'none';
+                  }
                 }}
               >
                 SHOW
