@@ -8,6 +8,8 @@
 // `reason:"expired"` is treated exactly like any other 401 — we clear and
 // send the user back to /access.
 
+import { playUiLogin } from '../soloist/use-ui-sound';
+
 const TOKEN_KEY = 'ui-auth-token';
 const API_BASE  = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -55,6 +57,7 @@ export async function login(wallet: string, password: string): Promise<boolean> 
     const body = await res.json() as { ok?: boolean; token?: string };
     if (!body.ok || typeof body.token !== 'string') return false;
     setToken(body.token);
+    playUiLogin();  // explicit user-action login success — single, throttled tick
     return true;
   } catch {
     return false;
@@ -186,5 +189,6 @@ export async function loginWithSiws(
     return { ok: false, reason: 'verify_failed', detail: verifyBody.reason };
   }
   setToken(verifyBody.token);
+  playUiLogin();  // explicit user-action SIWS login success
   return { ok: true };
 }

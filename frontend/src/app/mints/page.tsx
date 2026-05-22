@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, TopNav, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
+import { playUiUndo } from '@/soloist/use-ui-sound';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
 } from './lib/types';
@@ -956,7 +957,7 @@ export default function MintsPage() {
     });
     setHoveredKey(null);
   };
-  const clearPins = () => setPinnedKeys(new Set());
+  const clearPins = () => { setPinnedKeys(new Set()); playUiUndo(); };
 
   // Multi-select STATUS filter (collection lifecycle). SOURCE is the unified
   // `selectedSources` above (shared with the feed); STATUS applies to both

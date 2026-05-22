@@ -39,13 +39,18 @@ const CLICK_THROTTLE_MS = 40;
 //   clean  — uploaded /sounds/{hover,click,notification}.mp3
 //   alt    — uploaded /sounds/{hover,click,notification}_alt.mp3
 // All resolution flows through `pack()`; pools/alert are rebuilt on switch.
-export type SoundPackName = 'legacy' | 'clean' | 'alt';
-export const SOUND_PACK_NAMES: readonly SoundPackName[] = ['legacy', 'clean', 'alt'];
+export type SoundPackName = 'legacy' | 'clean' | 'alt' | 'candy';
+export const SOUND_PACK_NAMES: readonly SoundPackName[] = ['legacy', 'clean', 'alt', 'candy'];
 // Per-channel `gain` multiplies the base HOVER_GAIN/CLICK_GAIN (and the alert's
 // 1.0) so a pack can be balanced without touching the trigger/pool logic.
+// Optional semantic channels — only `candy` ships dedicated assets. For other
+// packs they fall back to playUiClick (see playNamed below).
+type NamedChannel = 'select' | 'undo' | 'error' | 'login' | 'logout';
 interface SoundPack {
   hover: string; click: string; notification: string;
-  gain: { hover: number; click: number; notification: number };
+  select?: string; undo?: string; error?: string; login?: string; logout?: string;
+  gain: { hover: number; click: number; notification: number;
+    select?: number; undo?: number; error?: number; login?: number; logout?: number };
 }
 const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
   legacy: {
@@ -67,13 +72,31 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
     notification: '/sounds/notification_alt.mp3?v=1',
     gain: { hover: 0.12, click: 0.30, notification: 0.50 },  // vs legacy
   },
+  // CandyLabs assets — properly mastered already, so they bypass the Web Audio
+  // softening (lowpass + attack ramp) and play directly like legacy. Dedicated
+  // files for several semantic channels; other packs fall back to a click tick
+  // for those (no notification spam, no per-event allocations).
+  candy: {
+    hover:        '/sounds/candylabs/hover.wav?v=1',
+    click:        '/sounds/candylabs/button-click.wav?v=1',
+    notification: '/sounds/candylabs/confirm.wav?v=1',
+    select:       '/sounds/candylabs/builder-trait-select.wav?v=1',
+    undo:         '/sounds/candylabs/builder-undo.wav?v=1',
+    error:        '/sounds/candylabs/ui-unable.wav?v=1',
+    login:        '/sounds/candylabs/log-in.wav?v=1',
+    logout:       '/sounds/candylabs/log-out.wav?v=1',
+    gain: {
+      hover: 0.22, click: 0.32, notification: 0.55,
+      select: 0.32, undo: 0.32, error: 0.50, login: 0.55, logout: 0.35,
+    },
+  },
 };
 
 function readPack(): SoundPackName {
   if (typeof window === 'undefined') return 'legacy';
   try {
     const v = window.localStorage.getItem(PACK_KEY);
-    return (v === 'clean' || v === 'alt') ? v : 'legacy';
+    return (v === 'clean' || v === 'alt' || v === 'candy') ? v : 'legacy';
   } catch { return 'legacy'; }
 }
 let activePack: SoundPackName = readPack();
@@ -183,8 +206,10 @@ let primed = false;
 
 function buildPool(url: string, gain: number, channel?: 'hover' | 'click'): PoolItem[] {
   const out: PoolItem[] = [];
-  // Only clean/alt are softened; legacy stays on the plain element path.
-  const soften = channel && activePack !== 'legacy' ? SOFTEN[channel] : null;
+  // Only clean/alt are softened; legacy AND candy stay on the plain element
+  // path (candy's WAVs already have proper tonal balance).
+  const soften = channel && activePack !== 'legacy' && activePack !== 'candy'
+    ? SOFTEN[channel] : null;
   const ctx = soften ? ensureCtx() : null;
   for (let i = 0; i < POOL_SIZE; i++) {
     try {
@@ -237,6 +262,8 @@ function rebuildForPack(): void {
   hoverPool = [];
   clickPool = [];
   deepDiscountAudio = null;
+  // Drop the lazy singletons for the prior pack; next playNamed() rebuilds.
+  namedAudioCache.clear();
   if (enabled) primeAudio();
 }
 
@@ -392,6 +419,53 @@ export function playUiHover(): void {
 export function playUiClick(): void {
   lastClickAt = playFromPool(clickPool, _clickState, CLICK_THROTTLE_MS, lastClickAt);
 }
+
+// ── Semantic channels (low-frequency events) ─────────────────────────────────
+// select / undo / error / login / logout. Only `candy` ships dedicated assets;
+// other packs fall back to a normal click tick so they never get louder/longer
+// than their existing UI feedback. Lazy singleton HTMLAudio per (pack,channel)
+// — no pools (these events are infrequent) and no allocations per event. A
+// 250 ms per-channel throttle guards against accidental spam.
+const NAMED_THROTTLE_MS = 250;
+const namedAudioCache  = new Map<string, HTMLAudioElement>(); // key = `${pack}:${ch}`
+const namedLastAt: Record<NamedChannel, number> = {
+  select: 0, undo: 0, error: 0, login: 0, logout: 0,
+};
+
+function playNamed(ch: NamedChannel): void {
+  if (!enabled) return;
+  if (reducedMotion()) return;
+  const now = performance.now();
+  if (now - namedLastAt[ch] < NAMED_THROTTLE_MS) return;
+  const url  = pack()[ch];
+  const gain = pack().gain[ch];
+  if (!url) {                       // pack has no dedicated asset → click fallback
+    playUiClick();
+    namedLastAt[ch] = now;
+    return;
+  }
+  const key = `${activePack}:${ch}`;
+  let a = namedAudioCache.get(key);
+  if (!a) {
+    try {
+      a = new Audio(url);
+      a.preload = 'auto';
+      a.volume  = typeof gain === 'number' ? gain : 1.0;
+      namedAudioCache.set(key, a);
+    } catch { return; }
+  }
+  try {
+    a.currentTime = 0;
+    void a.play().catch(() => undefined);
+  } catch { /* invalid state — skip */ }
+  namedLastAt[ch] = now;
+}
+
+export function playUiSelect(): void { playNamed('select'); }
+export function playUiUndo():   void { playNamed('undo');   }
+export function playUiError():  void { playNamed('error');  }
+export function playUiLogin():  void { playNamed('login');  }
+export function playUiLogout(): void { playNamed('logout'); }
 
 // ── Deep-discount alert (rare, signature-deduped, throttled) ──────────────
 //
