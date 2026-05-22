@@ -155,7 +155,7 @@ export function useUiSoundEnabled(): boolean {
 // transient. Legacy is NEVER routed (bit-identical playback). Falls back to
 // plain HTMLAudio playback when Web Audio is unavailable or routing throws.
 const SOFTEN: Record<'hover' | 'click', { lowpass: number; attackMs: number }> = {
-  hover: { lowpass: 4800, attackMs: 12 },
+  hover: { lowpass: 6500, attackMs: 6 },
   click: { lowpass: 5800, attackMs: 6 },
 };
 let audioCtx: AudioContext | null = null;
