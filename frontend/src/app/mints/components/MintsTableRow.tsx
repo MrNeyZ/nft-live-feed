@@ -200,24 +200,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
-        {/* Fixed subcontainers so every row aligns identically:
-            [rank 36] [image 42] [status badge 78] [name flex+ellipsis]
-            [icons/source 130]. The status badge sits in its OWN fixed slot
-            (not inline before the name) so ACTIVE/WATCH/SOLD width
-            differences can't shove the name's x-position — that was the
-            staircase. Name slot is flex:1 / minWidth:0 with ellipsis so it
-            shrinks first on narrow screens while the numeric columns keep
-            their fixed widths. */}
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 56][name 170][icons auto][source auto].
-            Tightened + left-packed (small column-gap, reduced cell left pad)
-            so rank/image hug the left edge and the remainder of this auto
-            COLLECTION column becomes free center space (reserved for a future
-            badge). The status column stays a tight FIXED width (not `auto`):
-            an auto status column would resize per-row to its badge text and
-            shove the name's x-position (the staircase). 56px hugs the widest
-            badge (ACTIVE) while keeping every name's start x identical. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 56px 170px auto auto', alignItems: 'center', columnGap: 6 }}>
+            [rank 22][image 48][status 56][name 170][icons auto][source auto].
+            Slots stay tight + left-packed (reduced cell left pad) so rank/
+            image hug the left edge and the auto COLLECTION column's remainder
+            becomes free center space (reserved for a future badge). Only the
+            column-gap (8) / icon-gap (6) give the row breathing room — the
+            actual element sizes (thumb 42, STATUS_BADGE_*, MintsSourceBadge,
+            icons 12) are intentionally NOT changed here; spacing only. The
+            status column is a tight FIXED width (not `auto`): an auto status
+            column would resize per row to its badge text and shove the name's
+            x-position (the staircase). 56px hugs the widest badge (ACTIVE)
+            while keeping every name's start x identical. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 48px 56px 170px auto auto', alignItems: 'center', columnGap: 8 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -299,7 +294,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             })()}
           </span>
           {/* icons — own grid slot, hugs content (ME / Tensor / X) */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
