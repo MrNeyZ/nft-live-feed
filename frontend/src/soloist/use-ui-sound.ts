@@ -59,13 +59,13 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
     hover:        '/sounds/hover.mp3?v=1',
     click:        '/sounds/click.mp3?v=1',
     notification: '/sounds/notification.mp3?v=1',
-    gain: { hover: 0.15, click: 0.25, notification: 0.50 },  // vs legacy
+    gain: { hover: 0.12, click: 0.30, notification: 0.50 },  // vs legacy
   },
   alt: {
     hover:        '/sounds/hover_alt.mp3?v=1',
     click:        '/sounds/click_alt.mp3?v=1',
     notification: '/sounds/notification_alt.mp3?v=1',
-    gain: { hover: 0.15, click: 0.25, notification: 0.50 },  // vs legacy
+    gain: { hover: 0.12, click: 0.30, notification: 0.50 },  // vs legacy
   },
 };
 
