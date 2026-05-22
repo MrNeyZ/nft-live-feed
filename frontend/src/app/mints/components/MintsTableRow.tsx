@@ -209,7 +209,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             shrinks first on narrow screens while the numeric columns keep
             their fixed widths. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ flex: '0 0 36px', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", textAlign: 'right' }}>{i + 1}</span>
+          <span style={{ flex: '0 0 34px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ flex: '0 0 42px', display: 'inline-flex', alignItems: 'center' }}>
           <ItemThumb
             // primaryImg / fallbackImg are the first two non-null of
@@ -224,8 +224,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             size={42}
           />
           </span>
-          {/* status badge — fixed slot so every name starts at the same x */}
-          <span style={{ flex: '0 0 78px', display: 'inline-flex', alignItems: 'center' }}>
+          {/* status badge — hugs the badge (no large reserved block). A small
+              min-width sized to the widest label (ACTIVE) keeps every name
+              starting at the same x without padding out empty space. */}
+          <span style={{ flex: '0 0 auto', minWidth: 46, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             {/* Status pill priority: SOLD > ACTIVE > WATCH.
                 SOLD (red, site-consistent) when the launchpad-known
                 maxSupply is met or exceeded; ACTIVE (saturated
@@ -246,8 +248,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
             )}
           </span>
-          {/* name — flexible, single-line ellipsis; full name on hover */}
-          <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }} title={displayName}>
+          {/* name — capped width (no huge empty span), single-line ellipsis,
+              vertically centered; full name on hover. Shrinks first on narrow
+              screens (flex 0 1 auto + minWidth 0) while numeric cols hold. */}
+          <span style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 180, display: 'inline-flex', alignItems: 'center', overflow: 'hidden' }} title={displayName}>
             {(() => {
               // Title is clickable → Solscan ONLY when we have a
               // real NFT mint address from the wire (`lastMintAddress`
