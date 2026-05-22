@@ -41,23 +41,31 @@ const CLICK_THROTTLE_MS = 40;
 // All resolution flows through `pack()`; pools/alert are rebuilt on switch.
 export type SoundPackName = 'legacy' | 'clean' | 'alt';
 export const SOUND_PACK_NAMES: readonly SoundPackName[] = ['legacy', 'clean', 'alt'];
-interface SoundPack { hover: string; click: string; notification: string; }
+// Per-channel `gain` multiplies the base HOVER_GAIN/CLICK_GAIN (and the alert's
+// 1.0) so a pack can be balanced without touching the trigger/pool logic.
+interface SoundPack {
+  hover: string; click: string; notification: string;
+  gain: { hover: number; click: number; notification: number };
+}
 const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
   legacy: {
     hover:        '/sounds/ui-hover.m4a?v=8',
     click:        '/sounds/ui-click.m4a?v=8',
     // Deep-discount alert — hot-loud AAC so the operator won't miss it.
     notification: '/sounds/deep-discount-alert.m4a?v=2',
+    gain: { hover: 1.0, click: 1.0, notification: 1.0 },  // legacy unchanged
   },
   clean: {
     hover:        '/sounds/hover.mp3?v=1',
     click:        '/sounds/click.mp3?v=1',
     notification: '/sounds/notification.mp3?v=1',
+    gain: { hover: 0.33, click: 0.33, notification: 0.33 },  // ~3x quieter
   },
   alt: {
     hover:        '/sounds/hover_alt.mp3?v=1',
     click:        '/sounds/click_alt.mp3?v=1',
     notification: '/sounds/notification_alt.mp3?v=1',
+    gain: { hover: 0.33, click: 0.33, notification: 0.33 },  // ~3x quieter
   },
 };
 
@@ -165,8 +173,8 @@ function primeAudio(): void {
   if (primed || typeof window === 'undefined') return;
   primed = true;
   try {
-    hoverPool = buildPool(pack().hover, HOVER_GAIN);
-    clickPool = buildPool(pack().click, CLICK_GAIN);
+    hoverPool = buildPool(pack().hover, HOVER_GAIN * pack().gain.hover);
+    clickPool = buildPool(pack().click, CLICK_GAIN * pack().gain.click);
   } catch {
     hoverPool = [];
     clickPool = [];
@@ -370,7 +378,7 @@ export function playDeepDiscountAlert(signature: string): void {
     if (!deepDiscountAudio) {
       deepDiscountAudio = new Audio(pack().notification);
       deepDiscountAudio.preload = 'auto';
-      deepDiscountAudio.volume  = 1.0;
+      deepDiscountAudio.volume  = 1.0 * pack().gain.notification;
     }
     deepDiscountAudio.currentTime = 0;
     void deepDiscountAudio.play().catch(() => undefined);
