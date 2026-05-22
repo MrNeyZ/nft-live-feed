@@ -419,37 +419,41 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseEnter={(e) => {
               onHoverEnter?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(120,90,220,0) 0%, rgba(120,90,220,0.16) 18%, rgba(120,90,220,0.24) 50%, rgba(120,90,220,0.16) 82%, rgba(120,90,220,0) 100%)';
-                d.style.boxShadow = '6px 0 24px rgba(168,144,232,0.16)';
+                d.style.background = 'rgba(128,104,216,0.16)';
+                d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.35)';
+                d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
                 const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
               }
             }}
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(120,90,220,0) 0%, rgba(120,90,220,0.10) 18%, rgba(120,90,220,0.16) 50%, rgba(120,90,220,0.10) 82%, rgba(120,90,220,0) 100%)';
+                d.style.background = 'rgba(128,104,216,0.08)';
+                d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.18)';
                 d.style.boxShadow = 'none';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.50)';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.75)';
               }
             }}
             style={{
-              // Soft "focus field": center-weighted gradient that fades to fully
-              // transparent at both edges (no hard column borders). Reads as a
-              // floating channel inside the row, not a colored table column.
+              // Clean terminal rail: flat fill + crisp 1px vertical boundaries,
+              // no gradient/blur/glow. Hover/pinned deepen the fill + borders
+              // and add a tight inset rim.
               position: 'absolute', top: 0, bottom: 0, right: 0, width: 160,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
-              background: isPinned
-                ? 'linear-gradient(90deg, rgba(120,90,220,0) 0%, rgba(120,90,220,0.18) 18%, rgba(120,90,220,0.30) 50%, rgba(120,90,220,0.18) 82%, rgba(120,90,220,0) 100%)'
-                : 'linear-gradient(90deg, rgba(120,90,220,0) 0%, rgba(120,90,220,0.10) 18%, rgba(120,90,220,0.16) 50%, rgba(120,90,220,0.10) 82%, rgba(120,90,220,0) 100%)',
-              boxShadow: isPinned ? '8px 0 26px rgba(168,144,232,0.24)' : 'none',
-              transition: 'background 160ms ease, box-shadow 160ms ease',
+              background: isPinned ? 'rgba(128,104,216,0.22)' : 'rgba(128,104,216,0.08)',
+              borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+              borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+              boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
+              transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
             }}
           >
             <span style={{
               fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
-              whiteSpace: 'nowrap', transition: 'color 160ms ease',
-              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.50)',
+              whiteSpace: 'nowrap', transition: 'color 140ms ease',
+              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
             }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
           </div>
         )}
