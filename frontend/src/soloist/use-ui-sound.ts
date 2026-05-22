@@ -86,7 +86,7 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
     login:        '/sounds/candylabs/log-in.wav?v=1',
     logout:       '/sounds/candylabs/log-out.wav?v=1',
     gain: {
-      hover: 0.22, click: 0.32, notification: 0.55,
+      hover: 0.33, click: 0.50, notification: 0.75,
       select: 0.32, undo: 0.32, error: 0.50, login: 0.55, logout: 0.35,
     },
   },
