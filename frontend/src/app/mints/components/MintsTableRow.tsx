@@ -216,7 +216,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 66][name 135][icons+source auto].
+            [rank 22][image 46][status 66][name 100][icons+source auto].
             The name is now display-truncated to ~12 chars, so its slot drops
             to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
             source badge share ONE trailing auto group that hugs content, so
@@ -227,7 +227,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             x-position — 56px hugs the widest badge (ACTIVE) and keeps every
             name's start x identical. The auto column's remainder leaves clean
             free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 135px auto', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px auto', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
