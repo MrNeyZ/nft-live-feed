@@ -26,21 +26,55 @@
 import { useSyncExternalStore } from 'react';
 
 const STORAGE_KEY = 'vl.uiSound';
+const PACK_KEY    = 'vl.uiSoundPack';
 
 const HOVER_THROTTLE_MS = 80;
 const CLICK_THROTTLE_MS = 40;
 
-const HOVER_URL  = '/sounds/ui-hover.m4a?v=8';
-const CLICK_URL  = '/sounds/ui-click.m4a?v=8';
-// Deep-discount alert — single AAC m4a, hot-loud (peak ~0.987, RMS
-// ~−22 dBFS, ~+14 dB above the source notify.mp3) so the operator
-// won't miss it. Played at most once per signature and rate-limited
-// globally so a flurry of cheap dumps can't turn the page into a slot
-// machine. File missing → fail silent (HTMLAudio play() rejects,
-// swallowed below). Asset extension is .m4a (AAC) because the build
-// host's afconvert can't write MP3; AAC is supported by every modern
-// browser via HTMLAudioElement.
-const DEEP_DISCOUNT_URL = '/sounds/deep-discount-alert.m4a?v=2';
+// ── Sound packs ──────────────────────────────────────────────────────────────
+// Three selectable packs, each mapping the three UI channels (hover tick,
+// click tick, notification = deep-discount alert) to asset URLs. `legacy` is
+// the default so existing behaviour is unchanged unless the operator switches.
+//   legacy — the original recorded AAC assets already shipping on the site.
+//   clean  — uploaded /sounds/{hover,click,notification}.mp3
+//   alt    — uploaded /sounds/{hover,click,notification}_alt.mp3
+// All resolution flows through `pack()`; pools/alert are rebuilt on switch.
+export type SoundPackName = 'legacy' | 'clean' | 'alt';
+export const SOUND_PACK_NAMES: readonly SoundPackName[] = ['legacy', 'clean', 'alt'];
+interface SoundPack { hover: string; click: string; notification: string; }
+const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
+  legacy: {
+    hover:        '/sounds/ui-hover.m4a?v=8',
+    click:        '/sounds/ui-click.m4a?v=8',
+    // Deep-discount alert — hot-loud AAC so the operator won't miss it.
+    notification: '/sounds/deep-discount-alert.m4a?v=2',
+  },
+  clean: {
+    hover:        '/sounds/hover.mp3?v=1',
+    click:        '/sounds/click.mp3?v=1',
+    notification: '/sounds/notification.mp3?v=1',
+  },
+  alt: {
+    hover:        '/sounds/hover_alt.mp3?v=1',
+    click:        '/sounds/click_alt.mp3?v=1',
+    notification: '/sounds/notification_alt.mp3?v=1',
+  },
+};
+
+function readPack(): SoundPackName {
+  if (typeof window === 'undefined') return 'legacy';
+  try {
+    const v = window.localStorage.getItem(PACK_KEY);
+    return (v === 'clean' || v === 'alt') ? v : 'legacy';
+  } catch { return 'legacy'; }
+}
+let activePack: SoundPackName = readPack();
+function pack(): SoundPack { return SOUND_PACKS[activePack]; }
+const packListeners = new Set<() => void>();
+
+// Played at most once per signature and rate-limited globally so a flurry of
+// cheap dumps can't turn the page into a slot machine. File missing → fail
+// silent (HTMLAudio play() rejects, swallowed below).
 const DEEP_DISCOUNT_COOLDOWN_MS = 8_000;
 const DEEP_DISCOUNT_SEEN_MAX    = 500;
 /** Per-sound pool size — multiple preloaded HTMLAudioElement
@@ -131,12 +165,48 @@ function primeAudio(): void {
   if (primed || typeof window === 'undefined') return;
   primed = true;
   try {
-    hoverPool = buildPool(HOVER_URL, HOVER_GAIN);
-    clickPool = buildPool(CLICK_URL, CLICK_GAIN);
+    hoverPool = buildPool(pack().hover, HOVER_GAIN);
+    clickPool = buildPool(pack().click, CLICK_GAIN);
   } catch {
     hoverPool = [];
     clickPool = [];
   }
+}
+
+// ── Pack switching ───────────────────────────────────────────────────────────
+// Tear down cached pools + the lazy alert element so the next play() builds
+// them from the newly-active pack's URLs. Re-prime immediately when sound is on
+// so the switch has zero perceived latency. No new event listeners are added.
+function rebuildForPack(): void {
+  primed = false;
+  hoverPool = [];
+  clickPool = [];
+  deepDiscountAudio = null;
+  if (enabled) primeAudio();
+}
+
+export function setUiSoundPack(next: SoundPackName): void {
+  if (next === activePack) return;
+  activePack = next;
+  if (typeof window !== 'undefined') {
+    try { window.localStorage.setItem(PACK_KEY, next); }
+    catch { /* quota / private mode — fail silent */ }
+  }
+  rebuildForPack();
+  for (const fn of packListeners) fn();
+  // Confirmation tick (only if sound is enabled) so the operator hears the pack.
+  if (enabled) playUiClick();
+}
+
+function getPackSnapshot():       SoundPackName { return activePack; }
+function getPackServerSnapshot(): SoundPackName { return 'legacy'; }
+function subscribePack(cb: () => void): () => void {
+  packListeners.add(cb);
+  return () => { packListeners.delete(cb); };
+}
+/** Cross-component reactive read of the active sound pack. */
+export function useUiSoundPack(): SoundPackName {
+  return useSyncExternalStore(subscribePack, getPackSnapshot, getPackServerSnapshot);
 }
 
 let gestureInstalled = false;
@@ -298,7 +368,7 @@ export function playDeepDiscountAlert(signature: string): void {
   lastDeepDiscountAt = now;
   try {
     if (!deepDiscountAudio) {
-      deepDiscountAudio = new Audio(DEEP_DISCOUNT_URL);
+      deepDiscountAudio = new Audio(pack().notification);
       deepDiscountAudio.preload = 'auto';
       deepDiscountAudio.volume  = 1.0;
     }

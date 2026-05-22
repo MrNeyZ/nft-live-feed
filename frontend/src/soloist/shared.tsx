@@ -16,7 +16,7 @@ import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-t
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
+import { useUiSoundEnabled, setUiSoundEnabled, useUiSoundPack, setUiSoundPack, SOUND_PACK_NAMES, type SoundPackName } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at a small fixed size instead of the full-size upstream asset
@@ -1317,6 +1317,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
   const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
   const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
   const uiSoundEnabled = useUiSoundEnabled();
+  const uiSoundPack    = useUiSoundPack();
   // Listen for cross-route EVENTS-count signals from /feed. Falls back
   // to the optional `eventsCount` prop for backward compat with any
   // call site that still passes it directly.
@@ -1438,6 +1439,27 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   : <line x1="22" y1="9" x2="16" y2="15" />}
               </svg>
             </BarIconButton>
+            {/* Sound-pack selector — only shown when UI sound is enabled.
+                legacy (default, unchanged) / clean / alt. Persisted via
+                setUiSoundPack → localStorage `vl.uiSoundPack`. */}
+            {uiSoundEnabled && (
+              <select
+                value={uiSoundPack}
+                onChange={(e) => setUiSoundPack(e.target.value as SoundPackName)}
+                title="Sound pack"
+                style={{
+                  background: 'rgba(255,255,255,0.04)', color: '#8a8aa6',
+                  border: '1px solid rgba(168,144,232,0.25)', borderRadius: 4,
+                  fontSize: 10, fontFamily: 'inherit', textTransform: 'uppercase',
+                  letterSpacing: '0.4px', padding: '2px 4px', marginLeft: 4,
+                  cursor: 'pointer', outline: 'none',
+                }}
+              >
+                {SOUND_PACK_NAMES.map((p) => (
+                  <option key={p} value={p} style={{ background: '#1a1530' }}>{p}</option>
+                ))}
+              </select>
+            )}
             {/* Inclusive-fees toggle — affects only AMM_SELL display (logic unchanged). */}
             <BarIconButton
               on={inclusiveFees}
