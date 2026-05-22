@@ -575,6 +575,10 @@ const MMM_SALES_ONLY_SKIP_LOG_NAMES: ReadonlySet<string> = new Set([
   'soldepositsell',
   'solwithdrawsell',
   'setsharedescrow',
+  // Allowlist-management admin op — pure non-sale (observed alone in 2.9k WS
+  // drops, never alongside a fill). A sale tx that also carries it still keeps
+  // (the fill ix isn't denied → not all-denied → not skipped). Safe to shed.
+  'updateallowlists',
 ]);
 
 function shouldSkipMmmLogsSalesOnly(logs: unknown): boolean {
