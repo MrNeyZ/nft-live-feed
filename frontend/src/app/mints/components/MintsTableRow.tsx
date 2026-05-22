@@ -440,7 +440,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // Clean terminal rail: flat fill + crisp 1px vertical boundaries,
               // no gradient/blur/glow. Hover/pinned deepen the fill + borders
               // and add a tight inset rim.
-              position: 'absolute', top: 0, bottom: 0, right: 0, width: 160,
+              // Own zone, NOT nested in the badge flex group: absolute to the
+              // td so its x is fixed across rows and independent of badge/icon
+              // width. `right: 72` leaves a gap to the MINTS column so the
+              // layout reads [badges] gap [SHOW lane] gap [MINTS] with both
+              // gaps visually balanced.
+              position: 'absolute', top: 0, bottom: 0, right: 72, width: 160,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
