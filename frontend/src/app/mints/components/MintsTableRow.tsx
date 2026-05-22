@@ -208,9 +208,15 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             staircase. Name slot is flex:1 / minWidth:0 with ellipsis so it
             shrinks first on narrow screens while the numeric columns keep
             their fixed widths. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ flex: '0 0 34px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
-          <span style={{ flex: '0 0 42px', display: 'inline-flex', alignItems: 'center' }}>
+        {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
+            [rank 28][image 48][status 56][name 180][icons auto][source auto].
+            The status column is a tight fixed width (not `auto`) on purpose:
+            an auto status column would resize per-row to its badge text and
+            shove the name's x-position (the staircase). 56px hugs the widest
+            badge (ACTIVE) while keeping every name's start x identical. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '28px 48px 56px 180px auto auto', alignItems: 'center', columnGap: 8 }}>
+          <span style={{ width: 28, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
             // primaryImg / fallbackImg are the first two non-null of
             // [hero, representative, shared placeholder] (see above).
@@ -224,10 +230,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             size={42}
           />
           </span>
-          {/* status badge — hugs the badge (no large reserved block). A small
-              min-width sized to the widest label (ACTIVE) keeps every name
-              starting at the same x without padding out empty space. */}
-          <span style={{ flex: '0 0 auto', minWidth: 46, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* status badge — real inline badge, centered in its grid column.
+              The badge element itself is width:auto (STATUS_BADGE_BASE); the
+              column (56px) is what reserves the consistent slot. */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             {/* Status pill priority: SOLD > ACTIVE > WATCH.
                 SOLD (red, site-consistent) when the launchpad-known
                 maxSupply is met or exceeded; ACTIVE (saturated
@@ -248,10 +254,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
             )}
           </span>
-          {/* name — capped width (no huge empty span), single-line ellipsis,
-              vertically centered; full name on hover. Shrinks first on narrow
-              screens (flex 0 1 auto + minWidth 0) while numeric cols hold. */}
-          <span style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 180, display: 'inline-flex', alignItems: 'center', overflow: 'hidden' }} title={displayName}>
+          {/* name — fixed 180px grid column, single-line ellipsis, vertically
+              centered; full name on hover. minWidth:0 lets it ellipsis rather
+              than overflow the slot. */}
+          <span style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', overflow: 'hidden' }} title={displayName}>
             {(() => {
               // Title is clickable → Solscan ONLY when we have a
               // real NFT mint address from the wire (`lastMintAddress`
@@ -289,8 +295,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* icons + source — fixed slot; consistent start after the name area */}
-          <span style={{ flex: '0 0 130px', display: 'inline-flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+          {/* icons — own grid slot, hugs content (ME / Tensor / X) */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -359,6 +365,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
+          </span>
+          {/* source badge — own grid slot, hugs content (CORE / LMNFT / …) */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', width: 'fit-content' }}>
             <MintsSourceBadge row={r} />
           </span>
         </div>
