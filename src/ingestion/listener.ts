@@ -26,6 +26,7 @@ import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred } from './mmm-prefilter';
+import { recordDispatch as auditRecordDispatch, startSalesPrefilterAudit } from './sales-prefilter-audit';
 import { isSigTarget, saleDebug } from './sale-debug';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
@@ -913,6 +914,11 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     if (isSigTarget(sig)) {
       saleDebug('prefilter_pass', sig, { program: target.name, path: 'ws_listener', priority: 'high' });
     }
+    // OBSERVE-only: record the WS instruction logs of every sales-target tx that
+    // passed prefilters and is about to trigger getTransaction. The ingest path
+    // reports the parser outcome back via recordOutcome → 60s aggregated audit.
+    // No behavior change; no tx skipped. Stage-1 evidence for a future WS deny-list.
+    auditRecordDispatch(sig, target.name, value.logs);
     // Do NOT call markSeen here. Cross-path dedup is handled inside fetchRawTx:
     //   inFlight   — blocks concurrent double-fetch while the listener fetch is live
     //   recentSigs — 3-min TTL, set only on successful fetch
@@ -1554,6 +1560,7 @@ export function startListener(): void {
 
   const statsLog = setInterval(logStats, 60_000);        statsLog.unref(); intervalHandles.push(statsLog);
   const pollLog  = setInterval(logPollSummary, 60_000);  pollLog.unref();  intervalHandles.push(pollLog);
+  startSalesPrefilterAudit();  // OBSERVE-only WS instruction-usefulness audit
 
   // ── Hard periodic refresh (reliability backstop) ─────────────────────────
   // Unconditionally cycle every target subscription on a slow interval. The

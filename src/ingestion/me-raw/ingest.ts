@@ -31,6 +31,7 @@ import { Limiter, Priority } from '../concurrency';
 import { incTxFetch, incTxNull, incTxRetry, startTelemetry } from '../telemetry';
 import { saleEventBus } from '../../events/emitter';
 import { getMode, isAnyIngestActive } from '../../runtime/mode';
+import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
 
 // ─── RPC fetch ────────────────────────────────────────────────────────────────
 
@@ -733,11 +734,12 @@ async function _ingestMeRaw(
     // in that case the raw fetch is an optional correction, skippable under cooldown.
     tx = await fetchRawTx(sig, fastPathInserted, priority);
   } catch (err) {
+    auditRecordOutcome(sig, 'error');
     console.error(`[me_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
     return;
   }
 
-  if (!tx) return;  // deduped or not found — already processed elsewhere
+  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return; }  // deduped or not found — already processed elsewhere
 
   // ── Per-tx debug: log every ME instruction discriminator seen ───────────────
   const ixScan = scanMeInstructions(tx);
@@ -745,6 +747,7 @@ async function _ingestMeRaw(
   const programsStr = [...new Set(ixScan.map((s) => s.program))].join(',') || 'none';
 
   const result = parseRawMeTransaction(tx);
+  let recovered = false;  // set true if the unknown-candidate path inserts a sale
 
   if (!result.ok) {
     // Diagnostic for the pre-getTransaction prefilter audit: the WS deny-list
@@ -885,7 +888,7 @@ async function _ingestMeRaw(
           };
           try {
             const id = await insertSaleEvent(event);
-            if (id) console.log(`[me_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`);
+            if (id) { recovered = true; console.log(`[me_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`); }
           } catch (err) {
             console.log(`DEDUPE_DEBUG_SKIP ${event.signature} insert_condition_failed(candidate): ${(err as Error)?.message ?? 'unknown'}`);
             console.error(`[me_raw] CAND insert error  sig=${sig.slice(0, 12)}`, err);
@@ -893,10 +896,14 @@ async function _ingestMeRaw(
         }
       }
     }
+    // Audit: a candidate recovery is a real sale (never deny those instructions);
+    // otherwise this fetch produced no sale → parser_drop.
+    auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
     return;
   }
 
   // Step 4 — raw parser recognised this as a sale.
+  auditRecordOutcome(sig, 'accepted_sale');
   trace(sig, 'parse:ok', `parser=me_v2_raw  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
 
   console.log(

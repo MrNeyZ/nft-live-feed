@@ -25,6 +25,7 @@ import { trace } from '../../trace';
 import { extractPaymentInfo, extractNftMint, extractPartiesFromTokenFlow } from './price';
 import { extractCoreAssetFromInnerIx } from './decoder';
 import { TCOMP_PROGRAM, TAMM_PROGRAM } from './programs';
+import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
 import bs58 from 'bs58';
 
 // ─── Instruction scanner (debug) ─────────────────────────────────────────────
@@ -198,11 +199,12 @@ export async function ingestTensorRaw(
     // bestEffort=true only when fast-path already emitted a sale card.
     tx = await fetchRawTx(sig, fastPathInserted, priority);
   } catch (err) {
+    auditRecordOutcome(sig, 'error');
     console.error(`[tensor_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
     return;
   }
 
-  if (!tx) return;  // deduped or not found — already processed elsewhere
+  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return; }  // deduped or not found — already processed elsewhere
 
   // ── Per-tx debug: log every Tensor instruction discriminator seen ────────────
   const ixScan = scanTensorInstructions(tx);
@@ -210,6 +212,7 @@ export async function ingestTensorRaw(
   const programsStr = [...new Set(ixScan.map((s) => s.program))].join(',') || 'none';
 
   const result = parseRawTensorTransaction(tx);
+  let recovered = false;  // set true if a tamm→me fallback or candidate path inserts a sale
 
   if (!result.ok) {
     // Log EVERY failed parse — primary signal for diagnosing missing sales.
@@ -294,6 +297,7 @@ export async function ingestTensorRaw(
           console.log(`DEDUPE_DEBUG_SKIP ${meResult.event.signature} insert_condition_failed(tamm→me): ${(err as Error)?.message ?? 'unknown'}`);
           console.error(`[tensor_raw→me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
         }
+        auditRecordOutcome(sig, 'accepted_sale');  // TAMM→ME fallback recovered a real sale
         return;
       }
     }
@@ -325,6 +329,7 @@ export async function ingestTensorRaw(
     ]);
     const hasNonSaleTcomp = ixScan.some(s => s.program === 'tcomp' && TCOMP_NON_SALE_DISCS.has(s.disc));
     if (hasNonSaleTcomp) {
+      auditRecordOutcome(sig, 'parser_drop');
       console.log(`[tensor_raw] SKIP_CAND sig=${sig.slice(0, 12)} non_sale_ix  discs=[${discStr}]`);
       return;
     }
@@ -380,7 +385,7 @@ export async function ingestTensorRaw(
           };
           try {
             const id = await insertSaleEvent(event);
-            if (id) console.log(`[tensor_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`);
+            if (id) { recovered = true; console.log(`[tensor_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`); }
           } catch (err) {
             console.log(`DEDUPE_DEBUG_SKIP ${event.signature} insert_condition_failed(candidate): ${(err as Error)?.message ?? 'unknown'}`);
             console.error(`[tensor_raw] CAND insert error  sig=${sig.slice(0, 12)}`, err);
@@ -388,11 +393,14 @@ export async function ingestTensorRaw(
         }
       }
     }
+    // Audit: candidate recovery = real sale (never deny); else parser_drop.
+    auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
     return;
   }
 
   const tag = (result.event.rawData as Record<string, unknown>)._parser ?? 'tensor_raw';
 
+  auditRecordOutcome(sig, 'accepted_sale');
   // Step 4 — raw parser recognised this as a sale.
   trace(sig, 'parse:ok', `parser=${tag}  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
 
