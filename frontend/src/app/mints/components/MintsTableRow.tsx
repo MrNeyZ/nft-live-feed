@@ -419,19 +419,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseEnter={(e) => {
               onHoverEnter?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, transparent 0%, rgba(128,104,216,0.16) 100%)';
-                d.style.boxShadow = '8px 0 20px rgba(168,144,232,0.18)';
-                d.style.borderRightColor = 'rgba(168,144,232,0.45)';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#e6def8';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.16) 0%, rgba(128,104,216,0.28) 100%)';
+                d.style.boxShadow = '8px 0 22px rgba(168,144,232,0.22)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.50)';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
               }
             }}
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, transparent 0%, rgba(168,144,232,0.06) 100%)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.16) 100%)';
                 d.style.boxShadow = 'none';
-                d.style.borderRightColor = 'transparent';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.35)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.22)';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.60)';
               }
             }}
             style={{
@@ -439,18 +439,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
-                ? 'linear-gradient(90deg, transparent 0%, rgba(128,104,216,0.26) 100%)'
-                : 'linear-gradient(90deg, transparent 0%, rgba(168,144,232,0.06) 100%)',
-              boxShadow: isPinned ? '10px 0 22px rgba(168,144,232,0.28)' : 'none',
-              borderRight: isPinned ? '2px solid rgba(168,144,232,0.7)' : '2px solid transparent',
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.22) 0%, rgba(128,104,216,0.40) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.16) 100%)',
+              borderLeft:  isPinned ? '1px solid rgba(168,144,232,0.30)' : '1px solid rgba(168,144,232,0.16)',
+              borderRight: isPinned ? '2px solid rgba(168,144,232,0.85)' : '1px solid rgba(168,144,232,0.22)',
+              boxShadow: isPinned ? '10px 0 26px rgba(168,144,232,0.34)' : 'none',
               transition: 'background 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
             }}
           >
             <span style={{
               fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
               whiteSpace: 'nowrap', transition: 'color 140ms ease',
-              color: isPinned ? '#e6def8' : 'rgba(201,189,240,0.35)',
-            }}>{isPinned ? 'LIVE ▸' : 'FOCUS ▸'}</span>
+              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.60)',
+            }}>{isPinned ? 'SHOWN ✓' : 'SHOW ›'}</span>
           </div>
         )}
       </td>
