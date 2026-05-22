@@ -419,7 +419,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseEnter={(e) => {
               onHoverEnter?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'rgba(128,104,216,0.16)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.12) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.12) 100%)';
                 d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
                 d.style.borderRightColor = 'rgba(168,144,232,0.35)';
                 d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
@@ -429,7 +429,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'rgba(128,104,216,0.08)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.10) 50%, rgba(128,104,216,0.06) 100%)';
                 d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
                 d.style.borderRightColor = 'rgba(168,144,232,0.18)';
                 d.style.boxShadow = 'none';
@@ -443,7 +443,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               position: 'absolute', top: 0, bottom: 0, right: 0, width: 160,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
-              background: isPinned ? 'rgba(128,104,216,0.22)' : 'rgba(128,104,216,0.08)',
+              background: isPinned
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.16) 0%, rgba(128,104,216,0.24) 50%, rgba(128,104,216,0.16) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.10) 50%, rgba(128,104,216,0.06) 100%)',
               borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
               borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
               boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
