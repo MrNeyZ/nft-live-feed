@@ -419,7 +419,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseEnter={(e) => {
               onHoverEnter?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.12) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.12) 100%)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
                 d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
                 d.style.borderRightColor = 'rgba(168,144,232,0.35)';
                 d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
@@ -429,7 +429,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.10) 50%, rgba(128,104,216,0.06) 100%)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
                 d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
                 d.style.borderRightColor = 'rgba(168,144,232,0.18)';
                 d.style.boxShadow = 'none';
@@ -444,8 +444,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
-                ? 'linear-gradient(90deg, rgba(128,104,216,0.16) 0%, rgba(128,104,216,0.24) 50%, rgba(128,104,216,0.16) 100%)'
-                : 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.10) 50%, rgba(128,104,216,0.06) 100%)',
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
               borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
               borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
               boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
