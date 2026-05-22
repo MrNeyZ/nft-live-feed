@@ -435,7 +435,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               }
             }}
             style={{
-              position: 'absolute', top: 0, bottom: 0, right: 0, width: 104,
+              position: 'absolute', top: 0, bottom: 0, right: 0, width: 160,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
