@@ -200,8 +200,17 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 12px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}>{i + 1}</span>
+        {/* Fixed subcontainers so every row aligns identically:
+            [rank 36] [image 42] [status badge 78] [name flex+ellipsis]
+            [icons/source 130]. The status badge sits in its OWN fixed slot
+            (not inline before the name) so ACTIVE/WATCH/SOLD width
+            differences can't shove the name's x-position — that was the
+            staircase. Name slot is flex:1 / minWidth:0 with ellipsis so it
+            shrinks first on narrow screens while the numeric columns keep
+            their fixed widths. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: '0 0 36px', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", textAlign: 'right' }}>{i + 1}</span>
+          <span style={{ flex: '0 0 42px', display: 'inline-flex', alignItems: 'center' }}>
           <ItemThumb
             // primaryImg / fallbackImg are the first two non-null of
             // [hero, representative, shared placeholder] (see above).
@@ -214,7 +223,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             abbr={(displayName[0] ?? '?').toUpperCase() + (displayName[1] ?? '').toUpperCase()}
             size={42}
           />
-          <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          </span>
+          {/* status badge — fixed slot so every name starts at the same x */}
+          <span style={{ flex: '0 0 78px', display: 'inline-flex', alignItems: 'center' }}>
             {/* Status pill priority: SOLD > ACTIVE > WATCH.
                 SOLD (red, site-consistent) when the launchpad-known
                 maxSupply is met or exceeded; ACTIVE (saturated
@@ -234,6 +245,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             ) : (
               <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
             )}
+          </span>
+          {/* name — flexible, single-line ellipsis; full name on hover */}
+          <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }} title={displayName}>
             {(() => {
               // Title is clickable → Solscan ONLY when we have a
               // real NFT mint address from the wire (`lastMintAddress`
@@ -250,7 +264,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 : null;
               const titleInner = (<>{displayName}</>);
               const titleStyle: React.CSSProperties = {
+                display: 'block', width: '100%',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
+                fontSize: 16, fontWeight: 600, letterSpacing: '-0.2px',
                 color: '#f0eef8', textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
               };
               return titleHref ? (
@@ -258,16 +274,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   href={titleHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`Solscan · ${titleAnchor}`}
+                  title={displayName}
                   style={titleStyle}
                   onClick={(e) => e.stopPropagation()}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
                 >{titleInner}</a>
               ) : (
-                <span style={titleStyle}>{titleInner}</span>
+                <span title={displayName} style={titleStyle}>{titleInner}</span>
               );
             })()}
+          </span>
+          {/* icons + source — fixed slot; consistent start after the name area */}
+          <span style={{ flex: '0 0 130px', display: 'inline-flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -340,6 +359,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </span>
         </div>
       </td>
+      {/* ── numeric columns (centered over fixed-width cells) ── */}
       {/* MINTS — count of mints for this collection seen inside the
           currently-selected timeframe window (5M / 10M / 15M / 30M /
           1H / 4H / 1D). Matches the LIVE MINT FEED scope; was
@@ -357,7 +377,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             // MINTS in the same family visually while leaving RATE
             // the brightest value. fontWeight 800 stays unchanged so
             // the column still reads heavy / structural.
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {tfCount.toLocaleString()}
           </td>
@@ -435,13 +455,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         return (
           <td
             title={title}
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
           </td>
         );
       })()}
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
         {fmtAge(r.lastMintAt)}
       </td>
       {/* PRICE — latest observed mint price for this collection.
@@ -471,7 +491,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         return (
           <td
             title={tip}
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
           </td>
@@ -520,7 +540,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         return (
           <td
             title={tip}
-            style={{ padding: '14px 18px 14px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
           </td>

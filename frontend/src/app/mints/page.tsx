@@ -1908,12 +1908,12 @@ export default function MintsPage() {
                 layout. COLLECTION is auto (no width = takes the
                 remainder); the others are pinned. */}
             <colgroup>
-              <col />                        {/* COLLECTION (auto) */}
-              <col style={{ width: 90 }}  /> {/* MINTS    */}
-              <col style={{ width: 100 }} /> {/* SUPPLY   */}
-              <col style={{ width: 110 }} /> {/* LAST     */}
-              <col style={{ width: 80 }}  /> {/* PRICE    */}
-              <col style={{ width: 110 }} /> {/* RATE     */}
+              <col />                        {/* COLLECTION (auto / remainder) */}
+              <col style={{ width: 80 }}  /> {/* MINTS    */}
+              <col style={{ width: 90 }}  /> {/* SUPPLY   */}
+              <col style={{ width: 100 }} /> {/* LAST     */}
+              <col style={{ width: 90 }}  /> {/* PRICE    */}
+              <col style={{ width: 80 }}  /> {/* RATE     */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
@@ -1935,7 +1935,7 @@ export default function MintsPage() {
                   SUPPLY {sortArrow(effectiveSortKey, effectiveSortDir, 'supply')}
                 </th>
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
-                  LAST MINT {sortArrow(effectiveSortKey, effectiveSortDir, 'last')}
+                  LAST {sortArrow(effectiveSortKey, effectiveSortDir, 'last')}
                 </th>
                 {/* PRICE — latest observed mint price for the
                     collection (the most recent event's priceLamports
@@ -1966,7 +1966,7 @@ export default function MintsPage() {
                     COEF, only widening on the right. */}
                 <th
                   title="RATE — mints per minute over the active window inside the selected timeframe (count ÷ active-minutes)."
-                  style={{ ...thStyle, paddingRight: 18, cursor: 'pointer' }}
+                  style={{ ...thStyle, cursor: 'pointer' }}
                   onClick={() => handleSortClick('velocity')}
                 >
                   RATE {sortArrow(effectiveSortKey, effectiveSortDir, 'velocity')}
@@ -2136,7 +2136,10 @@ const thStyle: React.CSSProperties = {
   fontWeight: 700,
   color: '#56566e',
   letterSpacing: '0.6px',
-  textAlign: 'right',
+  // Numeric columns are centered over their fixed-width cells (COLLECTION
+  // overrides back to left below). Centered header + centered value keeps
+  // the label directly above the number with no oversized empty gutter.
+  textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
   background: 'rgba(28,22,50,0.95)',
