@@ -18,16 +18,19 @@ import { MintsSourceBadge } from './MintsSourceBadge';
  *  (`displayState === 'shown'`); WATCH = incubating (pre-burst,
  *  surfaced here so the table isn't empty when traffic is sparse).
  *  Compact 9 px font + flexShrink: 0 so it never wraps off the row. */
+// Enlarged ~25% vs the prior 9px/1px-5px/13px pill so the status reads as a
+// premium badge, not tiny metadata. Height grows via lineHeight + vertical
+// padding; font bumps modestly. Wrapper still hugs (inline-block).
 const STATUS_BADGE_BASE: React.CSSProperties = {
   display:        'inline-block',
-  padding:        '1px 5px',
-  fontSize:       9,
+  padding:        '2px 7px',
+  fontSize:       10,
   fontWeight:     800,
   letterSpacing:  '0.5px',
-  borderRadius:   3,
+  borderRadius:   4,
   textTransform:  'uppercase',
   flexShrink:     0,
-  lineHeight:     '13px',
+  lineHeight:     '16px',
 };
 const STATUS_BADGE_ACTIVE: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
@@ -213,7 +216,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 56][name 135][icons+source auto].
+            [rank 22][image 46][status 66][name 135][icons+source auto].
             The name is now display-truncated to ~12 chars, so its slot drops
             to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
             source badge share ONE trailing auto group that hugs content, so
@@ -224,7 +227,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             x-position — 56px hugs the widest badge (ACTIVE) and keeps every
             name's start x identical. The auto column's remainder leaves clean
             free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 56px 135px auto', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 135px auto', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -267,7 +270,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           {/* name — fixed 180px grid column, single-line ellipsis, vertically
               centered; full name on hover. minWidth:0 lets it ellipsis rather
               than overflow the slot. */}
-          <span style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', overflow: 'hidden' }} title={displayName}>
+          <span style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', overflow: 'hidden' }}>
             {(() => {
               // Title is clickable → Solscan ONLY when we have a
               // real NFT mint address from the wire (`lastMintAddress`
@@ -284,7 +287,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 : null;
               const titleInner = (<>{displayShort}</>);
               const titleStyle: React.CSSProperties = {
-                display: 'block', width: '100%',
+                // Hug the visible (shortened) text so the hit/hover area
+                // matches the label, not the full 135px name slot. The slot
+                // itself stays fixed for alignment; maxWidth:100% keeps the
+                // defensive ellipsis if a name ever exceeds the slot.
+                display: 'inline-block', width: 'fit-content', maxWidth: '100%',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
                 fontSize: 16, fontWeight: 600, letterSpacing: '-0.2px',
                 color: '#f0eef8', textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
@@ -333,7 +340,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/me.png" alt="ME" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
             {/* Tensor badge — pairs with the ME icon and uses the
@@ -352,7 +359,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/tensor.png" alt="Tensor" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
             {/* X (Twitter) live-search badge — links to a Live tab
@@ -373,11 +380,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                <img src="/brand/x.png" alt="X" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
-            {/* source badge — in the SAME group, right after the icons */}
-            <MintsSourceBadge row={r} />
+            {/* source badge — in the SAME group, right after the icons.
+                size="lg" matches the enlarged status badge (table-only; the
+                Live Mint Feed card keeps the default small pill). */}
+            <MintsSourceBadge row={r} size="lg" />
           </span>
         </div>
       </td>

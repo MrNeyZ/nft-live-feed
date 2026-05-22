@@ -14,14 +14,23 @@
 import type { MintStatus } from '../lib/types';
 import { sourceBadge, sourceHref } from '../lib/source';
 
-export function MintsSourceBadge({ row }: { row: MintStatus }) {
+/** `size` is opt-in: 'sm' (default) is the original 9px pill used by the Live
+ *  Mint Feed card (left byte-identical). 'lg' is the ~25%-larger table variant
+ *  so the source pill matches the enlarged status badge in the collection
+ *  table. Only the collection table passes 'lg'. */
+export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
+  const lg = size === 'lg';
   const pillStyle: React.CSSProperties = {
-    display: 'inline-block', padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+    display: 'inline-block',
+    padding: lg ? '2px 8px' : '1px 6px',
+    fontSize: lg ? 10 : 9,
+    fontWeight: 700,
+    borderRadius: lg ? 4 : 3,
     background: sb.bg, color: sb.fg, letterSpacing: '0.4px',
     textDecoration: 'none', cursor: href ? 'pointer' : 'default',
-    flexShrink: 0, lineHeight: '13px', textTransform: 'uppercase',
+    flexShrink: 0, lineHeight: lg ? '16px' : '13px', textTransform: 'uppercase',
   };
   const plainTitle = row.sourceLabel === 'LaunchMyNFT'
     ? 'LaunchMyNFT mint page unavailable'
