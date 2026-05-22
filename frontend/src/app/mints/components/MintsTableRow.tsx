@@ -428,30 +428,30 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.16) 100%)';
+                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.10) 0%, rgba(128,104,216,0.18) 100%)';
                 d.style.boxShadow = 'none';
-                d.style.borderRightColor = 'rgba(168,144,232,0.22)';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.60)';
+                d.style.borderRightColor = 'rgba(168,144,232,0.24)';
+                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.65)';
               }
             }}
             style={{
               position: 'absolute', top: 0, bottom: 0, right: 0, width: 104,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 2, userSelect: 'none',
               background: isPinned
-                ? 'linear-gradient(90deg, rgba(128,104,216,0.22) 0%, rgba(128,104,216,0.40) 100%)'
-                : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.16) 100%)',
-              borderLeft:  isPinned ? '1px solid rgba(168,144,232,0.30)' : '1px solid rgba(168,144,232,0.16)',
-              borderRight: isPinned ? '2px solid rgba(168,144,232,0.85)' : '1px solid rgba(168,144,232,0.22)',
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.24) 0%, rgba(128,104,216,0.42) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0.10) 0%, rgba(128,104,216,0.18) 100%)',
+              borderLeft:  isPinned ? '1px solid rgba(168,144,232,0.32)' : '1px solid rgba(168,144,232,0.18)',
+              borderRight: isPinned ? '2px solid rgba(168,144,232,0.85)' : '1px solid rgba(168,144,232,0.24)',
               boxShadow: isPinned ? '10px 0 26px rgba(168,144,232,0.34)' : 'none',
               transition: 'background 140ms ease, box-shadow 140ms ease, border-color 140ms ease',
             }}
           >
             <span style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+              fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
               whiteSpace: 'nowrap', transition: 'color 140ms ease',
-              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.60)',
-            }}>{isPinned ? 'SHOWN ✓' : 'SHOW ›'}</span>
+              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.65)',
+            }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
           </div>
         )}
       </td>

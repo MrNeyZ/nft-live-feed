@@ -2066,15 +2066,20 @@ export default function MintsPage() {
       {!embedded && (
         <div style={{
           background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-          border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+          // Border/glow brighten subtly while a focus lane is hovered or any
+          // collection is pinned — reinforces that the lanes drive this panel.
+          border: scopeKeysArr.length > 0 ? '1px solid rgba(168,144,232,0.92)' : '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
+          boxShadow: scopeKeysArr.length > 0
+            ? 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 34px rgba(128,104,216,0.28)'
+            : 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+          transition: 'border-color 160ms ease, box-shadow 160ms ease',
           // Pane fills its grid cell vertically — minHeight: 0 lets the
           // inner scroll-area shrink to fit; overflow: hidden + the
           // inner overflowY: 'auto' keep all scrolling internal so the
           // page itself never grows with feed content.
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
-          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ padding: '10px 14px 8px', borderBottom: scopeKeysArr.length > 0 ? '1px solid rgba(168,144,232,0.30)' : '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, transition: 'border-color 160ms ease' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <LiveDot />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
@@ -2096,8 +2101,8 @@ export default function MintsPage() {
                     border: '1px solid rgba(168,144,232,0.75)', whiteSpace: 'nowrap',
                   }}
                 >
-                  <span style={{ color: '#a890e8', textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pinnedCount === 1 ? scopeName : pinnedCount}</span>
+                  <span style={{ color: '#a890e8', textTransform: 'uppercase', fontSize: 9 }}>showing</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pinnedCount === 1 ? scopeName : `${pinnedCount} collections`}</span>
                   <span style={{ color: '#a890e8', fontWeight: 800 }}>×</span>
                 </span>
               ) : hoveredKey ? (
