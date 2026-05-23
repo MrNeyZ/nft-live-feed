@@ -28,8 +28,8 @@ import { useSyncExternalStore } from 'react';
 const STORAGE_KEY = 'vl.uiSound';
 const PACK_KEY    = 'vl.uiSoundPack';
 
-const HOVER_THROTTLE_MS = 50;
-const CLICK_THROTTLE_MS = 20;
+const HOVER_THROTTLE_MS = 30;
+const CLICK_THROTTLE_MS = 8;
 
 // ── Sound packs ──────────────────────────────────────────────────────────────
 // Three selectable packs, each mapping the three UI channels (hover tick,
@@ -451,7 +451,7 @@ export function playUiClick(): void {
 // than their existing UI feedback. Lazy singleton HTMLAudio per (pack,channel)
 // — no pools (these events are infrequent) and no allocations per event. A
 // 250 ms per-channel throttle guards against accidental spam.
-const NAMED_THROTTLE_MS = 80;
+const NAMED_THROTTLE_MS = 60;
 const NAMED_POOL_SIZE   = 2;
 interface NamedPoolEntry { pool: HTMLAudioElement[]; idx: number }
 const namedPoolCache = new Map<string, NamedPoolEntry>(); // key = `${pack}:${ch}`
