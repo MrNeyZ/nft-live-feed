@@ -402,12 +402,15 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* SHOW pin control — centered in the leftover gap before MINTS.
-              Hovering it scopes the live feed to this collection (bubbles to
-              the row's onMouseEnter); clicking pins/locks that scope. Subtle
-              when idle, stronger purple when pinned. */}
+          {/* SHOW pin control — anchored to the RIGHT edge of the trailing
+              cell so every row's SHOW button sits at the same x-coordinate.
+              `marginLeft: auto` pushes it past the variable-width icons +
+              source group; replaces the prior `flex: 1; justify-center`
+              which drifted with the icons-group intrinsic width. Hovering
+              it scopes the live feed to this collection (bubbles to the
+              row's onMouseEnter); clicking pins/locks that scope. */}
           {onTogglePin && (
-            <span style={{ flex: 1, display: 'flex', justifyContent: 'center', alignSelf: 'stretch' }}>
+            <span style={{ marginLeft: 'auto', display: 'flex', alignSelf: 'stretch', flexShrink: 0 }}>
               {/* role="button" is now DIRECTLY a flex child of the centering
                   span and has a real in-flow layout box (no nested positioning
                   wrapper, no absolute layer). alignSelf:'stretch' fills the
