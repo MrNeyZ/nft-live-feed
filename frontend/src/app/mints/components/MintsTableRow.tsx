@@ -433,7 +433,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   // center opacity + adds a subtle inner outline; pinned is
                   // stronger center + a thin outline. Row height untouched
                   // (alignSelf stretch fills row content height only).
-                  width: 140, alignSelf: 'stretch',
+                  width: 120, alignSelf: 'stretch',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   cursor: 'pointer', userSelect: 'none', borderRadius: 4,
                   background: isPinned
