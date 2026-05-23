@@ -229,7 +229,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '14px 2px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
             Status track was 66 px to fit the old ACTIVE/WATCH labels; after
@@ -238,7 +238,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             name start-x remains identical because the status track stays a
             fixed pixel width (not `auto`). Other tracks and columnGap are
             untouched. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr var(--mints-show-w, 120px)', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -324,10 +324,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* trailing 1fr cell: icons+source hug left, SHOW centered in the gap */}
+          {/* trailing 1fr cell: icons + source only — SHOW now lives in its
+              own fixed grid track to the right of this cell, so its column
+              boundary is dictated by the grid template rather than this
+              flex container's leftover space. */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, alignSelf: 'stretch' }}>
-          {/* icons + source — one group that hugs content, so the source badge
-              sits immediately after the ME/Tensor/X icons */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
@@ -402,15 +403,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* SHOW pin control — anchored to the RIGHT edge of the trailing
-              cell so every row's SHOW button sits at the same x-coordinate.
-              `marginLeft: auto` pushes it past the variable-width icons +
-              source group; replaces the prior `flex: 1; justify-center`
-              which drifted with the icons-group intrinsic width. Hovering
-              it scopes the live feed to this collection (bubbles to the
-              row's onMouseEnter); clicking pins/locks that scope. */}
+          </div>
+          {/* SHOW pin control — now its own fixed grid track
+              (gridTemplateColumns ends with var(--mints-show-w)). The
+              column boundary is row-grid-level, so SHOW lines up across
+              every row regardless of the icons+source group width inside
+              the 1fr cell to its left. Inner button text stays centered. */}
           {onTogglePin && (
-            <span style={{ marginLeft: 'auto', display: 'flex', alignSelf: 'stretch', flexShrink: 0 }}>
+            <span style={{ display: 'flex', alignSelf: 'stretch' }}>
               {/* role="button" is now DIRECTLY a flex child of the centering
                   span and has a real in-flow layout box (no nested positioning
                   wrapper, no absolute layer). alignSelf:'stretch' fills the
@@ -447,8 +447,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 style={{
                   width: 'var(--mints-show-w, 120px)', alignSelf: 'stretch', boxSizing: 'content-box',
                   marginTop: -14, marginBottom: -14,
-                  paddingTop: 14, paddingBottom: 14, paddingRight: 8,
-                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                  paddingTop: 14, paddingBottom: 14,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                   cursor: 'pointer', userSelect: 'none', borderRadius: 4,
                   background: isPinned
                     ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
@@ -465,7 +465,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               </div>
             </span>
           )}
-          </div>
         </div>
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
