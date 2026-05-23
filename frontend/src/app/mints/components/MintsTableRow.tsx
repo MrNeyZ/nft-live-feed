@@ -23,21 +23,23 @@ import { MintsSourceBadge } from './MintsSourceBadge';
 // premium badge, not tiny metadata. Height grows via lineHeight + vertical
 // padding; font bumps modestly. Wrapper still hugs (inline-block).
 const STATUS_BADGE_BASE: React.CSSProperties = {
-  // Horizontal padding tightened 7→3 px and letterSpacing zeroed for the
-  // single-letter A/W/S labels — vertical metrics (lineHeight, paddingY,
-  // fontSize, fontWeight) unchanged so row alignment and badge height
-  // stay identical to the wider-label era.
-  display:        'inline-block',
-  padding:        '2px 3px',
-  minWidth:       16,
+  // Fixed-square geometry — drives a 20×20 (22×22 with 1 px border)
+  // container that matches the prior badge height (16 px lineHeight +
+  // 2 px paddingY + 1 px border × 2 = 22) so row alignment is
+  // preserved while the horizontal stretch from padding-based sizing
+  // is gone. Flex-centers the ▲/◇/■ glyph in both axes; font weight,
+  // size, and border-radius are unchanged.
+  display:        'inline-flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  width:          20,
+  height:         20,
   fontSize:       10,
   fontWeight:     800,
-  letterSpacing:  '0',
+  letterSpacing:  0,
+  lineHeight:     1,
   borderRadius:   4,
-  textTransform:  'uppercase',
   flexShrink:     0,
-  lineHeight:     '16px',
-  textAlign:      'center',
 };
 const STATUS_BADGE_ACTIVE: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
