@@ -48,6 +48,12 @@
   --table-row-pad-compact:   10px 6px;
   --table-font:              14px;
   --table-cell-gap:          12px;
+  /* SHOW pin-button width on the mints table. Scales with the same
+     PC tier the table container scales with (--mints-max), so the
+     action column tracks the table width instead of drifting fixed.
+     PC override below; phone tier already collapses the table to
+     full-width and the natural 1fr remainder absorbs the value. */
+  --mints-show-w:            120px;
   /* Feed-card tokens — replaces the prior hardcoded `.feed-card`
      padding/gap rules. Density classes (.feed-density-comfy /
      .feed-density-tape) and phone tier override these tokens at
@@ -110,6 +116,10 @@ html[data-layout="pc"] {
      untouched; only ~2 px shaved off each row's vertical breathing room
      so the feed scans denser without crossing into cramped. */
   --table-row-pad:       13px 10px;
+  /* SHOW button scales with the table width (mints-max 1400 → 1460 px,
+     ~+4 %). Bumped one notch for visual proportion; phone stays
+     unchanged. */
+  --mints-show-w:        125px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;

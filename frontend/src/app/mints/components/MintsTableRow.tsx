@@ -442,7 +442,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   }
                 }}
                 style={{
-                  width: 120, alignSelf: 'stretch', boxSizing: 'content-box',
+                  width: 'var(--mints-show-w, 120px)', alignSelf: 'stretch', boxSizing: 'content-box',
                   marginTop: -14, marginBottom: -14,
                   paddingTop: 14, paddingBottom: 14,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
