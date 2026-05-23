@@ -49,9 +49,9 @@ const STATUS_BADGE_ACTIVE: React.CSSProperties = {
 };
 const STATUS_BADGE_WATCH: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#c9a820',
-  background: 'rgba(201,168,32,0.10)',
-  border:     '1px solid rgba(201,168,32,0.32)',
+  color:      '#F5C84B',
+  background: 'rgba(245,200,75,0.10)',
+  border:     '1px solid rgba(245,200,75,0.45)',
 };
 // Same red as the rest of the site (SELL flash / SELL feed badge —
 // `rgba(239,120,120,…)`), kept consistent so a row that hits its
