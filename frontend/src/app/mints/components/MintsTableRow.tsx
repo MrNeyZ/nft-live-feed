@@ -404,54 +404,51 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               when idle, stronger purple when pinned. */}
           {onTogglePin && (
             <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
                 onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-                style={{
-                  // Pressed-glass purple capsule, same language as the active
-                  // top-HUD tab (layered gradient + inset rim/sheen/depth, no
-                  // flat outline, no neon glow). Inactive = dimmer capsule;
-                  // hover = active-tab brightness; pinned = strongest.
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  height: 25, padding: '0 14px', borderRadius: 7,
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                  cursor: 'pointer', whiteSpace: 'nowrap',
-                  color:      isPinned ? '#ffffff' : '#c9bdf0',
-                  background: isPinned
-                    ? 'linear-gradient(180deg, rgba(168,144,232,0.26) 0%, rgba(168,144,232,0.15) 100%)'
-                    : 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)',
-                  boxShadow: isPinned
-                    ? 'inset 0 0 0 1px rgba(168,144,232,0.34), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.20)'
-                    : 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)',
-                  transform: isPinned ? 'translateY(-1px)' : 'none',
-                  transition: 'color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease',
-                }}
-                // SHOW hover IS the live-feed scope trigger (row hover no
-                // longer scopes). onHoverEnter/Leave are page-gated on
-                // !pinnedKey, so a pin holds; the brighten is local + idle-only
-                // and lifts to the active-tab capsule brightness.
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTogglePin(); } }}
                 onMouseEnter={(e) => {
                   onHoverEnter?.();
                   if (!isPinned) { const b = e.currentTarget;
-                    b.style.color = '#ffffff';
-                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)';
-                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.24), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.18)';
-                    b.style.transform = 'translateY(-1px)';
+                    b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.12) 35%, rgba(128,104,216,0.20) 50%, rgba(128,104,216,0.12) 65%, rgba(128,104,216,0) 100%)';
+                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
+                    const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
                   }
                 }}
                 onMouseLeave={(e) => {
                   onHoverLeave?.();
                   if (!isPinned) { const b = e.currentTarget;
-                    b.style.color = '#c9bdf0';
-                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)';
-                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)';
-                    b.style.transform = 'none';
+                    b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.08) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.08) 65%, rgba(128,104,216,0) 100%)';
+                    b.style.boxShadow = 'none';
+                    const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
                   }
                 }}
+                style={{
+                  // Soft fade lane: ~140 px clickable, edges fade to fully
+                  // transparent so there are no hard vertical column borders
+                  // in idle. Center is slightly purple; hover lifts the
+                  // center opacity + adds a subtle inner outline; pinned is
+                  // stronger center + a thin outline. Row height untouched
+                  // (alignSelf stretch fills row content height only).
+                  width: 140, alignSelf: 'stretch',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', userSelect: 'none', borderRadius: 4,
+                  background: isPinned
+                    ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.18) 35%, rgba(128,104,216,0.28) 50%, rgba(128,104,216,0.18) 65%, rgba(128,104,216,0.06) 100%)'
+                    : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.08) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.08) 65%, rgba(128,104,216,0) 100%)',
+                  boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
+                  transition: 'background 160ms ease, box-shadow 160ms ease',
+                }}
               >
-                SHOW
-              </button>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  whiteSpace: 'nowrap', transition: 'color 160ms ease',
+                  color: isPinned ? '#ffffff' : '#c9bdf0',
+                }}>SHOW</span>
+              </div>
             </span>
           )}
           </div>
