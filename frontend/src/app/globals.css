@@ -98,14 +98,18 @@
 html[data-layout="pc"] {
   --shell-x:            40px;
   --page-x:             24px;
-  /* PC content-column tier — tightened from the original 960/1280/1400/1600
-     to sit between the laptop defaults and the original wide PC values, so
-     rows scan faster on dense monitors while PC still reads as slightly
-     more spacious than laptop. */
-  --feed-max:           880px;
-  --dashboard-max:     1200px;
-  --tools-max:         1340px;
-  --mints-max:         1540px;
+  /* PC content-column tier — tightened a further ~5 % (880/1200/1340/1540
+     → 840/1140/1280/1460) so dense monitors feel like a trading terminal
+     instead of an airy showcase. Laptop / phone unchanged. */
+  --feed-max:           840px;
+  --dashboard-max:     1140px;
+  --tools-max:         1280px;
+  --mints-max:         1460px;
+  /* Slightly tighter row rhythm in PC mode: 14 → 13 px vertical pad on
+     the dense-analytics tables (dashboard, mints rows). Cell font / gap
+     untouched; only ~2 px shaved off each row's vertical breathing room
+     so the feed scans denser without crossing into cramped. */
+  --table-row-pad:       13px 10px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;
