@@ -229,20 +229,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 66][name 100][icons+source + SHOW (1fr)].
-            The trailing 1fr track holds the icons+source group (hugs left) and
-            the SHOW pin control, centered in the leftover gap before MINTS.
-            The name is now display-truncated to ~12 chars, so its slot drops
-            to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
-            source badge share ONE trailing auto group that hugs content, so
-            the source pill sits immediately after the icons (no far-away
-            column). Element sizes (thumb 42, STATUS_BADGE_*, MintsSourceBadge,
-            icons 12) are NOT changed here. The status column stays a tight
-            FIXED width (not `auto`) so a wider badge can't shove the name's
-            x-position — 56px hugs the widest badge (ACTIVE) and keeps every
-            name's start x identical. The auto column's remainder leaves clean
-            free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
+            [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
+            Status track was 66 px to fit the old ACTIVE/WATCH labels; after
+            the A/W/S compaction the badge renders at ~22 px so the reserved
+            track shrinks to match, pulling collection names left. Every row's
+            name start-x remains identical because the status track stays a
+            fixed pixel width (not `auto`). Other tracks and columnGap are
+            untouched. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
