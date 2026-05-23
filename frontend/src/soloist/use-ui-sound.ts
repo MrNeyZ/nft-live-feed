@@ -27,6 +27,28 @@ import { useSyncExternalStore } from 'react';
 
 const STORAGE_KEY = 'vl.uiSound';
 const PACK_KEY    = 'vl.uiSoundPack';
+const VOLUME_KEY  = 'vl.uiSoundVolumeMultiplier';
+
+// Per-device local boost applied on top of every pack gain. Default 1.0
+// (no change). Set per-browser via the DevTools console, e.g.
+//   localStorage.setItem('vl.uiSoundVolumeMultiplier', '1.5'); location.reload();
+// Read once at module load — pools build with the resulting volume; a
+// later change requires a reload, which matches the operator workflow.
+function readVolumeMultiplier(): number {
+  if (typeof window === 'undefined') return 1.0;
+  try {
+    const raw = window.localStorage.getItem(VOLUME_KEY);
+    if (raw == null) return 1.0;
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n) || n <= 0) return 1.0;
+    return n;
+  } catch { return 1.0; }
+}
+const VOLUME_MULTIPLIER = readVolumeMultiplier();
+function applyVol(base: number): number {
+  const v = base * VOLUME_MULTIPLIER;
+  return v > 1 ? 1 : v < 0 ? 0 : v;
+}
 
 const HOVER_THROTTLE_MS = 30;
 const CLICK_THROTTLE_MS = 8;
@@ -243,7 +265,7 @@ function buildPool(url: string, gain: number, channel?: 'hover' | 'click'): Pool
     try {
       const a = new Audio(url);
       a.preload = 'auto';
-      a.volume  = gain;
+      a.volume  = applyVol(gain);
       if (soften && ctx) {
         try {
           const src = ctx.createMediaElementSource(a);
@@ -487,7 +509,7 @@ function playNamed(ch: NamedChannel, opts?: { force?: boolean }): void {
       try {
         const a = new Audio(url);
         a.preload = 'auto';
-        a.volume  = typeof gain === 'number' ? gain : 1.0;
+        a.volume  = applyVol(typeof gain === 'number' ? gain : 1.0);
         pool.push(a);
       } catch { /* skip — partial pool still works */ }
     }
@@ -554,7 +576,7 @@ export function playDeepDiscountAlert(signature: string): void {
     if (!deepDiscountAudio) {
       deepDiscountAudio = new Audio(pack().notification);
       deepDiscountAudio.preload = 'auto';
-      deepDiscountAudio.volume  = 1.0 * pack().gain.notification;
+      deepDiscountAudio.volume  = applyVol(pack().gain.notification);
     }
     deepDiscountAudio.currentTime = 0;
     void deepDiscountAudio.play().catch(() => undefined);
