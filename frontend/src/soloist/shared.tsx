@@ -16,7 +16,7 @@ import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-t
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { useUiSoundEnabled, setUiSoundEnabled, playUiLogin, playUiLogout } from './use-ui-sound';
+import { useUiSoundEnabled, setUiSoundEnabled, playUiLogin, playUiLogout, playUiSelect } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at a small fixed size instead of the full-size upstream asset
@@ -1013,9 +1013,11 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   prefetch
                   className="topnav-tab"
                   data-tab={p.key}
+                  data-uisnd="skip"
                   onMouseEnter={() => { setHoverKey(p.key); router.prefetch(p.href); }}
                   onMouseLeave={() => setHoverKey(prev => prev === p.key ? null : prev)}
                   onClick={() => {
+                    playUiSelect();
                     if (typeof window !== 'undefined') {
                       (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
                       console.log(`[nav-perf] click ${p.href}`);

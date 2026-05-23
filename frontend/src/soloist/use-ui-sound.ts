@@ -153,15 +153,21 @@ export function setUiSoundEnabled(next: boolean): void {
     for (const fn of listeners) fn();
     playUiLogin();
   } else {
-    // Going OFF — play logout WHILE still enabled, then flip. The
-    // play() promise keeps running after `enabled` is cleared.
-    playUiLogout();
-    enabled = false;
+    // Going OFF — force-fire logout *first* so it bypasses the enabled
+    // gate that's about to flip. Then defer the actual disable by a
+    // short delay so the audio element has a window of "enabled === true"
+    // state in case anything downstream (Web Audio resume, etc.) reads it
+    // during the play() startup. localStorage is written immediately so
+    // the OFF state survives a reload that races the delay.
+    playNamed('logout', { force: true });
     if (typeof window !== 'undefined') {
       try { window.localStorage.setItem(STORAGE_KEY, 'off'); }
       catch { /* quota / private mode — fail silent */ }
     }
-    for (const fn of listeners) fn();
+    setTimeout(() => {
+      enabled = false;
+      for (const fn of listeners) fn();
+    }, 100);
   }
 }
 
@@ -453,8 +459,10 @@ const namedLastAt: Record<NamedChannel, number> = {
   select: 0, undo: 0, error: 0, login: 0, logout: 0, confirm: 0,
 };
 
-function playNamed(ch: NamedChannel): void {
-  if (!enabled) return;
+function playNamed(ch: NamedChannel, opts?: { force?: boolean }): void {
+  // `force` lets the logout transition fire *while* enabled is being
+  // flipped to false — every other path keeps the normal enabled gate.
+  if (!opts?.force && !enabled) return;
   if (reducedMotion()) return;
   const now = performance.now();
   if (now - namedLastAt[ch] < NAMED_THROTTLE_MS) return;

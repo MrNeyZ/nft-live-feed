@@ -8,6 +8,7 @@
 // `<MintsSourceBadge>`.
 
 import { ItemThumb } from '@/soloist/shared';
+import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
@@ -415,9 +416,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               <div
                 role="button"
                 tabIndex={0}
+                data-uisnd="skip"
                 title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
-                onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTogglePin(); } }}
+                onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
                 onMouseEnter={(e) => {
                   onHoverEnter?.();
                   if (!isPinned) {
