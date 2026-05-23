@@ -270,11 +270,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 }
                 aria-label="Sold"
                 style={STATUS_BADGE_SOLD}
-              >S</span>
+              >■</span>
             ) : isActive ? (
-              <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} aria-label="Active" style={STATUS_BADGE_ACTIVE}>A</span>
+              <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} aria-label="Active" style={STATUS_BADGE_ACTIVE}>▲</span>
             ) : (
-              <span title="Incubating — not yet at burst / threshold" aria-label="Watch" style={STATUS_BADGE_WATCH}>W</span>
+              <span title="Incubating — not yet at burst / threshold" aria-label="Watch" style={STATUS_BADGE_WATCH}>◇</span>
             )}
           </span>
           {/* name — fixed 180px grid column, single-line ellipsis, vertically
