@@ -326,7 +326,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           {/* icons + source — one group that hugs content, so the source badge
               sits immediately after the ME/Tensor/X icons */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 150, flexShrink: 0, overflow: 'hidden' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 150, flexShrink: 0, overflow: 'visible' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -418,40 +418,66 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
               onMouseEnter={(e) => {
                 onHoverEnter?.();
-                if (!isPinned) { const d = e.currentTarget;
-                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
-                  d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
-                  d.style.borderRightColor = 'rgba(168,144,232,0.35)';
-                  d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
-                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
+                if (!isPinned) {
+                  const d = e.currentTarget;
+                  const v = d.firstElementChild as HTMLElement | null;
+                  const t = d.lastElementChild  as HTMLElement | null;
+                  if (v) {
+                    v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
+                    v.style.borderLeftColor = 'rgba(168,144,232,0.35)';
+                    v.style.borderRightColor = 'rgba(168,144,232,0.35)';
+                    v.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
+                  }
+                  if (t) t.style.color = '#f0eaff';
                 }
               }}
               onMouseLeave={(e) => {
                 onHoverLeave?.();
-                if (!isPinned) { const d = e.currentTarget;
-                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
-                  d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
-                  d.style.borderRightColor = 'rgba(168,144,232,0.18)';
-                  d.style.boxShadow = 'none';
-                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.75)';
+                if (!isPinned) {
+                  const d = e.currentTarget;
+                  const v = d.firstElementChild as HTMLElement | null;
+                  const t = d.lastElementChild  as HTMLElement | null;
+                  if (v) {
+                    v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
+                    v.style.borderLeftColor = 'rgba(168,144,232,0.18)';
+                    v.style.borderRightColor = 'rgba(168,144,232,0.18)';
+                    v.style.boxShadow = 'none';
+                  }
+                  if (t) t.style.color = 'rgba(201,189,240,0.75)';
                 }
               }}
               style={{
-                // In-flow rail (no position:absolute): width 130, flexShrink 0,
-                // alignSelf stretch so the rail spans the row content height.
+                // Wrapper: in-flow flex item between two 1fr spacers so the
+                // lane stays responsively centered (the d64482d win). Itself
+                // transparent — all visual weight is on the absolute visual
+                // layer below, which extends past the td's 14px top/bottom
+                // padding so the rail spans the FULL td height (restores the
+                // pre-d64482d assertive look).
+                position: 'relative',
                 width: 130, flexShrink: 0, alignSelf: 'stretch',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', userSelect: 'none',
-                background: isPinned
-                  ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
-                  : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
-                borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
-                transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
               }}
             >
+              {/* Visual layer — full-bleed: top/bottom -14 reach into the td
+                  padding so the rail occupies the entire row height. The
+                  wrapper still owns clicks/hover (pointer-events: none here). */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: 'absolute', top: -14, bottom: -14, left: 0, right: 0,
+                  pointerEvents: 'none',
+                  background: isPinned
+                    ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
+                    : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
+                  borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+                  borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+                  boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
+                  transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
+                }}
+              />
               <span style={{
+                position: 'relative', zIndex: 1,
                 fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
                 whiteSpace: 'nowrap', transition: 'color 140ms ease',
                 color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
