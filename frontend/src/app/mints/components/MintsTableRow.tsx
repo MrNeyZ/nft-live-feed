@@ -419,21 +419,21 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onMouseEnter={(e) => {
                 onHoverEnter?.();
                 if (!isPinned) { const d = e.currentTarget;
-                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
-                  d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
-                  d.style.borderRightColor = 'rgba(168,144,232,0.35)';
-                  d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
+                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.09) 0%, rgba(128,104,216,0.15) 50%, rgba(128,104,216,0.09) 100%)';
+                  d.style.borderLeftColor = 'rgba(168,144,232,0.28)';
+                  d.style.borderRightColor = 'rgba(168,144,232,0.28)';
+                  d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.08)';
                   const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
                 }
               }}
               onMouseLeave={(e) => {
                 onHoverLeave?.();
                 if (!isPinned) { const d = e.currentTarget;
-                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
-                  d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
-                  d.style.borderRightColor = 'rgba(168,144,232,0.18)';
+                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.05) 0%, rgba(128,104,216,0.08) 50%, rgba(128,104,216,0.05) 100%)';
+                  d.style.borderLeftColor = 'rgba(168,144,232,0.12)';
+                  d.style.borderRightColor = 'rgba(168,144,232,0.12)';
                   d.style.boxShadow = 'none';
-                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.75)';
+                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.70)';
                 }
               }}
               style={{
@@ -443,18 +443,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', userSelect: 'none',
                 background: isPinned
-                  ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
-                  : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
-                borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
+                  ? 'linear-gradient(90deg, rgba(128,104,216,0.13) 0%, rgba(128,104,216,0.21) 50%, rgba(128,104,216,0.13) 100%)'
+                  : 'linear-gradient(90deg, rgba(128,104,216,0.05) 0%, rgba(128,104,216,0.08) 50%, rgba(128,104,216,0.05) 100%)',
+                borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.40)' : 'rgba(168,144,232,0.12)'}`,
+                borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.40)' : 'rgba(168,144,232,0.12)'}`,
+                boxShadow: isPinned ? 'inset 0 0 14px rgba(168,144,232,0.08)' : 'none',
                 transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
               }}
             >
               <span style={{
                 fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
                 whiteSpace: 'nowrap', transition: 'color 140ms ease',
-                color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
+                color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.70)',
               }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
             </div>
           )}
