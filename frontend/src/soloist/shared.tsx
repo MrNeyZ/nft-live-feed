@@ -1438,10 +1438,22 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   filter: 'drop-shadow(0 1px 2px rgba(132,76,255,0.22))',
                 }}
               />
-              <span style={{ color: '#d8e8d8' }}>${sol}</span>
+              <span style={{
+                color: '#f2fff8',
+                fontWeight: 700,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '0.1px',
+              }}>${sol}</span>
             </span>
             <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
-            <span><span style={{ color: '#7a7a96' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
+            <span>
+              <span style={{ color: '#7a7a96' }}>TPS </span>
+              <span style={{
+                color: '#8a82c0',
+                fontWeight: 500,
+                fontVariantNumeric: 'tabular-nums',
+              }}>{tps.toLocaleString()}</span>
+            </span>
           </div>
           <div style={{ ...groupModule, gap: 10 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
