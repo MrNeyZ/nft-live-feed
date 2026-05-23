@@ -34,6 +34,7 @@ const VOLUME_KEY  = 'vl.uiSoundVolumeMultiplier';
 //   localStorage.setItem('vl.uiSoundVolumeMultiplier', '1.5'); location.reload();
 // Read once at module load — pools build with the resulting volume; a
 // later change requires a reload, which matches the operator workflow.
+export const UI_SOUND_VOLUME_OPTIONS: readonly number[] = [1.0, 1.25, 1.5, 1.75, 2.0];
 function readVolumeMultiplier(): number {
   if (typeof window === 'undefined') return 1.0;
   try {
@@ -44,9 +45,10 @@ function readVolumeMultiplier(): number {
     return n;
   } catch { return 1.0; }
 }
-const VOLUME_MULTIPLIER = readVolumeMultiplier();
+let volumeMultiplier = readVolumeMultiplier();
+const volumeListeners = new Set<() => void>();
 function applyVol(base: number): number {
-  const v = base * VOLUME_MULTIPLIER;
+  const v = base * volumeMultiplier;
   return v > 1 ? 1 : v < 0 ? 0 : v;
 }
 
@@ -339,6 +341,37 @@ function subscribePack(cb: () => void): () => void {
 /** Cross-component reactive read of the active sound pack. */
 export function useUiSoundPack(): SoundPackName {
   return useSyncExternalStore(subscribePack, getPackSnapshot, getPackServerSnapshot);
+}
+
+// ── Volume multiplier (per-device boost) ────────────────────────────────────
+// Mirrors the pack pattern: persisted in localStorage, reactive via
+// useSyncExternalStore, rebuilds the existing audio pools so already-cached
+// Audio elements pick up the new volume immediately (no reload required).
+export function setUiSoundVolumeMultiplier(next: number): void {
+  if (!Number.isFinite(next) || next <= 0) return;
+  if (next === volumeMultiplier) return;
+  volumeMultiplier = next;
+  if (typeof window !== 'undefined') {
+    try { window.localStorage.setItem(VOLUME_KEY, String(next)); }
+    catch { /* quota / private mode — fail silent */ }
+  }
+  // Rebuild pools so existing Audio elements adopt the new volume on the
+  // next play() — applyVol() reads the live multiplier, but Audio.volume
+  // is set at pool-build time. Same teardown as setUiSoundPack.
+  rebuildForPack();
+  for (const fn of volumeListeners) fn();
+  // Confirmation tick so the operator hears the new level immediately.
+  if (enabled) playUiSelect();
+}
+function getVolumeSnapshot():       number { return volumeMultiplier; }
+function getVolumeServerSnapshot(): number { return 1.0; }
+function subscribeVolume(cb: () => void): () => void {
+  volumeListeners.add(cb);
+  return () => { volumeListeners.delete(cb); };
+}
+/** Cross-component reactive read of the per-device volume multiplier. */
+export function useUiSoundVolumeMultiplier(): number {
+  return useSyncExternalStore(subscribeVolume, getVolumeSnapshot, getVolumeServerSnapshot);
 }
 
 let gestureInstalled = false;

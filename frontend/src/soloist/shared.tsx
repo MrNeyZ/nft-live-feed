@@ -16,7 +16,11 @@ import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-t
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { useUiSoundEnabled, setUiSoundEnabled, playUiLogin, playUiLogout, playUiSelect } from './use-ui-sound';
+import {
+  useUiSoundEnabled, setUiSoundEnabled,
+  playUiLogin, playUiLogout, playUiSelect,
+  useUiSoundVolumeMultiplier, setUiSoundVolumeMultiplier, UI_SOUND_VOLUME_OPTIONS,
+} from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at a small fixed size instead of the full-size upstream asset
@@ -1319,7 +1323,16 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
   const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
   const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
   const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
-  const uiSoundEnabled = useUiSoundEnabled();
+  const uiSoundEnabled  = useUiSoundEnabled();
+  const uiSoundVolume   = useUiSoundVolumeMultiplier();
+  const cycleUiVolume = () => {
+    const opts = UI_SOUND_VOLUME_OPTIONS;
+    const idx  = opts.indexOf(uiSoundVolume);
+    const next = opts[(idx + 1) % opts.length] ?? opts[0];
+    setUiSoundVolumeMultiplier(next);
+  };
+  const formatMult = (n: number) =>
+    Number.isInteger(n) ? `${n}.0x` : `${n}x`;
   // Listen for cross-route EVENTS-count signals from /feed. Falls back
   // to the optional `eventsCount` prop for backward compat with any
   // call site that still passes it directly.
@@ -1441,6 +1454,31 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   : <line x1="22" y1="9" x2="16" y2="15" />}
               </svg>
             </BarIconButton>
+            {/* Per-device UI-sound volume multiplier. Hidden when sound is
+                OFF. Click cycles through UI_SOUND_VOLUME_OPTIONS; the new
+                level is persisted to localStorage and a confirmation tick
+                plays via setUiSoundVolumeMultiplier. */}
+            {uiSoundEnabled && (
+              <button
+                type="button"
+                data-uisnd="skip"
+                onClick={cycleUiVolume}
+                title={`UI sound volume — ${formatMult(uiSoundVolume)}. Click to cycle.`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  height: 22, padding: '0 6px', borderRadius: 5,
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  color: uiSoundVolume === 1.0 ? '#5c5c74' : '#a890e8',
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                  transition: 'background 0.12s, color 0.12s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                {formatMult(uiSoundVolume)}
+              </button>
+            )}
             {/* Sound-pack selector removed — `candy` is now the default pack
                 for new visitors (use-ui-sound.ts). The setUiSoundPack /
                 useUiSoundPack / SOUND_PACK_NAMES exports remain available for
