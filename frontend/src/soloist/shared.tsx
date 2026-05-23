@@ -1420,16 +1420,23 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             stat modules; values a notch clearer than their labels. */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <div style={{ ...groupModule, gap: 10 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {/* Solana mark — replaces the prior plain "SOL " text label
-                  for a cleaner, more premium ticker glyph. SVG is in
-                  /public/brand so it's cached + crisp at any DPI. */}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              {/* Solana mark — VictoryLabs-styled 3-bar gradient with a
+                  subtle top highlight for premium bevel. Rendered at 15
+                  px (slight vertical nudge so the optical centre sits on
+                  the price-text cap-height, not the baseline). A faint
+                  purple drop-shadow gives quiet depth on the dark glass
+                  surface without veering into cartoon glow. */}
               <img
                 src="/brand/solana.svg"
                 alt="SOL"
-                width={11}
-                height={11}
-                style={{ display: 'block', opacity: 0.95 }}
+                width={15}
+                height={15}
+                style={{
+                  display: 'block',
+                  marginTop: -1,
+                  filter: 'drop-shadow(0 1px 2px rgba(132,76,255,0.22))',
+                }}
               />
               <span style={{ color: '#d8e8d8' }}>${sol}</span>
             </span>

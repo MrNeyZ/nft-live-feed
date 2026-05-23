@@ -1,14 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true">
   <defs>
     <linearGradient id="vlSol" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#9945FF"/>
-      <stop offset="50%" stop-color="#19FB9B"/>
+      <stop offset="0%"   stop-color="#9945FF"/>
+      <stop offset="50%"  stop-color="#19FB9B"/>
       <stop offset="100%" stop-color="#14F195"/>
+    </linearGradient>
+    <linearGradient id="vlSolHi" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
   <g fill="url(#vlSol)">
-    <path d="M21 22 L91 22 L79 36 L9 36 Z"/>
-    <path d="M21 44 L91 44 L79 58 L9 58 Z"/>
-    <path d="M21 66 L91 66 L79 80 L9 80 Z"/>
+    <path d="M22 17 L92 17 L78 34 L8 34 Z"/>
+    <path d="M22 41 L92 41 L78 58 L8 58 Z"/>
+    <path d="M22 65 L92 65 L78 82 L8 82 Z"/>
+  </g>
+  <g fill="url(#vlSolHi)">
+    <path d="M22 17 L92 17 L90 20 L21 20 Z"/>
+    <path d="M22 41 L92 41 L90 44 L21 44 Z"/>
+    <path d="M22 65 L92 65 L90 68 L21 68 Z"/>
   </g>
 </svg>
