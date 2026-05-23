@@ -229,7 +229,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ padding: '14px 2px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
             Status track was 66 px to fit the old ACTIVE/WATCH labels; after
@@ -447,8 +447,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 style={{
                   width: 'var(--mints-show-w, 120px)', alignSelf: 'stretch', boxSizing: 'content-box',
                   marginTop: -14, marginBottom: -14,
-                  paddingTop: 14, paddingBottom: 14,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  paddingTop: 14, paddingBottom: 14, paddingRight: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
                   cursor: 'pointer', userSelect: 'none', borderRadius: 4,
                   background: isPinned
                     ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
