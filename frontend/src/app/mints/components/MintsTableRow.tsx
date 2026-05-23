@@ -268,12 +268,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   `Sold out — ${r.observedMints.toLocaleString()} of ` +
                   `${(r.maxSupply ?? 0).toLocaleString()} minted`
                 }
+                aria-label="Sold"
                 style={STATUS_BADGE_SOLD}
-              >SOLD</span>
+              >S</span>
             ) : isActive ? (
-              <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} style={STATUS_BADGE_ACTIVE}>ACTIVE</span>
+              <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} aria-label="Active" style={STATUS_BADGE_ACTIVE}>A</span>
             ) : (
-              <span title="Incubating — not yet at burst / threshold" style={STATUS_BADGE_WATCH}>WATCH</span>
+              <span title="Incubating — not yet at burst / threshold" aria-label="Watch" style={STATUS_BADGE_WATCH}>W</span>
             )}
           </span>
           {/* name — fixed 180px grid column, single-line ellipsis, vertically
