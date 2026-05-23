@@ -72,6 +72,11 @@ interface Props {
    *  collection. Optional — omitting them leaves row behaviour unchanged. */
   onHoverEnter?: () => void;
   onHoverLeave?: () => void;
+  /** True when THIS collection is the pinned (locked) live-feed scope. */
+  isPinned?: boolean;
+  /** Toggle this collection's pin (SHOW button). Pin persists after the mouse
+   *  leaves; clicking again unpins; pinning another row replaces the pin. */
+  onTogglePin?: () => void;
 }
 
 /** Display-only collection-name truncation. Caps the visible label at ~12
@@ -84,7 +89,7 @@ function shortCollectionName(name: string): string {
   return clean.slice(0, 11).trimEnd() + '…';
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave, isPinned, onTogglePin }: Props) {
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -182,8 +187,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
       className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
-      onMouseEnter={onHoverEnter}
-      onMouseLeave={onHoverLeave}
+      // Row hover no longer scopes the live feed — only the SHOW button does
+      // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
+      // lift (tools-offer-row) still applies on row hover.
       style={{
         // Slightly stronger separator alpha (0.05 vs 0.04 before)
         // so the per-row tint reads as a distinct band; still a
@@ -216,7 +222,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 66][name 100][icons+source auto].
+            [rank 22][image 46][status 66][name 100][icons+source + SHOW (1fr)].
+            The trailing 1fr track holds the icons+source group (hugs left) and
+            the SHOW pin control, centered in the leftover gap before MINTS.
             The name is now display-truncated to ~12 chars, so its slot drops
             to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
             source badge share ONE trailing auto group that hugs content, so
@@ -227,7 +235,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             x-position — 56px hugs the widest badge (ACTIVE) and keeps every
             name's start x identical. The auto column's remainder leaves clean
             free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px auto', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -312,9 +320,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* icons + source — one trailing group that hugs content, so the
-              source badge sits immediately after the ME/Tensor/X icons */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
+          {/* trailing 1fr cell: icons+source hug left, SHOW centered in the gap */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          {/* icons + source — one group that hugs content, so the source badge
+              sits immediately after the ME/Tensor/X icons */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -388,6 +398,63 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
+          {/* SHOW pin control — centered in the leftover gap before MINTS.
+              Hovering it scopes the live feed to this collection (bubbles to
+              the row's onMouseEnter); clicking pins/locks that scope. Subtle
+              when idle, stronger purple when pinned. */}
+          {onTogglePin && (
+            <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+              <button
+                type="button"
+                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
+                onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+                style={{
+                  // Pressed-glass purple capsule, same language as the active
+                  // top-HUD tab (layered gradient + inset rim/sheen/depth, no
+                  // flat outline, no neon glow). Inactive = dimmer capsule;
+                  // hover = active-tab brightness; pinned = strongest.
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  height: 25, padding: '0 14px', borderRadius: 7,
+                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                  color:      isPinned ? '#ffffff' : '#c9bdf0',
+                  background: isPinned
+                    ? 'linear-gradient(180deg, rgba(168,144,232,0.26) 0%, rgba(168,144,232,0.15) 100%)'
+                    : 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)',
+                  boxShadow: isPinned
+                    ? 'inset 0 0 0 1px rgba(168,144,232,0.34), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.20)'
+                    : 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)',
+                  transform: isPinned ? 'translateY(-1px)' : 'none',
+                  transition: 'color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease',
+                }}
+                // SHOW hover IS the live-feed scope trigger (row hover no
+                // longer scopes). onHoverEnter/Leave are page-gated on
+                // !pinnedKey, so a pin holds; the brighten is local + idle-only
+                // and lifts to the active-tab capsule brightness.
+                onMouseEnter={(e) => {
+                  onHoverEnter?.();
+                  if (!isPinned) { const b = e.currentTarget;
+                    b.style.color = '#ffffff';
+                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)';
+                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.24), inset 0 1px 0 rgba(255,255,255,0.07), inset 0 -1px 0 rgba(0,0,0,0.18)';
+                    b.style.transform = 'translateY(-1px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  onHoverLeave?.();
+                  if (!isPinned) { const b = e.currentTarget;
+                    b.style.color = '#c9bdf0';
+                    b.style.background = 'linear-gradient(180deg, rgba(168,144,232,0.10) 0%, rgba(168,144,232,0.05) 100%)';
+                    b.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.16), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.16)';
+                    b.style.transform = 'none';
+                  }
+                }}
+              >
+                SHOW
+              </button>
+            </span>
+          )}
+          </div>
         </div>
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
