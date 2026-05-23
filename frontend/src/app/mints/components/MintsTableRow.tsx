@@ -439,8 +439,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               }
             }}
             style={{
-              width: '100%',
-              paddingTop: 14, paddingBottom: 14,
+              // Fill the full row height (the <td> has padding: 0) so the
+              // SHOW pill renders at the same visible height it had before
+              // the column restructure. The TR height comes from the tallest
+              // cell (COLLECTION, ~74 px); height: 100% lets the button
+              // stretch to match instead of sizing only to its text content.
+              width: '100%', height: '100%',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none', borderRadius: 4,
               background: isPinned
