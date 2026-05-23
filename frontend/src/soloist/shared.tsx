@@ -1419,21 +1419,35 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
         {/* LEFT — live metrics only. Market + live readouts grouped into quiet
             stat modules; values a notch clearer than their labels. */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div style={{ ...groupModule, gap: 12 }}>
-            <span><span style={{ color: '#5c5c74' }}>SOL </span><span style={{ color: '#62cb93' }}>${sol}</span></span>
-            <span><span style={{ color: '#5c5c74' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
+          <div style={{ ...groupModule, gap: 10 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {/* Solana mark — replaces the prior plain "SOL " text label
+                  for a cleaner, more premium ticker glyph. SVG is in
+                  /public/brand so it's cached + crisp at any DPI. */}
+              <img
+                src="/brand/solana.svg"
+                alt="SOL"
+                width={11}
+                height={11}
+                style={{ display: 'block', opacity: 0.95 }}
+              />
+              <span style={{ color: '#d8e8d8' }}>${sol}</span>
+            </span>
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
+            <span><span style={{ color: '#7a7a96' }}>TPS </span><span style={{ color: '#ab9be6' }}>{tps.toLocaleString()}</span></span>
           </div>
           <div style={{ ...groupModule, gap: 10 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <LiveDot />
               <span style={{ color: '#62cb93' }}>live</span>
               {typeof eventsCount === 'number' && (
-                <span style={{ color: '#5c5c74' }}> · <span style={{ color: '#7e7e98' }}>{eventsCount}</span> events</span>
+                <span style={{ color: '#7a7a96' }}> · <span style={{ color: '#bdbdd6' }}>{eventsCount}</span> events</span>
               )}
             </span>
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-              <span style={{ color: '#5c5c74' }}>alerts</span>
+              <span style={{ color: '#7a7a96' }}>alerts</span>
             </span>
           </div>
         </div>
@@ -1501,8 +1515,18 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             </BarIconButton>
           </div>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <a href="https://discord.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}>Discord</a>
-            <a href="https://x.com/VictoryHell_" target="_blank" rel="noopener noreferrer" style={{ color: '#5c5c74', fontFamily: 'inherit', textDecoration: 'none' }}>Twitter</a>
+            <a
+              href="https://discord.com/" target="_blank" rel="noopener noreferrer"
+              style={{ color: '#8a8aa6', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#c9bdf0'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#8a8aa6'; }}
+            >Discord</a>
+            <a
+              href="https://x.com/VictoryHell_" target="_blank" rel="noopener noreferrer"
+              style={{ color: '#8a8aa6', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#c9bdf0'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#8a8aa6'; }}
+            >Twitter</a>
           </div>
         </div>
       </div>
