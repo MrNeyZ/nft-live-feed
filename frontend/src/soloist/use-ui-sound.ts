@@ -94,11 +94,14 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
 };
 
 function readPack(): SoundPackName {
-  if (typeof window === 'undefined') return 'legacy';
+  if (typeof window === 'undefined') return 'candy';
   try {
     const v = window.localStorage.getItem(PACK_KEY);
-    return (v === 'clean' || v === 'alt' || v === 'candy') ? v : 'legacy';
-  } catch { return 'legacy'; }
+    // Default pack is `candy` for first-time visitors; any explicitly-saved
+    // choice (incl. 'legacy') is honored so returning users keep their pref.
+    if (v === 'legacy' || v === 'clean' || v === 'alt' || v === 'candy') return v;
+    return 'candy';
+  } catch { return 'candy'; }
 }
 let activePack: SoundPackName = readPack();
 function pack(): SoundPack { return SOUND_PACKS[activePack]; }
@@ -282,7 +285,7 @@ export function setUiSoundPack(next: SoundPackName): void {
 }
 
 function getPackSnapshot():       SoundPackName { return activePack; }
-function getPackServerSnapshot(): SoundPackName { return 'legacy'; }
+function getPackServerSnapshot(): SoundPackName { return 'candy'; }
 function subscribePack(cb: () => void): () => void {
   packListeners.add(cb);
   return () => { packListeners.delete(cb); };

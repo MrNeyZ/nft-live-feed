@@ -1606,14 +1606,16 @@ body[data-bottombar="1"] .feed-root {
        with sell-side cues without making the row scream.
    `.tools-offer-row:hover` (specificity 2) beats these (specificity
    1), so hover lift is identical for all three states. */
-.mints-tracker-row-active {
-  background: rgba(92, 224, 160, 0.040);
-}
-.mints-tracker-row-watch {
-  background: rgba(255, 255, 255, 0.012);
-}
+/* Normalized row fill: ACTIVE / WATCH / SOLD share the WATCH base so the
+   table reads as a uniform stripe pattern. Status is communicated by the
+   inline badge, the per-collection left accent border, and value colors —
+   NOT by tinting the row body. .tools-offer-row:hover and
+   .mints-tracker-row-selected keep their own overlays (higher specificity / a
+   separate class), so hover and pin highlights still apply on top. */
+.mints-tracker-row-active,
+.mints-tracker-row-watch,
 .mints-tracker-row-sold {
-  background: rgba(239, 120, 120, 0.028);
+  background: rgba(255, 255, 255, 0.012);
 }
 
 /* Selected-row tint, shared across collection-style tables (used on
