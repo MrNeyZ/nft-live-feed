@@ -927,24 +927,11 @@ export default function MintsPage() {
   // (matching mints cluster to the top at full opacity, the rest fade — see
   // feedView). Pure UI state, never persisted, cleared on mouse leave.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  // Pinned (locked) collection — persists the live-feed scope after the mouse
-  // leaves. Set via a row's SHOW button; an explicit pin wins over transient
-  // hover. Pure UI state, not persisted across reloads.
-  const [pinnedKey, setPinnedKey] = useState<string | null>(null);
-  // Effective scope drives the live feed: pin first, then hover.
-  const scopeKey = pinnedKey ?? hoveredKey;
-  const scopeColl = scopeKey ? rows.get(scopeKey) ?? null : null;
-  const scopeCollAddr = scopeColl?.collectionAddress ?? null;
-  const scopeName = scopeColl
-    ? (scopeColl.name?.trim() || shortKey(scopeColl.groupingKey))
-    : (scopeKey ? shortKey(scopeKey) : null);
-  // Toggle/replace the pin. Clicking the pinned row's SHOW again unpins;
-  // clicking another row's SHOW switches the pin to it. Clear any transient
-  // hover so the header reads as a clean PINNED state.
-  const togglePin = (key: string) => {
-    setPinnedKey((prev) => (prev === key ? null : key));
-    setHoveredKey(null);
-  };
+  const hoveredColl = hoveredKey ? rows.get(hoveredKey) ?? null : null;
+  const hoveredCollAddr = hoveredColl?.collectionAddress ?? null;
+  const hoveredName = hoveredColl
+    ? (hoveredColl.name?.trim() || shortKey(hoveredColl.groupingKey))
+    : (hoveredKey ? shortKey(hoveredKey) : null);
 
   // Multi-select STATUS filter (collection lifecycle). SOURCE is the unified
   // `selectedSources` above (shared with the feed); STATUS applies to both
@@ -1013,19 +1000,19 @@ export default function MintsPage() {
   // is hovered, the list is identity (no reorder, no dim). groupingKey is the
   // stable join; collectionAddress is the fallback for the rare mismatch.
   const feedView = useMemo(() => {
-    if (!scopeKey) return visibleEvents.map(ev => ({ ev, dimmed: false }));
+    if (!hoveredKey) return visibleEvents.map(ev => ({ ev, dimmed: false }));
     const match: MintEvent[] = [];
     const rest:  MintEvent[] = [];
     for (const ev of visibleEvents) {
-      const isMatch = ev.groupingKey === scopeKey
-        || (scopeCollAddr != null && ev.collectionAddress === scopeCollAddr);
+      const isMatch = ev.groupingKey === hoveredKey
+        || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
       (isMatch ? match : rest).push(ev);
     }
     return [
       ...match.map(ev => ({ ev, dimmed: false })),
       ...rest.map(ev  => ({ ev, dimmed: true  })),
     ];
-  }, [visibleEvents, scopeKey, scopeCollAddr]);
+  }, [visibleEvents, hoveredKey, hoveredCollAddr]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
@@ -2022,12 +2009,8 @@ export default function MintsPage() {
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
                   lastPriceByKey={lastPriceByKey}
-                  // Transient hover only takes effect when nothing is pinned —
-                  // a pin holds the scope regardless of mouse movement.
-                  onHoverEnter={() => { if (!pinnedKey) setHoveredKey(r.groupingKey); }}
-                  onHoverLeave={() => { if (!pinnedKey) setHoveredKey(null); }}
-                  isPinned={pinnedKey === r.groupingKey}
-                  onTogglePin={() => togglePin(r.groupingKey)}
+                  onHoverEnter={() => setHoveredKey(r.groupingKey)}
+                  onHoverLeave={() => setHoveredKey(null)}
                 />
               )); })()}
             </tbody>
@@ -2064,26 +2047,10 @@ export default function MintsPage() {
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
                 LIVE MINT FEED
               </span>
-              {/* Scope chip — PINNED (locked via a row's SHOW button; stronger
-                  purple, click to clear) takes priority over the transient
-                  HOVER state (subtle, clears on mouse leave). */}
-              {pinnedKey ? (
-                <span
-                  onClick={() => setPinnedKey(null)}
-                  title="Pinned to live feed — click to clear"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
-                    maxWidth: 220, padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-                    color: '#e6def8', background: 'rgba(128,104,216,0.34)',
-                    border: '1px solid rgba(168,144,232,0.75)', whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ color: '#a890e8', textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{scopeName}</span>
-                  <span style={{ color: '#a890e8', fontWeight: 800 }}>×</span>
-                </span>
-              ) : hoveredKey ? (
+              {/* Hover-scope chip — appears only while a left-table row is
+                  hovered. Subtle terminal-style pill; temporary wording so the
+                  state reads as transient, not a sticky filter. */}
+              {hoveredKey && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                   maxWidth: 220, padding: '2px 8px', borderRadius: 4,
@@ -2092,9 +2059,9 @@ export default function MintsPage() {
                   border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
                 }}>
                   <span style={{ color: '#7a7a94', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{scopeName}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{hoveredName}</span>
                 </span>
-              ) : null}
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* Feed Filters popover — replaces the prior cNFT ON/OFF
