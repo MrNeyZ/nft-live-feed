@@ -326,7 +326,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           {/* icons + source — one group that hugs content, so the source badge
               sits immediately after the ME/Tensor/X icons */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 150, flexShrink: 0, overflow: 'hidden' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -400,72 +400,67 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
+          {/* ── Focus lane (responsive centering) ─────────────────────────
+              Layout math, not viewport math: the icons+source slot above is a
+              FIXED 150px (badges hug left within it), so identity-end x is
+              constant across rows. The two 1fr spacers around the lane mean
+              the lane is always centered in the remaining space between
+              identity-end and the cell's right edge — gaps A and B are equal
+              at every viewport. Lane is a sibling of icons+source inside the
+              trailing 1fr grid cell (NOT inside the badge flex span). Click
+              still pins/unpins; mouse enter/leave scope the feed exactly as
+              before; row hover does not. */}
+          <span style={{ flex: 1 }} />
+          {onTogglePin && (
+            <div
+              role="button"
+              title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to scope the live feed · click to pin'}
+              onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+              onMouseEnter={(e) => {
+                onHoverEnter?.();
+                if (!isPinned) { const d = e.currentTarget;
+                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
+                  d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
+                  d.style.borderRightColor = 'rgba(168,144,232,0.35)';
+                  d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
+                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
+                }
+              }}
+              onMouseLeave={(e) => {
+                onHoverLeave?.();
+                if (!isPinned) { const d = e.currentTarget;
+                  d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
+                  d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
+                  d.style.borderRightColor = 'rgba(168,144,232,0.18)';
+                  d.style.boxShadow = 'none';
+                  const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.75)';
+                }
+              }}
+              style={{
+                // In-flow rail (no position:absolute): width 130, flexShrink 0,
+                // alignSelf stretch so the rail spans the row content height.
+                width: 130, flexShrink: 0, alignSelf: 'stretch',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', userSelect: 'none',
+                background: isPinned
+                  ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
+                  : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
+                borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+                borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
+                boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
+                transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
+              }}
+            >
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
+                whiteSpace: 'nowrap', transition: 'color 140ms ease',
+                color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
+              }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
+            </div>
+          )}
+          <span style={{ flex: 1 }} />
           </div>
         </div>
-        {/* ── Focus lane ──────────────────────────────────────────────────
-            A "scope channel" overlay, NOT a button: an absolutely-positioned
-            strip pinned to the right edge of the COLLECTION cell (between the
-            identity group and the MINTS column). Because it's absolute to the
-            td, its x is identical on every row and never moves with name /
-            icon / source-badge width. Idle = near-invisible faint purple
-            strip; hover = soft brighten + right-edge beam implying data flows
-            to the live feed; pinned = stronger purple + solid right beam.
-            ONLY this lane scopes the feed (row hover does not). */}
-        {onTogglePin && (
-          <div
-            role="button"
-            title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to scope the live feed · click to pin'}
-            onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-            onMouseEnter={(e) => {
-              onHoverEnter?.();
-              if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
-                d.style.borderLeftColor = 'rgba(168,144,232,0.35)';
-                d.style.borderRightColor = 'rgba(168,144,232,0.35)';
-                d.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = '#f0eaff';
-              }
-            }}
-            onMouseLeave={(e) => {
-              onHoverLeave?.();
-              if (!isPinned) { const d = e.currentTarget;
-                d.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
-                d.style.borderLeftColor = 'rgba(168,144,232,0.18)';
-                d.style.borderRightColor = 'rgba(168,144,232,0.18)';
-                d.style.boxShadow = 'none';
-                const t = d.firstElementChild as HTMLElement | null; if (t) t.style.color = 'rgba(201,189,240,0.75)';
-              }
-            }}
-            style={{
-              // Clean terminal rail: flat fill + crisp 1px vertical boundaries,
-              // no gradient/blur/glow. Hover/pinned deepen the fill + borders
-              // and add a tight inset rim.
-              // Own zone, NOT nested in the badge flex group: absolute to the
-              // td (which is position:relative) so its x is fixed across rows
-              // and independent of badge/icon/source width. It overlays the
-              // EMPTY right region of the COLLECTION cell. `right: 12` keeps a
-              // small gap to MINTS while ensuring the lane's left edge stays
-              // clear of where the icons/source badges end (a larger right
-              // offset pushed the lane left into the badges → overlap).
-              position: 'absolute', top: 0, bottom: 0, right: 12, width: 130,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', zIndex: 2, userSelect: 'none',
-              background: isPinned
-                ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
-                : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
-              borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-              borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-              boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
-              transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
-            }}
-          >
-            <span style={{
-              fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
-              whiteSpace: 'nowrap', transition: 'color 140ms ease',
-              color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
-            }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
-          </div>
-        )}
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
       {/* MINTS — count of mints for this collection seen inside the
