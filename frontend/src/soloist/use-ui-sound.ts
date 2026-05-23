@@ -99,13 +99,19 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
 
 function readPack(): SoundPackName {
   if (typeof window === 'undefined') return 'candy';
+  // The pack selector UI was removed — every visitor must run on `candy`
+  // regardless of what the legacy <select> may have written into
+  // localStorage on a prior visit. Migrate any non-candy stored value
+  // up to `candy` so the key reflects current reality (and any stale
+  // 'legacy' / 'clean' / 'alt' is cleaned up). The on/off preference
+  // (STORAGE_KEY) is untouched.
   try {
     const v = window.localStorage.getItem(PACK_KEY);
-    // Default pack is `candy` for first-time visitors; any explicitly-saved
-    // choice (incl. 'legacy') is honored so returning users keep their pref.
-    if (v === 'legacy' || v === 'clean' || v === 'alt' || v === 'candy') return v;
-    return 'candy';
-  } catch { return 'candy'; }
+    if (v !== 'candy') {
+      try { window.localStorage.setItem(PACK_KEY, 'candy'); } catch { /* quota — fail silent */ }
+    }
+  } catch { /* private mode — fail silent */ }
+  return 'candy';
 }
 let activePack: SoundPackName = readPack();
 function pack(): SoundPack { return SOUND_PACKS[activePack]; }
