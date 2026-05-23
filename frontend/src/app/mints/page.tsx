@@ -13,7 +13,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, TopNav, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
-import { playUiUndo } from '@/soloist/use-ui-sound';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
 } from './lib/types';
@@ -928,36 +927,11 @@ export default function MintsPage() {
   // (matching mints cluster to the top at full opacity, the rest fade — see
   // feedView). Pure UI state, never persisted, cleared on mouse leave.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  // Pinned (locked) collections — MULTI-pin. Each persists the live-feed scope
-  // after the mouse leaves. Set via a row's focus lane; pins win over transient
-  // hover. Pure UI state, not persisted across reloads.
-  const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => new Set());
-  // Effective scope: the pinned set if non-empty, else the single hovered key.
-  // Sorted array form gives a stable primitive signature for the feedView memo.
-  const scopeKeysArr = pinnedKeys.size > 0
-    ? [...pinnedKeys].sort()
-    : (hoveredKey ? [hoveredKey] : []);
-  const scopeAddrArr = scopeKeysArr
-    .map((k) => rows.get(k)?.collectionAddress ?? null)
-    .filter((a): a is string => !!a);
-  const scopeSig = scopeKeysArr.join('|') + '#' + scopeAddrArr.join('|');
-  const pinnedCount = pinnedKeys.size;
-  // Header-chip label: the collection name when exactly one key is in scope.
-  const singleScopeColl = scopeKeysArr.length === 1 ? rows.get(scopeKeysArr[0]) ?? null : null;
-  const scopeName = singleScopeColl
-    ? (singleScopeColl.name?.trim() || shortKey(singleScopeColl.groupingKey))
-    : (scopeKeysArr.length === 1 ? shortKey(scopeKeysArr[0]) : null);
-  // Toggle this collection's membership in the pinned set; clicking a pinned
-  // lane removes only that one. Clear transient hover so the header reads clean.
-  const togglePin = (key: string) => {
-    setPinnedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-    setHoveredKey(null);
-  };
-  const clearPins = () => { setPinnedKeys(new Set()); playUiUndo(); };
+  const hoveredColl = hoveredKey ? rows.get(hoveredKey) ?? null : null;
+  const hoveredCollAddr = hoveredColl?.collectionAddress ?? null;
+  const hoveredName = hoveredColl
+    ? (hoveredColl.name?.trim() || shortKey(hoveredColl.groupingKey))
+    : (hoveredKey ? shortKey(hoveredKey) : null);
 
   // Multi-select STATUS filter (collection lifecycle). SOURCE is the unified
   // `selectedSources` above (shared with the feed); STATUS applies to both
@@ -1026,23 +1000,19 @@ export default function MintsPage() {
   // is hovered, the list is identity (no reorder, no dim). groupingKey is the
   // stable join; collectionAddress is the fallback for the rare mismatch.
   const feedView = useMemo(() => {
-    if (scopeKeysArr.length === 0) return visibleEvents.map(ev => ({ ev, dimmed: false }));
-    const keySet  = new Set(scopeKeysArr);
-    const addrSet = new Set(scopeAddrArr);
+    if (!hoveredKey) return visibleEvents.map(ev => ({ ev, dimmed: false }));
     const match: MintEvent[] = [];
     const rest:  MintEvent[] = [];
     for (const ev of visibleEvents) {
-      const isMatch = keySet.has(ev.groupingKey)
-        || (ev.collectionAddress != null && addrSet.has(ev.collectionAddress));
+      const isMatch = ev.groupingKey === hoveredKey
+        || (hoveredCollAddr != null && ev.collectionAddress === hoveredCollAddr);
       (isMatch ? match : rest).push(ev);
     }
     return [
       ...match.map(ev => ({ ev, dimmed: false })),
       ...rest.map(ev  => ({ ev, dimmed: true  })),
     ];
-    // scopeSig encodes scopeKeysArr + scopeAddrArr; recompute only when it changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleEvents, scopeSig]);
+  }, [visibleEvents, hoveredKey, hoveredCollAddr]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
@@ -2039,12 +2009,8 @@ export default function MintsPage() {
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
                   lastPriceByKey={lastPriceByKey}
-                  // Transient hover only takes effect when nothing is pinned —
-                  // a pin holds the scope regardless of mouse movement.
-                  onHoverEnter={() => { if (pinnedKeys.size === 0) setHoveredKey(r.groupingKey); }}
-                  onHoverLeave={() => { if (pinnedKeys.size === 0) setHoveredKey(null); }}
-                  isPinned={pinnedKeys.has(r.groupingKey)}
-                  onTogglePin={() => togglePin(r.groupingKey)}
+                  onHoverEnter={() => setHoveredKey(r.groupingKey)}
+                  onHoverLeave={() => setHoveredKey(null)}
                 />
               )); })()}
             </tbody>
@@ -2067,46 +2033,24 @@ export default function MintsPage() {
       {!embedded && (
         <div style={{
           background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-          // Border/glow brighten subtly while a focus lane is hovered or any
-          // collection is pinned — reinforces that the lanes drive this panel.
-          border: scopeKeysArr.length > 0 ? '1px solid rgba(168,144,232,0.92)' : '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-          boxShadow: scopeKeysArr.length > 0
-            ? 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 34px rgba(128,104,216,0.28)'
-            : 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
-          transition: 'border-color 160ms ease, box-shadow 160ms ease',
+          border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
           // Pane fills its grid cell vertically — minHeight: 0 lets the
           // inner scroll-area shrink to fit; overflow: hidden + the
           // inner overflowY: 'auto' keep all scrolling internal so the
           // page itself never grows with feed content.
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
-          <div style={{ padding: '10px 14px 8px', borderBottom: scopeKeysArr.length > 0 ? '1px solid rgba(168,144,232,0.30)' : '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, transition: 'border-color 160ms ease' }}>
+          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <LiveDot />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px' }}>
                 LIVE MINT FEED
               </span>
-              {/* Scope chip — PINNED (locked via row focus lanes; stronger
-                  purple, click to clear ALL pins) takes priority over the
-                  transient HOVER state. Shows the name when a single
-                  collection is pinned, or "PINNED N" for multiple. */}
-              {pinnedCount > 0 ? (
-                <span
-                  onClick={clearPins}
-                  title={pinnedCount === 1 ? 'Pinned to live feed — click to clear' : `${pinnedCount} collections pinned — click to clear all`}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
-                    maxWidth: 220, padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-                    color: '#e6def8', background: 'rgba(128,104,216,0.34)',
-                    border: '1px solid rgba(168,144,232,0.75)', whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ color: '#a890e8', textTransform: 'uppercase', fontSize: 9 }}>showing</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{pinnedCount === 1 ? scopeName : `${pinnedCount} collections`}</span>
-                  <span style={{ color: '#a890e8', fontWeight: 800 }}>×</span>
-                </span>
-              ) : hoveredKey ? (
+              {/* Hover-scope chip — appears only while a left-table row is
+                  hovered. Subtle terminal-style pill; temporary wording so the
+                  state reads as transient, not a sticky filter. */}
+              {hoveredKey && (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                   maxWidth: 220, padding: '2px 8px', borderRadius: 4,
@@ -2115,9 +2059,9 @@ export default function MintsPage() {
                   border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
                 }}>
                   <span style={{ color: '#7a7a94', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{scopeName}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{hoveredName}</span>
                 </span>
-              ) : null}
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* Feed Filters popover — replaces the prior cNFT ON/OFF

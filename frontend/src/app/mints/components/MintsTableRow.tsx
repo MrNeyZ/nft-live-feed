@@ -72,11 +72,6 @@ interface Props {
    *  collection. Optional — omitting them leaves row behaviour unchanged. */
   onHoverEnter?: () => void;
   onHoverLeave?: () => void;
-  /** True when THIS collection is the pinned (locked) live-feed scope. */
-  isPinned?: boolean;
-  /** Toggle this collection's pin (SHOW button). Pin persists after the mouse
-   *  leaves; clicking again unpins; pinning another row replaces the pin. */
-  onTogglePin?: () => void;
 }
 
 /** Display-only collection-name truncation. Caps the visible label at ~12
@@ -89,7 +84,7 @@ function shortCollectionName(name: string): string {
   return clean.slice(0, 11).trimEnd() + '…';
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave, isPinned, onTogglePin }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave }: Props) {
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -187,9 +182,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
       className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
-      // Row hover no longer scopes the live feed — only the SHOW button does
-      // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
-      // lift (tools-offer-row) still applies on row hover.
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
       style={{
         // Slightly stronger separator alpha (0.05 vs 0.04 before)
         // so the per-row tint reads as a distinct band; still a
@@ -220,11 +214,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ position: 'relative', padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
-            [rank 22][image 46][status 66][name 100][icons+source + SHOW (1fr)].
-            The trailing 1fr track holds the icons+source group (hugs left) and
-            the SHOW pin control, centered in the leftover gap before MINTS.
+            [rank 22][image 46][status 66][name 100][icons+source auto].
             The name is now display-truncated to ~12 chars, so its slot drops
             to 135px (no longer dominates the row). Icons (ME/Tensor/X) and the
             source badge share ONE trailing auto group that hugs content, so
@@ -235,7 +227,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             x-position — 56px hugs the widest badge (ACTIVE) and keeps every
             name's start x identical. The auto column's remainder leaves clean
             free center space for a future badge. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 66px 100px auto', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <ItemThumb
@@ -320,13 +312,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* trailing 1fr cell: icons+source hug left. The focus lane is an
-              absolutely-positioned overlay on the td (see end of cell), so it
-              does NOT live in this flow — its x is fixed regardless of width. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          {/* icons + source — one group that hugs content, so the source badge
-              sits immediately after the ME/Tensor/X icons */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 150, flexShrink: 0, overflow: 'visible' }}>
+          {/* icons + source — one trailing group that hugs content, so the
+              source badge sits immediately after the ME/Tensor/X icons */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -400,92 +388,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* ── Focus lane (responsive centering) ─────────────────────────
-              Layout math, not viewport math: the icons+source slot above is a
-              FIXED 150px (badges hug left within it), so identity-end x is
-              constant across rows. The two 1fr spacers around the lane mean
-              the lane is always centered in the remaining space between
-              identity-end and the cell's right edge — gaps A and B are equal
-              at every viewport. Lane is a sibling of icons+source inside the
-              trailing 1fr grid cell (NOT inside the badge flex span). Click
-              still pins/unpins; mouse enter/leave scope the feed exactly as
-              before; row hover does not. */}
-          <span style={{ flex: 1 }} />
-          {onTogglePin && (
-            <div
-              role="button"
-              title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to scope the live feed · click to pin'}
-              onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-              onMouseEnter={(e) => {
-                onHoverEnter?.();
-                if (!isPinned) {
-                  const d = e.currentTarget;
-                  const v = d.firstElementChild as HTMLElement | null;
-                  const t = d.lastElementChild  as HTMLElement | null;
-                  if (v) {
-                    v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.14) 0%, rgba(128,104,216,0.26) 50%, rgba(128,104,216,0.14) 100%)';
-                    v.style.borderLeftColor = 'rgba(168,144,232,0.35)';
-                    v.style.borderRightColor = 'rgba(168,144,232,0.35)';
-                    v.style.boxShadow = 'inset 0 0 0 1px rgba(168,144,232,0.10)';
-                  }
-                  if (t) t.style.color = '#f0eaff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                onHoverLeave?.();
-                if (!isPinned) {
-                  const d = e.currentTarget;
-                  const v = d.firstElementChild as HTMLElement | null;
-                  const t = d.lastElementChild  as HTMLElement | null;
-                  if (v) {
-                    v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)';
-                    v.style.borderLeftColor = 'rgba(168,144,232,0.18)';
-                    v.style.borderRightColor = 'rgba(168,144,232,0.18)';
-                    v.style.boxShadow = 'none';
-                  }
-                  if (t) t.style.color = 'rgba(201,189,240,0.75)';
-                }
-              }}
-              style={{
-                // Wrapper: in-flow flex item between two 1fr spacers so the
-                // lane stays responsively centered (the d64482d win). Itself
-                // transparent — all visual weight is on the absolute visual
-                // layer below, which extends past the td's 14px top/bottom
-                // padding so the rail spans the FULL td height (restores the
-                // pre-d64482d assertive look).
-                position: 'relative',
-                width: 130, flexShrink: 0, alignSelf: 'stretch',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', userSelect: 'none',
-              }}
-            >
-              {/* Visual layer — full-bleed: top/bottom -14 reach into the td
-                  padding so the rail occupies the entire row height. The
-                  wrapper still owns clicks/hover (pointer-events: none here). */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: 'absolute', top: -14, bottom: -14, left: 0, right: 0,
-                  pointerEvents: 'none',
-                  background: isPinned
-                    ? 'linear-gradient(90deg, rgba(128,104,216,0.18) 0%, rgba(128,104,216,0.34) 50%, rgba(128,104,216,0.18) 100%)'
-                    : 'linear-gradient(90deg, rgba(128,104,216,0.08) 0%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.08) 100%)',
-                  borderLeft:  `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                  borderRight: `1px solid ${isPinned ? 'rgba(168,144,232,0.50)' : 'rgba(168,144,232,0.18)'}`,
-                  boxShadow: isPinned ? 'inset 0 0 18px rgba(168,144,232,0.10)' : 'none',
-                  transition: 'background 140ms ease, border-color 140ms ease, box-shadow 140ms ease',
-                }}
-              />
-              <span style={{
-                position: 'relative', zIndex: 1,
-                fontSize: 10, fontWeight: 700, letterSpacing: '1.2px', textTransform: 'uppercase',
-                whiteSpace: 'nowrap', transition: 'color 140ms ease',
-                color: isPinned ? '#ffffff' : 'rgba(201,189,240,0.75)',
-              }}>{isPinned ? 'SHOWN' : 'SHOW'}</span>
-            </div>
-          )}
-          <span style={{ flex: 1 }} />
-          </div>
         </div>
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
