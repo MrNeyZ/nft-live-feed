@@ -321,7 +321,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             })()}
           </span>
           {/* trailing 1fr cell: icons+source hug left, SHOW centered in the gap */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, alignSelf: 'stretch' }}>
           {/* icons + source — one group that hugs content, so the source badge
               sits immediately after the ME/Tensor/X icons */}
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0 }}>
@@ -404,69 +404,58 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               when idle, stronger purple when pinned. */}
           {onTogglePin && (
             <span style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-              <div
-                role="button"
-                tabIndex={0}
-                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
-                onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTogglePin(); } }}
-                onMouseEnter={(e) => {
-                  onHoverEnter?.();
-                  if (!isPinned) {
-                    const v = e.currentTarget.firstElementChild as HTMLElement | null;
-                    const t = e.currentTarget.lastElementChild  as HTMLElement | null;
-                    if (v) {
-                      v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.12) 35%, rgba(128,104,216,0.20) 50%, rgba(128,104,216,0.12) 65%, rgba(128,104,216,0) 100%)';
-                      v.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
-                    }
-                    if (t) t.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  onHoverLeave?.();
-                  if (!isPinned) {
-                    const v = e.currentTarget.firstElementChild as HTMLElement | null;
-                    const t = e.currentTarget.lastElementChild  as HTMLElement | null;
-                    if (v) {
-                      v.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.08) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.08) 65%, rgba(128,104,216,0) 100%)';
-                      v.style.boxShadow  = 'none';
-                    }
-                    if (t) t.style.color = '#c9bdf0';
-                  }
-                }}
-                style={{
-                  // Wrapper: in-flow ~120 px clickable area, content-height tall
-                  // (alignSelf stretch), transparent. All visual weight is on the
-                  // absolute layer below, which extends top:-14/bottom:-14 into
-                  // the td's 14 px padding so the lane reads as FULL row height
-                  // without changing layout/row height/centering math.
-                  position: 'relative',
-                  width: 120, alignSelf: 'stretch',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', userSelect: 'none',
-                }}
-              >
-                {/* Visual layer — gradient + outline only; pointer-events:none
-                    so clicks/hover stay on the wrapper. top:-14 / bottom:-14
-                    extends through the td's padding to full row height. */}
+              {/* Positioning wrapper — in-flow, ~120 px wide, alignSelf:stretch
+                  so it spans the row's content height (now that the trailing
+                  flex above is alignSelf:stretch in the outer grid). It only
+                  anchors the absolute hit/visual layer below — no own height. */}
+              <div style={{ position: 'relative', width: 120, alignSelf: 'stretch' }}>
+                {/* Hit + visual layer combined. Absolute, top:-14/bottom:-14 to
+                    extend through the td's 14 px top+bottom padding → spans the
+                    FULL row height visually AND for clicks/hover. pointer-
+                    events:auto (default for absolute), so the whole 120 × full-
+                    row-height area is interactive — not just the prior tiny
+                    content-height wrapper. */}
                 <div
-                  aria-hidden="true"
+                  role="button"
+                  tabIndex={0}
+                  title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
+                  onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTogglePin(); } }}
+                  onMouseEnter={(e) => {
+                    onHoverEnter?.();
+                    if (!isPinned) {
+                      const b = e.currentTarget;
+                      b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.12) 35%, rgba(128,104,216,0.20) 50%, rgba(128,104,216,0.12) 65%, rgba(128,104,216,0) 100%)';
+                      b.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
+                      const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    onHoverLeave?.();
+                    if (!isPinned) {
+                      const b = e.currentTarget;
+                      b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.08) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.08) 65%, rgba(128,104,216,0) 100%)';
+                      b.style.boxShadow  = 'none';
+                      const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
+                    }
+                  }}
                   style={{
                     position: 'absolute', top: -14, bottom: -14, left: 0, right: 0,
-                    pointerEvents: 'none', borderRadius: 4,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', userSelect: 'none', borderRadius: 4,
                     background: isPinned
                       ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(128,104,216,0.18) 35%, rgba(128,104,216,0.28) 50%, rgba(128,104,216,0.18) 65%, rgba(128,104,216,0.06) 100%)'
                       : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.08) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.08) 65%, rgba(128,104,216,0) 100%)',
                     boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
                     transition: 'background 160ms ease, box-shadow 160ms ease',
                   }}
-                />
-                <span style={{
-                  position: 'relative', zIndex: 1,
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                  whiteSpace: 'nowrap', transition: 'color 160ms ease',
-                  color: isPinned ? '#ffffff' : '#c9bdf0',
-                }}>SHOW</span>
+                >
+                  <span style={{
+                    fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                    whiteSpace: 'nowrap', transition: 'color 160ms ease',
+                    color: isPinned ? '#ffffff' : '#c9bdf0',
+                  }}>SHOW</span>
+                </div>
               </div>
             </span>
           )}
