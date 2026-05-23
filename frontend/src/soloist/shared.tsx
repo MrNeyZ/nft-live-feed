@@ -1439,10 +1439,9 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 }}
               />
               <span style={{
-                color: '#f2fff8',
-                fontWeight: 700,
+                color: '#c7ded5',
+                fontWeight: 600,
                 fontVariantNumeric: 'tabular-nums',
-                letterSpacing: '0.1px',
               }}>${sol}</span>
             </span>
             <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
