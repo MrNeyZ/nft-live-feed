@@ -98,13 +98,14 @@
 html[data-layout="pc"] {
   --shell-x:            40px;
   --page-x:             24px;
-  /* PC feed column widened 880 → 960 (visual-polish pass): reduces
-     excessive empty side margins on dense monitors without affecting
-     laptop / phone (which keep the 660 default / 100 % respectively). */
-  --feed-max:           960px;
-  --dashboard-max:     1280px;
-  --tools-max:         1400px;
-  --mints-max:         1600px;
+  /* PC content-column tier — pulled in from the prior 960/1280/1400/1600
+     to sit roughly halfway between the laptop defaults and the earlier
+     wide PC values. Tightens row-to-row scan distance on the feed and
+     reduces the "objects far apart" feel without touching laptop / phone. */
+  --feed-max:           820px;
+  --dashboard-max:     1180px;
+  --tools-max:         1280px;
+  --mints-max:         1500px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;
