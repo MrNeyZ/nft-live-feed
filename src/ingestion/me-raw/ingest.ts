@@ -370,7 +370,12 @@ export async function fetchRawTx(
       // A success clears any prior null state so it's never spuriously blocked.
       negTxCache.delete(sig);
       negTxNullCount.delete(sig);
-      logDedupe(sig, scope, firedNew ? 'fetched_rpc' : 'awaited_in_flight');
+      const source =
+        bestEffort              ? 'rawpatch'
+        : priority === 'high'   ? `ws:${scope}`
+        : priority === 'low'    ? 'poll:backlog'
+        :                         'poll:fresh';
+      logDedupe(sig, scope, `${firedNew ? 'fetched_rpc' : 'awaited_in_flight'}:${source}`);
     } else {
       // Null/failed: only cache after NEG_TX_MIN_NULLS consecutive nulls so a
       // transiently-late tx (resolves on its first retry) is never cached.

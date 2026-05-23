@@ -629,6 +629,31 @@ function wssUrl(): string {
   return `wss://mainnet.helius-rpc.com/?api-key=${key}`;
 }
 
+// ─── WS connect audit ────────────────────────────────────────────────────────
+
+const wsConnectCount  = new Map<string, number>();
+const wsLastConnectTs = new Map<string, number>();
+function noteWsConnect(name: string): void {
+  const now  = Date.now();
+  const prev = wsLastConnectTs.get(name);
+  const count = (wsConnectCount.get(name) ?? 0) + 1;
+  wsConnectCount.set(name, count);
+  wsLastConnectTs.set(name, now);
+  if (prev) {
+    console.log(`[ws/connect] target=${name} sinceLast=${now - prev}ms count=${count}`);
+  }
+}
+const wsConnectSummary = setInterval(() => {
+  if (wsConnectCount.size === 0) return;
+  const parts = [...wsConnectCount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
+  console.log(`[ws/connect-summary] ${parts}`);
+  wsConnectCount.clear();
+}, 60_000);
+wsConnectSummary.unref();
+
 // ─── Watchdog state ───────────────────────────────────────────────────────────
 
 /** Last logsNotification across all program subscriptions. */
@@ -738,7 +763,15 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
   const ws = new WebSocket(url);
   activeSockets.set(target.name, ws);
 
+  const pingTimer = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try { ws.ping(); } catch { /* ignore */ }
+    }
+  }, 25_000);
+  pingTimer.unref();
+
   ws.once('open', () => {
+    noteWsConnect(target.name);
     ws.send(JSON.stringify({
       jsonrpc: '2.0',
       id:      1,
@@ -944,6 +977,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
   });
 
   ws.on('close', (code: number) => {
+    clearInterval(pingTimer);
     activeSockets.delete(target.name);
     const nextBackoff = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
     console.warn(`[listener/${target.name}] disconnected (code=${code})  reconnecting in ${backoffMs / 1000}s`);
@@ -965,7 +999,15 @@ function openSlotSubscription(): void {
   const ws = new WebSocket(url);
   slotWs = ws;
 
+  const pingTimer = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try { ws.ping(); } catch { /* ignore */ }
+    }
+  }, 25_000);
+  pingTimer.unref();
+
   ws.once('open', () => {
+    noteWsConnect('slot');
     ws.send(JSON.stringify({
       jsonrpc: '2.0',
       id:      2,
@@ -988,6 +1030,7 @@ function openSlotSubscription(): void {
   });
 
   ws.on('close', (code: number) => {
+    clearInterval(pingTimer);
     slotWs = null;
     console.warn(`[listener/slot] disconnected (code=${code})  reconnecting in ${BACKOFF_MIN_MS / 1000}s`);
     setTimeout(openSlotSubscription, BACKOFF_MIN_MS);
