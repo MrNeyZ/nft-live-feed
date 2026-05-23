@@ -1954,7 +1954,8 @@ export default function MintsPage() {
                   columns widens this column, which shifts the numeric block
                   right and opens free center space (reserved for a future
                   badge) without touching the left-packed identity grid. */}
-              <col />                        {/* COLLECTION (auto / remainder) */}
+              <col />                                                             {/* COLLECTION (auto / remainder) */}
+              <col style={{ width: 'var(--mints-show-w, 120px)' }} /> {/* SHOW (action column) */}
               <col style={{ width: 70 }}  /> {/* MINTS    */}
               <col style={{ width: 80 }}  /> {/* SUPPLY   */}
               <col style={{ width: 90 }}  /> {/* LAST     */}
@@ -1974,6 +1975,11 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
+                {/* SHOW column header — intentionally blank label; the action
+                    pill itself reads as "SHOW" so the column heading would be
+                    a redundant label. The <th> exists to keep the column
+                    structurally real so the per-row pill aligns under it. */}
+                <th style={{ ...thStyle, padding: 0 }} aria-label="Pin to live feed" />
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('mints')}>
                   MINTS {sortArrow(effectiveSortKey, effectiveSortDir, 'mints')}
                 </th>
