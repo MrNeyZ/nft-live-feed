@@ -1606,17 +1606,14 @@ body[data-bottombar="1"] .feed-root {
        with sell-side cues without making the row scream.
    `.tools-offer-row:hover` (specificity 2) beats these (specificity
    1), so hover lift is identical for all three states. */
-/* Normalized row fill: ACTIVE / WATCH / SOLD all share the same base
-   background so the table reads as a clean uniform stripe pattern. Status is
-   communicated by the inline badge, the left accent border, and value
-   colors — NOT by tinting the row body. Earlier per-state tints (green for
-   ACTIVE, red for SOLD) caused uneven stripes that drew the eye away from
-   the values. `.tools-offer-row:hover` still wins on hover (specificity 2),
-   and `.mints-tracker-row-selected` keeps its own purple tint when applied. */
-.mints-tracker-row-active,
-.mints-tracker-row-watch,
-.mints-tracker-row-sold {
+.mints-tracker-row-active {
+  background: rgba(92, 224, 160, 0.040);
+}
+.mints-tracker-row-watch {
   background: rgba(255, 255, 255, 0.012);
+}
+.mints-tracker-row-sold {
+  background: rgba(239, 120, 120, 0.028);
 }
 
 /* Selected-row tint, shared across collection-style tables (used on
