@@ -28,8 +28,8 @@ import { useSyncExternalStore } from 'react';
 const STORAGE_KEY = 'vl.uiSound';
 const PACK_KEY    = 'vl.uiSoundPack';
 
-const HOVER_THROTTLE_MS = 80;
-const CLICK_THROTTLE_MS = 40;
+const HOVER_THROTTLE_MS = 30;
+const CLICK_THROTTLE_MS = 8;
 
 // ── Sound packs ──────────────────────────────────────────────────────────────
 // Three selectable packs, each mapping the three UI channels (hover tick,
@@ -45,12 +45,14 @@ export const SOUND_PACK_NAMES: readonly SoundPackName[] = ['legacy', 'clean', 'a
 // 1.0) so a pack can be balanced without touching the trigger/pool logic.
 // Optional semantic channels — only `candy` ships dedicated assets. For other
 // packs they fall back to playUiClick (see playNamed below).
-type NamedChannel = 'select' | 'undo' | 'error' | 'login' | 'logout';
+type NamedChannel = 'select' | 'undo' | 'error' | 'login' | 'logout' | 'confirm';
 interface SoundPack {
   hover: string; click: string; notification: string;
-  select?: string; undo?: string; error?: string; login?: string; logout?: string;
+  select?: string; undo?: string; error?: string;
+  login?: string; logout?: string; confirm?: string;
   gain: { hover: number; click: number; notification: number;
-    select?: number; undo?: number; error?: number; login?: number; logout?: number };
+    select?: number; undo?: number; error?: number;
+    login?: number; logout?: number; confirm?: number };
 }
 const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
   legacy: {
@@ -85,10 +87,12 @@ const SOUND_PACKS: Record<SoundPackName, SoundPack> = {
     error:        '/sounds/candylabs/ui-unable.wav?v=1',
     login:        '/sounds/candylabs/log-in.wav?v=1',
     logout:       '/sounds/candylabs/log-out.wav?v=1',
+    confirm:      '/sounds/candylabs/confirm.wav?v=1',
     // Real Candylabs runtime volumes (discovered from their production bundle).
     gain: {
       hover: 0.35, click: 0.60, notification: 0.70,
-      select: 0.60, undo: 0.60, error: 0.80, login: 0.35, logout: 0.35,
+      select: 0.60, undo: 0.60, error: 0.80,
+      login: 0.35, logout: 0.35, confirm: 0.70,
     },
   },
 };
@@ -138,18 +142,26 @@ const listeners = new Set<() => void>();
 
 export function setUiSoundEnabled(next: boolean): void {
   if (next === enabled) return;
-  enabled = next;
-  if (typeof window !== 'undefined') {
-    try { window.localStorage.setItem(STORAGE_KEY, next ? 'on' : 'off'); }
-    catch { /* quota / private mode — fail silent */ }
-  }
-  for (const fn of listeners) fn();
   if (next) {
-    // Eagerly pre-load assets the moment the operator opts in so the
-    // very first hover/click after toggling has zero perceived latency.
+    // Going ON — flip + prime first so the login tick has assets ready.
+    enabled = true;
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.setItem(STORAGE_KEY, 'on'); }
+      catch { /* quota / private mode — fail silent */ }
+    }
     primeAudio();
-    // Confirmation tick so the operator hears that the toggle worked.
-    playUiClick();
+    for (const fn of listeners) fn();
+    playUiLogin();
+  } else {
+    // Going OFF — play logout WHILE still enabled, then flip. The
+    // play() promise keeps running after `enabled` is cleared.
+    playUiLogout();
+    enabled = false;
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.setItem(STORAGE_KEY, 'off'); }
+      catch { /* quota / private mode — fail silent */ }
+    }
+    for (const fn of listeners) fn();
   }
 }
 
@@ -266,8 +278,8 @@ function rebuildForPack(): void {
   hoverPool = [];
   clickPool = [];
   deepDiscountAudio = null;
-  // Drop the lazy singletons for the prior pack; next playNamed() rebuilds.
-  namedAudioCache.clear();
+  // Drop the lazy pools for the prior pack; next playNamed() rebuilds.
+  namedPoolCache.clear();
   if (enabled) primeAudio();
 }
 
@@ -352,6 +364,7 @@ function installGlobalUiSoundListeners(): void {
     if (!enabled) return;                        // cheap pre-gate
     const target = findClickableAncestor(e.target);
     if (!target) return;
+    if (target.closest('[data-uisnd="skip"]')) return; // owner plays its own
     const from = findClickableAncestor(e.relatedTarget);
     if (from === target) return;                 // moved within same clickable
     playUiHover();
@@ -359,7 +372,9 @@ function installGlobalUiSoundListeners(): void {
 
   document.addEventListener('click', (e) => {
     if (!enabled) return;
-    if (!findClickableAncestor(e.target)) return;
+    const target = findClickableAncestor(e.target);
+    if (!target) return;
+    if (target.closest('[data-uisnd="skip"]')) return; // owner plays its own
     playUiClick();
   }, { passive: true });
 }
@@ -430,10 +445,12 @@ export function playUiClick(): void {
 // than their existing UI feedback. Lazy singleton HTMLAudio per (pack,channel)
 // — no pools (these events are infrequent) and no allocations per event. A
 // 250 ms per-channel throttle guards against accidental spam.
-const NAMED_THROTTLE_MS = 250;
-const namedAudioCache  = new Map<string, HTMLAudioElement>(); // key = `${pack}:${ch}`
+const NAMED_THROTTLE_MS = 60;
+const NAMED_POOL_SIZE   = 2;
+interface NamedPoolEntry { pool: HTMLAudioElement[]; idx: number }
+const namedPoolCache = new Map<string, NamedPoolEntry>(); // key = `${pack}:${ch}`
 const namedLastAt: Record<NamedChannel, number> = {
-  select: 0, undo: 0, error: 0, login: 0, logout: 0,
+  select: 0, undo: 0, error: 0, login: 0, logout: 0, confirm: 0,
 };
 
 function playNamed(ch: NamedChannel): void {
@@ -449,15 +466,23 @@ function playNamed(ch: NamedChannel): void {
     return;
   }
   const key = `${activePack}:${ch}`;
-  let a = namedAudioCache.get(key);
-  if (!a) {
-    try {
-      a = new Audio(url);
-      a.preload = 'auto';
-      a.volume  = typeof gain === 'number' ? gain : 1.0;
-      namedAudioCache.set(key, a);
-    } catch { return; }
+  let entry = namedPoolCache.get(key);
+  if (!entry) {
+    const pool: HTMLAudioElement[] = [];
+    for (let i = 0; i < NAMED_POOL_SIZE; i++) {
+      try {
+        const a = new Audio(url);
+        a.preload = 'auto';
+        a.volume  = typeof gain === 'number' ? gain : 1.0;
+        pool.push(a);
+      } catch { /* skip — partial pool still works */ }
+    }
+    if (pool.length === 0) return;
+    entry = { pool, idx: 0 };
+    namedPoolCache.set(key, entry);
   }
+  const a = entry.pool[entry.idx];
+  entry.idx = (entry.idx + 1) % entry.pool.length;
   try {
     a.currentTime = 0;
     void a.play().catch(() => undefined);
@@ -465,11 +490,12 @@ function playNamed(ch: NamedChannel): void {
   namedLastAt[ch] = now;
 }
 
-export function playUiSelect(): void { playNamed('select'); }
-export function playUiUndo():   void { playNamed('undo');   }
-export function playUiError():  void { playNamed('error');  }
-export function playUiLogin():  void { playNamed('login');  }
-export function playUiLogout(): void { playNamed('logout'); }
+export function playUiSelect():  void { playNamed('select');  }
+export function playUiUndo():    void { playNamed('undo');    }
+export function playUiError():   void { playNamed('error');   }
+export function playUiLogin():   void { playNamed('login');   }
+export function playUiLogout():  void { playNamed('logout');  }
+export function playUiConfirm(): void { playNamed('confirm'); }
 
 // ── Deep-discount alert (rare, signature-deduped, throttled) ──────────────
 //

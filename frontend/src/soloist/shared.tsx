@@ -16,7 +16,7 @@ import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-t
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
 import { useInclusiveFees } from './price-mode';
-import { useUiSoundEnabled, setUiSoundEnabled } from './use-ui-sound';
+import { useUiSoundEnabled, setUiSoundEnabled, playUiLogin, playUiLogout } from './use-ui-sound';
 
 // Route http(s) image URLs through our own `/thumb` endpoint so thumbnails
 // render at a small fixed size instead of the full-size upstream asset
@@ -1297,6 +1297,7 @@ export function BarIconButton({ on, onClick, title, children }: {
       type="button"
       onClick={onClick}
       title={title}
+      data-uisnd="skip"
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 24, height: 22, padding: 0, borderRadius: 5,
@@ -1445,7 +1446,11 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             {/* Inclusive-fees toggle — affects only AMM_SELL display (logic unchanged). */}
             <BarIconButton
               on={inclusiveFees}
-              onClick={() => setInclusiveFees(!inclusiveFees)}
+              onClick={() => {
+                const next = !inclusiveFees;
+                if (next) playUiLogin(); else playUiLogout();
+                setInclusiveFees(next);
+              }}
               title={inclusiveFees ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price' : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

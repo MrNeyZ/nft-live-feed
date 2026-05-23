@@ -98,14 +98,14 @@
 html[data-layout="pc"] {
   --shell-x:            40px;
   --page-x:             24px;
-  /* PC content-column tier — pulled in from the prior 960/1280/1400/1600
-     to sit roughly halfway between the laptop defaults and the earlier
-     wide PC values. Tightens row-to-row scan distance on the feed and
-     reduces the "objects far apart" feel without touching laptop / phone. */
-  --feed-max:           820px;
-  --dashboard-max:     1180px;
-  --tools-max:         1280px;
-  --mints-max:         1500px;
+  /* PC content-column tier — tightened from the original 960/1280/1400/1600
+     to sit between the laptop defaults and the original wide PC values, so
+     rows scan faster on dense monitors while PC still reads as slightly
+     more spacious than laptop. */
+  --feed-max:           880px;
+  --dashboard-max:     1200px;
+  --tools-max:         1340px;
+  --mints-max:         1540px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;

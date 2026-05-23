@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
+import { playUiConfirm } from '@/soloist/use-ui-sound';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -357,6 +358,7 @@ export default function ToolsPage() {
 
   const runScan = async () => {
     if (busy || inCooldown) return;
+    playUiConfirm();
     // Capture two baseline sets BEFORE issuing the request so the
     // diff is computed against what was visible when the user clicked
     // Scan. `result` is left in place during the fetch so the table
@@ -525,6 +527,7 @@ export default function ToolsPage() {
               type="button"
               onClick={runScan}
               disabled={busy || inCooldown}
+              data-uisnd="skip"
               style={{
                 padding: '7px 16px', fontSize: 12, fontWeight: 700,
                 letterSpacing: '0.5px', textTransform: 'uppercase',
