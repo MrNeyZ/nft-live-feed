@@ -1039,6 +1039,16 @@ function openSlotSubscription(): void {
 
 // ─── Watchdog / forced restart ────────────────────────────────────────────────
 
+/** Per-target stagger applied when restartListeners reopens every subscription
+ *  at once. Each reopen fires an isReconnect=true catch-up poll on socket-open;
+ *  without a gap, 3+ catch-up sigList calls + their tx dispatch bursts land in
+ *  the same Helius dashboard 1-s bucket and visually spike RPS. The stagger
+ *  smooths the dashboard display — it does not reduce average load and adds
+ *  ≤ (TARGETS.length - 1) × this many ms to full-restart recovery latency.
+ *  Hard-refresh has its own stagger (HARD_REFRESH_STAGGER_MS); the per-target
+ *  watchdog (restartTarget) already reopens one target at a time. */
+const RESTART_STAGGER_MS = 250;
+
 /**
  * Tears down all active WebSocket connections and immediately re-subscribes.
  * removeAllListeners() on each socket prevents the normal close-handler from
@@ -1073,7 +1083,20 @@ function restartListeners(reason: string): void {
 
   // Re-subscribe all. isReconnect=true triggers a catch-up poll on open so
   // sigs missed during the watchdog's stall window are recovered immediately.
-  for (const target of TARGETS) openSubscription(target, BACKOFF_MIN_MS, true);
+  // Staggered RESTART_STAGGER_MS apart so the catch-up sig polls + tx
+  // dispatches don't all land in the same Helius 1-s bucket.
+  TARGETS.forEach((target, i) => {
+    const delay = i * RESTART_STAGGER_MS;
+    if (delay === 0) {
+      openSubscription(target, BACKOFF_MIN_MS, true);
+      return;
+    }
+    const t = setTimeout(() => {
+      if (!running) return;
+      openSubscription(target, BACKOFF_MIN_MS, true);
+    }, delay);
+    t.unref();
+  });
   openSlotSubscription();
 
   restarting = false;
