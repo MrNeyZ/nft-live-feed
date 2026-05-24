@@ -19,11 +19,15 @@ import { sourceBadge, sourceHref } from '../lib/source';
  *  so the source pill matches the enlarged status badge in the collection
  *  table. Only the collection table passes 'lg'. */
 
-/** Visual-width floor (in characters) for the source-pill slot. Labels shorter
- *  than this get an invisible sizing span appended OUTSIDE the colored pill to
- *  bring every slot up to the widest common label (LMNFT / CANDY / GRAVE = 5).
- *  Longer labels (METAPLEX, UNKNOWN) keep their natural width — no truncation. */
-const SOURCE_SLOT_TARGET_LEN = 5;
+/** Fixed slot widths in px, sized to the widest 5-char pill at each size
+ *  variant (LMNFT / CANDY / GRAVE — fontWeight 700, letterSpacing 0.4 +
+ *  the pill's horizontal padding). Wrapping every badge in a slot of this
+ *  width pins the surrounding layout: shorter labels (CORE / VVV) center
+ *  inside the same physical slot instead of letting their narrower pill
+ *  shrink the cell. Longer labels (METAPLEX / UNKNOWN — rare) still
+ *  render full width and grow the slot naturally via `minWidth`. */
+const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9,  padding 1×6
+const SOURCE_SLOT_W_LG = 56; // lg: fontSize 10, padding 2×8
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
@@ -51,22 +55,6 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     : row.sourceLabel === 'GRAVE'
       ? 'Open on gravemint.io'
       : row.sourceLabel;
-  // Build the invisible width spacer: same font / weight / letter-spacing
-  // as the visible label so each nbsp consumes the same horizontal space a
-  // real letter would. No background, no padding, no border — the colored
-  // pill ends at the visible label; the spacer extends only the overall
-  // slot footprint so neighbouring spacing stops shifting between rows.
-  const padCount = Math.max(0, SOURCE_SLOT_TARGET_LEN - sb.label.length);
-  const padChars = padCount > 0 ? ' '.repeat(padCount) : '';
-  const padStyle: React.CSSProperties = {
-    visibility: 'hidden',
-    display: 'inline-block',
-    fontSize: lg ? 10 : 9,
-    fontWeight: 700,
-    letterSpacing: '0.4px',
-    textTransform: 'uppercase',
-    lineHeight: lg ? '16px' : '13px',
-  };
   const pill = href ? (
     <a
       href={href}
@@ -79,11 +67,18 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
   ) : (
     <span title={plainTitle} style={pillStyle}>{sb.label}</span>
   );
-  if (!padChars) return pill;
+  // Fixed-width slot — pins horizontal footprint so CORE / VVV occupy the
+  // same physical column as LMNFT / CANDY / GRAVE. minWidth (not width) so
+  // an unusually long label (METAPLEX, UNKNOWN) can still grow the slot
+  // naturally instead of clipping. Centering the colored pill inside keeps
+  // narrow labels visually balanced.
+  const slotMinW = lg ? SOURCE_SLOT_W_LG : SOURCE_SLOT_W_SM;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, minWidth: slotMinW,
+    }}>
       {pill}
-      <span aria-hidden="true" style={padStyle}>{padChars}</span>
     </span>
   );
 }
