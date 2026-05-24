@@ -18,6 +18,13 @@ import { sourceBadge, sourceHref } from '../lib/source';
  *  Mint Feed card (left byte-identical). 'lg' is the ~25%-larger table variant
  *  so the source pill matches the enlarged status badge in the collection
  *  table. Only the collection table passes 'lg'. */
+
+/** Visual-width floor (in characters) for the source-pill slot. Labels shorter
+ *  than this get an invisible sizing span appended OUTSIDE the colored pill to
+ *  bring every slot up to the widest common label (LMNFT / CANDY / GRAVE = 5).
+ *  Longer labels (METAPLEX, UNKNOWN) keep their natural width — no truncation. */
+const SOURCE_SLOT_TARGET_LEN = 5;
+
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
@@ -44,7 +51,23 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     : row.sourceLabel === 'GRAVE'
       ? 'Open on gravemint.io'
       : row.sourceLabel;
-  return href ? (
+  // Build the invisible width spacer: same font / weight / letter-spacing
+  // as the visible label so each nbsp consumes the same horizontal space a
+  // real letter would. No background, no padding, no border — the colored
+  // pill ends at the visible label; the spacer extends only the overall
+  // slot footprint so neighbouring spacing stops shifting between rows.
+  const padCount = Math.max(0, SOURCE_SLOT_TARGET_LEN - sb.label.length);
+  const padChars = padCount > 0 ? ' '.repeat(padCount) : '';
+  const padStyle: React.CSSProperties = {
+    visibility: 'hidden',
+    display: 'inline-block',
+    fontSize: lg ? 10 : 9,
+    fontWeight: 700,
+    letterSpacing: '0.4px',
+    textTransform: 'uppercase',
+    lineHeight: lg ? '16px' : '13px',
+  };
+  const pill = href ? (
     <a
       href={href}
       target="_blank"
@@ -55,5 +78,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     >{sb.label}</a>
   ) : (
     <span title={plainTitle} style={pillStyle}>{sb.label}</span>
+  );
+  if (!padChars) return pill;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      {pill}
+      <span aria-hidden="true" style={padStyle}>{padChars}</span>
+    </span>
   );
 }
