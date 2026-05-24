@@ -1634,11 +1634,14 @@ export function startListener(): void {
 
   // Primary poller — main discovery path while WS logsSubscribe is degraded.
   // Seeds seenSigs first so the first cycle doesn't replay already-processed sigs.
+  // Capture the current poll-chain epoch up front; stopListener bumps it so an
+  // in-flight chain from a prior startListener cannot survive a stop/start race.
+  const epoch = pollChainEpoch;
   seedSeenSigs().finally(() => {
-    if (!running) return;
-    schedulePollTick();
+    if (!running || epoch !== pollChainEpoch) return;
+    schedulePollTick(epoch);
     console.log(
-      `[poll] started (primary discovery)` +
+      `[poll] started (primary discovery)  epoch=${epoch}` +
       `  fastMs=${POLL_FAST_MS}  healthyMs=${POLL_HEALTHY_MS}` +
       `  wsHealthAge=${WS_HEALTHY_MAX_AGE_MS}ms  limit=${POLL_LIMIT}` +
       `  maxBlockAge=${MAX_BLOCK_AGE_S}s  targets=${TARGETS.length}`,
@@ -1656,6 +1659,11 @@ export function startListener(): void {
 export function stopListener(): void {
   if (!running) return;
   running = false;
+  // Invalidate any in-flight pollAll chains: their .finally re-arm will see
+  // a stale epoch and bail even if a subsequent startListener has already
+  // flipped `running` back to true. Without this, a rapid stop→start cycle
+  // accumulates one parallel poll chain per cycle.
+  pollChainEpoch++;
   // Drop every queued ingest on both listener-scoped limiters so the
   // rpcLimiter downstream never sees them. In-flight calls will re-check
   // `getMode() === 'off'` on their next await and bail.
@@ -1741,8 +1749,20 @@ export function isSalesWsDead(): boolean {
 }
 
 let currentPollMode: 'fast' | 'healthy' | null = null;
-function schedulePollTick(): void {
+// Epoch token preventing stale poll chains from re-arming after a stop/start
+// cycle. stopListener bumps this; startListener captures it; the chain's
+// setTimeout + .finally re-arm both bail when the captured epoch no longer
+// matches. Without this guard, a fast OFF→ON mode toggle (runtime/mode.ts)
+// can leave an in-flight pollAll whose .finally fires AFTER startListener
+// has flipped `running` back to true — the old chain's `if (running)` check
+// passed and it re-armed, accumulating one parallel pollAll chain per toggle.
+let pollChainEpoch = 0;
+function schedulePollTick(epoch: number): void {
   if (!running) return;  // stopListener() — don't re-arm
+  if (epoch !== pollChainEpoch) {
+    console.log(`[poll] stale chain epoch=${epoch} current=${pollChainEpoch} — not re-arming`);
+    return;
+  }
   const healthy = wsIsHealthy();
   const nextMode: 'fast' | 'healthy' = healthy ? 'healthy' : 'fast';
   if (nextMode !== currentPollMode) {
@@ -1751,7 +1771,7 @@ function schedulePollTick(): void {
   }
   const delay = healthy ? POLL_HEALTHY_MS : POLL_FAST_MS;
   setTimeout(() => {
-    if (!running) return;
-    pollAll().catch(() => {}).finally(() => { if (running) schedulePollTick(); });
+    if (!running || epoch !== pollChainEpoch) return;
+    pollAll().catch(() => {}).finally(() => schedulePollTick(epoch));
   }, delay).unref();
 }
