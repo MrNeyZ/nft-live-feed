@@ -27,6 +27,7 @@ import { getMode, currentGeneration } from '../runtime/mode';
 import { dispatchMmmDeferred } from './mmm-prefilter';
 import { isSalesWsDead } from './listener';
 import { getAcceptedCount } from './poll-useful';
+import { incFired, sourceFromTargetName } from './source-stats';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -83,9 +84,31 @@ const PAGE_SIZE   = 20;
 // near-realtime operation makes 1–2 pages per sweep, well under cap.
 const MAX_PAGES_FULL = 20;
 const MAX_PAGES_LEAN = 5;
+/** Per-target hard cap, applied AFTER mode cap (clamps further). MMM is the
+ *  largest cost source per the sourceStats audit (~95% parser-dropped); cap
+ *  its catch-up walk at 2 pages so a saturated burst can never enqueue more
+ *  than PAGE_SIZE × 2 = 40 sigs in one sweep. Other targets unchanged. */
+const MAX_PAGES_BY_TARGET: Record<string, number> = {
+  'poll:mmm': 2,
+};
 function maxPagesForMode(): number {
   const m = getMode();
   return (m === 'sales_only' || m === 'budget') ? MAX_PAGES_LEAN : MAX_PAGES_FULL;
+}
+function maxPagesForTarget(name: string): number {
+  const mode = maxPagesForMode();
+  const cap  = MAX_PAGES_BY_TARGET[name];
+  return cap != null ? Math.min(mode, cap) : mode;
+}
+/** Per-target fresh-path cutoff. Fresh-path sigs dispatch synchronously
+ *  into rpcLimiter (page-1 fan-out); the rest go to the serial backlog
+ *  drain. Lowering MMM's cutoff from PAGE_SIZE (20) to 10 cuts the
+ *  worst-case 5-s tick burst in half without changing throughput. */
+const FRESH_CUTOFF_BY_TARGET: Record<string, number> = {
+  'poll:mmm': 10,
+};
+function freshCutoffForTarget(name: string): number {
+  return FRESH_CUTOFF_BY_TARGET[name] ?? PAGE_SIZE;
 }
 /** Below this page count, a sweep is treated as near-realtime and never
  *  flagged as `saturated` even if every page returned full. Ordinary
@@ -232,7 +255,7 @@ async function fetchSinceCursor(
   // `startBefore` is the catch-up continuation anchor saved by the previous
   // sweep when it saturated the page budget. In steady state it is null and
   // pagination starts from the top.
-  const maxPages = maxPagesForMode();
+  const maxPages = maxPagesForTarget(targetName);
   let before: string | null = startBefore;
   let hitFloor = false;
   let pages = 0;
@@ -321,14 +344,17 @@ function kickBacklogDrain(): void {
         const m = getMode();
         const isMmmLean =
           item.target === 'poll:mmm' && (m === 'sales_only' || m === 'budget');
+        const backlogSource = sourceFromTargetName(item.target);
         try {
           if (isMmmLean) {
+            // deferred dispatch may skip the fetch; count fired from inside.
             dispatchMmmDeferred(
               item.sig,
-              (s) => item.ingest(s, undefined, priority),
+              (s) => { incFired(backlogSource); return item.ingest(s, undefined, priority); },
               item.target,
             );
           } else {
+            incFired(backlogSource);
             await item.ingest(item.sig, undefined, priority);
           }
         } catch (err: unknown) {
@@ -395,15 +421,30 @@ const BACKOFF_L0_MS = 5_000;
 // Per-target backoff tuning. mmm is stronger (it was ~95-100% parser-dropped:
 // ~299 dispatched / ~0 accepted in the audit window) so it ramps sooner and
 // further; me_v2 has real fixed-price sales so it stays conservative.
-interface BackoffCfg { l1Ms: number; l2Ms: number; l1Streak: number; l2Streak: number; }
+//
+// L3 (`l3Ms` / `l3Streak`) is an optional aggressive fallback: after l3Streak
+// further idle sweeps past L2, cadence stretches to l3Ms (effectively a
+// "useful ratio stayed at 0% across the L2 window" auto-aggressive mode).
+// First accepted sale snaps any level back to L0. WS-dead / catch-up /
+// backlog / first-run still force-normal as before.
+interface BackoffCfg {
+  l1Ms: number; l2Ms: number;
+  l1Streak: number; l2Streak: number;
+  /** Optional L3 — aggressive cadence after sustained 0% useful at L2. */
+  l3Ms?: number; l3Streak?: number;
+}
 const BACKOFF_CFG: Record<string, BackoffCfg> = {
-  'poll:mmm':   { l1Ms: 20_000, l2Ms: 60_000, l1Streak: 2, l2Streak: 5 },
-  'poll:me_v2': { l1Ms: 15_000, l2Ms: 30_000, l1Streak: 3, l2Streak: 8 },
+  // mmm tightened: was 20s/60s @ 2/5 streaks; now 30s/120s @ 1/4 with
+  // 300s (5min) aggressive mode after 10 cumulative idle sweeps
+  // (~20 min at L2 cadence) — matches the user's 1%/20min guard intent.
+  'poll:mmm':   { l1Ms: 30_000, l2Ms: 120_000, l3Ms: 300_000, l1Streak: 1, l2Streak: 4, l3Streak: 10 },
+  'poll:me_v2': { l1Ms: 15_000, l2Ms: 30_000,  l1Streak: 3, l2Streak: 8 },
 };
 const BACKOFF_TARGETS: ReadonlySet<string> = new Set(Object.keys(BACKOFF_CFG));
 
+type BackoffLevel = 0 | 1 | 2 | 3;
 interface BackoffState {
-  level:        0 | 1 | 2;
+  level:        BackoffLevel;
   idleStreak:   number;
   acceptedSnap: number;  // cumulative accepted count at last evaluation
   nextDueTs:    number;  // sweep skipped while now < nextDueTs
@@ -417,9 +458,10 @@ function backoffFor(name: string): BackoffState {
   }
   return s;
 }
-function intervalForLevel(name: string, level: 0 | 1 | 2): number {
+function intervalForLevel(name: string, level: BackoffLevel): number {
   if (level === 0) return BACKOFF_L0_MS;
   const cfg = BACKOFF_CFG[name];
+  if (level === 3 && cfg.l3Ms != null) return cfg.l3Ms;
   return level === 2 ? cfg.l2Ms : cfg.l1Ms;
 }
 
@@ -472,7 +514,8 @@ function evaluateBackoff(
   }
 
   const cfg = BACKOFF_CFG[name];
-  const newLevel: 0 | 1 | 2 =
+  const newLevel: BackoffLevel =
+    (cfg.l3Streak != null && cfg.l3Ms != null && s.idleStreak >= cfg.l3Streak) ? 3 :
     s.idleStreak >= cfg.l2Streak ? 2 :
     s.idleStreak >= cfg.l1Streak ? 1 : 0;
   s.level = newLevel;
@@ -548,7 +591,8 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     // so the rpcLimiter's stale-low admission drop doesn't shear off the
     // tail of a gap-recovery walk.)
     const ordered = page;
-    const FRESH_CUTOFF = PAGE_SIZE;
+    const FRESH_CUTOFF = freshCutoffForTarget(target.name);
+    const sourceLabel = sourceFromTargetName(target.name);
 
     let unseen = 0, ingested = 0, skipped = 0, backlogged = 0;
     for (let i = 0; i < ordered.length; i++) {
@@ -570,8 +614,15 @@ async function sweepTarget(target: PollTarget): Promise<void> {
         // immediately as before.
         const m = getMode();
         if (target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget')) {
-          dispatchMmmDeferred(info.signature, target.ingest, target.name);
+          // dispatchMmmDeferred may skip the fetch (WS-resolved or noise-shed);
+          // incFired is therefore done from inside the deferred dispatch lambda.
+          dispatchMmmDeferred(
+            info.signature,
+            (s) => { incFired(sourceLabel); return target.ingest(s); },
+            target.name,
+          );
         } else {
+          incFired(sourceLabel);
           target.ingest(info.signature).catch((err: unknown) =>
             console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err)
           );

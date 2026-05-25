@@ -26,7 +26,14 @@ import { extractPaymentInfo, extractNftMint, extractPartiesFromTokenFlow } from 
 import { extractCoreAssetFromInnerIx } from './decoder';
 import { TCOMP_PROGRAM, TAMM_PROGRAM } from './programs';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
+import { incEmitted, incDropped, sourceFromMarketplace } from '../source-stats';
 import bs58 from 'bs58';
+
+/** Tensor parser-drop source attribution: tcomp dominates, tamm is rare. */
+function tensorDropSource(programsStr: string): 'tcomp' | 'tamm' {
+  if (programsStr.includes('tamm')) return 'tamm';
+  return 'tcomp';
+}
 
 // ─── Instruction scanner (debug) ─────────────────────────────────────────────
 
@@ -298,6 +305,7 @@ export async function ingestTensorRaw(
           console.error(`[tensor_raw→me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
         }
         auditRecordOutcome(sig, 'accepted_sale');  // TAMM→ME fallback recovered a real sale
+        incEmitted('tamm');
         return;
       }
     }
@@ -330,6 +338,7 @@ export async function ingestTensorRaw(
     const hasNonSaleTcomp = ixScan.some(s => s.program === 'tcomp' && TCOMP_NON_SALE_DISCS.has(s.disc));
     if (hasNonSaleTcomp) {
       auditRecordOutcome(sig, 'parser_drop');
+      incDropped(tensorDropSource(programsStr));
       console.log(`[tensor_raw] SKIP_CAND sig=${sig.slice(0, 12)} non_sale_ix  discs=[${discStr}]`);
       return;
     }
@@ -395,12 +404,14 @@ export async function ingestTensorRaw(
     }
     // Audit: candidate recovery = real sale (never deny); else parser_drop.
     auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
+    if (!recovered) incDropped(tensorDropSource(programsStr));
     return;
   }
 
   const tag = (result.event.rawData as Record<string, unknown>)._parser ?? 'tensor_raw';
 
   auditRecordOutcome(sig, 'accepted_sale');
+  incEmitted(sourceFromMarketplace(result.event.marketplace));
   // Step 4 — raw parser recognised this as a sale.
   trace(sig, 'parse:ok', `parser=${tag}  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
 

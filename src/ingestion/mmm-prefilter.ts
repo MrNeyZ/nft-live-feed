@@ -46,23 +46,61 @@ import { getMode, currentGeneration } from '../runtime/mode';
 
 const MMM_DEFER_MS = 5_000;
 
-let deferred       = 0;
-let wsResolved     = 0;
-let fallbackFetch  = 0;
+// ── MMM noise-shed marker ───────────────────────────────────────────────────
+// Sigs the listener's MMM WS prefilter (`shouldSkipMmmLogsSalesOnly`) shed as
+// obviously non-sale (UpdatePool / Deposit / Withdraw / etc.). The poller path
+// (amm-poller, listener pollAll) rediscovers these sigs and currently dispatches
+// a fetch after the 5-s defer because `wasRecentlyFetched` is intentionally NOT
+// set on WS noise-shed (avoiding dedupe-poisoning of legitimate sales). This
+// marker closes that gap WITHOUT touching the sale dedupe chain: it ONLY
+// short-circuits the MMM-deferred poller dispatch, never the WS path or the
+// sale ingest path. False positives (real sale logs that happen to match the
+// MMM deny-list) still recover via the same fail-open rationale: the marker
+// expires in MMM_NOISE_TTL_MS and the next poller sweep re-dispatches.
+const MMM_NOISE_TTL_MS = 30_000;
+const MMM_NOISE_MAX    = 5_000;
+const mmmNoiseShed: Map<string, number> = new Map();
+
+export function markMmmNoiseShed(sig: string): void {
+  mmmNoiseShed.set(sig, Date.now());
+  if (mmmNoiseShed.size > MMM_NOISE_MAX) {
+    // Drop the oldest entries past TTL on overflow.
+    const cutoff = Date.now() - MMM_NOISE_TTL_MS;
+    for (const [s, ts] of mmmNoiseShed) {
+      if (ts < cutoff) mmmNoiseShed.delete(s);
+      if (mmmNoiseShed.size <= MMM_NOISE_MAX * 0.8) break;
+    }
+  }
+}
+
+function wasMmmNoiseShed(sig: string): boolean {
+  const ts = mmmNoiseShed.get(sig);
+  if (ts === undefined) return false;
+  if (Date.now() - ts > MMM_NOISE_TTL_MS) { mmmNoiseShed.delete(sig); return false; }
+  return true;
+}
+
+let deferred         = 0;
+let wsResolved       = 0;
+let fallbackFetch    = 0;
+let noiseShedSkipped = 0;
 
 const summaryTimer = setInterval(() => {
   if (deferred === 0) return;
-  const total   = wsResolved + fallbackFetch;
+  const total   = wsResolved + fallbackFetch + noiseShedSkipped;
   const wsPct   = total > 0 ? Math.round((wsResolved / total) * 100) : 0;
+  const noisePct = total > 0 ? Math.round((noiseShedSkipped / total) * 100) : 0;
   console.log(
     `[mmm-prefilter] mmm_prefilter_deferred=${deferred}  ` +
     `mmm_prefilter_ws_resolved=${wsResolved}  ` +
+    `mmm_prefilter_noise_shed=${noiseShedSkipped}  ` +
     `mmm_prefilter_fallback_fetch=${fallbackFetch}  ` +
-    `ws_resolved_pct=${wsPct}%  defer=${MMM_DEFER_MS / 1000}s`
+    `ws_resolved_pct=${wsPct}%  noise_shed_pct=${noisePct}%  defer=${MMM_DEFER_MS / 1000}s`
   );
-  deferred      = 0;
-  wsResolved    = 0;
-  fallbackFetch = 0;
+  deferred         = 0;
+  wsResolved       = 0;
+  fallbackFetch    = 0;
+  noiseShedSkipped = 0;
 }, 60_000);
 if (typeof summaryTimer.unref === 'function') summaryTimer.unref();
 
@@ -87,6 +125,12 @@ export function dispatchMmmDeferred(
     // not trip this gate — that was the MMM Core sale dedupe-poison
     // bug pre-scoped-dedupe.
     if (wasRecentlyFetched(sig, 'sale')) { wsResolved++; return; }
+    // WS prefilter shed this sig as obvious MMM noise (see
+    // markMmmNoiseShed). Skip the poller dispatch — the WS just told us
+    // it isn't a sale. Marker has its own 30-s TTL and never poisons the
+    // sale-scope dedupe maps, so a misclassified sale recovers on the
+    // next sweep after the marker expires.
+    if (wasMmmNoiseShed(sig)) { noiseShedSkipped++; return; }
     fallbackFetch++;
     dispatch(sig).catch((err: unknown) =>
       console.error(`[${errLabel}] mmm-deferred ingest error  sig=${sig.slice(0, 12)}…`, err)

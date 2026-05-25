@@ -25,8 +25,9 @@ import {
 import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
-import { dispatchMmmDeferred } from './mmm-prefilter';
+import { dispatchMmmDeferred, markMmmNoiseShed } from './mmm-prefilter';
 import { recordDispatch as auditRecordDispatch, startSalesPrefilterAudit } from './sales-prefilter-audit';
+import { incFired, sourceFromTargetName, startSourceStats } from './source-stats';
 import { isSigTarget, saleDebug } from './sale-debug';
 import { HeliusEnhancedTransaction } from './helius/types';
 import { trace } from '../trace';
@@ -915,6 +916,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'mmm_sales_only_deny_list' });
       }
       markSeen(sig);
+      // Tell the deferred poller-path dispatcher that WS classified this sig
+      // as MMM noise; it will skip the 5-s-later fetch instead of paying RPC.
+      markMmmNoiseShed(sig);
       return;
     }
 
@@ -952,6 +956,7 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // reports the parser outcome back via recordOutcome → 60s aggregated audit.
     // No behavior change; no tx skipped. Stage-1 evidence for a future WS deny-list.
     auditRecordDispatch(sig, target.name, value.logs);
+    incFired(sourceFromTargetName(target.name));
     // Do NOT call markSeen here. Cross-path dedup is handled inside fetchRawTx:
     //   inFlight   — blocks concurrent double-fetch while the listener fetch is live
     //   recentSigs — 3-min TTL, set only on successful fetch
@@ -1370,10 +1375,11 @@ async function pollTarget(
     if (target.name === 'mmm' && (m === 'sales_only' || m === 'budget')) {
       dispatchMmmDeferred(
         sig,
-        (s) => pollerLimiter.run(() => target.ingest(s)),
+        (s) => { incFired(sourceFromTargetName(target.name)); return pollerLimiter.run(() => target.ingest(s)); },
         `poll/${target.name}`,
       );
     } else {
+      incFired(sourceFromTargetName(target.name));
       pollerLimiter
         .run(() => target.ingest(sig))
         .catch((err: unknown) => {
@@ -1627,6 +1633,7 @@ export function startListener(): void {
   const statsLog = setInterval(logStats, 60_000);        statsLog.unref(); intervalHandles.push(statsLog);
   const pollLog  = setInterval(logPollSummary, 60_000);  pollLog.unref();  intervalHandles.push(pollLog);
   startSalesPrefilterAudit();  // OBSERVE-only WS instruction-usefulness audit
+  startSourceStats();           // 5-min per-source FIRED/EMITTED/DROP rollup
 
   // ── Hard periodic refresh (reliability backstop) ─────────────────────────
   // Unconditionally cycle every target subscription on a slow interval. The

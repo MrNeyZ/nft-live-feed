@@ -33,6 +33,17 @@ import { saleEventBus } from '../../events/emitter';
 import { getMode, isAnyIngestActive } from '../../runtime/mode';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
 import { noteAcceptedSale } from '../poll-useful';
+import { incEmitted, incDropped, sourceFromMarketplace } from '../source-stats';
+
+/** Map an ME parser's program-touched set to a source label for DROP stats.
+ *  programsStr is comma-joined identifiers built from `scanMeInstructions`:
+ *  values include 'me_v2', 'mmm', 'me_cnft'. mmm takes precedence (its
+ *  noise dominates), then me_v2; cnft and unknown roll into 'me_v2' for
+ *  rollup purposes (sourceStats has no cnft bucket). */
+function dropSourceFromPrograms(programsStr: string): 'me_v2' | 'mmm' {
+  if (programsStr.includes('mmm')) return 'mmm';
+  return 'me_v2';
+}
 
 // ─── RPC fetch ────────────────────────────────────────────────────────────────
 
@@ -905,12 +916,14 @@ async function _ingestMeRaw(
     // Audit: a candidate recovery is a real sale (never deny those instructions);
     // otherwise this fetch produced no sale → parser_drop.
     auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
+    if (!recovered) incDropped(dropSourceFromPrograms(programsStr));
     return;
   }
 
   // Step 4 — raw parser recognised this as a sale.
   auditRecordOutcome(sig, 'accepted_sale');
   noteAcceptedSale(result.event.marketplace);  // feeds AMM-poller useful-ratio backoff
+  incEmitted(sourceFromMarketplace(result.event.marketplace));
   trace(sig, 'parse:ok', `parser=me_v2_raw  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`);
 
   console.log(
