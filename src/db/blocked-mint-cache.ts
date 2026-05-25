@@ -29,6 +29,14 @@
  *   blacklist hit in `insertSaleEvent`.
  */
 
+import type { Pool } from 'pg';
+import {
+  COLLECTION_BLACKLIST,
+  SLUG_BLACKLIST,
+  NAME_BLACKLIST,
+  NAME_SUBSTRING_BLACKLIST,
+} from './blacklist';
+
 const MAX_ENTRIES = 50_000;
 const TTL_MS      = 24 * 60 * 60_000;
 
@@ -73,4 +81,48 @@ export function isMintBlocked(mint: string | null | undefined): string | null {
  *  hot path. */
 export function blockedMintCacheSize(): number {
   return blockedMint.size;
+}
+
+/**
+ * One-shot startup preload: scans `sale_events` for every mint whose row
+ * already matches any blacklist signal (collection_address, ME slug,
+ * collection_name exact or substring) and pre-populates the blocked-mint
+ * cache. Without this, every restart wipes the cache and each previously-
+ * blacklisted mint flashes once again at its next sale until the post-
+ * enrichment gate re-learns it.
+ *
+ * Single query, single pass. Failures are non-fatal: a startup hiccup just
+ * means we revert to the pre-existing behaviour (post-enrichment delete +
+ * remove SSE).
+ */
+export async function preloadBlockedMintsFromDb(pool: Pool): Promise<number> {
+  try {
+    const collectionAddrs = [...COLLECTION_BLACKLIST];
+    const slugs           = [...SLUG_BLACKLIST];
+    const names           = [...NAME_BLACKLIST];
+    const substringLike   = NAME_SUBSTRING_BLACKLIST.map((s) => `%${s.toLowerCase()}%`);
+    const res = await pool.query<{ mint_address: string }>(
+      `
+        SELECT DISTINCT mint_address
+        FROM sale_events
+        WHERE mint_address IS NOT NULL
+          AND mint_address <> ''
+          AND (
+                collection_address = ANY($1::text[])
+             OR LOWER(collection_name) = ANY($2::text[])
+             OR (raw_data->>'meCollectionSlug') = ANY($3::text[])
+             OR LOWER(collection_name) ILIKE ANY($4::text[])
+          )
+      `,
+      [collectionAddrs, names, slugs, substringLike],
+    );
+    for (const row of res.rows) {
+      markMintBlocked(row.mint_address, 'preload_blocked_collection');
+    }
+    console.log(`[feed/blacklist-preload] cached=${res.rows.length} mints from sale_events`);
+    return res.rows.length;
+  } catch (err) {
+    console.warn('[feed/blacklist-preload] failed (non-fatal)', err);
+    return 0;
+  }
 }

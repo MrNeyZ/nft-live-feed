@@ -20,6 +20,7 @@ import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 import { startRareFeed } from './rare-feed';
+import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -49,6 +50,12 @@ async function main() {
   const pool = getPool();
   await pool.query('SELECT 1');
   console.log('[db] connected');
+
+  // Preload the blocked-mint cache from DB so previously-flagged DRiP /
+  // staratlascrew / etc. mints never flash again after a restart. Must run
+  // BEFORE the first insertSaleEvent so the pre-emit gate at insert.ts:115
+  // sees a populated cache. Non-fatal on failure.
+  await preloadBlockedMintsFromDb(pool);
 
   // Restore /mints accumulator from the on-disk snapshot so quiet
   // collections survive a pm2 restart / deploy. Must run BEFORE the
