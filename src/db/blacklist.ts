@@ -32,6 +32,11 @@ export const COLLECTION_BLACKLIST = new Set<string>([
   // times out (we've observed frequent staratlascrew timeouts) and the
   // frontend slug filter would otherwise be bypassed.
   'CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB', // staratlascrew — cNFT, Tensor-heavy
+  // DRiP collection that surfaces on Tensor only (slug `man__machine_dialogues_drip`).
+  // The substring filter misses it because the human collection name carries no
+  // "drip" marker and there is no ME slug (ME doesn't list it). Address gate is
+  // the only reliable signal we have without a Tensor-API lookup.
+  '3reTJCRky6oiRh9FF1rTLd2bYWcpymhj3ANZ1BdqNcMw', // Man & Machine Dialogues (DRiP, Tensor-only)
 ]);
 
 export const SLUG_BLACKLIST = new Set<string>([
@@ -43,6 +48,7 @@ export const SLUG_BLACKLIST = new Set<string>([
 export const NAME_BLACKLIST = new Set<string>([
   'collector crypt', // CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf — fake/wash sales
   'star atlas crew', // CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB — DAS provides this name when ME slug API fails
+  'man & machine dialogues', // 3reTJCRky6oiRh9FF1rTLd2bYWcpymhj3ANZ1BdqNcMw — DRiP, Tensor-only, name carries no "drip"
 ]);
 
 /** Lowercased substrings — match anywhere in the name. Use sparingly:
