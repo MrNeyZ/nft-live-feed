@@ -443,9 +443,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             width via --mints-show-col-w in the table colgroup). Button
             is centered inside the cell via td text-align/justify, with
             no dependency on COLLECTION-cell content width. */}
-      <td style={{ padding: 0, verticalAlign: 'middle', textAlign: 'center' }}>
+      <td style={{ padding: '0 6px', verticalAlign: 'middle', textAlign: 'center' }}>
         {onTogglePin && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'stretch' }}>
             <div
               role="button"
               tabIndex={0}
@@ -472,7 +472,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 }
               }}
               style={{
-                width: 'var(--mints-show-w, 104px)', boxSizing: 'content-box',
+                // Fill the td's content area (td has padding: 0 6px so
+                // the strip gets a soft 6 px gutter from neighbours).
+                // No fixed pixel width — the strip resembles a row band
+                // rather than a chopped rectangle.
+                width: '100%', flex: 1, boxSizing: 'border-box',
                 paddingTop: 14, paddingBottom: 14,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', userSelect: 'none', borderRadius: 4,

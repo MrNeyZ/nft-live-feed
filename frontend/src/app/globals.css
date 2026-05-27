@@ -53,12 +53,16 @@
      action column tracks the table width instead of drifting fixed.
      PC override below; phone tier already collapses the table to
      full-width and the natural 1fr remainder absorbs the value. */
-  --mints-show-w:            104px;
+  /* SHOW control fills its dedicated <col> (minus a small td gutter
+     for breathing room) — see MintsTableRow.tsx where the td uses
+     padding: 0 6px and the inner control sets width:100%. Kept as
+     a token in case a future variant needs to clamp it. */
+  --mints-show-w:            100%;
   /* Width of the dedicated SHOW <col> (between COLLECTION and MINTS).
-     Wider than --mints-show-w so the button sits in a generous slot
-     with breathing room on both sides — the button is centered in
-     this col via the cell's text-align/inline-flex. */
-  --mints-show-col-w:        140px;
+     Slightly narrower than the prior 140 — the inner strip now fills
+     the column so the cell reads as one soft action zone, not a small
+     boxed button. */
+  --mints-show-col-w:        132px;
   /* Feed-card tokens — replaces the prior hardcoded `.feed-card`
      padding/gap rules. Density classes (.feed-density-comfy /
      .feed-density-tape) and phone tier override these tokens at
@@ -124,8 +128,8 @@ html[data-layout="pc"] {
   /* SHOW button scales with the table width (mints-max 1400 → 1460 px,
      ~+4 %). Bumped one notch for visual proportion; phone stays
      unchanged. */
-  --mints-show-w:        108px;
-  --mints-show-col-w:    144px;
+  --mints-show-w:        100%;
+  --mints-show-col-w:    136px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;
@@ -183,8 +187,8 @@ html[data-layout="laptop"] {
      PC = 125 px, laptop now = 156 px (+30 % vs root). Button alone
      widens — column is auto/1fr in the COLLECTION cell, so no table
      overflow and no row-height change. */
-  --mints-show-w:       108px;
-  --mints-show-col-w:   144px;
+  --mints-show-w:       100%;
+  --mints-show-col-w:   136px;
   --accent-row-alpha:   0.07;
   --accent-card-alpha:  0.09;
   --hover-ring-alpha:   0.48;
