@@ -7,9 +7,10 @@
 // have no other consumer; the SOURCE pill is the existing
 // `<MintsSourceBadge>`.
 
+import { useState } from 'react';
 import { ItemThumb } from '@/soloist/shared';
 import { playUiSelect } from '@/soloist/use-ui-sound';
-import type { MintStatus, MintTimeframe, MintsTimeframeStats } from '../lib/types';
+import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
 import { fmtAge, fmtSol, shortKey, thumb64 } from '../lib/format';
@@ -76,6 +77,12 @@ interface Props {
    *  (cell renders "—"); value === 0 → confirmed free; value > 0 →
    *  paid (cell renders fmtSol). NOT an average. */
   lastPriceByKey: Map<string, number | null>;
+  /** Latest custom-token payment per groupingKey. Null entry → most
+   *  recent mint was SOL-priced. Map miss → no event yet. */
+  lastPaymentByKey?: Map<string, { mint: string; amount: string; decimals: number } | null>;
+  /** Resolved symbol/logo for known payment-token mints, keyed by mint
+   *  address. Populated by the SSE `payment_token_meta` channel. */
+  paymentTokens?: Map<string, PaymentTokenInfo>;
   /** Hover-scope hooks (frontend-only). Fire when the pointer enters/leaves
    *  this row so the page can temporarily scope the Live Mint Feed to this
    *  collection. Optional — omitting them leaves row behaviour unchanged. */
@@ -98,7 +105,25 @@ function shortCollectionName(name: string): string {
   return clean.slice(0, 11).trimEnd() + '…';
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, onHoverEnter, onHoverLeave, isPinned, onTogglePin }: Props) {
+/** Format a raw u64 token amount (string) into a human display with at
+ *  most 4 fractional digits, trailing zeros trimmed. Stays string-safe —
+ *  no Number conversion in case the raw amount exceeds 2^53. */
+function formatTokenAmount(raw: string, decimals: number): string | null {
+  if (!/^\d+$/.test(raw)) return null;
+  if (decimals <= 0) return raw;
+  const padded = raw.padStart(decimals + 1, '0');
+  const intPart  = padded.slice(0, padded.length - decimals);
+  const fracPart = padded.slice(padded.length - decimals);
+  // Trim to 4 frac digits then drop trailing zeros.
+  const fracTrunc = fracPart.slice(0, 4).replace(/0+$/, '');
+  return fracTrunc.length > 0 ? `${intPart}.${fracTrunc}` : intPart;
+}
+
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, isPinned, onTogglePin }: Props) {
+  // Per-row toggle: SOL price (default) ↔ custom-token amount. Persists
+  // for the lifetime of the mounted row only — short-lived UI state, no
+  // localStorage. Independent across rows.
+  const [showInToken, setShowInToken] = useState(false);
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -583,23 +608,75 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                               mirrors SUPPLY column tone) */}
       {(() => {
         const price     = lastPriceByKey.get(r.groupingKey);
-        const display   = (typeof price === 'number') ? fmtSol(price) : '—';
-        const isUnknown = display === '—';
-        const isFree    = display === 'FREE';
+        const solDisplay = (typeof price === 'number') ? fmtSol(price) : '—';
+        const isUnknown = solDisplay === '—';
+        const isFree    = solDisplay === 'FREE';
+        const payment   = lastPaymentByKey?.get(r.groupingKey) ?? null;
+        const tokenInfo = payment ? paymentTokens?.get(payment.mint) ?? null : null;
+        // Format the token amount with the mint's decimals — keep at most
+        // 4 fractional digits and trim trailing zeros so a 1000.000000
+        // payment reads as "1000". Tabular-nums fixes alignment.
+        const tokenAmount = payment
+          ? formatTokenAmount(payment.amount, payment.decimals)
+          : null;
+        const tokenLabel  = tokenInfo?.symbol?.trim() || shortKey(payment?.mint ?? '');
+        const display = (payment && showInToken && tokenAmount != null)
+          ? `${tokenAmount} ${tokenLabel}`
+          : solDisplay;
         const cellColor = isFree     ? '#5ce0a0'
                         : isUnknown  ? '#45455e'
+                        : payment    ? '#c9bdf0'
                         :              '#a8a6c4';
         const tip = isUnknown
           ? `No mint price observed yet for this collection`
           : isFree
             ? `Latest observed mint: FREE`
-            : `Latest observed mint price: ${display} SOL · not averaged — updates when a new mint event lands at a different price`;
+            : payment
+              ? `Mint paid in ${tokenInfo?.name ?? tokenLabel} (${tokenLabel}). SOL value shown is rent on the new asset, not the real price. Click the token icon to toggle.`
+              : `Latest observed mint price: ${solDisplay} SOL · not averaged — updates when a new mint event lands at a different price`;
         return (
           <td
             title={tip}
             style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
-            {display}
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              <span>{display}</span>
+              {payment && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setShowInToken(v => !v); }}
+                  title={showInToken
+                    ? `Show SOL value (rent) instead of ${tokenLabel}`
+                    : `Show amount in ${tokenLabel} instead of SOL`}
+                  aria-label="Toggle price currency"
+                  aria-pressed={showInToken}
+                  style={{
+                    // Absolute 14×14 button — fixed size keeps the row
+                    // height stable regardless of toggle state. transform:
+                    // scale on hover is paint-only.
+                    width: 14, height: 14, padding: 0,
+                    border: showInToken ? '1px solid rgba(168,144,232,0.65)' : '1px solid rgba(168,144,232,0.28)',
+                    borderRadius: '50%', background: 'rgba(168,144,232,0.10)',
+                    cursor: 'pointer', display: 'inline-flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    overflow: 'hidden', flexShrink: 0,
+                    transition: 'transform 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.12)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+                >
+                  {tokenInfo?.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={tokenInfo.image} alt="" width={12} height={12}
+                      style={{ width: 12, height: 12, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+                  ) : (
+                    <span style={{ fontSize: 7, fontWeight: 800, color: '#a890e8', letterSpacing: 0, lineHeight: 1 }}>
+                      {tokenLabel.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                </button>
+              )}
+            </span>
           </td>
         );
       })()}

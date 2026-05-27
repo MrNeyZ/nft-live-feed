@@ -17,7 +17,7 @@ import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
 } from './lib/types';
 import type {
-  MintRollupType, MintStatus, MintEvent, MintTimeframe,
+  MintRollupType, MintStatus, MintEvent, MintTimeframe, PaymentTokenInfo,
 } from './lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -782,6 +782,11 @@ export default function MintsPage() {
   const eventsRef = useRef<MintEvent[]>(events);
   useEffect(() => { eventsRef.current = events; }, [events]);
 
+  // Custom-token mint payments → symbol/logo cache. Populated from the
+  // SSE `payment_token_meta` channel (one entry per unique paymentMint;
+  // backend replays the snapshot on connect). Keyed by mint address.
+  const [paymentTokens, setPaymentTokens] = useState<Map<string, PaymentTokenInfo>>(() => new Map());
+
   // Hover-pause for the LIVE MINT FEED panel — mirrors the
   // /feed page's hoverPaused pattern. While the cursor is over the
   // feed scroll container, incoming `mint` SSE events are buffered
@@ -1518,6 +1523,26 @@ export default function MintsPage() {
           }
         } catch { /* malformed frame — skip */ }
       });
+      // Payment-token metadata — one entry per unique custom-token mint
+      // resolved by the backend's lazy DAS lookup. Snapshot replayed on
+      // connect; live updates fan out as new payment tokens are seen.
+      es.addEventListener('payment_token_meta', (e: MessageEvent) => {
+        try {
+          const p = JSON.parse(e.data) as PaymentTokenInfo;
+          if (!p || typeof p.mint !== 'string' || p.mint.length === 0) return;
+          setPaymentTokens(prev => {
+            const cur = prev.get(p.mint);
+            // Idempotent: skip if every field matches what we already have.
+            if (cur && cur.symbol === p.symbol && cur.name === p.name
+              && cur.image === p.image && cur.decimals === p.decimals) {
+              return prev;
+            }
+            const next = new Map(prev);
+            next.set(p.mint, p);
+            return next;
+          });
+        } catch { /* malformed frame — skip */ }
+      });
       es.addEventListener('error', () => {
         sseStatusRef.current = 'error';
         es?.close();
@@ -1667,6 +1692,23 @@ export default function MintsPage() {
     for (const ev of events) {
       if (m.has(ev.groupingKey)) continue;
       m.set(ev.groupingKey, ev.priceLamports);
+    }
+    return m;
+  }, [events]);
+
+  // Latest custom-token payment per groupingKey. Same newest-first scan as
+  // lastPriceByKey; surfaces { mint, amount, decimals } from the most
+  // recent event for the group. Null when the most recent event was
+  // SOL-priced. Symbol/logo come from `paymentTokens` keyed by mint.
+  const lastPaymentByKey = useMemo(() => {
+    const m = new Map<string, { mint: string; amount: string; decimals: number } | null>();
+    for (const ev of events) {
+      if (m.has(ev.groupingKey)) continue;
+      if (ev.paymentMint && ev.paymentAmount != null && ev.paymentDecimals != null) {
+        m.set(ev.groupingKey, { mint: ev.paymentMint, amount: ev.paymentAmount, decimals: ev.paymentDecimals });
+      } else {
+        m.set(ev.groupingKey, null);
+      }
     }
     return m;
   }, [events]);
@@ -2097,6 +2139,8 @@ export default function MintsPage() {
                   mintTf={mintTf}
                   tfStatsByKey={tfStatsByKey}
                   lastPriceByKey={lastPriceByKey}
+                  lastPaymentByKey={lastPaymentByKey}
+                  paymentTokens={paymentTokens}
                   // Transient hover only takes effect when nothing is pinned —
                   // a pin holds the scope regardless of mouse movement.
                   onHoverEnter={() => setHoveredKey(r.groupingKey)}

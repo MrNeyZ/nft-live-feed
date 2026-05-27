@@ -32,6 +32,7 @@ import type { RawSolanaTx } from '../me-raw/types';
 import type { Priority } from '../concurrency';
 import { recordMint } from '../../mints/accumulator';
 import { enqueueMintEnrichment } from '../../mints/enricher';
+import { resolvePaymentToken } from '../../mints/payment-token-enricher';
 import type {
   MintEventWire,
   MintProgramSource,
@@ -504,6 +505,79 @@ function extractSignerLamportsPaid(tx: RawSolanaTx): number | null {
   return Number.isFinite(delta) ? delta : null;
 }
 
+/** SPL / Token-2022 amount the signer parted with, when the mint was
+ *  priced in a custom token. Detected from `meta.preTokenBalances` vs
+ *  `meta.postTokenBalances` deltas filtered to accounts owned by the
+ *  signer (accountKeys[0]). Returns the first negative delta (signer
+ *  paid out); ignores positive deltas (mint rewards/refunds). Returns
+ *  null when the mint is SOL-priced / free / lacks token-balance meta. */
+interface SignerSplPayment {
+  mint:     string;
+  amount:   string;   // raw u64 as string (no precision loss)
+  decimals: number;
+}
+function extractSignerSplPaid(tx: RawSolanaTx): SignerSplPayment | null {
+  const meta = tx.meta;
+  if (!meta) return null;
+  const pre  = meta.preTokenBalances  as Array<{ accountIndex: number; mint: string; owner?: string; uiTokenAmount?: { amount?: string; decimals?: number } }> | undefined;
+  const post = meta.postTokenBalances as Array<{ accountIndex: number; mint: string; owner?: string; uiTokenAmount?: { amount?: string; decimals?: number } }> | undefined;
+  if (!Array.isArray(pre) || !Array.isArray(post) || pre.length === 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawKeys = (tx.transaction?.message as any)?.accountKeys as Array<string | { pubkey: string }> | undefined;
+  if (!Array.isArray(rawKeys) || rawKeys.length === 0) return null;
+  const signer = typeof rawKeys[0] === 'string' ? rawKeys[0] : rawKeys[0]?.pubkey;
+  if (!signer) return null;
+
+  // Index pre by (accountIndex, mint) for quick delta computation.
+  const preKey = (b: { accountIndex: number; mint: string }) => `${b.accountIndex}:${b.mint}`;
+  const preMap = new Map<string, { amount: string; decimals: number; owner?: string }>();
+  for (const b of pre) {
+    preMap.set(preKey(b), {
+      amount:   b.uiTokenAmount?.amount   ?? '0',
+      decimals: b.uiTokenAmount?.decimals ?? 0,
+      owner:    b.owner,
+    });
+  }
+
+  for (const p of post) {
+    const owner = p.owner ?? preMap.get(preKey(p))?.owner;
+    if (owner !== signer) continue;
+    const preEntry = preMap.get(preKey(p));
+    const preAmt   = BigInt(preEntry?.amount ?? '0');
+    const postAmt  = BigInt(p.uiTokenAmount?.amount ?? '0');
+    const delta    = preAmt - postAmt;   // positive = signer paid
+    if (delta > 0n) {
+      return {
+        mint:     p.mint,
+        amount:   delta.toString(),
+        decimals: p.uiTokenAmount?.decimals ?? preEntry?.decimals ?? 0,
+      };
+    }
+  }
+  return null;
+}
+
+/** Build the optional payment-token fields from a tx. Returns an empty
+ *  object when the mint was SOL-priced / free, so callers can `...spread`
+ *  unconditionally without leaking explicit nulls onto the wire. Also
+ *  fires the lazy DAS resolver so the symbol/logo enriches asynchronously. */
+function paymentFieldsFrom(tx: RawSolanaTx): Partial<{
+  paymentMint:     string;
+  paymentAmount:   string;
+  paymentDecimals: number;
+}> {
+  const sp = extractSignerSplPaid(tx);
+  if (!sp) return {};
+  // Schedule lazy DAS resolution. Caches forever per unique mint, so the
+  // n-th sighting is free; fire-and-forget so the hot path never waits.
+  resolvePaymentToken(sp.mint);
+  return {
+    paymentMint:     sp.mint,
+    paymentAmount:   sp.amount,
+    paymentDecimals: sp.decimals,
+  };
+}
+
 function classifyMintType(priceLamports: number | null): MintType {
   if (priceLamports == null) return 'unknown';
   if (priceLamports <= 0)    return 'free';
@@ -648,6 +722,7 @@ export async function ingestMintRaw(
           groupingKind:      'collection',
           mintType,
           priceLamports,
+          ...paymentFieldsFrom(tx),
           minter:            cm.minter,
           // Reuse the existing `Metaplex Core` label → frontend renders CORE.
           sourceLabel:       'Metaplex Core',
@@ -693,6 +768,7 @@ export async function ingestMintRaw(
               groupingKind,
               mintType,
               priceLamports,
+              ...paymentFieldsFrom(tx),
               minter:            v2.minter,
               // Reuse the existing `Metaplex Core` label so the
               // frontend's `sourceBadge` renders it as `CORE` and
@@ -754,6 +830,7 @@ export async function ingestMintRaw(
         groupingKind,
         mintType,
         priceLamports,
+        ...paymentFieldsFrom(tx),
         minter:            lp.minter,
         sourceLabel:       launchpadSourceLabel(lp.source),
       });
@@ -845,6 +922,7 @@ export async function ingestMintRaw(
       groupingKind,
       mintType,
       priceLamports,
+      ...paymentFieldsFrom(tx),
       minter:            lp.minter,
       sourceLabel:       launchpadSourceLabel(lp.source),
     });
@@ -1158,6 +1236,7 @@ export async function ingestMintRaw(
     groupingKind,
     mintType,
     priceLamports,
+    ...paymentFieldsFrom(tx),
     minter,
     sourceLabel,
   });

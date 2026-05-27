@@ -155,7 +155,14 @@ export interface MintEvent {
   groupingKey:       string;
   groupingKind:      string;
   mintType:          'free' | 'paid' | 'unknown';
+  /** SOL paid by the signer. For SPL-token-priced mints this is the rent
+   *  paid for the new asset, NOT the real price — see paymentMint below. */
   priceLamports:     number | null;
+  /** SPL / Token-2022 mint paid when the mint was priced in a custom
+   *  token. Symbol/logo come from the SSE `payment_token_meta` channel. */
+  paymentMint?:      string | null;
+  paymentAmount?:    string | null;     // raw u64 as string
+  paymentDecimals?:  number | null;
   minter:            string | null;
   sourceLabel:       SourceLabel;
   /** Visual subtype: Core Candy Machine v3 launchpad mint → pink CORE badge. */
@@ -169,4 +176,15 @@ export interface MintEvent {
    *  the moment these arrive. */
   nftName?:          string | null;
   nftImageUrl?:      string | null;
+}
+
+/** Resolved metadata for a custom-token mint payment. Streamed once per
+ *  unique paymentMint via the SSE `payment_token_meta` channel; backend
+ *  replays the snapshot on connect. */
+export interface PaymentTokenInfo {
+  mint:     string;
+  symbol:   string | null;
+  name:     string | null;
+  image:    string | null;
+  decimals: number | null;
 }

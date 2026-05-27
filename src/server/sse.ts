@@ -10,6 +10,8 @@ import {
   type MintEventWire,
   type MintStatusWire,
   type MintMetaPatch,
+  type PaymentTokenMeta,
+  paymentTokenMetaSnapshot,
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
@@ -243,6 +245,9 @@ function buildMintStatusFrame(s: MintStatusWire): string {
 }
 function buildMintMetaFrame(p: MintMetaPatch): string {
   return `event: mint_meta\ndata: ${JSON.stringify(p)}\n\n`;
+}
+function buildPaymentTokenMetaFrame(p: PaymentTokenMeta): string {
+  return `event: payment_token_meta\ndata: ${JSON.stringify(p)}\n\n`;
 }
 
 // Sell-type sale_types we surface a "seller still holds N" badge for.
@@ -492,6 +497,7 @@ saleEventBus.onMint(           (m)      => {
 });
 saleEventBus.onMintStatus(     (s)      => enqueue(buildMintStatusFrame(s)));
 saleEventBus.onMintMeta(       (p)      => enqueue(buildMintMetaFrame(p)));
+saleEventBus.onPaymentTokenMeta((p)     => enqueue(buildPaymentTokenMetaFrame(p)));
 // Late seller-count refresh (active-dumper exact-fallback). Re-uses
 // the existing `seller_count` SSE event; frontend reducer already
 // matches by seller+collection and sticky-merges higher counts.
@@ -598,6 +604,13 @@ export function createSseRouter(): Router {
       } catch { /* client gone */ break; }
     }
     console.log(`[mints/sse] replayed mint_meta=${metaReplayed}`);
+    // Payment-token metadata snapshot — one entry per unique custom-token
+    // mint the backend has ever resolved this process lifetime. Without
+    // this, a freshly-loaded tab would render shortMint labels until the
+    // next mint priced in that token arrives.
+    for (const p of paymentTokenMetaSnapshot()) {
+      try { res.write(buildPaymentTokenMetaFrame(p)); } catch { break; }
+    }
 
     sseClients.add(res);
     clientsByIp.set(ip, ipCount + 1);

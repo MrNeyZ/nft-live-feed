@@ -176,6 +176,18 @@ export interface SellerCountUpdate {
   signal?:    'multi';
 }
 
+/** Payment token resolved metadata broadcast on the bus once per unique
+ *  paymentMint. The DAS lookup is fire-and-forget and cached forever
+ *  (token metadata is immutable for the lifetime of a mint), so this
+ *  fans out at most once per token. Frontend keeps a Map keyed by mint. */
+export interface PaymentTokenMeta {
+  mint:     string;
+  symbol:   string | null;
+  name:     string | null;
+  image:    string | null;
+  decimals: number | null;
+}
+
 export interface MintEventWire {
   signature:         string;
   blockTime:         string;
@@ -185,7 +197,20 @@ export interface MintEventWire {
   groupingKey:       string;
   groupingKind:      'collection' | 'updateAuthority' | 'creator' | 'mintAuthority' | 'merkleTree' | 'programSource';
   mintType:          MintType;
+  /** SOL paid by the signer (preBalance[0] - postBalance[0]). For
+   *  SPL-token-paid mints this is the rent paid for the new asset,
+   *  NOT the actual mint price — the real price lives in
+   *  paymentMint / paymentAmount / paymentDecimals. */
   priceLamports:     number | null;
+  /** SPL Token / Token-2022 mint paid by the signer, when the mint was
+   *  priced in a custom token. Null for SOL-priced or free mints.
+   *  Detected from preTokenBalances/postTokenBalances delta on accounts
+   *  owned by the signer. */
+  paymentMint?:      string | null;
+  /** Raw token amount paid (u64 as string to preserve precision). */
+  paymentAmount?:    string | null;
+  /** Decimals for paymentMint, for ui-amount conversion. */
+  paymentDecimals?:  number | null;
   minter:            string | null;
   sourceLabel:       MintSourceLabel;
   /** Visual subtype marker: true for Core Candy Machine v3 / Core Candy Guard
@@ -456,6 +481,20 @@ class SaleEventBus extends EventEmitter {
   onMintMeta(listener: (p: MintMetaPatch) => void): this { return this.on('mint_meta', listener); }
   offMintMeta(listener: (p: MintMetaPatch) => void): this { return this.off('mint_meta', listener); }
 
+  // Per-payment-token metadata. Fired once per unique paymentMint when
+  // the lazy DAS lookup resolves. Frontend keeps a Map<mint,info> and
+  // renders the symbol/logo beside the SOL price in the Mint Tracker.
+  emitPaymentTokenMeta(p: PaymentTokenMeta): void {
+    rememberPaymentTokenMeta(p);
+    this.emit('payment_token_meta', p);
+  }
+  onPaymentTokenMeta(listener: (p: PaymentTokenMeta) => void): this {
+    return this.on('payment_token_meta', listener);
+  }
+  offPaymentTokenMeta(listener: (p: PaymentTokenMeta) => void): this {
+    return this.off('payment_token_meta', listener);
+  }
+
   // Late-arriving seller-count update from the active-dumper exact-
   // fallback path. Independent of any specific sale signature — it
   // patches every visible row that matches seller+collection.
@@ -525,4 +564,24 @@ export function recentMintMetaSnapshot(): MintMetaPatch[] {
  *  events even right after a backend restart. */
 export function hydrateRecentMintMeta(patches: MintMetaPatch[]): void {
   for (const p of patches) rememberRecentMintMeta(p);
+}
+
+// ─── Payment-token meta cache + replay ──────────────────────────────
+// One entry per unique paymentMint. Token metadata is immutable for the
+// life of the mint, so a single resolution is permanent — no eviction.
+const paymentTokenMeta = new Map<string, PaymentTokenMeta>();
+
+function rememberPaymentTokenMeta(p: PaymentTokenMeta): void {
+  paymentTokenMeta.set(p.mint, p);
+}
+
+/** Snapshot for SSE replay on connect. */
+export function paymentTokenMetaSnapshot(): PaymentTokenMeta[] {
+  return Array.from(paymentTokenMeta.values());
+}
+
+/** Check whether a paymentMint has already been resolved (used by the
+ *  enricher to skip duplicate DAS lookups). */
+export function hasPaymentTokenMeta(mint: string): boolean {
+  return paymentTokenMeta.has(mint);
 }
