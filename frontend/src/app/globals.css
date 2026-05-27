@@ -143,6 +143,47 @@ html[data-layout="pc"] {
 .dashboard-spark circle {
   opacity: var(--spark-dot-opacity, 0.50);
 }
+/* Laptop tier — explicit token block (previously fell through to :root
+   defaults, which made laptop mode feel quieter / more compressed than
+   PC mode on similar geometry).
+   Goal: laptop reads as a smaller-viewport PC, not a separate look.
+   Bumps the same family of tokens PC bumps, at ~50–70% of the PC delta
+   so the page still fits 1366-wide screens without overflow.
+     Preserved unchanged for laptop:
+       --mints-max         (1400 root — laptop viewport rarely exceeds)
+       --feed-card-pad     (--feed-card-pad family stays at root defaults)
+     Aligned to PC for laptop:
+       --table-row-pad     13 px (matches PC row rhythm)
+       --mints-show-w      125 px (one tier; geometry-only — column is
+                                   ALSO a fixed col so this just widens
+                                   the button visually, no layout shift)
+     Midpoint between root and PC:
+       --page-x            20 px (root 16 → PC 24)
+       --accent-row-alpha  0.07
+       --accent-card-alpha 0.09
+       --hover-ring-alpha  0.48
+       --hover-glow-blur   20 px
+       --hover-glow-alpha  0.25
+       --stat-label-color  #353551
+       --th-label-color    #65657f
+       --spark-line-opacity 0.44
+       --spark-dot-opacity  0.56 */
+html[data-layout="laptop"] {
+  --shell-x:            28px;
+  --page-x:             20px;
+  --table-row-pad:      13px 10px;
+  --mints-show-w:       125px;
+  --accent-row-alpha:   0.07;
+  --accent-card-alpha:  0.09;
+  --hover-ring-alpha:   0.48;
+  --hover-glow-blur:    20px;
+  --hover-glow-alpha:   0.25;
+  --stat-label-color:   #353551;
+  --th-label-color:     #65657f;
+  --spark-line-opacity: 0.44;
+  --spark-dot-opacity:  0.56;
+}
+
 html[data-layout="phone"] {
   --shell-x:            12px;
   --shell-height:       44px;
