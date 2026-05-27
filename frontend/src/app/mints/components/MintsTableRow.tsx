@@ -477,7 +477,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 // No fixed pixel width — the strip resembles a row band
                 // rather than a chopped rectangle.
                 width: '100%', flex: 1, boxSizing: 'border-box',
-                paddingTop: 14, paddingBottom: 14,
+                // Vertical sizing: bumped padding 14 → 24 (+10 each side)
+                // plus minHeight floor so the visible strip occupies the
+                // row's content height rather than a thin 40 px sliver.
+                // Row total height unchanged — table row is sized by the
+                // COLLECTION cell's content (~70 px); SHOW just fills it.
+                paddingTop: 24, paddingBottom: 24,
+                minHeight: 64,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 cursor: 'pointer', userSelect: 'none', borderRadius: 4,
                 background: isPinned
