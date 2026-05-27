@@ -359,25 +359,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* trailing 1fr cell: 3-track grid so SHOW is geometrically
-              centered with equal left/right room, regardless of how many
-              marketplace icons / source badge land in the LEFT track.
-                col 1 (1fr): icons + source — justify-self: start
-                col 2 (auto): SHOW button   — justify-self: center
-                col 3 (1fr): mirror spacer  — empty, balances col 1 */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr auto 1fr',
-            alignItems: 'center',
-            columnGap: 4,
-            minWidth: 0,
-            alignSelf: 'stretch',
-          }}>
-          {/* icons + source — one group that hugs content, justify-self
-              start so they pin to the LEFT track origin. Without
-              justifySelf the inline-flex span would still hug content but
-              center in the 1fr cell, biasing SHOW visually right. */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content', flexShrink: 0, justifySelf: 'start' }}>
+          {/* trailing 1fr cell: flex row with a stable right-anchored
+              SHOW slot. icons+source absorb the variable width on the
+              LEFT (flex:1, content still left-aligned via inline-flex);
+              SHOW is a fixed-width block pinned to the RIGHT edge of
+              the cell (flexShrink:0, no flex:1). Net effect: every
+              row's SHOW button starts at the same x-position
+              (cell_right − show_width), regardless of how many
+              marketplace icons resolve. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, alignSelf: 'stretch' }}>
+          {/* icons + source — flex:1 wrapper so this group absorbs
+              variability; inner content still left-aligned. minWidth:0
+              lets icons ellipsis/wrap before pushing SHOW. */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -456,7 +450,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               the row's onMouseEnter); clicking pins/locks that scope. Subtle
               when idle, stronger purple when pinned. */}
           {onTogglePin && (
-            <span style={{ display: 'flex', justifyContent: 'center', alignSelf: 'stretch', justifySelf: 'center' }}>
+            <span style={{ display: 'flex', justifyContent: 'center', alignSelf: 'stretch', flexShrink: 0 }}>
               {/* role="button" is now DIRECTLY a flex child of the centering
                   span and has a real in-flow layout box (no nested positioning
                   wrapper, no absolute layer). alignSelf:'stretch' fills the
@@ -511,10 +505,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               </div>
             </span>
           )}
-          {/* col 3 — mirror spacer. Empty cell so the 1fr/1fr ratio
-              around SHOW stays balanced even when onTogglePin is unset
-              (col 2 collapses; spacer fills the right half). */}
-          <span aria-hidden="true" />
           </div>
         </div>
       </td>
