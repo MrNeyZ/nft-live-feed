@@ -832,6 +832,29 @@ export default function MintsPage() {
   const PAUSE_BUFFER_MAX = 500;
   useEffect(() => { pausedFeedRef.current = hoverPaused; }, [hoverPaused]);
 
+  // Master switch for hover-pause behavior — mirrors /feed's HOVER toggle.
+  // Default true; persisted in vl.mints.hoverPauseEnabled. When OFF,
+  // enter/leavePauseZone become no-ops, any in-effect pause is cleared,
+  // and the buffer drains immediately via the existing drain effect
+  // (hoverPaused → false).
+  const [hoverPauseEnabled, setHoverPauseEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const v = window.localStorage.getItem('vl.mints.hoverPauseEnabled');
+      return v === null ? true : v === '1';
+    } catch { return true; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.hoverPauseEnabled', hoverPauseEnabled ? '1' : '0'); } catch { /* quota */ }
+    // Turning the master switch OFF clears any in-effect pause + the zone
+    // counter, so the LEFT snapshot drops and the RIGHT buffer drains via
+    // the existing useEffect([hoverPaused]).
+    if (!hoverPauseEnabled) {
+      hoverZoneCountRef.current = 0;
+      setHoverPaused(false);
+    }
+  }, [hoverPauseEnabled]);
+
   // Hover-zone counter — pause activates while the cursor is over EITHER
   // the LEFT Mint Tracker table or the RIGHT Live Mint Feed panel. Single
   // state (`hoverPaused`) feeds both surfaces' PAUSED chips and the SSE
@@ -840,12 +863,58 @@ export default function MintsPage() {
   // the second enter increments before the first leave decrements.
   const hoverZoneCountRef = useRef(0);
   const enterPauseZone = () => {
+    if (!hoverPauseEnabled) return;
     hoverZoneCountRef.current += 1;
     if (hoverZoneCountRef.current === 1) setHoverPaused(true);
   };
   const leavePauseZone = () => {
+    if (!hoverPauseEnabled) { hoverZoneCountRef.current = 0; return; }
     hoverZoneCountRef.current = Math.max(0, hoverZoneCountRef.current - 1);
     if (hoverZoneCountRef.current === 0) setHoverPaused(false);
+  };
+
+  // Frontend-only collection blacklist — render-layer filter applied to
+  // both LEFT tracker and RIGHT feed. Persisted across reloads via
+  // vl.mints.blacklist (comma-joined lowercase tokens). Matches against
+  // groupingKey, collectionAddress, mintAddress, and lowercased name —
+  // so a user can paste any of those identifiers from the row title.
+  const [blacklistSlugs, setBlacklistSlugs] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('vl.mints.blacklist') ?? '';
+      return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    } catch { return []; }
+  });
+  const [blInput, setBlInput] = useState('');
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.blacklist', blacklistSlugs.join(',')); } catch { /* quota */ }
+  }, [blacklistSlugs]);
+  const addBlacklist = (raw: string) => {
+    const v = raw.trim().toLowerCase();
+    if (!v) return;
+    setBlacklistSlugs(prev => prev.includes(v) ? prev : [...prev, v]);
+    setBlInput('');
+  };
+  const removeBlacklist = (slug: string) =>
+    setBlacklistSlugs(prev => prev.filter(s => s !== slug));
+  /** O(1) match for the render-layer blacklist. Checks groupingKey,
+   *  collectionAddress, mintAddress, and lowercased name. */
+  const blacklistSet = useMemo(() => new Set(blacklistSlugs), [blacklistSlugs]);
+  const isBlacklistedRow = (r: MintStatus): boolean => {
+    if (blacklistSet.size === 0) return false;
+    if (blacklistSet.has(r.groupingKey.toLowerCase())) return true;
+    if (r.collectionAddress && blacklistSet.has(r.collectionAddress.toLowerCase())) return true;
+    if (r.lastMintAddress  && blacklistSet.has(r.lastMintAddress.toLowerCase()))  return true;
+    const nm = r.name?.trim().toLowerCase();
+    if (nm && blacklistSet.has(nm)) return true;
+    return false;
+  };
+  const isBlacklistedEvent = (e: MintEvent): boolean => {
+    if (blacklistSet.size === 0) return false;
+    if (e.groupingKey && blacklistSet.has(e.groupingKey.toLowerCase())) return true;
+    if (e.collectionAddress && blacklistSet.has(e.collectionAddress.toLowerCase())) return true;
+    if (e.mintAddress && blacklistSet.has(e.mintAddress.toLowerCase())) return true;
+    return false;
   };
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   // Direction is per-key; toggling the same header flips it, picking a
@@ -1092,11 +1161,15 @@ export default function MintsPage() {
     const feedCutoff = Date.now() - MINT_TF_MS[mintTf];
     return events.filter(ev =>
       ev.receivedAt >= feedCutoff
+      && !isBlacklistedEvent(ev)
       && matchesType(selectedTypes, ev.programSource, ev.sourceLabel)
       && matchesSource(selectedSources, ev.sourceLabel)
       && matchesStatusEvent(selectedStatuses, statusByKey, ev.groupingKey),
     );
-  }, [events, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick]);
+    // isBlacklistedEvent closes over blacklistSet — listing it in deps
+    // is enough to refilter on add/remove.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick, blacklistSet]);
 
   // Hover-scoped feed VIEW. Hover no longer hides non-matching mints — instead
   // matching mints cluster to the top at full opacity and the rest fade to
@@ -1801,6 +1874,9 @@ export default function MintsPage() {
       // Mint Feed (which doesn't apply this filter) keeps showing
       // every detected mint.
       .filter(r => isUsefulTrackerCollection(r))
+      // User blacklist (render-only). Same Set drives the RIGHT feed
+      // filter below so a slug toggled here vanishes from both surfaces.
+      .filter(r => !isBlacklistedRow(r))
       // TYPE / SOURCE / STATUS filters — SAME shared predicates the RIGHT feed
       // uses (./lib/filters), so a selection can never hide a collection here
       // while its mints still show in the feed (or vice-versa). Empty set =
@@ -1887,7 +1963,7 @@ export default function MintsPage() {
   // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
   // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick, blacklistSet]);
 
   // ── LEFT-table pause snapshot ─────────────────────────────────────
   // Mirrors the RIGHT feed's hover-pause: while hoverPaused is true,
@@ -1899,7 +1975,8 @@ export default function MintsPage() {
   // hides a UX action. Cleared the moment pause ends.
   const filterSortKey =
     `${effectiveSortKey}|${effectiveSortDir}|${mintTab}|${mintTf}|${showCnft}|` +
-    `${[...selectedTypes].sort().join(',')}|${[...selectedSources].sort().join(',')}|${[...selectedStatuses].sort().join(',')}`;
+    `${[...selectedTypes].sort().join(',')}|${[...selectedSources].sort().join(',')}|${[...selectedStatuses].sort().join(',')}|` +
+    `${[...blacklistSet].sort().join(',')}`;
   interface MintsDisplaySnap {
     key:              string;
     sorted:           typeof sorted;
@@ -2090,6 +2167,66 @@ export default function MintsPage() {
                     <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
                       label={lbl} size="sm"
                       style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  ))}
+                </div>
+              </div>
+              {/* HOVER PAUSE — iOS-style switch (mirrors /feed). Off
+                  disables freeze, PAUSED chip, and SSE buffering. */}
+              <div className="feed-srow" role="group" aria-label="Hover pause">
+                <span className="feed-srow-lbl">Hover</span>
+                <div className="feed-srow-ctl">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={hoverPauseEnabled}
+                    title="Auto-pause the tracker + feed while the cursor is over a row or card"
+                    onClick={() => setHoverPauseEnabled(v => !v)}
+                    className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
+                  >
+                    <span className="vl-switch-thumb" />
+                  </button>
+                  <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
+                </div>
+              </div>
+            </div>
+            {/* GROUP — Lists (blacklist). Matches /feed's WATCH/BLACKLIST
+                section: same .feed-set-group, same .feed-srow row, same
+                .feed-coll-input + Pill + .feed-chip-bl chips. Hides the
+                slug from BOTH the LEFT tracker rows AND the RIGHT Live
+                Mint Feed (single blacklistSet). */}
+            <div className="feed-set-group feed-set-group--lists">
+              <div className="feed-set-group-hd">Lists</div>
+              <div className="feed-srow">
+                <span className="feed-srow-lbl">Blacklist</span>
+                <div className="feed-srow-ctl">
+                  <input
+                    className="feed-coll-input"
+                    value={blInput}
+                    onChange={(e) => setBlInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
+                    placeholder="slug, address, or name…"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  <Pill
+                    active
+                    color="#e58aa3"
+                    onClick={() => addBlacklist(blInput)}
+                    label="+"
+                    title="Add to blacklist (Enter)"
+                    size="sm"
+                    style={settingsPillActive('#e58aa3')}
+                  />
+                  {blacklistSlugs.map((slug) => (
+                    <span key={slug} className="feed-chip feed-chip-bl">
+                      <span className="feed-chip-txt">{slug}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeBlacklist(slug)}
+                        title="Remove from blacklist"
+                        className="feed-chip-x"
+                      >✕</button>
+                    </span>
                   ))}
                 </div>
               </div>
