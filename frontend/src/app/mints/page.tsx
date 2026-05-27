@@ -781,6 +781,19 @@ export default function MintsPage() {
   // racing setEvents's async batched update).
   const eventsRef = useRef<MintEvent[]>(events);
   useEffect(() => { eventsRef.current = events; }, [events]);
+
+  // Hover-pause for the LIVE MINT FEED panel — mirrors the
+  // /feed page's hoverPaused pattern. While the cursor is over the
+  // feed scroll container, incoming `mint` SSE events are buffered
+  // (not prepended) so cards stay clickable. Drains on mouseleave
+  // through the same setEvents path so dedupe/sort/cap are consistent
+  // with live arrivals. The LEFT collections table keeps updating
+  // (matches /feed UX — only the live list freezes).
+  const [hoverPaused, setHoverPaused] = useState(false);
+  const pausedFeedRef = useRef(false);
+  const pausedFeedBuffer = useRef<MintEvent[]>([]);
+  const PAUSE_BUFFER_MAX = 500;
+  useEffect(() => { pausedFeedRef.current = hoverPaused; }, [hoverPaused]);
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   // Direction is per-key; toggling the same header flips it, picking a
   // new header resets to 'desc' (the natural default for numeric/recency
@@ -1122,6 +1135,30 @@ export default function MintsPage() {
     schedulePersistedFeed(events);
   }, [events]);
 
+  // Drain hover-pause buffer when the cursor leaves the feed. Routes
+  // every buffered event through the same merge+dedupe+sort+cap path
+  // as live arrivals so the resumed list is identical to "had the
+  // events landed without a pause".
+  useEffect(() => {
+    if (hoverPaused) return;
+    const buf = pausedFeedBuffer.current;
+    if (buf.length === 0) return;
+    pausedFeedBuffer.current = [];
+    setEvents(prev => {
+      const seen = new Set<string>();
+      for (const p of prev) seen.add(`${p.signature}:${p.mintAddress ?? ''}`);
+      const merged = [...prev];
+      for (const ev of buf) {
+        const k = `${ev.signature}:${ev.mintAddress ?? ''}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(ev);
+      }
+      merged.sort((a, b) => b.receivedAt - a.receivedAt);
+      return merged.slice(0, LIVE_FEED_MAX);
+    });
+  }, [hoverPaused]);
+
   // Backend is the source of truth for the recent live feed. localStorage
   // (loadPersistedFeed) hydrated `events` synchronously for instant paint, but
   // that's device-local fallback only. On mount, fetch the server snapshot
@@ -1280,33 +1317,42 @@ export default function MintsPage() {
           const blockTimeMs = m.blockTime ? Date.parse(m.blockTime) : NaN;
           const receivedAt  = Number.isFinite(blockTimeMs) ? blockTimeMs : Date.now();
           const ev: MintEvent = { ...m, receivedAt };
-          setEvents(prev => {
-            // Dedupe by signature:mintAddress (consistent with the backend
-            // unique key + the /api/mints/recent snapshot). A single tx that
-            // mints multiple assets yields distinct rows; a replay/reconnect of
-            // the same (sig,mint) is dropped.
-            if (prev.some(p => p.signature === ev.signature && (p.mintAddress ?? '') === (ev.mintAddress ?? ''))) {
-              console.log(`[mints/live-miss] reason=dedupe sig=${ev.signature.slice(0,12)}… mint=${ev.mintAddress ?? '—'}`);
-              return prev;
-            }
-            // Insert + maintain newest-first order by receivedAt. Sorting
-            // here (instead of trusting prepend order) is what lets a
-            // backend replay — which arrives oldest-first — interleave
-            // correctly with already-restored localStorage events that
-            // may be newer than the head of the replay batch.
-            const merged = [ev, ...prev];
-            merged.sort((a, b) => b.receivedAt - a.receivedAt);
-            // Sliding-window trim — drop the oldest tail, never wipe.
-            // Wiping the buffer at the cap (previous behavior) destroyed
-            // restored fresh events whenever a 150-event SSE replay
-            // pushed the buffer over the limit on remount.
-            const trimmed = merged.slice(0, LIVE_FEED_MAX);
-            console.log(
-              `[mints/live] inserted sig=${ev.signature.slice(0,12)}… ` +
-              `mint=${ev.mintAddress ?? '—'} name=${ev.nftName ?? '—'}`,
-            );
-            return trimmed;
-          });
+          if (pausedFeedRef.current) {
+            // Hover-pause: defer feed-list mutation. Buffer is bounded
+            // — drop oldest when capped so a long hover can't blow up
+            // memory. Drains via the useEffect when hover clears.
+            const buf = pausedFeedBuffer.current;
+            if (buf.length >= PAUSE_BUFFER_MAX) buf.shift();
+            buf.push(ev);
+          } else {
+            setEvents(prev => {
+              // Dedupe by signature:mintAddress (consistent with the backend
+              // unique key + the /api/mints/recent snapshot). A single tx that
+              // mints multiple assets yields distinct rows; a replay/reconnect of
+              // the same (sig,mint) is dropped.
+              if (prev.some(p => p.signature === ev.signature && (p.mintAddress ?? '') === (ev.mintAddress ?? ''))) {
+                console.log(`[mints/live-miss] reason=dedupe sig=${ev.signature.slice(0,12)}… mint=${ev.mintAddress ?? '—'}`);
+                return prev;
+              }
+              // Insert + maintain newest-first order by receivedAt. Sorting
+              // here (instead of trusting prepend order) is what lets a
+              // backend replay — which arrives oldest-first — interleave
+              // correctly with already-restored localStorage events that
+              // may be newer than the head of the replay batch.
+              const merged = [ev, ...prev];
+              merged.sort((a, b) => b.receivedAt - a.receivedAt);
+              // Sliding-window trim — drop the oldest tail, never wipe.
+              // Wiping the buffer at the cap (previous behavior) destroyed
+              // restored fresh events whenever a 150-event SSE replay
+              // pushed the buffer over the limit on remount.
+              const trimmed = merged.slice(0, LIVE_FEED_MAX);
+              console.log(
+                `[mints/live] inserted sig=${ev.signature.slice(0,12)}… ` +
+                `mint=${ev.mintAddress ?? '—'} name=${ev.nftName ?? '—'}`,
+              );
+              return trimmed;
+            });
+          }
           // Mirror every accepted mint event into the LEFT collections
           // table. Without this the table only ever fills from the
           // backend's separate `mint_status` channel, which the UI
@@ -2156,7 +2202,16 @@ export default function MintsPage() {
               />
             </div>
           </div>
-          <div className="scroll-area" style={{
+          <div className="scroll-area"
+            /* Hover auto-pause for the LIVE MINT FEED. Mirrors the /feed
+               page's pattern: entering the scroll container freezes the
+               live list so cards stay clickable; leaving drains the
+               buffer through the standard insert path. mouseenter/leave
+               don't fire when moving between child cards so there's no
+               flicker. */
+            onMouseEnter={() => setHoverPaused(true)}
+            onMouseLeave={() => setHoverPaused(false)}
+            style={{
             flex: 1, overflowY: 'auto',
             // Card-stack rhythm (mirrors /feed): inner column with a 6 px
             // gap between rows + 8 px padding so the first/last cards
