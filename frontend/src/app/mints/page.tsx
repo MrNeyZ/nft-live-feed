@@ -1889,6 +1889,43 @@ export default function MintsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick]);
 
+  // ── LEFT-table pause snapshot ─────────────────────────────────────
+  // Mirrors the RIGHT feed's hover-pause: while hoverPaused is true,
+  // the visible table reads from a frozen snapshot of `sorted` +
+  // its per-row data maps so new mints don't shuffle rows under the
+  // cursor. Backend / SSE / internal state keep ticking — only the
+  // RENDER is frozen. User-driven sort/filter/tab/tf changes recapture
+  // the snapshot immediately (filterSortKey diff), so the freeze never
+  // hides a UX action. Cleared the moment pause ends.
+  const filterSortKey =
+    `${effectiveSortKey}|${effectiveSortDir}|${mintTab}|${mintTf}|${showCnft}|` +
+    `${[...selectedTypes].sort().join(',')}|${[...selectedSources].sort().join(',')}|${[...selectedStatuses].sort().join(',')}`;
+  interface MintsDisplaySnap {
+    key:              string;
+    sorted:           typeof sorted;
+    tfStatsByKey:     typeof tfStatsByKey;
+    lastPriceByKey:   typeof lastPriceByKey;
+    lastPaymentByKey: typeof lastPaymentByKey;
+  }
+  const displaySnapshotRef = useRef<MintsDisplaySnap | null>(null);
+  const displaySorted = useMemo(() => {
+    if (!hoverPaused) { displaySnapshotRef.current = null; return sorted; }
+    const cur = displaySnapshotRef.current;
+    if (!cur || cur.key !== filterSortKey) {
+      const fresh: MintsDisplaySnap = {
+        key:              filterSortKey,
+        sorted, tfStatsByKey, lastPriceByKey, lastPaymentByKey,
+      };
+      displaySnapshotRef.current = fresh;
+      return fresh.sorted;
+    }
+    return cur.sorted;
+  }, [hoverPaused, sorted, filterSortKey, tfStatsByKey, lastPriceByKey, lastPaymentByKey]);
+  const frozenSnap = hoverPaused ? displaySnapshotRef.current : null;
+  const displayTfStatsByKey     = frozenSnap?.tfStatsByKey     ?? tfStatsByKey;
+  const displayLastPriceByKey   = frozenSnap?.lastPriceByKey   ?? lastPriceByKey;
+  const displayLastPaymentByKey = frozenSnap?.lastPaymentByKey ?? lastPaymentByKey;
+
   /** Live mint feed — events array drives the bottom panel directly,
    *  newest first (already maintained by the SSE handler). The group
    *  imageUrl/name is looked up from `rows` at render time so freshly
@@ -1914,9 +1951,9 @@ export default function MintsPage() {
                 <LiveDot />
                 <span style={{ fontSize: 11, color: '#4fb67d' }}>
                   {(() => {
-                    if (sorted.length === 0) return 'No active mints';
-                    const active = sorted.filter(r => r.displayState === 'shown').length;
-                    const watch  = sorted.length - active;
+                    if (displaySorted.length === 0) return 'No active mints';
+                    const active = displaySorted.filter(r => r.displayState === 'shown').length;
+                    const watch  = displaySorted.length - active;
                     if (watch === 0) return `${active} active`;
                     if (active === 0) return `${watch} watch`;
                     return `${active} active · ${watch} watch`;
@@ -2164,30 +2201,30 @@ export default function MintsPage() {
                   No illustration / no card — the tracker chrome
                   carries the visual weight. Hidden the moment a
                   single row arrives. */}
-              {sorted.length === 0 && (
+              {displaySorted.length === 0 && (
                 <tr>
                   <td colSpan={6} className="mints-empty-primary">
                     No collections in this timeframe
                   </td>
                 </tr>
               )}
-              {sorted.length === 0 && (
+              {displaySorted.length === 0 && (
                 <tr>
                   <td colSpan={6} className="mints-empty-helper">
                     Try a longer window
                   </td>
                 </tr>
               )}
-              {(() => { const now = Date.now(); return sorted.map((r, i) => (
+              {(() => { const now = Date.now(); return displaySorted.map((r, i) => (
                 <MintsTableRow
                   key={`${r.groupingKey}:${r.lastMintAt}`}
                   row={r}
                   index={i}
                   now={now}
                   mintTf={mintTf}
-                  tfStatsByKey={tfStatsByKey}
-                  lastPriceByKey={lastPriceByKey}
-                  lastPaymentByKey={lastPaymentByKey}
+                  tfStatsByKey={displayTfStatsByKey}
+                  lastPriceByKey={displayLastPriceByKey}
+                  lastPaymentByKey={displayLastPaymentByKey}
                   paymentTokens={paymentTokens}
                   // Transient hover only takes effect when nothing is pinned —
                   // a pin holds the scope regardless of mouse movement.
