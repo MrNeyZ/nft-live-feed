@@ -359,19 +359,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               );
             })()}
           </span>
-          {/* trailing 1fr cell: flex row with a stable right-anchored
-              SHOW slot. icons+source absorb the variable width on the
-              LEFT (flex:1, content still left-aligned via inline-flex);
-              SHOW is a fixed-width block pinned to the RIGHT edge of
-              the cell (flexShrink:0, no flex:1). Net effect: every
-              row's SHOW button starts at the same x-position
-              (cell_right − show_width), regardless of how many
-              marketplace icons resolve. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, alignSelf: 'stretch' }}>
-          {/* icons + source — flex:1 wrapper so this group absorbs
-              variability; inner content still left-aligned. minWidth:0
-              lets icons ellipsis/wrap before pushing SHOW. */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
+          {/* trailing 1fr cell: icons + source only. SHOW lives in its
+              own dedicated <td> after this cell (see below), so no
+              positioning hacks are needed here — icons+source simply
+              hug their content at the start of the trailing zone. */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -445,68 +437,60 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
           </span>
-          {/* SHOW pin control — centered in the leftover gap before MINTS.
-              Hovering it scopes the live feed to this collection (bubbles to
-              the row's onMouseEnter); clicking pins/locks that scope. Subtle
-              when idle, stronger purple when pinned. */}
-          {onTogglePin && (
-            <span style={{ display: 'flex', justifyContent: 'center', alignSelf: 'stretch', flexShrink: 0 }}>
-              {/* role="button" is now DIRECTLY a flex child of the centering
-                  span and has a real in-flow layout box (no nested positioning
-                  wrapper, no absolute layer). alignSelf:'stretch' fills the
-                  row content height (~42 px); marginTop/marginBottom:-14 +
-                  paddingTop/paddingBottom:14 extends the BOX through the td's
-                  14 px top/bottom padding → full visible row height AND full
-                  hitbox (DevTools shows ~120 × ~70). Layout-neutral on
-                  siblings (negative cross-axis margins don't displace them). */}
-              <div
-                role="button"
-                tabIndex={0}
-                data-uisnd="skip"
-                title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
-                onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
-                onMouseEnter={(e) => {
-                  onHoverEnter?.();
-                  if (!isPinned) {
-                    const b = e.currentTarget;
-                    b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.09) 28%, rgba(128,104,216,0.15) 50%, rgba(128,104,216,0.09) 72%, rgba(128,104,216,0) 100%)';
-                    b.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
-                    const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  onHoverLeave?.();
-                  if (!isPinned) {
-                    const b = e.currentTarget;
-                    b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)';
-                    b.style.boxShadow  = 'none';
-                    const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
-                  }
-                }}
-                style={{
-                  width: 'var(--mints-show-w, 120px)', alignSelf: 'stretch', boxSizing: 'content-box',
-                  marginTop: -14, marginBottom: -14,
-                  paddingTop: 14, paddingBottom: 14,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', userSelect: 'none', borderRadius: 4,
-                  background: isPinned
-                    ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
-                    : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)',
-                  boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
-                  transition: 'background 160ms ease, box-shadow 160ms ease',
-                }}
-              >
-                <span style={{
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                  whiteSpace: 'nowrap', transition: 'color 160ms ease',
-                  color: isPinned ? '#ffffff' : '#c9bdf0',
-                }}>SHOW</span>
-              </div>
-            </span>
-          )}
-          </div>
         </div>
+      </td>
+      {/* ── SHOW — dedicated action column (own <td>, stable column
+            width via --mints-show-col-w in the table colgroup). Button
+            is centered inside the cell via td text-align/justify, with
+            no dependency on COLLECTION-cell content width. */}
+      <td style={{ padding: 0, verticalAlign: 'middle', textAlign: 'center' }}>
+        {onTogglePin && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div
+              role="button"
+              tabIndex={0}
+              data-uisnd="skip"
+              title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
+              onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
+              onMouseEnter={(e) => {
+                onHoverEnter?.();
+                if (!isPinned) {
+                  const b = e.currentTarget;
+                  b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.09) 28%, rgba(128,104,216,0.15) 50%, rgba(128,104,216,0.09) 72%, rgba(128,104,216,0) 100%)';
+                  b.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
+                  const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
+                }
+              }}
+              onMouseLeave={(e) => {
+                onHoverLeave?.();
+                if (!isPinned) {
+                  const b = e.currentTarget;
+                  b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)';
+                  b.style.boxShadow  = 'none';
+                  const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
+                }
+              }}
+              style={{
+                width: 'var(--mints-show-w, 104px)', boxSizing: 'content-box',
+                paddingTop: 14, paddingBottom: 14,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', userSelect: 'none', borderRadius: 4,
+                background: isPinned
+                  ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
+                  : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)',
+                boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
+                transition: 'background 160ms ease, box-shadow 160ms ease',
+              }}
+            >
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                whiteSpace: 'nowrap', transition: 'color 160ms ease',
+                color: isPinned ? '#ffffff' : '#c9bdf0',
+              }}>SHOW</span>
+            </div>
+          </div>
+        )}
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
       {/* MINTS — count of mints for this collection seen inside the

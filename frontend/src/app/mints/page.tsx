@@ -2275,6 +2275,10 @@ export default function MintsPage() {
                   right and opens free center space (reserved for a future
                   badge) without touching the left-packed identity grid. */}
               <col />                        {/* COLLECTION (auto / remainder) */}
+              {/* SHOW — dedicated fixed column so the action button has
+                  a stable x-position across rows, independent of how
+                  many marketplace icons the COLLECTION cell carries. */}
+              <col style={{ width: 'var(--mints-show-col-w, 140px)' }} /> {/* SHOW */}
               <col style={{ width: 70 }}  /> {/* MINTS    */}
               <col style={{ width: 80 }}  /> {/* SUPPLY   */}
               <col style={{ width: 90 }}  /> {/* LAST     */}
@@ -2294,6 +2298,9 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
+                {/* SHOW — empty header (action column, no label). aria-label
+                    keeps the column semantic for assistive tech. */}
+                <th style={thStyle} aria-label="Show in live feed" />
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('mints')}>
                   MINTS {sortArrow(effectiveSortKey, effectiveSortDir, 'mints')}
                 </th>
@@ -2350,14 +2357,14 @@ export default function MintsPage() {
                   single row arrives. */}
               {displaySorted.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="mints-empty-primary">
+                  <td colSpan={7} className="mints-empty-primary">
                     No collections in this timeframe
                   </td>
                 </tr>
               )}
               {displaySorted.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="mints-empty-helper">
+                  <td colSpan={7} className="mints-empty-helper">
                     Try a longer window
                   </td>
                 </tr>
