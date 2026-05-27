@@ -1,165 +1,295 @@
-# nft-live-feed
+# nft-live-feed — VictoryLabs engineering notes
 
-Solana-wide live NFT sales feed with a Next.js UI layered on top.
+Solana-wide NFT sales + mints feed. Express/TS backend, Postgres, Next.js
+frontend. Backend owns truth; UI is a presentation layer over SSE.
 
-## What this is
+---
 
-A backend that ingests NFT sale events across ME v2, MMM, Tensor TComp, and
-Tensor TAMM, normalizes them into a single schema, persists them to PostgreSQL,
-and streams them to clients via SSE. A Next.js frontend consumes that stream as
-a live feed and includes a per-collection drill-down page.
+## GLOBAL RULES
 
-## NFT types tracked
+- **Backend is the source of truth.** Fix parsers, blacklists, detectors —
+  not UI defenses.
+- **Existing pattern first.** Before any new UI/logic, grep `soloist/`,
+  `mints/`, `server/`, `globals.css`. If an existing system covers ~80–90 %
+  of the problem, adapt it. Do not build a cleaner parallel architecture.
+- **One source of truth per concept.** No parallel reducers / stores /
+  feature flags. Extend `feedReducer`, `events` + `rows` state, soloist
+  primitives — don't shadow them.
+- **Surgical diffs.** One focused change at a time. Never `git add .` over
+  mixed WIP — snapshot → reset → re-apply → commit → restore.
+- **Preserve UX/layout.** Do not redesign working UI without an explicit ask.
 
-| Type | Notes |
-|---|---|
-| `legacy` | Standard Metaplex token-metadata NFTs |
-| `metaplex_core` | MPL Core standard (newer) |
-| `cnft` | Compressed NFTs via Bubblegum; **hard minimum 0.002 SOL filter** |
+---
 
-## Marketplaces tracked
+## LOW TOKEN MODE
 
-| Marketplace | Notes |
-|---|---|
-| `magic_eden` | Magic Eden marketplace |
-| `magic_eden_amm` | Magic Eden AMM pool trades |
-| `tensor` | Tensor marketplace |
-| `tensor_amm` | Tensor AMM/CLMM pool trades |
+- Default tone: terse, action-only, ~15 lines.
+- Output shape: **root cause → files changed → verification → result.**
+  Nothing else.
+- No proactive screenshots, Playwright runs, isolated builds, audits.
+- **No deep audits / wide scans / architecture archaeology unless asked.**
+- Read surgically: target file, target line range. Don't re-read large
+  files. Don't project-wide-grep when the path is already known.
+- No giant reasoning chains unless actively debugging.
 
-## Current Runtime Flow
+---
 
-`src/index.ts` starts, in order:
-1. DB connectivity check (`SELECT 1`)
-2. Express app (`createApp` from `src/server/app.ts`)
-3. `startListener()` — WebSocket-based live ingestion
-4. `startAmmPoller()` — light gap-healer for AMM programs
+## WORKFLOW
 
-The Helius webhook route (`POST /webhooks/helius`) is still registered but
-labeled "standby" at startup and is **not** the primary ingestion path.
-`startPoller()` (Helius enhanced poller) and `startRawPoller()`
-(`getSignaturesForAddress`-based) exist in the tree but are **disabled** at the
-`import` site in `src/index.ts` and must not be treated as active paths.
+- Plan only when non-trivial.
+- Find existing pattern (grep shared systems) before inventing.
+- Frontend build: `npm run build` inside `frontend/`.
+- **Visual verification = real browser.** HTTP / bundle / `pm2 list`
+  checks are deploy verification, not visual verification.
+- Surgical commit; never bundle WIP from unrelated files.
+- **Batch related small fixes** before deploying. Avoid restart/deploy loops.
+- **Frontend auto-deploy:** after a clean frontend commit, build +
+  `pm2 restart nft-frontend`. No "say when to deploy" gating.
+- Push only with explicit confirmation, except the auto-deploy path above.
 
-## Primary Ingestion Paths
+---
 
-### Live: `src/ingestion/listener.ts` (primary)
-- Standard Solana RPC `logsSubscribe`, one WebSocket per program
-- Subscribes to four programs:
-  - Magic Eden v2  (`M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K`)
-  - MMM (ME AMM)   (`mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc`)
-  - Tensor TComp   (`TCMPhJdwDryooaGtiocG1u3xcYbRpiJzb283XfCZsDp`)
-  - Tensor TAMM    (`TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg`)
-- On each confirmed signature: fetch raw tx, decode via
-  `me-raw/` or `tensor-raw/` parsers, then `insertSaleEvent`
-- Auto-reconnect with backoff, slot heartbeat + watchdog + forced periodic restart
+## UI/UX PHILOSOPHY
 
-### Gap-healer: `src/ingestion/amm-poller.ts` (fallback, AMM-only)
-- Polls the same four programs via `getSignaturesForAddress`
-- Purpose: catch signatures the WebSocket may have missed during reconnects
-- Cursor stored in `poller_state`, survives process restarts
-- Feeds into the **same** `ingestMeRaw` / `ingestTensorRaw` entry points —
-  `ON CONFLICT (signature) DO NOTHING` makes re-ingest safe
+- **Visual consistency > novelty.** Match existing spacing, density, hover,
+  glow, chip, and animation language.
+- **Do not redesign working UI uninvited.**
+- Soloist kit is shared — `LiveDot`, `TopNav`, `Pill`, `SettingsToggle`,
+  `SETTINGS_PILL_INACTIVE`, `settingsPillActive`, `ItemThumb`. Copy, don't fork.
+- **Hover-pause** is the shared contract for any continuously-moving list.
+- Per-card hover lift: `translateY(-1px) scale(1.005)` + inset ring + soft
+  glow. Lives on `.feed-card` and `.mints-feed-row`.
+- `PAUSED` chip pattern: amber, 10 px, in-header, only while paused.
 
-### Insert flow (`src/db/insert.ts`)
-For each parsed `SaleEvent`:
-1. **Insert fast** — write to `sale_events` with metadata nulls
-2. **Emit SSE** — `saleEventBus.emitSale(...)` fires immediately so clients render at once
-3. **Enqueue enrichment** — background `enrich(event)` (ME/DAS/metadata lookups); never awaited
-4. **Follow-up events** (any of):
-   - `rawpatch` — raw-parser corrections applied via `patchSaleEventRaw`
-   - `metaUpdate` — name/image/collection populated after enrichment completes
-   - `remove` — row deleted post-enrichment (blacklisted collection, or cNFT below min floor detected late)
+---
 
-## Real-time output
+## RESPONSIVE SYSTEM
 
-**SSE endpoint: `GET /events/stream`**
-- Each inserted sale fires `saleEventBus.emitSale()` in `src/events/emitter.ts`
-- SSE handler fans that event out to all connected clients immediately
-- 25-second heartbeat keeps connections alive through proxies
-- Single-process only; upgrade to Redis pub/sub when multi-process is needed
+- Source of truth: `frontend/src/lib/breakpoints.ts`. CSS mirrors via
+  `globals.css`. Ranges: mobile ≤480 / tablet ≤768 / small_laptop ≤1024 /
+  laptop ≤1600 / desktop_large 1601+.
+- Tokens: `--page-x`, `--feed-card-pad`, `--feed-card-gap`,
+  `--feed-root-padding-x`, `--hover-ring-alpha`, `--hover-glow-blur`,
+  `--hover-glow-alpha`.
+- **No monitor-specific magic offsets. No one-device fixes.**
+- Manual layout-mode (`vl.layoutMode`: pc / laptop / phone) is a user
+  toggle — never auto-set.
+- Verify across the full breakpoint matrix.
 
-**Browser usage:**
-```js
-const es = new EventSource('https://your-host/events/stream');
-es.addEventListener('sale', e => console.log(JSON.parse(e.data)));
+---
+
+## FRONTEND ARCHITECTURE
+
+- Routes: `/`, `/feed`, `/dashboard`, `/mints`, `/multi`, `/tools`,
+  `/tools/rare-feed`, `/collection/[slug]`, `/access`, `/thumb`.
+- `Gate` (`frontend/src/runtime/Gate.tsx`) wraps everything and owns the
+  `BottomStatusBar`. Access is gated by `UI_ALLOWED_WALLETS`.
+- **Embed contract** (`/multi` → iframes):
+  `?embed=1` → suppress `TopNav`, set `data-embedded="1"` on the root so
+  layout-mode zoom doesn't double-apply.
+- `/thumb` is the image proxy route — must be routed to the **frontend**
+  (port 3000), never the backend.
+- localStorage keys are namespaced `vl.*` — reuse, don't shadow.
+- Feed state lives in `feedReducer` (sales) and the `events` + `rows`
+  state pair (mints). No parallel store.
+
+---
+
+## BACKEND / INGESTION ARCHITECTURE
+
+- Boot order (`src/index.ts`): DB ping → Express (`createApp`) →
+  `startListener()` → `startAmmPoller()`.
+- **Primary live path:** `src/ingestion/listener.ts` — one
+  `logsSubscribe` WebSocket per program (ME v2, MMM, Tensor TComp,
+  Tensor TAMM). Auto-reconnect, slot heartbeat, watchdog, periodic
+  forced restart.
+- **AMM gap-healer:** `src/ingestion/amm-poller.ts` —
+  `getSignaturesForAddress`, cursor in `poller_state`.
+- **Disabled at import:** `poller.ts`, `raw-poller.ts`. **Standby:**
+  `helius/webhook.ts`.
+- **Mint subsystem:** `src/mints/` — `accumulator`, `detector`,
+  `enricher`, `blacklist`, `collection-confirm`, `core-supply-refresher`,
+  `event-store`, `snapshot`, `clean-name`.
+- **Storage:** Postgres `sale_events` (single source of truth).
+  `ON CONFLICT (signature) DO NOTHING` makes re-ingest safe.
+- Migrations 001 – 010 in `src/db/migrations/`. Run `npm run migrate`.
+- Single-process SSE (no Redis fanout).
+
+---
+
+## LIVE FEED RULES
+
+- SSE channels: `sale`, `metaUpdate`, `rawpatch`, `remove`.
+- Hover-pause buffers events in `pausedBuffer`; manual Pause coexists;
+  effective pause = `manual || hover`. Buffer caps at 500.
+- Density modes: `comfy` / `compact` / `tape` (`vl.feed.density`).
+- Filtering / dedupe / ordering live in the reducer. UI dispatches
+  typed actions only.
+
+---
+
+## MINT TRACKER RULES
+
+- SSE channels: `mint`, `mint_status`, `mint_meta`. `mint_meta` has a
+  server-side replay buffer for late-connecting tabs.
+- `isRenderableMintStatus` + `isClearlyNonNftMintEvent` are **last-line
+  defenses**, not the place for new rules. Fix the detector / blacklist
+  in `src/mints/` instead.
+- Live Mint Feed (right pane on `/mints`) uses the same hover-pause
+  contract as `/feed` (buffer + drain on mouse-leave). Left collections
+  table keeps updating during hover.
+- cNFT floor: `price_lamports ≤ 2_000_000` (0.002 SOL) discarded at parse
+  time.
+- Blacklist: `src/mints/blacklist.ts` + DB-loaded blocked-mints preload
+  on startup. Adding entries → hard-code in `BLACKLISTED_COLLECTIONS`
+  with a comment.
+
+---
+
+## CREDIT OPTIMIZATION
+
+- **Helius / RPC credits are a constrained resource.**
+- Prefer filtering, dedupe, batching, pre-classification **before** adding
+  any RPC call.
+- MMM prefilter (`src/ingestion/mmm-prefilter.ts`) sheds noise before RPC:
+  `MMM_DEFER_MS = 5_000`, `MMM_NOISE_TTL_MS = 30_000`,
+  `MMM_NOISE_MAX = 5_000`. Don't widen MMM ingestion without re-reading
+  these thresholds.
+- Background enrichment is fire-and-forget; never await on the hot path.
+- `ON CONFLICT (signature) DO NOTHING` → re-ingest is cheap. Over-fetch
+  is expensive.
+
+---
+
+## SECURITY RULES
+
+- `X-Frame-Options: SAMEORIGIN` in nginx — required for `/multi`. DENY
+  breaks all iframes.
+- `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`,
+  `Permissions-Policy: camera=(), microphone=(), geolocation=()` —
+  set in nginx, not Next.
+- CSP intentionally omitted (inline boot scripts / inline styles).
+- `UI_ALLOWED_WALLETS` lives in `/root/nft-live-feed/.env`. Restart
+  backend for changes to take effect.
+
+---
+
+## DEPLOYMENT / PM2 / NGINX
+
+- pm2 processes: **`nft-frontend`** (port 3000), **`nft-backend`**
+  (port 3001). Restart via `pm2 restart <name>`.
+- nginx site: **`/etc/nginx/sites-enabled/nft-live-feed`**.
+  Routes:
+    `/api/` → 3001 ·
+    `/events/` → 3001 (SSE-tuned: `proxy_buffering off`, 3600 s read) ·
+    `/webhooks/` → 3001 ·
+    `/` → 3000.
+- `/api/image-proxy` → **frontend (3000)**. Routing to backend breaks
+  every Burner thumbnail.
+- **Prod = live checkout.** Building in-place on a feature branch
+  contaminates `.next` and a `pm2 restart` ships it. For experimental
+  branches, build in an isolated temp dir; restore via
+  `git checkout main → rebuild → pm2 restart`.
+- Frontend auto-deploys per WORKFLOW; backend deploys are explicit.
+
+---
+
+## KNOWN PITFALLS
+
+- In-place build on a feature branch contaminates `.next` / `dist`.
+- `mint_meta` arrives after `mint` — UI must keep events live during the
+  patch, never replace.
+- Tensor listings are a no-op without `TENSOR_API_KEY`.
+- MMM pool buys not wired — `/api/buy/me` is auction-house only.
+- Single-process SSE; no Redis pub/sub.
+- nft.storage / w3s IPFS art is permanently dead — labelled fallback is
+  intended, not a regression.
+- Rare Feed (`feat/rare-feed-mvp`) is **not merged**; HowRare is the
+  current working rarity source.
+
+---
+
+## VERIFIED EXISTING PATTERNS
+
+- **Hover-pause:** `frontend/src/app/feed/page.tsx`,
+  `frontend/src/app/mints/page.tsx` (`pausedRef` + `pausedBuffer` +
+  drain effect on mouseleave).
+- **Hover lift:** `.feed-card:hover` / `.mints-feed-row:hover` in
+  `globals.css`.
+- **Embed contract:** `dashboard/page.tsx`, `feed/page.tsx`,
+  `mints/page.tsx` — `?embed=1` → no `TopNav`, `data-embedded="1"`.
+- **Soloist primitives:** `frontend/src/soloist/shared.tsx`.
+- **Persisted-store debounce:** `schedulePersistedCollections` /
+  `schedulePersistedFeed` in `mints/page.tsx` (1.5 s coalesce + flush
+  on `pagehide`).
+- **SSE reconnect with backoff + jitter:** identical pattern in
+  `feed/page.tsx` and `mints/page.tsx`.
+
+---
+
+## DO NOTS
+
+- Don't add UI-side filters to mask backend bugs.
+- Don't fork shared soloist primitives.
+- Don't widen MMM ingestion without re-reading `mmm-prefilter.ts`.
+- Don't introduce monitor-specific offsets or device-only fixes.
+- Don't claim visual behavior from HTTP / bundle / `pm2 list` alone.
+- Don't redesign working UI uninvited.
+- Don't commit unrelated WIP in the same change.
+- Don't push without confirmation (frontend auto-deploy excepted).
+- Don't set `X-Frame-Options: DENY`, add CSP, or route `/api/image-proxy`
+  to the backend.
+- Don't build experimental branches in the live checkout.
+
+---
+
+## PROJECT STRUCTURE
+
 ```
+src/                       backend (TS / Node)
+  index.ts                 boot: DB → Express → listener → amm-poller
+  ingestion/
+    listener.ts            primary live (logsSubscribe per program)
+    amm-poller.ts          AMM gap-healer
+    mmm-prefilter.ts       MMM noise shed (RPC saver)
+    me-raw/, tensor-raw/   raw tx → SaleEvent decoders
+    mint-raw/              raw tx → MintEvent decoders
+    helius/webhook.ts      standby (not active)
+    poller.ts, raw-poller.ts  disabled at import (rollback only)
+  mints/
+    accumulator.ts         per-collection rollups + mint_status frames
+    detector.ts            NFT-shape gate
+    enricher.ts            name/image/collection DAS lookups
+    blacklist.ts           BLACKLISTED_COLLECTIONS + DB blocked mints
+    collection-confirm.ts  late name/image patch path
+    event-store.ts         in-memory recent-mint buffer
+    snapshot.ts            SSE replay on connect
+  events/emitter.ts        SaleEventBus (sale/meta/rawpatch/remove)
+                           + mint / mint_status / mint_meta
+  server/
+    app.ts                 Express composition
+    sse.ts                 /events/stream, heartbeat, fan-out
+    events-router.ts       collection drill-down endpoints
+    collection-*.ts        listings / bids / rollups / stats / chart / …
+    market.ts, buy-me.ts   ME buy flow (auction-house only)
+  db/
+    insert.ts              insertSaleEvent + patchSaleEventRaw
+    poller-state.ts        cursor read/write
+    migrations/            001 … 010
 
-## cNFT price filter
-
-cNFT sales with `price_lamports <= 2_000_000` (0.002 SOL) are **discarded at parse time**.
-Rationale: cNFTs are often used for spam/dust; very low-value sales are noise.
-
-## Storage
-
-`sale_events` (PostgreSQL) is the single source of truth for persisted sales.
-All ingestion paths — listener, AMM gap-healer, and (if ever re-enabled) the
-disabled pollers/webhook — converge on `insertSaleEvent` and this table.
-`ON CONFLICT (signature) DO NOTHING` makes duplicate inserts safe.
-
-Migrations in `src/db/migrations/`:
-`001_initial.sql`, `002_poller_state.sql`, `003_enrichment_columns.sql`,
-`004_sale_type.sql`, `005_me_collection_slug.sql`.
-
-## Key files
-
-| File | Purpose |
-|---|---|
-| `src/models/sale-event.ts` | Canonical `SaleEvent` type + constants |
-| `src/db/insert.ts` | `insertSaleEvent()` + `patchSaleEventRaw()` — write path & SSE fan-out triggers |
-| `src/db/poller-state.ts` | Read/write polling cursors |
-| `src/events/emitter.ts` | In-process `SaleEventBus` (sale / metaUpdate / rawpatch / remove) |
-| `src/ingestion/listener.ts` | **Primary live path** — logsSubscribe WebSocket per program |
-| `src/ingestion/amm-poller.ts` | Gap-healer — `getSignaturesForAddress` for ME/MMM/TComp/TAMM |
-| `src/ingestion/me-raw/`, `src/ingestion/tensor-raw/` | Raw tx → SaleEvent decoders |
-| `src/ingestion/helius/webhook.ts` | Webhook route (registered, **standby**, not primary) |
-| `src/ingestion/poller.ts`, `src/ingestion/raw-poller.ts` | **Disabled** — kept for rollback |
-| `src/server/sse.ts` | SSE endpoint, heartbeat, fan-out |
-
-## Setup
-
-```bash
-cp .env.example .env
-# fill in DATABASE_URL, HELIUS_API_KEY, HELIUS_WEBHOOK_AUTH
-
-npm install
-npm run migrate   # runs both 001 and 002 migrations
-npm run dev
+frontend/src/
+  app/
+    feed/                  /feed — Live Feed (sales)
+    dashboard/             /dashboard — analytics
+    mints/                 /mints — collections table + Live Mint Feed
+    multi/                 /multi — iframes dashboard/feed/mints
+    tools/                 /tools, /tools/rare-feed
+    collection/[slug]/     drill-down
+    access/                login
+    thumb/                 image proxy route
+  soloist/                 shared UI kit, layout-mode, price-mode,
+                           feed-store, sounds, mock-data, shared.tsx
+  runtime/Gate.tsx         auth gate + BottomStatusBar
+  lib/breakpoints.ts       responsive source of truth
 ```
-
-The listener and AMM gap-healer both start automatically. No webhook
-registration is required for the current runtime (the route exists for
-rollback only).
-
-## Frontend
-
-A Next.js frontend lives in `frontend/`. It currently behaves as a **live feed
-page** backed by `/events/stream` (SSE) plus a collection page that surfaces
-per-slug listings/trades/stats via backend proxy endpoints
-(`src/server/collection-*.ts`, `src/server/events-router.ts`). It is **not** a
-finished collection-level aggregator — it's a feed UI with a collection drill-down.
-
-## Known Current Scope
-
-- Live NFT sale ingestion for ME v2, MMM, Tensor TComp, Tensor TAMM via WebSocket
-- AMM program gap-healing via `getSignaturesForAddress`
-- Persistence to `sale_events` with background enrichment (name, image, collection)
-- SSE fan-out of `sale` / `metaUpdate` / `rawpatch` / `remove` events
-- cNFT floor filter (0.002 SOL) enforced at parse time and defensively at insert
-- Collection page data sources: ME direct listings + MMM sell-side pool listings +
-  (optional, requires `TENSOR_API_KEY`) Tensor listings; ME/MMM bids; 7d rollups
-  computed from `sale_events`
-- ME buy flow via `/api/buy/me` (standard auction-house `buy_now`)
-
-## Not Yet Built / Not Primary
-
-- Helius webhook path (`POST /webhooks/helius`) — registered but **standby**, not active
-- Helius enhanced poller (`src/ingestion/poller.ts`) — **disabled** at import site
-- Raw `getSignaturesForAddress` poller (`src/ingestion/raw-poller.ts`) — **disabled**
-- Tensor listings — code path exists in `src/server/collection-listings.ts` but is a
-  no-op unless `TENSOR_API_KEY` is set
-- MMM buy execution — MMM pool listings surface in the LISTINGS column but
-  `/api/buy/me` targets the auction-house path only; pool buys (`fulfill_sell`)
-  are not wired
-- TAMM-specific listings endpoint — Tensor path covers TAMM only implicitly
-  via Tensor's `active_listings_v2` when a key is present
-- Multi-process SSE fanout via Redis pub/sub
