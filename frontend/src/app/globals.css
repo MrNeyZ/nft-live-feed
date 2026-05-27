@@ -172,7 +172,12 @@ html[data-layout="laptop"] {
   --shell-x:            28px;
   --page-x:             20px;
   --table-row-pad:      13px 10px;
-  --mints-show-w:       125px;
+  /* SHOW button: clearly wider on laptop so the cell reads as a real
+     action target, not a compressed remnant. Root default = 120 px,
+     PC = 125 px, laptop now = 156 px (+30 % vs root). Button alone
+     widens — column is auto/1fr in the COLLECTION cell, so no table
+     overflow and no row-height change. */
+  --mints-show-w:       156px;
   --accent-row-alpha:   0.07;
   --accent-card-alpha:  0.09;
   --hover-ring-alpha:   0.48;
