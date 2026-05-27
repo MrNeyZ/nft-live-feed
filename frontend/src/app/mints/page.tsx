@@ -758,6 +758,35 @@ function FeedFiltersPopover({
  *  both Core asset addresses and TM mint addresses, so a single URL form
  *  covers both. Renders a muted dash when no on-chain anchor is known
  *  yet (groupingKind is `authority` / `programSource`). */
+/** Subtle PAUSED status chip — muted amber, lower contrast than the
+ *  prior loud version. Rendered in both the LEFT Mint Tracker header and
+ *  the RIGHT Live Mint Feed header while hover-pause is active. Shared
+ *  component (single source of truth for the style) so the two surfaces
+ *  can never drift. */
+function PausedChip() {
+  return (
+    <span
+      aria-live="polite"
+      title="Live feed paused while hovered — move cursor off to resume"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        padding: '1px 5px', borderRadius: 3,
+        fontSize: 9, fontWeight: 600, letterSpacing: '0.5px',
+        color: 'rgba(201,165,72,0.78)',
+        background: 'rgba(201,165,72,0.05)',
+        border: '1px solid rgba(201,165,72,0.22)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{
+        width: 4, height: 4, borderRadius: '50%',
+        background: 'rgba(201,165,72,0.65)',
+      }} />
+      PAUSED
+    </span>
+  );
+}
+
 export default function MintsPage() {
   // Embed mode (`?embed=1`) suppresses TopNav so multi-tab can iframe
   // the real /mints page without a duplicated chrome row, mirroring
@@ -1937,11 +1966,11 @@ export default function MintsPage() {
                          color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
               />
             ))}
-            <span style={{ width: 1, height: 13, background: 'rgba(168,144,232,0.12)', margin: '0 6px' }} />
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
-              {sorted.length.toLocaleString()} <span style={{ color: '#3a3a52' }}>collections</span>
-            </span>
             <span style={{ marginLeft: 6 }}><LiveDot /></span>
+            {/* Shared PAUSED chip — same hoverPaused state as the Live
+                Mint Feed header; appears here so the tracker table also
+                reflects the freeze. */}
+            {hoverPaused && <span style={{ marginLeft: 6 }}><PausedChip /></span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {/* Canonical shared Settings toggle — same control as Live Feed and
@@ -2183,33 +2212,11 @@ export default function MintsPage() {
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px', marginRight: 2 }}>
                 LIVE MINT FEED
               </span>
-              {/* PAUSED indicator — terminal-style amber chip, only while
-                  the cursor is over the feed. Same chip shape as the
-                  pinned/hover chips below (4 px radius, 10 px text) so it
-                  doesn't change header height. Aria-live=polite so screen
-                  readers announce the pause transition without spamming. */}
-              {hoverPaused && (
-                <span
-                  aria-live="polite"
-                  title="Live feed paused while hovered — move cursor off to resume"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '2px 7px', borderRadius: 4,
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
-                    color: '#e8c14a',
-                    background: 'rgba(232,193,74,0.10)',
-                    border: '1px solid rgba(232,193,74,0.42)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{
-                    width: 5, height: 5, borderRadius: '50%',
-                    background: '#e8c14a',
-                    boxShadow: '0 0 6px rgba(232,193,74,0.65)',
-                  }} />
-                  PAUSED
-                </span>
-              )}
+              {/* PAUSED chip — shared with the LEFT Mint Tracker header
+                  (single PausedChip component, single hoverPaused state).
+                  Same chip shape/height as the pinned chips so the header
+                  doesn't reflow when toggled. */}
+              {hoverPaused && <PausedChip />}
               {/* Pinned chips — one per pinned collection. SHOW click on a
                   table row adds to this set; the × on a chip removes that
                   one without affecting the others. Wrap onto a second line
