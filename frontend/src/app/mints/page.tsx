@@ -2142,92 +2142,102 @@ export default function MintsPage() {
         {settingsOpen && (
           <div className="feed-filters-panel feed-filters-panel-open"
             style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
-            <div className="feed-set-group">
-              <div className="feed-set-group-hd">Filters</div>
-              <div className="feed-srow">
-                <span className="feed-srow-lbl">Source</span>
-                <div className="feed-srow-ctl feed-seg">
-                  <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}
-                    label="Any" size="sm"
-                    style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                  {SOURCE_KEYS_UI.map(s => (
-                    <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)}
-                      label={s} size="sm"
-                      style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                  ))}
+            {/* Two-column settings — mirrors /feed exactly:
+                  LEFT col 1 = CONTENT (Source, Status)
+                  LEFT col 2 = LISTS   (Blacklist)
+                  RIGHT col  = DISPLAY (Hover toggle, spans both rows)
+                Grid + divider are owned by .feed-settings /
+                .feed-set-group--{content,lists,display} in globals.css —
+                no new CSS introduced. */}
+            <div className="feed-settings">
+              {/* GROUP — CONTENT (Source + Status) */}
+              <div className="feed-set-group feed-set-group--content">
+                <div className="feed-set-group-hd">Content</div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Source</span>
+                  <div className="feed-srow-ctl feed-seg">
+                    <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}
+                      label="Any" size="sm"
+                      style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    {SOURCE_KEYS_UI.map(s => (
+                      <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)}
+                        label={s} size="sm"
+                        style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    ))}
+                  </div>
+                </div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Status</span>
+                  <div className="feed-srow-ctl feed-seg">
+                    <Pill active={selectedStatuses.size === 0} onClick={() => toggleStatus(null)}
+                      label="Any" size="sm"
+                      style={selectedStatuses.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    {([['active','Active'],['watch','Watch'],['sold','Sold']] as const).map(([k,lbl]) => (
+                      <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
+                        label={lbl} size="sm"
+                        style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    ))}
+                  </div>
                 </div>
               </div>
-              <div className="feed-srow">
-                <span className="feed-srow-lbl">Status</span>
-                <div className="feed-srow-ctl feed-seg">
-                  <Pill active={selectedStatuses.size === 0} onClick={() => toggleStatus(null)}
-                    label="Any" size="sm"
-                    style={selectedStatuses.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                  {([['active','Active'],['watch','Watch'],['sold','Sold']] as const).map(([k,lbl]) => (
-                    <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
-                      label={lbl} size="sm"
-                      style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                  ))}
+              {/* GROUP — LISTS (Blacklist). Single blacklistSet filters
+                  BOTH the LEFT tracker rows AND the RIGHT Live Mint Feed. */}
+              <div className="feed-set-group feed-set-group--lists">
+                <div className="feed-set-group-hd">Lists</div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Blacklist</span>
+                  <div className="feed-srow-ctl">
+                    <input
+                      className="feed-coll-input"
+                      value={blInput}
+                      onChange={(e) => setBlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
+                      placeholder="slug, address, or name…"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <Pill
+                      active
+                      color="#e58aa3"
+                      onClick={() => addBlacklist(blInput)}
+                      label="+"
+                      title="Add to blacklist (Enter)"
+                      size="sm"
+                      style={settingsPillActive('#e58aa3')}
+                    />
+                    {blacklistSlugs.map((slug) => (
+                      <span key={slug} className="feed-chip feed-chip-bl">
+                        <span className="feed-chip-txt">{slug}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeBlacklist(slug)}
+                          title="Remove from blacklist"
+                          className="feed-chip-x"
+                        >✕</button>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {/* HOVER PAUSE — iOS-style switch (mirrors /feed). Off
-                  disables freeze, PAUSED chip, and SSE buffering. */}
-              <div className="feed-srow" role="group" aria-label="Hover pause">
-                <span className="feed-srow-lbl">Hover</span>
-                <div className="feed-srow-ctl">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={hoverPauseEnabled}
-                    title="Auto-pause the tracker + feed while the cursor is over a row or card"
-                    onClick={() => setHoverPauseEnabled(v => !v)}
-                    className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
-                  >
-                    <span className="vl-switch-thumb" />
-                  </button>
-                  <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
-                </div>
-              </div>
-            </div>
-            {/* GROUP — Lists (blacklist). Matches /feed's WATCH/BLACKLIST
-                section: same .feed-set-group, same .feed-srow row, same
-                .feed-coll-input + Pill + .feed-chip-bl chips. Hides the
-                slug from BOTH the LEFT tracker rows AND the RIGHT Live
-                Mint Feed (single blacklistSet). */}
-            <div className="feed-set-group feed-set-group--lists">
-              <div className="feed-set-group-hd">Lists</div>
-              <div className="feed-srow">
-                <span className="feed-srow-lbl">Blacklist</span>
-                <div className="feed-srow-ctl">
-                  <input
-                    className="feed-coll-input"
-                    value={blInput}
-                    onChange={(e) => setBlInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
-                    placeholder="slug, address, or name…"
-                    spellCheck={false}
-                    autoComplete="off"
-                  />
-                  <Pill
-                    active
-                    color="#e58aa3"
-                    onClick={() => addBlacklist(blInput)}
-                    label="+"
-                    title="Add to blacklist (Enter)"
-                    size="sm"
-                    style={settingsPillActive('#e58aa3')}
-                  />
-                  {blacklistSlugs.map((slug) => (
-                    <span key={slug} className="feed-chip feed-chip-bl">
-                      <span className="feed-chip-txt">{slug}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeBlacklist(slug)}
-                        title="Remove from blacklist"
-                        className="feed-chip-x"
-                      >✕</button>
-                    </span>
-                  ))}
+              {/* GROUP — DISPLAY (Hover toggle; spans both rows on the
+                  right, divider painted by --display border-left). */}
+              <div className="feed-set-group feed-set-group--display">
+                <div className="feed-set-group-hd">Display</div>
+                <div className="feed-srow" role="group" aria-label="Hover pause">
+                  <span className="feed-srow-lbl">Hover</span>
+                  <div className="feed-srow-ctl">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={hoverPauseEnabled}
+                      title="Auto-pause the tracker + feed while the cursor is over a row or card"
+                      onClick={() => setHoverPauseEnabled(v => !v)}
+                      className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
+                    >
+                      <span className="vl-switch-thumb" />
+                    </button>
+                    <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
+                  </div>
                 </div>
               </div>
             </div>
