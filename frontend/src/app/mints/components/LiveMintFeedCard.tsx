@@ -195,7 +195,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false }: Prop
         // its footprint and the panel never reflows. Eased so the fade reads
         // as deliberate rather than a flicker.
         opacity: dimmed ? 0.15 : 1,
-        transition: 'background 0.12s, border-color 0.12s, opacity 0.15s',
+        // Transitions live on `.mints-feed-row` in globals.css so the
+        // hover lift (transform + scale) animates in lock-step with bg
+        // and border-color. Inline `transition` removed — it shadowed
+        // the class rule and made the transform snap.
       }}
     >
       {/* 56×56 thumbnail rendered from a 200×200 /thumb source so

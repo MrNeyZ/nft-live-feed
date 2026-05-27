@@ -2139,6 +2139,33 @@ export default function MintsPage() {
               <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px', marginRight: 2 }}>
                 LIVE MINT FEED
               </span>
+              {/* PAUSED indicator — terminal-style amber chip, only while
+                  the cursor is over the feed. Same chip shape as the
+                  pinned/hover chips below (4 px radius, 10 px text) so it
+                  doesn't change header height. Aria-live=polite so screen
+                  readers announce the pause transition without spamming. */}
+              {hoverPaused && (
+                <span
+                  aria-live="polite"
+                  title="Live feed paused while hovered — move cursor off to resume"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '2px 7px', borderRadius: 4,
+                    fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
+                    color: '#e8c14a',
+                    background: 'rgba(232,193,74,0.10)',
+                    border: '1px solid rgba(232,193,74,0.42)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%',
+                    background: '#e8c14a',
+                    boxShadow: '0 0 6px rgba(232,193,74,0.65)',
+                  }} />
+                  PAUSED
+                </span>
+              )}
               {/* Pinned chips — one per pinned collection. SHOW click on a
                   table row adds to this set; the × on a chip removes that
                   one without affecting the others. Wrap onto a second line

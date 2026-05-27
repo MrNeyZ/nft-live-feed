@@ -1658,12 +1658,21 @@ body[data-bottombar="1"] .feed-root {
 }
 
 /* /mints Live Mint Feed rows — mirror the .feed-card hover state so the
-   right-panel rhythm matches /feed's visual language. Subtle background
-   tint on hover; no border/shadow change. Card-style hover (no transform
-   / no scale) so the right pane keeps its "card list" feel and never
-   inherits the table-row scale lift used on the left tracker. */
+   right-panel rhythm matches /feed's visual language. Same translateY(-1px)
+   + scale(1.005) lift + inset ring + soft outer glow used in the Sales
+   feed, so hovering a mint card reads exactly like hovering a sale card.
+   `transform: scale()` is paint-only — no reflow, no layout shift. */
 .mints-feed-row {
   cursor: default;
+  /* Same eased properties as `.feed-card` so the lift, bg tint, and
+     ring all animate together (box-shadow intentionally not transitioned
+     — the glow snaps, matching /feed). */
+  transition:
+    transform 200ms ease-out,
+    background 200ms ease-out,
+    border-color 200ms ease-out,
+    opacity 0.15s;
+  transform-origin: center;
   /* Scope style + layout recalc to each card so a single card class
      flip (fresh→recent→stale) or hover doesn't walk the whole feed
      list's recalc tree. Paint is intentionally NOT contained so the
@@ -1672,8 +1681,13 @@ body[data-bottombar="1"] .feed-root {
   contain: layout style;
 }
 .mints-feed-row:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(168, 144, 232, 0.22);
+  transform: translateY(-1px) scale(1.005);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
+  box-shadow:
+    0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
+    0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.22));
+  z-index: 1;
 }
 
 /* Persistent freshness halo for cards that are 2.5–15 s old. The
