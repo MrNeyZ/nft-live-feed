@@ -2077,15 +2077,7 @@ export default function MintsPage() {
           </div>
         )}
 
-        <div
-          style={{ flex: 1, overflowY: 'auto' }}
-          className="scroll-area mints-tracker-scroll collection-table-scroll"
-          /* Hover-pause zone for the LEFT Mint Tracker. Shares the
-             zone-counter with the RIGHT pane so cursor transitions
-             between the two surfaces never momentarily unpause. */
-          onMouseEnter={enterPauseZone}
-          onMouseLeave={leavePauseZone}
-        >
+        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
@@ -2201,6 +2193,8 @@ export default function MintsPage() {
                   // a pin holds the scope regardless of mouse movement.
                   onHoverEnter={() => setHoveredKey(r.groupingKey)}
                   onHoverLeave={() => setHoveredKey(prev => prev === r.groupingKey ? null : prev)}
+                  onPauseEnter={enterPauseZone}
+                  onPauseLeave={leavePauseZone}
                   isPinned={pinnedKeys.has(r.groupingKey)}
                   onTogglePin={() => togglePin(r.groupingKey)}
                 />
@@ -2308,14 +2302,9 @@ export default function MintsPage() {
             </div>
           </div>
           <div className="scroll-area"
-            /* Hover auto-pause for the LIVE MINT FEED. Mirrors the /feed
-               page's pattern: entering the scroll container freezes the
-               live list so cards stay clickable; leaving drains the
-               buffer through the standard insert path. mouseenter/leave
-               don't fire when moving between child cards so there's no
-               flicker. */
-            onMouseEnter={enterPauseZone}
-            onMouseLeave={leavePauseZone}
+            /* Hover-pause is per-card now — see onPauseEnter/Leave on
+               LiveMintFeedCard below. Hovering empty panel padding no
+               longer triggers a pause. */
             style={{
             flex: 1, overflowY: 'auto',
             // Card-stack rhythm (mirrors /feed): inner column with a 6 px
@@ -2345,6 +2334,8 @@ export default function MintsPage() {
                 group={rows.get(ev.groupingKey)}
                 now={now}
                 dimmed={dimmed}
+                onPauseEnter={enterPauseZone}
+                onPauseLeave={leavePauseZone}
               />
             )); })()}
           </div>

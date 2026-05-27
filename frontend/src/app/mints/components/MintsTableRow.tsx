@@ -88,6 +88,11 @@ interface Props {
    *  collection. Optional — omitting them leaves row behaviour unchanged. */
   onHoverEnter?: () => void;
   onHoverLeave?: () => void;
+  /** Hover-pause hooks — fire when the cursor enters/leaves the row body
+   *  (not empty table whitespace). Wired to the page-level zone counter
+   *  so the LEFT and RIGHT panes share one `hoverPaused` state. */
+  onPauseEnter?: () => void;
+  onPauseLeave?: () => void;
   /** True when THIS collection is the pinned (locked) live-feed scope. */
   isPinned?: boolean;
   /** Toggle this collection's pin (SHOW button). Pin persists after the mouse
@@ -119,7 +124,7 @@ function formatTokenAmount(raw: string, decimals: number): string | null {
   return fracTrunc.length > 0 ? `${intPart}.${fracTrunc}` : intPart;
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, isPinned, onTogglePin }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin }: Props) {
   // Per-row toggle: SOL price (default) ↔ custom-token amount. Persists
   // for the lifetime of the mounted row only — short-lived UI state, no
   // localStorage. Independent across rows.
@@ -221,6 +226,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
       className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
+      // Hover-pause fires from the row body only (mouseenter/leave do not
+      // bubble through children), so passing through child cells / icons
+      // never produces a leave/enter flicker.
+      onMouseEnter={onPauseEnter}
+      onMouseLeave={onPauseLeave}
       // Row hover no longer scopes the live feed — only the SHOW button does
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.

@@ -35,9 +35,14 @@ interface Props {
    *  that collection fade to ~0.15 (matching mints stay full opacity and
    *  cluster to the top). Pure paint — no layout change. Default false. */
   dimmed?: boolean;
+  /** Hover-pause hooks — fire when the cursor enters/leaves the card body
+   *  (not surrounding panel padding). Wired to the page-level zone counter
+   *  so the LEFT and RIGHT panes share one `hoverPaused` state. */
+  onPauseEnter?: () => void;
+  onPauseLeave?: () => void;
 }
 
-export function LiveMintFeedCard({ event: ev, group, now, dimmed = false }: Props) {
+export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPauseEnter, onPauseLeave }: Props) {
   // NFT name vs. collection name. Per the targeted-mode spec, these
   // are distinct lines on the card: the NFT's own name is the
   // prominent first line; the collection name (when known) sits
@@ -175,6 +180,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false }: Prop
         (isFreshFlash ? ' mints-feed-row-fresh'  : '') +
         (isRecent     ? ' mints-feed-row-recent' : '')
       }
+      onMouseEnter={onPauseEnter}
+      onMouseLeave={onPauseLeave}
       style={{
         // Card chrome — exact mirror of /feed `.feed-card`: 10/12
         // padding, 12 px gap, 56 px thumb, 1 px hairline border,
