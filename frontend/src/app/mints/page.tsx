@@ -772,15 +772,18 @@ function PausedChip() {
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '1px 5px', borderRadius: 3,
         fontSize: 9, fontWeight: 600, letterSpacing: '0.5px',
-        color: 'rgba(201,165,72,0.78)',
-        background: 'rgba(201,165,72,0.05)',
-        border: '1px solid rgba(201,165,72,0.22)',
+        // Muted lavender — same family as the pinned/hover chips so the
+        // chip reads as a status indicator in the existing palette, not
+        // a warning. Lower contrast than the pinned variant on purpose.
+        color: 'rgba(201,189,240,0.78)',
+        background: 'rgba(168,144,232,0.06)',
+        border: '1px solid rgba(168,144,232,0.22)',
         whiteSpace: 'nowrap',
       }}
     >
       <span style={{
         width: 4, height: 4, borderRadius: '50%',
-        background: 'rgba(201,165,72,0.65)',
+        background: 'rgba(168,144,232,0.65)',
       }} />
       PAUSED
     </span>
@@ -828,6 +831,22 @@ export default function MintsPage() {
   const pausedFeedBuffer = useRef<MintEvent[]>([]);
   const PAUSE_BUFFER_MAX = 500;
   useEffect(() => { pausedFeedRef.current = hoverPaused; }, [hoverPaused]);
+
+  // Hover-zone counter — pause activates while the cursor is over EITHER
+  // the LEFT Mint Tracker table or the RIGHT Live Mint Feed panel. Single
+  // state (`hoverPaused`) feeds both surfaces' PAUSED chips and the SSE
+  // buffer. Counter (not boolean) so moving the cursor from one zone
+  // directly into the other never produces a brief unpause flicker —
+  // the second enter increments before the first leave decrements.
+  const hoverZoneCountRef = useRef(0);
+  const enterPauseZone = () => {
+    hoverZoneCountRef.current += 1;
+    if (hoverZoneCountRef.current === 1) setHoverPaused(true);
+  };
+  const leavePauseZone = () => {
+    hoverZoneCountRef.current = Math.max(0, hoverZoneCountRef.current - 1);
+    if (hoverZoneCountRef.current === 0) setHoverPaused(false);
+  };
   const [sortKey, setSortKey] = useState<SortKey>('velocity');
   // Direction is per-key; toggling the same header flips it, picking a
   // new header resets to 'desc' (the natural default for numeric/recency
@@ -2058,7 +2077,15 @@ export default function MintsPage() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
+        <div
+          style={{ flex: 1, overflowY: 'auto' }}
+          className="scroll-area mints-tracker-scroll collection-table-scroll"
+          /* Hover-pause zone for the LEFT Mint Tracker. Shares the
+             zone-counter with the RIGHT pane so cursor transitions
+             between the two surfaces never momentarily unpause. */
+          onMouseEnter={enterPauseZone}
+          onMouseLeave={leavePauseZone}
+        >
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
@@ -2287,8 +2314,8 @@ export default function MintsPage() {
                buffer through the standard insert path. mouseenter/leave
                don't fire when moving between child cards so there's no
                flicker. */
-            onMouseEnter={() => setHoverPaused(true)}
-            onMouseLeave={() => setHoverPaused(false)}
+            onMouseEnter={enterPauseZone}
+            onMouseLeave={leavePauseZone}
             style={{
             flex: 1, overflowY: 'auto',
             // Card-stack rhythm (mirrors /feed): inner column with a 6 px
