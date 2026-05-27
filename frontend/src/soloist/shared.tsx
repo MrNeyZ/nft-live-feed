@@ -1428,7 +1428,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   purple drop-shadow gives quiet depth on the dark glass
                   surface without veering into cartoon glow. */}
               <img
-                src="/brand/solana.svg"
+                src="/brand/solana.svg?v=2"
                 alt="SOL"
                 width={15}
                 height={15}
