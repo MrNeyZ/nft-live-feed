@@ -443,62 +443,55 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             width via --mints-show-col-w in the table colgroup). Button
             is centered inside the cell via td text-align/justify, with
             no dependency on COLLECTION-cell content width. */}
-      <td style={{ padding: '0 6px', verticalAlign: 'middle', textAlign: 'center' }}>
+      <td style={{ padding: 0, verticalAlign: 'middle', textAlign: 'center', position: 'relative' }}>
         {onTogglePin && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'stretch' }}>
-            <div
-              role="button"
-              tabIndex={0}
-              data-uisnd="skip"
-              title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
-              onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
-              onMouseEnter={(e) => {
-                onHoverEnter?.();
-                if (!isPinned) {
-                  const b = e.currentTarget;
-                  b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.09) 28%, rgba(128,104,216,0.15) 50%, rgba(128,104,216,0.09) 72%, rgba(128,104,216,0) 100%)';
-                  b.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
-                  const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
-                }
-              }}
-              onMouseLeave={(e) => {
-                onHoverLeave?.();
-                if (!isPinned) {
-                  const b = e.currentTarget;
-                  b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)';
-                  b.style.boxShadow  = 'none';
-                  const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
-                }
-              }}
-              style={{
-                // Fill the td's content area (td has padding: 0 6px so
-                // the strip gets a soft 6 px gutter from neighbours).
-                // No fixed pixel width — the strip resembles a row band
-                // rather than a chopped rectangle.
-                width: '100%', flex: 1, boxSizing: 'border-box',
-                // Vertical sizing: bumped padding 14 → 24 (+10 each side)
-                // plus minHeight floor so the visible strip occupies the
-                // row's content height rather than a thin 40 px sliver.
-                // Row total height unchanged — table row is sized by the
-                // COLLECTION cell's content (~70 px); SHOW just fills it.
-                paddingTop: 24, paddingBottom: 24,
-                minHeight: 64,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', userSelect: 'none', borderRadius: 4,
-                background: isPinned
-                  ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
-                  : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)',
-                boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
-                transition: 'background 160ms ease, box-shadow 160ms ease',
-              }}
-            >
-              <span style={{
-                fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                whiteSpace: 'nowrap', transition: 'color 160ms ease',
-                color: isPinned ? '#ffffff' : '#c9bdf0',
-              }}>SHOW</span>
-            </div>
+          <div
+            role="button"
+            tabIndex={0}
+            data-uisnd="skip"
+            title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
+            onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
+            onMouseEnter={(e) => {
+              onHoverEnter?.();
+              if (!isPinned) {
+                const b = e.currentTarget;
+                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.09) 28%, rgba(128,104,216,0.15) 50%, rgba(128,104,216,0.09) 72%, rgba(128,104,216,0) 100%)';
+                b.style.boxShadow  = 'inset 0 0 0 1px rgba(168,144,232,0.16)';
+                const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
+              }
+            }}
+            onMouseLeave={(e) => {
+              onHoverLeave?.();
+              if (!isPinned) {
+                const b = e.currentTarget;
+                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)';
+                b.style.boxShadow  = 'none';
+                const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
+              }
+            }}
+            style={{
+              // Absolutely-positioned fill so the action strip spans the
+              // ENTIRE row content height (td → row stretches all cells
+              // to the tallest sibling's height; abs child with top/bottom
+              // 0 inherits that height exactly). 6 px inset L/R is the
+              // soft gutter from neighbouring columns. No padding-based
+              // height calc, no minHeight guess — strip is always row-tall.
+              position: 'absolute', top: 0, bottom: 0, left: 6, right: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', userSelect: 'none', borderRadius: 4,
+              background: isPinned
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.04) 0%, rgba(128,104,216,0.13) 28%, rgba(128,104,216,0.22) 50%, rgba(128,104,216,0.13) 72%, rgba(128,104,216,0.04) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.06) 28%, rgba(128,104,216,0.09) 50%, rgba(128,104,216,0.06) 72%, rgba(128,104,216,0) 100%)',
+              boxShadow: isPinned ? 'inset 0 0 0 1px rgba(168,144,232,0.30)' : 'none',
+              transition: 'background 160ms ease, box-shadow 160ms ease',
+            }}
+          >
+            <span style={{
+              fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+              whiteSpace: 'nowrap', transition: 'color 160ms ease',
+              color: isPinned ? '#ffffff' : '#c9bdf0',
+            }}>SHOW</span>
           </div>
         )}
       </td>
