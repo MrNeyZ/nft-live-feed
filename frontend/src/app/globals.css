@@ -125,11 +125,14 @@ html[data-layout="pc"] {
      untouched; only ~2 px shaved off each row's vertical breathing room
      so the feed scans denser without crossing into cramped. */
   --table-row-pad:       13px 10px;
-  /* SHOW button scales with the table width (mints-max 1400 → 1460 px,
-     ~+4 %). Bumped one notch for visual proportion; phone stays
-     unchanged. */
+  /* SHOW column widened on PC only (+56 px vs laptop). The wider PC
+     viewport gives COLLECTION a much larger auto/remainder, leaving a
+     dead gap between the source badge and SHOW. Eating that gap with
+     the SHOW <col> moves the band's LEFT edge ~56 px left while the
+     right edge stays put (subsequent metric cols are fixed) — SHOW→MINTS
+     spacing preserved. Laptop / phone tokens unchanged. */
   --mints-show-w:        100%;
-  --mints-show-col-w:    172px;
+  --mints-show-col-w:    228px;
   /* Accent bumps — see :root for rationale. */
   --accent-row-alpha:    0.09;
   --accent-card-alpha:   0.11;
