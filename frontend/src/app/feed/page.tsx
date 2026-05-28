@@ -713,6 +713,26 @@ const FeedCard = memo(function FeedCard({
               look anyway since the chip was the dominant left-side
               element in this row. */}
           <div style={FC_PRICE_ROW_STYLE}>
+            {/* RESIZE qualifier — gated to (Legacy or pNFT) AND price ≤ 0.05 SOL.
+                Low-value Legacy/pNFT sales are almost always rent-reclaim /
+                account-resize artefacts rather than real demand; the chip
+                flags them so operators can skip the row. Deliberately muted
+                gray (same tone as SUPPLY / CREATED) so it reads as quiet
+                metadata, not a peer of BUY/SELL. cNFT / Core never qualify. */}
+            {(event.nftType === 'legacy' || event.nftType === 'pnft') &&
+             typeof safePrice === 'number' && safePrice <= 0.05 && (
+              <span
+                aria-label="Likely account-resize sale"
+                style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+                  color: '#a8a6c4', background: 'transparent',
+                  border: '1px solid rgba(168,166,196,0.30)',
+                  padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  textTransform: 'uppercase', flexShrink: 0,
+                }}
+              >RESIZE</span>
+            )}
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
               // Unified BUY/SELL/AMM pill — every variant shares the
