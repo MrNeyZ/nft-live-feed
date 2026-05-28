@@ -84,6 +84,12 @@ export interface MintStatus {
   v60:               number;
   v5m:               number;
   lastMintAt:        number;
+  /** Earliest mint this backend process observed for the collection
+   *  (accumulator's `firstObservedAt`, surfaced on the wire). Backend
+   *  proxy for "collection first seen" — not an on-chain creation
+   *  timestamp. Drives the CREATED column. May be missing on rows that
+   *  predate the field on the backend. */
+  firstSeenAt?:      number;
   mintType:          MintRollupType;
   priceLamports:     number | null;
   sourceLabel:       SourceLabel;

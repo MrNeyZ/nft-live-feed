@@ -630,7 +630,7 @@ import {
  *  loadFeedSet(..., SOURCE_KEYS_UI). */
 const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== 'CORE');
 
-type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'velocity';
+type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
 type SortDir = 'asc' | 'desc';
 type MintTab = 'active' | 'recent';
 
@@ -916,14 +916,14 @@ export default function MintsPage() {
     if (e.mintAddress && blacklistSet.has(e.mintAddress.toLowerCase())) return true;
     return false;
   };
-  const [sortKey, setSortKey] = useState<SortKey>('velocity');
+  const [sortKey, setSortKey] = useState<SortKey>('created');
   // Direction is per-key; toggling the same header flips it, picking a
   // new header resets to 'desc' (the natural default for numeric/recency
   // columns — collection/source still default to 'desc' so a single click
   // produces a Z→A read, second click flips to A→Z).
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   // Has the user manually clicked a column header in the current tab?
-  // While false, each tab uses its own default (ACTIVE → RATE desc,
+  // While false, each tab uses its own default (ACTIVE → CREATED desc,
   // RECENT → LAST MINT desc) so the table reads as "active activity"
   // / "recent activity" without surprising the user with an unrelated
   // metric ordering. Resets on tab switch so going to RECENT always
@@ -938,7 +938,7 @@ export default function MintsPage() {
     // column resets to desc.
     const currentEffective = hasManualSort
       ? sortKey
-      : (mintTab === 'recent' ? 'last' : 'velocity');
+      : (mintTab === 'recent' ? 'last' : 'created');
     if (k === currentEffective) {
       const currentDir = hasManualSort ? sortDir : 'desc';
       setSortKey(k);
@@ -988,7 +988,7 @@ export default function MintsPage() {
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
     // Tab switch clears manual-sort state so each tab opens with its
-    // own default ordering (ACTIVE → RATE desc, RECENT → LAST MINT
+    // own default ordering (ACTIVE → CREATED desc, RECENT → LAST MINT
     // desc). Manual click in the new tab re-enables the user's choice.
     setHasManualSort(false);
   }, [mintTab]);
@@ -1843,12 +1843,12 @@ export default function MintsPage() {
   //  using `tfStatsByKey.get(key).{firstTs,lastTs}`.)
 
   // Effective sort = manual override when set, else per-tab default.
-  // ACTIVE defaults to RATE desc; RECENT defaults to LAST MINT desc so
+  // ACTIVE defaults to CREATED desc; RECENT defaults to LAST MINT desc so
   // the table reads as recent activity until the user opts into a
   // different ordering by clicking a header.
   const effectiveSortKey: SortKey = hasManualSort
     ? sortKey
-    : (mintTab === 'recent' ? 'last' : 'velocity');
+    : (mintTab === 'recent' ? 'last' : 'created');
   const effectiveSortDir: SortDir = hasManualSort ? sortDir : 'desc';
 
   const sorted = useMemo(() => {
@@ -1931,9 +1931,12 @@ export default function MintsPage() {
           const bv = (typeof bp === 'number') ? bp : Number.POSITIVE_INFINITY;
           return av - bv;
         }
-        case 'velocity': {
-          const av = tfStatsByKey.get(a.groupingKey)?.mintPerMin ?? 0;
-          const bv = tfStatsByKey.get(b.groupingKey)?.mintPerMin ?? 0;
+        case 'created': {
+          // Sort by collection first-seen timestamp. Rows without the
+          // field (predate backend surfacing) sink to the bottom of an
+          // asc-click; flip dir to lift them — desc puts newest first.
+          const av = typeof a.firstSeenAt === 'number' ? a.firstSeenAt : 0;
+          const bv = typeof b.firstSeenAt === 'number' ? b.firstSeenAt : 0;
           return av - bv;
         }
       }
@@ -2283,7 +2286,7 @@ export default function MintsPage() {
               <col style={{ width: 80 }}  /> {/* SUPPLY   */}
               <col style={{ width: 90 }}  /> {/* LAST     */}
               <col style={{ width: 80 }}  /> {/* PRICE    */}
-              <col style={{ width: 70 }}  /> {/* RATE     */}
+              <col style={{ width: 80 }}  /> {/* CREATED  */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
@@ -2324,25 +2327,17 @@ export default function MintsPage() {
                 >
                   PRICE {sortArrow(effectiveSortKey, effectiveSortDir, 'price')}
                 </th>
-                {/* RATE — formerly MINT/MIN, primary activity number.
-                    Last column on the right, so it needs a wider
-                    "terminal" gutter than the interior columns or the
-                    value reads as hugging the card edge. We bump the
-                    col width (110 vs the 80–100 of interior numeric
-                    columns) AND set paddingRight: 18 on BOTH this th
-                    and the matching td below. Both must move together
-                    — moving only one re-introduces the header/value
-                    drift the previous attempt fixed. The td uses the
-                    explicit 4-tuple `padding: '14px 18px 14px 10px'`
-                    to keep the same vertical padding (14) and same
-                    left-side padding (10) as MINTS / SUPPLY / LAST /
-                    COEF, only widening on the right. */}
+                {/* CREATED — backend's first-observed timestamp for this
+                    collection (see MintStatus.firstSeenAt). Last column
+                    on the right, so it keeps the same wider "terminal"
+                    gutter the previous RATE column used; the matching td
+                    in MintsTableRow uses `padding: '14px 18px 14px 10px'`
+                    to honour it. Sortable. */}
                 <th
-                  
                   style={{ ...thStyle, cursor: 'pointer' }}
-                  onClick={() => handleSortClick('velocity')}
+                  onClick={() => handleSortClick('created')}
                 >
-                  RATE {sortArrow(effectiveSortKey, effectiveSortDir, 'velocity')}
+                  CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
                 </th>
               </tr>
             </thead>

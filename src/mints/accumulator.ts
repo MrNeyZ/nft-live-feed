@@ -389,6 +389,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     v60,
     v5m: Math.round(v5m * 10) / 10,
     lastMintAt:        a.lastMintAt,
+    firstSeenAt:       a.firstObservedAt,
     mintType:          rollupType(a),
     priceLamports:     median,
     sourceLabel:       a.sourceLabel,

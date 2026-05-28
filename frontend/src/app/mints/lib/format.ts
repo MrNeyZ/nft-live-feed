@@ -71,6 +71,25 @@ export function fmtAge(ts: number): string {
   return `${Math.floor(diff / 3_600_000)}h ago`;
 }
 
+/** Compact "created / first-seen" age formatter for the CREATED column.
+ *  Differs from `fmtAge` (which caps at hours) by extending into days
+ *  and absolute "Mon DD" / "Mon DD, YYYY" once the age exceeds 30 d /
+ *  365 d — the CREATED axis is far longer-lived than LAST MINT. */
+export function fmtCreated(ts: number | null | undefined): string {
+  if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—';
+  const now = Date.now();
+  const diff = now - ts;
+  if (diff < 5_000)       return 'just now';
+  if (diff < 60_000)      return `${Math.floor(diff / 1_000)}s ago`;
+  if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 30 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`;
+  const d = new Date(ts);
+  const sameYear = d.getFullYear() === new Date(now).getFullYear();
+  const mon = d.toLocaleString('en-US', { month: 'short' });
+  return sameYear ? `${mon} ${d.getDate()}` : `${mon} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
 export function shortKey(k: string): string {
   // Display-friendly truncation when no name is available.
   const clean = k.replace(/^[a-z]+:/, '');

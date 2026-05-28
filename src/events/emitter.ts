@@ -276,6 +276,13 @@ export interface MintStatusWire {
   /** Average mints/min over the last 5 min window. */
   v5m:               number;
   lastMintAt:        number;
+  /** Earliest moment the backend's accumulator opened a slot for this
+   *  collection — i.e. the timestamp of the first mint we ingested
+   *  for the groupingKey this process lifetime. NOT the on-chain
+   *  collection creation date (which would cost an extra RPC per row);
+   *  it's a defensible "first seen" proxy that the frontend renders in
+   *  the CREATED column. */
+  firstSeenAt?:      number;
   mintType:          MintType | 'mixed';
   priceLamports:     number | null;
   sourceLabel:       MintSourceLabel;

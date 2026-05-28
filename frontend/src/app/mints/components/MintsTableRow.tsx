@@ -14,7 +14,7 @@ import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
-import { fmtAge, fmtSol, shortKey, thumb64 } from '../lib/format';
+import { fmtAge, fmtCreated, fmtSol, shortKey, thumb64 } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
 
 /** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
@@ -759,55 +759,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </td>
         );
       })()}
-      {/* RATE — HEAT composite (Option C):
-            throughput   = count / tfMinutes
-            supplyMult   = 1 + clamp(count / max(supply, 50), 0, 1) × 4   (1× … 5×)
-            recencyMult  = 0.5 + (mints in last ¼ of window / count)      (0.5× … 1.5×)
-            HEAT         = throughput × supplyMult × recencyMult
-          Option A's throughput-only formula reduced RATE to a near-
-          clone of MINTS. HEAT brings in the two dimensions trader
-          intuition actually weighs: how much of the planned supply
-          got consumed (small-cap drops with strong fill outrank
-          stale large-caps with sparse activity) and how recent the
-          activity was in the window (late-window front-loaded beats
-          first-quarter-and-die). With <2 mints we surface the raw
-          count (0 or 1) so the cell isn't ever empty. Primary
-          activity metric — green, weight 700. */}
-      {(() => {
-        const stats   = tfStatsByKey.get(r.groupingKey);
-        const tfCount = stats?.count ?? 0;
-        const rate    = stats?.mintPerMin ?? 0;
-        const display = tfCount < 2
-                       ? tfCount.toString()
-                       : rate >= 10 ? rate.toFixed(0)
-                       : rate >= 1  ? rate.toFixed(1)
-                       : rate.toFixed(2);
-        // Tooltip exposes the three multipliers so a power user can
-        // see why a row scored what it did. supplyMult shows 1.00
-        // when maxSupply is unknown (cNFT / unresolved launchpad).
-        const tfMin       = MINT_TF_MS[mintTf] / 60_000;
-        const throughput  = tfCount / tfMin;
-        const supply      = (typeof r.maxSupply === 'number' && r.maxSupply > 0) ? r.maxSupply : null;
-        const supplyFrac  = supply !== null ? Math.min(1, tfCount / Math.max(supply, 50)) : 0;
-        const supplyMult  = 1 + supplyFrac * 4;
-        const recencyMult = stats && stats.count > 0
-          ? 0.5 + stats.recentQ / stats.count
-          : 0.5;
-        const tip = tfCount < 2
-          ? `${tfCount} mint(s) in last ${mintTf} — not enough data for HEAT`
-          : `HEAT ${display}  =  throughput ${throughput.toFixed(2)} × supply ×${supplyMult.toFixed(2)} × recency ×${recencyMult.toFixed(2)}`
-            + `\n${tfCount.toLocaleString()} mints in last ${mintTf}`
-            + (supply !== null ? ` · ${(supplyFrac * 100).toFixed(1)}% of ${supply.toLocaleString()}-supply` : '')
-            + ` · ${(recencyMult >= 1 ? '+' : '−') }${Math.abs((recencyMult - 1) * 100).toFixed(0)}% recency`;
-        return (
-          <td
-            
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
-          >
-            {display}
-          </td>
-        );
-      })()}
+      {/* CREATED — backend-surfaced first-observed timestamp for this
+          collection (MintStatus.firstSeenAt = accumulator's
+          firstObservedAt). Not an on-chain creation date — a
+          defensible "first seen on the wire" proxy. Muted gray to
+          match SUPPLY / PRICE tone; the column-tier hierarchy keeps
+          MINTS as the brightest activity number. Same wider
+          right-side padding the RATE column used so the value
+          doesn't hug the table edge. */}
+      <td
+        style={{ padding: '13px 18px 13px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+      >
+        {fmtCreated(r.firstSeenAt)}
+      </td>
     </tr>
   );
 }
