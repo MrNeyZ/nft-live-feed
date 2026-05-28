@@ -129,6 +129,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   // for the lifetime of the mounted row only — short-lived UI state, no
   // localStorage. Independent across rows.
   const [showInToken, setShowInToken] = useState(false);
+  // Custom hover popover for the SUPPLY cell — replaces the native title
+  // tooltip we stripped globally. State scoped to this row so popovers
+  // never appear on more than one row at a time.
+  const [supplyHover, setSupplyHover] = useState(false);
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -550,7 +554,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           && !(typeof r.supplyMinted === 'number' && r.supplyMinted >= 0);
         const verified = r.supplyVerified === true && !mintedFromFallback;
         let display: string;
-        let title: string;
+        // Popover content (replaces the old native `title` text). Built
+        // as structured lines so the popover renders a small terminal-
+        // style block: headline line + optional progress line + small
+        // muted subtitle. `subtitle` is the data-source provenance
+        // (verified / DAS-resolved / optimistic).
+        let popHead: string;
+        let popProgress: string | null = null;
+        let popSubtitle: string | null = null;
         // SUPPLY sits below MINTS + RATE in the visual hierarchy:
         // muted by default, even quieter when the value is still
         // optimistic (not yet refreshed from on-chain). Verified /
@@ -561,42 +572,75 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const mintedLabel = mintedFromFallback ? 'DAS-resolved' : (verified ? 'verified on-chain' : 'optimistic — awaiting on-chain refresh');
         if (minted !== null && cap !== null) {
           // Both known — visible cell shows ONLY the current minted
-          // count; the "minted / max (pct)" detail moves into the
-          // tooltip. The previous "2 222 / 5 533" form crowded the
-          // column at glance; the value users actually need is the
-          // current count, with the cap available on hover.
+          // count; "minted / cap (pct)" lives in the hover popover.
           // Percent: integer when >= 10%, one decimal below that, so a
           // sub-1% drop reads as "0.4%" not "0%". cap is guaranteed
-          // > 0 here (typed check above), so no divide-by-zero.
+          // > 0 here, so no divide-by-zero.
           const pct = (minted / cap) * 100;
           const pctText = !Number.isFinite(pct)
             ? '—'
             : pct >= 10 ? `${Math.round(pct)}%`
             : `${pct.toFixed(1)}%`;
-          display = minted.toLocaleString();
-          title   = `Minted: ${minted.toLocaleString()} / ${cap.toLocaleString()} (${pctText}) — ${mintedLabel}`;
+          display     = minted.toLocaleString();
+          popHead     = `Minted: ${minted.toLocaleString()} / ${cap.toLocaleString()}`;
+          popProgress = `Progress: ${pctText}`;
+          popSubtitle = mintedLabel;
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
-          title   = 'Max supply for this collection';
+          popHead = `Max supply: ${cap.toLocaleString()}`;
+          popSubtitle = 'minted count not yet known';
         } else if (minted !== null) {
           display = minted.toLocaleString();
-          title   = mintedFromFallback
-            ? `DAS-resolved minted count for this collection`
+          popHead = `Minted: ${minted.toLocaleString()}`;
+          popSubtitle = mintedFromFallback
+            ? 'DAS-resolved · total supply unknown'
             : (verified
-                ? `On-chain num_minted from CollectionV1 (verified)`
-                : `Minted so far (optimistic — awaiting on-chain refresh)`);
+                ? 'verified on-chain · total supply unknown'
+                : 'optimistic — awaiting on-chain refresh');
           if (!verified) color = '#7c7a98';
         } else {
           display = '—';
-          title   = `Supply unavailable — observed ${r.observedMints.toLocaleString()} mint(s)`;
+          popHead = 'Supply unavailable';
+          popSubtitle = `observed ${r.observedMints.toLocaleString()} mint(s)`;
         }
         return (
           <td
-            
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            onMouseEnter={() => setSupplyHover(true)}
+            onMouseLeave={() => setSupplyHover(false)}
+            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'relative' }}
           >
             {display}
+            {supplyHover && (
+              <div
+                role="tooltip"
+                style={{
+                  position: 'absolute',
+                  bottom: 'calc(100% + 6px)',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 50,
+                  pointerEvents: 'none',
+                  background: 'rgba(20,16,38,0.96)',
+                  border: '1px solid rgba(168,144,232,0.35)',
+                  borderRadius: 3,
+                  padding: '6px 9px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: '#e8e3f5',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'left',
+                  letterSpacing: '0.2px',
+                  lineHeight: 1.45,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  boxShadow: '0 6px 18px rgba(0,0,0,0.55)',
+                }}
+              >
+                <div>{popHead}</div>
+                {popProgress && <div>{popProgress}</div>}
+                {popSubtitle && <div style={{ marginTop: 3, fontSize: 10, color: '#8a82a8', letterSpacing: '0.3px' }}>{popSubtitle}</div>}
+              </div>
+            )}
           </td>
         );
       })()}
