@@ -43,7 +43,11 @@ export function matchesType(
   return (
     (sel.has('cnft')  && programSource === 'bubblegum') ||
     (sel.has('core')  && programSource === 'mpl_core')  ||
-    (sel.has('candy') && sourceLabel   === 'Metaplex Candy Machine')
+    // CANDY type covers all Candy-Guard-routed mints — generic Candy
+    // Machine + nfts.gay (CG behind the scenes, just relabelled for
+    // the launchpad badge).
+    (sel.has('candy') && (sourceLabel === 'Metaplex Candy Machine'
+                       || sourceLabel === 'nfts.gay'))
   );
 }
 

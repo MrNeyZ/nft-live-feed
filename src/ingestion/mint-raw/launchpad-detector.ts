@@ -141,7 +141,7 @@ export const CANDY_GUARD_PROGRAM         = 'Guard1JwRhJkVH6XZhzoYxeBVQe872VH6Qgg
  *    4KZKMGiHhekCbeoGf4noBmskEHMivrij1PtBdqd9pp3entizNgrkVdR94tTjV1AJYDXmXhpkP9vfM8QRKk5n45JW */
 export const CANDY_MACHINE_V3_PROGRAM    = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR';
 
-export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine';
+export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
  *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
@@ -292,6 +292,18 @@ function candyGuardNeedleIfPresent(shape: ParsedTxShape): string | null {
     if (m) return `Instruction: ${m[1]}`;
   }
   return null;
+}
+
+/** nfts.gay platform fee wallet. Every nfts.gay-routed Candy Guard
+ *  mint includes a top-level SystemProgram.transfer to this address
+ *  immediately before the CG `MintV2` ix. Confirmed across 50/50
+ *  sampled tx via getSignaturesForAddress on the treasury (all CG +
+ *  CM + MintV2). Same fingerprint pattern as VVV's platform signer:
+ *  account-key presence is unspoofable for the recipient slot of a
+ *  System.transfer that the user wallet signed. */
+const NFTS_GAY_TREASURY = 'DLVZkW7kreqQ54nqDAbGG4yvTQ42ujCzChWhfQXptWcc';
+function isNftsGayCgTx(shape: ParsedTxShape): boolean {
+  return shape.accountKeys.includes(NFTS_GAY_TREASURY);
 }
 
 /** Pull the new mint and (best-effort) the verified collection out of the
@@ -811,19 +823,27 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
     // state account; we forward it to the supply resolver in
     // `ingestMintRaw` for items_redeemed / items_available decode.
     const candyMachineState = extractCandyMachineState(tx, shape);
+    // nfts.gay carve-out: routes through Candy Guard like a standard
+    // CMv3 drop, but every mint co-pays a top-level SystemProgram fee
+    // to the nfts.gay treasury. Re-label as 'NftsGay' so the UI badge
+    // reads GAY instead of CANDY; supply / state extraction path is
+    // unchanged. Normal CG drops without the treasury stay
+    // `CandyMachine`.
+    const isGay = isNftsGayCgTx(shape);
+    const source: LaunchpadSource = isGay ? 'NftsGay' : 'CandyMachine';
     console.log(
       `[mints/candyguard] sig=${tx.signature ?? '—'} mint=${tm.mintAddress} ` +
       `collection=${tm.collectionAddress ?? 'null'} ` +
       `minter=${shape.signerKeys[0] ?? 'null'} needle=${cgNeedle} ` +
-      `cmState=${candyMachineState ?? 'null'}`,
+      `cmState=${candyMachineState ?? 'null'} source=${source}`,
     );
     return {
-      source:            'CandyMachine',
+      source,
       standard:          'token_metadata',
       mintAddress:       tm.mintAddress,
       collectionAddress: tm.collectionAddress,
       minter:            shape.signerKeys[0] ?? null,
-      matchedNeedle:     `${cgNeedle} (Candy Guard)`,
+      matchedNeedle:     `${cgNeedle} (Candy Guard${isGay ? ' / nfts.gay' : ''})`,
       candyMachineState,
     };
   }
