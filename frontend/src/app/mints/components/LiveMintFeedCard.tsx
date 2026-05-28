@@ -286,6 +286,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             fontSize: 11,
             color: colorForCollectionMuted(ev.collectionAddress ?? ev.groupingKey),
             fontWeight: 500,
+            // Visual-hierarchy pass: pull the collection line slightly
+            // back so the title above + price/age below stand out as
+            // the focal pair without resizing anything.
+            opacity: 0.88,
             overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             // `minWidth: 0` + `flex: 1` let the name truncate inside
@@ -344,7 +348,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             page in a new tab. Hidden when the field isn't on the
             wire (some replays / cNFT paths). */}
         {ev.minter && (
-          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: 0.82, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             <a
               href={`https://solscan.io/account/${ev.minter}`}
               target="_blank"

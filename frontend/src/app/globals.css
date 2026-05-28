@@ -692,7 +692,9 @@ a { color: inherit; text-decoration: none; }
    unchanged. */
 ::-webkit-scrollbar             { width: 4px; }
 ::-webkit-scrollbar-track       { background: transparent; }
-::-webkit-scrollbar-thumb       { background: rgba(128, 104, 216, 0.14); border-radius: 2px; }
+/* Idle alpha trimmed 0.14 → 0.09 in the contrast-discipline pass —
+   hover behavior + thickness unchanged. */
+::-webkit-scrollbar-thumb       { background: rgba(128, 104, 216, 0.09); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(128, 104, 216, 0.28); }
 
 /* Live Feed list — always-visible scrollbar so the user can grab/scrub it
@@ -713,13 +715,15 @@ a { color: inherit; text-decoration: none; }
 .feed-list::-webkit-scrollbar             { width: 4px; }
 .feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.012); border-radius: 2px; }
 .feed-list::-webkit-scrollbar-thumb       {
-  background: rgba(168, 144, 232, 0.18);
+  /* Idle alpha 0.18 → 0.12 in the contrast-discipline pass. Hover
+     unchanged so the grab affordance still reads. */
+  background: rgba(168, 144, 232, 0.12);
   border-radius: 2px;
 }
 .feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.32); }
 .feed-list {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.18) rgba(255, 255, 255, 0.012);
+  scrollbar-color: rgba(168, 144, 232, 0.12) rgba(255, 255, 255, 0.012);
   scrollbar-gutter: stable;
   /* Let JS manage scroll compensation on prepend; browser anchoring would
      fight our pin-to-top behavior when the user is at scrollTop=0. */
@@ -1763,11 +1767,11 @@ body[data-bottombar="1"] .feed-root {
 }
 .mints-feed-row:hover {
   transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.32));
   box-shadow:
-    0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
-    0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.22));
+    0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.32)) inset,
+    0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.16));
   z-index: 1;
 }
 
@@ -1785,16 +1789,13 @@ body[data-bottombar="1"] .feed-root {
    they're looking at it. Pure paint — no animation loop, no
    transform, no layout shift. */
 .mints-feed-row-recent {
-  background: rgba(168, 144, 232, 0.05);
-  /* Outer-blur tightened 14 → 8 px and the outer-alpha trimmed
-     slightly. At any given moment 20-40 cards sit in the 2.5-15 s
-     window in a busy market; 14 px blurred shadows are some of the
-     priciest compositor operations, so this is where we trim. The
-     1-px ring keeps the "new" cue strong; the soft halo still
-     reads. Pure paint, no layout. */
+  background: rgba(168, 144, 232, 0.035);
+  /* Outer-blur 8 px kept (perf). Ring + halo alphas trimmed in the
+     contrast-discipline pass so 'recent' rows still read as new
+     without bursting visual brightness across the feed. Pure paint. */
   box-shadow:
-    0 0 0 1px rgba(168, 144, 232, 0.20),
-    0 0 8px  rgba(168, 144, 232, 0.10);
+    0 0 0 1px rgba(168, 144, 232, 0.14),
+    0 0 8px  rgba(168, 144, 232, 0.07);
 }
 
 /* Previously: `.mints-feed-row img { filter: saturate(1.06) contrast(1.02) }`

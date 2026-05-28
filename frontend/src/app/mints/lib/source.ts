@@ -121,7 +121,11 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#e87ab0' };
     case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
-    case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
+    // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
+    // and a brighter fg (#a890e8 → #b9a4ef) so the badge reads as a
+    // legible launchpad pill rather than disabled. Border via the
+    // pill's existing bg-tint frame (no glow added).
+    case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.20)', fg: '#b9a4ef' };
     case 'Metaplex':               return { label: 'METAPLEX', bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
     case 'Bubblegum':              return { label: 'cNFT',     bg: 'rgba(92,224,160,0.15)',  fg: '#5ce0a0' };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the

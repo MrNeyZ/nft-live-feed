@@ -2349,17 +2349,25 @@ export default function MintsPage() {
                   a stable x-position across rows, independent of how
                   many marketplace icons the COLLECTION cell carries. */}
               <col style={{ width: 'var(--mints-show-col-w, 140px)' }} /> {/* SHOW */}
-              <col style={{ width: 70 }}  /> {/* MINTS    */}
-              <col style={{ width: 80 }}  /> {/* SUPPLY   */}
+              {/* Rebalance pass: COLLECTION was too dominant (~70 % of
+                  table). Widening the numeric block by ~52 px pulls the
+                  split toward ~60/40 without crowding identity AND
+                  without overflowing at the small_laptop (1024) tier
+                  — an earlier +130 px attempt clipped CREATED. PRICE
+                  gets the largest lift (80→100) so it visually outranks
+                  LAST; CREATED widens (80→96) to match its 18 px
+                  terminal gutter. */}
+              <col style={{ width: 78 }}  /> {/* MINTS    */}
+              <col style={{ width: 88 }}  /> {/* SUPPLY   */}
               <col style={{ width: 90 }}  /> {/* LAST     */}
-              <col style={{ width: 80 }}  /> {/* PRICE    */}
-              <col style={{ width: 80 }}  /> {/* CREATED  */}
+              <col style={{ width: 100 }} /> {/* PRICE    */}
+              <col style={{ width: 96 }}  /> {/* CREATED  */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(11,9,20,0.985)' }}>
                 {/* COLLECTION header pads left by 13 px = 10 px (data
                     cell padding) + 3 px (data cell accent border that
                     pushes its content right by 3 px and isn't on the
@@ -2631,8 +2639,12 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  background: 'rgba(16,12,26,0.96)',
-  borderBottom: '1px solid rgba(168,144,232,0.12)',
+  // Matte dark-indigo strip — pulled away from the purple-glass tier
+  // (was rgba(16,12,26,0.96) + 0.12 purple separator). Drops chroma but
+  // keeps the indigo identity; separator hairline tightened so the head
+  // reads as a trading surface, not a glass panel.
+  background: 'rgba(11,9,20,0.985)',
+  borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase',
   userSelect: 'none',
 };

@@ -259,10 +259,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
       style={{
-        // Slightly stronger separator alpha (0.05 vs 0.04 before)
-        // so the per-row tint reads as a distinct band; still a
-        // 1px hairline, never thick.
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        // Separator hairline trimmed (0.05 → 0.035) as part of the
+        // visual-noise reduction pass — rows still band cleanly but
+        // stop competing with the data for attention.
+        borderBottom: '1px solid rgba(255,255,255,0.035)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values
@@ -279,7 +279,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // on rowState === 'active' so a burst row that has since
         // sold out (SOLD wash) doesn't carry conflicting warm + red
         // cues.
-        outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.26)' : undefined,
+        outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.18)' : undefined,
         outlineOffset: isBurst && rowState === 'active' ? '-1px' : undefined,
       }}
     >
