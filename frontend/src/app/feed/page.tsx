@@ -105,7 +105,7 @@ function TimeAgo({ ts }: { ts: number }) {
   // negative ages already collapse into the `ageMs < 5000` branch
   // below ("just now") since `<` evaluates true for any negative.
   if (!Number.isFinite(ts)) {
-    return <span style={{ fontSize: 11, color: '#877496', fontWeight: 500 }}>—</span>;
+    return <span style={{ fontSize: 11, color: '#9d8aac', fontWeight: 500 }}>—</span>;
   }
   // SSR-safe: getTickServerSnapshot returns 0; first client paint
   // will reconcile to a real `now` on the next tick (≤1 s). Falling back
@@ -121,12 +121,10 @@ function TimeAgo({ ts }: { ts: number }) {
   } else if (ageMs < 180000) {
     color  = '#c7b479'; // yellow — 16s to 3min
   } else {
-    // Stale tier — bumped from #877496 → #a094c0 so the operator
-    // can still scan ages past 3 min without the timestamp washing
-    // into the card background. Pink/yellow tiers are unchanged
-    // (already prominent), so the hierarchy "fresh = louder, stale
-    // = quieter" is preserved, just with a higher floor on quiet.
-    color  = '#a094c0';
+    // Stale tier — bumped #a094c0 → #b6a8d0 (text-clarity pass).
+    // Fresh pink + yellow tiers stay loud; this lifts the quiet
+    // floor so old timestamps still scan instead of dissolving.
+    color  = '#b6a8d0';
   }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   // tabular-nums locks digit width so the right-edge timestamp lane
@@ -162,7 +160,7 @@ const MY_WALLET = 'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE';
  *  parent row gets squeezed on narrow viewports. */
 function WalletLink({ wallet }: { wallet: string | null }) {
   if (!wallet) {
-    return <span style={{ color: '#7a7a94', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
+    return <span style={{ color: '#9494b0', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
   }
   const isMe = wallet === MY_WALLET;
   const solscanUrl = `https://solscan.io/account/${wallet}`;
@@ -199,14 +197,12 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 }
 
 const WALLET_LINK_STYLE: React.CSSProperties = {
-  // Wallet text sits one tier above the row label (`seller:` /
-  // `buyer:` at #45455e) and one tier below the title (#f0eef8).
-  // Visual-polish pass: dimmed #8e8eb0 → #7e7e9c (one tier quieter).
-  // Combined with the title bump 14 → 15 px above, the seller/buyer
-  // line now reads as clearly secondary rather than near-equal to
-  // the title. Still scan-readable — same hue family, just one step
-  // further from #ffffff so the eye lands on the title first.
-  color: '#7e7e9c', fontWeight: 500,
+  // Wallet text sits one tier above the seller:/buyer: label and
+  // one tier below the title. Text-clarity pass lifted #7e7e9c →
+  // #9b9bbe so short wallet addresses stop reading as low-contrast
+  // mush against the bumped card bg. Still clearly below the title
+  // (#f0eef8) — same hierarchy, just a higher readability floor.
+  color: '#9b9bbe', fontWeight: 500,
   fontFamily: "'SF Mono','Fira Code',monospace",
   // No persistent decoration — matches the NFT-name link's behavior.
   // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
@@ -357,12 +353,11 @@ const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
-  // Label tone (`seller:` / `buyer:`) dimmed from #55556e → #45455e so
-  // the labels recede behind the wallet text. The wallet text itself
-  // (`WALLET_LINK_STYLE` below) was bumped one notch in the opposite
-  // direction (#7a7a94 → #8e8eb0), establishing a clear three-tier
-  // hierarchy on the card: title → wallet → label/icon.
-  fontSize: 10.5, color: '#45455e', display: 'flex', alignItems: 'center', gap: 6,
+  // Text-clarity pass: label tone lifted #45455e → #5a5a78 so
+  // `seller:` / `buyer:` is legible at idle. Wallet text is still
+  // brighter (#9b9bbe), so the three-tier title → wallet → label
+  // hierarchy is preserved — labels just stop dissolving into bg.
+  fontSize: 10.5, color: '#5a5a78', display: 'flex', alignItems: 'center', gap: 6,
 };
 const FC_RIGHT_COL_STYLE: React.CSSProperties = {
   // Right-col gap tightened from 6 → 4 to match the new compact
@@ -399,11 +394,11 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
-  // SOL unit suffix — dimmed further (color + opacity) so the eye
-  // lands on the price digits first, then registers the unit. The
-  // suffix is informational, not load-bearing — at viewing distance
-  // the row reads "2.50 sol" with the digits dominant.
-  color: '#6a6a82', fontWeight: 600, fontSize: 10.5, opacity: 0.7,
+  // SOL unit suffix — text-clarity pass lifted #6a6a82 → #8585a0
+  // and opacity 0.7 → 0.85 so the unit reads clearly at scroll
+  // speed without crowding the digits (still well below pure-white
+  // price text). Digits remain dominant, suffix is now legible.
+  color: '#8585a0', fontWeight: 600, fontSize: 10.5, opacity: 0.85,
 };
 // Inline seller-remaining badge — sits next to the seller wallet on the
 // FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
