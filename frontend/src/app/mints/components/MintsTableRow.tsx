@@ -7,7 +7,8 @@
 // have no other consumer; the SOURCE pill is the existing
 // `<MintsSourceBadge>`.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ItemThumb } from '@/soloist/shared';
 import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
@@ -130,9 +131,28 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   // localStorage. Independent across rows.
   const [showInToken, setShowInToken] = useState(false);
   // Custom hover popover for the SUPPLY cell — replaces the native title
-  // tooltip we stripped globally. State scoped to this row so popovers
-  // never appear on more than one row at a time.
-  const [supplyHover, setSupplyHover] = useState(false);
+  // tooltip we stripped globally. Portaled to <body> with position:fixed
+  // so the popover escapes any table / scroll-container overflow clip
+  // and is never visually truncated. State carries the cell's viewport
+  // rect + a flip flag (true = render below the cell when there's not
+  // enough room above).
+  const supplyCellRef = useRef<HTMLTableCellElement | null>(null);
+  const [supplyHover, setSupplyHover] = useState<null | { x: number; y: number; flip: boolean }>(null);
+  const openSupplyPopover = () => {
+    const el = supplyCellRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    // Estimate ~70 px max popover height (3 lines + padding + border).
+    // If the cell's top doesn't have at least that much room above the
+    // viewport, flip to render below the cell.
+    const flip = r.top < 80;
+    setSupplyHover({
+      x: r.left + r.width / 2,
+      y: flip ? r.bottom + 6 : r.top - 6,
+      flip,
+    });
+  };
+  const closeSupplyPopover = () => setSupplyHover(null);
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -605,21 +625,29 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           popSubtitle = `observed ${r.observedMints.toLocaleString()} mint(s)`;
         }
         return (
-          <td
-            onMouseEnter={() => setSupplyHover(true)}
-            onMouseLeave={() => setSupplyHover(false)}
-            style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'relative' }}
-          >
-            {display}
-            {supplyHover && (
+          <>
+            <td
+              ref={supplyCellRef}
+              onMouseEnter={openSupplyPopover}
+              onMouseLeave={closeSupplyPopover}
+              style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            >
+              {display}
+            </td>
+            {supplyHover && typeof document !== 'undefined' && createPortal(
               <div
                 role="tooltip"
                 style={{
-                  position: 'absolute',
-                  bottom: 'calc(100% + 6px)',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  zIndex: 50,
+                  // Fixed-position + portaled to <body> ⇒ ignores every
+                  // ancestor's overflow / transform / z-index stack.
+                  position: 'fixed',
+                  top:  supplyHover.y,
+                  left: supplyHover.x,
+                  // Default: above the cell (translate up by 100% of own
+                  // height + center horizontally). Flip = below the cell
+                  // (only translate horizontally; y is already cell.bottom+6).
+                  transform: supplyHover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
+                  zIndex: 9999,
                   pointerEvents: 'none',
                   background: 'rgba(20,16,38,0.96)',
                   border: '1px solid rgba(168,144,232,0.35)',
@@ -639,9 +667,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <div>{popHead}</div>
                 {popProgress && <div>{popProgress}</div>}
                 {popSubtitle && <div style={{ marginTop: 3, fontSize: 10, color: '#8a82a8', letterSpacing: '0.3px' }}>{popSubtitle}</div>}
-              </div>
+              </div>,
+              document.body
             )}
-          </td>
+          </>
         );
       })()}
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
