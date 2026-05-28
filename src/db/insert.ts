@@ -11,6 +11,7 @@ import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ingestion/seller-net';
 import { slugForMint } from '../server/listings-store';
 import { getSseClientCount } from '../server/sse';
+import { enqueueResizeLookup, getCachedResizeStatus } from '../mints/resize-status-resolver';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
  *  insert and patchSaleEventRaw to gate emission and remove already-emitted
@@ -254,6 +255,11 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
       `seller=${event.seller}  buyer=${event.buyer}  mint=${event.mintAddress}`,
     );
   }
+  // Stamp the sale frame with any already-cached resize-status — covers
+  // the second-sale-of-same-mint case where the resolver has already
+  // resolved this mint. Misses still go out as undefined and are
+  // patched later via the `resize_status` SSE event.
+  const cachedResize = event.mintAddress ? getCachedResizeStatus(event.mintAddress) : null;
   saleEventBus.emitSale({
     ...event,
     nftName: null,
@@ -261,6 +267,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     collectionName: null,
     magicEdenUrl,
     meCollectionSlug: resolvedSlug,
+    resizeStatus: cachedResize ?? undefined,
   });
 
   // Step 6 — SSE event on the wire to all connected clients.
@@ -274,6 +281,17 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // wasted calls.
   if (!event.mintAddress) {
     return id;
+  }
+
+  // ── Resize-status lookup (Live Feed RESIZE badge) ────────────────────────────
+  // Prefilter is RPC-saving only — NOT proof of resize. The badge is shown
+  // ONLY when the resolver returns 'metaplex_resized_unclaimed'. cNFT / Core
+  // never qualify (they have no rent-resize lifecycle). Threshold 0.03 SOL
+  // chosen so we cover the rent-reclaim sale zone without scheduling lookups
+  // for every cheap collection sale.
+  if ((event.nftType === 'legacy' || event.nftType === 'pnft')
+      && event.priceLamports <= 30_000_000n) {
+    enqueueResizeLookup(event.mintAddress, event.signature);
   }
   enrich(event)
     .then(async (enriched) => {

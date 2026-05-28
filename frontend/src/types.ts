@@ -34,6 +34,12 @@ export interface FeedEvent {
   offerDelta?: number | null;
   /** Verified ME collection slug, e.g. "froganas". Null until meta patch arrives. */
   meCollectionSlug: string | null;
+  /** Resize-status snapshot from the backend resolver. Only
+   *  'metaplex_resized_unclaimed' triggers the RESIZE chip; other
+   *  values render no chip. Absent / null = no lookup scheduled (sale
+   *  didn't pass prefilter) or pending. May arrive later via a
+   *  `resize_status` SSE patch. */
+  resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
 }
 
 /** Shape returned by GET /api/events/latest */

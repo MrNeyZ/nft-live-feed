@@ -91,13 +91,23 @@ export interface SellerCountPatch {
   signal?:    'multi';
 }
 
+/** Resize-status patch — late-arriving result from the backend
+ *  resize-status-resolver. Matches by originating sale signature.
+ *  Only `metaplex_resized_unclaimed` triggers the RESIZE badge. */
+export interface ResizeStatusPatch {
+  signature:    string;
+  mint:         string;
+  resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
+}
+
 export type FeedAction =
-  | { type: 'snapshot';     events: FeedEvent[] }
-  | { type: 'live';         event:  FeedEvent }
-  | { type: 'meta';         patch:  MetaPatch }
-  | { type: 'rawpatch';     patch:  RawPatch }
-  | { type: 'seller_count'; patch:  SellerCountPatch }
-  | { type: 'remove';       signature: string }
+  | { type: 'snapshot';      events: FeedEvent[] }
+  | { type: 'live';          event:  FeedEvent }
+  | { type: 'meta';          patch:  MetaPatch }
+  | { type: 'rawpatch';      patch:  RawPatch }
+  | { type: 'seller_count';  patch:  SellerCountPatch }
+  | { type: 'resize_status'; patch:  ResizeStatusPatch }
+  | { type: 'remove';        signature: string }
   | { type: 'reset' };
 
 // ─── internal helpers ────────────────────────────────────────────────────────
@@ -237,6 +247,17 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
             collectionAddress:    nextColl,
           };
         },
+      );
+    }
+    case 'resize_status': {
+      // Match by originating sale signature. Patch is sticky — if the
+      // value is unchanged we return state to keep the byId map
+      // reference identical (avoids needless rerender churn).
+      const { patch } = action;
+      return patchWhere(
+        state,
+        ev => ev.signature === patch.signature,
+        ev => ev.resizeStatus === patch.resizeStatus ? ev : { ...ev, resizeStatus: patch.resizeStatus },
       );
     }
     case 'remove': {

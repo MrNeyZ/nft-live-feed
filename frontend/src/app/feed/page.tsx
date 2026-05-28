@@ -713,16 +713,15 @@ const FeedCard = memo(function FeedCard({
               look anyway since the chip was the dominant left-side
               element in this row. */}
           <div style={FC_PRICE_ROW_STYLE}>
-            {/* RESIZE qualifier — gated to (Legacy or pNFT) AND price ≤ 0.05 SOL.
-                Low-value Legacy/pNFT sales are almost always rent-reclaim /
-                account-resize artefacts rather than real demand; the chip
-                flags them so operators can skip the row. Deliberately muted
-                gray (same tone as SUPPLY / CREATED) so it reads as quiet
-                metadata, not a peer of BUY/SELL. cNFT / Core never qualify. */}
-            {(event.nftType === 'legacy' || event.nftType === 'pnft') &&
-             typeof safePrice === 'number' && safePrice <= 0.05 && (
+            {/* RESIZE qualifier — backend resize-status-resolver (Path C)
+                gates this strictly to mints with a confirmed Metaplex-
+                authority resize AND no observed user claim. Heuristic
+                price/type rules are NOT used here; the prefilter that
+                schedules the lookup IS price+type-gated for RPC saving
+                only. cNFT / Core never schedule, so never qualify. */}
+            {event.resizeStatus === 'metaplex_resized_unclaimed' && (
               <span
-                aria-label="Likely account-resize sale"
+                aria-label="Unclaimed Metaplex resize rent"
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
                   color: '#a8a6c4', background: 'transparent',
@@ -1247,6 +1246,19 @@ export default function FeedPage() {
         try {
           const { signature } = JSON.parse(e.data) as { signature: string };
           if (signature) enqueue({ type: 'remove', signature });
+        } catch { /* malformed frame — skip */ }
+      });
+      // Resize-status patch — backend resize-status-resolver emits this
+      // when a prefilter-matching sale's mint completes its on-demand
+      // lookup. Frontend renders the RESIZE chip ONLY when the patched
+      // value is 'metaplex_resized_unclaimed' (see FeedCard).
+      es.addEventListener('resize_status', (e: MessageEvent) => {
+        try {
+          const patch = JSON.parse(e.data) as { signature: string; mint: string;
+            resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' };
+          if (patch.signature && patch.resizeStatus) {
+            enqueue({ type: 'resize_status', patch });
+          }
         } catch { /* malformed frame — skip */ }
       });
       // Per-source health: backend emits one `status` frame on connect for

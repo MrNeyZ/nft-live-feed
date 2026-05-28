@@ -224,6 +224,7 @@ function buildSaleFrame(event: SaleEvent): string {
     meCollectionSlug:  event.meCollectionSlug ?? null,
     floorDelta:        event.floorDelta        ?? null,
     offerDelta:        event.offerDelta        ?? null,
+    resizeStatus:      event.resizeStatus      ?? null,
     source,
   });
   return `event: sale\ndata: ${payload}\n\n`;
@@ -475,6 +476,7 @@ saleEventBus.onSale(           (event)  => {
 saleEventBus.onMetaUpdate(     (update) => enqueue(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
 saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
+saleEventBus.onResizeStatusPatch((patch) => enqueue(`event: resize_status\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onListingRemove(  (delta)  => enqueue(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => enqueue(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
 // Source-status flips are operator-relevant — keep them immediate so a

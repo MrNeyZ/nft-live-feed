@@ -74,6 +74,10 @@ export interface FeedEvent {
    *  min — backend-tracked. Stored for tooltip detail; not rendered
    *  as a separate badge. */
   sellerSells10m?: number;
+  /** Backend resize-status (Path C). Only 'metaplex_resized_unclaimed'
+   *  triggers the RESIZE chip in the Live Feed. Null/undefined = no
+   *  signal yet (prefilter didn't match or resolver still running). */
+  resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [

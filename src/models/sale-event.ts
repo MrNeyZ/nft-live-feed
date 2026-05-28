@@ -66,6 +66,13 @@ export interface SaleEvent {
    * Null when no active collection offer is available.
    */
   offerDelta?: number | null;
+  /** Resize-status snapshot at sale-frame time. Resolved out-of-band by
+   *  `resize-status-resolver`. Frontend renders the RESIZE badge ONLY
+   *  when value is `metaplex_resized_unclaimed`. Undefined = no lookup
+   *  has been scheduled (prefilter didn't match) or hasn't returned yet
+   *  — a `resize_status` SSE patch event will arrive later if it
+   *  resolves to the actionable value. */
+  resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
 /** cNFT sales below this threshold (in lamports) are discarded. */

@@ -16,6 +16,7 @@ import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
+import { startResizeStatusResolver } from './mints/resize-status-resolver';
 import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
@@ -112,6 +113,13 @@ async function main() {
   // positive cache means a successfully-resolved collection is never
   // re-resolved across restarts.
   void startCollectionCreatedResolver();
+  // Resize-status resolver (Path C): on-demand per-mint lookup driven
+  // by prefilter-matching live sales (legacy/pNFT ≤ 0.03 SOL). Bounded
+  // RPC: 1 gSFA + ≤20 getTransaction per unseen mint, persistent DB
+  // cache. Emits a `resize_status` SSE patch when a mint resolves to
+  // 'metaplex_resized_unclaimed' so the Live Feed can render the RESIZE
+  // badge after the fact.
+  void startResizeStatusResolver();
 
   // Rare Feed — bus-listener-only (no RPC, no Helius). Subscribes to the
   // existing sale + meta events, enriches with ME rarity (DB-cached), scores,

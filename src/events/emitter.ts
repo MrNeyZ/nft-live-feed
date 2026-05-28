@@ -1,6 +1,16 @@
 import { EventEmitter } from 'events';
 import { SaleEvent } from '../models/sale-event';
 
+/** Per-sale resize-status patch. Emitted by `resize-status-resolver`
+ *  after a lookup completes for a mint whose origin sale signature was
+ *  captured at enqueue time. Carries the originating `signature` so the
+ *  frontend's feed reducer can target the exact row. */
+export interface ResizeStatusPatch {
+  signature:    string;
+  mint:         string;
+  resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
+}
+
 export interface RawPatch {
   signature:   string;
   seller:      string;
@@ -387,6 +397,19 @@ class SaleEventBus extends EventEmitter {
   }
   offRawPatch(listener: (patch: RawPatch) => void): this {
     return this.off('rawpatch', listener);
+  }
+
+  /** Resize-status resolved (or refreshed) for a mint that was the
+   *  subject of a recent sale. SSE forwards on the `resize_status`
+   *  channel; the feed reducer applies it by `signature`. */
+  emitResizeStatusPatch(patch: ResizeStatusPatch): void {
+    this.emit('resize_status', patch);
+  }
+  onResizeStatusPatch(listener: (patch: ResizeStatusPatch) => void): this {
+    return this.on('resize_status', listener);
+  }
+  offResizeStatusPatch(listener: (patch: ResizeStatusPatch) => void): this {
+    return this.off('resize_status', listener);
   }
 
   /** Per-mint removal delta, emitted by listings-store when a mint is

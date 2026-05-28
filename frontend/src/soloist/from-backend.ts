@@ -92,6 +92,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     seller: b.seller,
     imageUrl: b.imageUrl ?? null,
     collectionAddress: b.collectionAddress ?? null,
+    resizeStatus:      b.resizeStatus ?? null,
   };
 }
 
