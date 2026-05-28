@@ -330,9 +330,9 @@ const ListingRowItem = memo(function ListingRowItem({
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
           <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
             <span style={{ fontWeight:600, color:'#d4d4e8' }}>{baseName}</span>
-            {num && <span style={{ color:'#56566e', marginLeft:4 }}>#{num}</span>}
+            {num && <span style={{ color:'#6e6e8a', marginLeft:4 }}>#{num}</span>}
           </span>
-          <span style={{ fontSize:12, color:'#56566e', flexShrink:0 }}>{listing.listedAt ? timeAgo(listing.listedAt) : '—'}</span>
+          <span style={{ fontSize:12, color:'#6e6e8a', flexShrink:0 }}>{listing.listedAt ? timeAgo(listing.listedAt) : '—'}</span>
         </div>
         {/* Line 2: rank LEFT — price + buy + mkt RIGHT */}
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
@@ -415,12 +415,12 @@ const TradeRowItem = memo(function TradeRowItem({
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
           <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
             <span style={{ fontWeight:600, color:'#d4d4e8' }}>{baseName}</span>
-            {num && <span style={{ color:'#56566e', marginLeft:4 }}>#{num}</span>}
+            {num && <span style={{ color:'#6e6e8a', marginLeft:4 }}>#{num}</span>}
           </span>
           <span style={{ fontSize:12, color: isNew ? '#e87ab0' : '#56566e', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
-          <span style={{ fontSize:12, color:'#56566e' }}>{shortWallet(event.buyer)}</span>
+          <span style={{ fontSize:12, color:'#6e6e8a' }}>{shortWallet(event.buyer)}</span>
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
             <span style={{ fontSize:13, fontWeight:700, color: event.side === 'buy' ? '#5ce0a0' : '#ef7878' }}>{formatSol(event.price)}</span>
             <TypeBadge type={event.side} />
@@ -1344,7 +1344,7 @@ export default function CollectionPage() {
         background:'linear-gradient(180deg, #1a1530 0%, #15102a 100%)',
         border:'1px solid rgba(148,124,226,0.18)',
         borderRadius:12,
-        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.4)',
+        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.05), 0 6px 16px rgba(0,0,0,0.38)',
         flexShrink:0,
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1419,7 +1419,7 @@ export default function CollectionPage() {
           </div>
         </div>
         <div className="collection-header-right" style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:10, color:'#3a3a52' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:10, color:'#4d4d6e' }}>
             <span>Metadata fetched</span>
             <div style={{ width:60, height:3, borderRadius:2, background:'#ffffff08', overflow:'hidden' }}>
               <div style={{ width: events.length > 0 ? '100%' : '0%', height:'100%', background:'#36b868', transition:'width 0.4s' }} />
@@ -1445,7 +1445,7 @@ export default function CollectionPage() {
                 border:'1px solid rgba(168,144,232,0.20)', background:'rgba(168,144,232,0.14)', color:'#cfc6e6', cursor:'pointer',
               }}>Connect Phantom</button>
             )}
-            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.04)', color:'#56566e', cursor:'pointer' }}>id, name or address</button>
+            <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(255,255,255,0.06)', background:'rgba(255,255,255,0.04)', color:'#6e6e8a', cursor:'pointer' }}>id, name or address</button>
             <button style={{ padding:'4px 10px', fontSize:11, borderRadius:4, border:'1px solid rgba(168,144,232,0.20)', background:'rgba(168,144,232,0.14)', color:'#cfc6e6', cursor:'pointer' }}>Quick lookup</button>
           </div>
           {walletErr && (
@@ -1503,7 +1503,7 @@ export default function CollectionPage() {
                 label="Filters"
                 size="sm"
               />
-              <span style={{ fontSize:10, color:'#3a3a52' }}>Sort:</span>
+              <span style={{ fontSize:10, color:'#4d4d6e' }}>Sort:</span>
               <DropBtn label="listing date" />
             </div>
           </div>
@@ -1519,12 +1519,12 @@ export default function CollectionPage() {
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#5ce0a0', cursor:'pointer' }}>◎</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#56566e', cursor:'pointer' }}>↓</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#6e6e8a', cursor:'pointer' }}>↓</span>
                 <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'#8f8fa8', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <span style={{ color:'#5ce0a0' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
-                <span style={{ fontSize:10, color:'#56566e', marginRight:6 }}>0/0 ACTIVE</span>
+                <span style={{ fontSize:10, color:'#6e6e8a', marginRight:6 }}>0/0 ACTIVE</span>
                 <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#5ce0a0', cursor:'pointer' }}>+ Rule</button>
               </div>
             </div>
@@ -1542,7 +1542,7 @@ export default function CollectionPage() {
             }}
           >
             {listings.length === 0 && (
-              <div style={{ textAlign:'center', color:'#56566e', fontSize:10.5, padding:'24px 0' }}>
+              <div style={{ textAlign:'center', color:'#6e6e8a', fontSize:10.5, padding:'24px 0' }}>
                 {buyEnabled === false ? 'No active ME listings.' : 'Loading listings…'}
               </div>
             )}
@@ -1619,7 +1619,7 @@ export default function CollectionPage() {
                 label="Filters"
                 size="sm"
               />
-              <span style={{ fontSize:10, color:'#3a3a52' }}>Sort:</span>
+              <span style={{ fontSize:10, color:'#4d4d6e' }}>Sort:</span>
               <DropBtn label="trade date" />
             </div>
           </div>
@@ -1635,12 +1635,12 @@ export default function CollectionPage() {
               </div>
               <div style={{ display:'flex', gap:3, alignItems:'center' }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #36b86848', background:'#36b86820', fontSize:9, fontWeight:700, color:'#5ce0a0', cursor:'pointer' }}>◎</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#56566e', cursor:'pointer' }}>↓</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #ffffff0d', background:'#ffffff07', fontSize:9, color:'#6e6e8a', cursor:'pointer' }}>↓</span>
                 <button style={{ padding:'3px 10px', fontSize:11, borderRadius:4, border:'1px solid #ffffff0d', background:'#ffffff07', color:'#8f8fa8', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                   <span style={{ color:'#5ce0a0' }}>+</span> Trait filter
                 </button>
                 <div style={{ flex:1 }} />
-                <span style={{ fontSize:10, color:'#56566e', marginRight:6 }}>0/0 ACTIVE</span>
+                <span style={{ fontSize:10, color:'#6e6e8a', marginRight:6 }}>0/0 ACTIVE</span>
                 <button style={{ padding:'2px 8px', fontSize:10, borderRadius:3, border:'1px solid #36b86830', background:'transparent', color:'#5ce0a0', cursor:'pointer' }}>+ Rule</button>
               </div>
             </div>
@@ -1658,7 +1658,7 @@ export default function CollectionPage() {
             }}
           >
             {loaded && events.length === 0 && (
-              <div style={{ textAlign:'center', color:'#56566e', fontSize:10.5, padding:'24px 0' }}>
+              <div style={{ textAlign:'center', color:'#6e6e8a', fontSize:10.5, padding:'24px 0' }}>
                 No trades yet for <code>{slug}</code>
               </div>
             )}
@@ -1698,7 +1698,7 @@ export default function CollectionPage() {
           {/* Info notice (verbatim) */}
           <div style={{
             padding:'3px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0,
-            fontSize:10, color:'#3a3a52', background:'rgba(255,255,255,0.02)',
+            fontSize:10, color:'#4d4d6e', background:'rgba(255,255,255,0.02)',
             display:'flex', alignItems:'center', gap:6,
           }}>
             <span style={{ color:'#8068d8' }}>ⓘ</span>
@@ -1727,7 +1727,7 @@ export default function CollectionPage() {
                   }}>{v}</button>
                 ))}
               </div>
-              <span style={{ fontSize:11, color:'#3a3a52' }}>Span</span>
+              <span style={{ fontSize:11, color:'#4d4d6e' }}>Span</span>
               <div style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden' }}>
                 {SPANS.map(v => (
                   <button key={v} onClick={() => setSpan(v)} style={{
@@ -1765,7 +1765,7 @@ export default function CollectionPage() {
           }}>
             {chartPoints.length >= 2
               ? <ScatterChart trades={chartPoints} span={span} interval={interval_} />
-              : <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#56566e', fontSize:11 }}>
+              : <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#6e6e8a', fontSize:11 }}>
                   Need at least 2 sales in this span to plot.
                 </div>}
           </div>
