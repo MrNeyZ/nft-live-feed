@@ -503,14 +503,14 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
@@ -580,14 +580,14 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
         {formatSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#5e5e78', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
@@ -1055,7 +1055,7 @@ export default function Dashboard() {
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.06)',
         overflow: 'hidden',
         // No bottom margin in embed mode so the card sits flush with
         // the iframe edge — multi-tab pane chrome owns the spacing.
@@ -1094,8 +1094,8 @@ export default function Dashboard() {
               />
             ))}
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', letterSpacing: '0.5px' }}>
-              {sortedCols.length.toLocaleString()} <span style={{ color: '#3a3a52', fontWeight: 500 }}>collections</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#6e6e8a', letterSpacing: '0.5px' }}>
+              {sortedCols.length.toLocaleString()} <span style={{ color: '#4d4d6e', fontWeight: 500 }}>collections</span>
             </span>
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
