@@ -784,8 +784,8 @@ a { color: inherit; text-decoration: none; }
      Net effect: same card silhouette, drier surface. */
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.018) 0%,
-    rgba(255, 255, 255, 0.005) 50%,
+    rgba(255, 255, 255, 0.022) 0%,
+    rgba(255, 255, 255, 0.007) 50%,
     rgba(255, 255, 255, 0)     100%
   );
   box-shadow:
