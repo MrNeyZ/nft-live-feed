@@ -677,7 +677,7 @@ export default function ToolsPage() {
               <col style={{ width: '10%' }} />{/* LINKS      */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
                 <th style={{ ...thStyleNft,  cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
                   NFT {sortArrow('nft')     && <span style={{ color: '#8068d8' }}>{sortArrow('nft')}</span>}
                 </th>
@@ -943,7 +943,7 @@ export default function ToolsPage() {
 const thStyle: React.CSSProperties = {
   padding: '10px 8px', fontSize: 9.5, fontWeight: 700,
   color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
-  background: 'rgba(28,22,50,0.95)', borderBottom: '1px solid rgba(168,144,232,0.12)',
+  background: 'rgba(16,12,26,0.96)', borderBottom: '1px solid rgba(168,144,232,0.12)',
   textTransform: 'uppercase', userSelect: 'none',
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };

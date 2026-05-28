@@ -232,7 +232,7 @@ export default function RareFeedPage() {
               <col style={{ width:  '8%' }} />{/* TIME/LINK*/}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
                 <th style={thNft}>NFT</th>
                 <th style={thNum}>SALE</th>
                 <th style={thNum}>FLOOR Δ</th>
@@ -335,7 +335,7 @@ export default function RareFeedPage() {
 
 const thBase: React.CSSProperties = {
   padding: '10px 8px', fontSize: 9.5, fontWeight: 700, color: '#56566e',
-  letterSpacing: '0.6px', textAlign: 'left', background: 'rgba(28,22,50,0.95)',
+  letterSpacing: '0.6px', textAlign: 'left', background: 'rgba(16,12,26,0.96)',
   borderBottom: '1px solid rgba(168,144,232,0.12)', textTransform: 'uppercase', userSelect: 'none',
 };
 const thNum: React.CSSProperties   = { ...thBase, textAlign: 'right' };

@@ -2347,7 +2347,7 @@ export default function MintsPage() {
                   goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,50,0.95)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
                 {/* COLLECTION header pads left by 13 px = 10 px (data
                     cell padding) + 3 px (data cell accent border that
                     pushes its content right by 3 px and isn't on the
@@ -2619,7 +2619,7 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  background: 'rgba(28,22,50,0.95)',
+  background: 'rgba(16,12,26,0.96)',
   borderBottom: '1px solid rgba(168,144,232,0.12)',
   textTransform: 'uppercase',
   userSelect: 'none',

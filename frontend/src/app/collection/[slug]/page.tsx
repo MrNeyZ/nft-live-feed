@@ -1478,7 +1478,7 @@ export default function CollectionPage() {
           background:'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border:'1px solid rgba(168,144,232,0.28)',
           borderRadius:12,
-          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 24px rgba(128,104,216,0.08)',
+          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.05)',
           position:'relative',
         }}>
           <div style={{ padding:'5px 8px', borderBottom:'1px solid rgba(168,144,232,0.12)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(168,144,232,0.04)' }}>
@@ -1570,7 +1570,7 @@ export default function CollectionPage() {
           background:'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border:'1px solid rgba(168,144,232,0.28)',
           borderRadius:12,
-          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 24px rgba(128,104,216,0.08)',
+          boxShadow:'inset 0 1px 0 rgba(255,255,255,0.07), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.05)',
           position:'relative',
         }}>
           <div style={{ padding:'5px 8px', borderBottom:'1px solid rgba(168,144,232,0.12)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', background:'rgba(168,144,232,0.04)' }}>
