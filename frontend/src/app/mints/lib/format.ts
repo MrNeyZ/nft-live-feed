@@ -71,23 +71,32 @@ export function fmtAge(ts: number): string {
   return `${Math.floor(diff / 3_600_000)}h ago`;
 }
 
-/** Compact "created / first-seen" age formatter for the CREATED column.
- *  Differs from `fmtAge` (which caps at hours) by extending into days
- *  and absolute "Mon DD" / "Mon DD, YYYY" once the age exceeds 30 d /
- *  365 d — the CREATED axis is far longer-lived than LAST MINT. */
-export function fmtCreated(ts: number | null | undefined): string {
-  if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—';
-  const now = Date.now();
-  const diff = now - ts;
-  if (diff < 5_000)       return 'just now';
-  if (diff < 60_000)      return `${Math.floor(diff / 1_000)}s ago`;
-  if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)}h ago`;
-  if (diff < 30 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`;
-  const d = new Date(ts);
-  const sameYear = d.getFullYear() === new Date(now).getFullYear();
-  const mon = d.toLocaleString('en-US', { month: 'short' });
-  return sameYear ? `${mon} ${d.getDate()}` : `${mon} ${d.getDate()}, ${d.getFullYear()}`;
+/** Compact age formatter shared by the LAST and CREATED columns of the
+ *  Mint Tracker table. Drops the "ago" suffix to keep the columns
+ *  narrow; switches to weeks at 14 d, months at 30 d, years at 365 d
+ *  so even old collections stay readable as a single small token
+ *  (e.g. "3mo", "2y"). NEVER renders absolute dates.
+ *  Bucket boundaries:
+ *    <5s    → "now"
+ *    <60s   → "Ns"
+ *    <60m   → "Nm"
+ *    <24h   → "Nh"
+ *    <14d   → "Nd"        (1-13 days stay as days)
+ *    <30d   → "Nw"        (14-29 days → weeks; 18d → 2w)
+ *    <365d  → "Nmo"       (30-364 days → months; 45d → 1mo, 90d → 3mo)
+ *    else   → "Ny"        (year buckets) */
+export function fmtAgeShort(ts: number | null | undefined): string {
+  if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 5_000)         return 'now';
+  if (diff < 60_000)        return `${Math.floor(diff / 1_000)}s`;
+  if (diff < 3_600_000)     return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000)    return `${Math.floor(diff / 3_600_000)}h`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 14)            return `${days}d`;
+  if (days < 30)            return `${Math.floor(days / 7)}w`;
+  if (days < 365)           return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
 }
 
 export function shortKey(k: string): string {

@@ -14,7 +14,7 @@ import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
-import { fmtAge, fmtCreated, fmtSol, shortKey, thumb64 } from '../lib/format';
+import { fmtAgeShort, fmtSol, shortKey, thumb64 } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
 
 /** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
@@ -674,7 +674,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         );
       })()}
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap' }}>
-        {fmtAge(r.lastMintAt)}
+        {fmtAgeShort(r.lastMintAt)}
       </td>
       {/* PRICE — latest observed mint price for this collection.
           Source is the most recent event for the groupingKey from
@@ -769,7 +769,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       <td
         style={{ padding: '13px 18px 13px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
-        {fmtCreated(r.collectionCreatedAt ?? r.firstSeenAt)}
+        {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
     </tr>
   );

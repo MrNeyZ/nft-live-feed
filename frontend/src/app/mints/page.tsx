@@ -613,7 +613,7 @@ if (typeof window !== 'undefined') {
 /** Proxy size for live-feed thumbnails — 64×64, matches the spec's
  *  /thumb URL form. compressImage() defaults to 200×200; the live
  *  feed uses this smaller size to halve bandwidth on rolling rows. */
-import { thumb64, fmtAge, shortKey } from './lib/format';
+import { thumb64, shortKey } from './lib/format';
 
 import { MintsTableRow } from './components/MintsTableRow';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
