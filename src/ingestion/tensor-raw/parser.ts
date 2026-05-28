@@ -242,7 +242,21 @@ function parseTammSale(
 
   // ── Build event ────────────────────────────────────────────────────────────
 
-  const sellerNet = computeSellerNetLamports(tx, seller);
+  // For TAMM pool_buy (direction='buy'), `seller` resolves via the
+  // static `sellerAcctIdx=0` slot which for shared-escrow TAMM pool
+  // shapes is a protocol fee wallet (e.g. A5sAP5KhTQ7KG…) whose
+  // positive lamport delta is dust (~0.001 SOL), not the pool owner's
+  // proceeds. Computing sellerNetLamports here produces a
+  // conceptually-meaningless number that ends up rendered by the
+  // frontend's `event.price = sellerNetPriceSol ?? priceSol` fallback,
+  // displaying ~0.001 SOL live for sales that are actually ~0.06.
+  // Buyer paid the gross — there is no meaningful "seller net" for
+  // pool_buy — so we leave the field null and let priceSol win.
+  // bid_sell (takeBid*) and pool_sale (sell direction) paths still
+  // compute sellerNet as before.
+  const sellerNet = match.direction === 'buy'
+    ? null
+    : computeSellerNetLamports(tx, seller);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
