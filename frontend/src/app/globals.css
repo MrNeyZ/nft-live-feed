@@ -88,8 +88,8 @@
   --accent-row-alpha:    0.07;
   --accent-card-alpha:   0.10;
   --hover-ring-alpha:    0.55;
-  --hover-glow-blur:     10px;
-  --hover-glow-alpha:    0.18;
+  --hover-glow-blur:     8px;
+  --hover-glow-alpha:    0.15;
   --stat-label-color:    #45456a;
   --th-label-color:      #76769a;
   /* Dashboard sparkline + volume bar visibility. The path / dot / bar
@@ -139,8 +139,8 @@ html[data-layout="pc"] {
   --accent-row-alpha:    0.13;
   --accent-card-alpha:   0.16;
   --hover-ring-alpha:    0.68;
-  --hover-glow-blur:     12px;
-  --hover-glow-alpha:    0.22;
+  --hover-glow-blur:     10px;
+  --hover-glow-alpha:    0.18;
   --stat-label-color:    #545478;
   --th-label-color:      #8a8aae;
   --spark-line-opacity:  0.50;
@@ -198,8 +198,8 @@ html[data-layout="laptop"] {
   --accent-row-alpha:   0.10;
   --accent-card-alpha:  0.13;
   --hover-ring-alpha:   0.62;
-  --hover-glow-blur:    11px;
-  --hover-glow-alpha:   0.20;
+  --hover-glow-blur:    9px;
+  --hover-glow-alpha:   0.16;
   --stat-label-color:   #4d4d70;
   --th-label-color:     #80809f;
   --spark-line-opacity: 0.44;
@@ -583,14 +583,18 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   overflow: hidden;
-  background: #050308;
-  /* Clarity pass: page-wide purple wash dropped ~40 % so the dark
-     base reads cleaner and the panel/card edges from the sharpness
-     pass stop competing with a global fog. Same gradient shape,
-     same hues — just lower alpha. */
+  background: #030206;
+  /* Clarity pass: page-wide purple wash kept low (sharpness pass);
+     base bumped one shade darker (#050308 → #030206) so cards have
+     more contrast against the page without lifting the card itself.
+     A near-imperceptible SVG-noise layer is composited under the
+     purple wash to break the "AI-flat-gradient" feel — alpha is
+     deliberately tiny (≤ 0.02) so it never reads as texture. */
   background-image:
     radial-gradient(ellipse 140% 55% at 65% -5%, rgba(80, 50, 150, 0.06) 0%, transparent 65%),
-    radial-gradient(ellipse 70%  40% at  5% 90%, rgba(50, 30, 100, 0.04) 0%, transparent 60%);
+    radial-gradient(ellipse 70%  40% at  5% 90%, rgba(50, 30, 100, 0.04) 0%, transparent 60%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.02 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-attachment: fixed, fixed, fixed;
 }
 
 /* Belt-and-suspenders against the navigation black flash. If the
@@ -599,7 +603,7 @@ html, body {
    color as `body` so what the user sees is the theme background, not
    a black/white system default. The `color-scheme` hint also tells
    the UA to use dark form-control / scrollbar defaults. */
-html { background-color: #050308; color-scheme: dark; }
+html { background-color: #030206; color-scheme: dark; }
 
 body { display: block; height: 100vh; }
 
@@ -1127,10 +1131,12 @@ a { color: inherit; text-decoration: none; }
 }
 .feed-coll-input:focus {
   border-color: rgba(168, 144, 232, 0.40);
+  /* Focus glow tightened 12px @ 0.10 → 8px @ 0.08 — same visibility,
+     tighter halo, no neon bloom. */
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.30),
     0 0 0 1px rgba(168, 144, 232, 0.20),
-    0 0 12px rgba(168, 144, 232, 0.10);
+    0 0 8px rgba(168, 144, 232, 0.08);
 }
 
 /* Filters-panel mount animation. Combines opacity + slight
