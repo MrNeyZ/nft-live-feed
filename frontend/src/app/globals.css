@@ -702,19 +702,20 @@ a { color: inherit; text-decoration: none; }
    highlight gives a subtle glassy feel without going invisible.
    Hover bumps to α 0.40 for a clear grab affordance. Scoped to
    `.feed-list` — does not affect `.scroll-area` global rules. */
-.feed-list::-webkit-scrollbar             { width: 5px; }
-.feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.015); border-radius: 999px; }
+/* Material pass: scrollbar thinned 5 → 4 px, glassy inner sheen
+   removed, thumb alpha dropped (0.22 → 0.18 idle, 0.40 → 0.32 hover),
+   and the pill radius squared to 2 px so it reads as a native terminal
+   scrollbar instead of a translucent capsule. */
+.feed-list::-webkit-scrollbar             { width: 4px; }
+.feed-list::-webkit-scrollbar-track       { background: rgba(255, 255, 255, 0.012); border-radius: 2px; }
 .feed-list::-webkit-scrollbar-thumb       {
-  background: rgba(168, 144, 232, 0.22);
-  border-radius: 999px;
-  /* Faint inner highlight gives the thumb a translucent-glass feel
-     instead of the prior matte stripe. Pure CSS, no extra layers. */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  background: rgba(168, 144, 232, 0.18);
+  border-radius: 2px;
 }
-.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.40); }
+.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.32); }
 .feed-list {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.22) rgba(255, 255, 255, 0.015);
+  scrollbar-color: rgba(168, 144, 232, 0.18) rgba(255, 255, 255, 0.012);
   scrollbar-gutter: stable;
   /* Let JS manage scroll compensation on prepend; browser anchoring would
      fight our pin-to-top behavior when the user is at scrollTop=0. */
@@ -775,26 +776,21 @@ a { color: inherit; text-decoration: none; }
      against the page bg (was washing out at idle). The hover state
      still steps up to ~0.09 below, preserving the lift. */
   background: rgba(255, 255, 255, 0.035);
-  /* Glass-slab depth (visual-polish pass): three-stop top-to-bottom
-     wash (was two-stop, ending at 65 %). Same near-imperceptible
-     highlight at the top, a faint mid-stop for an extra hint of
-     volume, then fully transparent at 100 %. Paired with the
-     bottom-inset shadow below, the card reads as a thin lit panel
-     instead of a flat rectangle. No new blur, no new gradient
-     direction — same performance profile. */
+  /* Material pass: top-to-bottom wash flattened (~40 % trim) so the
+     card reads as a matte panel instead of "lit glass slab". Mid stop
+     halved; top stop down to barely-there. Top inset highlight cut
+     0.06 → 0.04 to weaken the sheen; bottom inset shadow lifted
+     0.18 → 0.24 so the matte panel still has a defined lower rim.
+     Net effect: same card silhouette, drier surface. */
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.030) 0%,
-    rgba(255, 255, 255, 0.010) 50%,
+    rgba(255, 255, 255, 0.018) 0%,
+    rgba(255, 255, 255, 0.005) 50%,
     rgba(255, 255, 255, 0)     100%
   );
-  /* Top highlight + faint bottom inset shadow: gives the card a
-     visible top + bottom rim without competing with the per-card
-     buy/sell tint. Alpha kept tiny so a 150-row list doesn't read
-     as "loud" — purely a depth nudge.  */
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
   cursor: pointer;
   position: relative;
   /* `box-shadow` is intentionally NOT in this transition list: the
@@ -903,17 +899,17 @@ a { color: inherit; text-decoration: none; }
   display: flex; flex-direction: column;
   gap: 4px;
   padding: 8px 16px 9px;
-  background: rgba(0, 0, 0, 0.18);
+  /* Material pass: deeper matte base (0.18 → 0.26 black) and the
+     inner-haze inset glow tightened further (12px @ 0.14 → 8px @ 0.10)
+     so the panel reads as a flat physical strip — no remaining
+     visible "fog" inside the box. Top/bottom 1px highlights kept. */
+  background: rgba(0, 0, 0, 0.26);
   border-top: 1px solid rgba(168, 144, 232, 0.10);
-  /* Very subtle separator between the settings panel and the feed. */
   border-bottom: 1px solid rgba(168, 144, 232, 0.08);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02),
-    /* Clarity pass: inset glow tightened 24px @ 0.20 → 12px @ 0.14
-       so the settings panel reads as a flat-ish strip instead of a
-       hazy box. Top/bottom highlight stays for depth. */
-    inset 0 0 12px rgba(0, 0, 0, 0.14);
+    inset 0 0 8px rgba(0, 0, 0, 0.10);
   overflow: hidden;
 }
 .feed-filters-panel-open  { animation: feedFiltersIn  200ms ease-out; }
