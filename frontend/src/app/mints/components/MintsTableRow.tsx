@@ -456,16 +456,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onHoverEnter?.();
               if (!isPinned) {
                 const b = e.currentTarget;
-                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.07) 35%, rgba(128,104,216,0.12) 50%, rgba(128,104,216,0.07) 65%, rgba(128,104,216,0) 100%)';
-                const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#ffffff';
+                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(140,112,228,0.16) 28%, rgba(150,120,236,0.28) 50%, rgba(140,112,228,0.16) 72%, rgba(128,104,216,0) 100%)';
+                b.style.boxShadow  = 'inset 0 0 0 1px rgba(178,152,240,0.32), inset 0 0 14px rgba(150,120,236,0.14)';
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#ffffff'; t.style.textShadow = '0 0 8px rgba(178,152,240,0.45)'; }
               }
             }}
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) {
                 const b = e.currentTarget;
-                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 35%, rgba(128,104,216,0.07) 50%, rgba(128,104,216,0.04) 65%, rgba(128,104,216,0) 100%)';
-                const t = b.firstElementChild as HTMLElement | null; if (t) t.style.color = '#c9bdf0';
+                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)';
+                b.style.boxShadow  = 'none';
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#b4a8d8'; t.style.textShadow = 'none'; }
               }
             }}
             style={{
@@ -478,21 +480,23 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               position: 'absolute', top: 0, bottom: 0, left: 6, right: 6,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
-              // borderRadius 0 + no inset ring + softer/feathered gradient
-              // stops → strip reads as a native row action band integrated
-              // into the row geometry, not a floating rounded card.
+              // borderRadius:0 kills the floating-rounded-button silhouette.
+              // Idle = no inset outline (zone blends into the row); hover/
+              // pinned bring the inset ring back so the zone reads as
+              // active. Rectangular action band, never a card.
               borderRadius: 0,
               background: isPinned
-                ? 'linear-gradient(90deg, rgba(128,104,216,0.03) 0%, rgba(128,104,216,0.11) 35%, rgba(128,104,216,0.18) 50%, rgba(128,104,216,0.11) 65%, rgba(128,104,216,0.03) 100%)'
-                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 35%, rgba(128,104,216,0.07) 50%, rgba(128,104,216,0.04) 65%, rgba(128,104,216,0) 100%)',
-              boxShadow: 'none',
-              transition: 'background 160ms ease',
+                ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(140,112,228,0.20) 28%, rgba(155,124,240,0.34) 50%, rgba(140,112,228,0.20) 72%, rgba(128,104,216,0.06) 100%)'
+                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)',
+              boxShadow: isPinned ? 'inset 0 0 0 1px rgba(188,160,246,0.42), inset 0 0 18px rgba(155,124,240,0.18)' : 'none',
+              transition: 'background 160ms ease, box-shadow 160ms ease',
             }}
           >
             <span style={{
               fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-              whiteSpace: 'nowrap', transition: 'color 160ms ease',
-              color: isPinned ? '#ffffff' : '#c9bdf0',
+              whiteSpace: 'nowrap', transition: 'color 160ms ease, text-shadow 160ms ease',
+              color: isPinned ? '#ffffff' : '#b4a8d8',
+              textShadow: isPinned ? '0 0 10px rgba(188,160,246,0.55)' : 'none',
             }}>SHOW</span>
           </div>
         )}
