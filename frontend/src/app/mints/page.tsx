@@ -981,6 +981,45 @@ export default function MintsPage() {
         : '1H';
     } catch { return '1H'; }
   });
+  // Backend-truthed per-collection mint counts for the active timeframe.
+  // The live SSE buffer is capped at LIVE_FEED_MAX (150) so for older
+  // windows (1H / 4H / 1D) the local count silently undercounts. The
+  // /api/mints/tf-stats endpoint groups mint_events by grouping_key over
+  // the requested windowMs — bounded indexed query, 5 s server cache.
+  // tfStatsByKey below seeds counts from this map and only adds local
+  // events newer than `asOf` (so live mints surface without waiting for
+  // the next backend refresh). Null = endpoint hasn't returned yet;
+  // local-buffer fallback covers it.
+  const [tfStatsBackend, setTfStatsBackend] = useState<{
+    stats:    Map<string, number>;
+    asOf:     number;
+    windowMs: number;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const fetchTfStats = async () => {
+      const windowMs = MINT_TF_MS[mintTf];
+      try {
+        const res = await fetch(`${API_BASE}/api/mints/tf-stats?windowMs=${windowMs}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const body = await res.json() as { stats?: Record<string, number>; asOf?: number; windowMs?: number };
+        if (cancelled) return;
+        if (!body.stats || typeof body.asOf !== 'number' || typeof body.windowMs !== 'number') return;
+        setTfStatsBackend({
+          stats:    new Map(Object.entries(body.stats)),
+          asOf:     body.asOf,
+          windowMs: body.windowMs,
+        });
+      } catch {
+        // silent — local buffer keeps the column populated
+      }
+    };
+    fetchTfStats();
+    // 15 s refresh keeps the count fresh between user actions without
+    // hammering the DB; server cache (5 s) absorbs burst flips.
+    const id = setInterval(fetchTfStats, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [mintTf]);
   // Collapsible embedded filter section (Source/Status). Closed by default so
   // the table starts high; the header "Settings" pill toggles it. Not a
   // floating popover — it expands/collapses inline.
@@ -1750,19 +1789,35 @@ export default function MintsPage() {
       mintPerMin: number; // HEAT composite (name kept for cross-module compat)
     };
     const m = new Map<string, Stats>();
+    // Seed counts from the backend tf-stats endpoint when it covers the
+    // active timeframe — that's the DB source of truth, untouched by
+    // the local LIVE_FEED_MAX cap. Local events newer than backend.asOf
+    // are then added below WITHOUT double-counting (older local events
+    // are already represented in the backend count).
+    const hasBackend = tfStatsBackend !== null && tfStatsBackend.windowMs === tfMs;
+    const backendCutoff = hasBackend ? tfStatsBackend!.asOf + 3_000 : 0; // 3 s clock-skew grace
+    if (hasBackend) {
+      for (const [key, count] of tfStatsBackend!.stats) {
+        m.set(key, {
+          count, firstTs: 0, lastTs: 0,
+          recentQ: 0, mintPerMin: 0,
+        });
+      }
+    }
     for (const ev of events) {
       if (ev.receivedAt < cutoff) continue;
       const isRecent = ev.receivedAt >= tfQuarterStart ? 1 : 0;
+      const inBackend = hasBackend && ev.receivedAt <= backendCutoff;
       const cur = m.get(ev.groupingKey);
       if (!cur) {
         m.set(ev.groupingKey, {
-          count: 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt,
+          count: inBackend ? 0 : 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt,
           recentQ: isRecent, mintPerMin: 0,
         });
       } else {
-        cur.count   += 1;
+        if (!inBackend) cur.count += 1;
         cur.recentQ += isRecent;
-        if (ev.receivedAt < cur.firstTs) cur.firstTs = ev.receivedAt;
+        if (cur.firstTs === 0 || ev.receivedAt < cur.firstTs) cur.firstTs = ev.receivedAt;
         if (ev.receivedAt > cur.lastTs)  cur.lastTs  = ev.receivedAt;
       }
     }
@@ -1790,7 +1845,7 @@ export default function MintsPage() {
   // launchpad / on-chain resolvers populate it. Recompute cost is
   // O(events) ≤ 150 — trivially cheap.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, mintTf, tick, rows]);
+  }, [events, mintTf, tick, rows, tfStatsBackend]);
 
   // Latest observed mint price per groupingKey. Walk events newest-
   // first (the live-feed buffer is maintained newest-at-index-0) and

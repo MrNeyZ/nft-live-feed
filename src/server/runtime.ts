@@ -25,6 +25,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
 import { lastObservedMintAt, currentRecentMints } from '../mints/accumulator';
+import { getPool } from '../db/client';
 import { recentMintMetaSnapshot } from '../events/emitter';
 import { getMintListenerStatus } from '../ingestion/listener';
 import { rateLimit } from './rate-limit';
@@ -384,6 +385,55 @@ export function createRuntimeRouter(): Router {
       });
     res.json({ events });
   });
+  // Per-collection mint counts over the requested rolling window. Source
+  // of truth for the MINTS column on older timeframes where the
+  // frontend's capped live-feed buffer (LIVE_FEED_MAX = 150) can't hold
+  // enough history. Query is a single indexed GROUP BY on the
+  // mint_events.created_at index; cached in-process for 5 s so a burst
+  // of clients flipping timeframes doesn't hammer the DB.
+  type TfStatsCacheEntry = { asOf: number; stats: Record<string, number> };
+  const tfStatsCache = new Map<number, TfStatsCacheEntry>();
+  const TF_STATS_TTL_MS = 5_000;
+
+  router.get('/mints/tf-stats', async (req: Request, res: Response) => {
+    const rawMs = parseInt(String(req.query.windowMs ?? ''), 10);
+    if (!Number.isFinite(rawMs) || rawMs <= 0) {
+      res.status(400).json({ error: 'windowMs required' });
+      return;
+    }
+    // Clamp: 1 min … 24 h. Matches the frontend MINT_TF_MS range.
+    const windowMs = Math.min(Math.max(rawMs, 60_000), 24 * 60 * 60 * 1000);
+    // Round to the nearest 1s so cache keys collide across near-identical
+    // requests; clients all send the same exact MINT_TF_MS values anyway.
+    const cacheKey = Math.round(windowMs / 1000) * 1000;
+    const now = Date.now();
+    const cached = tfStatsCache.get(cacheKey);
+    if (cached && now - cached.asOf < TF_STATS_TTL_MS) {
+      res.json({ stats: cached.stats, windowMs, asOf: cached.asOf });
+      return;
+    }
+    try {
+      const since = new Date(now - windowMs);
+      const result = await getPool().query<{ grouping_key: string; count: string }>(
+        `SELECT grouping_key, COUNT(*) AS count
+           FROM mint_events
+          WHERE created_at >= $1
+          GROUP BY grouping_key`,
+        [since],
+      );
+      const stats: Record<string, number> = {};
+      for (const row of result.rows) {
+        const n = Number(row.count);
+        if (Number.isFinite(n) && n > 0) stats[row.grouping_key] = n;
+      }
+      tfStatsCache.set(cacheKey, { asOf: now, stats });
+      res.json({ stats, windowMs, asOf: now });
+    } catch (e) {
+      console.log(`[mints/tf-stats] query failed: ${(e as Error).message}`);
+      res.status(500).json({ error: 'query_failed' });
+    }
+  });
+
   router.post('/mints/runtime', modeLimit, requireAuth, (req: Request, res: Response) => {
     const requested = req.body?.enabled;
     if (typeof requested !== 'boolean') {
