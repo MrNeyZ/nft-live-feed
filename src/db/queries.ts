@@ -29,6 +29,10 @@ export interface SaleEventRow {
   ingested_at: string;
   /** '_parser' field from raw_data JSON; null means Helius-parsed. */
   parser_source: string | null;
+  /** Resize-status stamped at /latest response time from the in-process
+   *  resolver cache (NOT a DB column — added in the handler). Survives a
+   *  page refresh so the RESIZE badge persists across reloads. */
+  resize_status?: string | null;
 }
 
 // Select raw_data extracts (not the full JSONB) so the TS-side `deriveSaleType`

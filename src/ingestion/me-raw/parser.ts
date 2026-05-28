@@ -283,11 +283,16 @@ function parseMmmSale(
 
   if (match.sellerAcctIdx !== null) {
     seller = accs[match.sellerAcctIdx] ?? null;
-  } else if (match.coreAssetIdx === null) {
-    // Unverified SOL/pNFT instruction — fall back to token-flow ownership.
+  } else if (match.coreAssetIdx === null && match.direction !== 'fulfillSell') {
+    // Token-flow fallback only when direction is fulfillBuy (user IS the
+    // seller, sends NFT to pool). For fulfillSell (user buys FROM pool)
+    // the token-flow source is the pool vault PDA — wrong wallet. Leave
+    // seller null so the parser rejects rather than surfacing the pool
+    // PDA. Affects unverified ixs only (verified pool-sells like
+    // solMip1FulfillSell carry sellerAcctIdx=5 = pool owner).
     seller = extractPartiesFromTokenFlow(tx, mint).seller;
   } else {
-    seller = null; // Core, no verified position — use SOL-flow below
+    seller = null; // Core / pool-sell w/ no verified pos — use SOL-flow below
   }
 
   // ── Buyer ─────────────────────────────────────────────────────────────────
@@ -310,7 +315,12 @@ function parseMmmSale(
     return { ok: false, reason: `mmm(${match.instructionName}): could not determine price` };
   }
 
-  seller = seller ?? payment.seller;
+  // Same guard as the token-flow block above: don't let payment-flow
+  // backfill a pool-vault PDA as the human seller on unverified
+  // fulfillSell ixs. Verified pool-sells already set seller from
+  // sellerAcctIdx so this guard is a no-op for them.
+  const poolSellAmbiguous = match.direction === 'fulfillSell' && match.sellerAcctIdx === null;
+  if (!poolSellAmbiguous) seller = seller ?? payment.seller;
   buyer  = buyer  ?? payment.buyer;
 
   if (!seller || !buyer) {

@@ -213,10 +213,17 @@ function parseTammSale(
   if (match.buyerAcctIdx  !== null) buyer  = accs[match.buyerAcctIdx]  ?? null;
   if (match.sellerAcctIdx !== null) seller = accs[match.sellerAcctIdx] ?? null;
 
+  // For user-buys-from-pool with NO verified seller index, token-flow
+  // and payment-flow both resolve to the POOL VAULT PDA — not the human
+  // pool owner. Refuse those fallbacks for the SELLER slot specifically;
+  // the event is dropped rather than surfaced with a wrong wallet. Buyer
+  // (= user) is still resolved normally from flow because it's correct.
+  const poolBuyAmbiguous = match.direction === 'buy' && match.sellerAcctIdx === null;
+
   if ((!buyer || !seller) && nftType !== 'core') {
     const flow = extractPartiesFromTokenFlow(tx, mint);
     buyer  = buyer  ?? flow.buyer;
-    seller = seller ?? flow.seller;
+    if (!poolBuyAmbiguous) seller = seller ?? flow.seller;
   }
 
   // ── Price ──────────────────────────────────────────────────────────────────
@@ -226,7 +233,7 @@ function parseTammSale(
     return { ok: false, reason: `tamm(${match.instructionName}): could not determine price` };
   }
 
-  seller = seller ?? payment.seller;
+  if (!poolBuyAmbiguous) seller = seller ?? payment.seller;
   buyer  = buyer  ?? payment.buyer;
 
   if (!seller || !buyer) {

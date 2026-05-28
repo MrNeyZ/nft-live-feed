@@ -4,6 +4,7 @@ import path from 'path';
 import { getLatestEvents, getEventsByCollection } from '../db/queries';
 import { getPool } from '../db/client';
 import { peekCachedFloorLamports } from '../enrichment/enrich';
+import { getCachedResizeStatus } from '../mints/resize-status-resolver';
 import { rateLimit, isValidSlug } from './rate-limit';
 
 const MAX_LIMIT = 200;
@@ -119,13 +120,26 @@ export function createEventsRouter(): Router {
       // `meta` channel for live events); recomputing here from the cache
       // covers any slug that's been touched in the last 2 minutes — which
       // is virtually every slug present in the most recent N rows.
+      //
+      // Same pattern for resize_status: the resolver cache is preloaded
+      // from `mint_resize_status` (DB) on boot, so every previously
+      // resolved mint is available. Without this stamp the RESIZE badge
+      // would vanish on page refresh (live `resize_status` SSE patch had
+      // applied to the in-memory feed only).
       const enriched = events.map(r => {
+        let row: typeof r & { floor_delta?: number; resize_status?: string | null } = r;
         const floor = peekCachedFloorLamports(r.me_collection_slug);
-        if (floor == null) return r;
-        const priceLam = Number(r.price_lamports);
-        if (!Number.isFinite(priceLam) || floor <= 0) return r;
-        const fd = (priceLam - floor) / floor;
-        return { ...r, floor_delta: fd };
+        if (floor != null) {
+          const priceLam = Number(r.price_lamports);
+          if (Number.isFinite(priceLam) && floor > 0) {
+            row = { ...row, floor_delta: (priceLam - floor) / floor };
+          }
+        }
+        if (r.mint_address) {
+          const rs = getCachedResizeStatus(r.mint_address);
+          if (rs) row = { ...row, resize_status: rs };
+        }
+        return row;
       });
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {

@@ -71,6 +71,9 @@ export interface RestRow {
    *  in-process floor cache when the slug has been seen in the last
    *  2 minutes. Absent on stale snapshots — frontend hides the chip. */
   floor_delta?: number | null;
+  /** Resize-status stamped on the REST snapshot from the resolver
+   *  cache (which is DB-preloaded on boot). Survives a page refresh. */
+  resize_status?: string | null;
 }
 
 export function fromRow(row: RestRow): FeedEvent {
@@ -93,5 +96,6 @@ export function fromRow(row: RestRow): FeedEvent {
     source: row.parser_source ? 'me_raw' : 'helius',
     meCollectionSlug: row.me_collection_slug,
     floorDelta: row.floor_delta ?? null,
+    resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
   };
 }

@@ -579,12 +579,18 @@ const FeedCard = memo(function FeedCard({
         {/* Middle column */}
         <div style={FC_MIDDLE_COL_STYLE}>
           <div style={FC_NAME_ROW_STYLE}>
-            {thumbSlug ? (
+            {/* NFT name now links to the Solscan token page for the
+                mint (was internal /collection/<slug>). Collection-route
+                affordances live elsewhere (thumb click, etc.) and are
+                unchanged. Fallback to <span> only when no mintAddress
+                is available (cNFT placeholder rows). */}
+            {event.mintAddress ? (
               <a
-                href={`/collection/${encodeURIComponent(thumbSlug)}`}
+                href={`https://solscan.io/token/${encodeURIComponent(event.mintAddress)}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
                 style={FC_NAME_LINK_STYLE}
-                
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               >
