@@ -251,15 +251,20 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     coreAssetIdx:  14,
   },
   {
-    // ✅ VERIFIED — confirmed from sig 4 (user buys Core NFT from AMM pool).
-    // Discriminator observed: a3 66 3a 6b b8 04 a9 79
-    // Buyer = accounts[1], Seller (pool owner) = accounts[7], Core asset = accounts[14]
+    // ✅ VERIFIED — Core pool-buy. Pool owner correction 2026-05-28:
+    // accounts[7] is a TSWAP-owned escrow PDA (owner=TSWAPaqyCSx…, data_len=192),
+    // NOT the human pool owner. The original "confirmed via SOL flow"
+    // heuristic was misleading — that PDA receives the largest SOL chunk
+    // first and forwards it to the owner. The actual owner is at
+    // accounts[0]: System-owned wallet (data_len=0), constant across
+    // multiple sales of the same pool, distinct across pools. Verified
+    // by direct getAccountInfo across 4 BuyNft samples / 3 distinct pools.
     name:          'buy',
     disc:          Buffer.from('a3663a6bb804a979', 'hex'),
     verified:      true,
     direction:     'buy',
     buyerAcctIdx:  1,
-    sellerAcctIdx: 7,
+    sellerAcctIdx: 0,    // pool owner (human wallet) — was 7 (TSWAP escrow PDA)
     coreAssetIdx:  14,
   },
 
@@ -295,21 +300,21 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     coreAssetIdx:  null,
   },
   {
-    // TAMM legacy SPL-NFT "buy NFT from token pool". Discriminator confirmed
-    // from two live sales that /feed had been skipping entirely:
-    //   kg7hHr1zm9ffL6LxK7iPUNuF75TZmfLPhnfoMm4CXG3cxMf9ozMAkAhVrmeNcs62iRDSsqDm51BwWVEsMgHxf8h
-    //   3C9WCWFLxyCCZipuy6Fg6SjBVSNqHyroeiXvNUv9vnuDdpaFW4Ne13UpD3n2AdkiNYST41iXPZXyBJwkeFgsYVpV
-    // Log prefix `Instruction: BuyNft`; Anchor disc sha256("global:buy_nft")[:8] = 60 00 1c be 31 6b 53 de.
-    // accounts[1] = buyer (confirmed: receives the NFT). accounts[7] = pool owner / seller — layout mirrors the
-    // verified `buy` def above, but the owner↔pool-PDA link wasn't cross-checked, so verified:false. nftType
-    // resolves to 'legacy' (Tokenkeg TransferChecked + CloseAccount, no Core inner CPI), so parseTammSale uses
-    // extractNftMint() + token-flow / payment-flow fallbacks — coreAssetIdx is not applicable.
+    // ✅ VERIFIED 2026-05-28 — TAMM legacy SPL-NFT "buy NFT from token pool".
+    // Anchor disc sha256("global:buy_nft")[:8] = 60 00 1c be 31 6b 53 de.
+    // accounts[1] = buyer (signer, receives the NFT).
+    // accounts[0] = POOL OWNER (System-owned human wallet) — confirmed
+    //   via getAccountInfo across 4 BuyNft samples / 3 distinct pools.
+    // Previous sellerAcctIdx=7 was a TSWAP-owned escrow PDA (owner=
+    //   TSWAPaqyCSx…, data_len=192) — exactly the pool-PDA-as-seller
+    //   bug the operator reported. accounts[4] is the TAMM-owned pool
+    //   STATE PDA (data_len=596). nftType resolves to 'legacy'.
     name:          'buyNft',
     disc:          Buffer.from('60001cbe316b53de', 'hex'),
-    verified:      false,
+    verified:      true,
     direction:     'buy',
     buyerAcctIdx:  1,
-    sellerAcctIdx: 7,
+    sellerAcctIdx: 0,    // pool owner (human wallet) — was 7 (TSWAP escrow PDA)
     coreAssetIdx:  null,
   },
 ];
