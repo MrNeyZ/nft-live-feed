@@ -1463,11 +1463,11 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 fontVariantNumeric: 'tabular-nums',
               }}>${sol}</span>
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.24)' }} aria-hidden="true" />
             <span>
-              <span style={{ color: '#7a7a96' }}>TPS </span>
+              <span style={{ color: '#909bb6' }}>TPS </span>
               <span style={{
-                color: '#8a82c0',
+                color: '#a89eda',
                 fontWeight: 500,
                 fontVariantNumeric: 'tabular-nums',
               }}>{tps.toLocaleString()}</span>
@@ -1478,13 +1478,13 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
               <LiveDot />
               <span style={{ color: '#62cb93' }}>live</span>
               {typeof eventsCount === 'number' && (
-                <span style={{ color: '#7a7a96' }}> · <span style={{ color: '#bdbdd6' }}>{eventsCount}</span> events</span>
+                <span style={{ color: '#909bb6' }}> · <span style={{ color: '#d4d4eb' }}>{eventsCount}</span> events</span>
               )}
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.16)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.24)' }} aria-hidden="true" />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
-              <span style={{ color: '#7a7a96' }}>alerts</span>
+              <span style={{ color: '#909bb6' }}>alerts</span>
             </span>
           </div>
         </div>
@@ -1554,15 +1554,15 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
           <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <a
               href="https://discord.com/" target="_blank" rel="noopener noreferrer"
-              style={{ color: '#8a8aa6', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              style={{ color: '#a0a0bc', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
               onMouseEnter={e => { e.currentTarget.style.color = '#c9bdf0'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#8a8aa6'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#a0a0bc'; }}
             >Discord</a>
             <a
               href="https://x.com/VictoryHell_" target="_blank" rel="noopener noreferrer"
-              style={{ color: '#8a8aa6', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              style={{ color: '#a0a0bc', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
               onMouseEnter={e => { e.currentTarget.style.color = '#c9bdf0'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#8a8aa6'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#a0a0bc'; }}
             >Twitter</a>
           </div>
         </div>
