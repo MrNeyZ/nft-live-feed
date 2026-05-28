@@ -1932,11 +1932,11 @@ export default function MintsPage() {
           return av - bv;
         }
         case 'created': {
-          // Sort by collection first-seen timestamp. Rows without the
-          // field (predate backend surfacing) sink to the bottom of an
-          // asc-click; flip dir to lift them — desc puts newest first.
-          const av = typeof a.firstSeenAt === 'number' ? a.firstSeenAt : 0;
-          const bv = typeof b.firstSeenAt === 'number' ? b.firstSeenAt : 0;
+          // Prefer on-chain collectionCreatedAt; fall back to firstSeenAt.
+          // Missing-on-both rows sink to bottom of an asc-click; desc
+          // puts newest-created collections first.
+          const av = a.collectionCreatedAt ?? a.firstSeenAt ?? 0;
+          const bv = b.collectionCreatedAt ?? b.firstSeenAt ?? 0;
           return av - bv;
         }
       }

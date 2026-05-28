@@ -759,18 +759,17 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </td>
         );
       })()}
-      {/* CREATED — backend-surfaced first-observed timestamp for this
-          collection (MintStatus.firstSeenAt = accumulator's
-          firstObservedAt). Not an on-chain creation date — a
-          defensible "first seen on the wire" proxy. Muted gray to
-          match SUPPLY / PRICE tone; the column-tier hierarchy keeps
-          MINTS as the brightest activity number. Same wider
-          right-side padding the RATE column used so the value
-          doesn't hug the table edge. */}
+      {/* CREATED — prefer the on-chain collection creation timestamp
+          (resolver landed real blockTime from the earliest gSFA
+          signature); fall back to firstSeenAt (= accumulator's
+          firstObservedAt) for rows the resolver hasn't covered yet
+          or that have no collectionAddress. Muted gray to match
+          SUPPLY / PRICE tone; same right-side padding the prior RATE
+          column used so the value doesn't hug the table edge. */}
       <td
         style={{ padding: '13px 18px 13px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
-        {fmtCreated(r.firstSeenAt)}
+        {fmtCreated(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
     </tr>
   );

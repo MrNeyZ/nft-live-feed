@@ -93,6 +93,13 @@ interface Accum {
 
   firstObservedAt: number;
   lastMintAt:      number;
+  /** On-chain collection creation timestamp (ms). Resolved out-of-band
+   *  by `collection-created-resolver.ts` (earliest signature on the
+   *  collection address). Independent of `firstObservedAt`; far older
+   *  in practice. Patched in via `patchAccumulatorCollectionCreated`
+   *  once the resolver lands a result. Surfaced on the wire as
+   *  `collectionCreatedAt`. */
+  collectionCreatedAt?: number;
 
   freeCount:    number;
   paidCount:    number;
@@ -390,6 +397,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     v5m: Math.round(v5m * 10) / 10,
     lastMintAt:        a.lastMintAt,
     firstSeenAt:       a.firstObservedAt,
+    collectionCreatedAt: a.collectionCreatedAt,
     mintType:          rollupType(a),
     priceLamports:     median,
     sourceLabel:       a.sourceLabel,
@@ -903,6 +911,25 @@ export function patchAccumulatorLmnft(
  *  Re-emits one mint_status frame so connected clients see the SUPPLY
  *  column flip from optimistic to verified without waiting for the
  *  next mint. */
+/** Patch on-chain collection creation timestamp into every Accum
+ *  whose collectionAddress matches. Called by the resolver after a
+ *  successful gSFA scan AND from the resolver's startup-cache
+ *  preload. Idempotent: skips emit when the value is unchanged. */
+export function patchAccumulatorCollectionCreated(
+  collectionAddress: string,
+  createdAtMs:       number,
+): void {
+  if (!collectionAddress) return;
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return;
+  const now = Date.now();
+  for (const a of map.values()) {
+    if (a.collectionAddress !== collectionAddress) continue;
+    if (a.collectionCreatedAt === createdAtMs) continue;
+    a.collectionCreatedAt = createdAtMs;
+    saleEventBus.emitMintStatus(buildStatus(a, now));
+  }
+}
+
 export function patchAccumulatorCoreSupply(
   groupingKey: string,
   numMinted:   number,
@@ -1014,8 +1041,10 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       observedMints:     r.observedMints,
       events60s:         [],
       events5m:          [],
-      firstObservedAt:   r.lastMintAt,
+      firstObservedAt:   typeof r.firstSeenAt === 'number' && r.firstSeenAt > 0 ? r.firstSeenAt : r.lastMintAt,
       lastMintAt:        r.lastMintAt,
+      collectionCreatedAt: typeof r.collectionCreatedAt === 'number' && r.collectionCreatedAt > 0
+        ? r.collectionCreatedAt : undefined,
       freeCount:         0,
       paidCount:         0,
       unknownCount:      0,

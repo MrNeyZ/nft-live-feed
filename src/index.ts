@@ -15,6 +15,7 @@ import { currentMintStatuses, hydrateAccumulatorFromSnapshot } from './mints/acc
 import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
+import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
 import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
@@ -105,6 +106,12 @@ async function main() {
   // Core/VVV/GRAVE rows. Bounded RPC cost (one getMultipleAccounts per
   // tick); no effect when /mints is empty.
   startCoreSupplyRefresher();
+  // Collection-created resolver: walks getSignaturesForAddress backward
+  // for each collectionAddress (capped, in-mem + DB cached) to surface
+  // the real on-chain creation date in the CREATED column. Persistent
+  // positive cache means a successfully-resolved collection is never
+  // re-resolved across restarts.
+  void startCollectionCreatedResolver();
 
   // Rare Feed — bus-listener-only (no RPC, no Helius). Subscribes to the
   // existing sale + meta events, enriches with ME rarity (DB-cached), scores,

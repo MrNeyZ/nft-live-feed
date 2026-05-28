@@ -283,6 +283,13 @@ export interface MintStatusWire {
    *  it's a defensible "first seen" proxy that the frontend renders in
    *  the CREATED column. */
   firstSeenAt?:      number;
+  /** On-chain collection creation timestamp (ms). Resolved out-of-band
+   *  by `collection-created-resolver.ts` via earliest gSFA signature
+   *  blockTime, cached in the `collection_created` table. Far older
+   *  than `firstSeenAt` in practice — collections often existed for
+   *  weeks/months before our tracker first observed a mint from them.
+   *  Frontend prefers this over `firstSeenAt` when present. */
+  collectionCreatedAt?: number;
   mintType:          MintType | 'mixed';
   priceLamports:     number | null;
   sourceLabel:       MintSourceLabel;

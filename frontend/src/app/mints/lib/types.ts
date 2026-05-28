@@ -90,6 +90,12 @@ export interface MintStatus {
    *  timestamp. Drives the CREATED column. May be missing on rows that
    *  predate the field on the backend. */
   firstSeenAt?:      number;
+  /** On-chain collection creation timestamp (ms). Resolved by the
+   *  backend's `collection-created-resolver` via earliest gSFA
+   *  blockTime; cached in `collection_created`. Preferred over
+   *  `firstSeenAt` for the CREATED column when present (real creation
+   *  date, not just "first observed by our tracker"). */
+  collectionCreatedAt?: number;
   mintType:          MintRollupType;
   priceLamports:     number | null;
   sourceLabel:       SourceLabel;
