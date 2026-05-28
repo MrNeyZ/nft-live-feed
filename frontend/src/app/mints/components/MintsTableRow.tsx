@@ -301,17 +301,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 no extra column, no layout shift. */}
             {isSoldOut ? (
               <span
-                title={
-                  `Sold out — ${r.observedMints.toLocaleString()} of ` +
-                  `${(r.maxSupply ?? 0).toLocaleString()} minted`
-                }
+                
                 aria-label="Sold"
                 style={STATUS_BADGE_SOLD}
               >■</span>
             ) : isActive ? (
-              <span title={isBurst ? 'Promoted via burst (≥ 8 mints / 60 s)' : 'Promoted via 50-mint threshold'} aria-label="Active" style={STATUS_BADGE_ACTIVE}>▲</span>
+              <span  aria-label="Active" style={STATUS_BADGE_ACTIVE}>▲</span>
             ) : (
-              <span title="Incubating — not yet at burst / threshold" aria-label="Watch" style={STATUS_BADGE_WATCH}>◇</span>
+              <span  aria-label="Watch" style={STATUS_BADGE_WATCH}>◇</span>
             )}
           </span>
           {/* name — fixed 180px grid column, single-line ellipsis, vertically
@@ -348,14 +345,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   href={titleHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={displayName}
+                  
                   style={titleStyle}
                   onClick={(e) => e.stopPropagation()}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
                 >{titleInner}</a>
               ) : (
-                <span title={displayName} style={titleStyle}>{titleInner}</span>
+                <span  style={titleStyle}>{titleInner}</span>
               );
             })()}
           </span>
@@ -384,7 +381,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 href={`https://magiceden.io/item-details/${r.lastMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`Magic Eden · last mint ${r.lastMintAddress}`}
+                
                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -403,7 +400,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 href={`https://www.tensor.trade/item/${r.lastMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`Tensor · last mint ${r.lastMintAddress}`}
+                
                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -424,7 +421,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 href={`https://x.com/search?q=${encodeURIComponent(trimmed)}&src=recent_search_click`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title={`X · live search "${trimmed}"`}
+                
                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -449,7 +446,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             role="button"
             tabIndex={0}
             data-uisnd="skip"
-            title={isPinned ? 'Pinned to live feed — click to unpin' : 'Hover to preview · click to pin in the live feed'}
+            
             onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
             onMouseEnter={(e) => {
@@ -514,7 +511,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           ` · ${r.observedMints.toLocaleString()} since session start`;
         return (
           <td
-            title={tip}
+            
             // Same green family as RATE (#5ce0a0) but softer — keeps
             // MINTS in the same family visually while leaving RATE
             // the brightest value. fontWeight 800 stays unchanged so
@@ -596,7 +593,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         }
         return (
           <td
-            title={title}
+            
             style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}
@@ -647,7 +644,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               : `Latest observed mint price: ${solDisplay} SOL · not averaged — updates when a new mint event lands at a different price`;
         return (
           <td
-            title={tip}
+            
             style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
@@ -656,9 +653,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setShowInToken(v => !v); }}
-                  title={showInToken
-                    ? `Show SOL value (rent) instead of ${tokenLabel}`
-                    : `Show amount in ${tokenLabel} instead of SOL`}
+                  
                   aria-label="Toggle price currency"
                   aria-pressed={showInToken}
                   style={{
@@ -733,7 +728,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             + ` · ${(recencyMult >= 1 ? '+' : '−') }${Math.abs((recencyMult - 1) * 100).toFixed(0)}% recency`;
         return (
           <td
-            title={tip}
+            
             style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: '#5ce0a0', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {display}

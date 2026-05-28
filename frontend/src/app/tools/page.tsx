@@ -825,12 +825,7 @@ export default function ToolsPage() {
                       {row.bestOfferStatus !== 'EXPIRED' && (
                         <div style={{ marginTop: 2, textAlign: 'right' }}>
                           <span
-                            title={
-                              row.fundingWallet
-                                ? `Bidder escrow ${row.fundingWallet}` +
-                                  (row.fundingBalanceSol != null ? ` · ${row.fundingBalanceSol} SOL` : '')
-                                : 'Funding wallet could not be resolved (missing auctionHouse/buyer on offer).'
-                            }
+                            
                             style={{
                               display: 'inline-block',
                               padding: '0 5px', fontSize: 8.5, fontWeight: 600,

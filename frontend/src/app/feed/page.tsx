@@ -173,7 +173,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
         href={solscanUrl}
         target="_blank"
         rel="noopener noreferrer"
-        title={`Solscan · ${wallet}`}
+        
         style={isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
         // Match the NFT-name link's hover treatment: no underline by
         // default, solid underline on hover. Skip the YOU badge — that
@@ -188,7 +188,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
         href={meUrl}
         target="_blank"
         rel="noopener noreferrer"
-        title={`Magic Eden · ${wallet}`}
+        
         style={ME_ICON_LINK_STYLE}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -274,7 +274,7 @@ function FloorChip({ delta }: { delta: number }) {
     : (above ? 'rgba(122,154,133,0.22)' : 'rgba(154,120,120,0.22)');
   return (
     <span
-      title={`${sign}${pct.toFixed(1)}% vs collection floor`}
+      
       style={{
         // Trimmed one tier: smaller font, lower border alpha, no bg
         // tint when not "bright" — the chip is a secondary qualifier
@@ -584,7 +584,7 @@ const FeedCard = memo(function FeedCard({
                 href={`/collection/${encodeURIComponent(thumbSlug)}`}
                 onClick={(e) => e.stopPropagation()}
                 style={FC_NAME_LINK_STYLE}
-                title={isTruncated ? fullName : undefined}
+                
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               >
@@ -593,7 +593,7 @@ const FeedCard = memo(function FeedCard({
                   : <>{baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}</>}
               </a>
             ) : (
-              <span style={FC_NAME_SPAN_STYLE} title={isTruncated ? fullName : undefined}>
+              <span style={FC_NAME_SPAN_STYLE} >
                 {isTruncated
                   ? shortName
                   : <>{baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}</>}
@@ -607,7 +607,7 @@ const FeedCard = memo(function FeedCard({
               // parent flex container's `gap: 8` so the emoji sits
               // flush against the name rather than spaced 8 px apart.
               <span
-                title="Magic Eden Lucky Buy — winner received this NFT via raffle settlement"
+                
                 aria-label="Lucky Buy"
                 style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
               >🍀</span>
@@ -619,7 +619,7 @@ const FeedCard = memo(function FeedCard({
               // emoji to mirror ME's own UI. Detected via the PCKj…
               // program in the tx account universe.
               <span
-                title="Magic Eden Packs — buyer opened a Pack and received this NFT"
+                
                 aria-label="Pack open"
                 style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
               >🃏</span>
@@ -663,7 +663,7 @@ const FeedCard = memo(function FeedCard({
                 <span
                   key={event.id}
                   className="seller-remaining-badge"
-                  title={`Seller has ${sellerCount} NFTs left in this collection`}
+                  
                   style={SELLER_REMAINING_BADGE_STYLE}
                 >
                   <span key={sellerCount} className="seller-remaining-badge-num">
@@ -1561,9 +1561,7 @@ export default function FeedPage() {
                     which is the correct attention model: silent when
                     healthy, alarming when not. */}
                 <span
-                  title={meStale
-                    ? 'Magic Eden API appears stale — no events received recently. Tensor data still flowing.'
-                    : 'All data sources flowing normally.'}
+                  
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 3,
                     marginLeft: 4, padding: '1px 5px', borderRadius: 3,
@@ -1696,11 +1694,7 @@ export default function FeedPage() {
                                 color="#a890e8"
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
-                                title={
-                                  d === 'comfy'   ? 'Comfy — slightly more breathing room' :
-                                  d === 'compact' ? 'Compact — current polished baseline'  :
-                                                    'Tape — ultra-dense trading-tape view'
-                                }
+                                
                                 size="sm"
                                 style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
                               />
@@ -1719,7 +1713,7 @@ export default function FeedPage() {
                             type="button"
                             role="switch"
                             aria-checked={hoverPauseEnabled}
-                            title="Auto-pause the stream while the cursor is over the feed"
+                            
                             onClick={() => setHoverPauseEnabled(prev => {
                               const next = !prev;
                               if (!next) setHoverPaused(false);
@@ -1763,7 +1757,7 @@ export default function FeedPage() {
                               if (v) { setCollFilter(v); setCollInput(''); }
                             }}
                             label="+"
-                            title="Add collection filter (Enter)"
+                            
                             size="sm"
                             style={settingsPillActive('#a890e8')}
                           />
@@ -1773,7 +1767,7 @@ export default function FeedPage() {
                               <button
                                 type="button"
                                 onClick={() => setCollFilter(null)}
-                                title="Clear collection filter"
+                                
                                 className="feed-chip-x"
                               >✕</button>
                             </span>
@@ -1799,7 +1793,7 @@ export default function FeedPage() {
                             color="#e58aa3"
                             onClick={() => addBlacklist(blInput)}
                             label="+"
-                            title="Add to blacklist (Enter)"
+                            
                             size="sm"
                             style={settingsPillActive('#e58aa3')}
                           />
@@ -1809,7 +1803,7 @@ export default function FeedPage() {
                               <button
                                 type="button"
                                 onClick={() => removeBlacklist(slug)}
-                                title="Remove from blacklist"
+                                
                                 className="feed-chip-x"
                               >✕</button>
                             </span>

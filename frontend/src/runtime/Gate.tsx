@@ -295,7 +295,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
         <form className="gate-form" onSubmit={submit}>
           <div className="vl-wallet-field">
             <span className="vl-dot" />
-            <span className="vl-wallet-text" title={wallet}>{shortenAddress(wallet)}</span>
+            <span className="vl-wallet-text" >{shortenAddress(wallet)}</span>
             <input
               autoFocus
               type="password"

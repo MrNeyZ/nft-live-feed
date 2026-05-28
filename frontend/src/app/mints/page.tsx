@@ -697,7 +697,7 @@ function FeedFiltersPopover({
       <SettingsToggle
         active={open || activeCount > 0}
         onClick={() => setOpen(v => !v)}
-        title="Settings — filter the Live Mint Feed by type and launchpad source"
+        
         count={activeCount}
       />
       {open && (
@@ -767,7 +767,7 @@ function PausedChip() {
   return (
     <span
       aria-live="polite"
-      title="Live feed paused while hovered — move cursor off to resume"
+      
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 3,
         padding: '1px 5px', borderRadius: 3,
@@ -2112,7 +2112,7 @@ export default function MintsPage() {
             <SettingsToggle
               active={settingsOpen}
               onClick={() => setSettingsOpen(o => !o)}
-              title="Settings — show/hide collection filters"
+              
             />
             {/* Old dense segmented styling (tight pills in a dark shell). */}
             <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
@@ -2123,7 +2123,7 @@ export default function MintsPage() {
                   onClick={() => setMintTf(t)}
                   label={t}
                   size="sm"
-                  title={MINT_TF_DESC[t]}
+                  
                   style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
                            background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
                 />
@@ -2201,7 +2201,7 @@ export default function MintsPage() {
                       color="#e58aa3"
                       onClick={() => addBlacklist(blInput)}
                       label="+"
-                      title="Add to blacklist (Enter)"
+                      
                       size="sm"
                       style={settingsPillActive('#e58aa3')}
                     />
@@ -2211,7 +2211,7 @@ export default function MintsPage() {
                         <button
                           type="button"
                           onClick={() => removeBlacklist(slug)}
-                          title="Remove from blacklist"
+                          
                           className="feed-chip-x"
                         >✕</button>
                       </span>
@@ -2230,7 +2230,7 @@ export default function MintsPage() {
                       type="button"
                       role="switch"
                       aria-checked={hoverPauseEnabled}
-                      title="Auto-pause the tracker + feed while the cursor is over a row or card"
+                      
                       onClick={() => setHoverPauseEnabled(v => !v)}
                       className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
                     >
@@ -2318,7 +2318,7 @@ export default function MintsPage() {
                     new mint event with a different price arrives.
                     Sortable but not a default sort.  */}
                 <th
-                  title="PRICE — most recent observed mint price for this collection (updates when a new mint event with a different price lands)."
+                  
                   style={{ ...thStyle, cursor: 'pointer' }}
                   onClick={() => handleSortClick('price')}
                 >
@@ -2338,7 +2338,7 @@ export default function MintsPage() {
                     left-side padding (10) as MINTS / SUPPLY / LAST /
                     COEF, only widening on the right. */}
                 <th
-                  title="RATE — mints per minute over the active window inside the selected timeframe (count ÷ active-minutes)."
+                  
                   style={{ ...thStyle, cursor: 'pointer' }}
                   onClick={() => handleSortClick('velocity')}
                 >
@@ -2440,7 +2440,7 @@ export default function MintsPage() {
                   <span
                     key={`pin-${k}`}
                     onClick={() => removePin(k)}
-                    title={`Pinned: ${nm} — click to remove`}
+                    
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                       maxWidth: 160, padding: '2px 8px', borderRadius: 4, cursor: 'pointer',

@@ -294,7 +294,7 @@ export default function RareFeedPage() {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 1 }}>
                         <span style={{ fontSize: 10, opacity: 0.8, color: '#a890e8' }}>{fmtPct(e.rarityPercentile)}</span>
-                        <span title={`rarity source: ${sourceLabel(e.raritySource)}`} style={{
+                        <span  style={{
                           padding: '0 4px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
                           borderRadius: 3, lineHeight: 1.4, textTransform: 'uppercase', ...sourceBadgeStyle(e.raritySource),
                         }}>{sourceLabel(e.raritySource)}</span>

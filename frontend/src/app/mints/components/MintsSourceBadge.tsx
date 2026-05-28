@@ -60,12 +60,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title={linkTitle}
+      
       style={pillStyle}
       onClick={(e) => e.stopPropagation()}
     >{sb.label}</a>
   ) : (
-    <span title={plainTitle} style={pillStyle}>{sb.label}</span>
+    <span  style={pillStyle}>{sb.label}</span>
   );
   // Fixed-width slot — pins horizontal footprint so CORE / VVV occupy the
   // same physical column as LMNFT / CANDY / GRAVE. minWidth (not width) so

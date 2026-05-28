@@ -240,7 +240,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
               href={`https://solscan.io/token/${ev.mintAddress}`}
               target="_blank"
               rel="noopener noreferrer"
-              title={`Solscan · ${ev.mintAddress}`}
+              
               style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
@@ -299,7 +299,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
               href={lmnftHref}
               target="_blank"
               rel="noopener noreferrer"
-              title={`LaunchMyNFT · ${group?.name ?? collectionLine}`}
+              
               style={{
                 ...baseStyle,
                 display: 'block', textDecoration: 'none', cursor: 'pointer',
@@ -327,7 +327,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
                   href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={`X · live search "${xName}"`}
+                  
                   style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -349,7 +349,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
               href={`https://solscan.io/account/${ev.minter}`}
               target="_blank"
               rel="noreferrer"
-              title={`Solscan · ${ev.minter}`}
+              
               style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
@@ -402,7 +402,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            title={`Open ${nftTypeLabel} on Magic Eden / launchpad`}
+            
             style={{ ...pillStyle, cursor: 'pointer' }}
             onClick={(e) => e.stopPropagation()}
           >{nftTypeLabel}</a>

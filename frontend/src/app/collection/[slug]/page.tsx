@@ -344,7 +344,7 @@ const ListingRowItem = memo(function ListingRowItem({
             <button
               onClick={(e) => { e.stopPropagation(); if (!disabled) onBuy(listing); }}
               disabled={disabled}
-              title={buyTitle}
+              
               style={{
                 display:'inline-flex', alignItems:'center', fontSize:12, fontWeight:700,
                 padding:'2px 7px', borderRadius:3,
@@ -445,7 +445,7 @@ function StatItem({ value, label, highlight, title }: { value: React.ReactNode; 
     }
   }, [value]);
   return (
-    <div title={title} style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, padding:'5px 10px' }}>
+    <div  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, padding:'5px 10px' }}>
       <span className={flick ? 'stat-flicker' : ''} style={{ fontSize:13, fontWeight:700, color: highlight || '#aaaabf', letterSpacing:'-0.3px' }}>{value}</span>
       <span style={{ fontSize:8, fontWeight:600, color:'var(--stat-label-color, #2c2c44)', letterSpacing:'0.5px', textTransform:'uppercase' }}>{label}</span>
     </div>
@@ -514,7 +514,7 @@ function SocialIconLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      title={label}
+      
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -1363,7 +1363,7 @@ export default function CollectionPage() {
                   : { label: 'MIXED',           border: '1px solid #8068d880', background: '#8068d822', color: '#b8a8f0' };
                 return (
                   <span
-                    title="combined: BID DUMP + UNDERCUT/NEAR FLOOR"
+                    
                     style={{
                       display:'inline-flex', alignItems:'center',
                       fontSize:9.5, fontWeight:700, letterSpacing:'0.4px',
@@ -1378,7 +1378,7 @@ export default function CollectionPage() {
               <BarIconButton
                 on={soundOn}
                 onClick={toggleSound}
-                title={soundOn ? 'Sound alerts on — click to mute' : 'Sound alerts off — click to enable'}
+                
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M11 5 6 9H2v6h4l5 4z" />
@@ -1438,7 +1438,7 @@ export default function CollectionPage() {
               <button onClick={onDisconnectWallet} style={{
                 padding:'4px 10px', fontSize:11, borderRadius:4,
                 border:'1px solid rgba(92,224,160,0.20)', background:'rgba(92,224,160,0.12)', color:'#5ce0a0', cursor:'pointer',
-              }} title={walletPubkey}>{shortWallet(walletPubkey)} · disconnect</button>
+              }} >{shortWallet(walletPubkey)} · disconnect</button>
             ) : (
               <button onClick={onConnectWallet} style={{
                 padding:'4px 10px', fontSize:11, borderRadius:4,
@@ -1485,7 +1485,7 @@ export default function CollectionPage() {
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:11, fontWeight:700, color:'#d4d4e8', letterSpacing:'0.5px' }}>
                 LISTINGS <span
-                  title="displayed (ME+MMM+Tensor snapshot) / market total (ME stats)"
+                  
                   style={{ color:'#8068d8', fontWeight:600 }}
                 >({listings.length.toLocaleString()} / {listedCount != null ? listedCount.toLocaleString() : '—'})</span>
               </span>
@@ -1498,7 +1498,7 @@ export default function CollectionPage() {
               <Pill
                 active={filtersOpen}
                 onClick={() => setFiltersOpen(o => !o)}
-                title="Filters"
+                
                 icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
                 label="Filters"
                 size="sm"
@@ -1577,7 +1577,7 @@ export default function CollectionPage() {
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:11, fontWeight:700, color:'#d4d4e8', letterSpacing:'0.5px' }}>
                 TRADES <span
-                  title="displayed / buffered (last 7 days)"
+                  
                   style={{ color:'#8068d8', fontWeight:600 }}
                 >({visibleEvents.length.toLocaleString()}{events.length > visibleEvents.length ? ` / ${events.length.toLocaleString()}` : ''})</span>
               </span>
@@ -1597,7 +1597,7 @@ export default function CollectionPage() {
                   + ` · largest ${formatSol(bidDumpStats.largest)}`;
                 return (
                   <span
-                    title={tooltip}
+                    
                     style={{
                       display:'inline-flex', alignItems:'center',
                       fontSize:9.5, fontWeight:700, letterSpacing:'0.4px',
@@ -1614,7 +1614,7 @@ export default function CollectionPage() {
               <Pill
                 active={tradeFiltersOpen}
                 onClick={() => setTradeFiltersOpen(o => !o)}
-                title="Filters"
+                
                 icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
                 label="Filters"
                 size="sm"
@@ -1684,7 +1684,7 @@ export default function CollectionPage() {
             <StatItem
               value={`${listings.length.toLocaleString()} / ${listedCount != null ? listedCount.toLocaleString() : '—'}`}
               label="Listings"
-              title="displayed (ME+MMM+Tensor snapshot) / market total (ME stats)"
+              
             />
             <StatItem value={floorSol != null ? floorSol.toFixed(floorSol < 1 ? 3 : 2) : '—'} label="Floor" highlight="#36b868" />
           </div>
@@ -1716,8 +1716,8 @@ export default function CollectionPage() {
                   Rendered as visually inactive so users don't mistake it for a
                   working toggle. State hook kept in place as a no-op to keep
                   the diff minimal. */}
-              <span title="Not implemented yet" style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Interval</span>
-              <div title="Not implemented yet" style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden', opacity:0.5 }}>
+              <span  style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Interval</span>
+              <div  style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden', opacity:0.5 }}>
                 {INTERVALS.map(v => (
                   <button key={v} disabled style={{
                     padding:'1px 5px', fontSize:9, fontWeight:600, border:'none',
@@ -1741,8 +1741,8 @@ export default function CollectionPage() {
               </div>
               {/* Outliers: dead control — IQR / z-score filtering not
                   implemented. Rendered forced-off and non-interactive. */}
-              <span title="Not implemented yet" style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Outliers</span>
-              <div title="Not implemented yet" style={{
+              <span  style={{ fontSize:11, color:'var(--stat-label-color, #2c2c44)' }}>Outliers</span>
+              <div  style={{
                 width:32, height:16, borderRadius:8, cursor:'default',
                 background:'#ffffff0d', position:'relative', opacity:0.5,
               }}>

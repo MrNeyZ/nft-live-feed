@@ -368,7 +368,7 @@ export function Pill({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title}
+      
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
         padding: pad, fontSize, fontWeight: 600, borderRadius: 4,
@@ -433,7 +433,7 @@ export function SettingsToggle({
     <Pill
       active={active}
       onClick={onClick}
-      title={title}
+      
       icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
       label={text}
       style={style}
@@ -1292,17 +1292,19 @@ export const EVENTS_COUNT_EVENT = 'vl:eventsCount';
  *  ~16px icon. Active state shown via color (purple on / muted off) rather than
  *  a pill/border, keeping the terminal-utility feel. Shared by the bottom bar
  *  and the collection header so audio-style toggles read identically. */
-export function BarIconButton({ on, onClick, title, children }: {
+export function BarIconButton({ on, onClick, children }: {
   on: boolean;
   onClick: () => void;
-  title: string;
+  /** Hover label — accepted for source-compat; intentionally NOT rendered
+   *  as a native `title` so the browser tooltip doesn't pop over the UI. */
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={title}
+      
       data-uisnd="skip"
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -1477,7 +1479,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             <BarIconButton
               on={uiSoundEnabled}
               onClick={() => setUiSoundEnabled(!uiSoundEnabled)}
-              title={uiSoundEnabled ? 'UI sound ON — subtle hover/click ticks' : 'UI sound OFF — click to enable subtle hover/click ticks'}
+              
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M11 5 6 9H2v6h4l5 4z" />
@@ -1495,7 +1497,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 type="button"
                 data-uisnd="skip"
                 onClick={cycleUiVolume}
-                title={`UI sound volume — ${formatMult(uiSoundVolume)}. Click to cycle.`}
+                
                 style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   height: 22, padding: '0 6px', borderRadius: 5,
@@ -1523,7 +1525,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 if (next) playUiLogin(); else playUiLogout();
                 setInclusiveFees(next);
               }}
-              title={inclusiveFees ? 'Inclusive fees ON — AMM_SELL shows full pool / buyer-paid price' : 'Inclusive fees OFF — AMM_SELL shows seller net (proceeds after pool fees)'}
+              
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="19" y1="5" x2="5" y2="19" />
@@ -1632,7 +1634,7 @@ export function FloatingLayoutModeSwitcher() {
             key={m.key}
             ref={el => { buttonRefs.current[i] = el; }}
             type="button"
-            title={m.title}
+            
             onClick={() => setMode(m.key)}
             style={{
               position: 'relative', zIndex: 1,
@@ -1854,7 +1856,7 @@ function RuntimeControls() {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        title="Runtime — click to manage"
+        
         aria-haspopup="menu"
         aria-expanded={open}
         style={{
@@ -1876,7 +1878,7 @@ function RuntimeControls() {
         type="button"
         onClick={powerOff}
         disabled={offBusy}
-        title="Stop ingestion and sign out"
+        
         style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           width: 28, height: 28, borderRadius: 7,
@@ -1923,7 +1925,7 @@ function RuntimeControls() {
               disabled={mintsBusy || mintsEnabled === null}
               role="switch"
               aria-checked={mintsActive}
-              title={mintsActive ? 'Mint tracker ON — click to stop' : 'Mint tracker OFF — click to start'}
+              
               className={`vl-switch${mintsActive ? ' vl-switch-on' : ''}`}
               style={{ opacity: mintsBusy ? 0.5 : 1, cursor: mintsBusy ? 'wait' : 'pointer' }}
             >

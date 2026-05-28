@@ -1107,7 +1107,7 @@ export default function Dashboard() {
             <SettingsToggle
               active={filtersOpen}
               onClick={() => setFiltersOpen(o => !o)}
-              title="Settings — show/hide collection filters"
+              
             />
             <TimeframePills active={tf} onChange={handleTfChange} />
           </div>
