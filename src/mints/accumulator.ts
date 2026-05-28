@@ -106,7 +106,7 @@ interface Accum {
   unknownCount: number;
 
   displayState: MintDisplayState;
-  shownReason?: 'threshold' | 'burst';
+  shownReason?: 'threshold' | 'burst' | 'launchpad';
   shownAt?:     number;
 
   name?:     string;
@@ -451,6 +451,20 @@ function hasUsableIdentity(a: Accum): boolean {
  *  Never demotes. Demotion (shown → cooled) lives only in `sweep`. */
 function tryPromote(a: Accum, now: number): void {
   if (a.displayState === 'shown')        return;
+  // LMNFT cNFT carve-out — per product rule "LMNFT cNFT MUST be tracked":
+  // bypass identity AND threshold/burst gates and promote on the first
+  // observed mint. Compressed drops resolve `name`/`imageUrl` async via
+  // per-asset DAS (see enricher.ts), but a single test mint won't hit
+  // burst thresholds — and waiting for identity would hide the drop
+  // entirely until the DAS round-trip lands. The launchpad-detector
+  // fingerprint (LMNFT outer + Bubblegum CPI) is unspoofable, so the
+  // bypass can't be used by random fungible noise.
+  if (a.programSource === 'bubblegum' && a.sourceLabel === 'LaunchMyNFT') {
+    a.displayState = 'shown';
+    a.shownReason  = 'launchpad';
+    a.shownAt      = now;
+    return;
+  }
   if (!hasUsableIdentity(a))             return;
   if (a.observedMints >= THRESHOLD_MIN_MINTS) {
     a.displayState = 'shown';
@@ -606,12 +620,15 @@ function sweep(): void {
     a.events60s = trimWindow(a.events60s, now - WINDOW_60S);
     a.events5m  = trimWindow(a.events5m,  now - WINDOW_5M);
 
-    // Demote burst-shown collections that went quiet without hitting the
-    // 50-mint floor. Threshold-shown collections stay shown forever.
+    // Demote burst/launchpad-shown collections that went quiet without
+    // hitting the 50-mint floor. Threshold-shown collections stay shown
+    // forever. 'launchpad' (LMNFT cNFT carve-out) is treated identically
+    // to 'burst' here so a one-off test mint doesn't pin a row to the
+    // tracker indefinitely.
     let dirty = false;
     if (
       a.displayState === 'shown' &&
-      a.shownReason === 'burst' &&
+      (a.shownReason === 'burst' || a.shownReason === 'launchpad') &&
       a.observedMints < THRESHOLD_MIN_MINTS &&
       now - a.lastMintAt > COOLDOWN_MS
     ) {
@@ -619,7 +636,7 @@ function sweep(): void {
       dirty = true;
       console.log(
         `[mints/status] ${a.groupingKey} shown -> cooled` +
-        ` (burst expired, observed=${a.observedMints} idleMs=${now - a.lastMintAt})`,
+        ` (${a.shownReason} expired, observed=${a.observedMints} idleMs=${now - a.lastMintAt})`,
       );
     }
 

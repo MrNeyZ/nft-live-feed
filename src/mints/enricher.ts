@@ -19,7 +19,7 @@ import { isMintTrackerEnabled } from '../runtime/mode';
 const REQUEST_GAP_MS    = 500;
 const PENDING_MAX       = 200;
 
-interface PendingEntry { groupingKey: string; mintAddress: string; }
+interface PendingEntry { groupingKey: string; mintAddress: string; programSource?: string; }
 
 const pending: PendingEntry[]  = [];
 /** Per-MINT dedup (was per-grouping-key). Keying by mintAddress means
@@ -32,7 +32,11 @@ const verifiedMints            = new Set<string>();
 let workerScheduled            = false;
 
 let warmEnrichSkips = 0;
-export function enqueueMintEnrichment(groupingKey: string, mintAddress: string): void {
+export function enqueueMintEnrichment(
+  groupingKey: string,
+  mintAddress: string,
+  programSource?: string,
+): void {
   if (!mintAddress) return;
   // Warm (low-power) mode → never spend per-mint DAS (getAsset) credits.
   // Sampled log so the operator can see warm mode is shedding enrichment
@@ -45,7 +49,7 @@ export function enqueueMintEnrichment(groupingKey: string, mintAddress: string):
   }
   if (verifiedMints.has(mintAddress)) return;       // already attempted
   verifiedMints.add(mintAddress);
-  pending.push({ groupingKey, mintAddress });
+  pending.push({ groupingKey, mintAddress, programSource });
   if (pending.length > PENDING_MAX) {
     // Drop oldest — under a hot launch the freshest entries are the
     // ones the operator wants enriched first.
@@ -131,6 +135,21 @@ async function runWorker(): Promise<void> {
       if (meta.collectionName) {
         patchAccumulatorMeta(next.groupingKey, {
           name: meta.collectionName,
+        });
+      }
+      // cNFT carve-out: Bubblegum drops have no separate collection
+      // asset PDA — `enrichLaunchpadCollectionMeta` (which Core/TM
+      // paths use to fetch the collection's hero art) cannot run.
+      // For a compressed drop the per-leaf image IS the canonical
+      // art (PFP collections all share it; 1/1 drops are the only
+      // exception, and a single leaf's image is still the right one
+      // to render). Patch only when `imageUrl` is still empty — the
+      // sticky write-once guard in `patchAccumulatorMeta` is
+      // permissive on first write but rejects subsequent overwrites,
+      // so this can't downgrade a row that already has hero art.
+      if (next.programSource === 'bubblegum' && meta.imageUrl) {
+        patchAccumulatorMeta(next.groupingKey, {
+          imageUrl: meta.imageUrl,
         });
       }
     } catch {

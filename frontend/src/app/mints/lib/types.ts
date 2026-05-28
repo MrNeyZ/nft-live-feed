@@ -79,7 +79,7 @@ export interface MintStatus {
    *  values slightly so the operator can tell at a glance. */
   supplyVerified?:   boolean;
   displayState:      'incubating' | 'shown' | 'cooled';
-  shownReason?:      'threshold' | 'burst';
+  shownReason?:      'threshold' | 'burst' | 'launchpad';
   observedMints:     number;
   v60:               number;
   v5m:               number;

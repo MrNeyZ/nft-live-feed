@@ -279,7 +279,7 @@ export interface MintStatusWire {
    *  miss mints from before the row was opened. */
   supplyVerified?:   boolean;
   displayState:      MintDisplayState;
-  shownReason?:      'threshold' | 'burst';
+  shownReason?:      'threshold' | 'burst' | 'launchpad';
   observedMints:     number;
   /** Mints in the last 60 s window. */
   v60:               number;

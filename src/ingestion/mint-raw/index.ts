@@ -834,8 +834,16 @@ export async function ingestMintRaw(
         minter:            lp.minter,
         sourceLabel:       launchpadSourceLabel(lp.source),
       });
-      // No `enqueueMintEnrichment` — DAS verification is keyed off a
-      // mintAddress; cNFTs would no-op anyway.
+      // cNFT enrichment: DAS getAsset(assetId) works fine for compressed
+      // assets and returns `collectionName` + `imageUrl`. Skipping it
+      // previously (per a stale "no-op" comment) left LMNFT cNFT rows
+      // permanently nameless / imageless — so they never satisfied the
+      // identity gate and stayed `incubating` forever. Worker is throttled
+      // (500 ms gap) and per-mint deduped, so a hot drop pays one DAS
+      // call per unique mint, capped by PENDING_MAX. Programs that ship
+      // null assetIds (malformed Noop event) skip enqueue naturally —
+      // `enqueueMintEnrichment` no-ops on falsy mintAddress.
+      if (lp.mintAddress) enqueueMintEnrichment(groupingKey, lp.mintAddress, 'bubblegum');
       return;
     }
     // Core / Token-Metadata path: accept on parser-extracted collection
