@@ -584,9 +584,13 @@ html, body {
   font-size: 11px;
   overflow: hidden;
   background: #050308;
+  /* Clarity pass: page-wide purple wash dropped ~40 % so the dark
+     base reads cleaner and the panel/card edges from the sharpness
+     pass stop competing with a global fog. Same gradient shape,
+     same hues — just lower alpha. */
   background-image:
-    radial-gradient(ellipse 140% 55% at 65% -5%, rgba(80, 50, 150, 0.10) 0%, transparent 65%),
-    radial-gradient(ellipse 70%  40% at  5% 90%, rgba(50, 30, 100, 0.07) 0%, transparent 60%);
+    radial-gradient(ellipse 140% 55% at 65% -5%, rgba(80, 50, 150, 0.06) 0%, transparent 65%),
+    radial-gradient(ellipse 70%  40% at  5% 90%, rgba(50, 30, 100, 0.04) 0%, transparent 60%);
 }
 
 /* Belt-and-suspenders against the navigation black flash. If the
@@ -902,7 +906,10 @@ a { color: inherit; text-decoration: none; }
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02),
-    inset 0 0 24px rgba(0, 0, 0, 0.20);
+    /* Clarity pass: inset glow tightened 24px @ 0.20 → 12px @ 0.14
+       so the settings panel reads as a flat-ish strip instead of a
+       hazy box. Top/bottom highlight stays for depth. */
+    inset 0 0 12px rgba(0, 0, 0, 0.14);
   overflow: hidden;
 }
 .feed-filters-panel-open  { animation: feedFiltersIn  200ms ease-out; }
