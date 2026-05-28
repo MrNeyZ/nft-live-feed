@@ -2310,7 +2310,7 @@ export default function MintsPage() {
                 <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('supply')}>
                   SUPPLY {sortArrow(effectiveSortKey, effectiveSortDir, 'supply')}
                 </th>
-                <th style={{ ...thStyle, cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
+                <th style={{ ...thStyle, textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSortClick('last')}>
                   LAST {sortArrow(effectiveSortKey, effectiveSortDir, 'last')}
                 </th>
                 {/* PRICE — latest observed mint price for the
@@ -2334,7 +2334,12 @@ export default function MintsPage() {
                     in MintsTableRow uses `padding: '14px 18px 14px 10px'`
                     to honour it. Sortable. */}
                 <th
-                  style={{ ...thStyle, cursor: 'pointer' }}
+                  // textAlign right + paddingRight 18 → header right-edge
+                  // aligns with the CREATED cell (which uses
+                  // `padding: '13px 18px 13px 10px'` for the terminal
+                  // gutter). Without the matching right-pad the header
+                  // would float ~8 px past the value column.
+                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer' }}
                   onClick={() => handleSortClick('created')}
                 >
                   CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
