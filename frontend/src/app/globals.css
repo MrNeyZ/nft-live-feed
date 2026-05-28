@@ -79,20 +79,19 @@
   /* Visual-accent tokens — bumped in PC mode to compensate for the
      un-zoomed 1.0× pixel density after 7B removed the .feed-root
      scale. Laptop / phone keep the defaults (no visual change). */
-  --accent-row-alpha:    0.04;
-  --accent-card-alpha:   0.06;
-  --hover-ring-alpha:    0.40;
-  --hover-glow-blur:     18px;
-  --hover-glow-alpha:    0.22;
-  /* Collection stats panel — PC bumps the label color from near-bg
-     #2c2c44 to a slightly brighter #3d3d5a for readability on dense
-     monitors. Laptop / phone keep the muted default. */
-  --stat-label-color:    #2c2c44;
-  /* Tiny uppercase column-header tier (dashboard th, chart axis-equivalent).
-     PC lifts one notch to match the scatter-chart axis bump (#5a5a78 →
-     #6f6f8c) so the dashboard table headers and the collection chart
-     axes read in the same family on dense monitors. */
-  --th-label-color:      #5a5a78;
+  /* Sharpness pass 2026-05-28: borders/rows bumped one tier so card
+     edges read crisper against the dark bg; hover glow blur reduced
+     so the outer halo no longer feels fuzzy (ring stays at the same
+     alpha so the focused row still reads). Muted label colors lifted
+     one step so dense terminal-style tables stop washing out. No
+     hue change, no layout shift — pure contrast/sharpness polish. */
+  --accent-row-alpha:    0.07;
+  --accent-card-alpha:   0.10;
+  --hover-ring-alpha:    0.55;
+  --hover-glow-blur:     10px;
+  --hover-glow-alpha:    0.18;
+  --stat-label-color:    #45456a;
+  --th-label-color:      #76769a;
   /* Dashboard sparkline + volume bar visibility. The path / dot / bar
      opacities are wired through these tokens so PC mode can lift them
      one notch for dense-monitor scan-readability without bleeding into
@@ -134,13 +133,16 @@ html[data-layout="pc"] {
   --mints-show-w:        100%;
   --mints-show-col-w:    228px;
   /* Accent bumps — see :root for rationale. */
-  --accent-row-alpha:    0.09;
-  --accent-card-alpha:   0.11;
-  --hover-ring-alpha:    0.55;
-  --hover-glow-blur:     22px;
-  --hover-glow-alpha:    0.28;
-  --stat-label-color:    #3d3d5a;
-  --th-label-color:      #6f6f8c;
+  /* Sharpness pass: see :root rationale. PC stays one tier above
+     laptop on row/card alpha + ring alpha so the dense-monitor read
+     keeps its slight extra weight; glow blur reduced to match. */
+  --accent-row-alpha:    0.13;
+  --accent-card-alpha:   0.16;
+  --hover-ring-alpha:    0.68;
+  --hover-glow-blur:     12px;
+  --hover-glow-alpha:    0.22;
+  --stat-label-color:    #545478;
+  --th-label-color:      #8a8aae;
   --spark-line-opacity:  0.50;
   --spark-dot-opacity:   0.62;
 }
@@ -192,13 +194,14 @@ html[data-layout="laptop"] {
      overflow and no row-height change. */
   --mints-show-w:       100%;
   --mints-show-col-w:   172px;
-  --accent-row-alpha:   0.07;
-  --accent-card-alpha:  0.09;
-  --hover-ring-alpha:   0.48;
-  --hover-glow-blur:    20px;
-  --hover-glow-alpha:   0.25;
-  --stat-label-color:   #353551;
-  --th-label-color:     #65657f;
+  /* Sharpness pass: laptop sits between :root and PC. */
+  --accent-row-alpha:   0.10;
+  --accent-card-alpha:  0.13;
+  --hover-ring-alpha:   0.62;
+  --hover-glow-blur:    11px;
+  --hover-glow-alpha:   0.20;
+  --stat-label-color:   #4d4d70;
+  --th-label-color:     #80809f;
   --spark-line-opacity: 0.44;
   --spark-dot-opacity:  0.56;
 }
@@ -760,7 +763,10 @@ a { color: inherit; text-decoration: none; }
   opacity: calc(var(--age-opacity) * var(--hover-opacity));
   border: 1px solid rgba(255, 255, 255, var(--accent-card-alpha, 0.06));
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.02);
+  /* Bumped 0.02 → 0.035 so the card has a perceptible base tint
+     against the page bg (was washing out at idle). The hover state
+     still steps up to ~0.09 below, preserving the lift. */
+  background: rgba(255, 255, 255, 0.035);
   /* Glass-slab depth (visual-polish pass): three-stop top-to-bottom
      wash (was two-stop, ending at 65 %). Same near-imperceptible
      highlight at the top, a faint mid-stop for an extra hint of
@@ -816,7 +822,7 @@ a { color: inherit; text-decoration: none; }
      row feels like a card that just rose 1 px out of the tape.
      Same 200 ms ease-out as before; no new animations. */
   transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.09);
   border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
   box-shadow:
     0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
@@ -1742,7 +1748,7 @@ body[data-bottombar="1"] .feed-root {
 }
 .mints-feed-row:hover {
   transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.09);
   border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
   box-shadow:
     0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
