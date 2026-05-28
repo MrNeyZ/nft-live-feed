@@ -122,6 +122,18 @@ function isRenderableMintStatus(row: MintStatus | null | undefined): boolean {
  *  own per-asset names/fallbacks. */
 function isUsefulTrackerCollection(row: MintStatus): boolean {
   const realName = (row.name ?? '').trim();
+  // LMNFT cNFT carve-out — backend already promoted this row with
+  // `shownReason='launchpad'` because the LMNFT outer + Bubblegum CPI
+  // fingerprint is unspoofable. DAS can transiently fail for compressed
+  // assets (-32000), leaving `name`/`imageUrl` null for one or more
+  // status frames. Per product rule "LMNFT cNFT MUST be tracked" +
+  // "Missing image/name should not drop the LMNFT cNFT event": skip
+  // the identity-strict rejects below. Row renders with shortKey
+  // fallback for the name and initials for the thumbnail until the
+  // next mint's DAS retry patches identity in.
+  const isLmnftCnft = row.programSource === 'bubblegum'
+    && row.sourceLabel === 'LaunchMyNFT';
+  if (isLmnftCnft) return true;
   // Explicit zero-identity-singleton gate (audit task 8 finding):
   // when a row has none of the four identity dimensions —
   // trimmed name, imageUrl, lastMintAddress — and is still in
