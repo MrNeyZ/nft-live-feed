@@ -971,9 +971,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // top sheen are the ::after / ::before in globals.css. No outer
               // glow, no bright outline. Slide animation kept.
               background:
-                'linear-gradient(180deg, rgba(168,144,232,0.18) 0%, rgba(168,144,232,0.10) 100%)',
+                'linear-gradient(180deg, rgba(168,144,232,0.22) 0%, rgba(168,144,232,0.13) 100%)',
               boxShadow:
-                'inset 0 0 0 1px rgba(168,144,232,0.18), ' +
+                'inset 0 0 0 1px rgba(168,144,232,0.28), ' +
                 'inset 0 1px 0 rgba(255,255,255,0.06), ' +
                 'inset 0 -1px 0 rgba(0,0,0,0.18)',
               transform: 'translateY(-1px)',
@@ -1009,7 +1009,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // sliding indicator behind the labels (except for the
               // hover-highlight, which paints its own subtle tint when
               // the tab isn't already active).
-              background: isHover ? 'rgba(255,255,255,0.035)' : 'transparent',
+              background: isHover ? 'rgba(255,255,255,0.06)' : 'transparent',
               transition: 'color 140ms ease, background 140ms ease, transform 140ms ease',
             };
             // Non-tools tabs render the regular Link. TOOLS itself does
@@ -1319,10 +1319,10 @@ export function BarIconButton({ on, onClick, children }: {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 24, height: 22, padding: 0, borderRadius: 5,
         background: 'transparent', border: 'none', cursor: 'pointer',
-        color: on ? '#a890e8' : '#5c5c74',
+        color: on ? '#a890e8' : '#7878a0',
         transition: 'background 0.12s, color 0.12s',
       }}
-      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
     >
       {children}
@@ -1463,7 +1463,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 fontVariantNumeric: 'tabular-nums',
               }}>${sol}</span>
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.24)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.32)' }} aria-hidden="true" />
             <span>
               <span style={{ color: '#909bb6' }}>TPS </span>
               <span style={{
@@ -1481,7 +1481,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 <span style={{ color: '#909bb6' }}> · <span style={{ color: '#d4d4eb' }}>{eventsCount}</span> events</span>
               )}
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.24)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.32)' }} aria-hidden="true" />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
               <span style={{ color: '#909bb6' }}>alerts</span>
@@ -1519,7 +1519,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   height: 22, padding: '0 6px', borderRadius: 5,
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: uiSoundVolume === 1.0 ? '#5c5c74' : '#a890e8',
+                  color: uiSoundVolume === 1.0 ? '#7878a0' : '#a890e8',
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
                   transition: 'background 0.12s, color 0.12s',
