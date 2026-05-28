@@ -885,22 +885,24 @@ export function TopNav({ active }: { active?: Page } = {}) {
       //   • faintly purple 1px bottom separator
       //   • low downward glow (purple-tinted) + the original black drop shadow
       //   • inset 1px top highlight = the "glass edge" sheen
-      // Clarity pass: purple haze layer cut ~40 % (0.08 → 0.05 inner
-      // stop, 0.035 → 0.02 mid stop) and base gradient bumped one shade
-      // darker so the topbar reads matte instead of glowy. Drop shadows
-      // tightened (38px → 24px purple haze, 24px → 16px black ambient)
-      // — same depth cue, much less bloom.
+      // HUD material pass: radial purple haze trimmed once more
+      // (0.05/0.02 → 0.035/0.012), base linear gradient deepened so
+      // the bar reads matte/dry (0.86/0.97 → 0.92/0.99). Drop-shadow
+      // alpha trimmed (purple 0.30 → 0.22, black 0.32 → 0.26).
+      // backdrop-filter 12 → 10 px. Bottom border alpha lifted
+      // 0.10 → 0.14 so the panel/page separation reads as a crisp
+      // hairline instead of fading.
       background:
-        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.05) 0%, rgba(132,108,224,0.02) 40%, transparent 66%), ' +
-        'linear-gradient(180deg, rgba(18,13,32,0.86) 0%, rgba(8,7,16,0.97) 100%)',
-      borderBottom: '1px solid rgba(168,144,232,0.10)',
+        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.035) 0%, rgba(132,108,224,0.012) 40%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(15,11,28,0.92) 0%, rgba(6,5,14,0.99) 100%)',
+      borderBottom: '1px solid rgba(168,144,232,0.14)',
       boxShadow:
         'inset 0 1px 0 rgba(255,255,255,0.04), ' +
         '0 1px 0 rgba(168,144,232,0.06), ' +
-        '0 10px 24px -10px rgba(58,40,104,0.30), ' +
-        '0 6px 16px rgba(0,0,0,0.32)',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
+        '0 10px 24px -10px rgba(58,40,104,0.22), ' +
+        '0 6px 16px rgba(0,0,0,0.26)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
       flexShrink: 0,
       position: 'relative', zIndex: 100,
     }}>
@@ -1167,15 +1169,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           padding: '0 12px', height: 28,
-          // Glass/inset field: a recessed look (inner top shadow) at rest;
-          // on focus it brightens, the border goes purple, and a soft outer
-          // glow ring fades in. Functionality/handlers below are unchanged.
+          // HUD material pass: rest-state border alpha lifted 0.06 →
+          // 0.10 (crisper hairline against the matte topbar), and the
+          // bottom sheen inset removed so the field reads as a flat
+          // recessed slot. Focus state untouched — same purple ring +
+          // 3px outer glow as before.
           background: open ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)',
-          border: open ? '1px solid rgba(168,144,232,0.55)' : '1px solid rgba(255,255,255,0.06)',
+          border: open ? '1px solid rgba(168,144,232,0.55)' : '1px solid rgba(255,255,255,0.10)',
           borderRadius: 8,
           boxShadow: open
             ? 'inset 0 1px 2px rgba(0,0,0,0.28), 0 0 0 3px rgba(132,108,224,0.12)'
-            : 'inset 0 1px 2px rgba(0,0,0,0.28), inset 0 -1px 0 rgba(255,255,255,0.02)',
+            : 'inset 0 1px 2px rgba(0,0,0,0.28)',
           transition: 'border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease',
         }}>
           <svg
@@ -1376,14 +1380,17 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
   // depth than before, still subtle. Tiny radius keeps the terminal feel;
   // per-use callers add their own internal `gap`. Stays quieter / more
   // recessed than the topbar's surfaces.
+  // HUD material pass: chips bumped to matte (bg 0.20 → 0.32) with a
+  // sharper hairline (border 0.05 → 0.10) and the bottom sheen inset
+  // removed. Inner top-shadow softened slightly (0.26 → 0.18) since
+  // the deeper fill already provides recess perception. Reads as a
+  // coherent terminal status-strip instead of mismatched chiclets.
   const groupModule: React.CSSProperties = {
     display: 'inline-flex', alignItems: 'center',
     padding: '1px 9px', borderRadius: 5,
-    background: 'rgba(0,0,0,0.20)',
-    border: '1px solid rgba(255,255,255,0.05)',
-    boxShadow:
-      'inset 0 1px 2px rgba(0,0,0,0.26), ' +
-      'inset 0 -1px 0 rgba(255,255,255,0.022)',
+    background: 'rgba(0,0,0,0.32)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.18)',
   };
   return (
     <div className="bottom-status" style={{
@@ -1397,22 +1404,23 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
       // front of* the footer), and an upward purple-tinted depth shadow +
       // the original black one. Kept a touch more restrained than the topbar
       // so the header stays the dominant chrome.
-      // Clarity pass: mirror of the topbar cuts. Radial purple haze
-      // (0.07/0.03 → 0.045/0.02), base bumped a shade darker, drop
-      // shadows tightened (38/24 → 22/16, alpha trimmed). Same depth
-      // cue, less bloom — bottom bar reads matte.
+      // HUD material pass: same cuts as the topbar, mirrored. Radial
+      // purple haze 0.045/0.02 → 0.030/0.012, base linear gradient
+      // deepened to 0.99/0.92, borderTop alpha 0.10 → 0.14 (crisp
+      // separation), drop-shadow alpha trimmed (purple 0.28 → 0.20,
+      // black 0.32 → 0.26), backdrop-filter 12 → 10 px.
       background:
-        'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.045) 0%, rgba(132,108,224,0.02) 42%, transparent 66%), ' +
-        'linear-gradient(180deg, rgba(8,7,16,0.97) 0%, rgba(18,13,32,0.86) 100%)',
-      borderTop: '1px solid rgba(168,144,232,0.10)',
+        'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.030) 0%, rgba(132,108,224,0.012) 42%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(6,5,14,0.99) 0%, rgba(15,11,28,0.92) 100%)',
+      borderTop: '1px solid rgba(168,144,232,0.14)',
       boxShadow:
         'inset 0 1px 0 rgba(255,255,255,0.05), ' +
-        'inset 0 6px 14px -10px rgba(0,0,0,0.22), ' +
+        'inset 0 6px 14px -10px rgba(0,0,0,0.18), ' +
         '0 -1px 0 rgba(168,144,232,0.06), ' +
-        '0 -10px 22px -10px rgba(58,40,104,0.28), ' +
-        '0 -6px 16px rgba(0,0,0,0.32)',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
+        '0 -10px 22px -10px rgba(58,40,104,0.20), ' +
+        '0 -6px 16px rgba(0,0,0,0.26)',
+      backdropFilter: 'blur(10px)',
+      WebkitBackdropFilter: 'blur(10px)',
       flexShrink: 0,
     }}>
       <div style={{
