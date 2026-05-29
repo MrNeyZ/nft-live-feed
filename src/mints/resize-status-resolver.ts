@@ -32,6 +32,8 @@
 //     badge on a few extreme bursts is acceptable; never block the bus.
 
 import { saleEventBus, ResizeStatusPatch } from '../events/emitter';
+import { runOnRpcLimiter } from '../ingestion/me-raw/ingest';
+import { incTxFetch } from '../ingestion/telemetry';
 import {
   getResizeStatus,
   loadAllResizeStatuses,
@@ -45,7 +47,11 @@ const RESIZE_AUTHORITY   = 'ResizebfwTEZTLbHbctTByvXYECKTJQXnMWG8g9XLix';
 const TM_PROGRAM         = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
 
 const SIG_PAGE_LIMIT     = 200;
-const MAX_TX_FETCHES     = 20;
+// Lowered 20 → 10: resize detection is best-effort, not worth a 20-call
+// burst. Combined with routing every fetch through the shared rpcLimiter
+// (below), this halves the worst-case per-mint getTransaction spend and
+// removes the ungated burst that stacked on the main pipeline.
+const MAX_TX_FETCHES     = 10;
 const WORKER_INTERVAL_MS = 1_500;
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_QUEUE          = 500;
@@ -104,9 +110,16 @@ interface ParsedTx {
 }
 
 async function fetchTx(sig: string): Promise<ParsedTx | null> {
+  // Route through the SHARED getTransaction gate (4 slots / 75 ms) so resize
+  // lookups can't fire ungated bursts. 'low' priority yields to live WS
+  // ingestion; a null return (gate refused OR fetch failed) → fail soft,
+  // exactly as before. incTxFetch('mint') feeds the shared tx/min telemetry
+  // so Helius and internal counters no longer disagree.
+  return runOnRpcLimiter<ParsedTx | null>(async () => {
   const ctl = new AbortController();
   const tid = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
   try {
+    incTxFetch('mint');
     const res = await fetch(rpcUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -164,6 +177,7 @@ async function fetchTx(sig: string): Promise<ParsedTx | null> {
     clearTimeout(tid);
     return null;
   }
+  }, 'low');
 }
 
 interface Detection {

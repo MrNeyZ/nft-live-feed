@@ -72,6 +72,18 @@ const STALE_LOW_MS = 20_000;
 // empty (root-cause of the 24/7 mint tracker regression).
 const rpcLimiter = new Limiter(4, 75, STALE_LOW_MS, () => isAnyIngestActive());
 export function rpcLimiterAbortQueued(): number { return rpcLimiter.abortQueued(); }
+/** Run an arbitrary RPC thunk through the SHARED getTransaction gate so
+ *  out-of-pipeline callers (the resize-status resolver) can't fire ungated
+ *  bursts. Same admission gate (isAnyIngestActive) + 4-slot / 75 ms ceiling
+ *  as the sale/mint pipeline. Returns null if the gate refuses the slot —
+ *  callers treat that as "no result" (fail soft). Default 'low' priority so
+ *  best-effort callers never starve live WS ingestion. */
+export function runOnRpcLimiter<T>(
+  fn: () => Promise<T>,
+  priority: Priority = 'low',
+): Promise<T | null> {
+  return rpcLimiter.run(fn, priority);
+}
 
 /**
  * `budget` mode disables listing_refresh_hint emission in the DROP-branch
