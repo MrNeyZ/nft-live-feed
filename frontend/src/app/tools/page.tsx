@@ -693,11 +693,29 @@ export default function ToolsPage() {
                 // prefix like "N3d61u"). Computed once per render.
                 const currentCollectionLabel =
                   COLLECTIONS.find(c => c.slug === selectedSlug)?.label ?? null;
+                // Display name strategy:
+                //   1. extract trailing #<num> from ME's nftName when
+                //      present (works for "Retardio Cousins #4058",
+                //      "#4058", etc.) and pair it with the collection
+                //      label's first word ("Retardio Cousins" →
+                //      "Retardio") to render "Retardio #4058".
+                //   2. otherwise fall back to the existing chain:
+                //      raw nftName → full collection label → mint short.
+                //   Keeps single-word labels (NUB / Webkidz / Trencher)
+                //   identical to their full label, just with the
+                //   numbered suffix when extractable.
+                const collectionShort = currentCollectionLabel
+                  ? currentCollectionLabel.split(/\s+/)[0]
+                  : null;
                 return sortedRows.map((row) => {
                 const trimmedNftName = row.nftName?.trim() ?? '';
-                const name = trimmedNftName.length > 0
-                  ? trimmedNftName
-                  : (currentCollectionLabel ?? shortAddr(row.mint));
+                const numMatch = trimmedNftName.match(/#\s*(\d+)/);
+                const num = numMatch ? numMatch[1] : null;
+                const name = (num != null && collectionShort)
+                  ? `${collectionShort} #${num}`
+                  : (trimmedNftName.length > 0
+                      ? trimmedNftName
+                      : (currentCollectionLabel ?? shortAddr(row.mint)));
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol != null && row.spreadSol > 0;
                 // Dim EXPIRED rows regardless of listing state — they
