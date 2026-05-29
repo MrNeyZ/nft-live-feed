@@ -187,7 +187,10 @@ const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERV
 // the limit) because `until` caps the window to sigs newer than the cursor —
 // steady-state ≈ the real ~20/15s, only ~+5/15s vs before. Live mode only;
 // warm mode uses MINT_WARM_LIMIT and is unchanged.
-const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '50',   10) || 50;
+// 2026-05-29: lowered default 50 → 25. Measured mpl_core rate is ~20 sigs/15s;
+// limit=50 over-fetched by ~2.5×. 25 keeps 1.25× burst headroom over the
+// observed rate while halving idle credit drain. Env override still honored.
+const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '25',   10) || 25;
 let   mplCorePollSweeps   = 0;
 let   mplCorePollFetched  = 0;
 let   mplCorePollAccepted = 0;

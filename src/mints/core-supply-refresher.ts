@@ -40,11 +40,15 @@ import { isMintTrackerEnabled } from '../runtime/mode';
 
 const REFRESHER_TICK_MS    = 30_000;
 /** Minimum gap between successful refreshes for the same collection.
- *  60 s per spec for the first patch — keeps RPC volume bounded even
- *  if /mints accumulates a long tail of dormant Core rows. Hot
- *  collections still get the next tick's batch because they're newly
- *  seen / churning rapidly relative to the throttle. */
-const PER_COLLECTION_TTL_MS = 60_000;
+ *  2026-05-29: raised 60_000 → 120_000. Cuts steady-state
+ *  getMultipleAccounts traffic ~50% across the active Core tail (≈100
+ *  collections at peak) with imperceptible UX impact — supplyMinted is
+ *  a best-effort value and 2-min staleness is well within the
+ *  human-readable refresh expectation. Hot collections still get the
+ *  next tick because parser-time optimistic increments
+ *  (patchAccumulatorCoreSupply) drive the eye-visible counter, not
+ *  this verifier. Queue/concurrency unchanged. */
+const PER_COLLECTION_TTL_MS = 120_000;
 /** Tick-level batch limit — `getMultipleAccounts` accepts up to 100
  *  base58 pubkeys per JSON-RPC call. Keep one call per tick. */
 const BATCH_MAX             = 100;
