@@ -20,6 +20,7 @@
 
 import { FeedEvent } from './mock-data';
 import { collectionMeta } from './from-backend';
+import { isFeedEventBlacklisted } from './blacklist-filter';
 
 const DEFAULT_MAX = 200;
 
@@ -103,7 +104,7 @@ export interface ResizeStatusPatch {
 export type FeedAction =
   | { type: 'snapshot';      events: FeedEvent[] }
   | { type: 'live';          event:  FeedEvent }
-  | { type: 'meta';          patch:  MetaPatch }
+  | { type: 'meta';          patch:  MetaPatch; blacklist?: ReadonlySet<string> }
   | { type: 'rawpatch';      patch:  RawPatch }
   | { type: 'seller_count';  patch:  SellerCountPatch }
   | { type: 'resize_status'; patch:  ResizeStatusPatch }
@@ -169,30 +170,58 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
     }
     case 'meta': {
       const { patch } = action;
-      return patchWhere(
-        state,
-        ev => ev.signature === patch.signature || ev.mintAddress === patch.mintAddress,
-        ev => {
-          const nextName = patch.collectionName ?? ev.collectionName;
-          const vis      = collectionMeta(patch.collectionName);
-          return {
-            ...ev,
-            mintAddress:      patch.mintAddress     || ev.mintAddress,
-            nftName:          patch.nftName         ?? ev.nftName,
-            imageUrl:         patch.imageUrl        ?? ev.imageUrl,
-            collectionName:   nextName,
-            meCollectionSlug: patch.meCollectionSlug ?? ev.meCollectionSlug,
-            abbr:             patch.collectionName ? vis.abbr  : ev.abbr,
-            color:            patch.collectionName ? vis.color : ev.color,
-            // Floor / offer deltas are computed by the backend during
-            // enrichment and arrive on the meta frame — propagate so the
-            // FloorChip in FeedCard renders once the value is known.
-            // `??` semantics keep any previously-applied non-null value
-            // when a later patch arrives without one.
-            floorDelta:       patch.floorDelta      ?? ev.floorDelta,
-          };
-        },
-      );
+      const bl = action.blacklist;
+      const matches = (ev: FeedEvent): boolean =>
+        ev.signature === patch.signature || ev.mintAddress === patch.mintAddress;
+      const applyPatch = (ev: FeedEvent): FeedEvent => {
+        const nextName = patch.collectionName ?? ev.collectionName;
+        const vis      = collectionMeta(patch.collectionName);
+        return {
+          ...ev,
+          mintAddress:      patch.mintAddress     || ev.mintAddress,
+          nftName:          patch.nftName         ?? ev.nftName,
+          imageUrl:         patch.imageUrl        ?? ev.imageUrl,
+          collectionName:   nextName,
+          meCollectionSlug: patch.meCollectionSlug ?? ev.meCollectionSlug,
+          abbr:             patch.collectionName ? vis.abbr  : ev.abbr,
+          color:            patch.collectionName ? vis.color : ev.color,
+          // Floor / offer deltas are computed by the backend during
+          // enrichment and arrive on the meta frame — propagate so the
+          // FloorChip in FeedCard renders once the value is known.
+          // `??` semantics keep any previously-applied non-null value
+          // when a later patch arrives without one.
+          floorDelta:       patch.floorDelta      ?? ev.floorDelta,
+        };
+      };
+      // Blacklist boundary on the LATE path: a sale frame often lands with a
+      // null collectionName/slug (enrichment pending), so it passes the
+      // sale-handler boundary filter and paints; the `meta` frame then
+      // reveals the real name. If that name (or slug) is blacklisted, REMOVE
+      // the row in this same dispatch instead of applying the patch — so it
+      // disappears the instant its identity is known, with no second render
+      // tick (the prior code applied the name and waited for the render memo,
+      // which is the flash). Matches by signature OR mintAddress, same as the
+      // patch predicate. No-op when no blacklist set is supplied.
+      let removeIds: string[] | null = null;
+      let byIdPatched: Map<string, FeedEvent> | null = null;
+      for (const [id, ev] of state.byId) {
+        if (!matches(ev)) continue;
+        const patched = applyPatch(ev);
+        if (bl && bl.size > 0 && isFeedEventBlacklisted(patched, bl)) {
+          (removeIds ??= []).push(id);
+          continue;
+        }
+        if (patched === ev) continue;
+        (byIdPatched ??= new Map(state.byId)).set(id, patched);
+      }
+      if (removeIds) {
+        const byId = byIdPatched ?? new Map(state.byId);
+        for (const id of removeIds) byId.delete(id);
+        const removed = new Set(removeIds);
+        const order = state.order.filter(id => !removed.has(id));
+        return { ...state, byId, order };
+      }
+      return byIdPatched ? { ...state, byId: byIdPatched } : state;
     }
     case 'rawpatch': {
       const { patch } = action;

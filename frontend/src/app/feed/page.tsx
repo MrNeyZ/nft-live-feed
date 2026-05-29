@@ -1195,7 +1195,10 @@ export default function FeedPage() {
       es.addEventListener('meta', (e: MessageEvent) => {
         try {
           const patch = JSON.parse(e.data) as MetaPatch;
-          enqueue({ type: 'meta', patch });
+          // Pass the live blacklist so the reducer can DROP a row whose real
+          // collection name/slug is first revealed by this meta frame —
+          // removing the late-meta flash for sales that landed name-less.
+          enqueue({ type: 'meta', patch, blacklist: blacklistSetRef.current });
         } catch { /* malformed frame — skip */ }
       });
       // Backend fires `remove` for rows deleted after enrichment (blacklisted
