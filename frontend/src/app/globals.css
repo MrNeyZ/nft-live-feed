@@ -1744,6 +1744,17 @@ body[data-bottombar="1"] .feed-root {
 .mints-tracker-row {
   background: rgba(255,255,255,0.022);
 }
+/* Burst-promoted ("fire/hot collection") emphasis — top + bottom 1 px
+   warm-amber bars only, never a left/right border. Replaces the prior
+   4-sided `outline` rectangle. `.tools-offer-row:hover` has higher
+   specificity (class + :hover = 0,2,0 vs class = 0,1,0), so its
+   box-shadow takes over on hover and the hover affordance is preserved
+   exactly. Left in-cell rail/accent on COLLECTION td is untouched. */
+.mints-tracker-row-burst {
+  box-shadow:
+    inset 0  1px 0 rgba(226,144,111,0.18),
+    inset 0 -1px 0 rgba(226,144,111,0.18);
+}
 
 /* /mints tracker — state-based row hierarchy. After we removed row
    opacity dimming (rows used to drop to 0.78 on WATCH/SOLD, which

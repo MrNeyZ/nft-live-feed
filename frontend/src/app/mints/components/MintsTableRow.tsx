@@ -249,7 +249,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       //     hover state looks identical for ACTIVE/WATCH/SOLD.
       //   • `row-flash-up` — additive, animates background on
       //     fresh mints without breaking hover.
-      className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}`}
+      className={`mints-tracker-row mints-tracker-row-${rowState} tools-offer-row${isFreshMint ? ' row-flash-up' : ''}${isBurst && rowState === 'active' ? ' mints-tracker-row-burst' : ''}`}
       // Hover-pause fires from the row body only (mouseenter/leave do not
       // bubble through children), so passing through child cells / icons
       // never produces a leave/enter flicker.
@@ -268,19 +268,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // pill, so dimming the row body only made images and values
         // look washed out.
         opacity: 1,
-        // Burst-promoted rows get a paint-only warm amber outline as
-        // the trending cue (replaces the prior inline fire marker /
-        // louder pill variant). `outline` is used rather than
-        // `boxShadow` because `.tools-offer-row:hover` owns the
-        // row's box-shadow for the hover ring; an inline boxShadow
-        // would beat that on hover via inline-style specificity and
-        // break the hover affordance. Outline is independent of
-        // box-shadow, scales with the hover transform, and is gated
-        // on rowState === 'active' so a burst row that has since
-        // sold out (SOLD wash) doesn't carry conflicting warm + red
-        // cues.
-        outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.18)' : undefined,
-        outlineOffset: isBurst && rowState === 'active' ? '-1px' : undefined,
+        // Burst-promoted rows ("fire/hot collection" historical marker)
+        // emphasise via top + bottom 1 px warm-amber bars painted by the
+        // `.mints-tracker-row-burst` class (CSS box-shadow inset). The
+        // earlier `outline` approach drew all four sides as a rectangle,
+        // which read as a boxed card and broke the horizontal-emphasis
+        // language of every other row. Left rail/accent (in-cell, see
+        // COLLECTION td) stays intact; right side now blends into the
+        // table content edge like every other row.
       }}
     >
       {/* COLLECTION cell — matches Dashboard rows: 12px vertical
