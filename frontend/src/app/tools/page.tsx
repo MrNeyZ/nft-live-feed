@@ -201,10 +201,24 @@ function shortAddr(s: string | null): string {
   return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
 }
 
-/** localStorage key — separate entry per slug so changing collections
- *  loads that collection's cached result instead of clobbering it. */
-function storageKey(slug: string): string {
+/** Persisted scan-cache version. Bump whenever the ScanRow shape OR
+ *  the backend-side enrichment rules change so cached entries from
+ *  before the bump are ignored and the user gets a fresh scan on the
+ *  next click. v2 — backend now populates nftName for unlisted rows
+ *  (see ed994f7); pre-v2 caches still had nftName=null on those rows
+ *  and would degrade the title to the collection short-name. */
+const OFFERS_CACHE_VERSION = 2;
+/** Legacy storage key from v1; cleared on load so quota isn't held by
+ *  unreachable v1 blobs. */
+function legacyStorageKey(slug: string): string {
   return `vl.tools.meOfferScan:${slug}`;
+}
+/** localStorage key — versioned + per-slug so changing collections
+ *  loads that collection's cached result instead of clobbering it.
+ *  Versioning is via the key (not an envelope) so an old build can't
+ *  accidentally read a future cache shape. */
+function storageKey(slug: string): string {
+  return `vl.tools.meOfferScan.v${OFFERS_CACHE_VERSION}:${slug}`;
 }
 
 /** NEW flags auto-expire after this many minutes so a long absence
@@ -215,6 +229,10 @@ const NEW_FLAG_TTL_MS = 10 * 60_000;
 
 function loadPersisted(slug: string): ScanResult | null {
   if (typeof window === 'undefined') return null;
+  // Drop any pre-v2 blob lying around. Silent — runs once per slug
+  // visit; only does work the very first time a user lands after the
+  // version bump.
+  try { window.localStorage.removeItem(legacyStorageKey(slug)); } catch { /* quota / private mode */ }
   try {
     const raw = window.localStorage.getItem(storageKey(slug));
     if (!raw) return null;
