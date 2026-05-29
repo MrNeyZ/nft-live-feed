@@ -870,15 +870,12 @@ async function runScan(opts: RunScanOpts): Promise<ScanResult> {
       while (candCursor < candidates.length) {
         const idx  = candCursor++;
         const mint = candidates[idx];
-        // Fetch offers + per-token info in parallel so we can populate
-        // nftName ("Retardio Cousins #4058" → frontend extracts #4058)
-        // for activity-derived unlisted rows. ME's /tokens/{mint} is a
-        // cheap one-shot; both calls share the same meGet rate-limit
-        // wrapper.
-        const [offers, info] = await Promise.all([
-          fetchOffersReceived(mint),
-          fetchTokenInfo(mint),
-        ]);
+        // Step 1 — cheap path: fetch only the offers. The token-info
+        // call (added in ed994f7 inside a Promise.all here) is
+        // deferred to the post-guard block below so candidates that
+        // drop out (no offers / no priced / below threshold) never
+        // pay for it. Restores the pre-ed994f7 per-worker burst rate.
+        const offers = await fetchOffersReceived(mint);
         await sleep(REQUEST_GAP_MS);
         if (offers.length === 0) continue;
         if (offers[0]) maybeLogSampleKeys(offers[0]);
@@ -906,13 +903,16 @@ async function runScan(opts: RunScanOpts): Promise<ScanResult> {
         const fundingWallet = (auctionHouse && buyer)
           ? deriveBuyerEscrowPda(auctionHouse, buyer)
           : null;
+        // Step 2 — confirmed-emit path: only now does this candidate
+        // earn the token-info fetch. ≤1 extra ME call per emitted row
+        // instead of ≤1 per candidate.
+        const info = await fetchTokenInfo(mint);
+        await sleep(REQUEST_GAP_MS);
         out.push({
           mint,
-          // ME activity events don't carry a token name, but the
-          // /tokens/{mint} fetch above does — surface it so the UI
-          // renders e.g. "Retardio Cousins #4058" instead of the
-          // collection-name fallback. Null when the token-info fetch
-          // failed (UI degrades to its own fallback chain).
+          // /tokens/{mint}.name (e.g. "#4058") fuels the frontend's
+          // #<num> extraction. Null when the token-info fetch failed —
+          // UI degrades via its own fallback chain.
           nftName:            info?.name ?? null,
           imageUrl:           info?.image ?? act.imageByMint.get(mint) ?? null,
           listingPrice:       null,
