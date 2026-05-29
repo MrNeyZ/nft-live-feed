@@ -1836,7 +1836,33 @@ body[data-bottombar="1"] .feed-root {
      `-recent` outer halo can extend past the card box. Tracker rows
      get the same containment via `.tools-offer-row` (see above). */
   contain: layout style;
+  /* Positioned ancestor for the two-sided edge-accent pseudo-elements
+     below (paint is intentionally NOT contained, so the -2px stripes and
+     the -recent halo extend past the card box). */
+  position: relative;
 }
+/* Two-sided collection-color edge accents — replaces the old heavy 3px
+   one-sided LEFT border stripe (previously set inline on the card). Mirrors
+   the /feed sales cards' ::before/::after language: a thin 2px bar inset
+   top/bottom on BOTH edges, lower visual weight (opacity 0.6) with a soft
+   4px glow, so the mint card reads horizontally balanced instead of
+   left-loaded. Color is the per-card deterministic collection color, passed
+   in via the `--mint-accent` custom property. Scoped to `.mints-feed-row`
+   only — the left Mint Tracker table and /feed sales cards are untouched. */
+.mints-feed-row::before,
+.mints-feed-row::after {
+  content: '';
+  position: absolute;
+  top: 18%; bottom: 18%;
+  width: 2px;
+  pointer-events: none;
+  border-radius: 1px;
+  background: var(--mint-accent, rgba(168, 144, 232, 0.5));
+  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.5));
+  opacity: 0.6;
+}
+.mints-feed-row::before { left:  -2px; }
+.mints-feed-row::after  { right: -2px; }
 .mints-feed-row:hover {
   transform: translateY(-1px) scale(1.005);
   background: rgba(255, 255, 255, 0.07);

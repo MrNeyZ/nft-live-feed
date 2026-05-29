@@ -5,6 +5,7 @@
 // type pill / age tier. Closure surface is just `event`, `group`
 // (pre-looked-up from `rows` in the page), and `now`.
 
+import type { CSSProperties } from 'react';
 import { ItemThumb } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import type { MintEvent, MintStatus } from '../lib/types';
@@ -187,14 +188,15 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
         // padding, 12 px gap, 56 px thumb, 1 px hairline border,
         // 7 px radius, faint background. Hover tint via the
         // className rule in globals.css.
-        // 3 px left accent stripe in the same deterministic
-        // collection color used on the row above — visually groups
-        // all mints from the same collection in the stream.
-        // `borderLeftWidth` overrides the hairline.
+        // Collection accent is now a SYMMETRIC two-sided edge stripe
+        // (left + right) painted by `.mints-feed-row::before/::after`
+        // from the `--mint-accent` var below — replacing the old heavy
+        // 3 px one-sided left border. Same deterministic collection
+        // color, lower weight, balanced — matching /feed sales cards.
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '10px 12px',
         border: '1px solid rgba(255,255,255,0.06)',
-        borderLeft: `3px solid ${colorForCollection(ev.collectionAddress ?? ev.groupingKey)}`,
+        '--mint-accent': colorForCollection(ev.collectionAddress ?? ev.groupingKey),
         borderRadius: 7,
         background: 'rgba(255,255,255,0.02)',
         // Hover-scope dim — non-matching mints fade out while a collection row
@@ -206,7 +208,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
         // hover lift (transform + scale) animates in lock-step with bg
         // and border-color. Inline `transition` removed — it shadowed
         // the class rule and made the transform snap.
-      }}
+        // Cast: this @types/react rejects `--*` custom-property keys in a
+        // bare style literal, so assert the whole object as CSSProperties.
+      } as CSSProperties}
     >
       {/* 56×56 thumbnail rendered from a 200×200 /thumb source so
           hi-DPI displays render crisply without enlarging the card
