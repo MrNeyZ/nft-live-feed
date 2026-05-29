@@ -323,7 +323,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
             <span className="vl-wallet-text" >{shortenAddress(wallet)}</span>
             <input
               autoFocus
-              type="password"
+              type="text"
               className="vl-passphrase"
               placeholder="enter passphrase"
               value={pw}
