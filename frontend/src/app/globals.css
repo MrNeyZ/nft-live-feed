@@ -1701,6 +1701,12 @@ body[data-bottombar="1"] .feed-root {
   position: absolute;
   inset: 0;
   background: rgba(28,22,48,0.96);
+  /* Subtle 1px vertical caps on left + right ends of the header strip
+     (header only — inset shadow is scoped to the pseudo's box, which
+     covers exactly the thead). Same tone as existing header separators. */
+  box-shadow:
+    inset 1px 0 0 rgba(168,144,232,0.10),
+    inset -1px 0 0 rgba(168,144,232,0.10);
   z-index: 0;
   pointer-events: none;
 }
