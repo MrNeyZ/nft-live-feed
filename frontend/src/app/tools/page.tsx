@@ -494,14 +494,15 @@ export default function ToolsPage() {
     <div className="feed-root page-transition" data-page="tools">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
+      {/* Header — density pass: vertical pad 20/14 → 10/8, title size
+          22 → 18, sub-line marginTop 6 → 3. Title block ≈ 34 → 20 px. */}
+      <div style={{ padding: '10px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 18, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
               Retardio · Magic Eden personal offers
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
               <LiveDot />
               <span style={{ fontSize: 11, color: '#7a7a94' }}>
                 Manual scan · ~5–10 s · cached for 45 s
@@ -579,7 +580,7 @@ export default function ToolsPage() {
           // structure rather than text.
           const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
           return (
-            <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94', lineHeight: 1.6 }}>
+            <div style={{ marginTop: 6, fontSize: 11, color: '#7a7a94', lineHeight: 1.35 }}>
               <span>slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span></span>
               {sep}
               <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
@@ -611,13 +612,15 @@ export default function ToolsPage() {
           purple card chrome + hover treatment as the rest of the page; sits
           between the header and the results card without altering the table
           layout. */}
-      <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto 12px', padding: '0 4px', boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto 8px', padding: '0 4px', boxSizing: 'border-box' }}>
         <Link
           href="/tools/rare-feed"
           prefetch
           style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            padding: '12px 14px', textDecoration: 'none',
+            display: 'flex', alignItems: 'center', gap: 10,
+            // Density pass: vertical pad 12 → 7 (≈ -40 %), gap 12 → 10.
+            // Card height ≈ 56 → 38 px (~32 % drop). Layout unchanged.
+            padding: '7px 12px', textDecoration: 'none',
             // Reads as a utility link, not a featured hero. Bg alpha
             // 0.6→0.35; border 0.35→0.18; hover border 0.65→0.32, hover
             // glow 0.18→0.08. Layout, size and label unchanged.
@@ -635,19 +638,19 @@ export default function ToolsPage() {
           }}
         >
           <span aria-hidden style={{
-            flexShrink: 0, width: 32, height: 32, borderRadius: 8,
+            // Icon trimmed 32 → 24 to match the compressed card height.
+            flexShrink: 0, width: 24, height: 24, borderRadius: 6,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, color: '#a890e8',
-            // Icon chip softened to match the card's quieter wrapper.
+            fontSize: 13, color: '#a890e8',
             background: 'rgba(128,104,216,0.10)', border: '1px solid rgba(168,144,232,0.22)',
           }}>✦</span>
           <span style={{ minWidth: 0, flex: 1 }}>
-            <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#e8e6f2' }}>Rare Feed</span>
-            <span style={{ display: 'block', fontSize: 11, color: '#7a7a94', marginTop: 1 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#e8e6f2' }}>Rare Feed</span>
+            <span style={{ display: 'block', fontSize: 10.5, color: '#7a7a94', marginTop: 0 }}>
               Rare NFT sales below floor and high-rarity opportunities.
             </span>
           </span>
-          <span aria-hidden style={{ flexShrink: 0, fontSize: 16, color: '#8068d8' }}>→</span>
+          <span aria-hidden style={{ flexShrink: 0, fontSize: 14, color: '#8068d8' }}>→</span>
         </Link>
       </div>
 
@@ -765,15 +768,13 @@ export default function ToolsPage() {
                     // — that's the correct focus-state priority.
                     boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.30)' : undefined,
                   }}>
-                    <td style={{ padding: '10px 8px 10px 14px', verticalAlign: 'middle' }}>
+                    <td style={{ padding: '7px 8px 7px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {/* Thumbnail wrapper carries `position: relative`
-                            so the NEW pill can corner-anchor over the
-                            top-right of the icon without affecting flex
-                            layout. Pointer-events:none on the badge so
-                            future click handlers on the icon still work. */}
-                        <div style={{ flexShrink: 0, width: 40, height: 40 }}>
-                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={40} />
+                        {/* Thumbnail trimmed 40 → 34 to match the
+                            compressed row height. Aspect/anchoring
+                            preserved. */}
+                        <div style={{ flexShrink: 0, width: 34, height: 34 }}>
+                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={34} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -918,10 +919,14 @@ export default function ToolsPage() {
                         flexDirection:  'column',
                         alignItems:     'center',
                         justifyContent: 'center',
-                        padding:        '3px 10px',
-                        borderRadius:   6,
-                        fontSize:       9.5,
-                        fontWeight:     700,
+                        // Density pass: padding 3/10 → 1/7, radius 6 → 4,
+                        // font 9.5 → 9, weight 700 → 600. Capsule
+                        // recedes into row metadata; BEST OFFER + SPREAD
+                        // remain the focal pair.
+                        padding:        '1px 7px',
+                        borderRadius:   4,
+                        fontSize:       9,
+                        fontWeight:     600,
                         lineHeight:     1.1,
                         letterSpacing:  '0.4px',
                         textTransform:  'uppercase',
@@ -972,22 +977,18 @@ const thStyleSmall: React.CSSProperties = { ...thStyle, textAlign: 'left', fontS
  *  (`padding: '10px 8px 10px 14px'`) below. */
 const thStyleNft: React.CSSProperties = { ...thStyle, padding: '10px 8px 10px 14px' };
 const tdStyleNum: React.CSSProperties = {
-  // verticalAlign:'middle' is the fix for the row misalignment after
-  // STATUS became two stacked pills — without it, table cells default
-  // to baseline, and rows where any cell (NFT block, BEST OFFER + FUNDED
-  // pill, STATUS stack) has more than one line caused single-line
-  // cells like LISTING/SPREAD/AGE to drift toward the top of the row.
-  // Padding trimmed from '10px 8px' to '10px 6px' so the right-aligned
-  // metric values sit a touch closer to their column boundaries,
-  // reducing the visual gap between BEST OFFER and SPREAD.
-  padding: 'var(--table-row-pad-compact, 10px 6px)', textAlign: 'right', fontSize: 13, fontWeight: 600,
+  // Density pass: vertical pad 10 → 7. ~2 extra rows fit in the same
+  // viewport vs the previous baseline. verticalAlign middle preserved
+  // for multi-line cells (STATUS capsule, BEST OFFER + FUNDED pill).
+  padding: '7px 6px', textAlign: 'right', fontSize: 13, fontWeight: 600,
   color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
   // LINKS column color softened (#aaaabf → #7a7a94) so secondary cells
-  // recede behind the BEST OFFER + SPREAD focal pair.
-  padding: 'var(--table-row-pad-compact, 10px 6px)', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
+  // recede behind the BEST OFFER + SPREAD focal pair. Vertical pad
+  // 10 → 7 to match tdStyleNum.
+  padding: '7px 6px', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
