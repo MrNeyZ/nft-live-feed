@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { useBlacklist } from '@/soloist/blacklist-store';
 import { formatSol } from '@/soloist/mock-data';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
@@ -886,29 +887,17 @@ export default function MintsPage() {
   };
 
   // Frontend-only collection blacklist — render-layer filter applied to
-  // both LEFT tracker and RIGHT feed. Persisted across reloads via
-  // vl.mints.blacklist (comma-joined lowercase tokens). Matches against
-  // groupingKey, collectionAddress, mintAddress, and lowercased name —
-  // so a user can paste any of those identifiers from the row title.
-  const [blacklistSlugs, setBlacklistSlugs] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const raw = window.localStorage.getItem('vl.mints.blacklist') ?? '';
-      return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    } catch { return []; }
-  });
+  // both LEFT tracker and RIGHT feed. Shared, versioned, persisted store
+  // (see soloist/blacklist-store) so it survives reload and stays in sync
+  // with /feed. Matches against groupingKey, collectionAddress,
+  // mintAddress, and lowercased name — so a user can paste any of those
+  // identifiers from the row title.
+  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist();
   const [blInput, setBlInput] = useState('');
-  useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.blacklist', blacklistSlugs.join(',')); } catch { /* quota */ }
-  }, [blacklistSlugs]);
   const addBlacklist = (raw: string) => {
-    const v = raw.trim().toLowerCase();
-    if (!v) return;
-    setBlacklistSlugs(prev => prev.includes(v) ? prev : [...prev, v]);
+    addBlacklistToken(raw);
     setBlInput('');
   };
-  const removeBlacklist = (slug: string) =>
-    setBlacklistSlugs(prev => prev.filter(s => s !== slug));
   /** O(1) match for the render-layer blacklist. Checks groupingKey,
    *  collectionAddress, mintAddress, and lowercased name. */
   const blacklistSet = useMemo(() => new Set(blacklistSlugs), [blacklistSlugs]);

@@ -9,6 +9,7 @@ import {
   formatSol, shortWallet, timeAgo,
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
+import { useBlacklist } from '@/soloist/blacklist-store';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { ItemThumb, LiveDot, MktIconBadge, Pill, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
@@ -932,19 +933,16 @@ export default function FeedPage() {
   const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01' | 'p1'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
-  // Temporary, frontend-only collection blacklist (independent of WATCH).
-  // Normalized lowercased slugs/names; resets with component state (same
-  // lifecycle as WATCH — never persisted, never sent to the backend).
-  const [blacklistSlugs, setBlacklistSlugs] = useState<string[]>([]);
+  // Frontend-only collection blacklist (independent of WATCH). Shared,
+  // versioned, persisted store (see soloist/blacklist-store) so it survives
+  // reload and stays in sync with /mints. Normalized lowercased slugs/names;
+  // matched here against meCollectionSlug + collectionName.
+  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist();
   const [blInput, setBlInput] = useState('');
   const addBlacklist = (raw: string) => {
-    const v = raw.trim().toLowerCase();
-    if (!v) return;
-    setBlacklistSlugs((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    addBlacklistToken(raw);
     setBlInput('');
   };
-  const removeBlacklist = (slug: string) =>
-    setBlacklistSlugs((prev) => prev.filter((s) => s !== slug));
   const [paused, setPaused] = useState(false);   // manual Pause button
   // Hover auto-pause: freeze the stream while the cursor is over the feed
   // list so fast-scrolling cards/badges stay clickable. Independent of the
