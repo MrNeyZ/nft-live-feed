@@ -109,9 +109,13 @@ function combinedStatusRank(row: ScanRow): number {
 // jammed together. Tints are 0.08-0.30 alpha so the capsule sits
 // quietly inside the row rather than reading like a button.
 function statusCapsuleStyle(s: OfferState): React.CSSProperties {
+  // Toned down per Mint Tracker alignment — semantic distinction kept
+  // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
+  // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
+  // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
   return s === 'EXPIRED'
-    ? { color: '#a07474', background: 'rgba(160,116,116,0.08)', border: '1px solid rgba(160,116,116,0.28)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.12)',  border: '1px solid rgba(92,224,160,0.45)' };
+    ? { color: '#a07474', background: 'rgba(160,116,116,0.05)', border: '1px solid rgba(160,116,116,0.18)' }
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.07)',  border: '1px solid rgba(92,224,160,0.28)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
@@ -614,16 +618,19 @@ export default function ToolsPage() {
           style={{
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '12px 14px', textDecoration: 'none',
-            background: 'linear-gradient(180deg, rgba(32,26,58,0.6) 0%, rgba(26,21,48,0.6) 100%)',
-            border: '1px solid rgba(168,144,232,0.35)', borderRadius: 10,
+            // Reads as a utility link, not a featured hero. Bg alpha
+            // 0.6→0.35; border 0.35→0.18; hover border 0.65→0.32, hover
+            // glow 0.18→0.08. Layout, size and label unchanged.
+            background: 'linear-gradient(180deg, rgba(32,26,58,0.35) 0%, rgba(26,21,48,0.35) 100%)',
+            border: '1px solid rgba(168,144,232,0.18)', borderRadius: 10,
             transition: 'border-color 0.15s, box-shadow 0.15s',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.65)';
-            e.currentTarget.style.boxShadow = '0 0 14px rgba(128,104,216,0.18)';
+            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.32)';
+            e.currentTarget.style.boxShadow = '0 0 14px rgba(128,104,216,0.08)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.35)';
+            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.18)';
             e.currentTarget.style.boxShadow = 'none';
           }}
         >
@@ -631,7 +638,8 @@ export default function ToolsPage() {
             flexShrink: 0, width: 32, height: 32, borderRadius: 8,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16, color: '#a890e8',
-            background: 'rgba(128,104,216,0.16)', border: '1px solid rgba(168,144,232,0.4)',
+            // Icon chip softened to match the card's quieter wrapper.
+            background: 'rgba(128,104,216,0.10)', border: '1px solid rgba(168,144,232,0.22)',
           }}>✦</span>
           <span style={{ minWidth: 0, flex: 1 }}>
             <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#e8e6f2' }}>Rare Feed</span>
@@ -648,9 +656,12 @@ export default function ToolsPage() {
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.65)',
+        // Aligned with Mint Tracker panel (1aef538): border 0.65→0.32,
+        // inner sheen 0.08→0.06, outer purple aura 0.15→0.10. Same hue,
+        // less neon ring around the chrome.
+        border: '1px solid rgba(168,144,232,0.32)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
         overflow: 'hidden', marginBottom: 16,
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
@@ -740,7 +751,9 @@ export default function ToolsPage() {
                   && row.bestOfferStatus !== 'EXPIRED';
                 return (
                   <tr key={row.mint} className="tools-offer-row" style={{
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    // Matches Mint Tracker row separator (0.04 → 0.022) so
+                    // rows read as clean ribbons, not a stacked-card grid.
+                    borderBottom: '1px solid rgba(255,255,255,0.022)',
                     opacity: rowOpacity,
                     // Trader-terminal "actionable row" cue — a 3 px inset
                     // strip in the active-green at low alpha sits on the
@@ -813,7 +826,11 @@ export default function ToolsPage() {
                           number stays plainly readable; this only lowers
                           its hierarchy notch below SPREAD. Wrap-only — the
                           cell color/weight from tdStyleNum is preserved. */}
-                      <span style={{ opacity: 0.92 }}>{formatSol(row.bestOfferPrice)}</span>
+                      {/* BEST OFFER is one of the two focal money columns.
+                          Drop the prior 0.92 de-emphasis + bump weight so it
+                          ranks alongside SPREAD instead of below it. Size
+                          unchanged. */}
+                      <span style={{ fontWeight: 700 }}>{formatSol(row.bestOfferPrice)}</span>
                       {/* Bidder escrow funding badge — sits directly under
                           the offer price so the operator can see the
                           fillable amount and "is it actually backed" in
@@ -874,7 +891,9 @@ export default function ToolsPage() {
                         </>
                       )}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#aaaabf', fontWeight: 500 }}>
+                    <td style={{ ...tdStyleNum, color: '#7a7a94', fontWeight: 500 }}>
+                      {/* AGE softened (#aaaabf → #7a7a94) so the money columns
+                          (BEST OFFER + SPREAD) win the hierarchy. */}
                       {fmtAge(row.bestOfferCreatedAt)}
                     </td>
                     <td style={{ ...tdStyleSmall, textAlign: 'center' }}>
@@ -943,7 +962,7 @@ export default function ToolsPage() {
 const thStyle: React.CSSProperties = {
   padding: '10px 8px', fontSize: 9.5, fontWeight: 700,
   color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
-  background: 'rgba(16,12,26,0.96)', borderBottom: '1px solid rgba(168,144,232,0.12)',
+  background: 'rgba(16,12,26,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase', userSelect: 'none',
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
@@ -966,7 +985,9 @@ const tdStyleNum: React.CSSProperties = {
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  padding: 'var(--table-row-pad-compact, 10px 6px)', fontSize: 11, color: '#aaaabf', fontFamily: "'SF Mono','Fira Code',monospace",
+  // LINKS column color softened (#aaaabf → #7a7a94) so secondary cells
+  // recede behind the BEST OFFER + SPREAD focal pair.
+  padding: 'var(--table-row-pad-compact, 10px 6px)', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
