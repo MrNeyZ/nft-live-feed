@@ -563,13 +563,58 @@ async function fetchMeListedAtMap(slug: string): Promise<Map<string, number>> {
   return out;
 }
 
+// 2026-05-29: per-slug TTL cache + inflight dedup for the two ME activities
+// derived maps. The maps are pure enrichment (listedAt timestamp + buyNow
+// fallback URL grouping) — never the source of truth for "is this listing
+// active". The active-listings list itself is re-fetched on every snapshot
+// from /listings, so caching the activities maps for ~5 min cannot make
+// stale rows permanent. Saves ~12 ME API calls per snapshot per slug
+// (up to 10 list pages + 2 buyNow pages) on the common warm path.
+interface MeActivitiesCacheEntry {
+  listedAt: Map<string, number>;
+  buyNow:   Map<string, number>;
+  at:       number;
+}
+const ME_ACTIVITIES_TTL_MS = 5 * 60_000;
+const meActivitiesCache:    Map<string, MeActivitiesCacheEntry>                = new Map();
+const meActivitiesInflight: Map<string, Promise<{ listedAt: Map<string, number>; buyNow: Map<string, number> }>> = new Map();
+
+async function getMeActivitiesMaps(
+  slug: string,
+): Promise<{ listedAt: Map<string, number>; buyNow: Map<string, number> }> {
+  const now = Date.now();
+  const cached = meActivitiesCache.get(slug);
+  if (cached && now - cached.at < ME_ACTIVITIES_TTL_MS) {
+    console.log(`[listings/me-activities] cache=hit slug=${slug} ageMs=${now - cached.at}`);
+    return { listedAt: cached.listedAt, buyNow: cached.buyNow };
+  }
+  const inflight = meActivitiesInflight.get(slug);
+  if (inflight) {
+    console.log(`[listings/me-activities] cache=inflight slug=${slug}`);
+    return inflight;
+  }
+  console.log(`[listings/me-activities] cache=miss slug=${slug}`);
+  const p = (async () => {
+    const [listedAt, buyNow] = await Promise.all([
+      fetchMeListedAtMap(slug),
+      fetchMeBuyNowMap(slug),
+    ]);
+    meActivitiesCache.set(slug, { listedAt, buyNow, at: Date.now() });
+    return { listedAt, buyNow };
+  })().finally(() => meActivitiesInflight.delete(slug));
+  meActivitiesInflight.set(slug, p);
+  return p;
+}
+
 async function fetchMeDirect(slug: string): Promise<Listing[]> {
   const out: Listing[] = [];
-  // Run the activities fetches in parallel with the first listings page so
-  // extra round-trips don't add serial latency. `buyNow` is the fallback for
-  // MMM pool-hosted rows that never produced a `type=list` activity.
-  const listedAtByMintPromise = fetchMeListedAtMap(slug);
-  const buyNowByMintPromise   = fetchMeBuyNowMap(slug);
+  // Activities maps come from a 5-min per-slug cache (getMeActivitiesMaps);
+  // first listings page still runs in parallel via the resolved promise so
+  // warm-cache snapshots avoid the round-trips entirely while cold snapshots
+  // preserve the prior parallel-fetch latency profile.
+  const meActivitiesPromise   = getMeActivitiesMaps(slug);
+  const listedAtByMintPromise = meActivitiesPromise.then(m => m.listedAt);
+  const buyNowByMintPromise   = meActivitiesPromise.then(m => m.buyNow);
   try {
     for (let page = 0; page < ME_MAX_PAGES; page++) {
       const offset = page * ME_PAGE_SIZE;
