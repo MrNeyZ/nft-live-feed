@@ -1,0 +1,25 @@
+-- Single-column B-tree index on me_collection_slug.
+--
+-- Every per-collection REST endpoint filters on this column without an
+-- index supporting it today:
+--   - src/server/collection-stats.ts     (7-day window scan per slug)
+--   - src/server/collection-chart.ts     (per-slug drill-down)
+--   - src/server/collection-icon.ts      (most-recent image lookup)
+--   - src/server/collection-meta.ts      (slug → name/img resolution)
+--   - src/server/events-router.ts        (COUNT(*) WHERE slug = ...)
+--   - src/server/listings-store.ts:318+  (boot mint→slug preload, ≤50k rows)
+--
+-- Without the index Postgres seq-scans sale_events on every cold-slug
+-- query and on every startup; with it those queries hit a single index
+-- lookup. Sole writer is patchSaleEventRaw / UPDATE_META_SQL which set
+-- me_collection_slug at most once per row, so write amplification is
+-- negligible.
+--
+-- CONCURRENTLY: does not take AccessExclusiveLock, so the live ingest
+-- INSERT path is unaffected during the build. Must NOT run inside a
+-- transaction; src/db/migrate.ts runs each .sql file via pool.query()
+-- as a single statement (no BEGIN/COMMIT wrapping), so CONCURRENTLY is
+-- safe here. IF NOT EXISTS makes the migration idempotent on the
+-- runner's re-execution-of-all-files pattern.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS sale_events_me_collection_slug_idx
+  ON sale_events (me_collection_slug);
