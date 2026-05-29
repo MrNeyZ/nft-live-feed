@@ -1686,6 +1686,14 @@ body[data-bottombar="1"] .feed-root {
   letter-spacing: 0.2px;
   font-style: italic;
 }
+/* Tbody base rail — paints the same faint 3px stripe in the left slot
+   so empty-state rows + any gap above the first data row show the
+   rail. Data rows have their own in-cell rail + accent, which paint on
+   top via .mints-tracker-row's bg + the first-td absolutely-positioned
+   accents. */
+.collections-table tbody {
+  background-image: linear-gradient(to right, rgba(168,144,232,0.045) 0 3px, transparent 3px);
+}
 .mints-tracker-row {
   background: rgba(255,255,255,0.022);
 }
