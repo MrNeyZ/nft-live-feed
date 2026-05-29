@@ -113,9 +113,13 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
   // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
   // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
+  // Hierarchy pass: pulled further toward pure metadata.
+  // ACTIVE bg 0.07 → 0.04, border 0.28 → 0.16;
+  // EXPIRED bg 0.05 → 0.03, border 0.18 → 0.11.
+  // Capsule dimensions unchanged.
   return s === 'EXPIRED'
-    ? { color: '#a07474', background: 'rgba(160,116,116,0.05)', border: '1px solid rgba(160,116,116,0.18)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.07)',  border: '1px solid rgba(92,224,160,0.28)' };
+    ? { color: '#a07474', background: 'rgba(160,116,116,0.03)', border: '1px solid rgba(160,116,116,0.11)' }
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.04)',  border: '1px solid rgba(92,224,160,0.16)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
@@ -494,15 +498,15 @@ export default function ToolsPage() {
     <div className="feed-root page-transition" data-page="tools">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header — density pass: vertical pad 20/14 → 10/8, title size
-          22 → 18, sub-line marginTop 6 → 3. Title block ≈ 34 → 20 px. */}
-      <div style={{ padding: '10px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+      {/* Header — density pass v2: pad 10/8 → 6/6, title 18 → 16,
+          sub-line marginTop 3 → 2. Title block ≈ 20 → 14 px. */}
+      <div style={{ padding: '6px 4px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 18, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 16, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
               Retardio · Magic Eden personal offers
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
               <LiveDot />
               <span style={{ fontSize: 11, color: '#7a7a94' }}>
                 Manual scan · ~5–10 s · cached for 45 s
@@ -580,7 +584,7 @@ export default function ToolsPage() {
           // structure rather than text.
           const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
           return (
-            <div style={{ marginTop: 6, fontSize: 11, color: '#7a7a94', lineHeight: 1.35 }}>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#7a7a94', lineHeight: 1.25 }}>
               <span>slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span></span>
               {sep}
               <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
@@ -802,10 +806,13 @@ export default function ToolsPage() {
                         </div>
                       </div>
                     </td>
-                    <td style={tdStyleNum}>
+                    <td style={{ ...tdStyleNum, fontWeight: 700 }}>
+                      {/* LISTING bumped to weight 700 (vs tdStyleNum's 600)
+                          so the eye registers it alongside BEST OFFER
+                          rather than below it. Color/size unchanged. */}
                       {row.listingPrice != null ? formatSol(row.listingPrice) : '—'}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#5ce0a0' }}>
+                    <td style={{ ...tdStyleNum, color: '#7fc99a' }}>
                       {row.bestOfferStatus === 'EXPIRED' && (
                         // Inline EXPIRED tag — kept here in addition to the
                         // STATUS column so the offer-price reading itself
