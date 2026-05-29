@@ -2140,17 +2140,19 @@ export default function MintsPage() {
       {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
       <div style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
-        // Strong de-purple pass: was a purple linear gradient
-        // (#201a3a → #1a1530) with a 0.65-alpha purple border and a
-        // 28 px purple aura. That was the single biggest source of the
-        // "purple glass" feel. Now: matte dark-indigo gradient
-        // (#15121f → #0f0c19), border alpha 0.65 → 0.16, outer purple
-        // glow dropped (0.15 → 0.04) so the panel reads as a flat
-        // trading-surface frame instead of a backlit glass slab.
-        background: 'linear-gradient(180deg, #15121f 0%, #0f0c19 100%)',
-        border: '1px solid rgba(168,144,232,0.16)',
+        // Restore the VictoryLabs dark-purple panel identity (the v2
+        // strong-pass de-saturated this to cold #15121f/#0f0c19 which
+        // detached the page from the rest of the app). Original was
+        // #201a3a → #1a1530 with a loud 0.65 purple border and a 0.15
+        // outer purple aura — kept the hue, trimmed the excess. New:
+        // same purple gradient, border alpha 0.65 → 0.32 (half),
+        // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
+        // the same purple terminal panel /feed and /dashboard ship,
+        // just with less neon ring around it.
+        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+        border: '1px solid rgba(168,144,232,0.32)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.04)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
         overflow: 'hidden',
       }}>
         {/* Header line — dense operator strip: ACTIVE/RECENT tabs + collection
@@ -2159,15 +2161,15 @@ export default function MintsPage() {
             filter section below stays short and the table starts high. */}
         <div style={{
           padding: '6px 12px',
-          // Control-strip de-purple: bg wash desaturated to a neutral
-          // white-on-dark sheet (0.018) and the bottom separator dropped
-          // to the same 0.06 ivory hairline used by row separators
-          // below. Reads as a quiet shelf above the table, not a
-          // purple-tinted band.
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          // Restore purple-tinted control strip identity (v2 ivory
+          // wash detached this from the rest of the palette). Hue
+          // back to purple but quieter than original (bg 0.04 → 0.025,
+          // border 0.12 → 0.08) so the panel surface still reads
+          // matte rather than glassy.
+          borderBottom: '1px solid rgba(168,144,232,0.08)',
           flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(255,255,255,0.018)', flexWrap: 'wrap', gap: '6px 8px',
+          background: 'rgba(168,144,232,0.025)', flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {(['active', 'recent'] as const).map(t => (
@@ -2381,7 +2383,7 @@ export default function MintsPage() {
                   goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(22,18,34,0.96)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,48,0.96)' }}>
                 {/* COLLECTION header pads left by 13 px = 10 px (data
                     cell padding) + 3 px (data cell accent border that
                     pushes its content right by 3 px and isn't on the
@@ -2653,15 +2655,13 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  // Stronger pass: header now sits CLOSER to the row surface
-  // (slightly lighter than the panel body) so it reads as a quiet
-  // shelf, not a heavy black-purple slab. Bg lifted from the dark
-  // 0.985 panel-floor to a midtone indigo (22,18,34,0.96) — still
-  // matte, still readable, no longer dominating. Separator hairline
-  // dropped to white 0.05 so the panel/head boundary fades rather
-  // than ringing as a purple line.
-  background: 'rgba(22,18,34,0.96)',
-  borderBottom: '1px solid rgba(255,255,255,0.05)',
+  // Restore VictoryLabs purple identity (v2 gray slab detached the
+  // page). Header sits as a quiet purple-tinted shelf slightly lighter
+  // than the panel body — keeps the "less dominant than rows" goal
+  // from v2 without losing the family hue. Bg purple-tinted matte
+  // (28,22,48,0.96); separator restored to faint purple (0.08).
+  background: 'rgba(28,22,48,0.96)',
+  borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase',
   userSelect: 'none',
 };
