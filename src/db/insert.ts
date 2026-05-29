@@ -60,6 +60,24 @@ function logFrameDebugOnMeta(meta: {
   recentEmitFrames.delete(meta.signature);
 }
 
+// ─── Deferred-emit config (blacklist first-sighting flash) ────────────────────
+// OFF by default: when FEED_DEFER_BLACKLIST is not 'true'/'1', the emit path is
+// byte-identical to immediate emit and adds zero latency. When ON, a sale whose
+// FIRST frame has no collection identity (never-seen mint: nameForMint AND
+// slugForMint both null) is held up to FEED_DEFER_BUDGET_MS while the EXISTING
+// enrich(event) call (no new RPC) races a timeout — long enough to drop a
+// permanent-blacklisted collection before it ever paints, or to emit an
+// already-named frame the frontend FEED blacklist can filter. Timeout / cap /
+// error all fall back to today's immediate emit (fail-soft).
+const DEFER_ENABLED  = process.env.FEED_DEFER_BLACKLIST === 'true' || process.env.FEED_DEFER_BLACKLIST === '1';
+const DEFER_BUDGET_MS = Math.min(700, Math.max(300, Number(process.env.FEED_DEFER_BUDGET_MS) || 500));
+const DEFER_MAX_INFLIGHT = Math.max(1, Number(process.env.FEED_DEFER_MAX_INFLIGHT) || 24);
+const DEFER_DEBUG = process.env.FEED_DEFER_DEBUG === '1';
+let deferInflight = 0;
+let deferSkipLog  = 0;
+/** Per-event lifecycle log — silent unless FEED_DEFER_DEBUG=1 (avoids spam). */
+function dlog(msg: string): void { if (DEFER_DEBUG) console.log(msg); }
+
 
 // ─── Raw-data patch (fast-path → raw-parse correction) ────────────────────────
 
@@ -309,46 +327,34 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // resolved this mint. Misses still go out as undefined and are
   // patched later via the `resize_status` SSE event.
   const cachedResize = event.mintAddress ? getCachedResizeStatus(event.mintAddress) : null;
-  recordEmitFrame(event.signature, {
-    collectionAddress: event.collectionAddress,
-    meCollectionSlug:  resolvedSlug ?? null,
-    mintAddress:       event.mintAddress,
-  });
-  saleEventBus.emitSale({
-    ...event,
-    nftName: null,
-    imageUrl: null,
-    collectionName: resolvedName,
-    magicEdenUrl,
-    meCollectionSlug: resolvedSlug,
-    resizeStatus: cachedResize ?? undefined,
-  });
 
-  // Step 6 — SSE event on the wire to all connected clients.
-  trace(event.signature, 'sse:emitted', `blockAge=${blockAgeSec}s`);
+  // Emits the first `sale` frame. The immediate/timeout paths pass the cached
+  // name/slug (often null); the deferred enrich-win path passes the resolved
+  // identity + image so the very first frame is already filterable/named.
+  const emitSaleFrame = (frameName: string | null, frameSlug: string | null, frameImage: string | null): void => {
+    recordEmitFrame(event.signature, {
+      collectionAddress: event.collectionAddress,
+      meCollectionSlug:  frameSlug,
+      mintAddress:       event.mintAddress,
+    });
+    saleEventBus.emitSale({
+      ...event,
+      nftName: null,
+      imageUrl: frameImage,
+      collectionName: frameName,
+      magicEdenUrl,
+      meCollectionSlug: frameSlug,
+      resizeStatus: cachedResize ?? undefined,
+    });
+    trace(event.signature, 'sse:emitted', `blockAge=${blockAgeSec}s`);
+  };
 
-  // ── Background enrichment ────────────────────────────────────────────────────
-  // Fire-and-forget: never awaited, never delays INSERTs or SSE.
-  // Hard guarantee: enrichment is never invoked with an empty mintAddress —
-  // cNFT resolve is done synchronously above, so reaching here with '' means
-  // Helius didn't index the tx yet and downstream DAS / ME lookups would be
-  // wasted calls.
-  if (!event.mintAddress) {
-    return id;
-  }
-
-  // ── Resize-status lookup (Live Feed RESIZE badge) ────────────────────────────
-  // Prefilter is RPC-saving only — NOT proof of resize. The badge is shown
-  // ONLY when the resolver returns 'metaplex_resized_unclaimed'. cNFT / Core
-  // never qualify (they have no rent-resize lifecycle). Threshold 0.03 SOL
-  // chosen so we cover the rent-reclaim sale zone without scheduling lookups
-  // for every cheap collection sale.
-  if ((event.nftType === 'legacy' || event.nftType === 'pnft')
-      && event.priceLamports <= 30_000_000n) {
-    enqueueResizeLookup(event.mintAddress, event.signature);
-  }
-  enrich(event)
-    .then(async (enriched) => {
+  // Applies a resolved enrichment result. Self-contained + fail-soft: never
+  // throws. `alreadyEmitted` controls whether a blacklist hit must also tell
+  // clients to drop an already-painted card (immediate/timeout paths) vs. a
+  // deferred suppression where the frame was never emitted.
+  const applyEnrichment = async (enriched: SaleEvent, alreadyEmitted: boolean): Promise<void> => {
+    try {
       if (isBlacklistedCollection({
         collectionAddress: enriched.collectionAddress,
         meCollectionSlug:  enriched.meCollectionSlug,
@@ -357,25 +363,20 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         mintAddress:       event.mintAddress,
       })) {
         await pool.query('DELETE FROM sale_events WHERE signature = $1', [event.signature]);
-        saleEventBus.emitRemove(event.signature);
-        // Stash mint → blocked so the next sale of this asset short-circuits
-        // at the pre-emit gate without flashing in the feed. cNFT mintAddress
-        // is stable per asset, so this is a clean key. The shared mint→slug
-        // index also gets updated organically via the meta-update bus when
-        // enrichment populates a slug, but that path doesn't fire for
-        // blacklisted rows (we DELETE before emitting `meta`), so we record
-        // here explicitly.
+        if (alreadyEmitted) saleEventBus.emitRemove(event.signature);
+        // Stash mint → blocked so the next sale of this asset short-circuits at
+        // the pre-emit gate. The mint→slug index updates organically via the
+        // meta bus, but that doesn't fire for blacklisted rows (we DELETE
+        // before `meta`), so record here explicitly.
         markMintBlocked(event.mintAddress, 'collection_match');
         console.log(
           `[feed/blacklist-learn] reason=collection_match ` +
-          `mint=${event.mintAddress} ` +
-          `slug=${enriched.meCollectionSlug ?? 'null'} ` +
+          `mint=${event.mintAddress} slug=${enriched.meCollectionSlug ?? 'null'} ` +
           `collection=${enriched.collectionName ?? enriched.collectionAddress ?? 'null'} ` +
-          `sig=${event.signature.slice(0, 12)}...`,
+          `sig=${event.signature.slice(0, 12)}... emitted=${alreadyEmitted}`,
         );
         return;
       }
-
       await pool.query(UPDATE_META_SQL, [
         event.signature,
         enriched.nftName,
@@ -385,7 +386,6 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         enriched.mintAddress,        // backfills cNFT asset id when tensor-raw emitted ''
         enriched.meCollectionSlug,   // persisted so REST snapshot rows can render collection-page links
       ]);
-
       checkPricingAlerts(enriched);
       logFrameDebugOnMeta({
         signature:         enriched.signature,
@@ -406,15 +406,9 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         floorDelta:        enriched.floorDelta        ?? null,
         offerDelta:        enriched.offerDelta        ?? null,
       });
-
-      // Late image-resolution path. The synchronous enrich pipeline
-      // above can leave imageUrl null when DAS hasn't yet indexed a
-      // freshly-minted asset (common for first-of-collection sales).
-      // Schedule background DAS retries at 15 s / 60 s / 180 s; if the
-      // image resolves, a follow-up `MetaUpdate` patches the card. The
-      // frontend reducer uses `patch.imageUrl ?? ev.imageUrl`, so a
-      // null here can never overwrite an already-resolved image. Per-
-      // mint dedup + 20 min backoff bound RPC.
+      // Late image-resolution path. enrich can leave imageUrl null when DAS
+      // hasn't indexed a freshly-minted asset; retries at 15/60/180 s patch
+      // the card via a follow-up MetaUpdate. Per-mint dedup + 20 min backoff.
       if (!enriched.imageUrl && enriched.mintAddress) {
         scheduleImageRetry({
           mintAddress:       enriched.mintAddress,
@@ -425,10 +419,99 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
           nftName:           enriched.nftName,
         });
       }
+    } catch (err) {
+      console.error(`[enrich] apply failed  sig=${event.signature.slice(0, 12)}...`, err);
+    }
+  };
+
+  // No mintAddress → enrichment impossible; emit immediately as today, done.
+  if (!event.mintAddress) {
+    emitSaleFrame(resolvedName, resolvedSlug, null);
+    return id;
+  }
+
+  // ── Resize-status lookup (Live Feed RESIZE badge) ────────────────────────────
+  // Prefilter is RPC-saving only — NOT proof of resize. cNFT / Core never
+  // qualify. Threshold 0.03 SOL covers the rent-reclaim sale zone. Independent
+  // of the emit path — scheduled the same in immediate and deferred branches.
+  if ((event.nftType === 'legacy' || event.nftType === 'pnft')
+      && event.priceLamports <= 30_000_000n) {
+    enqueueResizeLookup(event.mintAddress, event.signature);
+  }
+
+  // Deferral gate: ONLY a never-seen mint (no cached name AND no cached slug)
+  // can flash, because its first frame has no identity to filter on. Cached /
+  // slug-bearing / name-bearing sales are emitted immediately (zero latency).
+  const needsDeferral = DEFER_ENABLED && resolvedName == null && resolvedSlug == null;
+
+  if (!needsDeferral || deferInflight >= DEFER_MAX_INFLIGHT) {
+    if (needsDeferral && deferInflight >= DEFER_MAX_INFLIGHT && deferSkipLog++ % 50 === 0) {
+      console.log(`[feed/defer] skipped (inflight cap ${DEFER_MAX_INFLIGHT} reached, count=${deferSkipLog}) — emitting immediately`);
+    }
+    // ── Immediate path (today's behavior) ──
+    emitSaleFrame(resolvedName, resolvedSlug, null);
+    enrich(event)
+      .then((enriched) => applyEnrichment(enriched, true))
+      .catch((err) => console.error(`[enrich] background failed  sig=${event.signature.slice(0, 12)}...`, err));
+    return id;
+  }
+
+  // ── Deferred path (FEED_DEFER_BLACKLIST=1, first-sighting only) ──
+  // Race the EXISTING enrich(event) (no new RPC) against the budget. Detached:
+  // we return `id` now, so neither the DB insert nor the parser pipeline waits.
+  deferInflight++;
+  dlog(`[feed/defer] started sig=${event.signature.slice(0, 12)}... mint=${event.mintAddress} budget=${DEFER_BUDGET_MS}ms inflight=${deferInflight}`);
+  const enrichP = enrich(event);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutP = new Promise<'timeout'>((res) => { timer = setTimeout(() => res('timeout'), DEFER_BUDGET_MS); });
+  let decided = false;
+  Promise.race([
+    enrichP.then((e) => ({ kind: 'enrich' as const, e })),
+    timeoutP.then(() => ({ kind: 'timeout' as const })),
+  ])
+    .then(async (outcome) => {
+      if (outcome.kind === 'enrich') {
+        if (timer) clearTimeout(timer);
+        const enriched = outcome.e;
+        const blacklisted = isBlacklistedCollection({
+          collectionAddress: enriched.collectionAddress,
+          meCollectionSlug:  enriched.meCollectionSlug,
+          collectionName:    enriched.collectionName,
+          signature:         event.signature,
+          mintAddress:       event.mintAddress,
+        });
+        if (blacklisted) {
+          decided = true;
+          console.log(`[feed/defer-suppress] sig=${event.signature.slice(0, 12)}... collection=${enriched.collectionName ?? enriched.meCollectionSlug ?? enriched.collectionAddress ?? '?'} — dropped before emit`);
+          await applyEnrichment(enriched, false);   // delete row, NO emit, NO remove
+        } else {
+          dlog(`[feed/defer] resolved before timeout sig=${event.signature.slice(0, 12)}... name=${enriched.collectionName ?? 'null'} slug=${enriched.meCollectionSlug ?? 'null'}`);
+          emitSaleFrame(enriched.collectionName ?? resolvedName, enriched.meCollectionSlug ?? resolvedSlug, enriched.imageUrl ?? null);
+          decided = true;
+          await applyEnrichment(enriched, true);    // UPDATE + meta (not blacklisted → no remove)
+        }
+      } else {
+        // Timeout won → emit as today, let the (still-running) enrich apply
+        // normal meta/remove behavior when it resolves.
+        dlog(`[feed/defer] timeout fallback sig=${event.signature.slice(0, 12)}... — emitting now`);
+        emitSaleFrame(resolvedName, resolvedSlug, null);
+        decided = true;
+        enrichP
+          .then((enriched) => applyEnrichment(enriched, true))
+          .catch((err) => console.error(`[enrich] background failed  sig=${event.signature.slice(0, 12)}...`, err));
+      }
     })
-    .catch((err) =>
-      console.error(`[enrich] background failed  sig=${event.signature.slice(0, 12)}...`, err),
-    );
+    .catch((err) => {
+      // Fail-soft: never drop a sale on an unexpected error. Only emit if no
+      // terminal action was taken (avoids a double frame).
+      if (timer) clearTimeout(timer);
+      console.error(`[feed/defer] error sig=${event.signature.slice(0, 12)}... — fail-soft immediate emit`, err);
+      if (!decided) {
+        emitSaleFrame(resolvedName, resolvedSlug, null);
+        enrichP.then((e) => applyEnrichment(e, true)).catch(() => { /* already logged */ });
+      }
+    })
+    .finally(() => { deferInflight--; });
 
   return id;
 }
