@@ -98,6 +98,15 @@ const RESOLVE_THRESHOLD_FOR_DELAYED    = 5;
 const RESOLVED_WINDOW_MS               = 5 * 60_000;
 const ENQUEUE_WINDOW_MS                = 60_000;
 const ADAPTIVE_RETRY_START_IDX         = 1;   // skips retry-1 (15s) only
+// 2026-05-29: Once a groupingKey has FINAL_RESOLVE_THRESHOLD confirmed
+// resolves inside RESOLVED_WINDOW_MS, the collection's identity is
+// considered fully known; new arrivals from that key skip DAS retries
+// entirely and pending entries short-circuit before their next attempt.
+// Window-decayed (`recentResolveCount` already resets the counter when
+// RESOLVED_WINDOW_MS passes), so a re-launch after a cooldown gets the
+// full 4-retry treatment again.
+const FINAL_RESOLVE_THRESHOLD          = 3;
+const loggedFinalKeys = new Set<string>();
 
 const enqueueTimesByKey:    Map<string, number[]> = new Map();
 const resolvedCountByKey:   Map<string, { count: number; firstAt: number }> = new Map();
@@ -109,6 +118,7 @@ let metricGetAsset      = 0;
 let metricSkippedBurst  = 0;
 let metricDelayed       = 0;
 let metricSearchAssets  = 0;
+let metricSkippedFinal  = 0;
 
 /** External hook: every place that issues a `searchAssets` RPC for
  *  /mints (today: the per-collection minted-count refresh in
@@ -203,6 +213,16 @@ export function scheduleCollectionConfirmation(
   if (!isMintTrackerEnabled())          return;
   if (pending.has(mintAddress))         return;
   if (pending.size >= MAX_PENDING)      return;   // bounded — drop new arrivals on overflow
+  // FINAL gate — collection's identity already fully resolved within
+  // the recent window; no DAS retries needed for new mints from it.
+  if (recentResolveCount(groupingKey, Date.now()) >= FINAL_RESOLVE_THRESHOLD) {
+    metricSkippedFinal++;
+    if (!loggedFinalKeys.has(groupingKey)) {
+      loggedFinalKeys.add(groupingKey);
+      console.log(`[mints/cc-final] groupingKey=${groupingKey.slice(0, 32)}… resolved=>=${FINAL_RESOLVE_THRESHOLD} — skipping DAS retries`);
+    }
+    return;
+  }
 
   // Per-key burst rate limit. Sliding 60 s window of enqueue
   // timestamps per groupingKey; mints over the cap don't enter the
@@ -258,6 +278,14 @@ async function runAttempt(entry: Pending): Promise<void> {
   // Tracker turned off after this retry was scheduled → abandon it without
   // spending a getAsset call (drop the pending entry; no reschedule).
   if (!isMintTrackerEnabled()) { pending.delete(entry.mintAddress); return; }
+  // Collection became fully resolved while this entry was in queue →
+  // drop without DAS spend. Same window-decayed counter as the entry
+  // gate above.
+  if (recentResolveCount(entry.groupingKey, Date.now()) >= FINAL_RESOLVE_THRESHOLD) {
+    metricSkippedFinal++;
+    pending.delete(entry.mintAddress);
+    return;
+  }
   let dasCollection: string | null = null;
   let nftName:        string | null = null;
   let imageUrl:       string | null = null;
@@ -527,12 +555,14 @@ const _metricsTimer = setInterval(() => {
   console.log(
     `[mints/credits] getAsset=${metricGetAsset} ` +
     `skippedBurst=${metricSkippedBurst} ` +
+    `skippedFinal=${metricSkippedFinal} ` +
     `delayed=${metricDelayed} ` +
     `searchAssets=${metricSearchAssets} ` +
     `collections=${activeCollections}`,
   );
   metricGetAsset     = 0;
   metricSkippedBurst = 0;
+  metricSkippedFinal = 0;
   metricDelayed      = 0;
   metricSearchAssets = 0;
 }, METRICS_INTERVAL_MS);
