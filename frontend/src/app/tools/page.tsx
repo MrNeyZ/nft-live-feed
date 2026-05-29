@@ -112,13 +112,13 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
   // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
   // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
-  // Noise-reduction polish: bg + border alphas trimmed again so the
-  // capsule reads as secondary metadata. Dimensions unchanged.
-  // ACTIVE  bg 0.04 → 0.025, border 0.16 → 0.10;
-  // EXPIRED bg 0.03 → 0.02,  border 0.11 → 0.07.
+  // Mint Tracker palette match: ACTIVE text moves from neon #5ce0a0
+  // to the MINTS-column green #7ed9a8; EXPIRED red softened from
+  // #a07474 to #b88080 (closer to Feed SELL family). Bg/border alphas
+  // stay at metadata-tier levels.
   return s === 'EXPIRED'
-    ? { color: '#a07474', background: 'rgba(160,116,116,0.02)', border: '1px solid rgba(160,116,116,0.07)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.025)', border: '1px solid rgba(92,224,160,0.10)' };
+    ? { color: '#b88080', background: 'rgba(184,128,128,0.02)', border: '1px solid rgba(184,128,128,0.07)' }
+    : { color: '#7ed9a8', background: 'rgba(126,217,168,0.025)', border: '1px solid rgba(126,217,168,0.10)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
@@ -133,10 +133,14 @@ function listingLineColor(s: ListingState): string {
  *  badges read together as "is the offer real" + "is it backed". Gray
  *  for unknown stays neutral so missing data doesn't grab the eye. */
 function fundingBadgeStyle(s: FundingStatus): React.CSSProperties {
-  if (s === 'funded')      return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
-  if (s === 'low_balance') return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
-  if (s === 'empty')       return { color: '#ef7878', background: 'rgba(239,120,120,0.12)', border: '1px solid rgba(239,120,120,0.40)' };
-  return                          { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.30)' };
+  // Mint Tracker palette match: funded green pulled to #7ed9a8 (same
+  // muted green as MintsTableRow's MINTS column) and border alphas
+  // trimmed across all states so the badge reads as quiet metadata
+  // beneath the BEST OFFER number, not a button.
+  if (s === 'funded')      return { color: '#7ed9a8', background: 'rgba(126,217,168,0.10)', border: '1px solid rgba(126,217,168,0.25)' };
+  if (s === 'low_balance') return { color: '#e8c14a', background: 'rgba(232,193,74,0.10)',  border: '1px solid rgba(232,193,74,0.25)' };
+  if (s === 'empty')       return { color: '#d97c7c', background: 'rgba(217,124,124,0.08)', border: '1px solid rgba(217,124,124,0.25)' };
+  return                          { color: '#7a7a94', background: 'rgba(122,122,148,0.08)', border: '1px solid rgba(122,122,148,0.22)' };
 }
 function fundingLabel(s: FundingStatus): string {
   if (s === 'funded')      return 'FUNDED';
@@ -850,7 +854,7 @@ export default function ToolsPage() {
                           rather than below it. Color/size unchanged. */}
                       {row.listingPrice != null ? formatSol(row.listingPrice) : '—'}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#7fc99a' }}>
+                    <td style={{ ...tdStyleNum, color: '#7ed9a8' }}>
                       {row.bestOfferStatus === 'EXPIRED' && (
                         // Inline EXPIRED tag — kept here in addition to the
                         // STATUS column so the offer-price reading itself
@@ -910,7 +914,12 @@ export default function ToolsPage() {
                       ...tdStyleNum,
                       // Neutral grey for unlisted (no spread to express);
                       // existing green/red palette for listed rows.
-                      color: row.spreadSol == null ? '#56566e' : (positiveSpread ? '#5ce0a0' : '#ef7878'),
+                      // Mint Tracker palette match: positive spread uses
+                      // MINTS-column green (#7ed9a8); negative uses a
+                      // softer red (#d97c7c) — same family as Feed's
+                      // SELL tone but lower-saturation so the spread
+                      // number no longer dominates the row.
+                      color: row.spreadSol == null ? '#56566e' : (positiveSpread ? '#7ed9a8' : '#d97c7c'),
                       fontWeight: 700,
                     }}>
                       {row.spreadSol == null ? '—' : (
@@ -978,11 +987,10 @@ export default function ToolsPage() {
                         letterSpacing:  '0.4px',
                         textTransform:  'uppercase',
                         fontFamily:     "'SF Mono','Fira Code',monospace",
-                        // Soft overall capsule opacity so the chip
-                        // reads as metadata even at full text color.
-                        // Inner LISTED/UNLISTED line keeps its own
-                        // 0.55 multiplier (was 0.65).
-                        opacity:        0.82,
+                        // Overall opacity dropped once more (0.82 → 0.72)
+                        // so the STATUS chip sits clearly behind BEST
+                        // OFFER / SPREAD in the row's hierarchy.
+                        opacity:        0.72,
                         ...statusCapsuleStyle(oState),
                       }}>
                         <span>{oState}</span>
@@ -1021,7 +1029,10 @@ const thStyle: React.CSSProperties = {
   // Mint Tracker scale match: padding 12/10, fontSize 11, weight 700.
   padding: '12px 10px', fontSize: 11, fontWeight: 700,
   color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
-  background: 'rgba(16,12,26,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
+  // Mint Tracker thead contrast exact match: bg (28,22,48,0.96) — was
+  // (16,12,26,0.96) which read darker than the Mints header and made
+  // the column labels feel like a different layer of UI.
+  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase', userSelect: 'none',
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
