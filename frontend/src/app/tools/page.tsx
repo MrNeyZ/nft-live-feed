@@ -532,8 +532,12 @@ export default function ToolsPage() {
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <LiveDot />
-              <span style={{ fontSize: 11, color: '#7a7a94' }}>
-                Manual scan · ~5–10 s · cached for 45 s
+              {/* Reclaimed the prior "Manual scan · ~5–10 s · cached
+                  for 45 s" line — replaced with the active collection
+                  slug so the row carries a useful identifier instead
+                  of static technical noise. Same typography / spacing. */}
+              <span style={{ fontSize: 11, color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                {selectedSlug}
               </span>
             </div>
           </div>
@@ -609,8 +613,8 @@ export default function ToolsPage() {
           const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
           return (
             <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94', lineHeight: 1.6 }}>
-              <span>slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span></span>
-              {sep}
+              {/* slug now lives in the header sub-line above; not
+                  repeated here. */}
               <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
               {sep}
               <span>offers <span style={{ color: '#5ce0a0', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#56566e' }}>/</span>{result.offersFetched}</span>
