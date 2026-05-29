@@ -870,7 +870,15 @@ async function runScan(opts: RunScanOpts): Promise<ScanResult> {
       while (candCursor < candidates.length) {
         const idx  = candCursor++;
         const mint = candidates[idx];
-        const offers = await fetchOffersReceived(mint);
+        // Fetch offers + per-token info in parallel so we can populate
+        // nftName ("Retardio Cousins #4058" → frontend extracts #4058)
+        // for activity-derived unlisted rows. ME's /tokens/{mint} is a
+        // cheap one-shot; both calls share the same meGet rate-limit
+        // wrapper.
+        const [offers, info] = await Promise.all([
+          fetchOffersReceived(mint),
+          fetchTokenInfo(mint),
+        ]);
         await sleep(REQUEST_GAP_MS);
         if (offers.length === 0) continue;
         if (offers[0]) maybeLogSampleKeys(offers[0]);
@@ -900,8 +908,13 @@ async function runScan(opts: RunScanOpts): Promise<ScanResult> {
           : null;
         out.push({
           mint,
-          nftName:            null,                              // activity events don't carry a token name; UI falls back to mint prefix
-          imageUrl:           act.imageByMint.get(mint) ?? null, // best-effort: first image seen in any marketplace event for this mint
+          // ME activity events don't carry a token name, but the
+          // /tokens/{mint} fetch above does — surface it so the UI
+          // renders e.g. "Retardio Cousins #4058" instead of the
+          // collection-name fallback. Null when the token-info fetch
+          // failed (UI degrades to its own fallback chain).
+          nftName:            info?.name ?? null,
+          imageUrl:           info?.image ?? act.imageByMint.get(mint) ?? null,
           listingPrice:       null,
           bestOfferPrice:     bestPrice,
           spreadSol:          null,
