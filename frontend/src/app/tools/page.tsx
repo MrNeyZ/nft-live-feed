@@ -530,15 +530,37 @@ export default function ToolsPage() {
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
               Magic Eden Bid Offers Scanner
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#7a7a94', flexWrap: 'wrap', rowGap: 2 }}>
               <LiveDot />
-              {/* Reclaimed the prior "Manual scan · ~5–10 s · cached
-                  for 45 s" line — replaced with the active collection
-                  slug so the row carries a useful identifier instead
-                  of static technical noise. Same typography / spacing. */}
-              <span style={{ fontSize: 11, color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+              {/* Single metadata line: slug + scan stats inline, separated
+                  by the same muted '·' used in the prior stats row. */}
+              <span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
                 {selectedSlug}
               </span>
+              {result && !error && (() => {
+                const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
+                return (
+                  <>
+                    {sep}
+                    <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
+                    {sep}
+                    <span>offers <span style={{ color: '#5ce0a0', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#56566e' }}>/</span>{result.offersFetched}</span>
+                    {sep}
+                    <span>rows {result.withOffers.length}</span>
+                    {result.addedCount !== undefined && (
+                      <>
+                        {sep}
+                        {result.addedCount > 0 ? (
+                          <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
+                        ) : (
+                          <span>+0 new</span>
+                        )}
+                      </>
+                    )}
+                    {result.fromCache && <>{sep}<span style={{ color: '#c9a820' }}>cached</span></>}
+                  </>
+                );
+              })()}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -603,41 +625,8 @@ export default function ToolsPage() {
             </div>
           )
         )}
-        {result && !error && (() => {
-          // Trading-terminal telemetry strip — only money metrics get
-          // accent color (available offers → green; new rows → lilac).
-          // Everything else (slug literal, counts, scanned ratio) stays
-          // in the muted secondary tier so the eye lands on actionable
-          // numbers. Separators use a deeper muted tone so they read as
-          // structure rather than text.
-          const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
-          return (
-            <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94', lineHeight: 1.6 }}>
-              {/* slug now lives in the header sub-line above; not
-                  repeated here. */}
-              <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
-              {sep}
-              <span>offers <span style={{ color: '#5ce0a0', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#56566e' }}>/</span>{result.offersFetched}</span>
-              {sep}
-              <span>rows {result.withOffers.length}</span>
-              {/* `addedCount` is undefined on the first-ever scan for this
-                  slug (no baseline to diff against) so we don't render the
-                  field at all in that case. After the first scan it persists
-                  across reloads via localStorage. */}
-              {result.addedCount !== undefined && (
-                <>
-                  {sep}
-                  {result.addedCount > 0 ? (
-                    <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
-                  ) : (
-                    <span>+0 new</span>
-                  )}
-                </>
-              )}
-              {result.fromCache && <>{sep}<span style={{ color: '#c9a820' }}>cached</span></>}
-            </div>
-          );
-        })()}
+        {/* Scan metadata strip now lives inline in the header sub-line
+            above (next to the LiveDot + slug). One less vertical row. */}
       </div>
 
       {/* Results card */}
