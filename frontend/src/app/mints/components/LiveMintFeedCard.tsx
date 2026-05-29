@@ -188,14 +188,14 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
         // padding, 12 px gap, 56 px thumb, 1 px hairline border,
         // 7 px radius, faint background. Hover tint via the
         // className rule in globals.css.
-        // Collection accent is now a SYMMETRIC two-sided edge stripe
-        // (left + right) painted by `.mints-feed-row::before/::after`
-        // from the `--mint-accent` var below — replacing the old heavy
-        // 3 px one-sided left border. Same deterministic collection
-        // color, lower weight, balanced — matching /feed sales cards.
+        // Collection accent — 1:1 with /feed sales cards: a colored 2px
+        // border-left/right (the layer that wraps the rounded corners into
+        // the small corner "hooks") + a brighter ::before/::after glow bar.
+        // BOTH layers live in globals.css (`.mints-feed-row`), driven by the
+        // `--mint-accent` var below. The border is intentionally NOT set
+        // inline — an inline `border` would override the CSS colored sides.
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '10px 12px',
-        border: '1px solid rgba(255,255,255,0.06)',
         '--mint-accent': colorForCollection(ev.collectionAddress ?? ev.groupingKey),
         borderRadius: 7,
         background: 'rgba(255,255,255,0.02)',

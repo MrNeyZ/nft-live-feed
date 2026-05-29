@@ -1836,6 +1836,12 @@ body[data-bottombar="1"] .feed-root {
      `-recent` outer halo can extend past the card box. Tracker rows
      get the same containment via `.tools-offer-row` (see above). */
   contain: layout style;
+  /* Base hairline border (moved off the inline card style so the colored
+     side-accent rule below can override left/right). top/bottom stay this
+     hairline and flip to lilac on :hover; left/right are recolored to the
+     accent by `.mints-feed-row.mints-feed-row` below — exactly how /feed's
+     `.feed-card` (hairline) + `.buy-card`/`.sell-card` (colored sides) layer. */
+  border: 1px solid rgba(255, 255, 255, 0.06);
   /* Positioned ancestor for the two-sided edge-accent pseudo-elements
      below (paint is intentionally NOT contained, so the -2px stripes and
      the -recent halo extend past the card box). */
@@ -1875,6 +1881,23 @@ body[data-bottombar="1"] .feed-root {
     0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.32)) inset,
     0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.16));
   z-index: 1;
+}
+
+/* Layer 1 of the /feed accent: a full-height 2px colored side border on
+   BOTH edges. Because it follows the card's 7px border-radius, the side
+   border wraps the top/bottom corners into the small corner "hooks"/caps —
+   this is what makes the accent read as part of the rounded border instead
+   of a floating stick (the ::before/::after glow bar above is layer 2). The
+   doubled class `.mints-feed-row.mints-feed-row` matches the (0,2,0)
+   specificity of `:hover` and sits after it in source, so the accent COLOR
+   survives hover (only top/bottom flip to lilac) — exactly how /feed's
+   two-class `.buy-card` wins left/right over `.feed-card:hover`. Alpha kept
+   subtle (~42%, ≈ sales' 0.40–0.45); fallback solid for no color-mix. */
+.mints-feed-row.mints-feed-row {
+  border-left:  2px solid var(--mint-accent, rgba(168, 144, 232, 0.42));
+  border-right: 2px solid var(--mint-accent, rgba(168, 144, 232, 0.42));
+  border-left-color:  color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 42%, transparent);
+  border-right-color: color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 42%, transparent);
 }
 
 /* Persistent freshness halo for cards that are 2.5–15 s old. The
