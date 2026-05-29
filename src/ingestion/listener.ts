@@ -224,7 +224,18 @@ const CANDY_GUARD_POLL_ENABLED     = process.env.MINT_CANDY_GUARD_POLL_ENABLED !
 // mints/min at peak) and the WS subscription is the primary path;
 // the prior 6s cadence was over-provisioned by ~5×. Tunable via env.
 const CANDY_GUARD_POLL_INTERVAL_MS = parseInt(process.env.MINT_CANDY_GUARD_POLL_INTERVAL_MS ?? '30000', 10) || 30000;
-const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '10',   10) || 10;
+// 2026-05-29: lowered default 10 → 5. CG live volume is single-digit
+// sigs/min at peak; limit=10 over-fetched by ~2×. Env override kept.
+const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '5',    10) || 5;
+// 2026-05-29: adaptive idle backoff for the LIVE candy_guard cursor poll —
+// mirrors the mpl_core L1/L2 template above. Base 30s; L1 after 3 empty
+// cycles → 90s (3×); L2 after 8 empty cycles → 180s (6×). CG is so quiet
+// that without this the 30s cadence runs >90% of the time on empty sweeps.
+const CANDY_GUARD_IDLE_L1_CYCLES = 3;
+const CANDY_GUARD_IDLE_L2_CYCLES = 8;
+const CANDY_GUARD_IDLE_L1_MS     = 90_000;
+const CANDY_GUARD_IDLE_L2_MS     = 180_000;
+const liveCandyGuard = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0, level: 0 };
 let   candyGuardPollSweeps   = 0;
 let   candyGuardPollFetched  = 0;
 let   candyGuardPollAccepted = 0;
@@ -1576,6 +1587,26 @@ export function startListener(): void {
             .catch(() => { /* fail-soft */ });
           return;
         }
+        // LIVE adaptive idle backoff — same shape as the mpl_core branch
+        // above. The 30s tick gates the actual sweep; skip until
+        // nextDueTs, which stretches with the zero-accepted streak.
+        if (now < liveCandyGuard.nextDueTs) return;
+        const accepted = candyGuardPollAccepted;
+        if (liveCandyGuard.nextDueTs !== 0) {
+          if (accepted - liveCandyGuard.acceptedSnap > 0) liveCandyGuard.idleStreak = 0;
+          else                                            liveCandyGuard.idleStreak += 1;
+        }
+        liveCandyGuard.acceptedSnap = accepted;
+        const cgLvl = liveCandyGuard.idleStreak >= CANDY_GUARD_IDLE_L2_CYCLES ? 2
+                    : liveCandyGuard.idleStreak >= CANDY_GUARD_IDLE_L1_CYCLES ? 1 : 0;
+        const cgIntervalMs = cgLvl === 2 ? CANDY_GUARD_IDLE_L2_MS
+                           : cgLvl === 1 ? CANDY_GUARD_IDLE_L1_MS : CANDY_GUARD_POLL_INTERVAL_MS;
+        if (cgLvl !== liveCandyGuard.level) {
+          if (cgLvl > liveCandyGuard.level) console.log(`[mints/backoff] target=candy_guard idleLevel=${cgLvl} interval=${cgIntervalMs}`);
+          else                              console.log(`[mints/backoff] target=candy_guard recovered interval=${cgIntervalMs} accepted=${accepted}`);
+          liveCandyGuard.level = cgLvl;
+        }
+        liveCandyGuard.nextDueTs = now + cgIntervalMs;
         candyGuardPollSweeps++;
         candyGuardPollLastTs = now;
         pollTarget(cgTarget, { force: true, limitOverride: CANDY_GUARD_POLL_LIMIT })
