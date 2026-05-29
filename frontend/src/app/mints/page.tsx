@@ -2621,6 +2621,15 @@ export default function MintsPage() {
             // bordered card via the .feed-card-style rules below.
             display: 'flex', flexDirection: 'column', gap: 6,
             padding: '8px 8px',
+            // Override the global `.scroll-area` single-edge `stable` gutter
+            // (right-only → cards read tight-left / extra-right, worse once
+            // the scrollbar shows). `both-edges` reserves an EQUAL gutter on
+            // both inline edges so the card column stays horizontally
+            // symmetric with and without a scrollbar, and never shifts when
+            // it appears. Scoped inline to THIS Live Mint Feed container only
+            // — the global rule (dashboard, left table, sales feed) is
+            // untouched.
+            scrollbarGutter: 'stable both-edges',
           }}>
             {visibleEvents.length === 0 && (
               <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
