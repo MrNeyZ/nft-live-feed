@@ -713,7 +713,7 @@ export async function ingestMintRaw(
         const blockTime = tx.blockTime
           ? new Date((tx.blockTime as number) * 1000).toISOString()
           : new Date().toISOString();
-        recordMint({
+        const emitted = recordMint({
           signature:         sig,
           blockTime,
           programSource:     'mpl_core',
@@ -731,7 +731,9 @@ export async function ingestMintRaw(
           // source=core semantics; the frontend tints the CORE badge pink.
           coreLaunchpad:     true,
         });
-        enqueueMintEnrichment(groupingKey, cm.mintAddress);
+        // Per-NFT DAS enrichment only when the card was emitted into the
+        // feed — sampled-out cards skip the getAsset to save RPC credits.
+        if (emitted) enqueueMintEnrichment(groupingKey, cm.mintAddress);
         scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
         return;
       }
@@ -759,7 +761,7 @@ export async function ingestMintRaw(
             const blockTime = tx.blockTime
               ? new Date((tx.blockTime as number) * 1000).toISOString()
               : new Date().toISOString();
-            recordMint({
+            const emitted = recordMint({
               signature:         sig,
               blockTime,
               programSource:     'mpl_core',
@@ -776,7 +778,7 @@ export async function ingestMintRaw(
               // none of the LMNFT/VVV-specific code paths fire.
               sourceLabel:       'Metaplex Core',
             });
-            enqueueMintEnrichment(groupingKey, v2.mintAddress);
+            if (emitted) enqueueMintEnrichment(groupingKey, v2.mintAddress);
             // Parser already supplied a collection address. Schedule
             // the same async DAS confirmation the targeted Core
             // branch uses — drops the row later if DAS can't
@@ -814,7 +816,7 @@ export async function ingestMintRaw(
         `tree=${lp.collectionAddress} mint=${lp.mintAddress ?? 'null'} ` +
         `sig=${sig.slice(0,12)}…`,
       );
-      recordMint({
+      const emitted = recordMint({
         signature:         sig,
         blockTime,
         programSource:     'bubblegum',
@@ -844,7 +846,7 @@ export async function ingestMintRaw(
       // call per unique mint, capped by PENDING_MAX. Programs that ship
       // null assetIds (malformed Noop event) skip enqueue naturally —
       // `enqueueMintEnrichment` no-ops on falsy mintAddress.
-      if (lp.mintAddress) enqueueMintEnrichment(groupingKey, lp.mintAddress, 'bubblegum');
+      if (emitted && lp.mintAddress) enqueueMintEnrichment(groupingKey, lp.mintAddress, 'bubblegum');
       return;
     }
     // Core / Token-Metadata path: accept on parser-extracted collection
@@ -921,7 +923,7 @@ export async function ingestMintRaw(
       `dasCollection=${confirmedBy === 'das' ? collectionAddress : 'pending'} ` +
       `decision=accept (confirmedBy=${confirmedBy})`,
     );
-    recordMint({
+    const emitted = recordMint({
       signature:         sig,
       blockTime,
       programSource,
@@ -935,7 +937,7 @@ export async function ingestMintRaw(
       minter:            lp.minter,
       sourceLabel:       launchpadSourceLabel(lp.source),
     });
-    enqueueMintEnrichment(groupingKey, lp.mintAddress);
+    if (emitted) enqueueMintEnrichment(groupingKey, lp.mintAddress);
     // LMNFT featured-set lookup. Synchronous cache read — hits surface
     // owner/collectionId on the wire immediately so the source pill
     // becomes clickable on the very first row, not after the 15 s DAS
@@ -1235,7 +1237,7 @@ export async function ingestMintRaw(
 
   const sourceLabel = detectSourceLabel(hit.programSource, accountKeys);
 
-  recordMint({
+  const emitted = recordMint({
     signature:         sig,
     blockTime,
     programSource:     hit.programSource,
@@ -1251,8 +1253,8 @@ export async function ingestMintRaw(
   });
   // Async, non-blocking metadata fetch — fired once per groupingKey
   // ever (enricher dedups internally). Never awaited; ingestion
-  // continues regardless.
-  if (mintAddress) {
+  // continues regardless. Skipped when the feed card was sampled out.
+  if (emitted && mintAddress) {
     enqueueMintEnrichment(groupingKey, mintAddress);
   }
   // Sampled debug: 1-in-25 to show recordMint() is firing without

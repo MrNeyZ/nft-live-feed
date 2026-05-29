@@ -23,6 +23,7 @@ import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
 import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
+import { shouldEmitFeedCard, forgetFeedSampling } from './feed-sampler';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
  *  trigger at most one DAS `searchAssets` call per this window even if
@@ -480,7 +481,15 @@ function tryPromote(a: Accum, now: number): void {
 /** Public: record a detected mint and return whether it passed the
  *  tracked gate (i.e. should be persisted by the caller — though we
  *  don't persist in this MVP). Always emits `mint` + `mint_status`. */
-export function recordMint(ev: MintEventWire): void {
+/**
+ * Counts a mint into the collection accumulator (source of truth) and
+ * decides whether the individual NFT card is emitted into the Live Mint
+ * Feed. Returns true when the per-mint card was emitted (so the caller
+ * should run per-NFT enrichment), false when the card was sampled out or
+ * the event was dropped. The collection row / `mint_status` / MINTS column
+ * always reflect the mint regardless of the return value.
+ */
+export function recordMint(ev: MintEventWire): boolean {
   // Hard collection blacklist — drops the event BEFORE any state
   // mutation. Suppresses /mints table, recentMints ring, `mint` and
   // `mint_status` SSE frames in one place. `mint_meta` patches are
@@ -492,7 +501,7 @@ export function recordMint(ev: MintEventWire): void {
   // launch in the muted collection can't flood the log.
   if (isCollectionBlacklisted(ev.collectionAddress)) {
     noteBlacklistDrop(ev.collectionAddress as string);
-    return;
+    return false;
   }
   // Sticky non-NFT skip — once the enricher's DAS check rejected this
   // group, every subsequent mint for the same key is dropped before it
@@ -505,7 +514,7 @@ export function recordMint(ev: MintEventWire): void {
         `mint=${ev.mintAddress ?? '—'} sig=${ev.signature.slice(0, 20)}…`,
       );
     }
-    return;
+    return false;
   }
   const isFirst = !map.has(ev.groupingKey);
   if (MINTS_DEBUG) {
@@ -572,13 +581,26 @@ export function recordMint(ev: MintEventWire): void {
   const prevDisplay = a.displayState;
   tryPromote(a, now);
 
-  // EMIT FIRST — never gated on metadata, never debounced. The
-  // per-mint event must be on the wire before any DAS retry queue
-  // touches the row. Metadata comes back later via mint_meta patches.
+  // The mint is now fully COUNTED (observedMints / windows / supply / type
+  // classification above) — the collection row + `mint_status` below are
+  // always exact. From here we only decide whether the *individual NFT
+  // card* enters the Live Mint Feed. Velocity is read from the existing
+  // rolling 5-minute window, so a slow large collection stays fully
+  // visible while a hype mint gets thinned. The per-mint `mint` frame,
+  // recent-mint replay buffer, and (via the return value) per-NFT DAS
+  // enrichment are all skipped on a sampled-out card; counting never is.
   auditAcceptedCount++;
-  saleEventBus.emitMint(ev);
-  rememberRecentMint(ev);
-  auditEmittedCount++;
+  const emitFeedCard = shouldEmitFeedCard(ev.groupingKey, a.events5m.length);
+  if (emitFeedCard) {
+    // EMIT FIRST — never gated on metadata, never debounced. The
+    // per-mint event must be on the wire before any DAS retry queue
+    // touches the row. Metadata comes back later via mint_meta patches.
+    saleEventBus.emitMint(ev);
+    rememberRecentMint(ev);
+    auditEmittedCount++;
+  }
+  // `mint_status` ALWAYS goes out — it carries the source-of-truth
+  // collection rollup (MINTS / velocity / ranking) and is never sampled.
   saleEventBus.emitMintStatus(buildStatus(a, now));
 
   // Fire-and-forget DAS refresh of the collection-wide minted count.
@@ -608,6 +630,7 @@ export function recordMint(ev: MintEventWire): void {
       ` reason=${a.shownReason ?? '—'} observed=${a.observedMints} v60=${a.events60s.length}`,
     );
   }
+  return emitFeedCard;
 }
 
 /** Background sweep: re-emits status frames for shown collections so the
@@ -643,6 +666,7 @@ function sweep(): void {
     // Evict idle entries entirely.
     if (now - a.lastMintAt > ACC_IDLE_EVICT_MS) {
       map.delete(key);
+      forgetFeedSampling(key);
       continue;
     }
 
@@ -1008,6 +1032,7 @@ export function evictMintGroup(groupingKey: string): void {
   a.displayState = 'cooled';
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
   map.delete(groupingKey);
+  forgetFeedSampling(groupingKey);
 }
 
 /** Rehydrate the accumulator from a previously-saved snapshot of
