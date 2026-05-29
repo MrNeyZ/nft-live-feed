@@ -241,12 +241,21 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     coreAssetIdx:  null, // variable — extracted from MPL Core inner CPI accounts[0]
   },
   {
-    // ⚠️ UNVERIFIED — computed discriminator; no live tx observed yet
-    // Account positions not confirmed — parser will fall back to token-flow / SOL-flow.
+    // ✅ SELLER POSITION CONFIRMED 2026-05-29 on
+    //   4F79Zo1amYnuL5oZ1sMaAdbo4qjyTcriK4sumJT1jcvrH67txkikzSWy5C7mTvaojh2uQmQQS2Bs3gh4Hez3guMJ
+    // (aggregator-routed: outer = LUCK57…, inner CPI = MMM SolFulfillSell).
+    // accs[5] = pool owner wallet — getAccountInfo(owner) = System Program,
+    // and the same account took the largest SOL increase (+0.215 SOL of
+    // the buyer's 0.232 SOL outflow). Matches the verified sibling layouts
+    // (solMip1FulfillSell, coreFulfillSell both use sellerAcctIdx=5 = pool
+    // owner). Without this, fulfillSell direction + sellerAcctIdx=null
+    // triggers poolSellAmbiguous and the parser drops the sale ("could not
+    // determine parties"). Buyer left null — token-flow fallback correctly
+    // resolves the end recipient wallet in both direct and aggregator flows.
     name:          'solFulfillSell',
     disc:          anchorDisc('sol_fulfill_sell'),   // a4b460c067e169e8
     direction:     'fulfillSell',
-    sellerAcctIdx: null,
+    sellerAcctIdx: 5,
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
   },
