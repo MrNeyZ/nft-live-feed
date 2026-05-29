@@ -498,15 +498,15 @@ export default function ToolsPage() {
     <div className="feed-root page-transition" data-page="tools">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header — density pass v2: pad 10/8 → 6/6, title 18 → 16,
-          sub-line marginTop 3 → 2. Title block ≈ 20 → 14 px. */}
-      <div style={{ padding: '6px 4px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      {/* Header — Mint Tracker scale match: title 22/700, sub-line 11,
+          pad 20/14 (same as /mints page header), marginTop 6. */}
+      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 16, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
               Retardio · Magic Eden personal offers
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <LiveDot />
               <span style={{ fontSize: 11, color: '#7a7a94' }}>
                 Manual scan · ~5–10 s · cached for 45 s
@@ -584,7 +584,7 @@ export default function ToolsPage() {
           // structure rather than text.
           const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
           return (
-            <div style={{ marginTop: 4, fontSize: 11, color: '#7a7a94', lineHeight: 1.25 }}>
+            <div style={{ marginTop: 12, fontSize: 11, color: '#7a7a94', lineHeight: 1.6 }}>
               <span>slug=<span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>{result.slug}</span></span>
               {sep}
               <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
@@ -622,14 +622,12 @@ export default function ToolsPage() {
           prefetch
           style={{
             display: 'flex', alignItems: 'center', gap: 10,
-            // Density pass: vertical pad 12 → 7 (≈ -40 %), gap 12 → 10.
-            // Card height ≈ 56 → 38 px (~32 % drop). Layout unchanged.
-            padding: '7px 12px', textDecoration: 'none',
-            // Reads as a utility link, not a featured hero. Bg alpha
-            // 0.6→0.35; border 0.35→0.18; hover border 0.65→0.32, hover
-            // glow 0.18→0.08. Layout, size and label unchanged.
+            // Utility chrome strip — ~single-row footprint. Pad 5/12,
+            // sub-line inlined next to the title (no second line).
+            // Card height ≈ 32 px.
+            padding: '5px 12px', textDecoration: 'none',
             background: 'linear-gradient(180deg, rgba(32,26,58,0.35) 0%, rgba(26,21,48,0.35) 100%)',
-            border: '1px solid rgba(168,144,232,0.18)', borderRadius: 10,
+            border: '1px solid rgba(168,144,232,0.18)', borderRadius: 8,
             transition: 'border-color 0.15s, box-shadow 0.15s',
           }}
           onMouseEnter={(e) => {
@@ -642,15 +640,14 @@ export default function ToolsPage() {
           }}
         >
           <span aria-hidden style={{
-            // Icon trimmed 32 → 24 to match the compressed card height.
-            flexShrink: 0, width: 24, height: 24, borderRadius: 6,
+            flexShrink: 0, width: 22, height: 22, borderRadius: 5,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, color: '#a890e8',
+            fontSize: 12, color: '#a890e8',
             background: 'rgba(128,104,216,0.10)', border: '1px solid rgba(168,144,232,0.22)',
           }}>✦</span>
-          <span style={{ minWidth: 0, flex: 1 }}>
-            <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#e8e6f2' }}>Rare Feed</span>
-            <span style={{ display: 'block', fontSize: 10.5, color: '#7a7a94', marginTop: 0 }}>
+          <span style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#e8e6f2', flexShrink: 0 }}>Rare Feed</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
               Rare NFT sales below floor and high-rarity opportunities.
             </span>
           </span>
@@ -772,17 +769,16 @@ export default function ToolsPage() {
                     // — that's the correct focus-state priority.
                     boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.30)' : undefined,
                   }}>
-                    <td style={{ padding: '7px 8px 7px 14px', verticalAlign: 'middle' }}>
+                    <td style={{ padding: '14px 8px 14px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {/* Thumbnail trimmed 40 → 34 to match the
-                            compressed row height. Aspect/anchoring
-                            preserved. */}
-                        <div style={{ flexShrink: 0, width: 34, height: 34 }}>
-                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={34} />
+                        {/* Mint Tracker scale match: 42 px thumb (square),
+                            same as MintsTableRow ItemThumb size. */}
+                        <div style={{ flexShrink: 0, width: 42, height: 42 }}>
+                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={42} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                            <span style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                             {showNewBadge && (
                               // Compact NEW pill, inline next to the NFT
                               // title. Same purple-gradient chrome as the
@@ -926,13 +922,15 @@ export default function ToolsPage() {
                         flexDirection:  'column',
                         alignItems:     'center',
                         justifyContent: 'center',
-                        // Density pass: padding 3/10 → 1/7, radius 6 → 4,
-                        // font 9.5 → 9, weight 700 → 600. Capsule
-                        // recedes into row metadata; BEST OFFER + SPREAD
-                        // remain the focal pair.
-                        padding:        '1px 7px',
-                        borderRadius:   4,
-                        fontSize:       9,
+                        // Mint Tracker scale match: padding 3/10,
+                        // radius 5, fontSize 10. Capsule still reads as
+                        // metadata via the very-low bg/border alphas
+                        // (statusCapsuleStyle), but the dimensions sit
+                        // in the same chip family as Mints badges so
+                        // the two pages feel like one system.
+                        padding:        '3px 10px',
+                        borderRadius:   5,
+                        fontSize:       10,
                         fontWeight:     600,
                         lineHeight:     1.1,
                         letterSpacing:  '0.4px',
@@ -972,30 +970,30 @@ export default function ToolsPage() {
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '10px 8px', fontSize: 9.5, fontWeight: 700,
+  // Mint Tracker scale match: padding 12/10, fontSize 11, weight 700.
+  padding: '12px 10px', fontSize: 11, fontWeight: 700,
   color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
   background: 'rgba(16,12,26,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase', userSelect: 'none',
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
-const thStyleSmall: React.CSSProperties = { ...thStyle, textAlign: 'left', fontSize: 9.5 };
+const thStyleSmall: React.CSSProperties = { ...thStyle, textAlign: 'left', fontSize: 11 };
 /** First column header — extra left padding so the NFT label doesn't
  *  press against the card border. Mirrored on the row's NFT cell
  *  (`padding: '10px 8px 10px 14px'`) below. */
-const thStyleNft: React.CSSProperties = { ...thStyle, padding: '10px 8px 10px 14px' };
+const thStyleNft: React.CSSProperties = { ...thStyle, padding: '12px 10px 12px 14px' };
 const tdStyleNum: React.CSSProperties = {
-  // Density pass: vertical pad 10 → 7. ~2 extra rows fit in the same
-  // viewport vs the previous baseline. verticalAlign middle preserved
-  // for multi-line cells (STATUS capsule, BEST OFFER + FUNDED pill).
-  padding: '7px 6px', textAlign: 'right', fontSize: 13, fontWeight: 600,
+  // Mint Tracker scale match: padding 14/10 (same as
+  // var(--table-row-pad, 14px 10px) in MintsTableRow), fontSize 13,
+  // weight 600. verticalAlign middle preserved.
+  padding: '14px 10px', textAlign: 'right', fontSize: 13, fontWeight: 600,
   color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  // LINKS column color softened (#aaaabf → #7a7a94) so secondary cells
-  // recede behind the BEST OFFER + SPREAD focal pair. Vertical pad
-  // 10 → 7 to match tdStyleNum.
-  padding: '7px 6px', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
+  // Mint Tracker row scale (14/10). Color #7a7a94 stays per the prior
+  // hierarchy pass so LINKS recede behind BEST OFFER + SPREAD.
+  padding: '14px 10px', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
