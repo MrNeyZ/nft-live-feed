@@ -286,10 +286,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             fontSize: 11,
             color: colorForCollectionMuted(ev.collectionAddress ?? ev.groupingKey),
             fontWeight: 500,
-            // Visual-hierarchy pass: pull the collection line slightly
-            // back so the title above + price/age below stand out as
-            // the focal pair without resizing anything.
-            opacity: 0.88,
+            // Stronger pass: collection line pulled further back (0.88
+            // → 0.62) so the title above + price/age below sit clearly
+            // ahead. No size change, no font swap.
+            opacity: 0.62,
             overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             // `minWidth: 0` + `flex: 1` let the name truncate inside
@@ -348,7 +348,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             page in a new tab. Hidden when the field isn't on the
             wire (some replays / cNFT paths). */}
         {ev.minter && (
-          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: 0.82, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: 0.58, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             <a
               href={`https://solscan.io/account/${ev.minter}`}
               target="_blank"
@@ -416,10 +416,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
       })()}
       <span style={{
         minWidth: 64, textAlign: 'right',
-        fontSize: 13, fontWeight: 700, color: priceColor,
+        // Strong hierarchy pass: price is the focal data on the card.
+        // Bumped fontSize 13 → 14 and fontWeight 700 → 800 — single
+        // element, no card resize, but the price now clearly outranks
+        // the muted collection/wallet lines per the polish brief.
+        fontSize: 14, fontWeight: 800, color: priceColor,
         fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
         flexShrink: 0,
+        // Tighter letter-spacing so the bumped size doesn't push the
+        // age pill to the right by more than ~1 px at common amounts.
+        letterSpacing: '-0.2px',
       }}>{priceText}</span>
       {(() => {
         // Age tier coloring — mirrors /feed's TimeAgo tiers (pink

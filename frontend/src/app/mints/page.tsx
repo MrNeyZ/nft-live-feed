@@ -2140,10 +2140,17 @@ export default function MintsPage() {
       {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
       <div style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
-        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.65)',
+        // Strong de-purple pass: was a purple linear gradient
+        // (#201a3a → #1a1530) with a 0.65-alpha purple border and a
+        // 28 px purple aura. That was the single biggest source of the
+        // "purple glass" feel. Now: matte dark-indigo gradient
+        // (#15121f → #0f0c19), border alpha 0.65 → 0.16, outer purple
+        // glow dropped (0.15 → 0.04) so the panel reads as a flat
+        // trading-surface frame instead of a backlit glass slab.
+        background: 'linear-gradient(180deg, #15121f 0%, #0f0c19 100%)',
+        border: '1px solid rgba(168,144,232,0.16)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.04)',
         overflow: 'hidden',
       }}>
         {/* Header line — dense operator strip: ACTIVE/RECENT tabs + collection
@@ -2151,9 +2158,16 @@ export default function MintsPage() {
             "VIEW" label; tabs/count/timeframe integrated on one line so the
             filter section below stays short and the table starts high. */}
         <div style={{
-          padding: '6px 12px', borderBottom: '1px solid rgba(168,144,232,0.12)', flexShrink: 0,
+          padding: '6px 12px',
+          // Control-strip de-purple: bg wash desaturated to a neutral
+          // white-on-dark sheet (0.018) and the bottom separator dropped
+          // to the same 0.06 ivory hairline used by row separators
+          // below. Reads as a quiet shelf above the table, not a
+          // purple-tinted band.
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(168,144,232,0.04)', flexWrap: 'wrap', gap: '6px 8px',
+          background: 'rgba(255,255,255,0.018)', flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {(['active', 'recent'] as const).map(t => (
@@ -2367,7 +2381,7 @@ export default function MintsPage() {
                   goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(11,9,20,0.985)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(22,18,34,0.96)' }}>
                 {/* COLLECTION header pads left by 13 px = 10 px (data
                     cell padding) + 3 px (data cell accent border that
                     pushes its content right by 3 px and isn't on the
@@ -2639,12 +2653,15 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  // Matte dark-indigo strip — pulled away from the purple-glass tier
-  // (was rgba(16,12,26,0.96) + 0.12 purple separator). Drops chroma but
-  // keeps the indigo identity; separator hairline tightened so the head
-  // reads as a trading surface, not a glass panel.
-  background: 'rgba(11,9,20,0.985)',
-  borderBottom: '1px solid rgba(168,144,232,0.08)',
+  // Stronger pass: header now sits CLOSER to the row surface
+  // (slightly lighter than the panel body) so it reads as a quiet
+  // shelf, not a heavy black-purple slab. Bg lifted from the dark
+  // 0.985 panel-floor to a midtone indigo (22,18,34,0.96) — still
+  // matte, still readable, no longer dominating. Separator hairline
+  // dropped to white 0.05 so the panel/head boundary fades rather
+  // than ringing as a purple line.
+  background: 'rgba(22,18,34,0.96)',
+  borderBottom: '1px solid rgba(255,255,255,0.05)',
   textTransform: 'uppercase',
   userSelect: 'none',
 };
