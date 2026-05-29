@@ -5,7 +5,7 @@
 // personal offers.
 
 import { useEffect, useMemo, useState } from 'react';
-import { LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
+import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 
@@ -730,7 +730,7 @@ export default function ToolsPage() {
                         {/* Mint Tracker scale match: 42 px thumb (square),
                             same as MintsTableRow ItemThumb size. */}
                         <div style={{ flexShrink: 0, width: 42, height: 42 }}>
-                          <CollectionIcon imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={42} />
+                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={42} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
