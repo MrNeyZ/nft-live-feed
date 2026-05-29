@@ -236,7 +236,13 @@ export function wasRecentlyFetched(sig: string, scope: FetchScope = 'sale'): boo
 // Rawpatch path (bestEffort=true): up to 1 retry, delay 500ms.
 const PRIMARY_RETRY_ATTEMPTS  = 2;
 const RAWPATCH_RETRY_ATTEMPTS = 1;
-const RETRY_BASE_MS            = 500;  // delay for attempt N = RETRY_BASE_MS * 2^(N-1)
+// 2026-05-29: raised 500 → 2000 ms. The 500 ms base produced delays of
+// 0.5s → 1s on attempts 1–2, which is faster than Helius's typical
+// indexing lag (~2–5 s tail). Under a lag window every transient null
+// burned the full 2 retries before the indexer caught up; 2000 ms base
+// (delays 2s → 4s) lets the indexer recover inside the first retry and
+// drops most fall-through to the negative cache. Max retries unchanged.
+const RETRY_BASE_MS            = 2000;  // delay for attempt N = RETRY_BASE_MS * 2^(N-1)
 const FETCH_TIMEOUT_MS         = 8_000; // abort each attempt after 8s
 
 function isRateLimit(status: number, errMsg?: string): boolean {
