@@ -1359,14 +1359,19 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
   const eventsCount = propEventsCount ?? busEventsCount ?? undefined;
   useEffect(() => {
     let cancelled = false;
-    const load = () => fetch(`${API_BASE}/api/market/header`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { tps?: number | null; solUsd?: number | null } | null) => {
-        if (cancelled || !data) return;
-        if (typeof data.tps    === 'number') setTps(data.tps);
-        if (typeof data.solUsd === 'number') setSol(data.solUsd.toFixed(2));
-      })
-      .catch(() => { /* keep prior value */ });
+    const load = () => {
+      // Skip the 20-min refresh on a hidden tab — TPS/SOL aren't
+      // visible there; the initial mount call still primes the value.
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetch(`${API_BASE}/api/market/header`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { tps?: number | null; solUsd?: number | null } | null) => {
+          if (cancelled || !data) return;
+          if (typeof data.tps    === 'number') setTps(data.tps);
+          if (typeof data.solUsd === 'number') setSol(data.solUsd.toFixed(2));
+        })
+        .catch(() => { /* keep prior value */ });
+    };
     load();
     const id = setInterval(load, 20 * 60_000);
     return () => { cancelled = true; clearInterval(id); };

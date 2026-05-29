@@ -889,6 +889,10 @@ export default function FeedPage() {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const tick = () => {
+      // Skip the DOM walk on a hidden tab — age buckets aren't user-
+      // visible there and the CSS decay catches up the moment the tab
+      // returns to visible (next tick walks all cards).
+      if (typeof document !== 'undefined' && document.hidden) return;
       const now = Date.now();
       const cards = document.querySelectorAll<HTMLElement>('.feed-card[data-event-ts]');
       for (const card of cards) {

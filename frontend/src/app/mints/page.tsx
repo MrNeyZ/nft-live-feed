@@ -1010,6 +1010,9 @@ export default function MintsPage() {
   useEffect(() => {
     let cancelled = false;
     const fetchTfStats = async () => {
+      // Skip the network round-trip on a hidden tab; the next tick
+      // after the tab returns to visible refreshes counts.
+      if (typeof document !== 'undefined' && document.hidden) return;
       const windowMs = MINT_TF_MS[mintTf];
       try {
         const res = await fetch(`${API_BASE}/api/mints/tf-stats?windowMs=${windowMs}`, { cache: 'no-store' });
@@ -1254,7 +1257,14 @@ export default function MintsPage() {
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
   useEffect(() => {
-    const id = setInterval(() => setTick(n => n + 1), 5_000);
+    // Skip the tick on a hidden tab — downstream memos (tfStatsByKey,
+    // sortedRows) don't need to recompute against an audience nobody
+    // is watching. Next tick after the tab returns to visible covers
+    // the catch-up.
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      setTick(n => n + 1);
+    }, 5_000);
     return () => clearInterval(id);
   }, []);
 
