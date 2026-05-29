@@ -1841,14 +1841,16 @@ body[data-bottombar="1"] .feed-root {
      the -recent halo extend past the card box). */
   position: relative;
 }
-/* Two-sided collection-color edge accents — replaces the old heavy 3px
-   one-sided LEFT border stripe (previously set inline on the card). Mirrors
-   the /feed sales cards' ::before/::after language: a thin 2px bar inset
-   top/bottom on BOTH edges, lower visual weight (opacity 0.6) with a soft
-   4px glow, so the mint card reads horizontally balanced instead of
-   left-loaded. Color is the per-card deterministic collection color, passed
-   in via the `--mint-accent` custom property. Scoped to `.mints-feed-row`
-   only — the left Mint Tracker table and /feed sales cards are untouched. */
+/* Two-sided collection-color edge accents — 1:1 with the /feed sales cards'
+   `.feed-card.buy-card/.sell-card::before/::after` language (the source of
+   truth): a thin 2px bar inset top/bottom 18% on BOTH edges, offset -2px so
+   the bar sits flush against the card's outer border (reads as part of the
+   border, not a floating stick), with a SOLID accent fill and a SOFT
+   low-alpha glow. The earlier `opacity: 0.6` was what washed the bar into a
+   floating stick — removed; integration now comes from the opaque fill +
+   alpha-only glow exactly like sales (whose glow is rgba ~0.32–0.45). Color
+   is the per-card deterministic collection color via `--mint-accent`. Scoped
+   to `.mints-feed-row` — left Mint Tracker table and /feed cards untouched. */
 .mints-feed-row::before,
 .mints-feed-row::after {
   content: '';
@@ -1857,9 +1859,11 @@ body[data-bottombar="1"] .feed-root {
   width: 2px;
   pointer-events: none;
   border-radius: 1px;
-  background: var(--mint-accent, rgba(168, 144, 232, 0.5));
-  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.5));
-  opacity: 0.6;
+  background: var(--mint-accent, rgb(168, 144, 232));
+  /* Soft glow matched to sales. Fallback first (full-color) for browsers
+     without color-mix; modern browsers use the alpha-reduced glow. */
+  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.4));
+  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 38%, transparent);
 }
 .mints-feed-row::before { left:  -2px; }
 .mints-feed-row::after  { right: -2px; }
