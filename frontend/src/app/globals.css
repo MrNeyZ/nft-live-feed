@@ -737,6 +737,12 @@ a { color: inherit; text-decoration: none; }
    activity density; with the card-pad bump (7/11 → 8/12) the row no
    longer reads cramped, so we hand one px back as breathing room. */
 .feed-row-wrap          { padding: 4px 0; animation: slideDown 0.45s ease; }
+/* Cached rows (hydrated from REST snapshot or re-mounted after a route
+   change) skip the slideDown entrance animation. Tagged by FeedCard
+   when the event id is already in the module-level seenFeedEventIds
+   set. Color-flash (new-buy / new-sell) is unaffected and keeps its own
+   6 s ts gate. */
+.feed-row-wrap-cached   { animation: none; }
 .new-buy     .feed-card { animation: flashBuy 3.6s ease-out; }
 .new-sell    .feed-card { animation: flashSell 3.6s ease-out; }
 .new-listing .feed-card { animation: flashListingFeed 3.6s ease-out; }

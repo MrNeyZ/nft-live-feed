@@ -429,6 +429,16 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   userSelect:     'none',
 };
 
+// Module-scoped set of event IDs already rendered in this browser tab
+// during this session. Cached rows hydrated from the REST snapshot, or
+// re-mounted after a route change, will be found in this set and skip
+// the .feed-row-wrap slideDown entrance animation via the
+// `feed-row-wrap-cached` class. Truly new SSE events (id never seen)
+// still animate exactly as before; the per-card flashBuy/flashSell
+// color flash keeps its own 6 s ts gate independently. The set lives in
+// memory only (no storage), so a hard reload starts fresh.
+const seenFeedEventIds = new Set<string>();
+
 const FeedCard = memo(function FeedCard({
   event,
   onPreview,
@@ -472,6 +482,13 @@ const FeedCard = memo(function FeedCard({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Entrance-animation gate: if we've already rendered this event id in
+  // this tab session (initial snapshot, post-/mints round-trip, etc.),
+  // mark the row as cached so the slideDown keyframe doesn't replay.
+  // Computed once at mount; the set is updated immediately after so a
+  // re-mount on a future route return sees the id and stays static.
+  const isCached = useState(() => seenFeedEventIds.has(event.id))[0];
+  useEffect(() => { seenFeedEventIds.add(event.id); }, [event.id]);
   const kind  = saleKind(event.saleTypeRaw);
   const sellerCount = event.sellerRemainingCount;
   const style = KIND_STYLES[kind];
@@ -538,7 +555,7 @@ const FeedCard = memo(function FeedCard({
   };
 
   return (
-    <div className={`feed-row-wrap${isNew ? ' new-' + event.side : ''}`}>
+    <div className={`feed-row-wrap${isCached ? ' feed-row-wrap-cached' : ''}${isNew ? ' new-' + event.side : ''}`}>
       <div className={cardClass} data-event-ts={event.ts} data-age-bucket={initialAgeBucket}>
         <div
           className="feed-thumb"
