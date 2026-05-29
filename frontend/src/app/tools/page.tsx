@@ -686,8 +686,18 @@ export default function ToolsPage() {
                   No listings with personal offers right now.
                 </td></tr>
               )}
-              {sortedRows.map((row) => {
-                const name = row.nftName ?? row.mint.slice(0, 6);
+              {(() => {
+                // Collection label for the current scan slug — used as a
+                // sensible fallback when ME's per-token name is missing
+                // (otherwise the title would degrade to a 6-char mint
+                // prefix like "N3d61u"). Computed once per render.
+                const currentCollectionLabel =
+                  COLLECTIONS.find(c => c.slug === selectedSlug)?.label ?? null;
+                return sortedRows.map((row) => {
+                const trimmedNftName = row.nftName?.trim() ?? '';
+                const name = trimmedNftName.length > 0
+                  ? trimmedNftName
+                  : (currentCollectionLabel ?? shortAddr(row.mint));
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol != null && row.spreadSol > 0;
                 // Dim EXPIRED rows regardless of listing state — they
@@ -737,7 +747,15 @@ export default function ToolsPage() {
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                            <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+                            <a
+                              href={`https://solscan.io/token/${row.mint}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
+                              style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none', cursor: 'pointer', display: 'block', minWidth: 0 }}
+                            >{name}</a>
                             {showNewBadge && (
                               // Compact NEW pill, inline next to the NFT
                               // title. Same purple-gradient chrome as the
@@ -919,7 +937,8 @@ export default function ToolsPage() {
                     </td>
                   </tr>
                 );
-              })}
+              });
+              })()}
             </tbody>
           </table>
         </div>
