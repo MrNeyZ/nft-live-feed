@@ -2348,10 +2348,10 @@ export default function MintsPage() {
         )}
 
         <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
-          {/* Subtle 1px structural boundary, not an accent rail. */}
-          <div aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 1, background: 'rgba(0,0,0,0.28)', pointerEvents: 'none', zIndex: 0 }} />
-          {/* Connective tissue: barely-visible 3px rail behind row accents; sticky thead bg covers top. */}
-          <div aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none', zIndex: 0 }} />
+          {/* 3px faint connective rail (above row bg, below accent border via td zIndex). */}
+          <div aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none', zIndex: 1 }} />
+          {/* 1px dark structural boundary on top. */}
+          <div aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 1, background: 'rgba(0,0,0,0.28)', pointerEvents: 'none', zIndex: 2 }} />
           <table className="collections-table" style={{
             width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed',
             // Inner table-frame hairline at the row-content right edge.
