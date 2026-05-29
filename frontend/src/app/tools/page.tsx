@@ -4,7 +4,7 @@
 // Manual, on-demand scanners. v1: Retardio listings with Magic Eden
 // personal offers.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
@@ -272,6 +272,9 @@ export default function ToolsPage() {
   // cached scan if one exists.
   const [selectedSlug, setSelectedSlug] = useState<string>(COLLECTIONS[0].slug);
   const [result, setResult]             = useState<ScanResult | null>(null);
+  // Once-per-mint set so [offers/name-fallback] only fires the first
+  // time we hit a row whose nftName lacked an extractable #<num>.
+  const loggedNameFallbackRef           = useRef<Set<string>>(new Set());
   // Hydrate from localStorage whenever the selected collection changes
   // (initial mount + any subsequent dropdown pick).
   useEffect(() => { setResult(loadPersisted(selectedSlug)); }, [selectedSlug]);
@@ -693,17 +696,21 @@ export default function ToolsPage() {
                 // prefix like "N3d61u"). Computed once per render.
                 const currentCollectionLabel =
                   COLLECTIONS.find(c => c.slug === selectedSlug)?.label ?? null;
-                // Display name strategy:
-                //   1. extract trailing #<num> from ME's nftName when
-                //      present (works for "Retardio Cousins #4058",
-                //      "#4058", etc.) and pair it with the collection
-                //      label's first word ("Retardio Cousins" →
-                //      "Retardio") to render "Retardio #4058".
-                //   2. otherwise fall back to the existing chain:
-                //      raw nftName → full collection label → mint short.
-                //   Keeps single-word labels (NUB / Webkidz / Trencher)
-                //   identical to their full label, just with the
-                //   numbered suffix when extractable.
+                // Display name priority (per user spec — for
+                // retardio_cousins the full collection label
+                // "Retardio Cousins" is NEVER an acceptable final
+                // title; rows must read "Retardio #<num>" or fall
+                // back to something MORE useful than the label):
+                //   1. extract #<num> from row.nftName ("#4422",
+                //      "Retardio Cousins #4422", etc.) and render
+                //      "<collectionShort> #<num>" e.g. "Retardio #4422".
+                //   2. nftName non-empty AND distinct from the full
+                //      collection label → use it verbatim.
+                //   3. collectionShort alone (the first word of the
+                //      label) — strictly better than the full label
+                //      because it visually signals "no id yet" rather
+                //      than impersonating the collection.
+                //   4. mint short (final fallback).
                 const collectionShort = currentCollectionLabel
                   ? currentCollectionLabel.split(/\s+/)[0]
                   : null;
@@ -711,11 +718,33 @@ export default function ToolsPage() {
                 const trimmedNftName = row.nftName?.trim() ?? '';
                 const numMatch = trimmedNftName.match(/#\s*(\d+)/);
                 const num = numMatch ? numMatch[1] : null;
-                const name = (num != null && collectionShort)
-                  ? `${collectionShort} #${num}`
-                  : (trimmedNftName.length > 0
-                      ? trimmedNftName
-                      : (currentCollectionLabel ?? shortAddr(row.mint)));
+                let name: string;
+                if (num != null && collectionShort) {
+                  name = `${collectionShort} #${num}`;
+                } else if (
+                  trimmedNftName.length > 0 &&
+                  trimmedNftName !== currentCollectionLabel
+                ) {
+                  name = trimmedNftName;
+                } else if (collectionShort) {
+                  name = collectionShort;
+                } else {
+                  name = shortAddr(row.mint);
+                }
+                // Once-per-session debug log when we couldn't extract a
+                // #<num> for a row — surfaces mint + raw nftName so we
+                // can refine the extraction if a new shape appears.
+                if (num == null && !loggedNameFallbackRef.current.has(row.mint)) {
+                  loggedNameFallbackRef.current.add(row.mint);
+                  // eslint-disable-next-line no-console
+                  console.debug('[offers/name-fallback]', {
+                    mint: row.mint,
+                    rawNftName: row.nftName,
+                    imageUrl: row.imageUrl,
+                    listed: row.listed,
+                    rendered: name,
+                  });
+                }
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
                 const positiveSpread = row.spreadSol != null && row.spreadSol > 0;
                 // Dim EXPIRED rows regardless of listing state — they
