@@ -2666,12 +2666,12 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  // Restore VictoryLabs purple identity (v2 gray slab detached the
-  // page). Header sits as a quiet purple-tinted shelf slightly lighter
-  // than the panel body — keeps the "less dominant than rows" goal
-  // from v2 without losing the family hue. Bg purple-tinted matte
-  // (28,22,48,0.96); separator restored to faint purple (0.08).
-  background: 'rgba(28,22,48,0.96)',
+  // Header bg moved to the sticky <tr> + a CSS rule on the thead so
+  // the strip reads as one continuous rectangle across the full table
+  // width (per-th bg here was making the COLLECTION cell visually
+  // stop at its column boundary). Separator stays as a th-level
+  // hairline so the header → body boundary is consistent.
+  background: 'transparent',
   borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase',
   userSelect: 'none',
