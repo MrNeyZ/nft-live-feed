@@ -727,10 +727,13 @@ export default function ToolsPage() {
                   }}>
                     <td style={{ padding: '14px 8px 14px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {/* Mint Tracker scale match: 42 px thumb (square),
-                            same as MintsTableRow ItemThumb size. */}
-                        <div style={{ flexShrink: 0, width: 42, height: 42 }}>
-                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={42} />
+                        {/* Bumped 42 → 50 so NFT artwork reads as a
+                            primary visual element of the row (scanner UX
+                            is visual NFT evaluation). Rounded-square
+                            style preserved via ItemThumb's borderRadius.
+                            Row grows naturally; no other column touched. */}
+                        <div style={{ flexShrink: 0, width: 50, height: 50 }}>
+                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={50} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
