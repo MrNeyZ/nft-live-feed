@@ -4,7 +4,6 @@
 // Manual, on-demand scanners. v1: Retardio listings with Magic Eden
 // personal offers.
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
@@ -504,7 +503,7 @@ export default function ToolsPage() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
-              Retardio · Magic Eden personal offers
+              Magic Eden Bid Offers Scanner
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <LiveDot />
@@ -610,49 +609,6 @@ export default function ToolsPage() {
             </div>
           );
         })()}
-      </div>
-
-      {/* Other tools — discoverable entry to Rare Feed. Reuses the same
-          purple card chrome + hover treatment as the rest of the page; sits
-          between the header and the results card without altering the table
-          layout. */}
-      <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto 8px', padding: '0 4px', boxSizing: 'border-box' }}>
-        <Link
-          href="/tools/rare-feed"
-          prefetch
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            // Utility chrome strip — ~single-row footprint. Pad 5/12,
-            // sub-line inlined next to the title (no second line).
-            // Card height ≈ 32 px.
-            padding: '5px 12px', textDecoration: 'none',
-            background: 'linear-gradient(180deg, rgba(32,26,58,0.35) 0%, rgba(26,21,48,0.35) 100%)',
-            border: '1px solid rgba(168,144,232,0.18)', borderRadius: 8,
-            transition: 'border-color 0.15s, box-shadow 0.15s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.32)';
-            e.currentTarget.style.boxShadow = '0 0 14px rgba(128,104,216,0.08)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'rgba(168,144,232,0.18)';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
-          <span aria-hidden style={{
-            flexShrink: 0, width: 22, height: 22, borderRadius: 5,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 12, color: '#a890e8',
-            background: 'rgba(128,104,216,0.10)', border: '1px solid rgba(168,144,232,0.22)',
-          }}>✦</span>
-          <span style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#e8e6f2', flexShrink: 0 }}>Rare Feed</span>
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-              Rare NFT sales below floor and high-rarity opportunities.
-            </span>
-          </span>
-          <span aria-hidden style={{ flexShrink: 0, fontSize: 14, color: '#8068d8' }}>→</span>
-        </Link>
       </div>
 
       {/* Results card */}
