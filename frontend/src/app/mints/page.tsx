@@ -2140,10 +2140,19 @@ export default function MintsPage() {
       {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
       <div style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
+        // Restore the VictoryLabs dark-purple panel identity (the v2
+        // strong-pass de-saturated this to cold #15121f/#0f0c19 which
+        // detached the page from the rest of the app). Original was
+        // #201a3a → #1a1530 with a loud 0.65 purple border and a 0.15
+        // outer purple aura — kept the hue, trimmed the excess. New:
+        // same purple gradient, border alpha 0.65 → 0.32 (half),
+        // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
+        // the same purple terminal panel /feed and /dashboard ship,
+        // just with less neon ring around it.
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.65)',
+        border: '1px solid rgba(168,144,232,0.32)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
         overflow: 'hidden',
       }}>
         {/* Header line — dense operator strip: ACTIVE/RECENT tabs + collection
@@ -2151,9 +2160,16 @@ export default function MintsPage() {
             "VIEW" label; tabs/count/timeframe integrated on one line so the
             filter section below stays short and the table starts high. */}
         <div style={{
-          padding: '6px 12px', borderBottom: '1px solid rgba(168,144,232,0.12)', flexShrink: 0,
+          padding: '6px 12px',
+          // Restore purple-tinted control strip identity (v2 ivory
+          // wash detached this from the rest of the palette). Hue
+          // back to purple but quieter than original (bg 0.04 → 0.025,
+          // border 0.12 → 0.08) so the panel surface still reads
+          // matte rather than glassy.
+          borderBottom: '1px solid rgba(168,144,232,0.08)',
+          flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(168,144,232,0.04)', flexWrap: 'wrap', gap: '6px 8px',
+          background: 'rgba(168,144,232,0.025)', flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {(['active', 'recent'] as const).map(t => (
@@ -2332,7 +2348,18 @@ export default function MintsPage() {
         )}
 
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
-          <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <table className="collections-table" style={{
+            width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed',
+            // Inner table-frame hairline at the row-content right edge.
+            // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
+            // stable`, so the table's right edge already lands just left
+            // of the scrollbar lane — drawing a 1 px purple-tinted border
+            // here visually clips every row inside an intentional frame
+            // and explains that the gutter is OUTSIDE the table content.
+            // Border absorbed by collapse + tableLayout:fixed; no row
+            // width / column width / CREATED gutter regression.
+            borderRight: '1px solid rgba(168,144,232,0.08)',
+          }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
                 without these, `tableLayout: fixed` was distributing
@@ -2349,23 +2376,31 @@ export default function MintsPage() {
                   a stable x-position across rows, independent of how
                   many marketplace icons the COLLECTION cell carries. */}
               <col style={{ width: 'var(--mints-show-col-w, 140px)' }} /> {/* SHOW */}
-              <col style={{ width: 70 }}  /> {/* MINTS    */}
-              <col style={{ width: 80 }}  /> {/* SUPPLY   */}
+              {/* Rebalance pass: COLLECTION was too dominant (~70 % of
+                  table). Widening the numeric block by ~52 px pulls the
+                  split toward ~60/40 without crowding identity AND
+                  without overflowing at the small_laptop (1024) tier
+                  — an earlier +130 px attempt clipped CREATED. PRICE
+                  gets the largest lift (80→100) so it visually outranks
+                  LAST; CREATED widens (80→96) to match its 18 px
+                  terminal gutter. */}
+              <col style={{ width: 78 }}  /> {/* MINTS    */}
+              <col style={{ width: 88 }}  /> {/* SUPPLY   */}
               <col style={{ width: 90 }}  /> {/* LAST     */}
-              <col style={{ width: 80 }}  /> {/* PRICE    */}
-              <col style={{ width: 80 }}  /> {/* CREATED  */}
+              <col style={{ width: 100 }} /> {/* PRICE    */}
+              <col style={{ width: 96 }}  /> {/* CREATED  */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
             </colgroup>
             <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
+              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(28,22,48,0.96)' }}>
                 {/* COLLECTION header pads left by 13 px = 10 px (data
                     cell padding) + 3 px (data cell accent border that
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: '1px solid rgba(168,144,232,0.10)' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 {/* SHOW — empty header (action column, no label). aria-label
@@ -2406,7 +2441,7 @@ export default function MintsPage() {
                   // `padding: '13px 18px 13px 10px'` for the terminal
                   // gutter). Without the matching right-pad the header
                   // would float ~8 px past the value column.
-                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer' }}
+                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer', borderRight: '1px solid rgba(168,144,232,0.10)' }}
                   onClick={() => handleSortClick('created')}
                 >
                   CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
@@ -2631,8 +2666,13 @@ const thStyle: React.CSSProperties = {
   textAlign: 'center',
   verticalAlign: 'middle',
   whiteSpace: 'nowrap',
-  background: 'rgba(16,12,26,0.96)',
-  borderBottom: '1px solid rgba(168,144,232,0.12)',
+  // Header bg moved to the sticky <tr> + a CSS rule on the thead so
+  // the strip reads as one continuous rectangle across the full table
+  // width (per-th bg here was making the COLLECTION cell visually
+  // stop at its column boundary). Separator stays as a th-level
+  // hairline so the header → body boundary is consistent.
+  background: 'transparent',
+  borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase',
   userSelect: 'none',
 };

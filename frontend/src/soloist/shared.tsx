@@ -885,21 +885,20 @@ export function TopNav({ active }: { active?: Page } = {}) {
       //   • faintly purple 1px bottom separator
       //   • low downward glow (purple-tinted) + the original black drop shadow
       //   • inset 1px top highlight = the "glass edge" sheen
-      // HUD material pass: radial purple haze trimmed once more
-      // (0.05/0.02 → 0.035/0.012), base linear gradient deepened so
-      // the bar reads matte/dry (0.86/0.97 → 0.92/0.99). Drop-shadow
-      // alpha trimmed (purple 0.30 → 0.22, black 0.32 → 0.26).
-      // backdrop-filter 12 → 10 px. Bottom border alpha lifted
-      // 0.10 → 0.14 so the panel/page separation reads as a crisp
-      // hairline instead of fading.
+      // De-purple pass: radial haze halved (0.035/0.012 → 0.018/0.006)
+      // so the strip stops reading as "lit glass". Base linear gradient
+      // tightened toward dark indigo (0.92/0.99 → 0.95/0.995). Bottom
+      // border + downward purple glow alphas pulled back (0.14 → 0.09,
+      // 0.06 → 0.03, 0.22 → 0.14); black drop kept at 0.26. Backdrop
+      // blur unchanged (was already trimmed to 10 px).
       background:
-        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.035) 0%, rgba(132,108,224,0.012) 40%, transparent 66%), ' +
-        'linear-gradient(180deg, rgba(15,11,28,0.92) 0%, rgba(6,5,14,0.99) 100%)',
-      borderBottom: '1px solid rgba(168,144,232,0.14)',
+        'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.018) 0%, rgba(132,108,224,0.006) 40%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(13,10,24,0.95) 0%, rgba(6,5,14,0.995) 100%)',
+      borderBottom: '1px solid rgba(168,144,232,0.09)',
       boxShadow:
-        'inset 0 1px 0 rgba(255,255,255,0.04), ' +
-        '0 1px 0 rgba(168,144,232,0.06), ' +
-        '0 10px 24px -10px rgba(58,40,104,0.22), ' +
+        'inset 0 1px 0 rgba(255,255,255,0.03), ' +
+        '0 1px 0 rgba(168,144,232,0.03), ' +
+        '0 10px 24px -10px rgba(58,40,104,0.14), ' +
         '0 6px 16px rgba(0,0,0,0.26)',
       backdropFilter: 'blur(10px)',
       WebkitBackdropFilter: 'blur(10px)',
@@ -1404,20 +1403,20 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
       // front of* the footer), and an upward purple-tinted depth shadow +
       // the original black one. Kept a touch more restrained than the topbar
       // so the header stays the dominant chrome.
-      // HUD material pass: same cuts as the topbar, mirrored. Radial
-      // purple haze 0.045/0.02 → 0.030/0.012, base linear gradient
-      // deepened to 0.99/0.92, borderTop alpha 0.10 → 0.14 (crisp
-      // separation), drop-shadow alpha trimmed (purple 0.28 → 0.20,
-      // black 0.32 → 0.26), backdrop-filter 12 → 10 px.
+      // De-purple pass mirrors the TopNav: radial haze halved
+      // (0.030/0.012 → 0.018/0.006), base linear gradient pulled
+      // toward dark indigo (0.99/0.92 → 0.995/0.95), borderTop +
+      // upward purple shadows softened (0.14 → 0.09, 0.06 → 0.03,
+      // 0.20 → 0.14). Black drop and backdrop blur unchanged.
       background:
-        'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.030) 0%, rgba(132,108,224,0.012) 42%, transparent 66%), ' +
-        'linear-gradient(180deg, rgba(6,5,14,0.99) 0%, rgba(15,11,28,0.92) 100%)',
-      borderTop: '1px solid rgba(168,144,232,0.14)',
+        'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.018) 0%, rgba(132,108,224,0.006) 42%, transparent 66%), ' +
+        'linear-gradient(180deg, rgba(6,5,14,0.995) 0%, rgba(13,10,24,0.95) 100%)',
+      borderTop: '1px solid rgba(168,144,232,0.09)',
       boxShadow:
-        'inset 0 1px 0 rgba(255,255,255,0.05), ' +
+        'inset 0 1px 0 rgba(255,255,255,0.04), ' +
         'inset 0 6px 14px -10px rgba(0,0,0,0.18), ' +
-        '0 -1px 0 rgba(168,144,232,0.06), ' +
-        '0 -10px 22px -10px rgba(58,40,104,0.20), ' +
+        '0 -1px 0 rgba(168,144,232,0.03), ' +
+        '0 -10px 22px -10px rgba(58,40,104,0.14), ' +
         '0 -6px 16px rgba(0,0,0,0.26)',
       backdropFilter: 'blur(10px)',
       WebkitBackdropFilter: 'blur(10px)',
@@ -1436,8 +1435,10 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
         fontSize: 11, fontFamily: "'SF Mono','Fira Code',monospace",
       }}>
         {/* LEFT — live metrics only. Market + live readouts grouped into quiet
-            stat modules; values a notch clearer than their labels. */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            stat modules; values a notch clearer than their labels. Group gap
+            bumped 12 → 16 in the bottom-bar polish so the metric chips breathe
+            without a redesign; inner gaps unchanged. */}
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ ...groupModule, gap: 10 }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               {/* Solana mark — VictoryLabs-styled 3-bar gradient with a
@@ -1463,7 +1464,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 fontVariantNumeric: 'tabular-nums',
               }}>${sol}</span>
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.32)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.20)' }} aria-hidden="true" />
             <span>
               <span style={{ color: '#909bb6' }}>TPS </span>
               <span style={{
@@ -1481,7 +1482,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 <span style={{ color: '#909bb6' }}> · <span style={{ color: '#d4d4eb' }}>{eventsCount}</span> events</span>
               )}
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.32)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.20)' }} aria-hidden="true" />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <span style={{ color: '#36b868', fontWeight: 700 }}>0</span>
               <span style={{ color: '#909bb6' }}>alerts</span>

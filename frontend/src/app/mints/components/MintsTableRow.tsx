@@ -259,10 +259,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
       style={{
-        // Slightly stronger separator alpha (0.05 vs 0.04 before)
-        // so the per-row tint reads as a distinct band; still a
-        // 1px hairline, never thick.
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        // Stronger pass: separators now barely whisper (0.035 → 0.022)
+        // so rows read as cleaner ribbons on the panel surface rather
+        // than a stacked-card grid. Still a 1 px hairline.
+        borderBottom: '1px solid rgba(255,255,255,0.022)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values
@@ -279,7 +279,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // on rowState === 'active' so a burst row that has since
         // sold out (SOLD wash) doesn't carry conflicting warm + red
         // cues.
-        outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.26)' : undefined,
+        outline:       isBurst && rowState === 'active' ? '1px solid rgba(226,144,111,0.18)' : undefined,
         outlineOffset: isBurst && rowState === 'active' ? '-1px' : undefined,
       }}
     >
@@ -288,7 +288,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '14px 8px 14px 6px', verticalAlign: 'middle', borderLeft: `3px solid ${accentBorderColor}` }}>
+      <td style={{ padding: '14px 8px 14px 9px', verticalAlign: 'middle', position: 'relative' }}>
+        {/* Base rail (in-cell, replaces overlay div). */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none' }} />
+        {/* Colored row accent (paints on top of base rail; identical color to the previous borderLeft). */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accentBorderColor, pointerEvents: 'none' }} />
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
             Status track was 66 px to fit the old ACTIVE/WATCH labels; after
@@ -507,16 +511,28 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // active. Rectangular action band, never a card.
               borderRadius: 0,
               background: isPinned
+                // Pinned (active) state kept distinctly purple so the
+                // affordance still reads when toggled on.
                 ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(140,112,228,0.20) 28%, rgba(155,124,240,0.34) 50%, rgba(140,112,228,0.20) 72%, rgba(128,104,216,0.06) 100%)'
-                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)',
+                // Idle: gradient alphas halved (0.04 → 0.018,
+                // 0.06 → 0.025) so the strip stops competing for
+                // attention on every row. Hover restores the purple
+                // glow via onMouseEnter handler above — unchanged.
+                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.018) 28%, rgba(128,104,216,0.025) 50%, rgba(128,104,216,0.018) 72%, rgba(128,104,216,0) 100%)',
               boxShadow: isPinned ? 'inset 0 0 0 1px rgba(188,160,246,0.42), inset 0 0 18px rgba(155,124,240,0.18)' : 'none',
               transition: 'background 160ms ease, box-shadow 160ms ease',
             }}
           >
             <span style={{
-              fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+              // Strong pass: text rendered as a compact muted label —
+              // smaller (10.5 → 9.5), lighter weight (700 → 600), and
+              // a noticeably dimmer idle color (#b4a8d8 → #6e6688) so
+              // the SHOW column no longer pulls the eye on every row.
+              // Hover/pinned restore strong purple/white via the parent
+              // handlers (unchanged).
+              fontSize: 9.5, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase',
               whiteSpace: 'nowrap', transition: 'color 160ms ease, text-shadow 160ms ease',
-              color: isPinned ? '#ffffff' : '#b4a8d8',
+              color: isPinned ? '#ffffff' : '#6e6688',
               textShadow: isPinned ? '0 0 10px rgba(188,160,246,0.55)' : 'none',
             }}>SHOW</span>
           </div>
