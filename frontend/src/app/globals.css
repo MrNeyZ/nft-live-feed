@@ -1709,6 +1709,14 @@ body[data-bottombar="1"] .feed-root {
   z-index: 1;
   background: transparent;
 }
+/* First th — explicit opaque bg covering its full padding-box so the
+   left gutter of the COLLECTION cell reads as part of the continuous
+   header slab. !important beats the inline `background: transparent`
+   in thStyle so we don't have to thread a per-cell prop. Label position
+   unchanged (paddingLeft:9 stays in the th inline style). */
+.collections-table thead th:first-child {
+  background: rgba(28,22,48,0.96) !important;
+}
 
 /* Base rail in the gap above the first row. CSS pseudo on the scroll
    wrapper — no overlay div, no z-index. Top offset clears the sticky
