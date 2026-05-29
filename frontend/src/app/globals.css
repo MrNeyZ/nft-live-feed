@@ -1375,9 +1375,15 @@ a { color: inherit; text-decoration: none; }
    animation. Border-color + bg ease in 140 ms; no transform, no glow
    (the parent row hover already carries the lift). */
 .tools-link-chip {
-  transition: border-color 140ms ease, background 140ms ease;
+  /* Secondary-action affordance — chip + logo idle at reduced opacity
+     so the row's focal pair (NFT image/title + BEST OFFER/SPREAD)
+     wins the eye. Hover restores full intensity and the border tint
+     for the click target. */
+  opacity: 0.55;
+  transition: opacity 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 .tools-link-chip:hover {
+  opacity: 1;
   border-color: rgba(168, 144, 232, 0.45);
   background: rgba(168, 144, 232, 0.06);
 }

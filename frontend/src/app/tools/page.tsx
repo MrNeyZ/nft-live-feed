@@ -112,13 +112,13 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
   // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
   // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
-  // Hierarchy pass: pulled further toward pure metadata.
-  // ACTIVE bg 0.07 → 0.04, border 0.28 → 0.16;
-  // EXPIRED bg 0.05 → 0.03, border 0.18 → 0.11.
-  // Capsule dimensions unchanged.
+  // Noise-reduction polish: bg + border alphas trimmed again so the
+  // capsule reads as secondary metadata. Dimensions unchanged.
+  // ACTIVE  bg 0.04 → 0.025, border 0.16 → 0.10;
+  // EXPIRED bg 0.03 → 0.02,  border 0.11 → 0.07.
   return s === 'EXPIRED'
-    ? { color: '#a07474', background: 'rgba(160,116,116,0.03)', border: '1px solid rgba(160,116,116,0.11)' }
-    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.04)',  border: '1px solid rgba(92,224,160,0.16)' };
+    ? { color: '#a07474', background: 'rgba(160,116,116,0.02)', border: '1px solid rgba(160,116,116,0.07)' }
+    : { color: '#5ce0a0', background: 'rgba(92,224,160,0.025)', border: '1px solid rgba(92,224,160,0.10)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
@@ -978,12 +978,17 @@ export default function ToolsPage() {
                         letterSpacing:  '0.4px',
                         textTransform:  'uppercase',
                         fontFamily:     "'SF Mono','Fira Code',monospace",
+                        // Soft overall capsule opacity so the chip
+                        // reads as metadata even at full text color.
+                        // Inner LISTED/UNLISTED line keeps its own
+                        // 0.55 multiplier (was 0.65).
+                        opacity:        0.82,
                         ...statusCapsuleStyle(oState),
                       }}>
                         <span>{oState}</span>
                         <span style={{
                           fontWeight: 600,
-                          opacity:    0.65,
+                          opacity:    0.55,
                           color:      listingLineColor(lState),
                         }}>{lState}</span>
                       </div>
