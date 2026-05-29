@@ -2348,7 +2348,18 @@ export default function MintsPage() {
         )}
 
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
-          <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <table className="collections-table" style={{
+            width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed',
+            // Inner table-frame hairline at the row-content right edge.
+            // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
+            // stable`, so the table's right edge already lands just left
+            // of the scrollbar lane — drawing a 1 px purple-tinted border
+            // here visually clips every row inside an intentional frame
+            // and explains that the gutter is OUTSIDE the table content.
+            // Border absorbed by collapse + tableLayout:fixed; no row
+            // width / column width / CREATED gutter regression.
+            borderRight: '1px solid rgba(168,144,232,0.08)',
+          }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
                 without these, `tableLayout: fixed` was distributing
