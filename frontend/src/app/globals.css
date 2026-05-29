@@ -1836,12 +1836,19 @@ body[data-bottombar="1"] .feed-root {
      `-recent` outer halo can extend past the card box. Tracker rows
      get the same containment via `.tools-offer-row` (see above). */
   contain: layout style;
-  /* Base hairline border (moved off the inline card style so the colored
-     side-accent rule below can override left/right). top/bottom stay this
+  /* Base hairline border — 1:1 with `.feed-card`: same `--accent-card-alpha`
+     token (resolves ~0.10–0.16 per breakpoint), NOT a literal 0.06, so the
+     hairline reads at the same strength as Live Events. top/bottom stay this
      hairline and flip to lilac on :hover; left/right are recolored to the
      accent by `.mints-feed-row.mints-feed-row` below — exactly how /feed's
      `.feed-card` (hairline) + `.buy-card`/`.sell-card` (colored sides) layer. */
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, var(--accent-card-alpha, 0.06));
+  /* Base inset rim shadow — identical to `.feed-card`: faint top highlight +
+     bottom shadow so the border edges blend the same way (overridden by the
+     -recent halo / :hover ring, same as /feed). Not transitioned (snaps). */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
   /* Positioned ancestor for the two-sided edge-accent pseudo-elements
      below (paint is intentionally NOT contained, so the -2px stripes and
      the -recent halo extend past the card box). */
@@ -1866,20 +1873,24 @@ body[data-bottombar="1"] .feed-root {
   pointer-events: none;
   border-radius: 1px;
   background: var(--mint-accent, rgb(168, 144, 232));
-  /* Soft glow matched to sales. Fallback first (full-color) for browsers
-     without color-mix; modern browsers use the alpha-reduced glow. */
-  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.4));
-  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 38%, transparent);
+  /* Glow EXACTLY matching /feed's `.buy-card::before/::after`: `0 0 4px`
+     at 0.45 alpha. Fallback first (full-color) for browsers without
+     color-mix; modern browsers use the alpha-reduced glow. */
+  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.45));
+  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 45%, transparent);
 }
 .mints-feed-row::before { left:  -2px; }
 .mints-feed-row::after  { right: -2px; }
 .mints-feed-row:hover {
+  /* Hover ring/glow 1:1 with `.feed-card:hover`: same tokens AND same
+     fallback defaults (0.40 ring / 0.22 glow / 0.09 bg) so there is no
+     latent divergence if a breakpoint ever omits a token. */
   transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.32));
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
   box-shadow:
-    0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.32)) inset,
-    0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.16));
+    0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
+    0 0 var(--hover-glow-blur, 18px) rgba(128, 104, 216, var(--hover-glow-alpha, 0.22));
   z-index: 1;
 }
 
@@ -1894,10 +1905,10 @@ body[data-bottombar="1"] .feed-root {
    two-class `.buy-card` wins left/right over `.feed-card:hover`. Alpha kept
    subtle (~42%, ≈ sales' 0.40–0.45); fallback solid for no color-mix. */
 .mints-feed-row.mints-feed-row {
-  border-left:  2px solid var(--mint-accent, rgba(168, 144, 232, 0.42));
-  border-right: 2px solid var(--mint-accent, rgba(168, 144, 232, 0.42));
-  border-left-color:  color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 42%, transparent);
-  border-right-color: color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 42%, transparent);
+  border-left:  2px solid var(--mint-accent, rgba(168, 144, 232, 0.40));
+  border-right: 2px solid var(--mint-accent, rgba(168, 144, 232, 0.40));
+  border-left-color:  color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 40%, transparent);
+  border-right-color: color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 40%, transparent);
 }
 
 /* Persistent freshness halo for cards that are 2.5–15 s old. The

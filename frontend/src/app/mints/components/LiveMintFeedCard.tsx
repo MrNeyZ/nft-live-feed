@@ -198,7 +198,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
         padding: '10px 12px',
         '--mint-accent': colorForCollection(ev.collectionAddress ?? ev.groupingKey),
         borderRadius: 7,
-        background: 'rgba(255,255,255,0.02)',
+        // Surface 1:1 with /feed `.feed-card`: 0.035 base tint + the same
+        // faint top-down sheen gradient (backgroundImage applied after the
+        // shorthand so it isn't reset). Was 0.02 / no gradient.
+        background: 'rgba(255,255,255,0.035)',
+        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0.007) 50%, rgba(255,255,255,0) 100%)',
         // Hover-scope dim — non-matching mints fade out while a collection row
         // is hovered. Opacity-only (no display/size change) so the card keeps
         // its footprint and the panel never reflows. Eased so the fade reads
