@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
-import { useBlacklist } from '@/soloist/blacklist-store';
+import { useBlacklist, MINTS_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { formatSol } from '@/soloist/mock-data';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
@@ -887,12 +887,12 @@ export default function MintsPage() {
   };
 
   // Frontend-only collection blacklist — render-layer filter applied to
-  // both LEFT tracker and RIGHT feed. Shared, versioned, persisted store
-  // (see soloist/blacklist-store) so it survives reload and stays in sync
-  // with /feed. Matches against groupingKey, collectionAddress,
-  // mintAddress, and lowercased name — so a user can paste any of those
-  // identifiers from the row title.
-  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist();
+  // both LEFT tracker and RIGHT feed. Independent, versioned, persisted
+  // store (vl.mints.blacklist.v1) — survives reload, separate from /feed.
+  // Matches against groupingKey, collectionAddress, mintAddress, and
+  // lowercased name — so a user can paste any of those identifiers from
+  // the row title.
+  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist(MINTS_BLACKLIST_KEY);
   const [blInput, setBlInput] = useState('');
   const addBlacklist = (raw: string) => {
     addBlacklistToken(raw);

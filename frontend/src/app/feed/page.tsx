@@ -9,7 +9,7 @@ import {
   formatSol, shortWallet, timeAgo,
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
-import { useBlacklist } from '@/soloist/blacklist-store';
+import { useBlacklist, FEED_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { ItemThumb, LiveDot, MktIconBadge, Pill, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
@@ -933,11 +933,11 @@ export default function FeedPage() {
   const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01' | 'p1'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
-  // Frontend-only collection blacklist (independent of WATCH). Shared,
-  // versioned, persisted store (see soloist/blacklist-store) so it survives
-  // reload and stays in sync with /mints. Normalized lowercased slugs/names;
-  // matched here against meCollectionSlug + collectionName.
-  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist();
+  // Frontend-only collection blacklist (independent of WATCH). Independent,
+  // versioned, persisted store (vl.feed.blacklist.v1) — survives reload,
+  // separate from /mints. Normalized lowercased slugs/names; matched here
+  // against meCollectionSlug + collectionName.
+  const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist(FEED_BLACKLIST_KEY);
   const [blInput, setBlInput] = useState('');
   const addBlacklist = (raw: string) => {
     addBlacklistToken(raw);
