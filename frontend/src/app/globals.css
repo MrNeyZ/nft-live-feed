@@ -1687,19 +1687,27 @@ body[data-bottombar="1"] .feed-root {
   font-style: italic;
 }
 /* Continuous header strip via pseudo on a sticky thead (collapsed
-   table painting ignored the tr bg). thead is the positioned ancestor
-   for the pseudo's `inset:0`; th bg stays transparent. */
+   table painting ignored the tr bg). z-index:-1 went under the panel
+   bg in this stacking context — pseudo now at z-index:0, ths at
+   z-index:1, thead at z-index:3 so the strip is visible and labels
+   sit on top. */
 .collections-table thead {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
 }
 .collections-table thead::before {
   content: "";
   position: absolute;
   inset: 0;
   background: rgba(28,22,48,0.96);
-  z-index: -1;
+  z-index: 0;
+  pointer-events: none;
+}
+.collections-table thead th {
+  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
 /* Base rail in the gap above the first row. CSS pseudo on the scroll
