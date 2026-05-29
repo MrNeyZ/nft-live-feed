@@ -1686,13 +1686,19 @@ body[data-bottombar="1"] .feed-root {
   letter-spacing: 0.2px;
   font-style: italic;
 }
-/* Tbody base rail — paints the same faint 3px stripe in the left slot
-   so empty-state rows + any gap above the first data row show the
-   rail. Data rows have their own in-cell rail + accent, which paint on
-   top via .mints-tracker-row's bg + the first-td absolutely-positioned
-   accents. */
-.collections-table tbody {
-  background-image: linear-gradient(to right, rgba(168,144,232,0.045) 0 3px, transparent 3px);
+/* Base rail in the gap above the first row. CSS pseudo on the scroll
+   wrapper — no overlay div, no z-index. Top offset clears the sticky
+   thead (~38px). Data rows' in-cell accent paints on top naturally. */
+.collection-table-scroll { position: relative; }
+.collection-table-scroll::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 38px;
+  bottom: 0;
+  width: 3px;
+  background: rgba(168,144,232,0.045);
+  pointer-events: none;
 }
 .mints-tracker-row {
   background: rgba(255,255,255,0.022);
