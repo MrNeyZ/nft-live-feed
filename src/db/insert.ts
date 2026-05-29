@@ -9,7 +9,7 @@ import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ingestion/seller-net';
-import { slugForMint } from '../server/listings-store';
+import { slugForMint, nameForMint } from '../server/listings-store';
 import { getSseClientCount } from '../server/sse';
 import { enqueueResizeLookup, getCachedResizeStatus } from '../mints/resize-status-resolver';
 
@@ -18,6 +18,46 @@ import { enqueueResizeLookup, getCachedResizeStatus } from '../mints/resize-stat
  *  rows when later raw-parsing reveals the true nft_type. */
 function isCnftBelowMin(event: SaleEvent): boolean {
   return event.nftType === 'cnft' && event.priceLamports <= CNFT_MIN_PRICE_LAMPORTS;
+}
+
+// ─── Frame-identity debug (flash investigation) ───────────────────────────────
+// Proves whether the FIRST `sale` frame carries collection identity by
+// correlating it against the later `meta` frame for a target collection.
+// Needles (lowercased, matched against collectionName/slug) come from
+// FEED_FRAME_DEBUG (comma-list). Default targets "The Misfits Order" so the
+// active test captures with no config. Empty env disables. Bounded ring.
+const FRAME_DEBUG_NEEDLES = (process.env.FEED_FRAME_DEBUG ?? 'misfits')
+  .toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+interface EmitFrameSnapshot { collectionAddress: string | null; meCollectionSlug: string | null; mintAddress: string; }
+const recentEmitFrames = new Map<string, EmitFrameSnapshot>();
+const FRAME_DEBUG_MAX = 800;
+function recordEmitFrame(sig: string, snap: EmitFrameSnapshot): void {
+  if (FRAME_DEBUG_NEEDLES.length === 0) return;
+  recentEmitFrames.set(sig, snap);
+  if (recentEmitFrames.size > FRAME_DEBUG_MAX) {
+    const drop = recentEmitFrames.size - FRAME_DEBUG_MAX;
+    const it = recentEmitFrames.keys();
+    for (let i = 0; i < drop; i++) { const k = it.next().value; if (k) recentEmitFrames.delete(k); }
+  }
+}
+function logFrameDebugOnMeta(meta: {
+  signature: string; collectionName: string | null; meCollectionSlug: string | null;
+  mintAddress: string; nftName: string | null; collectionAddress: string | null;
+}): void {
+  if (FRAME_DEBUG_NEEDLES.length === 0) return;
+  const hay = `${meta.collectionName ?? ''} ${meta.meCollectionSlug ?? ''}`.toLowerCase();
+  if (!FRAME_DEBUG_NEEDLES.some(n => hay.includes(n))) return;
+  const f = recentEmitFrames.get(meta.signature);
+  console.log(
+    `[feed/frame-debug] sig=${meta.signature.slice(0, 16)} ` +
+    `SALE_FRAME{ collName=null collAddr=${f?.collectionAddress ?? 'null'} ` +
+    `slug=${f?.meCollectionSlug ?? 'null'} mint=${f?.mintAddress ?? '?'} nftName=null } ` +
+    `META_FRAME{ collName=${JSON.stringify(meta.collectionName)} ` +
+    `collAddr=${meta.collectionAddress ?? 'null'} slug=${meta.meCollectionSlug ?? 'null'} ` +
+    `mint=${meta.mintAddress} nftName=${JSON.stringify(meta.nftName)} } ` +
+    `=> first_frame_had_identity=${!!(f?.collectionAddress || f?.meCollectionSlug)}`,
+  );
+  recentEmitFrames.delete(meta.signature);
 }
 
 
@@ -122,10 +162,14 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
     return null;
   }
   const preEmitSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
+  // Name learned from a prior enrichment of THIS mint — lets the name-based
+  // blacklist (NAME_BLACKLIST / substring) drop a known collection pre-emit,
+  // not just the slug/address layers. Null for never-seen mints.
+  const preEmitName = nameForMint(event.mintAddress);
   if (isBlacklistedCollection({
     collectionAddress: event.collectionAddress,
     meCollectionSlug:  preEmitSlug,
-    collectionName:    null,
+    collectionName:    preEmitName,
     signature:         event.signature,
     mintAddress:       event.mintAddress,
   })) {
@@ -188,6 +232,11 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // catches up via `meta`. Falls back to the event's own slug (usually
   // undefined) then null.
   const resolvedSlug = event.meCollectionSlug ?? slugForMint(event.mintAddress);
+  // Stamp the collection name from cache (mint seen before) onto the FIRST
+  // frame so the render-layer blacklist — the user FEED list is keyed by
+  // NAME — can drop a known blacklisted collection with no flash. Stays null
+  // for never-seen mints (enrichment fills it via the later `meta` frame).
+  const resolvedName = nameForMint(event.mintAddress);
   const blockAgeSec = ((Date.now() - event.blockTime.getTime()) / 1000).toFixed(1);
   console.log(`[sse] emit  sig=${event.signature.slice(0, 12)}  blockAge=${blockAgeSec}s  slug=${resolvedSlug ?? 'null'}  clients=${getSseClientCount()}`);
   // Sampled debug: log when seller-net differs from gross (1st + every 25th).
@@ -260,11 +309,16 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // resolved this mint. Misses still go out as undefined and are
   // patched later via the `resize_status` SSE event.
   const cachedResize = event.mintAddress ? getCachedResizeStatus(event.mintAddress) : null;
+  recordEmitFrame(event.signature, {
+    collectionAddress: event.collectionAddress,
+    meCollectionSlug:  resolvedSlug ?? null,
+    mintAddress:       event.mintAddress,
+  });
   saleEventBus.emitSale({
     ...event,
     nftName: null,
     imageUrl: null,
-    collectionName: null,
+    collectionName: resolvedName,
     magicEdenUrl,
     meCollectionSlug: resolvedSlug,
     resizeStatus: cachedResize ?? undefined,
@@ -333,6 +387,14 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
       ]);
 
       checkPricingAlerts(enriched);
+      logFrameDebugOnMeta({
+        signature:         enriched.signature,
+        collectionName:    enriched.collectionName,
+        meCollectionSlug:  enriched.meCollectionSlug ?? null,
+        mintAddress:       enriched.mintAddress,
+        nftName:           enriched.nftName,
+        collectionAddress: enriched.collectionAddress,
+      });
       saleEventBus.emitMetaUpdate({
         mintAddress:       enriched.mintAddress,
         signature:         enriched.signature,

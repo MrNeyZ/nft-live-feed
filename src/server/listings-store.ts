@@ -300,9 +300,33 @@ function recordMintSlug(mint: string, slug: string): void {
   mintToSlug.set(mint, slug);
 }
 
-// Meta-update carries the canonical mint→slug pairing post-enrichment.
+// Parallel mint→collectionName index. Same lifecycle/bounds as mint→slug.
+// Lets the FIRST `sale` frame carry the human collection name (not just the
+// slug) for any mint seen before — which is what the render-layer blacklist
+// (user FEED list is keyed by NAME) and the backend pre-emit name gate need
+// to drop a known blacklisted collection without the "paint then remove"
+// flash. New (never-seen) mints still resolve only via enrichment.
+const mintToName      = new Map<string, string>();
+const mintToNameQueue: string[] = [];
+
+function recordMintName(mint: string, name: string): void {
+  if (!mint || !name) return;
+  const existing = mintToName.get(mint);
+  if (existing === name) return;
+  if (!existing) {
+    mintToNameQueue.push(mint);
+    if (mintToNameQueue.length > MINT_TO_SLUG_MAX) {
+      const evict = mintToNameQueue.shift();
+      if (evict) mintToName.delete(evict);
+    }
+  }
+  mintToName.set(mint, name);
+}
+
+// Meta-update carries the canonical mint→slug + mint→name pairing post-enrichment.
 saleEventBus.onMetaUpdate((u) => {
   if (u.mintAddress && u.meCollectionSlug) recordMintSlug(u.mintAddress, u.meCollectionSlug);
+  if (u.mintAddress && u.collectionName)   recordMintName(u.mintAddress, u.collectionName);
 });
 
 // One-time boot preload: sale_events already carries me_collection_slug for
@@ -319,15 +343,19 @@ setTimeout(() => {
   (async () => {
     try {
       const pool = getPool();
-      const { rows } = await pool.query<{ mint_address: string; me_collection_slug: string }>(
-        `SELECT DISTINCT mint_address, me_collection_slug
+      const { rows } = await pool.query<{ mint_address: string; me_collection_slug: string | null; collection_name: string | null }>(
+        `SELECT DISTINCT mint_address, me_collection_slug, collection_name
          FROM sale_events
-         WHERE me_collection_slug IS NOT NULL AND mint_address <> ''
+         WHERE (me_collection_slug IS NOT NULL OR collection_name IS NOT NULL)
+           AND mint_address <> ''
          ORDER BY mint_address
          LIMIT ${MINT_TO_SLUG_MAX}`,
       );
-      for (const r of rows) recordMintSlug(r.mint_address, r.me_collection_slug);
-      console.log(`[listings-store] preloaded ${rows.length} mint→slug pairs from sale_events`);
+      for (const r of rows) {
+        if (r.me_collection_slug) recordMintSlug(r.mint_address, r.me_collection_slug);
+        if (r.collection_name)    recordMintName(r.mint_address, r.collection_name);
+      }
+      console.log(`[listings-store] preloaded ${rows.length} mint→slug/name pairs from sale_events`);
     } catch (err) {
       console.error('[listings-store] mint→slug preload failed', err);
     }
@@ -430,6 +458,14 @@ saleEventBus.onListingRefreshHint(({ mint, poolKeys }) => {
 export function slugForMint(mint: string): string | null {
   if (!mint) return null;
   return mintToSlug.get(mint) ?? null;
+}
+
+/** Human collection name for a previously-enriched mint, or null. Mirror of
+ *  slugForMint — lets insert.ts stamp the first `sale` frame + run the
+ *  pre-emit name blacklist gate for any mint we've seen before. */
+export function nameForMint(mint: string): string | null {
+  if (!mint) return null;
+  return mintToName.get(mint) ?? null;
 }
 
 export function markMintDirty(mint: string): void {
