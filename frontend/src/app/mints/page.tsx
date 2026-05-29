@@ -2400,7 +2400,7 @@ export default function MintsPage() {
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer' }} onClick={() => handleSortClick('collection')}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: '1px solid rgba(168,144,232,0.10)' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 {/* SHOW — empty header (action column, no label). aria-label
@@ -2441,7 +2441,7 @@ export default function MintsPage() {
                   // `padding: '13px 18px 13px 10px'` for the terminal
                   // gutter). Without the matching right-pad the header
                   // would float ~8 px past the value column.
-                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer' }}
+                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer', borderRight: '1px solid rgba(168,144,232,0.10)' }}
                   onClick={() => handleSortClick('created')}
                 >
                   CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
