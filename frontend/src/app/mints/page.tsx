@@ -12,7 +12,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
-import { useBlacklist, MINTS_BLACKLIST_KEY } from '@/soloist/blacklist-store';
+import { useBlacklist, MINTS_BLACKLIST_KEY, readBlacklist } from '@/soloist/blacklist-store';
+import { isMintEventBlacklisted, isMintStatusBlacklisted } from '@/soloist/blacklist-filter';
 import { formatSol } from '@/soloist/mock-data';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
@@ -349,6 +350,10 @@ function loadPersistedCollections(): Map<string, MintStatus> {
       return new Map();
     }
     if (Date.now() - parsed.savedAt > COLLECTIONS_TTL_MS) return new Map();
+    // Read the user's persisted blacklist directly (this runs in useState
+    // init, before the useBlacklist hook) so blacklisted rows are dropped
+    // BEFORE they enter restored state — no flash on reload.
+    const userBl = new Set(readBlacklist(MINTS_BLACKLIST_KEY));
     const out = new Map<string, MintStatus>();
     for (const r of parsed.rows) {
       if (!r || typeof r.groupingKey !== 'string') continue;
@@ -356,6 +361,7 @@ function loadPersistedCollections(): Map<string, MintStatus> {
       // aggregates and evidence-free Metaplex rows resurrected from
       // pre-fix localStorage state. See `isRenderableMintStatus`.
       if (!isRenderableMintStatus(r)) continue;
+      if (isMintStatusBlacklisted(r, userBl)) continue;
       normalizeImageFieldsOnRow(r);
       out.set(r.groupingKey, r);
       if (out.size >= COLLECTIONS_LOAD_MAX) break;
@@ -394,6 +400,9 @@ function loadPersistedFeed(): MintEvent[] {
     // Restore-as-is: dedupe by signature, validate shape only. No age-based
     // filter — fresh events must survive remount unconditionally; stale
     // entries are bounded by LIVE_FEED_MAX (sliding-window) instead of TTL.
+    // User blacklist read directly (runs in useState init, before the
+    // useBlacklist hook) so blacklisted cards never enter restored state.
+    const userBl = new Set(readBlacklist(MINTS_BLACKLIST_KEY));
     const out: MintEvent[] = [];
     const seen = new Set<string>();
     for (const v of parsed) {
@@ -402,6 +411,7 @@ function loadPersistedFeed(): MintEvent[] {
       if (typeof ev.signature !== 'string')   continue;
       if (typeof ev.receivedAt !== 'number')  continue;
       if (seen.has(ev.signature))             continue;
+      if (isMintEventBlacklisted(ev, userBl)) continue;
       seen.add(ev.signature);
       normalizeImageFieldsOnEvent(ev);
       out.push(ev);
@@ -901,22 +911,16 @@ export default function MintsPage() {
   /** O(1) match for the render-layer blacklist. Checks groupingKey,
    *  collectionAddress, mintAddress, and lowercased name. */
   const blacklistSet = useMemo(() => new Set(blacklistSlugs), [blacklistSlugs]);
-  const isBlacklistedRow = (r: MintStatus): boolean => {
-    if (blacklistSet.size === 0) return false;
-    if (blacklistSet.has(r.groupingKey.toLowerCase())) return true;
-    if (r.collectionAddress && blacklistSet.has(r.collectionAddress.toLowerCase())) return true;
-    if (r.lastMintAddress  && blacklistSet.has(r.lastMintAddress.toLowerCase()))  return true;
-    const nm = r.name?.trim().toLowerCase();
-    if (nm && blacklistSet.has(nm)) return true;
-    return false;
-  };
-  const isBlacklistedEvent = (e: MintEvent): boolean => {
-    if (blacklistSet.size === 0) return false;
-    if (e.groupingKey && blacklistSet.has(e.groupingKey.toLowerCase())) return true;
-    if (e.collectionAddress && blacklistSet.has(e.collectionAddress.toLowerCase())) return true;
-    if (e.mintAddress && blacklistSet.has(e.mintAddress.toLowerCase())) return true;
-    return false;
-  };
+  // Live mirror so the SSE handlers (registered once) and the REST snapshot
+  // drop blacklisted mints/rows at the boundary using the CURRENT set —
+  // including tokens added mid-session — instead of relying on render-time
+  // filtering (which paints the row for a frame first).
+  const blacklistSetRef = useRef(blacklistSet);
+  useEffect(() => { blacklistSetRef.current = blacklistSet; }, [blacklistSet]);
+  // Render-time matchers delegate to the shared pure helper so the boundary
+  // and render backstop can never diverge. Fields unchanged.
+  const isBlacklistedRow   = (r: MintStatus): boolean => isMintStatusBlacklisted(r, blacklistSet);
+  const isBlacklistedEvent = (e: MintEvent): boolean => isMintEventBlacklisted(e, blacklistSet);
   const [sortKey, setSortKey] = useState<SortKey>('created');
   // Direction is per-key; toggling the same header flips it, picking a
   // new header resets to 'desc' (the natural default for numeric/recency
@@ -1350,10 +1354,14 @@ export default function MintsPage() {
         if (!res.ok) return;
         const body = await res.json() as { events?: Array<Omit<MintEvent, 'receivedAt'>> };
         if (cancelled || !Array.isArray(body.events)) return;
-        const server: MintEvent[] = body.events.map(m => {
-          const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-          return { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() } as MintEvent;
-        });
+        const server: MintEvent[] = body.events
+          .map(m => {
+            const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
+            return { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() } as MintEvent;
+          })
+          // Boundary filter — keep blacklisted mints out of the hydration
+          // snapshot so they never enter state on refresh (no flash).
+          .filter(ev => !isMintEventBlacklisted(ev, blacklistSetRef.current));
         const k = (e: { signature: string; mintAddress: string | null }) => `${e.signature}:${e.mintAddress ?? ''}`;
         setEvents(prev => {
           // Server set is authoritative; keep only live events NOT in it (i.e.
@@ -1433,6 +1441,10 @@ export default function MintsPage() {
           // entries via the SSE snapshot or sweep loop. Keeps the
           // table clean during the post-deploy cache-flush window.
           if (!isRenderableMintStatus(s)) return;
+          // User-blacklist boundary — keep blacklisted collection rows out
+          // of table state entirely so they never flash before the render
+          // filter runs. Counting is backend-side and unaffected.
+          if (isMintStatusBlacklisted(s, blacklistSetRef.current)) return;
           setRows(prev => {
             const next = new Map(prev);
             // Sticky-merge: preserve a row's imageUrl + name once
@@ -1477,6 +1489,10 @@ export default function MintsPage() {
             }
             return;
           }
+          // User-blacklist boundary — drop the card AND its LEFT-table mirror
+          // below before either enters state, so a blacklisted mint never
+          // paints. Backend still counts it (mint_status carries the rollup).
+          if (isMintEventBlacklisted(m, blacklistSetRef.current)) return;
           if (!m.signature) {
             console.log('[mints/live-miss] reason=missing_signature');
             return;

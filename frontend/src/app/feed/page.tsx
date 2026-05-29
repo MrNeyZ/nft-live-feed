@@ -10,6 +10,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import { useBlacklist, FEED_BLACKLIST_KEY } from '@/soloist/blacklist-store';
+import { isFeedEventBlacklisted } from '@/soloist/blacklist-filter';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { ItemThumb, LiveDot, MktIconBadge, Pill, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
@@ -60,28 +61,9 @@ if (typeof window !== 'undefined') {
 }
 /** Scroll tolerance (px) for treating the user as "at top". */
 const AT_TOP_THRESHOLD = 4;
-/** Lowercased collection-name blacklist; mirrors src/db/blacklist.ts NAME_BLACKLIST. */
-const FEED_NAME_BLACKLIST = new Set<string>([
-  'collector crypt',
-  // staratlascrew leak guard — when ME's /v2/tokens/:mint times out, the
-  // backend's enrichment ships meta with meCollectionSlug=null, so the
-  // FEED_SLUG_BLACKLIST gate below short-circuits. DAS still surfaces the
-  // collection name reliably (verified live: "STAR ATLAS CREW"), so this
-  // name-level fallback closes the bypass.
-  'star atlas crew',
-]);
-/** Frontend-only slug blacklist — hide specific collections from the Live
- *  Feed without touching ingestion. Collection page for these slugs still
- *  renders normally if visited directly. */
-const FEED_SLUG_BLACKLIST = new Set<string>([
-  'staratlascrew',
-]);
-/** Frontend mirror of src/db/blacklist.ts NAME_SUBSTRING_BLACKLIST. Each
- *  needle is checked against BOTH `collectionName` and `meCollectionSlug`
- *  (lowercased) so collections like `paulcharlesart_drip` whose human
- *  name doesn't contain "drip" are still hidden. Lowercase + .includes
- *  only — no regex. */
-const FEED_NAME_SUBSTRING_BLACKLIST: readonly string[] = ['drip'];
+// Permanent + user blacklist matching lives in the shared pure helper
+// (soloist/blacklist-filter), applied at both ingestion boundaries and the
+// render backstop so blacklisted sales never paint.
 
 // ── Shared 1 s tick (powers all TimeAgo leaves) ──────────────────────────────
 // Pub-sub + lazy interval lives in lib/shared-now. Page just consumes
@@ -938,6 +920,12 @@ export default function FeedPage() {
   // separate from /mints. Normalized lowercased slugs/names; matched here
   // against meCollectionSlug + collectionName.
   const { slugs: blacklistSlugs, add: addBlacklistToken, remove: removeBlacklist } = useBlacklist(FEED_BLACKLIST_KEY);
+  const blacklistSet = useMemo(() => new Set(blacklistSlugs), [blacklistSlugs]);
+  // Live mirror so the SSE handler (registered once) and the REST snapshot
+  // see the CURRENT blacklist without re-subscribing — lets incoming sales
+  // be dropped at the boundary even for tokens added mid-session.
+  const blacklistSetRef = useRef(blacklistSet);
+  useEffect(() => { blacklistSetRef.current = blacklistSet; }, [blacklistSet]);
   const [blInput, setBlInput] = useState('');
   const addBlacklist = (raw: string) => {
     addBlacklistToken(raw);
@@ -1173,6 +1161,12 @@ export default function FeedPage() {
           const ev = typeof persisted === 'number'
             ? { ...raw, sellerRemainingCount: persisted }
             : raw;
+          // Boundary filter — drop blacklisted sales BEFORE they enter feed
+          // state so they never paint (no flash). Uses the live ref so a
+          // token blacklisted mid-session takes effect on the next event.
+          // (Sales whose collection name only arrives via a later `meta`
+          // patch are caught by the render backstop instead.)
+          if (isFeedEventBlacklisted(ev, blacklistSetRef.current)) return;
           // Deep-discount alert: only fires from the LIVE SSE path
           // (never from REST snapshot / persisted hydration). Backend
           // floorDelta = (price - floor) / floor, so price <= floor*0.5
@@ -1319,7 +1313,10 @@ export default function FeedPage() {
           return typeof persisted === 'number'
             ? { ...ev, sellerRemainingCount: persisted }
             : ev;
-        });
+        })
+          // Boundary filter — drop blacklisted sales out of the hydration
+          // snapshot so they never enter state on refresh (no flash).
+          .filter(ev => !isFeedEventBlacklisted(ev, blacklistSetRef.current));
         captureScroll();
         dispatch({ type: 'snapshot', events });
       })
@@ -1456,31 +1453,11 @@ export default function FeedPage() {
     // shared predicate — see `@/soloist/cnft-filter`. Hide cNFT low-floor
     // noise by collection floor, not sale price.
     if (isCnftDust(e, s => floorBySlug[s])) return false;
-    // Defensive blacklist — backend deletes blacklisted rows after enrichment,
-    // but if a card was already painted via the immediate `sale` SSE frame we
-    // also drop it here once enrichment / meta fills in the collection name.
-    // Lowercase comparison matches NAME_BLACKLIST in src/db/blacklist.ts.
-    if (e.collectionName && FEED_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) return false;
-    if (e.meCollectionSlug && FEED_SLUG_BLACKLIST.has(e.meCollectionSlug)) return false;
-    // User blacklist (temporary, frontend-only). Same slug field WATCH uses,
-    // plus collectionName so a slug-less event can still be matched by its
-    // exact collection identifier. Exact (lowercased) match — never a
-    // substring — so a typed slug can't accidentally hide unrelated rows.
-    if (blacklistSlugs.length > 0) {
-      const slug = e.meCollectionSlug?.toLowerCase() ?? '';
-      const name = e.collectionName?.toLowerCase() ?? '';
-      if ((slug && blacklistSlugs.includes(slug)) ||
-          (name && blacklistSlugs.includes(name))) return false;
-    }
-    // Substring fallback — covers slug-only matches the exact-set above
-    // misses (e.g. `paulcharlesart_drip` slug, "Paul Charles Art" name).
-    {
-      const lowerName = e.collectionName?.toLowerCase()   ?? '';
-      const lowerSlug = e.meCollectionSlug?.toLowerCase() ?? '';
-      for (const needle of FEED_NAME_SUBSTRING_BLACKLIST) {
-        if (lowerName.includes(needle) || lowerSlug.includes(needle)) return false;
-      }
-    }
+    // Permanent + user blacklist (shared helper). Render-time backstop —
+    // the SSE/REST boundaries already drop these before insert, but a card
+    // whose collection name only arrives via a late `meta` patch is caught
+    // here once the patch lands.
+    if (isFeedEventBlacklisted(e, blacklistSet)) return false;
     if (collFilter) {
       const target = collFilter.toLowerCase();
       const slug = e.meCollectionSlug?.toLowerCase() ?? '';
@@ -1506,7 +1483,7 @@ export default function FeedPage() {
     if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
     if (filter === 'listing') return false; // backend does not emit listings in v1
     return true;
-  }), [events, filter, priceFilter, collFilter, blacklistSlugs, floorBySlug]);
+  }), [events, filter, priceFilter, collFilter, blacklistSet, floorBySlug]);
 
   // Per seller+collection sell-side aggregator over the visible feed.
   // Drives the noise-cut on the seller-remaining badge: only the most
