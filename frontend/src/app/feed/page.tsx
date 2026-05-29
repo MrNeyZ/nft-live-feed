@@ -10,7 +10,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow, marketplaceUrl } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { ItemThumb, LiveDot, MktIconBadge, Pill, TopNav, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { ItemThumb, LiveDot, MktIconBadge, Pill, compressImage, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { displayPrice, useInclusiveFees } from '@/soloist/price-mode';
 import {
   feedReducer, initFeedState, orderedEvents,
@@ -1554,7 +1554,8 @@ export default function FeedPage() {
 
   return (
     <div className="feed-root page-transition" data-embedded={embedded ? '1' : undefined} onWheel={handleRootWheel}>
-      {!embedded && <TopNav active="feed" />}
+      {/* TopNav rendered persistently by Gate so it survives client-side
+          route changes (kills the chrome-unmount flash on navigation). */}
 
       {/* Centered column stage */}
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minHeight: 0, padding: '0 0 10px' }}>

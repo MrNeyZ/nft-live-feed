@@ -17,7 +17,7 @@
 //   └─────────────┴──────────────┘
 
 import { useEffect } from 'react';
-import { TopNav } from '@/soloist/shared';
+// TopNav rendered persistently by Gate (anti-flash); no per-page import needed.
 
 const IFRAME_STYLE: React.CSSProperties = {
   // `flex: 1 1 auto` + `min-height: 0` (on the parent paneStyle) lets the
@@ -44,7 +44,7 @@ export default function MultiTabPage() {
     // 8 px phone) so the right pane no longer anchors to the viewport
     // edge.
     <div className="feed-root page-transition">
-      <TopNav active="multi" />
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       <div style={{
         flex: 1,

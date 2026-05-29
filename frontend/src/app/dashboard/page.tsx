@@ -13,7 +13,7 @@ import {
 } from '@/soloist/mock-data';
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { CollectionIcon, LiveDot, Pill, TopNav, compressImage, rowLinkHandlers, RowLinkOverlay, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { CollectionIcon, LiveDot, Pill, compressImage, rowLinkHandlers, RowLinkOverlay, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { isCnftDust } from '@/soloist/cnft-filter';
 
@@ -1024,7 +1024,7 @@ export default function Dashboard() {
       data-page="dashboard"
       data-embedded={embedded ? '1' : undefined}
     >
-      {!embedded && <TopNav active="dashboard" />}
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Header — hidden in multi-tab embed mode so the iframe can fit
           more collection rows in the same vertical space. */}

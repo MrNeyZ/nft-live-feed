@@ -6,7 +6,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
+import { LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 
@@ -488,7 +488,7 @@ export default function ToolsPage() {
 
   return (
     <div className="feed-root page-transition" data-page="tools">
-      <TopNav active="tools" />
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Header */}
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>

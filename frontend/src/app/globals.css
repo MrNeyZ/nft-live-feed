@@ -1566,17 +1566,20 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
        half-second between unmount and remount paints on a stable
        background, never on white.
 */
-.page-transition > *:not(.topnav-root):not(.bottom-status) {
-  animation: pageFadeIn 140ms ease-out both;
+/* Chrome (TopNav + BottomStatusBar) is now rendered persistently by
+   Gate, so the route-content area can crossfade fully without the chrome
+   ever unmounting. Opacity 0 → 1 + a 3 px translate-up over 160 ms; ease-
+   out keeps the start snappy. The page-root itself doesn't animate (so
+   layout never reflows); only direct children fade in. */
+.page-transition {
+  animation: pageRootFadeIn 160ms ease-out both;
 }
-@keyframes pageFadeIn {
-  from { opacity: 0.35; }
-  to   { opacity: 1; }
+@keyframes pageRootFadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none;             }
 }
 @media (prefers-reduced-motion: reduce) {
-  .page-transition > *:not(.topnav-root):not(.bottom-status) {
-    animation: none;
-  }
+  .page-transition { animation: none; }
 }
 
 /* Pressed-glass active capsule — a very subtle top sheen layered over the

@@ -17,7 +17,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { isAuthed, loginWithSiws, clearAuth } from './auth';
 import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
 import { setMintTrackerEnabled } from './mint-tracker';
-import { FloatingLayoutModeSwitcher, BottomStatusBar } from '@/soloist/shared';
+import { FloatingLayoutModeSwitcher, BottomStatusBar, TopNav } from '@/soloist/shared';
 import { usePathname } from 'next/navigation';
 
 type GateState =
@@ -90,11 +90,36 @@ export function Gate({ children }: { children: ReactNode }) {
   // stays the only one visible.
   return (
     <>
+      {!embedded && <PersistentTopNav />}
       {children}
       {!embedded && <PersistentBottomStatusBar />}
       {!embedded && <FloatingLayoutModeSwitcher />}
     </>
   );
+}
+
+// ── Persistent TopNav ────────────────────────────────────────────────────
+//
+// One mounted instance for the whole app — mirrors PersistentBottomStatusBar.
+// Lifting TopNav out of each page is the single biggest source of the
+// "navigation flash" the user reported: previously every page rendered its
+// own <TopNav>, which unmounted with the old route and remounted with the
+// new route, leaving a 1–2 frame gap where the chrome disappeared and the
+// raw body background showed through. With TopNav rendered here it stays
+// in place across route changes; only the content area below transitions.
+//
+// Hidden on /access (auth screen has its own chrome). Visible on /multi
+// (the outer multi-tab page IS the chrome that hosts iframes).
+function PersistentTopNav() {
+  const pathname = usePathname() ?? '';
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, [pathname]);
+  if (embedded) return null;
+  if (pathname.startsWith('/access')) return null;
+  return <TopNav />;
 }
 
 // ── Persistent BottomStatusBar ────────────────────────────────────────────

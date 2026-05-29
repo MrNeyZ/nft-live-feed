@@ -11,7 +11,7 @@
 // same scroll containment.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, TopNav, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { LiveDot, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import {
   MINT_TIMEFRAMES, MINT_TF_MS, MINT_TF_DESC,
@@ -2091,7 +2091,7 @@ export default function MintsPage() {
 
   return (
     <div className="feed-root page-transition" data-page="mints" data-embedded={embedded ? '1' : undefined}>
-      {!embedded && <TopNav active="mints" />}
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Header — hidden in embed mode so the multi-tab pane chrome
           owns the title context. Compact vertical padding (16/8 instead

@@ -30,7 +30,7 @@ import {
   type MetaPatch, type RawPatch,
 } from '@/soloist/feed-store';
 import {
-  CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TopNav, TypeBadge,
+  CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TypeBadge,
   compressImage, BarIconButton,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
@@ -1334,8 +1334,8 @@ export default function CollectionPage() {
   void tick;  // retained for TradeRowItem timeAgo refresh
 
   return (
-    <div data-page="collection" style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-      <TopNav active="collection" />
+    <div className="page-transition" data-page="collection" style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Collection header (verbatim layout from collection.html) */}
       <div style={{

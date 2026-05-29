@@ -7,7 +7,7 @@
 // DB-backed, no ME/RPC cost on the client path.
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { TopNav, LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
+import { LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -151,7 +151,7 @@ export default function RareFeedPage() {
 
   return (
     <div className="feed-root page-transition" data-page="tools">
-      <TopNav active="tools" />
+      {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Header */}
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
