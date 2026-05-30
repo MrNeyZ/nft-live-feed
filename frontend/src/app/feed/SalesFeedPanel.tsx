@@ -87,30 +87,31 @@ export function SalesFeedPanel() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         {settingsOpen && (
-          <div className="feed-filters-panel feed-filters-panel-open">
-            <div className="feed-settings">
-              <div className="feed-set-group feed-set-group--display">
-                <div className="feed-set-group-hd">Display</div>
-                <div className="feed-srow" role="group" aria-label="Card density">
-                  <span className="feed-srow-lbl">Density</span>
-                  <div className="feed-srow-ctl feed-seg">
-                    {DENSITIES.map(d => {
-                      const isActive = density === d;
-                      return (
-                        <Pill
-                          key={d}
-                          active={isActive}
-                          color="#a890e8"
-                          onClick={() => setDensity(d)}
-                          label={d.charAt(0).toUpperCase() + d.slice(1)}
-                          size="sm"
-                          style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
+          // Compact single-row toolbar (not the /feed multi-group grid —
+          // that brought the divider + empty space). Density label + pills
+          // inline; same pill styles/colors.
+          <div role="group" aria-label="Card density" style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 14px', flexShrink: 0,
+            borderBottom: '1px solid rgba(168,144,232,0.12)',
+            background: 'rgba(168,144,232,0.04)',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#7a7a94' }}>Density</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {DENSITIES.map(d => {
+                const isActive = density === d;
+                return (
+                  <Pill
+                    key={d}
+                    active={isActive}
+                    color="#a890e8"
+                    onClick={() => setDensity(d)}
+                    label={d.charAt(0).toUpperCase() + d.slice(1)}
+                    size="sm"
+                    style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
