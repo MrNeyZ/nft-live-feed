@@ -188,6 +188,9 @@ export interface MintEvent {
    *  the moment these arrive. */
   nftName?:          string | null;
   nftImageUrl?:      string | null;
+  /** Number of NFTs minted by this tx. >1 → bulk mint (card appends
+   *  " (N)" after the name). Absent/1 → single mint, no suffix. */
+  nftCount?:         number;
 }
 
 /** Resolved metadata for a custom-token mint payment. Streamed once per

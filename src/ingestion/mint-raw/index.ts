@@ -653,6 +653,32 @@ function findMintInstruction(
  *  never starve the sales path at the shared `rpcLimiter`. Under a
  *  hot Token Metadata launch this lets sale fetches stay snappy even
  *  if mint fetches queue up or get stale-dropped. */
+// Per-NFT mint instructions — each fires ~once per minted NFT and never for
+// ancillary token/metadata account creation, so counting them is a safe
+// per-tx mint count. Verified on bulk sig 5awC3…Nqhq → MintV1×5 / MintAsset×5.
+const NFT_MINT_INSTRUCTION_NEEDLES: readonly string[] = [
+  'Instruction: MintV1',
+  'Instruction: MintV2',
+  'Instruction: MintCv3',
+  'Instruction: MintAsset',
+];
+
+/** Conservative per-tx NFT-mint count from the tx logs: the MAX occurrence
+ *  among the known per-NFT mint instructions, clamped to >=1. Single mints →
+ *  1; programs whose per-asset instruction isn't in the set → 1 (undercount,
+ *  so a ">1" suffix is never wrongly shown on a single mint). */
+function countNftMints(tx: RawSolanaTx): number {
+  const logs = tx.meta?.logMessages;
+  if (!Array.isArray(logs)) return 1;
+  let max = 0;
+  for (const needle of NFT_MINT_INSTRUCTION_NEEDLES) {
+    let n = 0;
+    for (const l of logs) if (typeof l === 'string' && l.includes(needle)) n++;
+    if (n > max) max = n;
+  }
+  return max > 1 ? max : 1;
+}
+
 export async function ingestMintRaw(
   sig: string,
   _heliusTx?: unknown,                // unused; we always fetch raw
@@ -677,6 +703,11 @@ export async function ingestMintRaw(
     noteParseStep('fetch_null', null, sig);
     return;
   }
+
+  // Per-tx NFT count, injected into every accepted mint below via `rec`
+  // (avoids editing each recordMint literal — all paths build the same wire).
+  const nftCount = countNftMints(tx);
+  const rec = (e: Omit<MintEventWire, 'nftCount'>): boolean => recordMint({ ...e, nftCount });
 
   // Targeted mode (default): run the narrow launchpad detector and
   // skip the broader TM/Core classifier entirely. Anything that
@@ -713,7 +744,7 @@ export async function ingestMintRaw(
         const blockTime = tx.blockTime
           ? new Date((tx.blockTime as number) * 1000).toISOString()
           : new Date().toISOString();
-        const emitted = recordMint({
+        const emitted = rec({
           signature:         sig,
           blockTime,
           programSource:     'mpl_core',
@@ -761,7 +792,7 @@ export async function ingestMintRaw(
             const blockTime = tx.blockTime
               ? new Date((tx.blockTime as number) * 1000).toISOString()
               : new Date().toISOString();
-            const emitted = recordMint({
+            const emitted = rec({
               signature:         sig,
               blockTime,
               programSource:     'mpl_core',
@@ -816,7 +847,7 @@ export async function ingestMintRaw(
         `tree=${lp.collectionAddress} mint=${lp.mintAddress ?? 'null'} ` +
         `sig=${sig.slice(0,12)}…`,
       );
-      const emitted = recordMint({
+      const emitted = rec({
         signature:         sig,
         blockTime,
         programSource:     'bubblegum',
@@ -923,7 +954,7 @@ export async function ingestMintRaw(
       `dasCollection=${confirmedBy === 'das' ? collectionAddress : 'pending'} ` +
       `decision=accept (confirmedBy=${confirmedBy})`,
     );
-    const emitted = recordMint({
+    const emitted = rec({
       signature:         sig,
       blockTime,
       programSource,
@@ -1237,7 +1268,7 @@ export async function ingestMintRaw(
 
   const sourceLabel = detectSourceLabel(hit.programSource, accountKeys);
 
-  const emitted = recordMint({
+  const emitted = rec({
     signature:         sig,
     blockTime,
     programSource:     hit.programSource,

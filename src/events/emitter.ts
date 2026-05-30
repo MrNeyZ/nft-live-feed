@@ -230,6 +230,10 @@ export interface MintEventWire {
    *  pink palette so launchpad Core mints read differently from raw Core
    *  ecosystem activity. Absent/false on every other path. */
   coreLaunchpad?:    boolean;
+  /** Number of NFTs minted by this transaction. 1 for a normal single
+   *  mint; >1 for bulk-mint txs (counted from per-NFT mint instructions
+   *  in the tx logs). Absent on hydrated legacy rows → treated as 1. */
+  nftCount?:         number;
 }
 
 /** Per-collection rollup snapshot, fired every time the accumulator

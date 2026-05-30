@@ -67,6 +67,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const nftName        = (ev.nftName && ev.nftName.length > 0)
     ? ev.nftName
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
+  // Bulk-mint suffix: append " (N)" after the name only when the tx minted
+  // more than one NFT. Single mints (count 1 / absent) are unchanged.
+  // Kept separate from `nftName` so the abbr/placeholder seed isn't affected.
+  const displayName = (ev.nftCount && ev.nftCount > 1)
+    ? `${nftName} (${ev.nftCount})`
+    : nftName;
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
   // trailing `#N` to derive a collection-style label ("Kryptos").
@@ -258,10 +264,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
             >
-              {nftName}
+              {displayName}
             </a>
           ) : (
-            nftName
+            displayName
           )}
         </div>
         {/* Bottom line: collection name (smaller, muted) per the
