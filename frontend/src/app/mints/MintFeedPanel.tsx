@@ -1,36 +1,57 @@
 'use client';
 
-// VictoryLabs — native Live Mint Feed panel (Stage 1 native-/multi prep).
-// Self-contained: owns its data via useMintFeed() (mint channels ONLY — no
-// collections-table subsystem) and renders the embed card-feed surface
-// (compact "Live Mint Feed" header + shared LiveMintFeedCard list). This is
-// what the native /multi LEFT column will mount instead of an
-// `<iframe src="/mints?embed=1">`.
+// VictoryLabs — native Live Mint Feed panel for /multi-native.
+// Owns data via useMintFeed() (mint channels only — no collections-table
+// subsystem) and renders the "Live Mint Feed" header + shared LiveMintFeedCard
+// list. Header carries a local [Pause] control + PAUSED chip to read closer
+// to /mints?embed=1. All state is LOCAL — /mints/page.tsx is NOT touched.
 //
-// NOT wired into /multi yet — additive only. Standalone /mints is untouched.
+// Skipped (too entangled to add without /mints page state — see report):
+//   • FeedFiltersPopover (needs selectedTypes/sources + a filter pipeline)
+//   • pinned/hover collection chips (driven by the LEFT table, absent here)
 
-import { useEffect, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
+import { useEffect, useRef, useState } from 'react';
+import { LiveDot, Pill } from '@/soloist/shared';
+import type { MintEvent } from './lib/types';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 import { useMintFeed } from './lib/use-mint-feed';
 
-/** Render cap — three feeds paint side-by-side in /multi (matches the
- *  embed paint band-aid). */
 const RENDER_CAP = 60;
+
+/** Replicated PAUSED status chip (the /mints one is inline in page.tsx and
+ *  not exported; copied verbatim here to avoid touching the page). */
+function PausedChip() {
+  return (
+    <span aria-live="polite" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      padding: '1px 5px', borderRadius: 3,
+      fontSize: 9, fontWeight: 600, letterSpacing: '0.5px',
+      color: 'rgba(201,189,240,0.78)', background: 'rgba(168,144,232,0.06)',
+      border: '1px solid rgba(168,144,232,0.22)', whiteSpace: 'nowrap',
+    }}>
+      <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(168,144,232,0.65)' }} />
+      PAUSED
+    </span>
+  );
+}
 
 export function MintFeedPanel() {
   const { events, rows } = useMintFeed();
 
-  // Lightweight age tick (5 s) so card age tiers refresh during quiet
-  // periods — mirrors the standalone page's force-tick cadence without a
-  // per-card timer.
+  const [paused, setPaused] = useState(false);
+  // Pause freeze: while paused, render the last live snapshot (events keep
+  // flowing in the hook; only rendering freezes).
+  const frozenRef = useRef<MintEvent[]>([]);
+  if (!paused) frozenRef.current = events;
+  const list = paused ? frozenRef.current : events;
+
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
   }, []);
 
-  const visible = events.length > RENDER_CAP ? events.slice(0, RENDER_CAP) : events;
+  const visible = list.length > RENDER_CAP ? list.slice(0, RENDER_CAP) : list;
 
   return (
     <div style={{
@@ -40,18 +61,17 @@ export function MintFeedPanel() {
       border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
     }}>
-      {/* Compact header — same pattern as the standalone Live Mint Feed. */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 14px', flexShrink: 0,
         borderBottom: '1px solid rgba(168,144,232,0.12)',
-        background: 'rgba(168,144,232,0.04)',
+        background: 'rgba(168,144,232,0.04)', gap: 10,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
           <LiveDot />
           <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
-            ({events.length.toLocaleString()})
+            ({list.length.toLocaleString()})
           </span>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -66,6 +86,15 @@ export function MintFeedPanel() {
             }} />
             MINT OK
           </span>
+          {paused && <PausedChip />}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+          <Pill
+            active
+            color={paused ? '#c9a820' : '#5ce0a0'}
+            onClick={() => setPaused(p => !p)}
+            label={paused ? '▶ Resume' : '⏸ Pause'}
+          />
         </div>
       </div>
 
@@ -74,7 +103,7 @@ export function MintFeedPanel() {
         display: 'flex', flexDirection: 'column', gap: 6,
         padding: '8px 8px', scrollbarGutter: 'stable both-edges',
       }}>
-        {events.length === 0 && (
+        {list.length === 0 && (
           <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
             Waiting for individual mint events…
           </div>
