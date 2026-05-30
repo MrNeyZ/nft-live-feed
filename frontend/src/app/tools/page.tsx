@@ -657,11 +657,11 @@ export default function ToolsPage() {
                 8 % (was 10 %), STATUS up to 14 % for the two-pill
                 stack. Total = 100 %. */}
             <colgroup>
-              <col style={{ width: '34%' }} />{/* NFT        */}
-              <col style={{ width: '10%' }} />{/* LISTING    */}
+              <col style={{ width: '30%' }} />{/* NFT        */}
+              <col style={{ width: '12%' }} />{/* LISTING    */}
               <col style={{ width: '16%' }} />{/* BEST OFFER */}
-              <col style={{ width:  '8%' }} />{/* SPREAD     */}
-              <col style={{ width:  '8%' }} />{/* AGE        */}
+              <col style={{ width:  '9%' }} />{/* SPREAD     */}
+              <col style={{ width:  '9%' }} />{/* AGE        */}
               <col style={{ width: '14%' }} />{/* STATUS     */}
               <col style={{ width: '10%' }} />{/* LINKS      */}
             </colgroup>
