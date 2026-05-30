@@ -336,7 +336,9 @@ export default function RareFeedPage() {
               rarity rank for the collection.
             </div>
           )}
-          {rows.map((e) => (
+          {/* Embed (/multi) caps rendered cards at 60 to cut paint cost
+              when three feeds run side-by-side; standalone page renders all. */}
+          {(embedded ? rows.slice(0, 60) : rows).map((e) => (
             <FeedCard
               key={e.saleSignature}
               event={rareToFeedEvent(e)}

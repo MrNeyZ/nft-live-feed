@@ -2677,7 +2677,11 @@ export default function MintsPage() {
                 non-matching fade to ~0.15. Keyed by signature so React reorders
                 (not remounts) cards when the hover partition changes — cards
                 keep their size, only position + opacity shift (no layout jump). */}
-            {(() => { const now = Date.now(); return feedView.map(({ ev, dimmed }) => (
+            {/* In /multi embed mode the rendered card count is capped at 60
+                (from LIVE_FEED_MAX 150) to cut paint cost when three feeds
+                run side-by-side. State is untouched; non-embed /mints renders
+                the full feedView. */}
+            {(() => { const now = Date.now(); return (embedded ? feedView.slice(0, 60) : feedView).map(({ ev, dimmed }) => (
               <LiveMintFeedCard
                 key={ev.signature}
                 event={ev}

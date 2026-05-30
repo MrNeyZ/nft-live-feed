@@ -803,9 +803,14 @@ export default function FeedPage() {
   // reference content-wise — the cap is a no-op outside burst periods.
   // sellerDumpMap stays computed over the full `filtered` set so the
   // dump-badge aggregation isn't biased by the render cap.
+  // In /multi embed mode three card feeds paint side-by-side, so the
+  // rendered-DOM cap drops to 60 (from 150) to cut burst-time paint/
+  // compositing. Non-embed /feed keeps the full 150. State + aggregates
+  // are untouched — this only bounds how many cards mount.
+  const renderCap = embedded ? 60 : MAX_RENDERED_ROWS;
   const visible = useMemo(
-    () => filtered.length <= MAX_RENDERED_ROWS ? filtered : filtered.slice(0, MAX_RENDERED_ROWS),
-    [filtered],
+    () => filtered.length <= renderCap ? filtered : filtered.slice(0, renderCap),
+    [filtered, renderCap],
   );
 
   // Page-level wheel forwarding: when the user scrolls anywhere on the
