@@ -1,61 +1,22 @@
 'use client';
 
 // VictoryLabs — Tools › Rare Feed.
-// Live-ish view of rarity-scored value sales. Consumes the existing live
-// sale pipeline (enriched with Magic Eden rarity, scored + filtered on the
-// backend) via GET /api/tools/rare-feed/recent. Polls every ~20s — read-only,
-// DB-backed, no ME/RPC cost on the client path.
+// Live-ish view of rarity-scored value sales via GET /api/tools/rare-feed/recent
+// (polled ~20s, DB-backed). Renders the SAME Live Feed Sales card (shared
+// FeedCard) filtered to rare-only sales.
 //
-// VISUAL: renders the SAME Live Feed Sales card (shared FeedCard) so Rare
-// Feed reads as "Live Feed Sales, filtered to rare sales only". The dataset
-// stays rare-only (this endpoint already returns only rarity-scored value
-// sales — common sales never appear here). Two card affordances are
-// rare-only: a neutral "SALE" pill (rare events carry no buy/sell side) and
-// a compact rarity-rank chip after the NFT name. /feed passes neither.
+// Data + panel chrome are now shared, single-source:
+//   • data  → useRareFeed()        (lib/use-rare-feed)
+//   • panel → <RareFeedPanelView>  (gradient panel + embed header + card list)
+// This page composes its full Rare-Feed header (title / rarity tabs / min
+// score) ABOVE the shared panel. The native /multi column renders the same
+// <RareFeedPanelView> (embedded), so there is one implementation of the
+// panel chrome — no duplication.
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
-import { collectionMeta } from '@/soloist/from-backend';
-import type { FeedEvent } from '@/soloist/mock-data';
-import { FeedCard } from '@/app/feed/lib/feed-card';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-const POLL_MS = 20_000;
-
-interface RareEvent {
-  saleSignature:    string;
-  mintAddress:      string;
-  collectionSlug:   string | null;
-  collectionName:   string | null;
-  nftName:          string | null;
-  imageUrl:         string | null;
-  source:           string | null;
-  seller:           string | null;
-  buyer:            string | null;
-  salePriceSol:     number;
-  floorPriceSol:    number | null;
-  floorDeltaPct:    number | null;   // (sale - floor) / floor
-  rarityRank:       number | null;
-  totalSupply:      number | null;
-  rarityPercentile: number | null;
-  raritySource:     string | null;
-  rareScore:        number;
-  reasonTags:       string[];
-  saleTime:         string | null;
-  createdAt:        string;
-  meUrl:            string;
-  tensorUrl:        string;
-}
-
-interface RecentResponse {
-  ok:       boolean;
-  minScore: number;
-  count:    number;
-  events:   RareEvent[];
-}
-
-type RarityFilter = 'all' | 'top10' | 'top5' | 'top1';
-const SCORE_OPTIONS = [0, 40, 55, 70, 85];
+import { useRareFeed, SCORE_OPTIONS, type RarityFilter } from './lib/use-rare-feed';
+import { RareFeedPanelView } from './RareFeedPanelView';
 
 function fmtAge(iso: string | null): string {
   if (!iso) return '—';
@@ -67,93 +28,14 @@ function fmtAge(iso: string | null): string {
   return `${Math.floor(diffSec / 86_400)}d ago`;
 }
 
-function scoreColor(score: number): string {
-  if (score >= 80) return '#5ce0a0';
-  if (score >= 60) return '#a890e8';
-  if (score >= 40) return '#e8c14a';
-  return '#7a7a94';
-}
-
-// Neutral SALE pill for the shared FeedCard's BUY/SELL/AMM slot. Rare
-// events are completed sales with no buy/sell side exposed by the
-// endpoint, so we render a single direction-agnostic pill instead of a
-// (potentially wrong) BUY/SELL. Lilac-grey so it reads as metadata, not
-// a trade-direction signal.
-const SALE_PILL = { label: 'SALE', fg: '#9aa0c8', bg: 'rgba(154,160,200,0.14)' };
-
-/** Map a rare-feed event onto the shared Live Feed Sales `FeedEvent`
- *  shape so it renders through the exact same card. Fields the rare
- *  endpoint doesn't expose (buyer/seller, nftType, AMM/resize signals)
- *  are left empty/null — the card degrades gracefully (e.g. WalletLink
- *  shows N/A). The FloorChip is driven by `floorDelta`, which the rare
- *  endpoint already provides as a fractional ratio (`floorDeltaPct`). */
-function rareToFeedEvent(e: RareEvent): FeedEvent {
-  const { abbr, color } = collectionMeta(e.collectionName);
-  const ts = e.saleTime ? new Date(e.saleTime).getTime()
-           : new Date(e.createdAt).getTime();
-  return {
-    id:               e.saleSignature,
-    signature:        e.saleSignature,
-    mintAddress:      e.mintAddress,
-    meCollectionSlug: e.collectionSlug,
-    collectionName:   e.collectionName ?? 'Unknown',
-    abbr,
-    color,
-    nftName:          e.nftName ?? (e.collectionName ?? e.mintAddress.slice(0, 6)),
-    num:              0,                   // card re-parses #N from nftName
-    rank:             e.rarityRank ?? 0,
-    price:            e.salePriceSol,
-    grossPrice:       e.salePriceSol,
-    sellerNetPrice:   null,
-    floorDelta:       e.floorDeltaPct,
-    marketplace:      e.source && e.source.toLowerCase().includes('tensor') ? 'tensor' : 'me',
-    ts,
-    side:             'buy',               // pill is overridden; only affects flash class
-    nftType:          '',
-    saleTypeRaw:      null,                // → kind 'unknown'; pill overridden to SALE
-    buyer:            e.buyer ?? '',
-    seller:           e.seller ?? '',
-    imageUrl:         e.imageUrl,
-    collectionAddress: null,
-    sellerRemainingCount: null,
-    sellerSells10m:   0,
-    resizeStatus:     null,
-  };
-}
-
-/** Compact rarity chip rendered inline after the NFT name (Rare Feed
- *  only). Surfaces the rank (and supply) so the operator can see why
- *  the sale qualified as rare; tinted by the backend rareScore tier.
- *  The below-floor / premium context is already conveyed by the card's
- *  own FloorChip, so this chip stays focused on rank. */
-function rarityChip(e: RareEvent) {
-  if (e.rarityRank == null) return null;
-  const c = scoreColor(e.rareScore);
-  return (
-    <span style={{
-      flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
-      padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
-      color: c, background: `${c}1f`, border: `1px solid ${c}55`,
-      fontFamily: "'SF Mono','Fira Code',monospace",
-    }}>
-      #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
-    </span>
-  );
-}
-
 export default function RareFeedPage() {
   useEffect(() => { document.title = 'VictoryLabs — Rare Feed'; }, []);
 
-  const [events, setEvents]   = useState<RareEvent[]>([]);
-  const [minScore, setMinScore] = useState<number>(40);
-  const [rarity, setRarity]   = useState<RarityFilter>('all');
-  const [error, setError]     = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const { rows, minScore, setMinScore, rarity, setRarity, error, loading, lastUpdated } = useRareFeed();
 
   // Multi-tab embed (?embed=1): Gate already drops TopNav + BottomStatusBar
   // globally; here we set `data-embedded="1"` so layout-mode zoom doesn't
-  // double-apply inside the iframe, and let the page fill the panel by
+  // double-apply inside the iframe, and let the panel fill the column by
   // dropping the centered `--tools-max` width cap. Mirrors /feed + /mints.
   const [embedded, setEmbedded] = useState(false);
   useEffect(() => {
@@ -161,37 +43,6 @@ export default function RareFeedPage() {
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
   const maxW = embedded ? 'none' : 'var(--tools-max, 1100px)';
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const r = await fetch(`${API_BASE}/api/tools/rare-feed/recent?limit=100&minScore=${minScore}`, { signal });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json() as RecentResponse;
-      setEvents(Array.isArray(data.events) ? data.events : []);
-      setError(null);
-      setLastUpdated(Date.now());
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return;
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [minScore]);
-
-  // Poll on an interval; refetch immediately when minScore changes.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    setLoading(true);
-    void load(ctrl.signal);
-    const id = setInterval(() => { void load(); }, POLL_MS);
-    return () => { ctrl.abort(); clearInterval(id); };
-  }, [load]);
-
-  const rows = useMemo(() => {
-    if (rarity === 'all') return events;
-    const tag = rarity === 'top1' ? 'TOP_1' : rarity === 'top5' ? 'TOP_5' : 'TOP_10';
-    return events.filter(e => e.reasonTags.includes(tag));
-  }, [events, rarity]);
 
   const RARITY_TABS: { key: RarityFilter; label: string }[] = [
     { key: 'all',   label: 'All'    },
@@ -210,9 +61,9 @@ export default function RareFeedPage() {
     <div className="feed-root page-transition" data-page="tools" data-embedded={embedded ? '1' : undefined}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header — hidden in embed mode so a /multi column renders the
-          card feed only (no title / rarity tabs / tool chrome), matching
-          Live Feed Sales. Non-embed /tools/rare-feed is unchanged. */}
+      {/* Full Rare-Feed header — hidden in embed mode so a /multi column
+          renders the card feed only (the shared panel's own compact header
+          takes over there). Non-embed /tools/rare-feed is unchanged. */}
       {!embedded && (
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: maxW, margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -272,91 +123,15 @@ export default function RareFeedPage() {
       </div>
       )}
 
-      {/* Results card — the inner list is the shared Live Feed Sales card
-          list (`.feed-list`), so rows render with identical card chrome/
-          spacing/density to /feed. The dark-purple gradient panel surface
-          is kept in BOTH modes (matching the right Live Feed Sales panel in
-          /multi) so the empty state reads as a feed surface, not raw text
-          on black. Embed only drops the bottom margin so it sits flush in
-          the column — mirrors /feed's `margin: embedded ? 0`. */}
-      <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-        width: '100%', maxWidth: maxW, margin: '0 auto',
-        overflow: 'hidden',
-        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
-        marginBottom: embedded ? 0 : 16,
-      }}>
-        {/* Embed-only compact header — matches the right Live Feed Sales
-            panel's "Live events" header (and the left Live Mint Feed
-            header) so all three /multi columns share one header language.
-            The standalone page keeps its own full header above the panel;
-            this one renders only in embed. No filter tabs / min-score /
-            tool chrome — title + live dot + count + RARE OK/ERR pill. */}
-        {embedded && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 14px', flexShrink: 0,
-            borderBottom: '1px solid rgba(168,144,232,0.12)',
-            background: 'rgba(168,144,232,0.04)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Rare events</h1>
-              <LiveDot />
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
-                ({rows.length.toLocaleString()})
-              </span>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3,
-                marginLeft: 4, padding: '1px 5px', borderRadius: 3,
-                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-                border: error ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
-                background: error ? 'rgba(239,120,120,0.14)' : 'transparent',
-                color: error ? '#ef7878' : 'rgba(92,224,160,0.65)',
-              }}>
-                <span style={{
-                  display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                  background: error ? '#ef7878' : '#5ce0a0',
-                  boxShadow: error ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
-                }} />
-                RARE {error ? 'ERR' : 'OK'}
-              </span>
-            </div>
-          </div>
-        )}
-        <div className="feed-list feed-density-compact" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
-          {loading && rows.length === 0 && (
-            <div style={emptyCell}>Loading rare sales…</div>
-          )}
-          {!loading && rows.length === 0 && (
-            <div style={emptyCell}>
-              No rare sales yet at score ≥ {minScore}. Rare Feed surfaces sales of top-rarity NFTs
-              trading at or below floor — these are infrequent, and require Magic Eden to expose a
-              rarity rank for the collection.
-            </div>
-          )}
-          {/* Embed (/multi) caps rendered cards at 60 to cut paint cost
-              when three feeds run side-by-side; standalone page renders all. */}
-          {(embedded ? rows.slice(0, 60) : rows).map((e) => (
-            <FeedCard
-              key={e.saleSignature}
-              event={rareToFeedEvent(e)}
-              onPreview={onPreview}
-              inclusiveFees={false}
-              sellerSellCountInFeed={0}
-              isNewestSellForSellerColl={false}
-              density="compact"
-              pillOverride={SALE_PILL}
-              nameChip={rarityChip(e)}
-            />
-          ))}
-        </div>
-      </div>
+      <RareFeedPanelView
+        rows={rows}
+        error={error}
+        loading={loading}
+        onPreview={onPreview}
+        embedded={embedded}
+        maxW={maxW}
+        minScore={minScore}
+      />
     </div>
   );
 }
-
-const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
-};
