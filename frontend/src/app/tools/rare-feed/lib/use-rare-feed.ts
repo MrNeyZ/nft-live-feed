@@ -47,7 +47,12 @@ interface RecentResponse {
 }
 
 export type RarityFilter = 'all' | 'top10' | 'top5' | 'top1';
-export const SCORE_OPTIONS = [0, 40, 55, 70, 85];
+// Score options aligned to the real rareScore distribution. The scoring
+// gate (top-10% rarity + below-floor) already filters to genuine rare
+// value-buys; the 0–100 rareScore that ranks them realistically tops out
+// ~30 for typical qualifiers, so the old [0,40,55,70,85] floor (default 40)
+// hid every event. Lowered so the dropdown spans the achievable range.
+export const SCORE_OPTIONS = [0, 10, 20, 30, 40];
 
 export interface UseRareFeed {
   events:      RareEvent[];
@@ -65,7 +70,7 @@ export interface UseRareFeed {
 /** Poll /api/tools/rare-feed/recent every ~20s; expose events + a
  *  rarity-tab-filtered `rows`. Identical fetch/filter semantics to the
  *  standalone page (rare-only dataset; common sales never appear). */
-export function useRareFeed(initialMinScore = 40): UseRareFeed {
+export function useRareFeed(initialMinScore = 0): UseRareFeed {
   const [events, setEvents]           = useState<RareEvent[]>([]);
   const [minScore, setMinScore]       = useState<number>(initialMinScore);
   const [rarity, setRarity]           = useState<RarityFilter>('all');
