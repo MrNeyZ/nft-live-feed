@@ -259,10 +259,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
       style={{
-        // Stronger pass: separators now barely whisper (0.035 → 0.022)
-        // so rows read as cleaner ribbons on the panel surface rather
-        // than a stacked-card grid. Still a 1 px hairline.
-        borderBottom: '1px solid rgba(255,255,255,0.022)',
+        // Softened further (0.022 → 0.014) so the separators recede just
+        // enough to let the ambient accent wash breathe and the rows feel
+        // less boxed-in — still a visible 1 px hairline keeping table
+        // structure intact, not removed.
+        borderBottom: '1px solid rgba(255,255,255,0.014)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values
@@ -284,12 +285,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 9px', verticalAlign: 'middle', position: 'relative' }}>
-        {/* Ambient accent halo — a soft radial wash anchored at the left edge
-            (`at 0% 50%`) that reaches ~120px into the row at ~0.05 peak alpha and
-            fades to nothing, so the accent color reads as ambient light bleeding
-            off the marker rather than a drawn gradient. Painted first (behind the
-            existing glow + base rail + marker, all of which are unchanged). */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 140, background: `radial-gradient(120px 100% at 0% 50%, ${accentColor}0d 0%, transparent 100%)`, pointerEvents: 'none' }} />
+        {/* Long ambient accent wash — a low-alpha horizontal fade that carries the
+            collection accent ~340px into the row (the first third) before dissolving
+            to nothing, so the row reads as softly lit by the accent color rather than
+            having a stripe bolted to a flat rectangle. Peak alpha is kept low (~0.12)
+            and applied uniformly across the palette so bright hues (yellow/green) stay
+            visible without the darker hues becoming a colored block. Painted first,
+            behind the existing glow + base rail + marker — all unchanged. */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 340, background: `linear-gradient(90deg, ${accentColor}1f 0%, transparent 100%)`, pointerEvents: 'none' }} />
         {/* Soft accent-into-row glow — a low-alpha (~0.03) horizontal fade that
             bleeds the collection accent off the left marker into the row body, so
             the strong left stripe reads as integrated with the row rather than a
