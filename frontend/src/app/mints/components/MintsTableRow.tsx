@@ -509,11 +509,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // mid-cell void. All the empty space falls on the COLLECTION side,
               // independent of how wide the flexible SHOW cell gets.
               position: 'absolute', top: 0, bottom: 0, left: 'auto', right: 8,
-              // Fixed ~64px width (up from fit-content ≈ 40px, ~50% wider) so
-              // the zone reads as a small action area rather than a tiny button.
-              // Right-anchored, so the extra width grows LEFT only — the right
-              // edge stays ~8px before MINTS (distance to MINTS unchanged).
-              width: 64,
+              // Right-anchored action zone that fills the gap up to a 240px cap.
+              // min(calc(100% - 16px), 240px): on narrow SHOW cells it fills the
+              // gap (minus the 8px L/R insets); on wide desktop cells it stops at
+              // 240px so the centered label stays gap-like instead of floating
+              // mid-cell. Grows LEFT only — right edge stays ~8px before MINTS.
+              width: 'min(calc(100% - 16px), 240px)',
               // SHOW label centered inside the action container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
