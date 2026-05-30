@@ -787,15 +787,6 @@ export default function ToolsPage() {
                     // rows read as clean ribbons, not a stacked-card grid.
                     borderBottom: '1px solid rgba(255,255,255,0.022)',
                     opacity: rowOpacity,
-                    // Trader-terminal "actionable row" cue — a 3 px inset
-                    // strip in the active-green at low alpha sits on the
-                    // row's left edge, giving ACTIVE rows positive emphasis
-                    // instead of only "winning by not being dim". Pure
-                    // paint, no layout shift. EXPIRED rows keep the 0.5
-                    // opacity dim and get no strip. On hover the lilac
-                    // ring (defined in .tools-offer-row:hover) takes over
-                    // — that's the correct focus-state priority.
-                    boxShadow: oState === 'ACTIVE' ? 'inset 3px 0 0 rgba(92,224,160,0.30)' : undefined,
                   }}>
                     <td style={{ padding: '14px 8px 14px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
