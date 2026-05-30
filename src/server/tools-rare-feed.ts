@@ -48,6 +48,8 @@ export function createRareFeedRouter(): Router {
           nftName:          r.nftName,
           imageUrl:         r.imageUrl,
           source:           r.source,
+          seller:           r.seller,
+          buyer:            r.buyer,
           salePriceSol:     r.salePriceSol,
           floorPriceSol:    r.floorPriceSol,
           floorDeltaPct:    r.floorDeltaPct,

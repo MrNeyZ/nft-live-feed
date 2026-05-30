@@ -79,16 +79,24 @@ export async function insertRareEvent(e: RareFeedEvent): Promise<boolean> {
 export interface RareFeedRow extends RareFeedEvent {
   id:        number;
   createdAt: Date;
+  /** Sale counterparties, joined from sale_events on sale_signature.
+   *  Null when the underlying sale row was pruned or not found. The
+   *  rare_feed_events table itself doesn't persist these — they're
+   *  pulled live from sale_events so existing rare rows populate too. */
+  seller:    string | null;
+  buyer:     string | null;
 }
 
 const RECENT_SQL = `
-  SELECT id, sale_signature, mint_address, collection_slug, collection_name,
-         nft_name, image_url, source, sale_price_sol, floor_price_sol,
-         floor_delta_pct, rarity_rank, total_supply, rarity_percentile,
-         rarity_source, rare_score, reason_tags, sale_time, created_at
-    FROM rare_feed_events
-   WHERE rare_score >= $2
-   ORDER BY sale_time DESC NULLS LAST, id DESC
+  SELECT rf.id, rf.sale_signature, rf.mint_address, rf.collection_slug, rf.collection_name,
+         rf.nft_name, rf.image_url, rf.source, rf.sale_price_sol, rf.floor_price_sol,
+         rf.floor_delta_pct, rf.rarity_rank, rf.total_supply, rf.rarity_percentile,
+         rf.rarity_source, rf.rare_score, rf.reason_tags, rf.sale_time, rf.created_at,
+         se.seller AS seller, se.buyer AS buyer
+    FROM rare_feed_events rf
+    LEFT JOIN sale_events se ON se.signature = rf.sale_signature
+   WHERE rf.rare_score >= $2
+   ORDER BY rf.sale_time DESC NULLS LAST, rf.id DESC
    LIMIT $1
 `;
 
@@ -115,6 +123,8 @@ export async function loadRecentRareEvents(limit: number, minScore: number): Pro
     reasonTags:       Array.isArray(r.reason_tags) ? r.reason_tags : [],
     saleTime:         r.sale_time ? new Date(r.sale_time) : null,
     createdAt:        new Date(r.created_at),
+    seller:           r.seller ?? null,
+    buyer:            r.buyer ?? null,
   }));
 }
 

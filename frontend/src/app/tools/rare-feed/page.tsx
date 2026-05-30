@@ -5,10 +5,19 @@
 // sale pipeline (enriched with Magic Eden rarity, scored + filtered on the
 // backend) via GET /api/tools/rare-feed/recent. Polls every ~20s — read-only,
 // DB-backed, no ME/RPC cost on the client path.
+//
+// VISUAL: renders the SAME Live Feed Sales card (shared FeedCard) so Rare
+// Feed reads as "Live Feed Sales, filtered to rare sales only". The dataset
+// stays rare-only (this endpoint already returns only rarity-scored value
+// sales — common sales never appear here). Two card affordances are
+// rare-only: a neutral "SALE" pill (rare events carry no buy/sell side) and
+// a compact rarity-rank chip after the NFT name. /feed passes neither.
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { LiveDot, CollectionIcon, compressImage } from '@/soloist/shared';
-import { formatSol } from '@/soloist/mock-data';
+import { LiveDot } from '@/soloist/shared';
+import { collectionMeta } from '@/soloist/from-backend';
+import type { FeedEvent } from '@/soloist/mock-data';
+import { FeedCard } from '@/app/feed/lib/feed-card';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const POLL_MS = 20_000;
@@ -21,6 +30,8 @@ interface RareEvent {
   nftName:          string | null;
   imageUrl:         string | null;
   source:           string | null;
+  seller:           string | null;
+  buyer:            string | null;
   salePriceSol:     number;
   floorPriceSol:    number | null;
   floorDeltaPct:    number | null;   // (sale - floor) / floor
@@ -46,10 +57,6 @@ interface RecentResponse {
 type RarityFilter = 'all' | 'top10' | 'top5' | 'top1';
 const SCORE_OPTIONS = [0, 40, 55, 70, 85];
 
-function shortAddr(s: string): string {
-  return s.length > 10 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
-}
-
 function fmtAge(iso: string | null): string {
   if (!iso) return '—';
   const diffSec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -60,27 +67,6 @@ function fmtAge(iso: string | null): string {
   return `${Math.floor(diffSec / 86_400)}d ago`;
 }
 
-function fmtPct(p: number | null): string {
-  if (p == null) return '—';
-  return `${(p * 100).toFixed(p < 0.01 ? 2 : 1)}%`;
-}
-
-/** Source badge palette — which rarity provider supplied the rank. */
-function sourceBadgeStyle(src: string | null): React.CSSProperties {
-  switch (src) {
-    case 'tensor':    return { color: '#6ab8ff', background: 'rgba(106,184,255,0.12)', border: '1px solid rgba(106,184,255,0.4)' };
-    case 'howrare':   return { color: '#5ce0c0', background: 'rgba(92,224,192,0.12)',  border: '1px solid rgba(92,224,192,0.4)' };
-    case 'magiceden': return { color: '#e0a0f0', background: 'rgba(224,160,240,0.12)', border: '1px solid rgba(224,160,240,0.4)' };
-    default:          return { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.3)' };
-  }
-}
-function sourceLabel(src: string | null): string {
-  if (src === 'howrare')   return 'HowRare';
-  if (src === 'tensor')    return 'Tensor';
-  if (src === 'magiceden') return 'ME';
-  return src ?? '?';
-}
-
 function scoreColor(score: number): string {
   if (score >= 80) return '#5ce0a0';
   if (score >= 60) return '#a890e8';
@@ -88,17 +74,71 @@ function scoreColor(score: number): string {
   return '#7a7a94';
 }
 
-/** Reason-tag chip palette — TOP_1 is the standout, BELOW_FLOOR green
- *  (value buy), NEAR_FLOOR amber. */
-function tagStyle(tag: string): React.CSSProperties {
-  switch (tag) {
-    case 'TOP_1':            return { color: '#ffd76a', background: 'rgba(255,215,106,0.14)', border: '1px solid rgba(255,215,106,0.5)' };
-    case 'TOP_5':            return { color: '#a890e8', background: 'rgba(168,144,232,0.14)', border: '1px solid rgba(168,144,232,0.45)' };
-    case 'TOP_10':           return { color: '#8da0e8', background: 'rgba(141,160,232,0.12)', border: '1px solid rgba(141,160,232,0.4)' };
-    case 'BELOW_FLOOR':      return { color: '#5ce0a0', background: 'rgba(92,224,160,0.14)',  border: '1px solid rgba(92,224,160,0.45)' };
-    case 'NEAR_FLOOR_TOP_1': return { color: '#e8c14a', background: 'rgba(232,193,74,0.14)',  border: '1px solid rgba(232,193,74,0.45)' };
-    default:                 return { color: '#7a7a94', background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.3)' };
-  }
+// Neutral SALE pill for the shared FeedCard's BUY/SELL/AMM slot. Rare
+// events are completed sales with no buy/sell side exposed by the
+// endpoint, so we render a single direction-agnostic pill instead of a
+// (potentially wrong) BUY/SELL. Lilac-grey so it reads as metadata, not
+// a trade-direction signal.
+const SALE_PILL = { label: 'SALE', fg: '#9aa0c8', bg: 'rgba(154,160,200,0.14)' };
+
+/** Map a rare-feed event onto the shared Live Feed Sales `FeedEvent`
+ *  shape so it renders through the exact same card. Fields the rare
+ *  endpoint doesn't expose (buyer/seller, nftType, AMM/resize signals)
+ *  are left empty/null — the card degrades gracefully (e.g. WalletLink
+ *  shows N/A). The FloorChip is driven by `floorDelta`, which the rare
+ *  endpoint already provides as a fractional ratio (`floorDeltaPct`). */
+function rareToFeedEvent(e: RareEvent): FeedEvent {
+  const { abbr, color } = collectionMeta(e.collectionName);
+  const ts = e.saleTime ? new Date(e.saleTime).getTime()
+           : new Date(e.createdAt).getTime();
+  return {
+    id:               e.saleSignature,
+    signature:        e.saleSignature,
+    mintAddress:      e.mintAddress,
+    meCollectionSlug: e.collectionSlug,
+    collectionName:   e.collectionName ?? 'Unknown',
+    abbr,
+    color,
+    nftName:          e.nftName ?? (e.collectionName ?? e.mintAddress.slice(0, 6)),
+    num:              0,                   // card re-parses #N from nftName
+    rank:             e.rarityRank ?? 0,
+    price:            e.salePriceSol,
+    grossPrice:       e.salePriceSol,
+    sellerNetPrice:   null,
+    floorDelta:       e.floorDeltaPct,
+    marketplace:      e.source && e.source.toLowerCase().includes('tensor') ? 'tensor' : 'me',
+    ts,
+    side:             'buy',               // pill is overridden; only affects flash class
+    nftType:          '',
+    saleTypeRaw:      null,                // → kind 'unknown'; pill overridden to SALE
+    buyer:            e.buyer ?? '',
+    seller:           e.seller ?? '',
+    imageUrl:         e.imageUrl,
+    collectionAddress: null,
+    sellerRemainingCount: null,
+    sellerSells10m:   0,
+    resizeStatus:     null,
+  };
+}
+
+/** Compact rarity chip rendered inline after the NFT name (Rare Feed
+ *  only). Surfaces the rank (and supply) so the operator can see why
+ *  the sale qualified as rare; tinted by the backend rareScore tier.
+ *  The below-floor / premium context is already conveyed by the card's
+ *  own FloorChip, so this chip stays focused on rank. */
+function rarityChip(e: RareEvent) {
+  if (e.rarityRank == null) return null;
+  const c = scoreColor(e.rareScore);
+  return (
+    <span style={{
+      flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
+      padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
+      color: c, background: `${c}1f`, border: `1px solid ${c}55`,
+      fontFamily: "'SF Mono','Fira Code',monospace",
+    }}>
+      #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
+    </span>
+  );
 }
 
 export default function RareFeedPage() {
@@ -148,6 +188,12 @@ export default function RareFeedPage() {
     { key: 'top5',  label: 'Top 5%'  },
     { key: 'top1',  label: 'Top 1%'  },
   ];
+
+  // Open the NFT image in a new tab on avatar click (the shared card
+  // expects an `onPreview` callback; Rare Feed has no modal overlay).
+  const onPreview = useCallback((url: string) => {
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
 
   return (
     <div className="feed-root page-transition" data-page="tools">
@@ -211,7 +257,10 @@ export default function RareFeedPage() {
         )}
       </div>
 
-      {/* Results card */}
+      {/* Results card — same gradient panel as before; the inner list is
+          now the shared Live Feed Sales card list (`.feed-list`) instead
+          of a table, so rows render with identical card chrome/spacing/
+          density to /feed. */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
@@ -220,135 +269,36 @@ export default function RareFeedPage() {
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
         overflow: 'hidden', marginBottom: 16,
       }}>
-        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
-          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '30%' }} />{/* NFT      */}
-              <col style={{ width: '12%' }} />{/* SALE     */}
-              <col style={{ width: '12%' }} />{/* FLOOR Δ  */}
-              <col style={{ width: '13%' }} />{/* RARITY   */}
-              <col style={{ width:  '9%' }} />{/* SCORE    */}
-              <col style={{ width: '16%' }} />{/* TAGS     */}
-              <col style={{ width:  '8%' }} />{/* TIME/LINK*/}
-            </colgroup>
-            <thead>
-              <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
-                <th style={thNft}>NFT</th>
-                <th style={thNum}>SALE</th>
-                <th style={thNum}>FLOOR Δ</th>
-                <th style={thNum}>RARITY</th>
-                <th style={thNum}>SCORE</th>
-                <th style={thSmall}>TAGS</th>
-                <th style={{ ...thSmall, textAlign: 'center' }}>TIME</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && rows.length === 0 && (
-                <tr><td colSpan={7} style={emptyCell}>Loading rare sales…</td></tr>
-              )}
-              {!loading && rows.length === 0 && (
-                <tr><td colSpan={7} style={emptyCell}>
-                  No rare sales yet at score ≥ {minScore}. Rare Feed surfaces sales of top-rarity NFTs
-                  trading at or below floor — these are infrequent, and require Magic Eden to expose a
-                  rarity rank for the collection.
-                </td></tr>
-              )}
-              {rows.map((e) => {
-                const name = e.nftName ?? (e.collectionName ? `${e.collectionName}` : e.mintAddress.slice(0, 6));
-                const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
-                const belowFloor = e.floorDeltaPct != null && e.floorDeltaPct < 0;
-                return (
-                  <tr key={e.saleSignature} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    {/* NFT */}
-                    <td style={{ padding: '10px 8px 10px 14px', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ flexShrink: 0, width: 40, height: 40 }}>
-                          <CollectionIcon imageUrl={compressImage(e.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={40} />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-                          <div style={{ fontSize: 10, color: '#56566e' }}>
-                            {e.collectionName && e.nftName ? <span style={{ marginRight: 6 }}>{e.collectionName}</span> : null}
-                            <span style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(e.mintAddress)}</span>
-                            {e.source && <span style={{ marginLeft: 6, color: '#6a6a82' }}>· {e.source.replace(/_/g, ' ')}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    {/* Sale price */}
-                    <td style={tdNum}>{formatSol(e.salePriceSol)}</td>
-                    {/* Floor delta */}
-                    <td style={{ ...tdNum, color: belowFloor ? '#5ce0a0' : '#e8c14a' }}>
-                      <div style={{ fontWeight: 700 }}>
-                        {e.floorDeltaPct != null ? `${e.floorDeltaPct > 0 ? '+' : ''}${(e.floorDeltaPct * 100).toFixed(1)}%` : '—'}
-                      </div>
-                      {e.floorPriceSol != null && (
-                        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 1 }}>fl {formatSol(e.floorPriceSol)}</div>
-                      )}
-                    </td>
-                    {/* Rarity rank / supply + percentile */}
-                    <td style={tdNum}>
-                      <div style={{ fontWeight: 700, color: '#d4d4e8' }}>
-                        {e.rarityRank != null ? `#${e.rarityRank}` : '—'}
-                        {e.totalSupply != null && <span style={{ color: '#56566e', fontWeight: 500 }}>/{e.totalSupply}</span>}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 1 }}>
-                        <span style={{ fontSize: 10, opacity: 0.8, color: '#a890e8' }}>{fmtPct(e.rarityPercentile)}</span>
-                        <span  style={{
-                          padding: '0 4px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
-                          borderRadius: 3, lineHeight: 1.4, textTransform: 'uppercase', ...sourceBadgeStyle(e.raritySource),
-                        }}>{sourceLabel(e.raritySource)}</span>
-                      </div>
-                    </td>
-                    {/* Score */}
-                    <td style={{ ...tdNum, fontSize: 15, fontWeight: 800, color: scoreColor(e.rareScore) }}>
-                      {Math.round(e.rareScore)}
-                    </td>
-                    {/* Reason tags */}
-                    <td style={{ ...tdSmall, whiteSpace: 'normal' }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {e.reasonTags.map(t => (
-                          <span key={t} style={{
-                            padding: '1px 6px', fontSize: 8.5, fontWeight: 800, letterSpacing: '0.3px',
-                            borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap', ...tagStyle(t),
-                          }}>{t.replace(/_/g, ' ')}</span>
-                        ))}
-                      </div>
-                    </td>
-                    {/* Time + ME link */}
-                    <td style={{ ...tdSmall, textAlign: 'center' }}>
-                      <a href={e.meUrl} target="_blank" rel="noopener noreferrer"
-                        style={{ color: '#a890e8', textDecoration: 'none', fontSize: 11 }}>
-                        {fmtAge(e.saleTime)}
-                      </a>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="feed-list feed-density-compact" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
+          {loading && rows.length === 0 && (
+            <div style={emptyCell}>Loading rare sales…</div>
+          )}
+          {!loading && rows.length === 0 && (
+            <div style={emptyCell}>
+              No rare sales yet at score ≥ {minScore}. Rare Feed surfaces sales of top-rarity NFTs
+              trading at or below floor — these are infrequent, and require Magic Eden to expose a
+              rarity rank for the collection.
+            </div>
+          )}
+          {rows.map((e) => (
+            <FeedCard
+              key={e.saleSignature}
+              event={rareToFeedEvent(e)}
+              onPreview={onPreview}
+              inclusiveFees={false}
+              sellerSellCountInFeed={0}
+              isNewestSellForSellerColl={false}
+              density="compact"
+              pillOverride={SALE_PILL}
+              nameChip={rarityChip(e)}
+            />
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-const thBase: React.CSSProperties = {
-  padding: '10px 8px', fontSize: 9.5, fontWeight: 700, color: '#56566e',
-  letterSpacing: '0.6px', textAlign: 'left', background: 'rgba(16,12,26,0.96)',
-  borderBottom: '1px solid rgba(168,144,232,0.12)', textTransform: 'uppercase', userSelect: 'none',
-};
-const thNum: React.CSSProperties   = { ...thBase, textAlign: 'right' };
-const thSmall: React.CSSProperties = { ...thBase, fontSize: 9.5 };
-const thNft: React.CSSProperties   = { ...thBase, padding: '10px 8px 10px 14px' };
-const tdNum: React.CSSProperties = {
-  padding: '10px 6px', textAlign: 'right', fontSize: 13, fontWeight: 600,
-  color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace", verticalAlign: 'middle',
-};
-const tdSmall: React.CSSProperties = {
-  padding: '10px 6px', fontSize: 11, color: '#aaaabf',
-  fontFamily: "'SF Mono','Fira Code',monospace", verticalAlign: 'middle',
-};
 const emptyCell: React.CSSProperties = {
   textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
 };

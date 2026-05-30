@@ -4,6 +4,7 @@
 // instead of relying on a top-level `import type` from the page file.
 // No fields added or removed vs. the prior inline declarations.
 
+import type { ReactNode } from 'react';
 import type { FeedEvent, Side } from '@/soloist/mock-data';
 
 /** Card density mode for the feed list. Drives the thumb size (TAPE
@@ -67,4 +68,13 @@ export interface FeedCardProps {
    *  thumb wrapper width) are owned by CSS rules scoped to
    *  `.feed-density-{comfy,compact,tape}` on the parent feed-list. */
   density: Density;
+  /** Optional pill override for the BUY/SELL/AMM slot. When provided the
+   *  pill renders with this label/colors instead of `KIND_STYLES[kind]`.
+   *  Used ONLY by Rare Feed (completed sales with no buy/sell side →
+   *  neutral "SALE"); /feed never passes it, so its pill is unchanged. */
+  pillOverride?: Pick<KindStyle, 'label' | 'fg' | 'bg'>;
+  /** Optional chip rendered inline after the NFT name. Used ONLY by Rare
+   *  Feed to surface a compact rarity rank/score chip; /feed never passes
+   *  it, so the name row is byte-identical there. */
+  nameChip?: ReactNode;
 }
