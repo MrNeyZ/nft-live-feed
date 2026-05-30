@@ -62,7 +62,7 @@
      Slightly narrower than the prior 140 — the inner strip now fills
      the column so the cell reads as one soft action zone, not a small
      boxed button. */
-  --mints-show-col-w:        168px;
+  --mints-show-col-w:        108px;
   /* Feed-card tokens — replaces the prior hardcoded `.feed-card`
      padding/gap rules. Density classes (.feed-density-comfy /
      .feed-density-tape) and phone tier override these tokens at
@@ -131,7 +131,7 @@ html[data-layout="pc"] {
      right edge stays put (subsequent metric cols are fixed) — SHOW→MINTS
      spacing preserved. Laptop / phone tokens unchanged. */
   --mints-show-w:        100%;
-  --mints-show-col-w:    228px;
+  --mints-show-col-w:    144px;
   /* Accent bumps — see :root for rationale. */
   /* Sharpness pass: see :root rationale. PC stays one tier above
      laptop on row/card alpha + ring alpha so the dense-monitor read
@@ -193,7 +193,7 @@ html[data-layout="laptop"] {
      widens — column is auto/1fr in the COLLECTION cell, so no table
      overflow and no row-height change. */
   --mints-show-w:       100%;
-  --mints-show-col-w:   172px;
+  --mints-show-col-w:   110px;
   /* Sharpness pass: laptop sits between :root and PC. */
   --accent-row-alpha:   0.10;
   --accent-card-alpha:  0.13;

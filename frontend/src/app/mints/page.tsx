@@ -2391,19 +2391,22 @@ export default function MintsPage() {
                   a stable x-position across rows, independent of how
                   many marketplace icons the COLLECTION cell carries. */}
               <col style={{ width: 'var(--mints-show-col-w, 140px)' }} /> {/* SHOW */}
-              {/* Rebalance pass: COLLECTION was too dominant (~70 % of
-                  table). Widening the numeric block by ~52 px pulls the
-                  split toward ~60/40 without crowding identity AND
-                  without overflowing at the small_laptop (1024) tier
-                  — an earlier +130 px attempt clipped CREATED. PRICE
-                  gets the largest lift (80→100) so it visually outranks
-                  LAST; CREATED widens (80→96) to match its 18 px
-                  terminal gutter. */}
-              <col style={{ width: 78 }}  /> {/* MINTS    */}
-              <col style={{ width: 88 }}  /> {/* SUPPLY   */}
-              <col style={{ width: 90 }}  /> {/* LAST     */}
-              <col style={{ width: 100 }} /> {/* PRICE    */}
-              <col style={{ width: 96 }}  /> {/* CREATED  */}
+              {/* Compaction pass: the metric columns were uneven
+                  (78/88/90/100/96), which made the inter-column gaps read
+                  inconsistently (esp. SUPPLY→LAST). Pulled toward a tighter,
+                  more uniform set (78/84/84/92/88) so the right side reads
+                  as one compact data block. SUPPLY and LAST are equalised
+                  (84) to close that gap; PRICE stays the widest metric (92)
+                  for token+icon; CREATED keeps room for its 18 px terminal
+                  gutter. Paired with the ~36 % narrower SHOW column
+                  (--mints-show-col-w) so the action no longer wastes the
+                  space between COLLECTION and MINTS. COLLECTION remains the
+                  auto remainder (largest column, overflow-safe). */}
+              <col style={{ width: 78 }} /> {/* MINTS    */}
+              <col style={{ width: 84 }} /> {/* SUPPLY   */}
+              <col style={{ width: 84 }} /> {/* LAST     */}
+              <col style={{ width: 92 }} /> {/* PRICE    */}
+              <col style={{ width: 88 }} /> {/* CREATED  */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
