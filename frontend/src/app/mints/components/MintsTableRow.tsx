@@ -501,15 +501,17 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // Absolutely-positioned fill so the action strip spans the
               // ENTIRE row content height (td → row stretches all cells
               // to the tallest sibling's height; abs child with top/bottom
-              // 0 inherits that height exactly). 6 px inset on the left; the
-              // right inset is 10 px so the SHOW label leaves a ~10 px gap
-              // before the MINTS column. No padding-based height calc, no
-              // minHeight guess — strip is always row-tall.
-              position: 'absolute', top: 0, bottom: 0, left: 6, right: 10,
-              // justifyContent flex-end pins the SHOW label to the RIGHT of
-              // the flexible SHOW cell (close to MINTS) instead of centering
-              // it mid-cell, so the empty space sits on the COLLECTION side.
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              // 0 inherits that height exactly). The zone is ANCHORED to the
+              // RIGHT of the (wide, flexible) SHOW cell rather than spanning
+              // it: left:auto + a capped width make the whole action container
+              // a right-side block whose right edge sits ~8 px before MINTS, so
+              // the empty space falls on the COLLECTION side. Width shrinks to
+              // fit on narrow SHOW cells (small-laptop) so it never overflows
+              // into the COLLECTION column.
+              position: 'absolute', top: 0, bottom: 0, left: 'auto', right: 8,
+              width: 'min(calc(100% - 16px), 260px)',
+              // SHOW label stays centered INSIDE this right-anchored zone.
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
               // borderRadius:0 kills the floating-rounded-button silhouette.
               // Idle = no inset outline (zone blends into the row); hover/
