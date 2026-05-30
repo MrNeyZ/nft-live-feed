@@ -151,6 +151,17 @@ export default function RareFeedPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
+  // Multi-tab embed (?embed=1): Gate already drops TopNav + BottomStatusBar
+  // globally; here we set `data-embedded="1"` so layout-mode zoom doesn't
+  // double-apply inside the iframe, and let the page fill the panel by
+  // dropping the centered `--tools-max` width cap. Mirrors /feed + /mints.
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
+  }, []);
+  const maxW = embedded ? 'none' : 'var(--tools-max, 1100px)';
+
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const r = await fetch(`${API_BASE}/api/tools/rare-feed/recent?limit=100&minScore=${minScore}`, { signal });
@@ -196,11 +207,11 @@ export default function RareFeedPage() {
   }, []);
 
   return (
-    <div className="feed-root page-transition" data-page="tools">
+    <div className="feed-root page-transition" data-page="tools" data-embedded={embedded ? '1' : undefined}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Header */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
+      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: maxW, margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -263,7 +274,7 @@ export default function RareFeedPage() {
           density to /feed. */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-        width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
+        width: '100%', maxWidth: maxW, margin: '0 auto',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',

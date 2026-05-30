@@ -1,20 +1,17 @@
 'use client';
 
 // VictoryLabs — Multi-tab.
-// Composite layout that hosts the REAL existing /dashboard, /feed and
-// /mints pages (not custom approximations) via iframes with `?embed=1`.
+// Composite layout that hosts the REAL existing /mints, /tools/rare-feed
+// and /feed pages (not custom approximations) via iframes with `?embed=1`.
 // Same origin → localStorage / cookies / runtime-mode are all shared.
 // Each iframe's Gate auth, layout-mode dataset, and SSE connection run
 // inside its own document; the outer page just owns the chrome.
 //
-// Layout:
-//   ┌─────────────┬──────────────┐
-//   │ DASHBOARD   │              │
-//   │ (top-left)  │   LIVE FEED  │
-//   ├─────────────┤  (full right)│
-//   │   MINTS     │              │
-//   │ (bottom-left)              │
-//   └─────────────┴──────────────┘
+// Layout — three equal-width live-feed panels, full viewport height:
+//   ┌───────────┬───────────────┬───────────┐
+//   │   MINTS    │  RARE SALES   │   SALES   │
+//   │  (left)    │   (center)    │  (right)  │
+//   └───────────┴───────────────┴───────────┘
 
 import { useEffect } from 'react';
 // TopNav rendered persistently by Gate (anti-flash); no per-page import needed.
@@ -49,8 +46,11 @@ export default function MultiTabPage() {
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '1.55fr 1fr',
-        gridTemplateRows: '1fr 1fr',
+        // Three equal-width columns. `minmax(0, 1fr)` (not bare `1fr`)
+        // lets each track shrink below its content's intrinsic width so
+        // the panels stay exactly equal and never overflow the viewport.
+        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+        gridTemplateRows: '1fr',
         gap: 12,
         // Vertical breathing room mirrors the horizontal gutter on the
         // outer .feed-root so the grid is framed evenly on all four
@@ -59,19 +59,19 @@ export default function MultiTabPage() {
         padding: '16px 0',
         minHeight: 0,
       }}>
-        {/* Top-left: actual Dashboard interface, embedded */}
+        {/* Left: actual Live Mint Feed interface, embedded */}
         <div style={paneStyle}>
-          <iframe src="/dashboard?embed=1" title="Dashboard" style={IFRAME_STYLE} />
+          <iframe src="/mints?embed=1" title="Live Feed Mints" style={IFRAME_STYLE} />
         </div>
 
-        {/* Right column: actual Live Feed interface, embedded; spans both rows */}
-        <div style={{ ...paneStyle, gridRow: '1 / 3' }}>
-          <iframe src="/feed?embed=1" title="Live Feed" style={IFRAME_STYLE} />
+        {/* Center: actual Rare Feed (rare sales) interface, embedded */}
+        <div style={paneStyle}>
+          <iframe src="/tools/rare-feed?embed=1" title="Live Feed Rare Sales" style={IFRAME_STYLE} />
         </div>
 
-        {/* Bottom-left: actual Mints interface, embedded */}
-        <div style={{ ...paneStyle, gridColumn: '1 / 2', gridRow: '2 / 3' }}>
-          <iframe src="/mints?embed=1" title="Mints" style={IFRAME_STYLE} />
+        {/* Right: actual Live Feed (sales) interface, embedded */}
+        <div style={paneStyle}>
+          <iframe src="/feed?embed=1" title="Live Feed Sales" style={IFRAME_STYLE} />
         </div>
       </div>
     </div>
