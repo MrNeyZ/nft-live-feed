@@ -2382,15 +2382,19 @@ export default function MintsPage() {
                 layout. COLLECTION is auto (no width = takes the
                 remainder); the others are pinned. */}
             <colgroup>
-              {/* COLLECTION is auto (remainder): tightening the numeric
-                  columns widens this column, which shifts the numeric block
-                  right and opens free center space (reserved for a future
-                  badge) without touching the left-packed identity grid. */}
-              <col />                        {/* COLLECTION (auto / remainder) */}
-              {/* SHOW — dedicated fixed column so the action button has
-                  a stable x-position across rows, independent of how
-                  many marketplace icons the COLLECTION cell carries. */}
-              <col style={{ width: 'var(--mints-show-col-w, 140px)' }} /> {/* SHOW */}
+              {/* COLLECTION — fixed to its identity-content width (rank 22 +
+                  img 46 + status 22 + name 100 + icons/source ~1fr + gaps +
+                  padding). Sized to content, NOT the remainder, so the empty
+                  area between the source badges and the metrics belongs to the
+                  flexible SHOW column instead of sitting unused inside this
+                  cell. Name truncation is unaffected (the name is a fixed 100px
+                  grid track with ellipsis, independent of this width). */}
+              <col style={{ width: 360 }} /> {/* COLLECTION (content width) */}
+              {/* SHOW — flexible spacer / action zone. This is now the auto
+                  (remainder) column, so it stretches to consume ALL space
+                  between the COLLECTION content and the MINTS metric, giving
+                  the ME-style [identity][flexible action gap][metrics] rhythm. */}
+              <col /> {/* SHOW (flexible / remainder) */}
               {/* Compaction pass: the metric columns were uneven
                   (78/88/90/100/96), which made the inter-column gaps read
                   inconsistently (esp. SUPPLY→LAST). Pulled toward a tighter,
