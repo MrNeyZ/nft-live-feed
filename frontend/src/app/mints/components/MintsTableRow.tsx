@@ -501,16 +501,16 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // Absolutely-positioned fill so the action strip spans the
               // ENTIRE row content height (td → row stretches all cells
               // to the tallest sibling's height; abs child with top/bottom
-              // 0 inherits that height exactly). The zone is ANCHORED to the
-              // RIGHT of the (wide, flexible) SHOW cell rather than spanning
-              // it: left:auto + a capped width make the whole action container
-              // a right-side block whose right edge sits ~8 px before MINTS, so
-              // the empty space falls on the COLLECTION side. Width shrinks to
-              // fit on narrow SHOW cells (small-laptop) so it never overflows
-              // into the COLLECTION column.
+              // 0 inherits that height exactly). The container is anchored to
+              // the RIGHT of the (wide, flexible) SHOW cell with left:auto +
+              // right:8, and sized to its content (fit-content) so it hugs the
+              // SHOW label and its right edge sits ~8 px before MINTS — instead
+              // of filling the cell and letting the centered label float in the
+              // mid-cell void. All the empty space falls on the COLLECTION side,
+              // independent of how wide the flexible SHOW cell gets.
               position: 'absolute', top: 0, bottom: 0, left: 'auto', right: 8,
-              width: 'min(calc(100% - 16px), 260px)',
-              // SHOW label stays centered INSIDE this right-anchored zone.
+              width: 'fit-content',
+              // SHOW label centered inside the content-sized container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
               // borderRadius:0 kills the floating-rounded-button silhouette.
