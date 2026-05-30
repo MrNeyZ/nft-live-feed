@@ -64,6 +64,12 @@ function evictPending(): void {
   }
 }
 
+// Diagnostics — cumulative counters since boot, logged on a periodic
+// summary so the accept/reject funnel is observable without grepping every
+// per-event line. `evaluated` counts candidates that reached the rarity
+// stage (had a captured sale + floor + mint).
+const stat = { evaluated: 0, missingRarity: 0, rejRarity: 0, rejPrice: 0, accepted: 0 };
+
 function onSale(event: SaleEvent): void {
   if (!event.mintAddress) return;            // can't fetch rarity without a mint
   pending.set(event.signature, {
@@ -106,8 +112,10 @@ function onMeta(update: MetaUpdate): void {
   // Async, fire-and-forget — never blocks the bus / SSE fan-out.
   void (async () => {
     try {
+      stat.evaluated++;
       const rarity = await getRarity(mint, slug);
       if (rarity.rarityRank == null || rarity.totalSupply == null || rarity.totalSupply <= 0) {
+        stat.missingRarity++;
         console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_rarity`);
         return;
       }
@@ -124,8 +132,9 @@ function onMeta(update: MetaUpdate): void {
       });
 
       if (!result.qualifies) {
+        if (result.rejectReason === 'rarity') stat.rejRarity++; else stat.rejPrice++;
         console.log(
-          `[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=below_thresholds ` +
+          `[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=${result.rejectReason} ` +
           `pct=${(result.rarityPercentile * 100).toFixed(2)}% floorDelta=${(result.floorDeltaPct * 100).toFixed(1)}%`,
         );
         return;
@@ -151,6 +160,7 @@ function onMeta(update: MetaUpdate): void {
         saleTime:         sale.blockTime,
       });
 
+      if (wrote) stat.accepted++;
       console.log(
         `[rare/feed] accepted sig=${sig.slice(0, 12)}… score=${result.score} ` +
         `tags=${result.reasonTags.join(',')} rank=${rarity.rarityRank}/${rarity.totalSupply} ` +
@@ -170,4 +180,12 @@ export function startRareFeedEvaluator(): void {
   saleEventBus.onSale(onSale);
   saleEventBus.onMetaUpdate(onMeta);
   console.log('[rare/feed] evaluator attached (sale + meta bus listeners)');
+  // Periodic funnel summary (cumulative since boot) every 5 min.
+  const summary = setInterval(() => {
+    console.log(
+      `[rare/feed] summary evaluated=${stat.evaluated} missingRarity=${stat.missingRarity} ` +
+      `rejRarity=${stat.rejRarity} rejPrice=${stat.rejPrice} accepted=${stat.accepted}`,
+    );
+  }, 5 * 60 * 1000);
+  summary.unref?.();
 }
