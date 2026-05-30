@@ -54,8 +54,23 @@ export function vvvSlugify(input: string): string {
 export function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
   if (lamports === 0)   return 'FREE';
-  // Shared formatter: ≥0.1 → 2 decimals, <0.1 → 3 decimals.
-  return formatSol(lamports / 1e9);
+  // Shared formatter chooses decimal precision by magnitude (more decimals
+  // for smaller prices, so tiny values like 0.000228 keep their significant
+  // digits). We then trim trailing zeros so the Mint Tracker PRICE column
+  // reads 0.004 instead of 0.0040, 0.01 instead of 0.010, and 1 instead of
+  // 1.00 — precision preserved, padding removed.
+  return trimTrailingZeros(formatSol(lamports / 1e9));
+}
+
+/** Strip trailing zeros (and a now-bare decimal point) from a formatted
+ *  number string, preserving any non-digit suffix (e.g. the 'K' formatSol
+ *  appends for ≥1000). No decimal point → returned unchanged. */
+function trimTrailingZeros(s: string): string {
+  const m = s.match(/^(\d+)\.(\d+)(\D*)$/);
+  if (!m) return s;
+  const [, intPart, frac, suffix] = m;
+  const trimmed = frac.replace(/0+$/, '');
+  return trimmed ? `${intPart}.${trimmed}${suffix}` : `${intPart}${suffix}`;
 }
 
 export function fmtAge(ts: number): string {
