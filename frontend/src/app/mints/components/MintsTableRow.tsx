@@ -501,11 +501,15 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // Absolutely-positioned fill so the action strip spans the
               // ENTIRE row content height (td → row stretches all cells
               // to the tallest sibling's height; abs child with top/bottom
-              // 0 inherits that height exactly). 6 px inset L/R is the
-              // soft gutter from neighbouring columns. No padding-based
-              // height calc, no minHeight guess — strip is always row-tall.
-              position: 'absolute', top: 0, bottom: 0, left: 6, right: 6,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              // 0 inherits that height exactly). 6 px inset on the left; the
+              // right inset is 10 px so the SHOW label leaves a ~10 px gap
+              // before the MINTS column. No padding-based height calc, no
+              // minHeight guess — strip is always row-tall.
+              position: 'absolute', top: 0, bottom: 0, left: 6, right: 10,
+              // justifyContent flex-end pins the SHOW label to the RIGHT of
+              // the flexible SHOW cell (close to MINTS) instead of centering
+              // it mid-cell, so the empty space sits on the COLLECTION side.
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
               cursor: 'pointer', userSelect: 'none',
               // borderRadius:0 kills the floating-rounded-button silhouette.
               // Idle = no inset outline (zone blends into the row); hover/
