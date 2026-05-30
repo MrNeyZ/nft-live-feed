@@ -217,6 +217,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   const accentBorderColor = rowState === 'watch'
     ? `${accentColor}cc`
     : accentColor;
+  // Slim two-sided table-row marker color. Same per-state color as the
+  // (now removed) opaque borderLeft, but at table-decoration alpha
+  // (~0.45 watch `73` / ~0.55 active|sold `8c`) so the left+right markers
+  // read as table edges, not a card outline. Painted on BOTH row edges —
+  // left COLLECTION cell + right CREATED cell — so the accent is symmetric
+  // without ever closing into a full rectangle around the row.
+  const accentMarker = `${accentColor}${rowState === 'watch' ? '73' : '8c'}`;
   // Fresh-mint flash — same green pulse the dashboard uses for fresh
   // sales. Two parts:
   //   1. `key` includes `r.lastMintAt` so React remounts the row
@@ -284,10 +291,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 9px', verticalAlign: 'middle', position: 'relative' }}>
-        {/* Base rail (in-cell, replaces overlay div). */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none' }} />
-        {/* Colored row accent (paints on top of base rail; identical color to the previous borderLeft). */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accentBorderColor, pointerEvents: 'none' }} />
+        {/* Left table-row marker — slim 2px vertical accent, inset 5px top/bottom
+            so it stops short of the horizontal row separators and reads as a table
+            marker, not a card border. Lower alpha than the prior opaque borderLeft.
+            Mirrored 1:1 on the row's right edge (CREATED cell) for symmetry. */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 5, bottom: 5, width: 2, background: 'rgba(168,144,232,0.04)', pointerEvents: 'none' }} />
+        {/* Colored row accent (paints on top of base rail; per-state collection color at marker alpha). */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 5, bottom: 5, width: 2, background: accentMarker, pointerEvents: 'none' }} />
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
             Status track was 66 px to fit the old ACTIVE/WATCH labels; after
@@ -778,8 +788,15 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '13px 18px 13px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        style={{ padding: '13px 18px 13px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'relative' }}
       >
+        {/* Right table-row marker — mirrors the left COLLECTION-cell accent
+            (same slim 2px width, 5px top/bottom inset, per-state color/alpha) so
+            the row reads as two slim vertical table markers, never a boxed card.
+            right:0 pins it to the last cell's right edge = the row's right edge,
+            so no horizontal overflow. */}
+        <span aria-hidden="true" style={{ position: 'absolute', right: 0, top: 5, bottom: 5, width: 2, background: 'rgba(168,144,232,0.04)', pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', right: 0, top: 5, bottom: 5, width: 2, background: accentMarker, pointerEvents: 'none' }} />
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
     </tr>
