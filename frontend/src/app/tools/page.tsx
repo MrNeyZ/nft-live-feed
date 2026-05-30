@@ -662,8 +662,8 @@ export default function ToolsPage() {
               <col style={{ width: '16%' }} />{/* BEST OFFER */}
               <col style={{ width:  '9%' }} />{/* SPREAD     */}
               <col style={{ width:  '9%' }} />{/* AGE        */}
-              <col style={{ width: '12%' }} />{/* STATUS     */}
-              <col style={{ width:  '8%' }} />{/* LINKS      */}
+              <col style={{ width: '11%' }} />{/* STATUS     */}
+              <col style={{ width:  '9%' }} />{/* LINKS      */}
             </colgroup>
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
