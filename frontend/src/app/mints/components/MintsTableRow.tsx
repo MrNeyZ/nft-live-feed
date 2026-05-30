@@ -785,15 +785,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '13px 18px 13px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'relative' }}
+        style={{ padding: '13px 18px 13px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
-        {/* Right-edge finishing shade — NOT a stripe, NOT an accent marker. A wide
-            (~240px) neutral dark-to-transparent fade that gently deepens toward the
-            row's right edge (~0.06 black peak) so the row resolves into a soft shade
-            instead of ending in a flat empty area. Asymmetric by design — the left
-            keeps the status marker, the right just gets this quiet finish. right:0
-            keeps it inside the last cell, so no horizontal overflow. */}
-        <span aria-hidden="true" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 240, background: 'linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.06) 100%)', pointerEvents: 'none' }} />
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
     </tr>
