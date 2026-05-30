@@ -2364,7 +2364,11 @@ export default function MintsPage() {
 
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{
-            width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed',
+            // Reserve empty right-side breathing room (no extra column) so the
+            // whole data block sits slightly left of the panel edge. COLLECTION
+            // is the auto remainder, so it absorbs the reserved width naturally.
+            // Responsive: PC 80 / laptop 60 / small-laptop 40 / phone 0.
+            width: 'calc(100% - var(--mints-tracker-gutter, 0px))', borderCollapse: 'collapse', tableLayout: 'fixed',
             // Inner table-frame hairline at the row-content right edge.
             // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
             // stable`, so the table's right edge already lands just left

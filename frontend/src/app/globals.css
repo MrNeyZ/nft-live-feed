@@ -63,6 +63,12 @@
      the column so the cell reads as one soft action zone, not a small
      boxed button. */
   --mints-show-col-w:        108px;
+  /* Empty right-side breathing room for the /mints tracker table only.
+     Applied as `width: calc(100% - var)` on the table so the whole data
+     block sits slightly left of the panel edge; COLLECTION (auto remainder)
+     absorbs the difference. PC default 80; laptop 60; small-laptop 40 (see
+     the ≤1024 media net); phone 0. Pure empty space — no column/border. */
+  --mints-tracker-gutter:    80px;
   /* Feed-card tokens — replaces the prior hardcoded `.feed-card`
      padding/gap rules. Density classes (.feed-density-comfy /
      .feed-density-tape) and phone tier override these tokens at
@@ -194,6 +200,7 @@ html[data-layout="laptop"] {
      overflow and no row-height change. */
   --mints-show-w:       100%;
   --mints-show-col-w:   110px;
+  --mints-tracker-gutter: 60px;
   /* Sharpness pass: laptop sits between :root and PC. */
   --accent-row-alpha:   0.10;
   --accent-card-alpha:  0.13;
@@ -215,6 +222,7 @@ html[data-layout="phone"] {
   --dashboard-max:      100%;
   --tools-max:          100%;
   --mints-max:          100%;
+  --mints-tracker-gutter: 0px;
   /* Tables tighten on phone — matches the existing visual; no density
      change. The compact variant doesn't shrink further (tools is
      already at its target tighter padding on every tier). */
@@ -235,6 +243,12 @@ html[data-layout="phone"] {
    via --page-x at the consumer). */
 @media (max-width: 1024px) {
   :root { --page-x: 12px; }
+  /* Small-laptop tracker gutter — 40px. Repeats the data-layout selectors
+     (same specificity as the PC/laptop rules above) so source order wins,
+     overriding the 80/60 values on ≤1024 physical viewports. */
+  :root,
+  html[data-layout="pc"],
+  html[data-layout="laptop"] { --mints-tracker-gutter: 40px; }
 }
 html[data-layout="phone"] body { font-size: 12px; }
 /* Phone-tier feed-card padding/gap now flows through the
