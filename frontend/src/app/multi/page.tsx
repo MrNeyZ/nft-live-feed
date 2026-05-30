@@ -86,8 +86,9 @@ const paneStyle: React.CSSProperties = {
   // ended above the grid-cell bottom.
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid rgba(168,144,232,0.18)',
-  borderRadius: 10,
-  overflow: 'hidden',
-  background: 'linear-gradient(180deg, rgba(32,26,58,0.55) 0%, rgba(26,21,48,0.55) 100%)',
+  // No border / shadow / background here. The embedded page already
+  // supplies its own native frame (the feed/mint panels' borders, the
+  // cards themselves). A wrapper border + glow stacked on top of that
+  // produced a frame-inside-frame and ate horizontal space with empty
+  // gutters — so the iframe now sits directly in the grid column.
 };

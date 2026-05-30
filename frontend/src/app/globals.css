@@ -1640,6 +1640,21 @@ body[data-bottombar="1"] .feed-root {
   padding-bottom: 36px;
 }
 
+/* ── Embed mode (multi-tab iframes) ───────────────────────────────────
+   Each embedded page sets data-embedded="1" on its `.feed-root`. Inside
+   a /multi column the page-level horizontal gutter (`0 var(--page-x)`,
+   16–24 px each side) is wasted space — it pushed feed content well
+   inside the iframe edge and, stacked across 3 columns, read as large
+   empty gutters. Zero it in embed mode only; non-embed pages keep the
+   normal gutter. Higher specificity than `#__next, .feed-root` so no
+   !important is needed, but kept for safety against breakpoint
+   re-declarations of --page-x. Content max-widths are already disabled
+   inline (embed sets maxWidth:'none'), so only the padding needs this. */
+.feed-root[data-embedded="1"] {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
 /* /mints Live Mint Tracker — LEFT-pane depth polish. The right Live
    Mint Feed reads as layered cards (each card has an own background
    fill + rounded chrome); the left tracker previously read as flat

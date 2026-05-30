@@ -2152,7 +2152,10 @@ export default function MintsPage() {
         paddingBottom: embedded ? 0 : 8,
         boxSizing: 'border-box',
       }}>
-      {/* ── LEFT: Mint Collections table ─────────────────────────────── */}
+      {/* ── LEFT: Mint Collections table ─ hidden in embed mode so a
+          /multi column shows ONLY the Live Mint Feed cards (right pane).
+          Non-embed /mints is unchanged. ──────────────────────────────── */}
+      {!embedded && (
       <div style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
         // Restore the VictoryLabs dark-purple panel identity (the v2
@@ -2518,6 +2521,7 @@ export default function MintsPage() {
           </table>
         </div>
       </div>
+      )}
 
       {/* ── RIGHT: Live Mint Feed ────────────────────────────────────
           Per-mint stream (one row = one detected mint), independent of
@@ -2529,9 +2533,10 @@ export default function MintsPage() {
           upgrade their thumbnails in-place; new mints from un-enriched
           groups render the placeholder until the backend's enricher
           catches up. No per-NFT metadata fetching anywhere on the
-          client. Hidden in embed mode (multi-tab) — the grid collapses
-          to a single column there. */}
-      {!embedded && (
+          client. Shown in BOTH normal and embed mode — in a /multi
+          column it is the only pane (the LEFT collections table is
+          hidden in embed). */}
+      {(
         <div style={{
           background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
           border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
@@ -2542,11 +2547,32 @@ export default function MintsPage() {
           // page itself never grows with feed content.
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
-          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(168,144,232,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(168,144,232,0.12)', background: 'rgba(168,144,232,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
+              {/* Header rebuilt to share the Live Feed Sales header pattern
+                  (title · live dot · count · status pill) so the LEFT and
+                  RIGHT /multi columns read as one component family. Only
+                  the naming is mint-specific. */}
+              <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
               <LiveDot />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#a890e8', letterSpacing: '0.6px', marginRight: 2 }}>
-                LIVE MINT FEED
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+                ({visibleEvents.length.toLocaleString()})
+              </span>
+              {/* MINT OK pill — same chrome as /feed's "ME OK" health pill
+                  (green, low-saturation resting state). */}
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                marginLeft: 4, padding: '1px 5px', borderRadius: 3,
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
+                border: '1px solid rgba(92,224,160,0.22)',
+                background: 'transparent',
+                color: 'rgba(92,224,160,0.65)',
+              }}>
+                <span style={{
+                  display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+                  background: '#5ce0a0', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+                }} />
+                MINT OK
               </span>
               {/* PAUSED chip — shared with the LEFT Mint Tracker header
                   (single PausedChip component, single hoverPaused state).
@@ -2658,6 +2684,7 @@ export default function MintsPage() {
                 group={rows.get(ev.groupingKey)}
                 now={now}
                 dimmed={dimmed}
+                embedded={embedded}
                 onPauseEnter={enterPauseZone}
                 onPauseLeave={leavePauseZone}
               />

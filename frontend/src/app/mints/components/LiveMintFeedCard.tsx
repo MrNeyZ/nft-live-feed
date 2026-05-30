@@ -36,6 +36,11 @@ interface Props {
    *  that collection fade to ~0.15 (matching mints stay full opacity and
    *  cluster to the top). Pure paint — no layout change. Default false. */
   dimmed?: boolean;
+  /** /multi embed mode. Only nudges a few text/price/age colors UP toward
+   *  the Live Feed Sales card's contrast (the three feeds sit side-by-side
+   *  there and the mint card read dirtier). Structure/layout/size are
+   *  unchanged, and the normal /mints page passes false → byte-identical. */
+  embedded?: boolean;
   /** Hover-pause hooks — fire when the cursor enters/leaves the card body
    *  (not surrounding panel padding). Wired to the page-level zone counter
    *  so the LEFT and RIGHT panes share one `hoverPaused` state. */
@@ -43,7 +48,7 @@ interface Props {
   onPauseLeave?: () => void;
 }
 
-export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPauseEnter, onPauseLeave }: Props) {
+export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedded = false, onPauseEnter, onPauseLeave }: Props) {
   // NFT name vs. collection name. Per the targeted-mode spec, these
   // are distinct lines on the card: the NFT's own name is the
   // prominent first line; the collection name (when known) sits
@@ -148,7 +153,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
     : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
   const priceColor     = ev.priceLamports == null
     ? '#55556e'
-    : ev.priceLamports === 0 ? '#5ce0a0' : '#f0eef8';
+    : ev.priceLamports === 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows
@@ -242,7 +247,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {isSolPubkey(ev.mintAddress) ? (
             <a
               href={`https://solscan.io/token/${ev.mintAddress}`}
@@ -296,8 +301,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             fontWeight: 500,
             // Hierarchy kept but not washed-out: pulled back from the
             // v2 0.62 to 0.78 so the line still reads as secondary
-            // without looking faded inside the purple palette.
-            opacity: 0.78,
+            // without looking faded inside the purple palette. In /multi
+            // embed it's lifted to 0.95 so the secondary line stops
+            // reading "dirty" next to the Live Feed Sales column.
+            opacity: embedded ? 0.95 : 0.78,
             overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             // `minWidth: 0` + `flex: 1` let the name truncate inside
@@ -356,7 +363,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
             page in a new tab. Hidden when the field isn't on the
             wire (some replays / cNFT paths). */}
         {ev.minter && (
-          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: 0.74, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: embedded ? 0.9 : 0.74, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             <a
               href={`https://solscan.io/account/${ev.minter}`}
               target="_blank"
@@ -442,7 +449,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, onPaus
         // page-level 5 s force tick; boundary precision is fine for
         // this surface (avoids a per-card 1 s timer on 150 cards).
         const ageMs = now - ev.receivedAt;
-        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : '#877496';
+        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#b6a8d0' : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
           <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>

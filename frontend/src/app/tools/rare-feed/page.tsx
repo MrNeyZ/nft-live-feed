@@ -210,7 +210,10 @@ export default function RareFeedPage() {
     <div className="feed-root page-transition" data-page="tools" data-embedded={embedded ? '1' : undefined}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header */}
+      {/* Header — hidden in embed mode so a /multi column renders the
+          card feed only (no title / rarity tabs / tool chrome), matching
+          Live Feed Sales. Non-embed /tools/rare-feed is unchanged. */}
+      {!embedded && (
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: maxW, margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
@@ -267,19 +270,61 @@ export default function RareFeedPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* Results card — same gradient panel as before; the inner list is
-          now the shared Live Feed Sales card list (`.feed-list`) instead
-          of a table, so rows render with identical card chrome/spacing/
-          density to /feed. */}
+      {/* Results card — the inner list is the shared Live Feed Sales card
+          list (`.feed-list`), so rows render with identical card chrome/
+          spacing/density to /feed. The dark-purple gradient panel surface
+          is kept in BOTH modes (matching the right Live Feed Sales panel in
+          /multi) so the empty state reads as a feed surface, not raw text
+          on black. Embed only drops the bottom margin so it sits flush in
+          the column — mirrors /feed's `margin: embedded ? 0`. */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: maxW, margin: '0 auto',
+        overflow: 'hidden',
         background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
-        overflow: 'hidden', marginBottom: 16,
+        marginBottom: embedded ? 0 : 16,
       }}>
+        {/* Embed-only compact header — matches the right Live Feed Sales
+            panel's "Live events" header (and the left Live Mint Feed
+            header) so all three /multi columns share one header language.
+            The standalone page keeps its own full header above the panel;
+            this one renders only in embed. No filter tabs / min-score /
+            tool chrome — title + live dot + count + RARE OK/ERR pill. */}
+        {embedded && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 14px', flexShrink: 0,
+            borderBottom: '1px solid rgba(168,144,232,0.12)',
+            background: 'rgba(168,144,232,0.04)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Rare events</h1>
+              <LiveDot />
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+                ({rows.length.toLocaleString()})
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                marginLeft: 4, padding: '1px 5px', borderRadius: 3,
+                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
+                border: error ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
+                background: error ? 'rgba(239,120,120,0.14)' : 'transparent',
+                color: error ? '#ef7878' : 'rgba(92,224,160,0.65)',
+              }}>
+                <span style={{
+                  display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+                  background: error ? '#ef7878' : '#5ce0a0',
+                  boxShadow: error ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
+                }} />
+                RARE {error ? 'ERR' : 'OK'}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="feed-list feed-density-compact" style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
           {loading && rows.length === 0 && (
             <div style={emptyCell}>Loading rare sales…</div>
