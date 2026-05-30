@@ -285,14 +285,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 9px', verticalAlign: 'middle', position: 'relative' }}>
-        {/* Long ambient accent wash — a low-alpha horizontal fade that carries the
-            collection accent ~340px into the row (the first third) before dissolving
-            to nothing, so the row reads as softly lit by the accent color rather than
-            having a stripe bolted to a flat rectangle. Peak alpha is kept low (~0.12)
-            and applied uniformly across the palette so bright hues (yellow/green) stay
-            visible without the darker hues becoming a colored block. Painted first,
-            behind the existing glow + base rail + marker — all unchanged. */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 340, background: `linear-gradient(90deg, ${accentColor}1f 0%, transparent 100%)`, pointerEvents: 'none' }} />
         {/* Soft accent-into-row glow — a low-alpha (~0.03) horizontal fade that
             bleeds the collection accent off the left marker into the row body, so
             the strong left stripe reads as integrated with the row rather than a
@@ -795,13 +787,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       <td
         style={{ padding: '13px 18px 13px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'relative' }}
       >
-        {/* Right-edge accent fade — NOT a mirrored stripe. A wide (~40px) soft
-            horizontal gradient that ramps from transparent up to a very low alpha
-            (~0.06) of the row's accent color right at the edge, so the right side
-            reads as a gentle continuation/balance of the left marker rather than a
-            second status bar. No hard vertical bar. right:0 keeps it inside the
-            last cell = the row's right edge, so no horizontal overflow. */}
-        <span aria-hidden="true" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 40, background: `linear-gradient(90deg, transparent 0%, ${accentColor}10 100%)`, pointerEvents: 'none' }} />
+        {/* Right-edge finishing shade — NOT a stripe, NOT an accent marker. A wide
+            (~240px) neutral dark-to-transparent fade that gently deepens toward the
+            row's right edge (~0.06 black peak) so the row resolves into a soft shade
+            instead of ending in a flat empty area. Asymmetric by design — the left
+            keeps the status marker, the right just gets this quiet finish. right:0
+            keeps it inside the last cell, so no horizontal overflow. */}
+        <span aria-hidden="true" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 240, background: 'linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.06) 100%)', pointerEvents: 'none' }} />
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
     </tr>
