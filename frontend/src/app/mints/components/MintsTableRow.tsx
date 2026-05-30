@@ -284,7 +284,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           /dashboard rhythm), 38 px ItemThumb, 15 px name. Left accent
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
-      <td style={{ padding: '10px 8px 10px 9px', verticalAlign: 'middle', position: 'relative' }}>
+      <td style={{ padding: '11px 8px 11px 9px', verticalAlign: 'middle', position: 'relative' }}>
         {/* Soft accent-into-row glow — a low-alpha (~0.03) horizontal fade that
             bleeds the collection accent off the left marker into the row body, so
             the strong left stripe reads as integrated with the row rather than a
@@ -558,7 +558,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             // MINTS in the same family visually while leaving RATE
             // the brightest value. fontWeight 800 stays unchanged so
             // the column still reads heavy / structural.
-            style={{ padding: '10px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             {tfCount.toLocaleString()}
           </td>
@@ -648,7 +648,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               ref={supplyCellRef}
               onMouseEnter={openSupplyPopover}
               onMouseLeave={closeSupplyPopover}
-              style={{ padding: '10px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {display}
             </td>
@@ -691,7 +691,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </>
         );
       })()}
-      <td style={{ padding: '10px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {fmtAgeShort(r.lastMintAt)}
       </td>
       {/* PRICE — latest observed mint price for this collection.
@@ -736,7 +736,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         return (
           <td
             
-            style={{ padding: '10px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
               <span>{display}</span>
@@ -785,7 +785,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '10px 18px 10px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        style={{ padding: '11px 18px 11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
