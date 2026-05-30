@@ -2389,7 +2389,7 @@ export default function MintsPage() {
                   flexible SHOW column instead of sitting unused inside this
                   cell. Name truncation is unaffected (the name is a fixed 100px
                   grid track with ellipsis, independent of this width). */}
-              <col style={{ width: 360 }} /> {/* COLLECTION (content width) */}
+              <col style={{ width: 300 }} /> {/* COLLECTION (content width) */}
               {/* SHOW — flexible spacer / action zone. This is now the auto
                   (remainder) column, so it stretches to consume ALL space
                   between the COLLECTION content and the MINTS metric, giving
