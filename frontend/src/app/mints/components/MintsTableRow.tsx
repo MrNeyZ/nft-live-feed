@@ -284,6 +284,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stripe (3 px, deterministic per collectionAddress) so rows
           from the same collection are visually grouped at a glance. */}
       <td style={{ padding: '14px 8px 14px 9px', verticalAlign: 'middle', position: 'relative' }}>
+        {/* Ambient accent halo — a soft radial wash anchored at the left edge
+            (`at 0% 50%`) that reaches ~120px into the row at ~0.05 peak alpha and
+            fades to nothing, so the accent color reads as ambient light bleeding
+            off the marker rather than a drawn gradient. Painted first (behind the
+            existing glow + base rail + marker, all of which are unchanged). */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 140, background: `radial-gradient(120px 100% at 0% 50%, ${accentColor}0d 0%, transparent 100%)`, pointerEvents: 'none' }} />
         {/* Soft accent-into-row glow — a low-alpha (~0.03) horizontal fade that
             bleeds the collection accent off the left marker into the row body, so
             the strong left stripe reads as integrated with the row rather than a

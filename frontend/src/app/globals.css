@@ -1787,7 +1787,19 @@ body[data-bottombar="1"] .feed-root {
 .mints-tracker-row-active,
 .mints-tracker-row-watch,
 .mints-tracker-row-sold {
-  background: rgba(255, 255, 255, 0.012);
+  /* Surface treatment (replaces the prior flat 0.012 white fill): a very
+     low-contrast horizontal vignette layered over the same 0.012 base so
+     the row no longer reads as a single flat rectangle. Outer edges sit
+     ~0.05 darker, the center lifts ~0.013 brighter — barely perceptible,
+     gives the row a subtle dimensional surface while staying obviously a
+     table row (no border, no card). The 0.012 base color is preserved as
+     the second background layer; the gradient is the only addition. */
+  background:
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.05) 0%,
+      rgba(255, 255, 255, 0.013) 50%,
+      rgba(0, 0, 0, 0.05) 100%),
+    rgba(255, 255, 255, 0.012);
 }
 
 /* Selected-row tint, shared across collection-style tables (used on
