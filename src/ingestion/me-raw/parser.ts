@@ -60,31 +60,6 @@ function readLpFeeFromLogs(logs: unknown): number | null {
   return null;
 }
 
-// ── TEMP diagnostic [me-v2-dir-audit] — capped; remove after analysis ───────
-// Confirms whether ME v2 accept-offers show feePayer==seller (→ bid_sell).
-// No behavior change; logging only. Cap: log all until 20, then only the
-// non-buyer relations until 100 lines this process boot.
-const ME_V2_DIR_AUDIT = { logged: 0 };
-function feePayerOf(tx: RawSolanaTx): string | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const k = (tx.transaction?.message as any)?.accountKeys?.[0];
-  return typeof k === 'string' ? k : (k?.pubkey ?? null);
-}
-function meV2DirAudit(tx: RawSolanaTx, instr: string, seller: string, buyer: string, priceLamports: bigint): void {
-  if (instr !== 'executeSaleV2' && instr !== 'mip1ExecuteSaleV2' && instr !== 'coreExecuteSaleV2') return;
-  const fp  = feePayerOf(tx);
-  const rel = fp === buyer ? 'feePayer==buyer' : fp === seller ? 'feePayer==seller' : 'other';
-  if (ME_V2_DIR_AUDIT.logged >= 100) return;
-  if (ME_V2_DIR_AUDIT.logged >= 20 && rel === 'feePayer==buyer') return;
-  ME_V2_DIR_AUDIT.logged++;
-  const s = (x?: string | null) => (x ?? '—').slice(0, 6);
-  console.log(
-    `[me-v2-dir-audit] sig=${tx.signature.slice(0, 8)} ix=${instr} ` +
-    `fp=${s(fp)} seller=${s(seller)} buyer=${s(buyer)} rel=${rel} ` +
-    `price=${(Number(priceLamports) / 1e9).toFixed(4)}`,
-  );
-}
-
 function txHasProgram(tx: RawSolanaTx, programId: string): boolean {
   const msg = tx.transaction?.message;
   if (!msg) return false;
@@ -227,8 +202,6 @@ function parseMeV2Sale(
   const priceLamports = luckyBuy && sellerNet != null
     ? sellerNet
     : payment.priceLamports;
-
-  meV2DirAudit(tx, match.instructionName, seller, buyer, priceLamports);
 
   const event: SaleEvent = {
     signature:         tx.signature,
