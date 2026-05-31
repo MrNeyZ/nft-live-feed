@@ -97,6 +97,34 @@ function maybeAutoBackfill(slug: string): void {
     });
 }
 
+/** Re-stamp the two non-persisted live signals — floor_delta and
+ *  resize_status — from the in-process caches, so a DB-backed reload shows the
+ *  same FloorChip / RESIZE badge the live SSE feed did. Shared by /latest and
+ *  /by-collection. Safe: leaves a row unchanged when the cache has no value
+ *  (never invents a floor). floor_delta isn't persisted (SSE `meta` channel
+ *  only); resize_status cache is preloaded from `mint_resize_status` on boot. */
+function stampFromCache<T extends {
+  me_collection_slug: string | null;
+  price_lamports: number | string | bigint;
+  mint_address: string | null;
+}>(rows: T[]): Array<T & { floor_delta?: number; resize_status?: string | null }> {
+  return rows.map((r) => {
+    let row: T & { floor_delta?: number; resize_status?: string | null } = r;
+    const floor = peekCachedFloorLamports(r.me_collection_slug);
+    if (floor != null) {
+      const priceLam = Number(r.price_lamports);
+      if (Number.isFinite(priceLam) && floor > 0) {
+        row = { ...row, floor_delta: (priceLam - floor) / floor };
+      }
+    }
+    if (r.mint_address) {
+      const rs = getCachedResizeStatus(r.mint_address);
+      if (rs) row = { ...row, resize_status: rs };
+    }
+    return row;
+  });
+}
+
 export function createEventsRouter(): Router {
   const router = Router();
 
@@ -113,34 +141,10 @@ export function createEventsRouter(): Router {
     const limit = Number.isNaN(raw) || raw < 1 ? DEFAULT_LIMIT : Math.min(raw, MAX_LIMIT);
 
     try {
-      const events = await getLatestEvents(limit);
-      // Retro-attach floor_delta from the in-process floor cache so the
-      // FloorChip on the frontend survives a page refresh / tab switch.
-      // floor_delta isn't persisted to the DB (only emitted on the SSE
-      // `meta` channel for live events); recomputing here from the cache
-      // covers any slug that's been touched in the last 2 minutes — which
-      // is virtually every slug present in the most recent N rows.
-      //
-      // Same pattern for resize_status: the resolver cache is preloaded
-      // from `mint_resize_status` (DB) on boot, so every previously
-      // resolved mint is available. Without this stamp the RESIZE badge
-      // would vanish on page refresh (live `resize_status` SSE patch had
-      // applied to the in-memory feed only).
-      const enriched = events.map(r => {
-        let row: typeof r & { floor_delta?: number; resize_status?: string | null } = r;
-        const floor = peekCachedFloorLamports(r.me_collection_slug);
-        if (floor != null) {
-          const priceLam = Number(r.price_lamports);
-          if (Number.isFinite(priceLam) && floor > 0) {
-            row = { ...row, floor_delta: (priceLam - floor) / floor };
-          }
-        }
-        if (r.mint_address) {
-          const rs = getCachedResizeStatus(r.mint_address);
-          if (rs) row = { ...row, resize_status: rs };
-        }
-        return row;
-      });
+      // Re-stamp floor_delta + resize_status from the in-process caches (these
+      // are SSE-only / not persisted) so a refresh keeps the FloorChip/RESIZE
+      // badge. Shared with /by-collection via stampFromCache().
+      const enriched = stampFromCache(await getLatestEvents(limit));
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {
       console.error('[events] query error', err);
@@ -183,7 +187,9 @@ export function createEventsRouter(): Router {
       ? Math.min(rawLimit, BY_COLLECTION_HARD_LIMIT)
       : BY_COLLECTION_HARD_LIMIT;
     try {
-      const events = await getEventsByCollection(slug, since, limit);
+      // Same floor_delta + resize_status cache stamp as /latest so the
+      // collection drill-down matches the main feed after reload.
+      const events = stampFromCache(await getEventsByCollection(slug, since, limit));
       maybeAutoBackfill(slug);
       res.json({ events, count: events.length, since: since?.toISOString() ?? null });
     } catch (err) {
