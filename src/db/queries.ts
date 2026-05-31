@@ -132,3 +132,43 @@ export async function getEventsByCollection(
   const result = await pool.query<SaleEventRowRaw>(BY_COLLECTION_SQL, [slug, since, limit]);
   return applySaleType(result.rows);
 }
+
+// ── Canonical sale meta by signature (overlay source for trade-history) ──────
+// Returns the canonical DERIVED sale_type (via deriveSaleType, NOT the dead
+// sale_events.sale_type default), plus nft_type + marketplace, for the given
+// signatures. Used to overlay the ME-activity-derived rows in
+// collection-trade-history so shared txs match the rest of the app.
+export interface CanonicalSaleMeta {
+  signature:   string;
+  sale_type:   string;
+  nft_type:    string;
+  marketplace: string;
+}
+const SALE_META_BY_SIG_SQL = `
+  SELECT signature, nft_type, marketplace, ${SALE_TYPE_EXTRACTS}
+    FROM sale_events
+   WHERE signature = ANY($1)
+`;
+export async function getCanonicalSaleMetaBySignatures(
+  signatures: string[],
+): Promise<Map<string, CanonicalSaleMeta>> {
+  const out = new Map<string, CanonicalSaleMeta>();
+  if (signatures.length === 0) return out;
+  const pool = getPool();
+  const { rows } = await pool.query<SaleEventRowRaw>(SALE_META_BY_SIG_SQL, [signatures]);
+  for (const r of rows) {
+    const sale_type = deriveSaleType({
+      parser:         r._parser_extract,
+      direction:      r._direction_extract,
+      heliusSaleType: r._helius_sale_type_extract,
+      subtype:        r._subtype_extract,
+    });
+    out.set(r.signature, {
+      signature:   r.signature,
+      sale_type,
+      nft_type:    r.nft_type,
+      marketplace: r.marketplace,
+    });
+  }
+  return out;
+}

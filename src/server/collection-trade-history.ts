@@ -37,7 +37,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getEventsByCollection } from '../db/queries';
+import { getEventsByCollection, getCanonicalSaleMetaBySignatures } from '../db/queries';
 import { rateLimit, isValidSlug } from './rate-limit';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
@@ -272,8 +272,32 @@ export function createCollectionTradeHistoryRouter(): Router {
     }
 
     const useMe = meEvents.length > dbEvents.length;
-    const events = useMe ? meEvents : dbEvents;
+    let events = useMe ? meEvents : dbEvents;
     const source: 'me' | 'db' = useMe ? 'me' : 'db';
+
+    // Option A overlay — ME path only. For any ME-activity row whose signature
+    // also exists in sale_events, replace the heuristic sale_type/nft_type/
+    // marketplace with the canonical DERIVED values so shared txs match the
+    // feed / /latest / /by-collection / charts. ME-only rows (not in
+    // sale_events) keep their heuristic result. The DB-fallback path is already
+    // canonical and is left untouched. Best-effort: a lookup failure leaves the
+    // ME rows unchanged. One batched indexed query; no per-row DB calls.
+    if (useMe && events.length > 0) {
+      try {
+        const canon = await getCanonicalSaleMetaBySignatures(events.map(e => e.signature));
+        let overlaid = 0;
+        events = events.map(e => {
+          const c = canon.get(e.signature);
+          if (!c) return e;
+          overlaid++;
+          return { ...e, sale_type: c.sale_type, nft_type: c.nft_type, marketplace: c.marketplace };
+        });
+        console.log(`[trade-history] overlay slug=${slug} rows=${events.length} overlaid=${overlaid} me_only=${events.length - overlaid}`);
+      } catch (e) {
+        console.warn(`[trade-history] overlay failed slug=${slug}:`, (e as Error).message);
+      }
+    }
+
     cache.set(cacheKey, { events, fetchedAt: Date.now(), source });
     res.json({
       events,
