@@ -12,6 +12,11 @@ export interface SaleEventRow {
    * `src/domain/sale-type.ts`. The SAME helper is used by the SSE emitter, so
    * REST-loaded events always match what SSE emitted live.
    * Values: 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy'
+   *
+   * ⚠ This is NOT the raw `sale_events.sale_type` DB column. That column is
+   * LEGACY/DEAD: `NOT NULL DEFAULT 'list_buy'` (migration 004) and is never
+   * written by inserts, so every persisted row reads `'list_buy'`. No query
+   * SELECTs it; do NOT use the raw column for reads/analytics — always derive.
    */
   sale_type: string;
   mint_address: string;
@@ -36,8 +41,13 @@ export interface SaleEventRow {
 }
 
 // Select raw_data extracts (not the full JSONB) so the TS-side `deriveSaleType`
-// helper can run without re-parsing the whole blob. These columns are stripped
-// from the response before it reaches callers — only `sale_type` survives.
+// helper can run without re-parsing the whole blob. These scratch columns are
+// stripped before the response reaches callers — only the DERIVED `sale_type`
+// (set by applySaleType) survives.
+//
+// NOTE: the queries deliberately do NOT select the raw `sale_events.sale_type`
+// column — it's a dead default ('list_buy', never written). sale_type is always
+// computed here from these raw_data extracts via `deriveSaleType`.
 const SALE_TYPE_EXTRACTS = `
   raw_data->>'_parser'    AS _parser_extract,
   raw_data->>'_direction' AS _direction_extract,
@@ -52,6 +62,11 @@ interface SaleEventRowRaw extends SaleEventRow {
   _helius_sale_type_extract: string | null;
 }
 
+// Canonical read-side classifier: overwrite each row's `sale_type` with the
+// value DERIVED from raw_data (deriveSaleType). The raw `sale_events.sale_type`
+// column is a legacy/dead default ('list_buy') and is intentionally ignored —
+// this is the only thing that makes REST reads match live SSE. Never bypass
+// this to read the raw column.
 function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
   return rows.map((r) => {
     r.sale_type = deriveSaleType({

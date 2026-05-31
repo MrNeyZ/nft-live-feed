@@ -127,6 +127,11 @@ export async function patchSaleEventRaw(event: SaleEvent): Promise<void> {
   });
 }
 
+// NOTE: `sale_type` is deliberately NOT in this column list. Classification is
+// derived at read time from raw_data via deriveSaleType (db/queries.ts
+// applySaleType / sse.ts) so it always matches live SSE; the raw column stays at
+// its legacy DEFAULT 'list_buy' and is never read. Don't start writing it here
+// without updating every reader (they currently ignore the column).
 const INSERT_SQL = `
   INSERT INTO sale_events
     (signature, block_time, marketplace, nft_type, mint_address, collection_address,
