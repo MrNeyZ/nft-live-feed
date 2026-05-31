@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MintEvent, MintStatus } from './types';
 import { useBlacklist, MINTS_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { isMintEventBlacklisted, isMintStatusBlacklisted } from '@/soloist/blacklist-filter';
+import type { StreamSubscribe } from '@/app/multi-native/lib/sale-event-stream';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const LIVE_FEED_MAX = 150;
@@ -34,7 +35,10 @@ export interface UseMintFeed {
 
 const evKey = (e: { signature: string; mintAddress: string | null }) => `${e.signature}:${e.mintAddress ?? ''}`;
 
-export function useMintFeed(): UseMintFeed {
+/** @param subscribe optional shared SSE multiplexer (SaleStreamProvider, /multi).
+ *  When provided the hook registers its mint handlers on the shared connection
+ *  instead of opening its own EventSource. Omitted/null → unchanged behavior. */
+export function useMintFeed(subscribe?: StreamSubscribe | null): UseMintFeed {
   const [events, setEvents] = useState<MintEvent[]>([]);
   const [rows, setRows]     = useState<Map<string, MintStatus>>(() => new Map());
 
@@ -70,91 +74,95 @@ export function useMintFeed(): UseMintFeed {
     return () => { cancelled = true; };
   }, []);
 
-  // Live SSE (mint channels only).
+  // Live SSE (mint channels only): shared multiplexer on /multi, else own ES.
   useEffect(() => {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
     let attempt = 0;
+    let unsubs: Array<() => void> = [];
+
+    const onMintStatus = (e: MessageEvent) => {
+      try {
+        const s = JSON.parse(e.data) as MintStatus;
+        if (isMintStatusBlacklisted(s, blRef.current)) return;
+        setRows(prev => {
+          const next = new Map(prev);
+          const cur  = prev.get(s.groupingKey);
+          // Sticky-merge name/image so re-emitted frames don't blank a
+          // previously-resolved thumbnail/name (mirrors /mints).
+          const img  = (s.imageUrl && s.imageUrl.length > 0) ? s.imageUrl : (cur?.imageUrl ?? undefined);
+          const nm   = (s.name && s.name.length > 0)         ? s.name     : (cur?.name ?? undefined);
+          next.set(s.groupingKey, { ...s, imageUrl: img, name: nm });
+          return next;
+        });
+      } catch { /* skip */ }
+    };
+    const onMint = (e: MessageEvent) => {
+      try {
+        const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
+        if (!m.signature) return;
+        if (isMintEventBlacklisted(m, blRef.current)) return;
+        const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
+        const ev: MintEvent = { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() };
+        setEvents(prev => {
+          const key = evKey(ev);
+          if (prev.some(p => evKey(p) === key)) return prev;
+          const merged = [ev, ...prev];
+          merged.sort((a, b) => b.receivedAt - a.receivedAt);
+          return merged.slice(0, LIVE_FEED_MAX);
+        });
+      } catch { /* skip */ }
+    };
+    const onMintMeta = (e: MessageEvent) => {
+      try {
+        const p = JSON.parse(e.data) as { signature?: string; mintAddress?: string | null; nftName?: string | null; imageUrl?: string | null };
+        if (!p.signature && !p.mintAddress) return;
+        setEvents(prev => {
+          let changed = false;
+          const next = prev.map(ev => {
+            const match = (p.signature && ev.signature === p.signature)
+                       || (!!p.mintAddress && ev.mintAddress === p.mintAddress);
+            if (!match) return ev;
+            const nextName  = (p.nftName  && p.nftName.length > 0)  ? p.nftName  : (ev.nftName     ?? null);
+            const nextImage = (p.imageUrl && p.imageUrl.length > 0) ? p.imageUrl : (ev.nftImageUrl ?? null);
+            if (ev.nftName === nextName && ev.nftImageUrl === nextImage) return ev;
+            changed = true;
+            return { ...ev, nftName: nextName, nftImageUrl: nextImage };
+          });
+          return changed ? next : prev;
+        });
+      } catch { /* skip */ }
+    };
+    const HANDLERS: Array<[string, (e: MessageEvent) => void]> = [
+      ['mint_status', onMintStatus], ['mint', onMint], ['mint_meta', onMintMeta],
+    ];
 
     const scheduleReconnect = () => {
       if (cancelled || (typeof document !== 'undefined' && document.hidden)) return;
       const base = Math.min(30_000, 1_000 * 2 ** attempt);
-      reconnectTimer = setTimeout(connect, base + Math.random() * 1_000);
+      reconnectTimer = setTimeout(ownConnect, base + Math.random() * 1_000);
       attempt++;
     };
-
-    const connect = () => {
+    const ownConnect = () => {
       if (cancelled) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
       es.addEventListener('open', () => { attempt = 0; });
-
-      es.addEventListener('mint_status', (e: MessageEvent) => {
-        try {
-          const s = JSON.parse(e.data) as MintStatus;
-          if (isMintStatusBlacklisted(s, blRef.current)) return;
-          setRows(prev => {
-            const next = new Map(prev);
-            const cur  = prev.get(s.groupingKey);
-            // Sticky-merge name/image so re-emitted frames don't blank a
-            // previously-resolved thumbnail/name (mirrors /mints).
-            const img  = (s.imageUrl && s.imageUrl.length > 0) ? s.imageUrl : (cur?.imageUrl ?? undefined);
-            const nm   = (s.name && s.name.length > 0)         ? s.name     : (cur?.name ?? undefined);
-            next.set(s.groupingKey, { ...s, imageUrl: img, name: nm });
-            return next;
-          });
-        } catch { /* skip */ }
-      });
-
-      es.addEventListener('mint', (e: MessageEvent) => {
-        try {
-          const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
-          if (!m.signature) return;
-          if (isMintEventBlacklisted(m, blRef.current)) return;
-          const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-          const ev: MintEvent = { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() };
-          setEvents(prev => {
-            const key = evKey(ev);
-            if (prev.some(p => evKey(p) === key)) return prev;
-            const merged = [ev, ...prev];
-            merged.sort((a, b) => b.receivedAt - a.receivedAt);
-            return merged.slice(0, LIVE_FEED_MAX);
-          });
-        } catch { /* skip */ }
-      });
-
-      es.addEventListener('mint_meta', (e: MessageEvent) => {
-        try {
-          const p = JSON.parse(e.data) as { signature?: string; mintAddress?: string | null; nftName?: string | null; imageUrl?: string | null };
-          if (!p.signature && !p.mintAddress) return;
-          setEvents(prev => {
-            let changed = false;
-            const next = prev.map(ev => {
-              const match = (p.signature && ev.signature === p.signature)
-                         || (!!p.mintAddress && ev.mintAddress === p.mintAddress);
-              if (!match) return ev;
-              const nextName  = (p.nftName  && p.nftName.length > 0)  ? p.nftName  : (ev.nftName     ?? null);
-              const nextImage = (p.imageUrl && p.imageUrl.length > 0) ? p.imageUrl : (ev.nftImageUrl ?? null);
-              if (ev.nftName === nextName && ev.nftImageUrl === nextImage) return ev;
-              changed = true;
-              return { ...ev, nftName: nextName, nftImageUrl: nextImage };
-            });
-            return changed ? next : prev;
-          });
-        } catch { /* skip */ }
-      });
-
+      for (const [t, h] of HANDLERS) es.addEventListener(t, h as EventListener);
       es.addEventListener('error', () => { es?.close(); scheduleReconnect(); });
     };
 
-    connect();
+    if (subscribe) unsubs = HANDLERS.map(([t, h]) => subscribe(t, h));
+    else ownConnect();
+
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       es?.close();
+      unsubs.forEach(u => u());
     };
-  }, []);
+  }, [subscribe]);
 
   return { events, rows };
 }

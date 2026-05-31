@@ -23,6 +23,7 @@ import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { useBlacklist, FEED_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { isFeedEventBlacklisted } from '@/soloist/blacklist-filter';
 import type { FeedEvent } from '@/soloist/mock-data';
+import type { StreamSubscribe } from '@/app/multi-native/lib/sale-event-stream';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
@@ -34,7 +35,11 @@ export interface UseSalesFeed {
   meStale: boolean;
 }
 
-export function useSalesFeed(): UseSalesFeed {
+/** @param subscribe optional shared SSE multiplexer (from SaleStreamProvider,
+ *  used on /multi). When provided the hook registers its handlers on the shared
+ *  connection instead of opening its own EventSource. Omitted/null → unchanged
+ *  self-contained behavior (own EventSource + reconnect). */
+export function useSalesFeed(subscribe?: StreamSubscribe | null): UseSalesFeed {
   const [state, dispatch] = useReducer(feedReducer, MAX_EVENTS, initFeedState);
   const [sourceState, setSourceState] = useState<{ magiceden: 'ok' | 'stale'; tensor: 'ok' | 'stale' }>(
     { magiceden: 'ok', tensor: 'ok' },
@@ -50,51 +55,52 @@ export function useSalesFeed(): UseSalesFeed {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
     let attempt = 0;
+    let unsubs: Array<() => void> = [];
+
+    // Event handlers — identical for both wiring modes (own ES / shared mux).
+    const onSale = (e: MessageEvent) => {
+      try {
+        const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
+        if (isFeedEventBlacklisted(ev, blRef.current)) return;
+        dispatch({ type: 'live', event: ev });
+      } catch { /* malformed frame — skip */ }
+    };
+    const onMeta = (e: MessageEvent) => {
+      try { dispatch({ type: 'meta', patch: JSON.parse(e.data) as MetaPatch, blacklist: blRef.current }); } catch { /* skip */ }
+    };
+    const onRemove = (e: MessageEvent) => {
+      try { const { signature } = JSON.parse(e.data) as { signature: string }; if (signature) dispatch({ type: 'remove', signature }); } catch { /* skip */ }
+    };
+    const onResize = (e: MessageEvent) => {
+      try { const patch = JSON.parse(e.data) as ResizeStatusPatch; if (patch.signature && patch.resizeStatus) dispatch({ type: 'resize_status', patch }); } catch { /* skip */ }
+    };
+    const onStatus = (e: MessageEvent) => {
+      try { const { source, state: st } = JSON.parse(e.data) as { source: 'magiceden' | 'tensor'; state: 'ok' | 'stale' }; setSourceState(prev => ({ ...prev, [source]: st })); } catch { /* skip */ }
+    };
+    const HANDLERS: Array<[string, (e: MessageEvent) => void]> = [
+      ['sale', onSale], ['meta', onMeta], ['remove', onRemove], ['resize_status', onResize], ['status', onStatus],
+    ];
 
     const scheduleReconnect = () => {
       if (cancelled || (typeof document !== 'undefined' && document.hidden)) return;
       const base = Math.min(30_000, 1_000 * 2 ** attempt);
-      reconnectTimer = setTimeout(connect, base + Math.random() * 1_000);
+      reconnectTimer = setTimeout(ownConnect, base + Math.random() * 1_000);
       attempt++;
     };
-
-    const connect = () => {
+    const ownConnect = () => {
       if (cancelled) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
       es.addEventListener('open', () => { attempt = 0; });
-      es.addEventListener('sale', (e: MessageEvent) => {
-        try {
-          const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
-          if (isFeedEventBlacklisted(ev, blRef.current)) return;
-          dispatch({ type: 'live', event: ev });
-        } catch { /* malformed frame — skip */ }
-      });
-      es.addEventListener('meta', (e: MessageEvent) => {
-        try {
-          dispatch({ type: 'meta', patch: JSON.parse(e.data) as MetaPatch, blacklist: blRef.current });
-        } catch { /* skip */ }
-      });
-      es.addEventListener('remove', (e: MessageEvent) => {
-        try {
-          const { signature } = JSON.parse(e.data) as { signature: string };
-          if (signature) dispatch({ type: 'remove', signature });
-        } catch { /* skip */ }
-      });
-      es.addEventListener('resize_status', (e: MessageEvent) => {
-        try {
-          const patch = JSON.parse(e.data) as ResizeStatusPatch;
-          if (patch.signature && patch.resizeStatus) dispatch({ type: 'resize_status', patch });
-        } catch { /* skip */ }
-      });
-      es.addEventListener('status', (e: MessageEvent) => {
-        try {
-          const { source, state: st } = JSON.parse(e.data) as { source: 'magiceden' | 'tensor'; state: 'ok' | 'stale' };
-          setSourceState(prev => ({ ...prev, [source]: st }));
-        } catch { /* skip */ }
-      });
+      for (const [t, h] of HANDLERS) es.addEventListener(t, h as EventListener);
       es.addEventListener('error', () => { es?.close(); scheduleReconnect(); });
     };
+
+    // Shared multiplexer (on /multi) registers handlers on the one connection;
+    // otherwise open an own EventSource. Snapshot fetch is identical for both.
+    const startLive = subscribe
+      ? () => { unsubs = HANDLERS.map(([t, h]) => subscribe(t, h)); }
+      : ownConnect;
 
     fetch(`${API_BASE}/api/events/latest?limit=${SNAPSHOT_LIMIT}`)
       .then(r => r.json())
@@ -106,14 +112,15 @@ export function useSalesFeed(): UseSalesFeed {
         dispatch({ type: 'snapshot', events });
       })
       .catch(() => { /* snapshot failed — live stream still connects */ })
-      .finally(() => { if (!cancelled) connect(); });
+      .finally(() => { if (!cancelled) startLive(); });
 
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       es?.close();
+      unsubs.forEach(u => u());
     };
-  }, []);
+  }, [subscribe]);
 
   const ordered = useMemo(() => orderedEvents(state), [state]);
   // Render backstop — drops rows whose blacklisted identity only became

@@ -14,6 +14,7 @@
 import { MintFeedPanel } from '@/app/mints/MintFeedPanel';
 import { RareFeedPanel } from '@/app/tools/rare-feed/RareFeedPanel';
 import { SalesFeedPanel } from '@/app/feed/SalesFeedPanel';
+import { SaleStreamProvider } from './lib/sale-event-stream';
 
 // Frameless grid cell — flex column so each panel's `flex: 1` fills the cell
 // height cross-browser. NO border/background/shadow (panels carry their own
@@ -24,22 +25,26 @@ const CELL: React.CSSProperties = {
 
 export function MultiNativeView() {
   return (
-    <div className="feed-root page-transition" data-embedded="1">
-      <div style={{
-        flex: 1,
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-        gridTemplateRows: '1fr',
-        gap: 12,
-        // Outer horizontal gutter = the responsive page gutter (--page-x),
-        // matching the iframe /multi spacing; vertical 16px.
-        padding: '16px var(--page-x, 16px)',
-        minHeight: 0,
-      }}>
-        <div style={CELL}><MintFeedPanel /></div>
-        <div style={CELL}><RareFeedPanel /></div>
-        <div style={CELL}><SalesFeedPanel /></div>
+    // One shared EventSource for the whole page: the sales + mint panels
+    // register their handlers on it instead of opening a connection each.
+    <SaleStreamProvider>
+      <div className="feed-root page-transition" data-embedded="1">
+        <div style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gridTemplateRows: '1fr',
+          gap: 12,
+          // Outer horizontal gutter = the responsive page gutter (--page-x),
+          // matching the iframe /multi spacing; vertical 16px.
+          padding: '16px var(--page-x, 16px)',
+          minHeight: 0,
+        }}>
+          <div style={CELL}><MintFeedPanel /></div>
+          <div style={CELL}><RareFeedPanel /></div>
+          <div style={CELL}><SalesFeedPanel /></div>
+        </div>
       </div>
-    </div>
+    </SaleStreamProvider>
   );
 }

@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { LiveDot, Pill } from '@/soloist/shared';
+import { useSaleStream } from '@/app/multi-native/lib/sale-event-stream';
 import type { MintEvent } from './lib/types';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 import { useMintFeed } from './lib/use-mint-feed';
@@ -36,7 +37,7 @@ function PausedChip() {
 }
 
 export function MintFeedPanel() {
-  const { events, rows } = useMintFeed();
+  const { events, rows } = useMintFeed(useSaleStream());
 
   const [paused, setPaused] = useState(false);
   // Pause freeze: while paused, render the last live snapshot (events keep
