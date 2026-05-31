@@ -847,7 +847,7 @@ interface TensorActiveListing {
 /** Resolved Tensor collection identity. Tensor's `slugDisplay` (e.g.
  *  `madlads`) differs from the ME slug we're queried with (`slugMe`, e.g.
  *  `mad_lads`), so we keep all aliases to bridge the two namespaces. */
-interface TensorCollMeta {
+export interface TensorCollMeta {
   collId:      string;
   slugDisplay: string | null;
   slugMe:      string | null;
@@ -865,7 +865,7 @@ const tensorCollMetaCache = new Map<string, TensorCollMeta | null>();
 /** Sequential gate over all tensordev requests, enforcing ≥1 req/sec. Each
  *  request waits for the previous to settle, then a 1 s spacer. */
 let tensorFetchChain: Promise<unknown> = Promise.resolve();
-function tensorFetch(url: string): Promise<Response> {
+export function tensorFetch(url: string): Promise<Response> {
   const res = tensorFetchChain.then(() =>
     fetch(url, {
       // Key read here only — never logged. Callers guard on its presence.
@@ -908,7 +908,7 @@ function tensorSlugCandidates(appSlug: string): string[] {
  *  candidates (NOT hardcoded per collection). Caches the result under the
  *  queried slug plus every alias so ME slug and Tensor slugDisplay both
  *  resolve to the same collId. Returns null (cached) on a clean miss. */
-async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null> {
+export async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null> {
   const cached = tensorCollMetaCache.get(appSlug);
   if (cached !== undefined) return cached;
 

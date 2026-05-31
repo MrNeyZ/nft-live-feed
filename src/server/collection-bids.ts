@@ -21,6 +21,7 @@
 import { Router, Request, Response } from 'express';
 import { getMeStats } from '../enrichment/me-stats';
 import { rateLimit, isValidSlug } from './rate-limit';
+import { resolveTensorMeta, tensorFetch } from './listings-store';
 
 const BID_TTL_MS = 60_000;
 // Lowered 80 → 20 per H2: per-request fan-out budget is now bounded
@@ -90,19 +91,22 @@ interface TensorCollStats {
 }
 
 async function fetchTensorTopBid(slug: string): Promise<number | null> {
-  const key = process.env.TENSOR_API_KEY;
-  if (!key) return null;
+  if (!process.env.TENSOR_API_KEY) return null;
   try {
-    const res = await fetch(
-      `https://api.mainnet.tensordev.io/api/v1/collections?slug=${encodeURIComponent(slug)}`,
-      {
-        headers: { 'x-tensor-api-key': key },
-        signal: AbortSignal.timeout(5_000),
-      },
+    // Reuse the listings-store resolver + alias cache so our ME slug maps to
+    // Tensor's collId once (cached for the process), then fetch live stats by
+    // collId. Both calls go through the shared `tensorFetch` gate, so dashboard
+    // bids and listings share one global 1 req/sec limit (no request storm).
+    const meta = await resolveTensorMeta(slug);
+    if (!meta) return null;
+    const res = await tensorFetch(
+      `https://api.mainnet.tensordev.io/api/v1/collections/find_collection`
+      + `?filter=${encodeURIComponent(meta.collId)}`,
     );
     if (!res.ok) return null;
     const json = await res.json() as TensorCollStats;
-    // sellNowPrice = what you'd get *selling now* into the top pool bid.
+    // sellNowPrice (lamports) = what you'd get *selling now* into the top
+    // collection bid — i.e. the top Tensor bid.
     const sell = json?.stats?.sellNowPrice;
     const n = sell ? Number(sell) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
