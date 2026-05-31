@@ -851,6 +851,7 @@ interface TensorCollMeta {
   collId:      string;
   slugDisplay: string | null;
   slugMe:      string | null;
+  slugAtlas3:  string | null;
   symbol:      string | null;
 }
 
@@ -876,17 +877,31 @@ function tensorFetch(url: string): Promise<Response> {
   return res;
 }
 
-/** Up to 3 Tensor slug candidates derived from our app (ME) slug:
- *    1. as-is               (`mad_lads`)
- *    2. underscores removed (`madlads`  ← Tensor's slugDisplay)
- *    3. + lowercased        (`madlads`) */
+/** Generic Tensor slug candidates derived from our app (ME) slug, covering
+ *  both directions of separator mismatch (NOT hardcoded per collection):
+ *    1. as-is                        (`mad_lads`)
+ *    2. lowercased                   (`mad_lads`)
+ *    3. underscores removed          (`madlads`  ← Tensor's slugDisplay)
+ *    4. hyphens removed              (`madlads`)
+ *    5. underscores → hyphens        (`mad-lads`)
+ *    6. hyphens → underscores        (`mad_lads`)
+ *  Deduped (order-preserving) and capped at 4 attempts to respect 1 req/sec
+ *  and avoid request fan-out. */
 function tensorSlugCandidates(appSlug: string): string[] {
+  const variants = [
+    appSlug,
+    appSlug.toLowerCase(),
+    appSlug.replace(/_/g, ''),
+    appSlug.replace(/-/g, ''),
+    appSlug.replace(/_/g, '-'),
+    appSlug.replace(/-/g, '_'),
+  ];
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const c of [appSlug, appSlug.replace(/_/g, ''), appSlug.replace(/_/g, '').toLowerCase()]) {
+  for (const c of variants) {
     if (c && !seen.has(c)) { seen.add(c); out.push(c); }
   }
-  return out.slice(0, 3);
+  return out.slice(0, 4);
 }
 
 /** Resolve our app slug to Tensor's collId, trying a few generic slug-shape
@@ -907,12 +922,15 @@ async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null
         `https://api.mainnet.tensordev.io/api/v1/collections/find_collection?filter=${encodeURIComponent(candidate)}`,
       );
       if (res.ok) {
-        const j = await res.json() as { collId?: string; slugDisplay?: string; slugMe?: string; symbol?: string };
+        const j = await res.json() as {
+          collId?: string; slugDisplay?: string; slugMe?: string; slugAtlas3?: string; symbol?: string;
+        };
         if (typeof j.collId === 'string' && j.collId.length > 0) {
           meta = {
             collId:      j.collId,
             slugDisplay: typeof j.slugDisplay === 'string' ? j.slugDisplay : null,
             slugMe:      typeof j.slugMe === 'string' ? j.slugMe : null,
+            slugAtlas3:  typeof j.slugAtlas3 === 'string' ? j.slugAtlas3 : null,
             symbol:      typeof j.symbol === 'string' ? j.symbol : null,
           };
           break;
@@ -929,8 +947,9 @@ async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null
   // unrelated collection's slug.
   tensorCollMetaCache.set(appSlug, meta);
   if (meta) {
-    if (meta.slugMe)                     tensorCollMetaCache.set(meta.slugMe, meta);
-    if (meta.slugDisplay)                tensorCollMetaCache.set(meta.slugDisplay, meta);
+    if (meta.slugMe)                            tensorCollMetaCache.set(meta.slugMe, meta);
+    if (meta.slugDisplay)                       tensorCollMetaCache.set(meta.slugDisplay, meta);
+    if (meta.slugAtlas3)                        tensorCollMetaCache.set(meta.slugAtlas3, meta);
     if (meta.symbol && meta.symbol.length >= 4) tensorCollMetaCache.set(meta.symbol, meta);
   }
   return meta;
