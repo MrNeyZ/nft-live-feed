@@ -17,6 +17,7 @@
  */
 import { saleEventBus, type MetaUpdate } from '../events/emitter';
 import type { SaleEvent } from '../models/sale-event';
+import { getPool } from '../db/client';
 import { getRarity } from './rarity';
 import { scoreSale, isTrueOneOfOne, ONE_OF_ONE_SCORE } from './scoring';
 import { insertRareEvent } from './store';
@@ -102,135 +103,248 @@ function onSale(event: SaleEvent): void {
   if (pending.size > PENDING_MAX) evictPending();
 }
 
+/** Inputs for one evaluation, sourced either from a live sale+meta pair or
+ *  from a boot-replay DB row. `floorDelta` is null when no floor is available
+ *  (boot replay has no live `meta`), in which case only the 1/1 path can pass. */
+interface CandidateInput {
+  signature:      string;
+  mintAddress:    string;
+  slug:           string | null;
+  salePrice:      number;
+  marketplace:    string;
+  blockTime:      Date;
+  nftName:        string | null;
+  imageUrl:       string | null;
+  collectionName: string | null;
+  floorDelta:     number | null;
+}
+
+/** Discriminated result so callers (live vs replay) own their own
+ *  decided/pending bookkeeping, stat counters and logging. `no_floor` is the
+ *  only NON-terminal outcome — a non-1/1 with no floor may still be evaluated
+ *  later when a floor-bearing `meta` arrives. */
+type EvalOutcome =
+  | { kind: 'one_of_one'; wrote: boolean; rank: number | null; supply: number | null; source: string }
+  | { kind: 'flood' }
+  | { kind: 'no_floor' }
+  | { kind: 'no_rarity' }
+  | { kind: 'rejected'; reason: 'rarity' | 'price'; pct: number; floorDeltaPct: number }
+  | { kind: 'accepted'; wrote: boolean; score: number; tags: string[]; rank: number; supply: number };
+
+/**
+ * Shared evaluation core for the live `meta` path AND boot replay. Resolves
+ * rarity (traits-bearing), applies the conservative true-1/1 exception, else
+ * the unchanged percentile + price/floor gate. Performs the insert; does NOT
+ * touch the decided/pending maps or stat counters — that's the caller's job.
+ */
+async function evaluateCandidate(c: CandidateInput): Promise<EvalOutcome> {
+  const hasFloor   = c.floorDelta != null && c.floorDelta > -1;
+  const floorPrice = hasFloor ? c.salePrice / (1 + (c.floorDelta as number)) : null;
+  const rarity     = await getRarity(c.mintAddress, c.slug);
+
+  // ── True 1/1 exception: force-include regardless of floor / percentile /
+  //    near-floor price. Keeps the provider's REAL rank; score is synthetic.
+  if (isTrueOneOfOne(rarity.traits, c.nftName, rarity.totalSupply, rarity.rarityRank)) {
+    if (!allowOneOfOne(c.slug)) return { kind: 'flood' };
+    const pct = rarity.totalSupply ? (rarity.rarityRank as number) / rarity.totalSupply : null;
+    const wrote = await insertRareEvent({
+      saleSignature:    c.signature,
+      mintAddress:      c.mintAddress,
+      collectionSlug:   c.slug,
+      collectionName:   c.collectionName,
+      nftName:          c.nftName,
+      imageUrl:         c.imageUrl,
+      source:           c.marketplace,
+      salePriceSol:     c.salePrice,
+      floorPriceSol:    floorPrice,
+      floorDeltaPct:    hasFloor ? c.floorDelta : null,
+      rarityRank:       rarity.rarityRank,
+      totalSupply:      rarity.totalSupply,
+      rarityPercentile: pct,
+      raritySource:     rarity.source,
+      rareScore:        ONE_OF_ONE_SCORE,
+      reasonTags:       ['ONE_OF_ONE'],
+      saleTime:         c.blockTime,
+    });
+    return { kind: 'one_of_one', wrote, rank: rarity.rarityRank, supply: rarity.totalSupply, source: rarity.source };
+  }
+
+  // ── Normal path: requires a floor. Without it, NON-terminal (caller waits).
+  if (!hasFloor || floorPrice == null || floorPrice <= 0) return { kind: 'no_floor' };
+  if (rarity.rarityRank == null || rarity.totalSupply == null || rarity.totalSupply <= 0) {
+    return { kind: 'no_rarity' };
+  }
+
+  const result = scoreSale({
+    rarityRank:  rarity.rarityRank,
+    totalSupply: rarity.totalSupply,
+    salePrice:   c.salePrice,
+    floorPrice,
+  });
+  if (!result.qualifies) {
+    return { kind: 'rejected', reason: result.rejectReason ?? 'rarity', pct: result.rarityPercentile, floorDeltaPct: result.floorDeltaPct };
+  }
+
+  const wrote = await insertRareEvent({
+    saleSignature:    c.signature,
+    mintAddress:      c.mintAddress,
+    collectionSlug:   c.slug,
+    collectionName:   c.collectionName,
+    nftName:          c.nftName,
+    imageUrl:         c.imageUrl,
+    source:           c.marketplace,
+    salePriceSol:     c.salePrice,
+    floorPriceSol:    floorPrice,
+    floorDeltaPct:    result.floorDeltaPct,
+    rarityRank:       rarity.rarityRank,
+    totalSupply:      rarity.totalSupply,
+    rarityPercentile: result.rarityPercentile,
+    raritySource:     rarity.source,
+    rareScore:        result.score,
+    reasonTags:       result.reasonTags,
+    saleTime:         c.blockTime,
+  });
+  return { kind: 'accepted', wrote, score: result.score, tags: result.reasonTags, rank: rarity.rarityRank, supply: rarity.totalSupply };
+}
+
 function onMeta(update: MetaUpdate): void {
   const sig = update.signature;
   if (decided.has(sig)) return;
   const sale = pending.get(sig);
   if (!sale) return;                          // sale not captured (pre-restart / empty mint)
-
-  const floorDelta = update.floorDelta;
-  const hasFloor   = floorDelta != null && floorDelta > -1;
-  const salePrice  = sale.priceSol;
-  const floorPrice = hasFloor ? salePrice / (1 + floorDelta) : null;
-  const mint       = sale.mintAddress;
-  const slug       = update.meCollectionSlug ?? sale.slug;
+  const slug = update.meCollectionSlug ?? sale.slug;
 
   // Async, fire-and-forget — never blocks the bus / SSE fan-out.
-  //
-  // Rarity is resolved FIRST (it carries the traits we need), because the true
-  // 1/1 exception must work even when no floor is available — genuine 1/1 drops
-  // frequently have no floor yet, and they legitimately sell far above floor.
-  // Non-1/1 sales still REQUIRE a floor and, when it's missing, are left
-  // un-decided so a later `meta` (floor/image retry) can still evaluate them.
   void (async () => {
     try {
       if (decided.has(sig)) return;
       stat.evaluated++;
-      const rarity = await getRarity(mint, slug);
+      const outcome = await evaluateCandidate({
+        signature:      sig,
+        mintAddress:    sale.mintAddress,
+        slug,
+        salePrice:      sale.priceSol,
+        marketplace:    sale.marketplace,
+        blockTime:      sale.blockTime,
+        nftName:        update.nftName,
+        imageUrl:       update.imageUrl,
+        collectionName: update.collectionName,
+        floorDelta:     update.floorDelta ?? null,
+      });
 
-      // ── True 1/1 exception ───────────────────────────────────────────────
-      // Force-include regardless of floor / percentile / near-floor price.
-      // Keep the provider's REAL rank; only the score is synthetic (for sort +
-      // min-score gate). Tagged ONE_OF_ONE so the UI can badge it.
-      if (isTrueOneOfOne(rarity.traits, update.nftName, rarity.totalSupply, rarity.rarityRank)) {
-        if (decided.has(sig)) return;
-        markDecided(sig);
-        pending.delete(sig);
-        if (!allowOneOfOne(slug)) {
-          console.log(`[rare/feed] 1of1 skipped sig=${sig.slice(0, 12)}… slug=${slug ?? '?'} reason=slug_cap`);
-          return;
-        }
-        const pct = rarity.totalSupply ? (rarity.rarityRank as number) / rarity.totalSupply : null;
-        const wrote = await insertRareEvent({
-          saleSignature:    sig,
-          mintAddress:      mint,
-          collectionSlug:   slug,
-          collectionName:   update.collectionName,
-          nftName:          update.nftName,
-          imageUrl:         update.imageUrl,
-          source:           sale.marketplace,
-          salePriceSol:     salePrice,
-          floorPriceSol:    floorPrice,
-          floorDeltaPct:    hasFloor ? floorDelta : null,
-          rarityRank:       rarity.rarityRank,
-          totalSupply:      rarity.totalSupply,
-          rarityPercentile: pct,
-          raritySource:     rarity.source,
-          rareScore:        ONE_OF_ONE_SCORE,
-          reasonTags:       ['ONE_OF_ONE'],
-          saleTime:         sale.blockTime,
-        });
-        if (wrote) stat.oneOfOne++;
-        console.log(
-          `[rare/feed] 1of1 accepted sig=${sig.slice(0, 12)}… mint=${mint.slice(0, 8)}… ` +
-          `rank=${rarity.rarityRank}/${rarity.totalSupply} src=${rarity.source} ${wrote ? '' : '(dup)'}`,
-        );
-        return;
-      }
-
-      // ── Normal path: requires a floor. Without it, do NOT mark decided —
-      //    a later `meta` may carry the floor.
-      if (!hasFloor || floorPrice == null) return;
-      if (decided.has(sig)) return;
+      // Non-1/1 with no floor: leave un-decided so a later `meta` carrying the
+      // floor can still evaluate it. Every other outcome is terminal.
+      if (outcome.kind === 'no_floor') return;
       markDecided(sig);
       pending.delete(sig);
 
-      if (rarity.rarityRank == null || rarity.totalSupply == null || rarity.totalSupply <= 0) {
-        stat.missingRarity++;
-        console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_rarity`);
-        return;
+      switch (outcome.kind) {
+        case 'flood':
+          console.log(`[rare/feed] 1of1 skipped sig=${sig.slice(0, 12)}… slug=${slug ?? '?'} reason=slug_cap`);
+          break;
+        case 'one_of_one':
+          if (outcome.wrote) stat.oneOfOne++;
+          console.log(
+            `[rare/feed] 1of1 accepted sig=${sig.slice(0, 12)}… mint=${sale.mintAddress.slice(0, 8)}… ` +
+            `rank=${outcome.rank}/${outcome.supply} src=${outcome.source} ${outcome.wrote ? '' : '(dup)'}`,
+          );
+          break;
+        case 'no_rarity':
+          stat.missingRarity++;
+          console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_rarity`);
+          break;
+        case 'rejected':
+          if (outcome.reason === 'rarity') stat.rejRarity++; else stat.rejPrice++;
+          console.log(
+            `[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=${outcome.reason} ` +
+            `pct=${(outcome.pct * 100).toFixed(2)}% floorDelta=${(outcome.floorDeltaPct * 100).toFixed(1)}%`,
+          );
+          break;
+        case 'accepted':
+          if (outcome.wrote) stat.accepted++;
+          console.log(
+            `[rare/feed] accepted sig=${sig.slice(0, 12)}… score=${outcome.score} ` +
+            `tags=${outcome.tags.join(',')} rank=${outcome.rank}/${outcome.supply} ${outcome.wrote ? '' : '(dup, skipped)'}`,
+          );
+          break;
       }
-      if (floorPrice <= 0) {
-        console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_floor`);
-        return;
-      }
-
-      const result = scoreSale({
-        rarityRank:  rarity.rarityRank,
-        totalSupply: rarity.totalSupply,
-        salePrice,
-        floorPrice,
-      });
-
-      if (!result.qualifies) {
-        if (result.rejectReason === 'rarity') stat.rejRarity++; else stat.rejPrice++;
-        console.log(
-          `[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=${result.rejectReason} ` +
-          `pct=${(result.rarityPercentile * 100).toFixed(2)}% floorDelta=${(result.floorDeltaPct * 100).toFixed(1)}%`,
-        );
-        return;
-      }
-
-      const wrote = await insertRareEvent({
-        saleSignature:    sig,
-        mintAddress:      mint,
-        collectionSlug:   slug,
-        collectionName:   update.collectionName,
-        nftName:          update.nftName,
-        imageUrl:         update.imageUrl,
-        source:           sale.marketplace,
-        salePriceSol:     salePrice,
-        floorPriceSol:    floorPrice,
-        floorDeltaPct:    result.floorDeltaPct,
-        rarityRank:       rarity.rarityRank,
-        totalSupply:      rarity.totalSupply,
-        rarityPercentile: result.rarityPercentile,
-        raritySource:     rarity.source,
-        rareScore:        result.score,
-        reasonTags:       result.reasonTags,
-        saleTime:         sale.blockTime,
-      });
-
-      if (wrote) stat.accepted++;
-      console.log(
-        `[rare/feed] accepted sig=${sig.slice(0, 12)}… score=${result.score} ` +
-        `tags=${result.reasonTags.join(',')} rank=${rarity.rarityRank}/${rarity.totalSupply} ` +
-        `${wrote ? '' : '(dup, skipped)'}`,
-      );
     } catch (err) {
       console.warn(`[rare/feed] eval error sig=${sig.slice(0, 12)}…: ${(err as Error).message}`);
     }
   })();
+}
+
+// ─── Boot replay ────────────────────────────────────────────────────────────
+// Default 15 min, env-overridable, hard-capped at 60 min so a misconfig can't
+// trigger a huge historical replay.
+const BOOT_REPLAY_MIN = (() => {
+  const raw = parseInt((process.env.RARE_FEED_BOOT_REPLAY_MINUTES ?? '').trim(), 10);
+  const n = Number.isFinite(raw) ? raw : 15;
+  return Math.max(0, Math.min(60, n));
+})();
+const BOOT_REPLAY_LIMIT = 500;
+
+/**
+ * On startup, replay a small recent window of sales that have no rare_feed row
+ * yet, through the shared `evaluateCandidate` path. This recovers sales whose
+ * `sale`→`meta` correlation was lost when the process restarted mid-flight —
+ * the largest measured Rare-Feed coverage loss.
+ *
+ * Idempotent + bounded + safe on every restart:
+ *   • skips signatures already in rare_feed_events (anti-join) + insert is
+ *     ON CONFLICT DO NOTHING, so it never duplicates rows;
+ *   • replayed sales have NO live `meta`, so no floor is available — only the
+ *     true 1/1 exception can pass (non-1/1 → `no_floor`, left un-decided so a
+ *     live meta can still handle a very-recent sale);
+ *   • capped to BOOT_REPLAY_MIN minutes and BOOT_REPLAY_LIMIT rows.
+ */
+async function bootReplay(): Promise<void> {
+  if (BOOT_REPLAY_MIN <= 0) return;
+  let scanned = 0, evaluated = 0, accepted = 0, oneOfOne = 0, skippedNoFloor = 0;
+  try {
+    const { rows } = await getPool().query(
+      `SELECT se.signature, se.mint_address, se.me_collection_slug, se.price_sol,
+              se.marketplace, se.block_time, se.nft_name, se.image_url, se.collection_name
+         FROM sale_events se
+         LEFT JOIN rare_feed_events rf ON rf.sale_signature = se.signature
+        WHERE se.block_time >= now() - ($1 || ' minutes')::interval
+          AND se.mint_address IS NOT NULL AND se.mint_address <> ''
+          AND rf.sale_signature IS NULL
+        ORDER BY se.block_time DESC
+        LIMIT $2`,
+      [String(BOOT_REPLAY_MIN), BOOT_REPLAY_LIMIT],
+    );
+    scanned = rows.length;
+    for (const r of rows) {
+      if (decided.has(r.signature)) continue;
+      evaluated++;
+      const outcome = await evaluateCandidate({
+        signature:      r.signature,
+        mintAddress:    r.mint_address,
+        slug:           r.me_collection_slug ?? null,
+        salePrice:      Number(r.price_sol),
+        marketplace:    r.marketplace,
+        blockTime:      new Date(r.block_time),
+        nftName:        r.nft_name ?? null,
+        imageUrl:       r.image_url ?? null,
+        collectionName: r.collection_name ?? null,
+        floorDelta:     null,   // no live meta on replay → 1/1 exception only
+      });
+      // Mark terminal outcomes decided so a concurrent/late live meta skips
+      // them; leave `no_floor` un-decided so a very-recent sale's live meta can
+      // still evaluate it with a real floor.
+      if (outcome.kind !== 'no_floor') markDecided(r.signature);
+      if (outcome.kind === 'one_of_one') { if (outcome.wrote) { accepted++; oneOfOne++; } }
+      else if (outcome.kind === 'accepted') { if (outcome.wrote) accepted++; }
+      else if (outcome.kind === 'no_floor') skippedNoFloor++;
+    }
+  } catch (err) {
+    console.warn(`[rare/feed/replay] error: ${(err as Error).message}`);
+  }
+  console.log(
+    `[rare/feed/replay] window=${BOOT_REPLAY_MIN}m scanned=${scanned} evaluated=${evaluated} ` +
+    `accepted=${accepted} oneOfOne=${oneOfOne} skippedNoFloor=${skippedNoFloor}`,
+  );
 }
 
 let started = false;
@@ -241,6 +355,9 @@ export function startRareFeedEvaluator(): void {
   saleEventBus.onSale(onSale);
   saleEventBus.onMetaUpdate(onMeta);
   console.log('[rare/feed] evaluator attached (sale + meta bus listeners)');
+  // Recover sales lost to a mid-flight restart (sale captured, meta wiped).
+  // Fire-and-forget AFTER listeners attach, so live sales are never missed.
+  void bootReplay();
   // Periodic funnel summary (cumulative since boot) every 5 min.
   const summary = setInterval(() => {
     console.log(
