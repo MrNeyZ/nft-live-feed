@@ -69,6 +69,39 @@ const MAX_SSE_CLIENTS        = envInt('SSE_MAX_CLIENTS',        2000);
 const MAX_SSE_CLIENTS_PER_IP = envInt('SSE_MAX_CLIENTS_PER_IP',  4);
 const clientsByIp = new Map<string, number>();
 
+/** Strip an IPv6-mapped IPv4 prefix so `::ffff:1.2.3.4` keys the same bucket
+ *  as `1.2.3.4`. */
+function normalizeIp(ip: string): string {
+  const t = ip.trim();
+  return t.startsWith('::ffff:') ? t.slice(7) : t;
+}
+
+/** Real client IP for per-IP SSE cap accounting (NOT used for anything else).
+ *
+ *  The deployment is Client → Cloudflare → nginx → Express, which is TWO proxy
+ *  hops; `app.set('trust proxy', 1)` only unwinds one, so `req.ip` resolves to
+ *  the Cloudflare EDGE IP (172.68.x.x) — meaning every user behind that edge
+ *  shares one per-IP bucket and trips the cap. Priority:
+ *    1. CF-Connecting-IP — set by Cloudflare to the true client; the client
+ *       cannot spoof it (Cloudflare overwrites the header at the edge).
+ *    2. first (left-most) X-Forwarded-For entry — the original client.
+ *    3. req.ip / socket — last resort.
+ *
+ *  Trade-off: #1 is trustworthy ONLY because all ingress is forced through
+ *  Cloudflare+nginx (no direct origin exposure). If the origin were ever
+ *  reachable directly, CF-Connecting-IP / XFF would be client-forgeable — but
+ *  the blast radius is just this rate-limit bucket, never auth/data. */
+function clientIpForCap(req: Request): string {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim()) return normalizeIp(cf);
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0];
+    if (first && first.trim()) return normalizeIp(first);
+  }
+  return normalizeIp(req.ip || req.socket.remoteAddress || 'unknown');
+}
+
 // ── Slow-client backpressure ────────────────────────────────────────────────
 // res.write() returns false when the kernel send buffer is full and Node is
 // queuing the frame in user space. One false return is normal under bursts.
@@ -543,9 +576,10 @@ export function createSseRouter(): Router {
     // Reject BEFORE any setHeader / flushHeaders so the rejection is a
     // clean HTTP/1.1 429 with a JSON body — once we've flushed the
     // 200 OK + text/event-stream headers we can't change status. The
-    // caps key on req.ip (real client IP after `trust proxy = 1`) for
-    // the per-IP bucket, and on sseClients.size for the global bucket.
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // Per-IP bucket keys on the REAL client IP (CF-Connecting-IP / XFF), not
+    // the Cloudflare edge IP that `req.ip` resolves to behind two proxy hops;
+    // global bucket keys on sseClients.size. See clientIpForCap().
+    const ip = clientIpForCap(req);
     if (sseClients.size >= MAX_SSE_CLIENTS) {
       console.warn(`[sse] reject reason=global_cap clients=${sseClients.size}/${MAX_SSE_CLIENTS}`);
       res.setHeader('Retry-After', '30');
@@ -616,6 +650,7 @@ export function createSseRouter(): Router {
 
     sseClients.add(res);
     clientsByIp.set(ip, ipCount + 1);
+    console.log(`[sse] open ip=${ip} count=${ipCount + 1}/${MAX_SSE_CLIENTS_PER_IP} clients=${sseClients.size}`);
 
     // Per-client stats. broadcast() reads/writes this; cleanup nulls the
     // back-reference so a late callback can't resurrect a dead client.
