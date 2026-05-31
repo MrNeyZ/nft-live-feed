@@ -829,36 +829,83 @@ async function fetchMmmPools(slug: string): Promise<Listing[]> {
   }
 }
 
-interface TensorRawListing {
-  mint?:    { onchainId?: string; rarityRankHR?: number; rarityRankTT?: number };
-  tx?:      { sellerId?: string; grossAmount?: string };
-  listing?: { price?: string; seller?: string };
+/** Tensor `active_listings` item shape (current tensordev API). The feed
+ *  aggregates listings across marketplaces, so `listing.source` may be
+ *  MAGICEDEN_V2, TENSORSWAP, TCOMP, etc. */
+interface TensorActiveListing {
+  mint?:       string;          // mint address (top-level string, not an object)
+  rarityRank?: number;          // top-level, replaces v2's mint.rarityRankHR/TT
+  listing?: {
+    seller?: string;
+    price?:  string;            // lamports
+    txId?:   string;
+    txAt?:   string;            // ISO8601
+    source?: string;
+  };
+}
+
+/** slug → Tensor collId resolver cache. collIds are stable, so both hits
+ *  (string) and misses (null, e.g. a slug Tensor doesn't recognize) are
+ *  cached for the life of the process. */
+const tensorCollIdCache = new Map<string, string | null>();
+
+/** Resolve our collection slug to Tensor's `collId` via find_collection.
+ *  Returns null (and caches it) when Tensor has no matching collection, so
+ *  fetchTensor stays a no-op for slugs Tensor can't resolve. */
+async function resolveTensorCollId(slug: string, key: string): Promise<string | null> {
+  const cached = tensorCollIdCache.get(slug);
+  if (cached !== undefined) return cached;
+  let collId: string | null = null;
+  try {
+    const url = `https://api.mainnet.tensordev.io/api/v1/collections/find_collection`
+              + `?filter=${encodeURIComponent(slug)}`;
+    const res = await fetch(url, {
+      headers: { 'x-tensor-api-key': key, Accept: 'application/json' },
+      signal: AbortSignal.timeout(6_000),
+    });
+    if (res.ok) {
+      const json = await res.json() as { collId?: string };
+      collId = typeof json.collId === 'string' && json.collId.length > 0 ? json.collId : null;
+    }
+    // 404 "No matching collection found" → collId stays null (Tensor no-op).
+  } catch {
+    collId = null;
+  }
+  tensorCollIdCache.set(slug, collId);
+  return collId;
 }
 
 async function fetchTensor(slug: string): Promise<Listing[]> {
   const key = process.env.TENSOR_API_KEY;
   if (!key) return [];
   try {
-    const url = `https://api.mainnet.tensordev.io/api/v1/mint/active_listings_v2`
-              + `?slug=${encodeURIComponent(slug)}&sortBy=PriceAsc&limit=500`;
+    const collId = await resolveTensorCollId(slug, key);
+    if (!collId) return [];
+    const url = `https://api.mainnet.tensordev.io/api/v1/mint/active_listings`
+              + `?collId=${encodeURIComponent(collId)}&sortBy=ListingPriceAsc&limit=250`;
     const res = await fetch(url, {
       headers: { 'x-tensor-api-key': key, Accept: 'application/json' },
       signal: AbortSignal.timeout(6_000),
     });
     if (!res.ok) return [];
-    const json = await res.json() as { mints?: TensorRawListing[] };
+    const json = await res.json() as { mints?: TensorActiveListing[] };
     const mints = Array.isArray(json.mints) ? json.mints : [];
     const out: Listing[] = [];
     for (const m of mints) {
-      const onchainId = m.mint?.onchainId;
-      const priceLamports = m.listing?.price ?? m.tx?.grossAmount;
-      const seller = m.listing?.seller ?? m.tx?.sellerId;
-      if (!onchainId || !seller || !priceLamports) continue;
+      const mint = m.mint;
+      const seller = m.listing?.seller;
+      const priceLamports = m.listing?.price;
+      if (!mint || !seller || !priceLamports) continue;
+      // Skip Magic Eden-sourced rows: fetchMeDirect already owns those, and
+      // active_listings aggregates across marketplaces — including them would
+      // double-count the same mint under a second `TENSOR:` id.
+      if ((m.listing?.source ?? '').startsWith('MAGIC')) continue;
       const n = Number(priceLamports);
       if (!Number.isFinite(n) || n <= 0) continue;
+      const txAtMs = m.listing?.txAt ? Date.parse(m.listing.txAt) : NaN;
       out.push({
-        id:           `TENSOR:${onchainId}:${seller}`,
-        mint:         onchainId,
+        id:           `TENSOR:${mint}:${seller}`,
+        mint,
         priceSol:     n / 1e9,                                       // ← single lamports→SOL conversion
         source:       'TENSOR',
         type:         'listing',
@@ -866,12 +913,10 @@ async function fetchTensor(slug: string): Promise<Listing[]> {
         slug,
         auctionHouse: '',
         tokenAta:     '',
-        rank:         m.mint?.rarityRankHR ?? m.mint?.rarityRankTT ?? null,
-        // Tensor's active_listings_v2 has an optional tx.blockTimestamp field
-        // but it isn't surfaced to our Listing model yet; until we wire it,
-        // keep null so the UI renders "—" rather than a fake timestamp.
-        listedAt:     null,
-        nftName:      null,   // Tensor active_listings_v2 fields aren't wired
+        rank:         typeof m.rarityRank === 'number' ? m.rarityRank : null,
+        // active_listings carries listing.txAt — wire it through as listedAt.
+        listedAt:     Number.isFinite(txAtMs) ? txAtMs : null,
+        nftName:      null,   // active_listings has `name`/`imageUri`; not wired to Listing yet
         imageUrl:     null,
       });
     }
