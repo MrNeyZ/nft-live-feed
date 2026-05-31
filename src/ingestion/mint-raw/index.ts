@@ -27,8 +27,11 @@
  *   MIN_PAID_LAMPORTS as the accumulator (1 000 000 lamports).
  */
 
+import bs58 from 'bs58';
 import { fetchRawTx } from '../me-raw/ingest';
 import type { RawSolanaTx } from '../me-raw/types';
+import { resolveAccountKey } from '../me-raw/types';
+import { SYSTEM_PROGRAM } from '../me-raw/programs';
 import type { Priority } from '../concurrency';
 import { recordMint } from '../../mints/accumulator';
 import { enqueueMintEnrichment } from '../../mints/enricher';
@@ -511,6 +514,84 @@ function extractSignerLamportsPaid(tx: RawSolanaTx): number | null {
   return delta > 0 ? delta : 0;
 }
 
+/** System Program instruction index for `Transfer` (createAccount=0, which we
+ *  must NOT treat as price since it's rent). */
+const SYS_TRANSFER_IX = 2;
+/** Log a price-debug line for this exact tx (audit target) or whenever
+ *  MINT_PRICE_DEBUG=1 — compact, one line, no per-row spam otherwise. */
+const MINT_PRICE_DEBUG_SIG = 'oWrqGgpfRtud3k2DVJumtpF9DxZQCUWJpGEjzHwkNrbyK9VHsh1gN5Ps6oYV7XXRjKzCHSyKYHaAopR8asGDhjK';
+
+interface SysTransfer { dest: string; lamports: number; }
+
+/** Decode every System Program `transfer` leg (top-level + inner). Instruction
+ *  data is base58 (encoding 'json'): bytes[0..4)=u32 LE ix index, [4..12)=u64
+ *  LE lamports. createAccount (ix 0, rent) and non-system ixs are skipped, so
+ *  rent and tx/priority fees (never explicit transfers) can't leak in. */
+function collectSystemTransfers(tx: RawSolanaTx): SysTransfer[] {
+  const out: SysTransfer[] = [];
+  const scan = (ix: { programIdIndex: number; accounts: number[]; data: string }): void => {
+    if (!ix || resolveAccountKey(tx, ix.programIdIndex) !== SYSTEM_PROGRAM || !ix.data) return;
+    let buf: Buffer;
+    try { buf = Buffer.from(bs58.decode(ix.data)); } catch { return; }
+    if (buf.length < 12 || buf.readUInt32LE(0) !== SYS_TRANSFER_IX) return;
+    const lamports = Number(buf.readBigUInt64LE(4));
+    if (!Number.isFinite(lamports) || lamports <= 0) return;
+    const destIdx = ix.accounts?.[1];           // System transfer accounts = [from, to]
+    if (destIdx == null) return;
+    out.push({ dest: resolveAccountKey(tx, destIdx), lamports });
+  };
+  const top = tx.transaction?.message?.instructions;
+  if (Array.isArray(top)) for (const ix of top) scan(ix);
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) for (const g of inner) if (Array.isArray(g.instructions)) for (const ix of g.instructions) scan(ix);
+  return out;
+}
+
+/** Transfer-based per-NFT mint price. The actual payment shows up as a
+ *  System `transfer` to the treasury/collection authority; for an N-NFT batch
+ *  mint it appears as N identical transfers, so the REPEATED amount is the
+ *  per-NFT price. We exclude transfers back to the fee-payer (relayer
+ *  reimbursement) and require count>=2 so a one-off funding hop can't be
+ *  mistaken for a price. Returns null when no repeated treasury transfer is
+ *  found (caller falls back to the legacy signer-delta). */
+function extractMintPriceFromTransfers(tx: RawSolanaTx): number | null {
+  const feePayer  = resolveAccountKey(tx, 0);
+  const transfers = collectSystemTransfers(tx).filter(t => t.dest && t.dest !== feePayer);
+  if (transfers.length === 0) return null;
+
+  // Group identical (destination, amount) legs → the repeated treasury payment.
+  const groups = new Map<string, { dest: string; lamports: number; count: number }>();
+  for (const t of transfers) {
+    const k = `${t.dest}:${t.lamports}`;
+    const g = groups.get(k);
+    if (g) g.count++; else groups.set(k, { dest: t.dest, lamports: t.lamports, count: 1 });
+  }
+  let best: { dest: string; lamports: number; count: number } | null = null;
+  for (const g of groups.values()) {
+    if (g.count < 2) continue;                   // require a repeat (batch payment)
+    if (!best || g.count > best.count || (g.count === best.count && g.lamports > best.lamports)) best = g;
+  }
+  if (!best) return null;
+
+  if (tx.signature === MINT_PRICE_DEBUG_SIG || process.env.MINT_PRICE_DEBUG === '1') {
+    console.log(
+      `[mints/price-debug] sig=${tx.signature.slice(0, 12)}… repeatedAmount=${best.lamports} ` +
+      `count=${best.count} dest=${best.dest.slice(0, 8)}… selected=${best.lamports}`,
+    );
+  }
+  return best.lamports;
+}
+
+/** Mint price for the /mints tracker. Prefers the transfer-based per-NFT price
+ *  (robust to relayer/fee-payer mints and batch mints); falls back to the
+ *  legacy signer net-delta ONLY when no repeated treasury transfer exists. A
+ *  clear repeated treasury transfer always wins over a fee-like signer delta. */
+function extractMintPriceLamports(tx: RawSolanaTx): number | null {
+  const fromTransfers = extractMintPriceFromTransfers(tx);
+  if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
+  return extractSignerLamportsPaid(tx);
+}
+
 /** SPL / Token-2022 amount the signer parted with, when the mint was
  *  priced in a custom token. Detected from `meta.preTokenBalances` vs
  *  `meta.postTokenBalances` deltas filtered to accounts owned by the
@@ -743,7 +824,7 @@ export async function ingestMintRaw(
       const cm = detectCoreCandyMachineMint(tx);
       if (cm && cm.accept && cm.mintAddress && cm.collectionAddress) {
         logV2CoreAccept(sig, cm.score, cm.reasons, cm.mintAddress, cm.collectionAddress);
-        const priceLamports = extractSignerLamportsPaid(tx);
+        const priceLamports = extractMintPriceLamports(tx);
         const mintType      = classifyMintType(priceLamports);
         const groupingKey   = `collection:${cm.collectionAddress}`;
         const blockTime = tx.blockTime
@@ -790,7 +871,7 @@ export async function ingestMintRaw(
         if (v2) {
           if (v2.accept && v2.mintAddress && v2.collectionAddress) {
             logV2CoreAccept(sig, v2.score, v2.reasons, v2.mintAddress, v2.collectionAddress);
-            const priceLamports = extractSignerLamportsPaid(tx);
+            const priceLamports = extractMintPriceLamports(tx);
             const mintType      = classifyMintType(priceLamports);
             const groupingKey   = `collection:${v2.collectionAddress}`;
             const groupingKind: MintEventWire['groupingKind'] = 'collection';
@@ -840,7 +921,7 @@ export async function ingestMintRaw(
         logLaunchpadReject('no_mint', sig, null);
         return;
       }
-      const priceLamports = extractSignerLamportsPaid(tx);
+      const priceLamports = extractMintPriceLamports(tx);
       const mintType      = classifyMintType(priceLamports);
       const groupingKey   = `collection:${lp.collectionAddress}`;
       const groupingKind: MintEventWire['groupingKind'] = 'collection';
@@ -935,7 +1016,7 @@ export async function ingestMintRaw(
       );
       return;
     }
-    const priceLamports = extractSignerLamportsPaid(tx);
+    const priceLamports = extractMintPriceLamports(tx);
     const mintType      = classifyMintType(priceLamports);
     const groupingKey   = `collection:${collectionAddress}`;
     const groupingKind: MintEventWire['groupingKind'] = 'collection';
@@ -1255,7 +1336,7 @@ export async function ingestMintRaw(
     logAcceptNft('core', mintAddress);
   }
 
-  const priceLamports = extractSignerLamportsPaid(tx);
+  const priceLamports = extractMintPriceLamports(tx);
   const mintType      = classifyMintType(priceLamports);
 
   const groupingKey: string =

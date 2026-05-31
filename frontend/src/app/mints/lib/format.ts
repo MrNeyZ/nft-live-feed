@@ -4,8 +4,6 @@
 // JSX can be split later without forcing each split file to re-import
 // or re-declare them. Behaviour byte-identical to the inline versions.
 
-import { formatSol } from '@/soloist/mock-data';
-
 /** Proxy size for inline thumbnails — 64×64 source via the local
  *  `/thumb` proxy. Pass-through for `data:` URIs and for URLs that
  *  already point at the proxy (idempotent). */
@@ -51,17 +49,29 @@ export function vvvSlugify(input: string): string {
   return s;
 }
 
+/** Truncate (floor) `lamports` to `dp` SOL decimals, then trim trailing zeros.
+ *  Works from integer lamports (not `sol * 10**dp`) to avoid float-edge
+ *  truncation bugs like 0.012 → 0.011. Mint-tracker only — TRUNCATION, not
+ *  rounding. */
+function truncSol(lamports: number, dp: number): string {
+  const lamportsPerUnit = 1e9 / 10 ** dp;             // lamports per smallest shown digit
+  const units           = Math.floor(lamports / lamportsPerUnit);
+  return trimTrailingZeros((units / 10 ** dp).toFixed(dp));
+}
+
 export function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
   // `<= 0` (not `=== 0`): legacy rows can carry a negative priceLamports
   // (signer net-received lamports) — render FREE, never negative SOL.
   if (lamports <= 0)    return 'FREE';
-  // Shared formatter chooses decimal precision by magnitude (more decimals
-  // for smaller prices, so tiny values like 0.000228 keep their significant
-  // digits). We then trim trailing zeros so the Mint Tracker PRICE column
-  // reads 0.004 instead of 0.0040, 0.01 instead of 0.010, and 1 instead of
-  // 1.00 — precision preserved, padding removed.
-  return trimTrailingZeros(formatSol(lamports / 1e9));
+  // Mint Tracker uses TRUNCATION, not rounding — so 0.0065 reads 0.006, never
+  // 0.007. (The shared soloist `formatSol` rounds via toFixed and must stay
+  // unchanged for the sale/listing feeds, so we do NOT call it here.)
+  //   ≥ 0.001 SOL → 3 dp truncated  (0.0065 → 0.006, 0.0125 → 0.012)
+  //   smaller     → keep more significant digits (0.00017 stays 0.00017)
+  if (lamports >= 1_000_000) return truncSol(lamports, 3);   // ≥ 0.001 SOL
+  if (lamports >= 100_000)   return truncSol(lamports, 5);   // ≥ 0.0001 SOL
+  return truncSol(lamports, 6);
 }
 
 /** Strip trailing zeros (and a now-bare decimal point) from a formatted
