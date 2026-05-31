@@ -87,6 +87,19 @@ const MAX_CONCURRENT_SNAPSHOTS = 2;
  *  sales. FIFO eviction — older associations fall out first. */
 const MINT_TO_SLUG_MAX  = 50_000;
 
+// ─── Sold-mint suppression ───────────────────────────────────────────────────
+// onSale removes a sold mint's listings immediately, but the next scoped
+// snapshot can RE-ADD it because ME/MMM listing APIs lag the chain by minutes
+// (they still report the just-sold NFT as listed). We hold a short TTL set of
+// recently-sold mints and skip re-adding them during snapshot apply, so a sold
+// NFT can't reappear as buyable until upstream catches up. Authoritative
+// signal = our own on-chain `sale` event.
+const SOLD_SUPPRESS_TTL_MS = (() => {
+  const raw = parseInt((process.env.LISTINGS_SOLD_SUPPRESS_TTL_MS ?? '').trim(), 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60_000;
+})();
+const soldAt = new Map<string, number>(); // mint → epoch ms of last observed sale
+
 function indexAdd(m: Map<string, Set<string>>, key: string, id: string): void {
   let s = m.get(key);
   if (!s) { s = new Set(); m.set(key, s); }
@@ -100,6 +113,17 @@ function indexDel(m: Map<string, Set<string>>, key: string, id: string): void {
 }
 
 function add(l: Listing): void {
+  // Suppress re-adding a recently-sold mint: a lagging ME/MMM snapshot can
+  // still report a just-sold NFT as listed. Skip it until the TTL expires
+  // (then clean the entry opportunistically — no timer).
+  const sold = soldAt.get(l.mint);
+  if (sold !== undefined) {
+    if (Date.now() - sold < SOLD_SUPPRESS_TTL_MS) {
+      console.log(`[listings/suppress] skip sold mint=${l.mint.slice(0, 8)}… slug=${l.slug} source=${l.id.split(':')[0]}`);
+      return;
+    }
+    soldAt.delete(l.mint);
+  }
   byId.set(l.id, l);
   indexAdd(byCollection, l.slug, l.id);
   indexAdd(byMint,       l.mint, l.id);
@@ -248,6 +272,14 @@ function toWire(l: Listing) {
 
 saleEventBus.onSale((event: SaleEvent) => {
   if (!event.mintAddress) return;
+  // Record the sale FIRST (even when no live listing exists right now) so a
+  // later lagging snapshot can't re-add this mint. See `add()` for the skip.
+  const now = Date.now();
+  soldAt.set(event.mintAddress, now);
+  // Opportunistic, timer-free cleanup: only sweep when the set grows large.
+  if (soldAt.size > 5_000) {
+    for (const [m, t] of soldAt) if (now - t >= SOLD_SUPPRESS_TTL_MS) soldAt.delete(m);
+  }
   const ids = byMint.get(event.mintAddress);
   if (!ids || ids.size === 0) return;
   // Snapshot each affected row's identity BEFORE removal, then emit one
