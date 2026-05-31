@@ -50,10 +50,19 @@ const TARGETS: PollTarget[] = [
   { name: 'poll:tamm',  program: 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg', ingest: ingestTensorRaw },
 ];
 
-// Tightened back to 2.5 s so that right after a mode switch there is at
-// most a ~2.5 s wait before the first catch-up sweep lands. `startAmmPoller`
-// also fires an immediate `tick()` so the very first sweep runs at t≈0.
-const INTERVAL_MS      = 5_000;
+// Healthy-state sweep cadence. The poller is the AMM gap-healer/backstop —
+// the logsSubscribe sales listener is the primary live path — so when the
+// listener is healthy this can be relatively slow without missing sales.
+// Raised 5 s → 10 s (env-tunable via AMM_POLLER_INTERVAL_MS) to roughly halve
+// the baseline getSignaturesForAddress credit spend. `startAmmPoller` still
+// fires an immediate `tick()` so the first sweep runs at t≈0; the saturation
+// (SLOW_INTERVAL_MS) and WS-dead (DEGRADED_INTERVAL_MS) overrides are unchanged.
+function envIntMs(name: string, fallback: number): number {
+  const raw = (process.env[name] ?? '').trim();
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const INTERVAL_MS      = envIntMs('AMM_POLLER_INTERVAL_MS', 10_000);
 // Emergency cost guard: when the sales-side logsSubscribe is dead (see
 // isSalesWsDead), polling is the only path AND it fetches a getTransaction
 // for every program-touching sig — mostly non-sale on me_v2/mmm/tcomp. To
