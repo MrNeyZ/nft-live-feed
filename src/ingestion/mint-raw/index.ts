@@ -586,7 +586,7 @@ function extractMintPriceFromTransfers(tx: RawSolanaTx): number | null {
  *  (robust to relayer/fee-payer mints and batch mints); falls back to the
  *  legacy signer net-delta ONLY when no repeated treasury transfer exists. A
  *  clear repeated treasury transfer always wins over a fee-like signer delta. */
-function extractMintPriceLamports(tx: RawSolanaTx): number | null {
+export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromTransfers = extractMintPriceFromTransfers(tx);
   if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
   return extractSignerLamportsPaid(tx);
@@ -665,7 +665,7 @@ function paymentFieldsFrom(tx: RawSolanaTx): Partial<{
   };
 }
 
-function classifyMintType(priceLamports: number | null): MintType {
+export function classifyMintType(priceLamports: number | null): MintType {
   if (priceLamports == null) return 'unknown';
   if (priceLamports <= 0)    return 'free';
   if (priceLamports >= MIN_PAID_LAMPORTS) return 'paid';
