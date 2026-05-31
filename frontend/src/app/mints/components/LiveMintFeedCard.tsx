@@ -154,12 +154,14 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     // eslint-disable-next-line no-console
     console.debug(`[mints/flork] sig=${ev.signature.slice(0, 8)}… tier=${tier} url=${cardImage ?? '—'}`);
   }
+  // `<= 0` (not `=== 0`): legacy DB rows can carry a negative priceLamports
+  // (signer net-received lamports); render those as FREE, never negative SOL.
   const priceText      = ev.priceLamports == null
     ? '—'
-    : ev.priceLamports === 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
+    : ev.priceLamports <= 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
   const priceColor     = ev.priceLamports == null
     ? '#55556e'
-    : ev.priceLamports === 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
+    : ev.priceLamports <= 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows

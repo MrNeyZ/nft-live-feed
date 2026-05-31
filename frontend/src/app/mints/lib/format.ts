@@ -53,7 +53,9 @@ export function vvvSlugify(input: string): string {
 
 export function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
-  if (lamports === 0)   return 'FREE';
+  // `<= 0` (not `=== 0`): legacy rows can carry a negative priceLamports
+  // (signer net-received lamports) — render FREE, never negative SOL.
+  if (lamports <= 0)    return 'FREE';
   // Shared formatter chooses decimal precision by magnitude (more decimals
   // for smaller prices, so tiny values like 0.000228 keep their significant
   // digits). We then trim trailing zeros so the Mint Tracker PRICE column

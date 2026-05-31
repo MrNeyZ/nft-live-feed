@@ -503,7 +503,12 @@ function extractSignerLamportsPaid(tx: RawSolanaTx): number | null {
   const post = tx.meta?.postBalances;
   if (!Array.isArray(pre) || !Array.isArray(post) || pre.length === 0) return null;
   const delta = (pre[0] as number) - (post[0] as number);
-  return Number.isFinite(delta) ? delta : null;
+  if (!Number.isFinite(delta)) return null;   // invalid/missing balances → unknown
+  // Clamp to 0: a negative delta means the fee-payer (accountKeys[0]) net-
+  // RECEIVED lamports (e.g. Metaplex Core free mints / fee-payer != minter),
+  // which is not a price. classifyMintType already maps <=0 to 'free'; clamping
+  // here stops a negative SOL value reaching priceLamports / the UI.
+  return delta > 0 ? delta : 0;
 }
 
 /** SPL / Token-2022 amount the signer parted with, when the mint was
