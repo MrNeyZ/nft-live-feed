@@ -16,7 +16,7 @@ import type { MintEvent } from './lib/types';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 import { useMintFeed } from './lib/use-mint-feed';
 
-const RENDER_CAP = 60;
+const RENDER_CAP = 40;
 
 /** Replicated PAUSED status chip (the /mints one is inline in page.tsx and
  *  not exported; copied verbatim here to avoid touching the page). */

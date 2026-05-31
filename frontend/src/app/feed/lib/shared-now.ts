@@ -20,33 +20,62 @@
 import { useSyncExternalStore } from 'react';
 
 let sharedNow: number = typeof window === 'undefined' ? 0 : Date.now();
-const tickListeners = new Set<() => void>();
-let tickInterval: ReturnType<typeof setInterval> | null = null;
 
-function ensureTicker(): void {
-  if (tickInterval != null || typeof window === 'undefined') return;
-  tickInterval = setInterval(() => {
+// Two independent tickers sharing one `sharedNow` value: a 1 s "fast" ticker
+// (default — standalone /feed) and a 10 s "slow" ticker for /multi panels,
+// where ~80 cards re-rendering every second is wasted work (a coarse age
+// label is fine there). Each subscriber is notified ONLY by the ticker it
+// subscribed to, so slow subscribers re-render at most every 10 s. Both
+// tickers refresh `sharedNow`, so whichever is running keeps the value live.
+const SLOW_TICK_MS = 10_000;
+
+const fastListeners = new Set<() => void>();
+const slowListeners = new Set<() => void>();
+let fastInterval: ReturnType<typeof setInterval> | null = null;
+let slowInterval: ReturnType<typeof setInterval> | null = null;
+
+function ensureFast(): void {
+  if (fastInterval != null || typeof window === 'undefined') return;
+  fastInterval = setInterval(() => {
     sharedNow = Date.now();
-    // Snapshot the listener set first — a subscriber that triggers a
-    // synchronous unsubscribe inside its callback would otherwise mutate
-    // the Set mid-iteration.
-    for (const cb of Array.from(tickListeners)) cb();
+    for (const cb of Array.from(fastListeners)) cb();
   }, 1000);
 }
-function subscribeTick(cb: () => void): () => void {
-  tickListeners.add(cb);
-  ensureTicker();
+function ensureSlow(): void {
+  if (slowInterval != null || typeof window === 'undefined') return;
+  slowInterval = setInterval(() => {
+    sharedNow = Date.now();
+    for (const cb of Array.from(slowListeners)) cb();
+  }, SLOW_TICK_MS);
+}
+function subscribeFast(cb: () => void): () => void {
+  fastListeners.add(cb);
+  ensureFast();
   return () => {
-    tickListeners.delete(cb);
-    if (tickListeners.size === 0 && tickInterval != null) {
-      clearInterval(tickInterval);
-      tickInterval = null;
+    fastListeners.delete(cb);
+    if (fastListeners.size === 0 && fastInterval != null) {
+      clearInterval(fastInterval);
+      fastInterval = null;
+    }
+  };
+}
+function subscribeSlow(cb: () => void): () => void {
+  slowListeners.add(cb);
+  ensureSlow();
+  return () => {
+    slowListeners.delete(cb);
+    if (slowListeners.size === 0 && slowInterval != null) {
+      clearInterval(slowInterval);
+      slowInterval = null;
     }
   };
 }
 function getTickSnapshot(): number { return sharedNow; }
 function getTickServerSnapshot(): number { return 0; }
 
-export function useSharedNow(): number {
-  return useSyncExternalStore(subscribeTick, getTickSnapshot, getTickServerSnapshot);
+/** Shared "now" for TimeAgo leaves. `slow` (set by the /multi panels via
+ *  FeedTickContext) subscribes to the 10 s ticker instead of the 1 s one;
+ *  default keeps the original 1 s cadence for standalone /feed. */
+export function useSharedNow(slow = false): number {
+  return useSyncExternalStore(slow ? subscribeSlow : subscribeFast, getTickSnapshot, getTickServerSnapshot);
 }

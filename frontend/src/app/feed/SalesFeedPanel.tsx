@@ -12,10 +12,10 @@ import { LiveDot, Pill, SettingsToggle, settingsPillActive, SETTINGS_PILL_INACTI
 import { useInclusiveFees } from '@/soloist/price-mode';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
-import { FeedCard } from './lib/feed-card';
+import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
 import { useSalesFeed } from './lib/use-sales-feed';
 
-const RENDER_CAP = 60;
+const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
 
 export function SalesFeedPanel() {
@@ -38,6 +38,7 @@ export function SalesFeedPanel() {
   }, []);
 
   return (
+    <SlowTimeTickContext.Provider value={true}>
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
@@ -136,5 +137,6 @@ export function SalesFeedPanel() {
         </div>
       </div>
     </div>
+    </SlowTimeTickContext.Provider>
   );
 }

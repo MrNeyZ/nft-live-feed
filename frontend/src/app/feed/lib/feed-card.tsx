@@ -8,7 +8,7 @@
 // since rare sales carry no buy/sell side) and `nameChip` (a compact
 // rarity chip). /feed never passes either, so its render is identical.
 
-import { memo, useEffect, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useState } from 'react';
 import { shortWallet, timeAgo } from '@/soloist/mock-data';
 import { marketplaceUrl } from '@/soloist/from-backend';
 import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
@@ -29,8 +29,13 @@ import { useSharedNow } from './shared-now';
 //   6–15 s:       pink + "Xs ago"        (still in the "hot" window)
 //   16 s – 3 min: yellow                 (recent but cooling)
 //   > 3 min:      muted                  (background/historical)
+/** When true, TimeAgo leaves under this provider tick on the slow (10 s)
+ *  ticker instead of 1 s. The /multi native panels set it (≈80 cards on one
+ *  page); standalone /feed leaves it false → unchanged 1 s cadence. */
+export const SlowTimeTickContext = createContext(false);
+
 function TimeAgo({ ts }: { ts: number }) {
-  const now = useSharedNow();
+  const now = useSharedNow(useContext(SlowTimeTickContext));
   // Defensive: invalid timestamp renders an em-dash so a malformed /
   // missing blockTime can't surface as "NaNd ago". Future-leaning and
   // negative ages already collapse into the `ageMs < 5000` branch

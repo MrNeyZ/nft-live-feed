@@ -86,7 +86,7 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
         )}
         {/* Embed (/multi) caps rendered cards at 60 to cut paint cost
             when three feeds run side-by-side; standalone page renders all. */}
-        {(embedded ? rows.slice(0, 60) : rows).map((e) => (
+        {(embedded ? rows.slice(0, 40) : rows).map((e) => (
           <FeedCard
             key={e.saleSignature}
             event={rareToFeedEvent(e)}
