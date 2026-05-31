@@ -361,6 +361,19 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
 // color flash keeps its own 6 s ts gate independently. The set lives in
 // memory only (no storage), so a hard reload starts fresh.
 const seenFeedEventIds = new Set<string>();
+// Bound the set so a long-lived tab (esp. /multi) can't grow it without
+// limit. FIFO: a Set preserves insertion order, so the first entry is the
+// oldest — drop it past the cap. Cosmetic only: an evicted id can replay its
+// one-shot slideDown entrance animation if it ever remounts (rare).
+const SEEN_IDS_MAX = 2000;
+function rememberSeenEventId(id: string): void {
+  if (seenFeedEventIds.has(id)) return;
+  seenFeedEventIds.add(id);
+  if (seenFeedEventIds.size > SEEN_IDS_MAX) {
+    const oldest = seenFeedEventIds.values().next().value;
+    if (oldest !== undefined) seenFeedEventIds.delete(oldest);
+  }
+}
 
 export const FeedCard = memo(function FeedCard({
   event,
@@ -413,7 +426,7 @@ export const FeedCard = memo(function FeedCard({
   // Computed once at mount; the set is updated immediately after so a
   // re-mount on a future route return sees the id and stays static.
   const isCached = useState(() => seenFeedEventIds.has(event.id))[0];
-  useEffect(() => { seenFeedEventIds.add(event.id); }, [event.id]);
+  useEffect(() => { rememberSeenEventId(event.id); }, [event.id]);
   const kind  = saleKind(event.saleTypeRaw);
   const sellerCount = event.sellerRemainingCount;
   const style = KIND_STYLES[kind];
