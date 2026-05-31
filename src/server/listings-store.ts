@@ -844,49 +844,108 @@ interface TensorActiveListing {
   };
 }
 
-/** slug → Tensor collId resolver cache. collIds are stable, so both hits
- *  (string) and misses (null, e.g. a slug Tensor doesn't recognize) are
- *  cached for the life of the process. */
-const tensorCollIdCache = new Map<string, string | null>();
+/** Resolved Tensor collection identity. Tensor's `slugDisplay` (e.g.
+ *  `madlads`) differs from the ME slug we're queried with (`slugMe`, e.g.
+ *  `mad_lads`), so we keep all aliases to bridge the two namespaces. */
+interface TensorCollMeta {
+  collId:      string;
+  slugDisplay: string | null;
+  slugMe:      string | null;
+  symbol:      string | null;
+}
 
-/** Resolve our collection slug to Tensor's `collId` via find_collection.
- *  Returns null (and caches it) when Tensor has no matching collection, so
- *  fetchTensor stays a no-op for slugs Tensor can't resolve. */
-async function resolveTensorCollId(slug: string, key: string): Promise<string | null> {
-  const cached = tensorCollIdCache.get(slug);
-  if (cached !== undefined) return cached;
-  let collId: string | null = null;
-  try {
-    const url = `https://api.mainnet.tensordev.io/api/v1/collections/find_collection`
-              + `?filter=${encodeURIComponent(slug)}`;
-    const res = await fetch(url, {
-      headers: { 'x-tensor-api-key': key, Accept: 'application/json' },
+/** slug/alias → Tensor meta cache. collIds are stable, so both hits and
+ *  misses (null — a slug Tensor doesn't recognize) are cached for the life
+ *  of the process. Populated under the queried slug AND every known alias
+ *  (slugMe / slugDisplay / symbol) so a later query by any of them is a hit
+ *  with zero requests. */
+const tensorCollMetaCache = new Map<string, TensorCollMeta | null>();
+
+/** Sequential gate over all tensordev requests, enforcing ≥1 req/sec. Each
+ *  request waits for the previous to settle, then a 1 s spacer. */
+let tensorFetchChain: Promise<unknown> = Promise.resolve();
+function tensorFetch(url: string): Promise<Response> {
+  const res = tensorFetchChain.then(() =>
+    fetch(url, {
+      // Key read here only — never logged. Callers guard on its presence.
+      headers: { 'x-tensor-api-key': process.env.TENSOR_API_KEY ?? '', Accept: 'application/json' },
       signal: AbortSignal.timeout(6_000),
-    });
-    if (res.ok) {
-      const json = await res.json() as { collId?: string };
-      collId = typeof json.collId === 'string' && json.collId.length > 0 ? json.collId : null;
-    }
-    // 404 "No matching collection found" → collId stays null (Tensor no-op).
-  } catch {
-    collId = null;
+    }),
+  );
+  tensorFetchChain = res.catch(() => undefined).then(() => new Promise((r) => setTimeout(r, 1_000)));
+  return res;
+}
+
+/** Up to 3 Tensor slug candidates derived from our app (ME) slug:
+ *    1. as-is               (`mad_lads`)
+ *    2. underscores removed (`madlads`  ← Tensor's slugDisplay)
+ *    3. + lowercased        (`madlads`) */
+function tensorSlugCandidates(appSlug: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const c of [appSlug, appSlug.replace(/_/g, ''), appSlug.replace(/_/g, '').toLowerCase()]) {
+    if (c && !seen.has(c)) { seen.add(c); out.push(c); }
   }
-  tensorCollIdCache.set(slug, collId);
-  return collId;
+  return out.slice(0, 3);
+}
+
+/** Resolve our app slug to Tensor's collId, trying a few generic slug-shape
+ *  candidates (NOT hardcoded per collection). Caches the result under the
+ *  queried slug plus every alias so ME slug and Tensor slugDisplay both
+ *  resolve to the same collId. Returns null (cached) on a clean miss. */
+async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null> {
+  const cached = tensorCollMetaCache.get(appSlug);
+  if (cached !== undefined) return cached;
+
+  let meta: TensorCollMeta | null = null;
+  for (const candidate of tensorSlugCandidates(appSlug)) {
+    // A prior resolution may already have cached this candidate as a hit.
+    const pre = tensorCollMetaCache.get(candidate);
+    if (pre) { meta = pre; break; }
+    try {
+      const res = await tensorFetch(
+        `https://api.mainnet.tensordev.io/api/v1/collections/find_collection?filter=${encodeURIComponent(candidate)}`,
+      );
+      if (res.ok) {
+        const j = await res.json() as { collId?: string; slugDisplay?: string; slugMe?: string; symbol?: string };
+        if (typeof j.collId === 'string' && j.collId.length > 0) {
+          meta = {
+            collId:      j.collId,
+            slugDisplay: typeof j.slugDisplay === 'string' ? j.slugDisplay : null,
+            slugMe:      typeof j.slugMe === 'string' ? j.slugMe : null,
+            symbol:      typeof j.symbol === 'string' ? j.symbol : null,
+          };
+          break;
+        }
+      }
+      // non-ok / no collId (e.g. 404) → fall through to the next candidate.
+    } catch {
+      // network/timeout → try the next candidate.
+    }
+  }
+
+  // Cache the queried slug (hit or miss) + every alias on a hit. Symbols are
+  // aliased only when ≥4 chars, to avoid short tickers colliding with an
+  // unrelated collection's slug.
+  tensorCollMetaCache.set(appSlug, meta);
+  if (meta) {
+    if (meta.slugMe)                     tensorCollMetaCache.set(meta.slugMe, meta);
+    if (meta.slugDisplay)                tensorCollMetaCache.set(meta.slugDisplay, meta);
+    if (meta.symbol && meta.symbol.length >= 4) tensorCollMetaCache.set(meta.symbol, meta);
+  }
+  return meta;
 }
 
 async function fetchTensor(slug: string): Promise<Listing[]> {
   const key = process.env.TENSOR_API_KEY;
   if (!key) return [];
   try {
-    const collId = await resolveTensorCollId(slug, key);
-    if (!collId) return [];
-    const url = `https://api.mainnet.tensordev.io/api/v1/mint/active_listings`
-              + `?collId=${encodeURIComponent(collId)}&sortBy=ListingPriceAsc&limit=250`;
-    const res = await fetch(url, {
-      headers: { 'x-tensor-api-key': key, Accept: 'application/json' },
-      signal: AbortSignal.timeout(6_000),
-    });
+    const meta = await resolveTensorMeta(slug);
+    if (!meta) return [];
+    const res = await tensorFetch(
+      `https://api.mainnet.tensordev.io/api/v1/mint/active_listings`
+      + `?collId=${encodeURIComponent(meta.collId)}&sortBy=ListingPriceAsc&limit=250`,
+    );
     if (!res.ok) return [];
     const json = await res.json() as { mints?: TensorActiveListing[] };
     const mints = Array.isArray(json.mints) ? json.mints : [];
