@@ -65,14 +65,31 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
 export function rarityChip(e: RareEvent) {
   if (e.rarityRank == null) return null;
   const c = scoreColor(e.rareScore);
+  // True 1/1s are force-included by the backend with reasonTags ['ONE_OF_ONE']
+  // and a generative rank that reads as common (e.g. #3250/3333), so the rank
+  // chip alone undersells them — surface a compact gold "1/1" badge alongside.
+  const oneOfOne = e.reasonTags?.includes('ONE_OF_ONE');
   return (
-    <span style={{
-      flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
-      padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
-      color: c, background: `${c}1f`, border: `1px solid ${c}55`,
-      fontFamily: "'SF Mono','Fira Code',monospace",
-    }}>
-      #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
-    </span>
+    <>
+      <span style={{
+        flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
+        padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
+        color: c, background: `${c}1f`, border: `1px solid ${c}55`,
+        fontFamily: "'SF Mono','Fira Code',monospace",
+      }}>
+        #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
+      </span>
+      {oneOfOne && (
+        <span title="True 1/1" style={{
+          flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
+          padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
+          marginLeft: 4, color: '#f5c542', background: 'rgba(245,197,66,0.16)',
+          border: '1px solid rgba(245,197,66,0.55)',
+          fontFamily: "'SF Mono','Fira Code',monospace",
+        }}>
+          1/1
+        </span>
+      )}
+    </>
   );
 }
