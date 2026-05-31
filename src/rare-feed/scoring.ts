@@ -65,6 +65,51 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+/** Explicit "1/1" markers: "1/1", "1 / 1", "1 of 1", "one of one",
+ *  "one-of-one". Deliberately NOT matching bare "unique"/"legendary" — those
+ *  are too common as ordinary traits and would create false positives. */
+const ONE_OF_ONE_RE = /\b(?:1\s*\/\s*1|1\s+of\s+1|one[-\s]of[-\s]one)\b/i;
+
+/** Synthetic score for a force-included true 1/1 — sits at the top of the feed
+ *  and clears any min-score gate. */
+export const ONE_OF_ONE_SCORE = 100;
+
+/**
+ * Conservative true-1/1 detector (pure; no I/O). Returns true ONLY when:
+ *   • an explicit 1/1 marker is present in the NFT name OR an attribute
+ *     (trait value or trait_type), AND
+ *   • the collection is multi-item (totalSupply > 1), AND
+ *   • the rarity system actually RANKS this collection (rarityRank != null).
+ *
+ * The rank guard is what prevents a flood from "every item is unique art"
+ * collections: those carry no generative ranks (rarityRank null), so they are
+ * excluded here. This catches the real target — a genuine 1/1 sitting inside a
+ * larger generative collection, which the percentile gate would wrongly reject
+ * because its generative rank (e.g. 3227) looks common.
+ */
+export function isTrueOneOfOne(
+  traits: unknown,
+  nftName: string | null | undefined,
+  totalSupply: number | null,
+  rarityRank: number | null,
+): boolean {
+  if (rarityRank == null) return false;
+  if (totalSupply == null || totalSupply <= 1) return false;
+
+  if (nftName && ONE_OF_ONE_RE.test(nftName)) return true;
+
+  if (Array.isArray(traits)) {
+    for (const t of traits) {
+      if (!t || typeof t !== 'object') continue;
+      const rec = t as Record<string, unknown>;
+      const value = String(rec.value ?? '');
+      const key   = String(rec.trait_type ?? rec.traitType ?? '');
+      if (ONE_OF_ONE_RE.test(value) || ONE_OF_ONE_RE.test(key)) return true;
+    }
+  }
+  return false;
+}
+
 /** Evaluate a candidate. Caller guarantees rank/supply/floor are present and
  *  positive — this function does not fetch anything and never throws. */
 export function scoreSale(input: ScoreInput): ScoreResult {

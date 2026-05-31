@@ -18,7 +18,7 @@
 import { saleEventBus, type MetaUpdate } from '../events/emitter';
 import type { SaleEvent } from '../models/sale-event';
 import { getRarity } from './rarity';
-import { scoreSale } from './scoring';
+import { scoreSale, isTrueOneOfOne, ONE_OF_ONE_SCORE } from './scoring';
 import { insertRareEvent } from './store';
 
 /** Captured sale awaiting its enrichment `meta` event. */
@@ -68,7 +68,26 @@ function evictPending(): void {
 // summary so the accept/reject funnel is observable without grepping every
 // per-event line. `evaluated` counts candidates that reached the rarity
 // stage (had a captured sale + floor + mint).
-const stat = { evaluated: 0, missingRarity: 0, rejRarity: 0, rejPrice: 0, accepted: 0 };
+const stat = { evaluated: 0, missingRarity: 0, rejRarity: 0, rejPrice: 0, accepted: 0, oneOfOne: 0 };
+
+// Per-slug true-1/1 flood guard: cap force-includes per collection per rolling
+// hour, so a collection that tags many items as "1/1" can't dominate the feed
+// even if it slips past isTrueOneOfOne's rank guard.
+const ONE_OF_ONE_SLUG_CAP   = 8;
+const ONE_OF_ONE_WINDOW_MS  = 60 * 60 * 1000;
+const oneOfOneBySlug = new Map<string, { count: number; windowStart: number }>();
+function allowOneOfOne(slug: string | null): boolean {
+  const key = slug ?? '?';
+  const now = Date.now();
+  const e = oneOfOneBySlug.get(key);
+  if (!e || now - e.windowStart > ONE_OF_ONE_WINDOW_MS) {
+    oneOfOneBySlug.set(key, { count: 1, windowStart: now });
+    return true;
+  }
+  if (e.count >= ONE_OF_ONE_SLUG_CAP) return false;
+  e.count++;
+  return true;
+}
 
 function onSale(event: SaleEvent): void {
   if (!event.mintAddress) return;            // can't fetch rarity without a mint
@@ -89,31 +108,73 @@ function onMeta(update: MetaUpdate): void {
   const sale = pending.get(sig);
   if (!sale) return;                          // sale not captured (pre-restart / empty mint)
 
-  // Need floor to score. The `meta` floorDelta is (salePrice − floor)/floor;
-  // a later meta (image retry) may carry it when the first didn't, so we do
-  // NOT mark the signature decided until floor is actually present.
   const floorDelta = update.floorDelta;
-  if (floorDelta == null || floorDelta <= -1) return;
-
-  // From here on this signature gets exactly one terminal decision.
-  markDecided(sig);
-  pending.delete(sig);
-
+  const hasFloor   = floorDelta != null && floorDelta > -1;
   const salePrice  = sale.priceSol;
-  const floorPrice = salePrice / (1 + floorDelta);
+  const floorPrice = hasFloor ? salePrice / (1 + floorDelta) : null;
   const mint       = sale.mintAddress;
   const slug       = update.meCollectionSlug ?? sale.slug;
 
-  console.log(
-    `[rare/feed] candidate sig=${sig.slice(0, 12)}… mint=${mint.slice(0, 8)}… ` +
-    `price=${salePrice.toFixed(4)} floor=${floorPrice.toFixed(4)} slug=${slug ?? '?'}`,
-  );
-
   // Async, fire-and-forget — never blocks the bus / SSE fan-out.
+  //
+  // Rarity is resolved FIRST (it carries the traits we need), because the true
+  // 1/1 exception must work even when no floor is available — genuine 1/1 drops
+  // frequently have no floor yet, and they legitimately sell far above floor.
+  // Non-1/1 sales still REQUIRE a floor and, when it's missing, are left
+  // un-decided so a later `meta` (floor/image retry) can still evaluate them.
   void (async () => {
     try {
+      if (decided.has(sig)) return;
       stat.evaluated++;
       const rarity = await getRarity(mint, slug);
+
+      // ── True 1/1 exception ───────────────────────────────────────────────
+      // Force-include regardless of floor / percentile / near-floor price.
+      // Keep the provider's REAL rank; only the score is synthetic (for sort +
+      // min-score gate). Tagged ONE_OF_ONE so the UI can badge it.
+      if (isTrueOneOfOne(rarity.traits, update.nftName, rarity.totalSupply, rarity.rarityRank)) {
+        if (decided.has(sig)) return;
+        markDecided(sig);
+        pending.delete(sig);
+        if (!allowOneOfOne(slug)) {
+          console.log(`[rare/feed] 1of1 skipped sig=${sig.slice(0, 12)}… slug=${slug ?? '?'} reason=slug_cap`);
+          return;
+        }
+        const pct = rarity.totalSupply ? (rarity.rarityRank as number) / rarity.totalSupply : null;
+        const wrote = await insertRareEvent({
+          saleSignature:    sig,
+          mintAddress:      mint,
+          collectionSlug:   slug,
+          collectionName:   update.collectionName,
+          nftName:          update.nftName,
+          imageUrl:         update.imageUrl,
+          source:           sale.marketplace,
+          salePriceSol:     salePrice,
+          floorPriceSol:    floorPrice,
+          floorDeltaPct:    hasFloor ? floorDelta : null,
+          rarityRank:       rarity.rarityRank,
+          totalSupply:      rarity.totalSupply,
+          rarityPercentile: pct,
+          raritySource:     rarity.source,
+          rareScore:        ONE_OF_ONE_SCORE,
+          reasonTags:       ['ONE_OF_ONE'],
+          saleTime:         sale.blockTime,
+        });
+        if (wrote) stat.oneOfOne++;
+        console.log(
+          `[rare/feed] 1of1 accepted sig=${sig.slice(0, 12)}… mint=${mint.slice(0, 8)}… ` +
+          `rank=${rarity.rarityRank}/${rarity.totalSupply} src=${rarity.source} ${wrote ? '' : '(dup)'}`,
+        );
+        return;
+      }
+
+      // ── Normal path: requires a floor. Without it, do NOT mark decided —
+      //    a later `meta` may carry the floor.
+      if (!hasFloor || floorPrice == null) return;
+      if (decided.has(sig)) return;
+      markDecided(sig);
+      pending.delete(sig);
+
       if (rarity.rarityRank == null || rarity.totalSupply == null || rarity.totalSupply <= 0) {
         stat.missingRarity++;
         console.log(`[rare/feed] rejected sig=${sig.slice(0, 12)}… reason=no_rarity`);
@@ -184,7 +245,7 @@ export function startRareFeedEvaluator(): void {
   const summary = setInterval(() => {
     console.log(
       `[rare/feed] summary evaluated=${stat.evaluated} missingRarity=${stat.missingRarity} ` +
-      `rejRarity=${stat.rejRarity} rejPrice=${stat.rejPrice} accepted=${stat.accepted}`,
+      `rejRarity=${stat.rejRarity} rejPrice=${stat.rejPrice} accepted=${stat.accepted} oneOfOne=${stat.oneOfOne}`,
     );
   }, 5 * 60 * 1000);
   summary.unref?.();
