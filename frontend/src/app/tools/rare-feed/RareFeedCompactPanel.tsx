@@ -1,18 +1,23 @@
 'use client';
 
 // VictoryLabs — COMPACT Rare Feed signal strip for /multi ONLY.
-// A dense rarity watchlist (not a second sales feed): each row is just NFT
-// name + rarity badge + Magic Eden / Tensor links. No image / price / floor /
-// wallets / timestamp. Clicking a row highlights the matching sale in the Live
-// Feed column (via RareHighlightProvider). The full /tools/rare-feed page is
-// untouched — it still renders <RareFeedPanelView> with full cards.
+// A navigator over the RIGHT Live Feed Sales column — NOT a separate historical
+// feed. It derives rare rows from the SAME live sales (useMultiSales), filtered
+// to EPIC+ by rank/supply, so every row corresponds to a sale currently in the
+// Live Feed. Each row: name + rarity badge + Magic Eden / Tensor links (no
+// image / price / wallets / timestamp). Hover highlights + dims the matching
+// sale; click scrolls to it. The full /tools/rare-feed page is untouched.
 
-import { useRareFeed } from './lib/use-rare-feed';
-import type { RareEvent } from './lib/use-rare-feed';
+import { useMemo } from 'react';
+import type { FeedEvent } from '@/soloist/mock-data';
 import { RarityRankBadge } from '@/app/feed/lib/rarity-rank-badge';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { LiveDot } from '@/soloist/shared';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
+import { useMultiSales } from '@/app/multi-native/lib/multi-sales';
+
+/** EPIC+ gate (mirrors RarityRankBadge tiers): percentile ≤ 15%. */
+const EPIC_PCT = 0.15;
 
 /** Tiny square marketplace link button (ME / Tensor). */
 function MktLink({ href, label, brand }: { href: string; label: string; brand: string }) {
@@ -38,7 +43,7 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
 }
 
 interface RowProps {
-  e: RareEvent;
+  e: FeedEvent;
   selected: boolean;
   onSelect: (mint: string) => void;
   onHover: (mint: string | null) => void;
@@ -51,6 +56,9 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
   // Aggressive shortening for the narrow strip.
   const { shortName, fullName } = shortenNftName(e.nftName, 13);
   const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
+  // Item links built from the mint (same scheme the rare API used).
+  const meUrl     = `https://magiceden.io/item-details/${e.mintAddress}`;
+  const tensorUrl = `https://www.tensor.trade/item/${e.mintAddress}`;
   return (
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
@@ -80,8 +88,6 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
         <RarityRankBadge
           rarityRank={e.rarityRank}
           totalSupply={e.totalSupply}
-          reasonTags={e.reasonTags}
-          rareScore={e.rareScore}
         />
       </div>
 
@@ -91,8 +97,8 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
           {e.collectionName ?? ''}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <MktLink href={e.meUrl}     label="Magic Eden" brand="#e42575" />
-          <MktLink href={e.tensorUrl} label="Tensor"     brand="#3a7bd5" />
+          <MktLink href={meUrl}     label="Magic Eden" brand="#e42575" />
+          <MktLink href={tensorUrl} label="Tensor"     brand="#3a7bd5" />
         </div>
       </div>
     </div>
@@ -100,8 +106,15 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
 }
 
 export function RareFeedCompactPanel() {
-  const { rows, error, loading } = useRareFeed();
+  const { events } = useMultiSales();
   const hl = useRareHighlight();
+
+  // Rare rows = EPIC+ sales from the CURRENT Live Feed window, so every row
+  // has a matching sale on the right. Same order (newest first) as the feed.
+  const rows = useMemo(() => events.filter((e) => {
+    const r = e.rarityRank, s = e.totalSupply;
+    return r != null && s != null && s > 0 && r / s <= EPIC_PCT;
+  }), [events]);
 
   return (
     <div style={{
@@ -124,17 +137,14 @@ export function RareFeedCompactPanel() {
 
       {/* Mini-cards. */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {error && (
-          <div style={{ padding: '10px 12px', fontSize: 11, color: '#ef7878' }}>failed — {error}</div>
-        )}
-        {!error && rows.length === 0 && (
+        {rows.length === 0 && (
           <div style={{ textAlign: 'center', color: '#55556e', padding: '32px 0', fontSize: 12 }}>
-            {loading ? 'Loading…' : 'No rare signals yet'}
+            No rare sales in the live window yet
           </div>
         )}
         {rows.map((e) => (
           <RareMiniCard
-            key={e.saleSignature}
+            key={e.id}
             e={e}
             selected={hl?.selectedMint === e.mintAddress && !!e.mintAddress}
             onSelect={(m) => hl?.selectMint(m)}

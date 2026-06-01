@@ -12,16 +12,15 @@ import { LiveDot, Pill, SettingsToggle, settingsPillActive, SETTINGS_PILL_INACTI
 import { useInclusiveFees } from '@/soloist/price-mode';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
-import { useSaleStream } from '@/app/multi-native/lib/sale-event-stream';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
+import { useMultiSales } from '@/app/multi-native/lib/multi-sales';
 import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
-import { useSalesFeed } from './lib/use-sales-feed';
 
 const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
 
 export function SalesFeedPanel() {
-  const { events, meStale } = useSalesFeed(useSaleStream());
+  const { events, meStale } = useMultiSales();
   const [inclusiveFees] = useInclusiveFees();
 
   const [paused, setPaused] = useState(false);

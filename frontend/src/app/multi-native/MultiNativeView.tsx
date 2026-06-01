@@ -16,6 +16,7 @@ import { RareFeedCompactPanel } from '@/app/tools/rare-feed/RareFeedCompactPanel
 import { SalesFeedPanel } from '@/app/feed/SalesFeedPanel';
 import { SaleStreamProvider } from './lib/sale-event-stream';
 import { RareHighlightProvider } from './lib/rare-highlight';
+import { MultiSalesProvider } from './lib/multi-sales';
 
 // Frameless grid cell — flex column so each panel's `flex: 1` fills the cell
 // height cross-browser. NO border/background/shadow (panels carry their own
@@ -29,6 +30,7 @@ export function MultiNativeView() {
     // One shared EventSource for the whole page: the sales + mint panels
     // register their handlers on it instead of opening a connection each.
     <SaleStreamProvider>
+     <MultiSalesProvider>
      <RareHighlightProvider>
       <div className="feed-root page-transition" data-embedded="1">
         <div style={{
@@ -51,6 +53,7 @@ export function MultiNativeView() {
         </div>
       </div>
      </RareHighlightProvider>
+     </MultiSalesProvider>
     </SaleStreamProvider>
   );
 }
