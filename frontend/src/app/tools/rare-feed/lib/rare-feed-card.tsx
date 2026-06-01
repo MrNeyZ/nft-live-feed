@@ -63,12 +63,14 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
 
 /** Tier pill colors (Tensor-style, muted): 1/1 gold, MYTHIC pink, LEGENDARY
  *  amber, EPIC purple. Tiers + the 1/1 flag come from the backend reasonTags. */
-const TIER_COLOR: Record<string, string> = {
-  MYTHIC:    '#d94c86',
-  LEGENDARY: '#c9912e',
-  EPIC:      '#6f45c7',
+/** Per-tier solid pill color + a subtle premium glow (visible only when
+ *  looked for — no neon/bloom). 1/1 gold is the standout. */
+const TIER_STYLE: Record<string, { bg: string; glow: string }> = {
+  MYTHIC:     { bg: '#ef5b97', glow: '0 0 10px rgba(239, 91, 151, 0.22)' },
+  LEGENDARY:  { bg: '#e1a63a', glow: '0 0 8px rgba(225, 166, 58, 0.20)' },
+  EPIC:       { bg: '#7c5cf0', glow: '0 0 6px rgba(124, 92, 240, 0.18)' },
+  ONE_OF_ONE: { bg: '#d7a53a', glow: '0 0 10px rgba(215, 165, 58, 0.22)' },
 };
-const ONE_OF_ONE_COLOR = '#b8862b';
 /** Near-black icon/text on the filled pill (not pure black). */
 const PILL_INK = 'rgba(12, 10, 18, 0.82)';
 const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -86,21 +88,22 @@ export function rarityChip(e: RareEvent) {
   const oneOfOne = tags.includes('ONE_OF_ONE');
   const tier     = (['MYTHIC', 'LEGENDARY', 'EPIC'] as const).find((t) => tags.includes(t));
 
-  // Tensor-style filled capsule for 1/1 + tiered sales: muted tier background,
-  // near-black gem icon + rank, system font. Rank only (supply → tooltip).
+  // Tensor-style filled capsule for 1/1 + tiered sales: solid tier background
+  // with a subtle premium glow, near-black gem icon + rank, system font.
+  // Rank only (supply → tooltip).
   if (oneOfOne || tier) {
-    const color = oneOfOne ? ONE_OF_ONE_COLOR : TIER_COLOR[tier as string];
+    const { bg, glow } = TIER_STYLE[oneOfOne ? 'ONE_OF_ONE' : (tier as string)];
     const title = oneOfOne ? `True 1/1 — #${e.rarityRank}${supply}` : `${tier} — #${e.rarityRank}${supply}`;
     const pill: CSSProperties = {
-      display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
-      height: 16, padding: '0 6px', borderRadius: 999,
+      display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0,
+      height: 15, padding: '0 5px', borderRadius: 999,
       fontSize: 10, fontWeight: 800, lineHeight: 1, letterSpacing: 0,
       verticalAlign: 'middle', fontFamily: BADGE_FONT,
-      color: PILL_INK, background: color, border: 'none',
+      color: PILL_INK, background: bg, border: 'none', boxShadow: glow,
     };
     return (
       <span title={title} style={pill}>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, display: 'block' }} aria-hidden>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, display: 'block' }} aria-hidden>
           <path d="M6 3h12l4 6-10 12L2 9l4-6Z" />
         </svg>
         {oneOfOne ? '1/1' : e.rarityRank}
