@@ -38,15 +38,30 @@ export function SalesFeedPanel() {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
-  // /multi only: the compact Rare Feed publishes a mint to highlight here.
-  // Highlight follows activeMint (hover OR click); scroll fires ONLY on click
-  // (selectNonce), never on hover. Null on /feed (no provider).
+  // /multi only: the compact Rare Feed publishes hovered/selected mints here.
+  // Null on /feed (no provider).
   const hl = useRareHighlight();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // HOVER → jump to the matching sale (transient; mouse-leave doesn't scroll
+  // back). Fires only when the hovered mint actually changes.
   useEffect(() => {
-    if (!hl?.selectedMint) return;
-    const el = cardRefs.current.get(hl.selectedMint);
+    if (!hl?.hoveredMint) return;
+    const el = cardRefs.current.get(hl.hoveredMint);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [hl?.hoveredMint]);
+
+  // CLICK → scroll to the selected sale; UNSELECT (selectedMint → null) →
+  // reset the feed to the top. selectNonce bumps on every click so re-selecting
+  // the same mint re-scrolls.
+  useEffect(() => {
+    if (hl?.selectedMint) {
+      const el = cardRefs.current.get(hl.selectedMint);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      listRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }, [hl?.selectNonce, hl?.selectedMint]);
 
   return (
@@ -129,7 +144,7 @@ export function SalesFeedPanel() {
           </div>
         )}
 
-        <div className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
+        <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
           {list.length === 0 && (
             <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
               Waiting for sales…
