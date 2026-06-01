@@ -20,6 +20,7 @@ import { startResizeStatusResolver } from './mints/resize-status-resolver';
 import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
+import { startMintReconcile } from './ingestion/mint-raw/reconcile';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 import { startRareFeed } from './rare-feed';
 import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
@@ -142,6 +143,9 @@ async function main() {
     console.log(`[mints] tracker mode=${mtRuntime} (${getMintTrackerMode()}) independent=true`);
     console.log(`[mints/runtime] mode=${mtRuntime} salesMode=${getMode()} independent=true`);
     startListener();
+    // Bounded gap-healer for launchpad-mint misses (see reconcile.ts). Only
+    // active alongside the listener, since it backfills what the listener drops.
+    startMintReconcile();
   }
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
