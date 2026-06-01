@@ -44,9 +44,16 @@ export function SalesFeedPanel() {
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Scroll WITHIN the feed-list container only — never el.scrollIntoView(),
+  // which would also scroll the document <body> (it's ~nav-height taller than
+  // the viewport) and push the TopNav off-screen.
   const scrollToSale = useCallback((mint: string) => {
+    const c = listRef.current;
     const el = cardRefs.current.get(mint);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!c || !el) return;
+    const delta = (el.getBoundingClientRect().top - c.getBoundingClientRect().top)
+      - (c.clientHeight / 2 - el.clientHeight / 2);
+    c.scrollTo({ top: c.scrollTop + delta, behavior: 'smooth' });
   }, []);
   const scrollToTop = useCallback(() => {
     listRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
