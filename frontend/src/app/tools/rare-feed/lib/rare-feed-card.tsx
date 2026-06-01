@@ -64,16 +64,14 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
 /** Tier pill colors (Tensor-style, muted): 1/1 gold, MYTHIC pink, LEGENDARY
  *  amber, EPIC purple. Tiers + the 1/1 flag come from the backend reasonTags. */
 const TIER_COLOR: Record<string, string> = {
-  MYTHIC:    '#ec4b8f',
-  LEGENDARY: '#d99a2b',
-  EPIC:      '#8a55e6',
+  MYTHIC:    '#d94c86',
+  LEGENDARY: '#c9912e',
+  EPIC:      '#6f45c7',
 };
-const ONE_OF_ONE_COLOR = '#c99a2e';
+const ONE_OF_ONE_COLOR = '#b8862b';
 /** Near-black icon/text on the filled pill (not pure black). */
-const PILL_INK = 'rgba(10, 8, 18, 0.92)';
+const PILL_INK = 'rgba(12, 10, 18, 0.82)';
 const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-/** Gem silhouette (faceted), not a plain rotated square. */
-const GEM_CLIP = 'polygon(50% 0%, 100% 35%, 75% 100%, 25% 100%, 0% 35%)';
 
 /** Compact rarity badge rendered inline after the NFT name (Rare Feed only).
  *  For a 1/1 or a rarity tier it renders ONE Tensor-style colored pill —
@@ -95,17 +93,16 @@ export function rarityChip(e: RareEvent) {
     const title = oneOfOne ? `True 1/1 — #${e.rarityRank}${supply}` : `${tier} — #${e.rarityRank}${supply}`;
     const pill: CSSProperties = {
       display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
-      height: 20, padding: '0 7px', borderRadius: 999,
-      fontSize: 11, fontWeight: 800, lineHeight: 1, letterSpacing: 0,
+      height: 16, padding: '0 6px', borderRadius: 999,
+      fontSize: 10, fontWeight: 800, lineHeight: 1, letterSpacing: 0,
       verticalAlign: 'middle', fontFamily: BADGE_FONT,
       color: PILL_INK, background: color, border: 'none',
     };
     return (
       <span title={title} style={pill}>
-        <span style={{
-          width: 10, height: 9, background: PILL_INK,
-          clipPath: GEM_CLIP, flexShrink: 0,
-        }} />
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0, display: 'block' }} aria-hidden>
+          <path d="M6 3h12l4 6-10 12L2 9l4-6Z" />
+        </svg>
         {oneOfOne ? '1/1' : e.rarityRank}
       </span>
     );
