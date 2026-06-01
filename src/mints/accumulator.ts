@@ -274,6 +274,33 @@ function rememberNonNft(key: string): void {
   }
 }
 
+/** Sticky dedupe set: `${signature}:${mintAddress}` pairs already counted
+ *  by `recordMint`. A single real mint must increment `observedMints` /
+ *  `supplyMintedLocal` exactly once, but the same (sig, mint) can be
+ *  delivered to the accumulator more than once — the reconcile gap-healer
+ *  re-dispatches sigs it can't find in the *sampled* `mint_events` table,
+ *  and WS-reconnect / txCache replays can re-fetch the same tx. Without
+ *  this guard each redelivery double-counted, inflating the MINTS / SUPPLY
+ *  columns (audited on MAD624 / Mad Cartel: launchpad ~404, tracker 467).
+ *
+ *  Keyed by (signature, mintAddress) — NOT signature alone — so a batch
+ *  mint tx carrying multiple assets still counts each distinct asset once.
+ *  Mirrors the DB's `ON CONFLICT (signature, mint_address)` uniqueness.
+ *  Bounded FIFO (insertion-ordered Set) so it can't grow without limit. */
+const COUNTED_MINTS_MAX = 100_000;
+const countedMints = new Set<string>();
+function rememberCountedMint(key: string): void {
+  countedMints.add(key);
+  if (countedMints.size <= COUNTED_MINTS_MAX) return;
+  const overflow = countedMints.size - COUNTED_MINTS_MAX;
+  const it = countedMints.values();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    countedMints.delete(r.value);
+  }
+}
+
 function trimWindow(arr: RingItem[], cutoff: number): RingItem[] {
   let i = 0;
   while (i < arr.length && arr[i].ts < cutoff) i++;
@@ -516,6 +543,25 @@ export function recordMint(ev: MintEventWire): boolean {
     }
     return false;
   }
+  // Per-mint dedupe — the same real mint can reach recordMint more than
+  // once (reconcile re-dispatches sigs missing from the *sampled*
+  // mint_events table; WS reconnect / txCache replays re-fetch the same
+  // tx). Skip BEFORE any counter mutation / SSE emit so a redelivery is a
+  // true no-op: no observedMints++, no supplyMintedLocal++, no mint /
+  // mint_status frame. Genuinely-missed sigs (never counted) fall through
+  // and count exactly once, so reconcile's gap-healing still works.
+  const dedupeKey = `${ev.signature}:${ev.mintAddress ?? ''}`;
+  if (countedMints.has(dedupeKey)) {
+    if (MINTS_DEBUG) {
+      console.log(
+        `[mints/dedupe] skip duplicate sig=${ev.signature.slice(0, 20)}… ` +
+        `mint=${ev.mintAddress ?? '—'}`,
+      );
+    }
+    return false;
+  }
+  rememberCountedMint(dedupeKey);
+
   const isFirst = !map.has(ev.groupingKey);
   if (MINTS_DEBUG) {
     console.log(
