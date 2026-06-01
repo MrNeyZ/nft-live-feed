@@ -61,52 +61,59 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
   };
 }
 
-/** Tier badge metadata. Tiers come from the backend's reasonTags; 1/1 is the
- *  force-include flag and always outranks a tier. Colors: 1/1 gold, MYTHIC
- *  pink, LEGENDARY amber, EPIC purple. */
-const TIER_BADGE: Record<string, { label: string; color: string }> = {
-  MYTHIC:    { label: 'MYTHIC', color: '#ff6fb5' },
-  LEGENDARY: { label: 'LEGEND', color: '#f2a93b' },
-  EPIC:      { label: 'EPIC',   color: '#a855f7' },
+/** Tier pill colors (Tensor-style): 1/1 gold, MYTHIC hot-pink, LEGENDARY
+ *  amber, EPIC purple. Tiers + the 1/1 flag come from the backend reasonTags. */
+const TIER_COLOR: Record<string, string> = {
+  MYTHIC:    '#ff2f7d',
+  LEGENDARY: '#f5a623',
+  EPIC:      '#8b5cf6',
 };
 
-/** Badges to render after the rank chip: 1/1 first (if present), then the
- *  single HIGHEST tier (MYTHIC > LEGENDARY > EPIC). In practice a 1/1 and a
- *  tier never co-occur, so this is normally one badge. */
-function rareBadges(reasonTags?: string[]): { label: string; color: string; title: string }[] {
-  const tags = reasonTags ?? [];
-  const out: { label: string; color: string; title: string }[] = [];
-  if (tags.includes('ONE_OF_ONE')) out.push({ label: '1/1', color: '#f5c542', title: 'True 1/1' });
-  for (const t of ['MYTHIC', 'LEGENDARY', 'EPIC']) {
-    if (tags.includes(t)) { out.push({ ...TIER_BADGE[t], title: `${t} — rare sale above floor` }); break; }
-  }
-  return out;
-}
-
-/** Compact rarity chip rendered inline after the NFT name (Rare Feed only).
- *  Surfaces rank (+ supply, tinted by rareScore) plus a 1/1 / tier badge so an
- *  above-floor sale's rarity tier is obvious. */
+/** Compact rarity badge rendered inline after the NFT name (Rare Feed only).
+ *  For a 1/1 or a rarity tier it renders ONE Tensor-style colored pill —
+ *  diamond glyph + rank, with supply de-emphasized — instead of a rank chip
+ *  plus a separate tier badge. Non-tier rows keep the original score-tinted
+ *  rank chip. */
 export function rarityChip(e: RareEvent) {
   if (e.rarityRank == null) return null;
-  const c = scoreColor(e.rareScore);
-  const chip: CSSProperties = {
-    flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
-    padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
-    fontFamily: "'SF Mono','Fira Code',monospace",
-  };
-  return (
-    <>
-      <span style={{ ...chip, color: c, background: `${c}1f`, border: `1px solid ${c}55` }}>
-        #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
+  const tags   = e.reasonTags ?? [];
+  const supply = e.totalSupply ? `/${e.totalSupply}` : '';
+
+  const oneOfOne = tags.includes('ONE_OF_ONE');
+  const tier     = (['MYTHIC', 'LEGENDARY', 'EPIC'] as const).find((t) => tags.includes(t));
+
+  // Tensor-like pill for 1/1 + tiered sales.
+  if (oneOfOne || tier) {
+    const color = oneOfOne ? '#f5c542' : TIER_COLOR[tier as string];
+    const title = oneOfOne ? 'True 1/1' : `${tier} — rank ${e.rarityRank}${supply}`;
+    const pill: CSSProperties = {
+      display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+      fontSize: 10, fontWeight: 800, letterSpacing: '0.2px',
+      padding: '1px 7px', borderRadius: 8, lineHeight: 1.4, whiteSpace: 'nowrap',
+      fontFamily: "'SF Mono','Fira Code',monospace",
+      color, background: `${color}24`, border: `1px solid ${color}66`,
+    };
+    return (
+      <span title={title} style={pill}>
+        <span style={{ fontSize: 7, marginRight: 3, lineHeight: 1 }}>◆</span>
+        {oneOfOne ? '1/1' : e.rarityRank}
+        {!oneOfOne && supply && (
+          <span style={{ opacity: 0.5, fontWeight: 600, marginLeft: 1 }}>{supply}</span>
+        )}
       </span>
-      {rareBadges(e.reasonTags).map((b) => (
-        <span key={b.label} title={b.title} style={{
-          ...chip, marginLeft: 4, color: b.color,
-          background: `${b.color}29`, border: `1px solid ${b.color}8c`,
-        }}>
-          {b.label}
-        </span>
-      ))}
-    </>
+    );
+  }
+
+  // Fallback (no tier): original score-tinted rank chip.
+  const c = scoreColor(e.rareScore);
+  return (
+    <span style={{
+      flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
+      padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
+      color: c, background: `${c}1f`, border: `1px solid ${c}55`,
+      fontFamily: "'SF Mono','Fira Code',monospace",
+    }}>
+      #{e.rarityRank}{supply}
+    </span>
   );
 }
