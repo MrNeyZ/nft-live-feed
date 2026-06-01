@@ -32,6 +32,12 @@ export interface FeedEvent {
   floorDelta?: number | null;
   /** Offer delta in SOL: salePrice − topOffer. Absent when unknown. */
   offerDelta?: number | null;
+  /** Best-effort rarity from mint_rarity_cache (no provider call). Absent when
+   *  the mint isn't cached — the rarity badge is hidden in that case. */
+  rarityRank?: number | null;
+  totalSupply?: number | null;
+  rarityPercentile?: number | null;
+  raritySource?: string | null;
   /** Verified ME collection slug, e.g. "froganas". Null until meta patch arrives. */
   meCollectionSlug: string | null;
   /** Resize-status snapshot from the backend resolver. Only
@@ -67,6 +73,12 @@ export interface RestRow {
   magic_eden_url: string | null;
   me_collection_slug: string | null;
   parser_source: string | null;
+  /** Best-effort rarity stamped by /latest + /by-collection from
+   *  mint_rarity_cache (no provider call). Absent when the mint isn't cached. */
+  rarity_rank?: number | null;
+  total_supply?: number | null;
+  rarity_percentile?: number | null;
+  rarity_source?: string | null;
   /** Optional. Backend's /latest handler retro-attaches this from the
    *  in-process floor cache when the slug has been seen in the last
    *  2 minutes. Absent on stale snapshots — frontend hides the chip. */
@@ -96,6 +108,10 @@ export function fromRow(row: RestRow): FeedEvent {
     source: row.parser_source ? 'me_raw' : 'helius',
     meCollectionSlug: row.me_collection_slug,
     floorDelta: row.floor_delta ?? null,
+    rarityRank:       row.rarity_rank ?? null,
+    totalSupply:      row.total_supply ?? null,
+    rarityPercentile: row.rarity_percentile ?? null,
+    raritySource:     row.rarity_source ?? null,
     resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
   };
 }

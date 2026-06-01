@@ -69,7 +69,11 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     color: meta.color,
     nftName,
     num: numFromName(b.nftName),
-    rank: 0,
+    rank: b.rarityRank ?? 0,
+    rarityRank:       b.rarityRank ?? null,
+    totalSupply:      b.totalSupply ?? null,
+    rarityPercentile: b.rarityPercentile ?? null,
+    raritySource:     b.raritySource ?? null,
     // Display price prefers seller-net (actual proceeds) when available,
     // gross priceSol as fallback. `grossPrice` always carries the raw
     // sale figure for consumers (chart, summaries) that need it.

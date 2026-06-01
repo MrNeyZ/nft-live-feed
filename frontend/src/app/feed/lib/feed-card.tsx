@@ -14,6 +14,7 @@ import { marketplaceUrl } from '@/soloist/from-backend';
 import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
 import { displayPrice } from '@/soloist/price-mode';
 import { formatFeedPrice, safeFiniteNumber } from './format';
+import { RarityRankBadge } from './rarity-rank-badge';
 import { KIND_STYLES, saleKind, getNftBorderColor } from './sale-kind';
 import type { FeedCardProps } from './types';
 import { useSharedNow } from './shared-now';
@@ -588,6 +589,13 @@ export const FeedCard = memo(function FeedCard({
                 /feed never passes `nameChip`, so this renders nothing
                 there and the name row is byte-identical to before. */}
             {nameChip}
+            {/* Live Feed: best-effort Tensor-style rarity badge from
+                event.rarityRank (backend mint_rarity_cache). Shows EPIC+ only;
+                null otherwise. Rare Feed sets no rarityRank field, so this
+                never double-renders alongside nameChip. */}
+            {!nameChip && (
+              <RarityRankBadge rarityRank={event.rarityRank} totalSupply={event.totalSupply} />
+            )}
           </div>
 
           {/* Seller/buyer rows — wallets clickable to Solscan; tiny ME

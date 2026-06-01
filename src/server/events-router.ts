@@ -5,6 +5,7 @@ import { getLatestEvents, getEventsByCollection } from '../db/queries';
 import { getPool } from '../db/client';
 import { peekCachedFloorLamports } from '../enrichment/enrich';
 import { getCachedResizeStatus } from '../mints/resize-status-resolver';
+import { rarityForMints } from './rarity-lookup';
 import { rateLimit, isValidSlug } from './rate-limit';
 
 const MAX_LIMIT = 200;
@@ -103,6 +104,21 @@ function maybeAutoBackfill(slug: string): void {
  *  /by-collection. Safe: leaves a row unchanged when the cache has no value
  *  (never invents a floor). floor_delta isn't persisted (SSE `meta` channel
  *  only); resize_status cache is preloaded from `mint_resize_status` on boot. */
+/** Attach best-effort rarity (snake_case, mirroring the SSE camelCase fields)
+ *  to REST snapshot rows from the existing mint_rarity_cache only. One batched
+ *  DB query for all uncached mints; rows without a valid cache row are left
+ *  unchanged (no badge). */
+async function stampRarity<T extends { mint_address: string | null }>(
+  rows: T[],
+): Promise<Array<T & { rarity_rank?: number; total_supply?: number; rarity_percentile?: number; rarity_source?: string | null }>> {
+  const map = await rarityForMints(rows.map((r) => r.mint_address));
+  return rows.map((r) => {
+    const v = r.mint_address ? map.get(r.mint_address) : null;
+    if (!v) return r;
+    return { ...r, rarity_rank: v.rarityRank, total_supply: v.totalSupply, rarity_percentile: v.rarityPercentile, rarity_source: v.raritySource };
+  });
+}
+
 function stampFromCache<T extends {
   me_collection_slug: string | null;
   price_lamports: number | string | bigint;
@@ -144,7 +160,7 @@ export function createEventsRouter(): Router {
       // Re-stamp floor_delta + resize_status from the in-process caches (these
       // are SSE-only / not persisted) so a refresh keeps the FloorChip/RESIZE
       // badge. Shared with /by-collection via stampFromCache().
-      const enriched = stampFromCache(await getLatestEvents(limit));
+      const enriched = await stampRarity(stampFromCache(await getLatestEvents(limit)));
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {
       console.error('[events] query error', err);
@@ -189,7 +205,7 @@ export function createEventsRouter(): Router {
     try {
       // Same floor_delta + resize_status cache stamp as /latest so the
       // collection drill-down matches the main feed after reload.
-      const events = stampFromCache(await getEventsByCollection(slug, since, limit));
+      const events = await stampRarity(stampFromCache(await getEventsByCollection(slug, since, limit)));
       maybeAutoBackfill(slug);
       res.json({ events, count: events.length, since: since?.toISOString() ?? null });
     } catch (err) {

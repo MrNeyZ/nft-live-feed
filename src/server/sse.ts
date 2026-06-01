@@ -14,6 +14,7 @@ import {
   paymentTokenMetaSnapshot,
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
+import { rarityForMintSync } from './rarity-lookup';
 import { saleTypeFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../mints/accumulator';
@@ -237,6 +238,9 @@ export function getSseBatchHighWater(): number { return batchHighWater; }
 function buildSaleFrame(event: SaleEvent): string {
   const parser = event.rawData._parser as string | undefined;
   const source = parser ? 'me_raw' : 'helius';
+  // Best-effort rarity from the existing in-process cache (no DB/provider call
+  // on this hot path). Cold mints get no badge now but prime for next time.
+  const rar = rarityForMintSync(event.mintAddress);
   const payload = JSON.stringify({
     signature:         event.signature,
     blockTime:         event.blockTime.toISOString(),
@@ -258,6 +262,10 @@ function buildSaleFrame(event: SaleEvent): string {
     floorDelta:        event.floorDelta        ?? null,
     offerDelta:        event.offerDelta        ?? null,
     resizeStatus:      event.resizeStatus      ?? null,
+    rarityRank:        rar?.rarityRank        ?? null,
+    totalSupply:       rar?.totalSupply       ?? null,
+    rarityPercentile:  rar?.rarityPercentile  ?? null,
+    raritySource:      rar?.raritySource      ?? null,
     source,
   });
   return `event: sale\ndata: ${payload}\n\n`;

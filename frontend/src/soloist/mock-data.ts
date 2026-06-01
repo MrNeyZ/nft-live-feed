@@ -35,6 +35,12 @@ export interface FeedEvent {
   nftName: string;
   num: number;
   rank: number;
+  /** Best-effort rarity (backend mint_rarity_cache). Drives the Tensor-style
+   *  rarity badge; undefined/null → no badge. */
+  rarityRank?: number | null;
+  totalSupply?: number | null;
+  rarityPercentile?: number | null;
+  raritySource?: string | null;
   /** Display price — prefers seller-net (actual proceeds after fees +
    *  royalties) when the backend extracted it; falls back to `grossPrice`. */
   price: number;
