@@ -10,6 +10,7 @@
 import { useRareFeed } from './lib/use-rare-feed';
 import type { RareEvent } from './lib/use-rare-feed';
 import { RarityRankBadge } from '@/app/feed/lib/rarity-rank-badge';
+import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { LiveDot } from '@/soloist/shared';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
 
@@ -37,40 +38,44 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
 }
 
 function CompactRow({ e, selected, onSelect }: { e: RareEvent; selected: boolean; onSelect: (mint: string) => void }) {
-  const stem = e.nftName ?? e.collectionName ?? e.mintAddress.slice(0, 6);
+  // Same name shortening Live Feed Sales uses.
+  const { shortName, fullName } = shortenNftName(e.nftName);
+  const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
   return (
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
       title="Highlight this sale in Live Feed"
       style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '0 8px', height: 30, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '0 9px', height: 36, cursor: 'pointer',
         borderBottom: '1px solid rgba(168,144,232,0.07)',
         background: selected ? 'rgba(168,144,232,0.16)' : 'transparent',
         transition: 'background 0.1s',
       }}
     >
-      {/* Name + collection (truncated). */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.15 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {stem}
+      {/* Name (shortened) + collection subtitle — flexes + ellipsis so the
+          right-edge badge/actions never get pushed off. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {name}
         </span>
         {e.collectionName && (
-          <span style={{ fontSize: 9, color: '#6e6e8a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 10, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {e.collectionName}
           </span>
         )}
       </div>
-      {/* Rarity badge (shared component — same as full Rare Feed). */}
-      <RarityRankBadge
-        rarityRank={e.rarityRank}
-        totalSupply={e.totalSupply}
-        reasonTags={e.reasonTags}
-        rareScore={e.rareScore}
-      />
-      {/* Marketplace links. */}
-      <MktLink href={e.meUrl}     label="Magic Eden" brand="#e42575" />
-      <MktLink href={e.tensorUrl} label="Tensor"     brand="#3a7bd5" />
+      {/* Fixed right action cluster: rarity badge + ME/Tensor links. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        <RarityRankBadge
+          rarityRank={e.rarityRank}
+          totalSupply={e.totalSupply}
+          reasonTags={e.reasonTags}
+          rareScore={e.rareScore}
+        />
+        <MktLink href={e.meUrl}     label="Magic Eden" brand="#e42575" />
+        <MktLink href={e.tensorUrl} label="Tensor"     brand="#3a7bd5" />
+      </div>
     </div>
   );
 }

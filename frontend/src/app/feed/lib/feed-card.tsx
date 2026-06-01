@@ -15,6 +15,7 @@ import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
 import { displayPrice } from '@/soloist/price-mode';
 import { formatFeedPrice, safeFiniteNumber } from './format';
 import { RarityRankBadge } from './rarity-rank-badge';
+import { shortenNftName } from './nft-name';
 import { KIND_STYLES, saleKind, getNftBorderColor } from './sale-kind';
 import type { FeedCardProps } from './types';
 import { useSharedNow } from './shared-now';
@@ -451,20 +452,11 @@ export const FeedCard = memo(function FeedCard({
   // hover-dim variable so both stack cleanly.
   const ageMinAtMount = (Date.now() - event.ts) / 60_000;
   const initialAgeBucket = ageMinAtMount < 2 ? 'fresh' : ageMinAtMount < 5 ? 'mid' : 'old';
-  const m = event.nftName?.match(/^(.*?)\s*#?(\d+)$/);
-  const baseName = m ? m[1] : (event.nftName ?? '');
-  const num = m ? m[2] : '';
-  // Cap the displayed title length (collection name + " #<num>") so very
-  // long names don't crowd the right column. The cap is checked against
-  // the full visible string so the number counts toward the budget;
-  // when truncated we fall back to a single string (loses the styled
-  // `#…` color) and append an ellipsis.
-  const NAME_MAX_LEN = 18;
-  const fullName     = (baseName + (num ? ` #${num}` : '')).trim();
-  const isTruncated  = fullName.length > NAME_MAX_LEN;
-  const shortName    = isTruncated
-    ? fullName.slice(0, NAME_MAX_LEN).trim() + '...'
-    : null;
+  // Shared shortener (also used by the /multi compact Rare strip) — caps the
+  // visible title at 18 chars; when truncated we fall back to a single string
+  // (loses the styled `#…` color) and append an ellipsis.
+  const { baseName, num, shortName } = shortenNftName(event.nftName);
+  const isTruncated = shortName != null;
 
   // Avatar click routing, local to the Live Feed card:
   //   LMB  → centered image preview (onPreview callback).
