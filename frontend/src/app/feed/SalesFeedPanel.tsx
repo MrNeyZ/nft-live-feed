@@ -136,30 +136,42 @@ export function SalesFeedPanel() {
               Waiting for sales…
             </div>
           )}
-          {visible.map(e => {
-            const isHi = !!hl?.activeMint && e.mintAddress === hl.activeMint;
-            return (
-              <div
-                key={e.id}
-                ref={(el) => { if (el && e.mintAddress) cardRefs.current.set(e.mintAddress, el); }}
-                style={isHi ? {
-                  borderRadius: 10,
-                  outline: '2px solid rgba(168,144,232,0.85)',
-                  outlineOffset: -2,
-                  background: 'rgba(168,144,232,0.10)',
-                } : undefined}
-              >
-                <FeedCard
-                  event={e}
-                  onPreview={onPreview}
-                  inclusiveFees={inclusiveFees}
-                  sellerSellCountInFeed={0}
-                  isNewestSellForSellerColl={false}
-                  density={density}
-                />
-              </div>
-            );
-          })}
+          {(() => {
+            const active = hl?.activeMint ?? null;
+            // Only enter "focus" mode (dim the rest) when the active mint is
+            // ACTUALLY visible — otherwise a hover on an old rare sale would
+            // fade the whole feed with nothing highlighted.
+            const focusing = !!active && visible.some(e => e.mintAddress === active);
+            return visible.map(e => {
+              const isHi = focusing && e.mintAddress === active;
+              const dimmed = focusing && !isHi;
+              return (
+                <div
+                  key={e.id}
+                  ref={(el) => { if (el && e.mintAddress) cardRefs.current.set(e.mintAddress, el); }}
+                  style={{
+                    borderRadius: 10,
+                    transition: 'opacity 120ms ease, filter 120ms ease',
+                    ...(isHi ? {
+                      outline: '2px solid rgba(168,144,232,0.85)',
+                      outlineOffset: -2,
+                      background: 'rgba(168,144,232,0.10)',
+                    } : {}),
+                    ...(dimmed ? { opacity: 0.32, filter: 'brightness(0.65)' } : { opacity: 1 }),
+                  }}
+                >
+                  <FeedCard
+                    event={e}
+                    onPreview={onPreview}
+                    inclusiveFees={inclusiveFees}
+                    sellerSellCountInFeed={0}
+                    isNewestSellForSellerColl={false}
+                    density={density}
+                  />
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     </div>
