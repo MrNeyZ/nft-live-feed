@@ -199,7 +199,7 @@ interface AuditLine {
   newBuyer:      string | null;
   seller:        string | null;
   priceLamports: string | null;
-  status:        'wouldUpdate' | 'updated' | 'skip' | 'error';
+  status:        'wouldUpdate' | 'wouldUpdateDirectionReclassified' | 'updated' | 'skip' | 'error';
   reason:        string;
 }
 
@@ -214,11 +214,18 @@ const CANDIDATE_SQL = `
    ORDER BY block_time DESC
 `;
 
+// Updates buyer ONLY. Adds two provenance markers and deliberately PRESERVES
+// the original raw_data._direction (we do not rewrite direction here):
+//   _backfill                  = tag (idempotency / audit)
+//   _backfillParsedDirection   = direction the current parser produced, so a
+//                                reclassified row is traceable after the fact.
 const UPDATE_SQL = `
   UPDATE sale_events
      SET buyer = $1,
-         raw_data = jsonb_set(raw_data, '{_backfill}', to_jsonb($2::text), true)
-   WHERE signature = $3 AND mint_address = $4 AND buyer = $5
+         raw_data = jsonb_set(
+                      jsonb_set(raw_data, '{_backfill}', to_jsonb($2::text), true),
+                      '{_backfillParsedDirection}', to_jsonb($3::text), true)
+   WHERE signature = $4 AND mint_address = $5 AND buyer = $6
 `;
 
 async function main(): Promise<void> {
@@ -226,8 +233,12 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   const counters = {
-    scanned: 0, target: 0, fetched: 0, wouldUpdate: 0, updated: 0,
-    skippedRealWallet: 0, skippedParseFail: 0, skippedMismatch: 0, rpcErrors: 0,
+    scanned: 0, target: 0, fetched: 0,
+    wouldUpdate: 0, wouldUpdateDirectionReclassified: 0, updated: 0,
+    skippedRealWallet: 0, skippedParseFail: 0,
+    skippedNewBuyerEqualsOld: 0, skippedSellerMismatch: 0, skippedPriceMismatch: 0,
+    skippedNewBuyerPoolPda: 0, skippedOtherMismatch: 0,
+    rpcErrors: 0,
   };
 
   // 1) Candidate rows.
@@ -285,46 +296,60 @@ async function main(): Promise<void> {
         const e = parsed.event;
         const newBuyer = e.buyer;
         const newPrice = e.priceLamports.toString();
+        const parsedDirection = String((e.rawData as Record<string, unknown>)?._direction ?? 'unknown');
 
-        // Verification gauntlet.
-        const checks: Array<[boolean, string]> = [
-          [e.signature === row.signature,                   'signature_mismatch'],
-          [e.mintAddress === row.mint_address,              'mint_mismatch'],
-          [e.marketplace === 'magic_eden_amm',              'marketplace_mismatch'],
-          [(e.rawData as Record<string, unknown>)?._direction === 'takeBid', 'direction_not_takebid'],
-          [e.nftType === 'legacy',                          'nfttype_not_legacy'],
-          [!!newBuyer,                                      'new_buyer_missing'],
-          [newBuyer !== row.buyer,                          'new_buyer_equals_old'],
-          [e.seller === row.seller,                         'seller_mismatch'],
-          [newPrice === row.price_lamports,                 'price_mismatch'],
-        ];
-        const failed = checks.find(([ok]) => !ok);
-        if (failed) {
-          counters.skippedMismatch++;
-          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'skip', reason: failed[1] });
+        // Verification gauntlet. NOTE: we intentionally do NOT require the
+        // *re-parsed* direction to still be 'takeBid'. The DB row's original
+        // raw_data._direction='takeBid' is guaranteed by the candidate SQL
+        // filter and is the scope marker we trust. Parser evolution / lp_fee
+        // logic reclassifies some of these rows to fulfillBuy/pool_sale, but
+        // the buyer correction (accs[1] = pool owner) is identical and equally
+        // valid in BOTH cases — confirmed on a 15-row sample (old buyer =
+        // pool PDA, new buyer = real non-PDA wallet, seller/price/mint match).
+        // Every OTHER safety check below is unchanged.
+        let skipReason: string | null = null;
+        if      (e.signature   !== row.signature)        skipReason = 'signature_mismatch';
+        else if (e.mintAddress !== row.mint_address)     skipReason = 'mint_mismatch';
+        else if (e.marketplace !== 'magic_eden_amm')     skipReason = 'marketplace_mismatch';
+        else if (e.nftType     !== 'legacy')             skipReason = 'nfttype_not_legacy';
+        else if (!newBuyer)                              skipReason = 'new_buyer_missing';
+        else if (newBuyer === row.buyer)                 skipReason = 'new_buyer_equals_old';
+        else if (e.seller !== row.seller)                skipReason = 'seller_mismatch';
+        else if (newPrice !== row.price_lamports)        skipReason = 'price_mismatch';
+
+        if (skipReason) {
+          if      (skipReason === 'new_buyer_equals_old') counters.skippedNewBuyerEqualsOld++;
+          else if (skipReason === 'seller_mismatch')      counters.skippedSellerMismatch++;
+          else if (skipReason === 'price_mismatch')       counters.skippedPriceMismatch++;
+          else                                            counters.skippedOtherMismatch++;
+          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'skip', reason: `${skipReason} (parsedDirection=${parsedDirection})` });
           continue;
         }
 
         // Safety: never write a new buyer that is itself an MMM-owned pool PDA.
         const newOwner = (await fetchOwners([newBuyer])).get(newBuyer);
         if (newOwner === ME_AMM_PROGRAM) {
-          counters.skippedMismatch++;
-          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'skip', reason: 'new_buyer_is_pool_pda' });
+          counters.skippedNewBuyerPoolPda++;
+          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'skip', reason: `new_buyer_is_pool_pda (parsedDirection=${parsedDirection})` });
           continue;
         }
 
+        const reclassified = parsedDirection !== 'takeBid';
+        const okStatus = reclassified ? 'wouldUpdateDirectionReclassified' : 'wouldUpdate';
+
         if (args.apply) {
-          const res = await pool.query(UPDATE_SQL, [newBuyer, BACKFILL_TAG, row.signature, row.mint_address, row.buyer]);
+          const res = await pool.query(UPDATE_SQL, [newBuyer, BACKFILL_TAG, parsedDirection, row.signature, row.mint_address, row.buyer]);
           if (res.rowCount && res.rowCount > 0) {
             counters.updated++;
-            audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'updated', reason: 'ok' });
+            audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'updated', reason: `ok (parsedDirection=${parsedDirection})` });
           } else {
-            counters.skippedMismatch++;
+            counters.skippedOtherMismatch++;
             audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'skip', reason: 'no_row_matched_on_update' });
           }
         } else {
-          counters.wouldUpdate++;
-          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: 'wouldUpdate', reason: 'ok' });
+          if (reclassified) counters.wouldUpdateDirectionReclassified++;
+          else              counters.wouldUpdate++;
+          audit({ ...base, newBuyer, seller: e.seller, priceLamports: newPrice, status: okStatus, reason: `ok (parsedDirection=${parsedDirection})` });
         }
       } catch (err) {
         counters.rpcErrors++;
@@ -338,18 +363,25 @@ async function main(): Promise<void> {
   await fs.writeFile(outPath, auditLines.join('\n') + '\n', 'utf8');
   await pool.end();
 
+  const wouldUpdateTotal = counters.wouldUpdate + counters.wouldUpdateDirectionReclassified;
   console.log('[backfill] ── summary ─────────────────────────────');
-  console.log(`  scanned candidates : ${counters.scanned}`);
-  console.log(`  target rows        : ${counters.target}`);
-  console.log(`  skippedRealWallet  : ${counters.skippedRealWallet}`);
-  console.log(`  fetched            : ${counters.fetched}`);
-  console.log(`  wouldUpdate        : ${counters.wouldUpdate}`);
-  console.log(`  updated            : ${counters.updated}`);
-  console.log(`  skippedParseFail   : ${counters.skippedParseFail}`);
-  console.log(`  skippedMismatch    : ${counters.skippedMismatch}`);
-  console.log(`  rpcErrors          : ${counters.rpcErrors}`);
-  console.log(`  mode               : ${args.apply ? 'APPLY (writes committed)' : 'DRY-RUN (no writes)'}`);
-  console.log(`  audit              : ${outPath}`);
+  console.log(`  scanned candidates              : ${counters.scanned}`);
+  console.log(`  target rows                     : ${counters.target}`);
+  console.log(`  skippedRealWallet               : ${counters.skippedRealWallet}`);
+  console.log(`  fetched                         : ${counters.fetched}`);
+  console.log(`  wouldUpdate (total)             : ${wouldUpdateTotal}`);
+  console.log(`    ├─ wouldUpdate (takeBid)      : ${counters.wouldUpdate}`);
+  console.log(`    └─ wouldUpdateDirectionReclass: ${counters.wouldUpdateDirectionReclassified}`);
+  console.log(`  updated                         : ${counters.updated}`);
+  console.log(`  skippedNewBuyerEqualsOld        : ${counters.skippedNewBuyerEqualsOld}`);
+  console.log(`  skippedSellerMismatch           : ${counters.skippedSellerMismatch}`);
+  console.log(`  skippedPriceMismatch            : ${counters.skippedPriceMismatch}`);
+  console.log(`  skippedNewBuyerPoolPda          : ${counters.skippedNewBuyerPoolPda}`);
+  console.log(`  skippedOtherMismatch            : ${counters.skippedOtherMismatch}`);
+  console.log(`  skippedParseFail                : ${counters.skippedParseFail}`);
+  console.log(`  rpcErrors                       : ${counters.rpcErrors}`);
+  console.log(`  mode                            : ${args.apply ? 'APPLY (writes committed)' : 'DRY-RUN (no writes)'}`);
+  console.log(`  audit                           : ${outPath}`);
 }
 
 main().catch((err) => { console.error('[backfill] fatal:', err); process.exit(1); });
