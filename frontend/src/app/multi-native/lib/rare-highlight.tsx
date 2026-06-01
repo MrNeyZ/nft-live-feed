@@ -21,6 +21,8 @@ export interface RareHighlight {
   selectMint:   (mint: string | null) => void;
   /** Hover: transient highlight (null on mouse-leave). */
   hoverMint:    (mint: string | null) => void;
+  /** Clear the persistent selection (without bumping the scroll nonce). */
+  clearSelected: () => void;
 }
 
 const RareHighlightContext = createContext<RareHighlight | null>(null);
@@ -40,6 +42,7 @@ export function RareHighlightProvider({ children }: { children: React.ReactNode 
     setNonce((n) => n + 1);
   }, []);
   const hoverMint = useCallback((mint: string | null) => setHovered(mint), []);
+  const clearSelected = useCallback(() => setSelected(null), []);
 
   const value = useMemo<RareHighlight>(() => ({
     selectedMint,
@@ -48,7 +51,8 @@ export function RareHighlightProvider({ children }: { children: React.ReactNode 
     selectNonce,
     selectMint,
     hoverMint,
-  }), [selectedMint, hoveredMint, selectNonce, selectMint, hoverMint]);
+    clearSelected,
+  }), [selectedMint, hoveredMint, selectNonce, selectMint, hoverMint, clearSelected]);
 
   return <RareHighlightContext.Provider value={value}>{children}</RareHighlightContext.Provider>;
 }
