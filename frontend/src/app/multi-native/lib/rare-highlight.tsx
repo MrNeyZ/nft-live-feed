@@ -38,11 +38,14 @@ export function RareHighlightProvider({ children }: { children: React.ReactNode 
   const [selectNonce, setNonce] = useState(0);
 
   const selectMint = useCallback((mint: string | null) => {
-    setSelected((prev) => (prev === mint ? null : mint));   // re-click clears
+    setSelected((prev) => {
+      if (prev === mint) { setHovered(null); return null; }   // deselect → drop hover too (feed resets to top)
+      return mint;
+    });
     setNonce((n) => n + 1);
   }, []);
   const hoverMint = useCallback((mint: string | null) => setHovered(mint), []);
-  const clearSelected = useCallback(() => setSelected(null), []);
+  const clearSelected = useCallback(() => { setSelected(null); setHovered(null); }, []);
 
   const value = useMemo<RareHighlight>(() => ({
     selectedMint,

@@ -44,25 +44,25 @@ export function SalesFeedPanel() {
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
 
-  // HOVER → jump to the matching sale (transient; mouse-leave doesn't scroll
-  // back). Fires only when the hovered mint actually changes.
-  useEffect(() => {
-    if (!hl?.hoveredMint) return;
-    const el = cardRefs.current.get(hl.hoveredMint);
+  const scrollToSale = useCallback((mint: string) => {
+    const el = cardRefs.current.get(mint);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [hl?.hoveredMint]);
+  }, []);
+  const scrollToTop = useCallback(() => {
+    listRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
-  // CLICK → scroll to the selected sale; UNSELECT (selectedMint → null) →
-  // reset the feed to the top. selectNonce bumps on every click so re-selecting
-  // the same mint re-scrolls.
+  // One locator for the whole Rare → Sales interaction. Target = hovered ??
+  // selected (hover overrides selection visually + for scroll):
+  //   • hover a row / move between rows → jump to that sale;
+  //   • leave the Rare panel with a selection → return to the selected sale;
+  //   • leave with NO selection (or deselect) → scroll the feed back to top.
+  // Moving between rows never hits the top branch (hovered stays non-null).
   useEffect(() => {
-    if (hl?.selectedMint) {
-      const el = cardRefs.current.get(hl.selectedMint);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      listRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [hl?.selectNonce, hl?.selectedMint]);
+    const target = hl?.hoveredMint ?? hl?.selectedMint ?? null;
+    if (target) scrollToSale(target);
+    else scrollToTop();
+  }, [hl?.hoveredMint, hl?.selectedMint, hl?.selectNonce, scrollToSale, scrollToTop]);
 
   return (
     <SlowTimeTickContext.Provider value={true}>

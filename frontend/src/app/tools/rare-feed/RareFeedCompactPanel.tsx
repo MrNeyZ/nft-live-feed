@@ -63,8 +63,7 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
       onMouseEnter={() => e.mintAddress && onHover(e.mintAddress)}
-      onMouseLeave={() => onHover(null)}
-      title="Hover to highlight · click to find in Live Feed"
+      title="Hover to jump · click to pin · click again to reset"
       style={{
         display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5,
         minHeight: 60, padding: '8px 10px 8px 12px', cursor: 'pointer',
@@ -117,7 +116,11 @@ export function RareFeedCompactPanel() {
   }), [events]);
 
   return (
-    <div style={{
+    <div
+      // Panel-level leave (NOT per-row): clears hover only when the cursor
+      // leaves the whole strip, so moving between rows never resets the feed.
+      onMouseLeave={() => hl?.hoverMint(null)}
+      style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
       background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
