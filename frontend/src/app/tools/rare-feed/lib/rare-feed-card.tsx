@@ -7,6 +7,7 @@
 // logic currently inline in rare-feed/page.tsx (kept identical so behavior
 // doesn't drift); the page will be DRY'd onto this in a later step.
 
+import type { CSSProperties } from 'react';
 import { collectionMeta } from '@/soloist/from-backend';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { RareEvent } from './use-rare-feed';
@@ -60,36 +61,52 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
   };
 }
 
-/** Compact rarity chip rendered inline after the NFT name (Rare Feed
- *  only). Surfaces rank (+ supply); tinted by the rareScore tier. */
+/** Tier badge metadata. Tiers come from the backend's reasonTags; 1/1 is the
+ *  force-include flag and always outranks a tier. Colors: 1/1 gold, MYTHIC
+ *  pink, LEGENDARY amber, EPIC purple. */
+const TIER_BADGE: Record<string, { label: string; color: string }> = {
+  MYTHIC:    { label: 'MYTHIC', color: '#ff6fb5' },
+  LEGENDARY: { label: 'LEGEND', color: '#f2a93b' },
+  EPIC:      { label: 'EPIC',   color: '#a855f7' },
+};
+
+/** Badges to render after the rank chip: 1/1 first (if present), then the
+ *  single HIGHEST tier (MYTHIC > LEGENDARY > EPIC). In practice a 1/1 and a
+ *  tier never co-occur, so this is normally one badge. */
+function rareBadges(reasonTags?: string[]): { label: string; color: string; title: string }[] {
+  const tags = reasonTags ?? [];
+  const out: { label: string; color: string; title: string }[] = [];
+  if (tags.includes('ONE_OF_ONE')) out.push({ label: '1/1', color: '#f5c542', title: 'True 1/1' });
+  for (const t of ['MYTHIC', 'LEGENDARY', 'EPIC']) {
+    if (tags.includes(t)) { out.push({ ...TIER_BADGE[t], title: `${t} — rare sale above floor` }); break; }
+  }
+  return out;
+}
+
+/** Compact rarity chip rendered inline after the NFT name (Rare Feed only).
+ *  Surfaces rank (+ supply, tinted by rareScore) plus a 1/1 / tier badge so an
+ *  above-floor sale's rarity tier is obvious. */
 export function rarityChip(e: RareEvent) {
   if (e.rarityRank == null) return null;
   const c = scoreColor(e.rareScore);
-  // True 1/1s are force-included by the backend with reasonTags ['ONE_OF_ONE']
-  // and a generative rank that reads as common (e.g. #3250/3333), so the rank
-  // chip alone undersells them — surface a compact gold "1/1" badge alongside.
-  const oneOfOne = e.reasonTags?.includes('ONE_OF_ONE');
+  const chip: CSSProperties = {
+    flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
+    padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
+    fontFamily: "'SF Mono','Fira Code',monospace",
+  };
   return (
     <>
-      <span style={{
-        flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
-        padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
-        color: c, background: `${c}1f`, border: `1px solid ${c}55`,
-        fontFamily: "'SF Mono','Fira Code',monospace",
-      }}>
+      <span style={{ ...chip, color: c, background: `${c}1f`, border: `1px solid ${c}55` }}>
         #{e.rarityRank}{e.totalSupply ? `/${e.totalSupply}` : ''}
       </span>
-      {oneOfOne && (
-        <span title="True 1/1" style={{
-          flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '0.3px',
-          padding: '1px 6px', borderRadius: 3, lineHeight: 1.3, whiteSpace: 'nowrap',
-          marginLeft: 4, color: '#f5c542', background: 'rgba(245,197,66,0.16)',
-          border: '1px solid rgba(245,197,66,0.55)',
-          fontFamily: "'SF Mono','Fira Code',monospace",
+      {rareBadges(e.reasonTags).map((b) => (
+        <span key={b.label} title={b.title} style={{
+          ...chip, marginLeft: 4, color: b.color,
+          background: `${b.color}29`, border: `1px solid ${b.color}8c`,
         }}>
-          1/1
+          {b.label}
         </span>
-      )}
+      ))}
     </>
   );
 }
