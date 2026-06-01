@@ -82,24 +82,25 @@ export function rarityChip(e: RareEvent) {
   const oneOfOne = tags.includes('ONE_OF_ONE');
   const tier     = (['MYTHIC', 'LEGENDARY', 'EPIC'] as const).find((t) => tags.includes(t));
 
-  // Tensor-like pill for 1/1 + tiered sales.
+  // Tensor-style SOLID filled capsule for 1/1 + tiered sales: tier-color
+  // background, dark text + dark diamond, rank only (supply lives in tooltip).
   if (oneOfOne || tier) {
     const color = oneOfOne ? '#f5c542' : TIER_COLOR[tier as string];
-    const title = oneOfOne ? 'True 1/1' : `${tier} — rank ${e.rarityRank}${supply}`;
+    const title = oneOfOne ? `True 1/1 — #${e.rarityRank}${supply}` : `${tier} — #${e.rarityRank}${supply}`;
     const pill: CSSProperties = {
-      display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-      fontSize: 10, fontWeight: 800, letterSpacing: '0.2px',
-      padding: '1px 7px', borderRadius: 8, lineHeight: 1.4, whiteSpace: 'nowrap',
+      display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
+      height: 22, padding: '0 8px', borderRadius: 999,
+      fontSize: 12, fontWeight: 900, lineHeight: 1,
       fontFamily: "'SF Mono','Fira Code',monospace",
-      color, background: `${color}24`, border: `1px solid ${color}66`,
+      color: '#1a1018', background: color, border: 'none',
     };
     return (
       <span title={title} style={pill}>
-        <span style={{ fontSize: 7, marginRight: 3, lineHeight: 1 }}>◆</span>
+        <span style={{
+          width: 8, height: 8, background: '#1a1018', borderRadius: 1,
+          transform: 'rotate(45deg)', flexShrink: 0,
+        }} />
         {oneOfOne ? '1/1' : e.rarityRank}
-        {!oneOfOne && supply && (
-          <span style={{ opacity: 0.5, fontWeight: 600, marginLeft: 1 }}>{supply}</span>
-        )}
       </span>
     );
   }
