@@ -155,7 +155,18 @@ function isUsefulTrackerCollection(row: MintStatus): boolean {
   // resolved. Pre-fix this was `!realName` alone, which hid backend-
   // confirmed rows whose DAS image had landed but name hadn't yet.
   if (!realName && !hasImage)                 return false;
-  if (realName.toLowerCase() === 'nft')       return false;
+  // Generic literal "NFT" is junk ONLY when the row has no other
+  // collection evidence. MPL Core / LaunchMyNFT collections can resolve
+  // their on-chain name to the literal "NFT" while still being a real,
+  // heavily-minted collection (real collection address + image). Keep
+  // dropping bare "NFT" noise, but spare rows with strong identity.
+  const hasCollectionIdentity =
+    hasImage &&
+    !!row.collectionAddress &&
+    !/^(authority|program|owner|pool):/.test(row.collectionAddress) &&
+    (row.groupingKind === 'collection' ||
+      (typeof row.groupingKey === 'string' && row.groupingKey.startsWith('collection:')));
+  if (realName.toLowerCase() === 'nft' && !hasCollectionIdentity) return false;
   if (realName === shortKey(row.groupingKey)) return false;
   // Pubkey-ish fallback: the codebase's shortKey emits `{6}…{4}` with
   // U+2026; some backends fall back to ASCII "...". Either way, hide.
