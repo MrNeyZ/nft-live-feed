@@ -25,7 +25,7 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
       onClick={(e) => e.stopPropagation()}
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
         background: `${brand}1f`, border: `1px solid ${brand}66`,
         overflow: 'hidden', lineHeight: 0, textDecoration: 'none',
       }}
@@ -38,35 +38,39 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
 }
 
 function CompactRow({ e, selected, onSelect }: { e: RareEvent; selected: boolean; onSelect: (mint: string) => void }) {
-  // Same name shortening Live Feed Sales uses.
-  const { shortName, fullName } = shortenNftName(e.nftName);
+  // Same shortener Live Feed Sales uses, but a tighter cap (14) for the narrow
+  // strip so long names visibly shrink and free horizontal space.
+  const { shortName, fullName } = shortenNftName(e.nftName, 14);
   const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
+  // Drop the collection subtitle when the name itself is long, so the NFT name
+  // gets the full row height and stays readable.
+  const showSub = !!e.collectionName && name.length <= 12;
   return (
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
       title="Highlight this sale in Live Feed"
       style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        padding: '0 9px', height: 36, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '3px 8px', height: 40, cursor: 'pointer',
         borderBottom: '1px solid rgba(168,144,232,0.07)',
         background: selected ? 'rgba(168,144,232,0.16)' : 'transparent',
         transition: 'background 0.1s',
       }}
     >
-      {/* Name (shortened) + collection subtitle — flexes + ellipsis so the
-          right-edge badge/actions never get pushed off. */}
+      {/* Name (shortened) + optional collection subtitle — flexes + ellipsis so
+          the right-edge action cluster never gets pushed off. */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
-        {e.collectionName && (
+        {showSub && (
           <span style={{ fontSize: 10, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {e.collectionName}
           </span>
         )}
       </div>
       {/* Fixed right action cluster: rarity badge + ME/Tensor links. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, maxWidth: '52%' }}>
         <RarityRankBadge
           rarityRank={e.rarityRank}
           totalSupply={e.totalSupply}
