@@ -61,13 +61,19 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
   };
 }
 
-/** Tier pill colors (Tensor-style): 1/1 gold, MYTHIC hot-pink, LEGENDARY
+/** Tier pill colors (Tensor-style, muted): 1/1 gold, MYTHIC pink, LEGENDARY
  *  amber, EPIC purple. Tiers + the 1/1 flag come from the backend reasonTags. */
 const TIER_COLOR: Record<string, string> = {
-  MYTHIC:    '#ff2f7d',
-  LEGENDARY: '#f5a623',
-  EPIC:      '#8b5cf6',
+  MYTHIC:    '#ec4b8f',
+  LEGENDARY: '#d99a2b',
+  EPIC:      '#8a55e6',
 };
+const ONE_OF_ONE_COLOR = '#c99a2e';
+/** Near-black icon/text on the filled pill (not pure black). */
+const PILL_INK = 'rgba(10, 8, 18, 0.92)';
+const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+/** Gem silhouette (faceted), not a plain rotated square. */
+const GEM_CLIP = 'polygon(50% 0%, 100% 35%, 75% 100%, 25% 100%, 0% 35%)';
 
 /** Compact rarity badge rendered inline after the NFT name (Rare Feed only).
  *  For a 1/1 or a rarity tier it renders ONE Tensor-style colored pill —
@@ -82,23 +88,23 @@ export function rarityChip(e: RareEvent) {
   const oneOfOne = tags.includes('ONE_OF_ONE');
   const tier     = (['MYTHIC', 'LEGENDARY', 'EPIC'] as const).find((t) => tags.includes(t));
 
-  // Tensor-style SOLID filled capsule for 1/1 + tiered sales: tier-color
-  // background, dark text + dark diamond, rank only (supply lives in tooltip).
+  // Tensor-style filled capsule for 1/1 + tiered sales: muted tier background,
+  // near-black gem icon + rank, system font. Rank only (supply → tooltip).
   if (oneOfOne || tier) {
-    const color = oneOfOne ? '#f5c542' : TIER_COLOR[tier as string];
+    const color = oneOfOne ? ONE_OF_ONE_COLOR : TIER_COLOR[tier as string];
     const title = oneOfOne ? `True 1/1 — #${e.rarityRank}${supply}` : `${tier} — #${e.rarityRank}${supply}`;
     const pill: CSSProperties = {
-      display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-      height: 22, padding: '0 8px', borderRadius: 999,
-      fontSize: 12, fontWeight: 900, lineHeight: 1,
-      fontFamily: "'SF Mono','Fira Code',monospace",
-      color: '#1a1018', background: color, border: 'none',
+      display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0,
+      height: 20, padding: '0 7px', borderRadius: 999,
+      fontSize: 11, fontWeight: 800, lineHeight: 1, letterSpacing: 0,
+      verticalAlign: 'middle', fontFamily: BADGE_FONT,
+      color: PILL_INK, background: color, border: 'none',
     };
     return (
       <span title={title} style={pill}>
         <span style={{
-          width: 8, height: 8, background: '#1a1018', borderRadius: 1,
-          transform: 'rotate(45deg)', flexShrink: 0,
+          width: 10, height: 9, background: PILL_INK,
+          clipPath: GEM_CLIP, flexShrink: 0,
         }} />
         {oneOfOne ? '1/1' : e.rarityRank}
       </span>
