@@ -1,20 +1,26 @@
 'use client';
 
 // VictoryLabs — /multi cross-column highlight bridge.
-// Lets the compact Rare Feed act as a discovery layer over the Live Feed
-// Sales column: clicking a rare row publishes the target mint here, and the
-// Sales panel highlights + scrolls the matching card into view. /multi-only —
-// outside the provider the hook returns null, so /feed is unaffected.
+// The compact Rare strip is a discovery layer over the Live Feed Sales column:
+//   • hovering a rare row transiently highlights the matching sale card;
+//   • clicking selects it persistently AND scrolls it into view.
+// `activeMint = hoveredMint ?? selectedMint` is what the Sales panel highlights;
+// scrolling is driven only by `selectNonce` (click), never by hover. /multi-only
+// — outside the provider the hook returns null, so /feed is unaffected.
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 export interface RareHighlight {
-  /** Mint to highlight in the Sales feed (null = nothing highlighted). */
-  mint: string | null;
-  /** Bumps on every click so re-selecting the same mint re-triggers scroll. */
-  nonce: number;
-  /** Publish a mint to highlight (toggles off if the same mint is re-clicked). */
-  select: (mint: string | null) => void;
+  selectedMint: string | null;
+  hoveredMint:  string | null;
+  /** What the Sales feed should highlight right now. */
+  activeMint:   string | null;
+  /** Bumps on each click so re-selecting the same mint re-triggers scroll. */
+  selectNonce:  number;
+  /** Click: toggle persistent selection (re-click clears). */
+  selectMint:   (mint: string | null) => void;
+  /** Hover: transient highlight (null on mouse-leave). */
+  hoverMint:    (mint: string | null) => void;
 }
 
 const RareHighlightContext = createContext<RareHighlight | null>(null);
@@ -25,12 +31,24 @@ export function useRareHighlight(): RareHighlight | null {
 }
 
 export function RareHighlightProvider({ children }: { children: React.ReactNode }) {
-  const [mint, setMint] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-  const select = useCallback((m: string | null) => {
-    setMint((prev) => (prev === m ? null : m));   // re-click clears
+  const [selectedMint, setSelected] = useState<string | null>(null);
+  const [hoveredMint, setHovered] = useState<string | null>(null);
+  const [selectNonce, setNonce] = useState(0);
+
+  const selectMint = useCallback((mint: string | null) => {
+    setSelected((prev) => (prev === mint ? null : mint));   // re-click clears
     setNonce((n) => n + 1);
   }, []);
-  const value = useMemo(() => ({ mint, nonce, select }), [mint, nonce, select]);
+  const hoverMint = useCallback((mint: string | null) => setHovered(mint), []);
+
+  const value = useMemo<RareHighlight>(() => ({
+    selectedMint,
+    hoveredMint,
+    activeMint: hoveredMint ?? selectedMint,
+    selectNonce,
+    selectMint,
+    hoverMint,
+  }), [selectedMint, hoveredMint, selectNonce, selectMint, hoverMint]);
+
   return <RareHighlightContext.Provider value={value}>{children}</RareHighlightContext.Provider>;
 }

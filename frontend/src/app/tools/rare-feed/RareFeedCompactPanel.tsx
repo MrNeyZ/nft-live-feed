@@ -25,7 +25,7 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
       onClick={(e) => e.stopPropagation()}
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+        width: 16, height: 16, borderRadius: 4, flexShrink: 0,
         background: `${brand}1f`, border: `1px solid ${brand}66`,
         overflow: 'hidden', lineHeight: 0, textDecoration: 'none',
       }}
@@ -37,48 +37,64 @@ function MktLink({ href, label, brand }: { href: string; label: string; brand: s
   );
 }
 
-function CompactRow({ e, selected, onSelect }: { e: RareEvent; selected: boolean; onSelect: (mint: string) => void }) {
-  // Same shortener Live Feed Sales uses, but a tighter cap (14) for the narrow
-  // strip so long names visibly shrink and free horizontal space.
+interface RowProps {
+  e: RareEvent;
+  selected: boolean;
+  onSelect: (mint: string) => void;
+  onHover: (mint: string | null) => void;
+}
+
+/** Lightweight mini-card — Live-Feed-card visual scale, but no image / price /
+ *  wallets. Name + collection on the left, rarity badge + ME/Tensor on the
+ *  right, left accent stripe + hover/selected states. */
+function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
+  // Same shortener Live Feed Sales uses (tighter cap for the narrow strip).
   const { shortName, fullName } = shortenNftName(e.nftName, 14);
   const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
-  // Drop the collection subtitle when the name itself is long, so the NFT name
-  // gets the full row height and stays readable.
-  const showSub = !!e.collectionName && name.length <= 12;
   return (
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
-      title="Highlight this sale in Live Feed"
+      onMouseEnter={() => e.mintAddress && onHover(e.mintAddress)}
+      onMouseLeave={() => onHover(null)}
+      title="Hover to highlight · click to find in Live Feed"
       style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '3px 8px', height: 40, cursor: 'pointer',
-        borderBottom: '1px solid rgba(168,144,232,0.07)',
-        background: selected ? 'rgba(168,144,232,0.16)' : 'transparent',
-        transition: 'background 0.1s',
+        display: 'flex', alignItems: 'center', gap: 8,
+        minHeight: 60, padding: '9px 11px 9px 13px', cursor: 'pointer',
+        position: 'relative', borderRadius: 10,
+        margin: '6px 8px',
+        border: `1px solid ${selected ? 'rgba(168,144,232,0.85)' : 'rgba(168,144,232,0.22)'}`,
+        background: selected ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.05)',
+        boxShadow: selected ? '0 0 0 1px rgba(168,144,232,0.4), 0 0 14px rgba(128,104,216,0.18)' : 'none',
+        transition: 'background 0.1s, border-color 0.1s',
       }}
+      onMouseOver={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgba(168,144,232,0.11)'; }}
+      onMouseOut={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgba(168,144,232,0.05)'; }}
     >
-      {/* Name (shortened) + optional collection subtitle — flexes + ellipsis so
-          the right-edge action cluster never gets pushed off. */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {/* Left accent stripe (rare/feed style). */}
+      <span style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, background: 'rgba(168,144,232,0.55)' }} />
+      {/* Name + collection. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, lineHeight: 1.2 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
-        {showSub && (
-          <span style={{ fontSize: 10, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {e.collectionName && (
+          <span style={{ fontSize: 11, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {e.collectionName}
           </span>
         )}
       </div>
-      {/* Fixed right action cluster: rarity badge + ME/Tensor links. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, maxWidth: '52%' }}>
+      {/* Right cluster: rarity badge over ME/Tensor links. */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
         <RarityRankBadge
           rarityRank={e.rarityRank}
           totalSupply={e.totalSupply}
           reasonTags={e.reasonTags}
           rareScore={e.rareScore}
         />
-        <MktLink href={e.meUrl}     label="Magic Eden" brand="#e42575" />
-        <MktLink href={e.tensorUrl} label="Tensor"     brand="#3a7bd5" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <MktLink href={e.meUrl}     label="Magic Eden" brand="#e42575" />
+          <MktLink href={e.tensorUrl} label="Tensor"     brand="#3a7bd5" />
+        </div>
       </div>
     </div>
   );
@@ -104,10 +120,10 @@ export function RareFeedCompactPanel() {
       }}>
         <h1 style={{ fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Rare</h1>
         <LiveDot />
-        <span style={{ fontSize: 10, color: '#56566e' }}>{rows.length} signals · click to find in feed</span>
+        <span style={{ fontSize: 10, color: '#56566e' }}>{rows.length} signals · hover to highlight</span>
       </div>
 
-      {/* Dense rows. */}
+      {/* Mini-cards. */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {error && (
           <div style={{ padding: '10px 12px', fontSize: 11, color: '#ef7878' }}>failed — {error}</div>
@@ -118,11 +134,12 @@ export function RareFeedCompactPanel() {
           </div>
         )}
         {rows.map((e) => (
-          <CompactRow
+          <RareMiniCard
             key={e.saleSignature}
             e={e}
-            selected={hl?.mint === e.mintAddress && !!e.mintAddress}
-            onSelect={(m) => hl?.select(m)}
+            selected={hl?.selectedMint === e.mintAddress && !!e.mintAddress}
+            onSelect={(m) => hl?.selectMint(m)}
+            onHover={(m) => hl?.hoverMint(m)}
           />
         ))}
       </div>

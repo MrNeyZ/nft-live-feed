@@ -39,15 +39,16 @@ export function SalesFeedPanel() {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
-  // /multi only: the compact Rare Feed publishes a mint to highlight here; we
-  // ring + scroll the matching card into view. Null on /feed (no provider).
+  // /multi only: the compact Rare Feed publishes a mint to highlight here.
+  // Highlight follows activeMint (hover OR click); scroll fires ONLY on click
+  // (selectNonce), never on hover. Null on /feed (no provider).
   const hl = useRareHighlight();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   useEffect(() => {
-    if (!hl?.mint) return;
-    const el = cardRefs.current.get(hl.mint);
+    if (!hl?.selectedMint) return;
+    const el = cardRefs.current.get(hl.selectedMint);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [hl?.nonce, hl?.mint]);
+  }, [hl?.selectNonce, hl?.selectedMint]);
 
   return (
     <SlowTimeTickContext.Provider value={true}>
@@ -136,7 +137,7 @@ export function SalesFeedPanel() {
             </div>
           )}
           {visible.map(e => {
-            const isHi = !!hl?.mint && e.mintAddress === hl.mint;
+            const isHi = !!hl?.activeMint && e.mintAddress === hl.activeMint;
             return (
               <div
                 key={e.id}
