@@ -137,14 +137,19 @@ export function SalesFeedPanel() {
             </div>
           )}
           {(() => {
-            const active = hl?.activeMint ?? null;
-            // Only enter "focus" mode (dim the rest) when the active mint is
-            // ACTUALLY visible — otherwise a hover on an old rare sale would
-            // fade the whole feed with nothing highlighted.
-            const focusing = !!active && visible.some(e => e.mintAddress === active);
+            // Dimming is HOVER-ONLY (transient, like Mint SHOW): the rest of
+            // the feed dims only while a rare row is hovered AND its sale is
+            // visible. A click NEVER dims the feed — it only keeps a subtle
+            // ring on the selected card (+ scroll), so the feed is never left
+            // permanently greyed out after the mouse leaves.
+            const hoverMint    = hl?.hoveredMint ?? null;
+            const selectedMint = hl?.selectedMint ?? null;
+            const focusing = !!hoverMint && visible.some(e => e.mintAddress === hoverMint);
             return visible.map(e => {
-              const isHi = focusing && e.mintAddress === active;
-              const dimmed = focusing && !isHi;
+              const isHover    = focusing && e.mintAddress === hoverMint;
+              const isSelected = !!selectedMint && e.mintAddress === selectedMint;
+              const dimmed     = focusing && !isHover;          // only while hovering
+              const ringed     = isHover || isSelected;          // hover OR persistent click
               return (
                 <div
                   key={e.id}
@@ -152,7 +157,7 @@ export function SalesFeedPanel() {
                   style={{
                     borderRadius: 10,
                     transition: 'opacity 120ms ease, filter 120ms ease',
-                    ...(isHi ? {
+                    ...(ringed ? {
                       outline: '2px solid rgba(168,144,232,0.85)',
                       outlineOffset: -2,
                       background: 'rgba(168,144,232,0.10)',

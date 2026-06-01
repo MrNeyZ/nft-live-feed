@@ -37,7 +37,7 @@ export function MultiNativeView() {
           // Rare Feed is a NARROW signal strip between the two full feeds —
           // compact by WIDTH (not height) so Mint + Sales get the horizontal
           // space. Rare rows stay readable mini-cards via a 2-line layout.
-          gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.55fr) minmax(0, 1.25fr)',
+          gridTemplateColumns: 'minmax(0, 1.15fr) minmax(0, 0.62fr) minmax(0, 1.23fr)',
           gridTemplateRows: '1fr',
           gap: 12,
           // Outer horizontal gutter = the responsive page gutter (--page-x),
