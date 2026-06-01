@@ -397,10 +397,18 @@ function parseMmmSale(
       // token-flow to override against — so we DO NOT apply the
       // tokenFlowBuyer override below.
       effectiveDirection = 'takeBid'; // maps to bid_sell in both sse.ts and queries.ts
-      if (nftType === 'legacy') {
-        const tokenFlowBuyer = extractPartiesFromTokenFlow(tx, mint).buyer;
-        if (tokenFlowBuyer) buyer = tokenFlowBuyer;
-      }
+      // NOTE: no buyer override here. The previous legacy-only override
+      // (`buyer = extractPartiesFromTokenFlow(tx, mint).buyer`) was both
+      // redundant and harmful:
+      //   • redundant — for a genuine individual bid the NFT lands directly
+      //     in the bidder's wallet, so tokenFlowBuyer === accs[1] anyway.
+      //   • harmful — for a zero-LP-fee MMM pool (lp_fee=0 + reinvest), the
+      //     NFT recipient is the pool STATE PDA, not the bidder. The override
+      //     surfaced that pool PDA as the "buyer" (e.g. BJT7KT1q… instead of
+      //     the pool owner PER7nVm9… on sig 5xPi1Pvt…rifEn).
+      // accs[1] (= buyerAcctIdx) is the pool owner / bidder wallet for
+      // solFulfillBuy in BOTH cases, so we keep the value already assigned
+      // from match.buyerAcctIdx above and do not touch it on takeBid.
     }
   }
 
