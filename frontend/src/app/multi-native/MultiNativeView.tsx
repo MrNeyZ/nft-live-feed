@@ -34,9 +34,10 @@ export function MultiNativeView() {
         <div style={{
           flex: 1,
           display: 'grid',
-          // Rare Feed is now a narrow compact signal strip between the two
-          // full feeds, so Mint + Sales get more width (and vertical room).
-          gridTemplateColumns: 'minmax(0, 1.05fr) minmax(0, 0.9fr) minmax(0, 1.2fr)',
+          // Rare Feed is a NARROW signal strip between the two full feeds —
+          // compact by WIDTH (not height) so Mint + Sales get the horizontal
+          // space. Rare rows stay readable mini-cards via a 2-line layout.
+          gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.55fr) minmax(0, 1.25fr)',
           gridTemplateRows: '1fr',
           gap: 12,
           // Outer horizontal gutter = the responsive page gutter (--page-x),
