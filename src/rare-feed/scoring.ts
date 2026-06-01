@@ -128,10 +128,14 @@ export function isTrueOneOfOne(
   if (Array.isArray(traits)) {
     for (const t of traits) {
       if (!t || typeof t !== 'object') continue;
-      const rec = t as Record<string, unknown>;
-      const value = String(rec.value ?? '');
-      const key   = String(rec.trait_type ?? rec.traitType ?? '');
-      if (ONE_OF_ONE_RE.test(value) || ONE_OF_ONE_RE.test(key)) return true;
+      // Match the 1/1 marker ONLY in the trait VALUE — never the trait_type/key.
+      // Collections like y00ts / MidEvil / The Seven Seas use a trait_type of
+      // "1/1" or "1/1 Status" with value "None"/"False"/"No" to mean "this is
+      // NOT a 1/1"; matching the key turned those into false positives. A real
+      // 1/1 (e.g. Liminal #10) carries the marker in the VALUE: value "1/1"
+      // with trait_type "Special".
+      const value = String((t as Record<string, unknown>).value ?? '');
+      if (ONE_OF_ONE_RE.test(value)) return true;
     }
   }
   return false;
