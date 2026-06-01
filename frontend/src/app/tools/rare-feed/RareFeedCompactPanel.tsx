@@ -8,7 +8,7 @@
 // image / price / wallets / timestamp). Hover highlights + dims the matching
 // sale; click scrolls to it. The full /tools/rare-feed page is untouched.
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import type { FeedEvent } from '@/soloist/mock-data';
 import { RarityRankBadge } from '@/app/feed/lib/rarity-rank-badge';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
@@ -47,12 +47,15 @@ interface RowProps {
   selected: boolean;
   onSelect: (mint: string) => void;
   onHover: (mint: string | null) => void;
+  /** Row leave with the event's relatedTarget — the panel decides whether the
+   *  cursor stayed inside the strip (keep) or left it (clear + scroll top). */
+  onLeave: (related: EventTarget | null) => void;
 }
 
 /** Narrow mini-card (compact by WIDTH). Two lines so it stays readable in a
  *  thin column: top = name + rarity badge, bottom = collection + ME/Tensor.
  *  No image / price / wallets. Left accent stripe + hover/selected states. */
-function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
+function RareMiniCard({ e, selected, onSelect, onHover, onLeave }: RowProps) {
   // Aggressive shortening for the narrow strip.
   const { shortName, fullName } = shortenNftName(e.nftName, 13);
   const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
@@ -63,6 +66,7 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
     <div
       onClick={() => e.mintAddress && onSelect(e.mintAddress)}
       onMouseEnter={() => e.mintAddress && onHover(e.mintAddress)}
+      onMouseLeave={(ev) => onLeave(ev.relatedTarget)}
       title="Hover to jump · click to pin · click again to reset"
       style={{
         display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5,
@@ -107,6 +111,7 @@ function RareMiniCard({ e, selected, onSelect, onHover }: RowProps) {
 export function RareFeedCompactPanel() {
   const { events } = useMultiSales();
   const hl = useRareHighlight();
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Rare rows = EPIC+ sales from the CURRENT Live Feed window, so every row
   // has a matching sale on the right. Same order (newest first) as the feed.
@@ -115,12 +120,17 @@ export function RareFeedCompactPanel() {
     return r != null && s != null && s > 0 && r / s <= EPIC_PCT;
   }), [events]);
 
+  // Row leave: clear hover (→ scroll Live Feed to top, or back to selection)
+  // ONLY when the cursor actually left the rows list. Moving between rows (or
+  // through the inter-card gap) keeps the cursor inside `listRef`, so we skip —
+  // the next row's onMouseEnter switches the highlight with no top-reset.
+  const handleRowLeave = useCallback((related: EventTarget | null) => {
+    if (related && listRef.current?.contains(related as Node)) return;
+    hl?.hoverMint(null);
+  }, [hl]);
+
   return (
-    <div
-      // Panel-level leave (NOT per-row): clears hover only when the cursor
-      // leaves the whole strip, so moving between rows never resets the feed.
-      onMouseLeave={() => hl?.hoverMint(null)}
-      style={{
+    <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
       background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
@@ -139,7 +149,7 @@ export function RareFeedCompactPanel() {
       </div>
 
       {/* Mini-cards. */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={listRef} style={{ flex: 1, overflowY: 'auto' }}>
         {rows.length === 0 && (
           <div style={{ textAlign: 'center', color: '#55556e', padding: '32px 0', fontSize: 12 }}>
             No rare sales in the live window yet
@@ -152,6 +162,7 @@ export function RareFeedCompactPanel() {
             selected={hl?.selectedMint === e.mintAddress && !!e.mintAddress}
             onSelect={(m) => hl?.selectMint(m)}
             onHover={(m) => hl?.hoverMint(m)}
+            onLeave={handleRowLeave}
           />
         ))}
       </div>
