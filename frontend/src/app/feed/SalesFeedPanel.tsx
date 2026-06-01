@@ -7,12 +7,13 @@
 // compact Density panel. All state is LOCAL here — /feed/page.tsx is NOT
 // touched (no shared-chrome refactor; isolated to /multi-native).
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LiveDot, Pill, SettingsToggle, settingsPillActive, SETTINGS_PILL_INACTIVE } from '@/soloist/shared';
 import { useInclusiveFees } from '@/soloist/price-mode';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
 import { useSaleStream } from '@/app/multi-native/lib/sale-event-stream';
+import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
 import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
 import { useSalesFeed } from './lib/use-sales-feed';
 
@@ -37,6 +38,16 @@ export function SalesFeedPanel() {
   const onPreview = useCallback((url: string) => {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
+
+  // /multi only: the compact Rare Feed publishes a mint to highlight here; we
+  // ring + scroll the matching card into view. Null on /feed (no provider).
+  const hl = useRareHighlight();
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  useEffect(() => {
+    if (!hl?.mint) return;
+    const el = cardRefs.current.get(hl.mint);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [hl?.nonce, hl?.mint]);
 
   return (
     <SlowTimeTickContext.Provider value={true}>
@@ -124,17 +135,30 @@ export function SalesFeedPanel() {
               Waiting for sales…
             </div>
           )}
-          {visible.map(e => (
-            <FeedCard
-              key={e.id}
-              event={e}
-              onPreview={onPreview}
-              inclusiveFees={inclusiveFees}
-              sellerSellCountInFeed={0}
-              isNewestSellForSellerColl={false}
-              density={density}
-            />
-          ))}
+          {visible.map(e => {
+            const isHi = !!hl?.mint && e.mintAddress === hl.mint;
+            return (
+              <div
+                key={e.id}
+                ref={(el) => { if (el && e.mintAddress) cardRefs.current.set(e.mintAddress, el); }}
+                style={isHi ? {
+                  borderRadius: 10,
+                  outline: '2px solid rgba(168,144,232,0.85)',
+                  outlineOffset: -2,
+                  background: 'rgba(168,144,232,0.10)',
+                } : undefined}
+              >
+                <FeedCard
+                  event={e}
+                  onPreview={onPreview}
+                  inclusiveFees={inclusiveFees}
+                  sellerSellCountInFeed={0}
+                  isNewestSellForSellerColl={false}
+                  density={density}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
