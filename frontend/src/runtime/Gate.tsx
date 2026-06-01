@@ -145,11 +145,12 @@ function PersistentBottomStatusBar() {
   }, [pathname]);
 
   // Routes that never show the bar:
-  //   /multi      — multi-tab page owns its own grid layout edge-to-edge.
   //   /access     — auth screen has its own chrome.
   //   embed mode  — multi-tab iframes; outer page owns the bar.
+  // /multi now SHOWS the bar (same as other pages); the data-bottombar
+  // attribute below reserves 36 px on .feed-root so the 3-column grid
+  // doesn't slide behind the fixed bar.
   const hidden =
-    pathname.startsWith('/multi')  ||
     pathname.startsWith('/access') ||
     embedded;
 
