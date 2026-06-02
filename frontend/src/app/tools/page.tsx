@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
+import { authHeaders } from '@/runtime/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -421,7 +422,7 @@ export default function ToolsPage() {
       const body: Record<string, unknown> = { slug: selectedSlug };
       const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body:    JSON.stringify(body),
       });
       if (r.status === 429) {
