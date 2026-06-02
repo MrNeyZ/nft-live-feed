@@ -209,7 +209,7 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     disc:          Buffer.from('aba722c170158e59', 'hex'),  // = anchorDisc('sol_mpl_core_fulfill_buy')
     direction:     'fulfillBuy',
     sellerAcctIdx: 0,
-    buyerAcctIdx:  1,    // pool state PDA — best available pool identifier; not pool-owner wallet
+    buyerAcctIdx:  1,    // accs[1] = pool OWNER / bidder wallet (verified: equals pool-state owner@121, System-owned). NOT the pool PDA — the PDA is a separate ix account.
     coreAssetIdx:  null, // use extractCoreAssetFromInnerIx — outer index unreliable for Core
   },
   {
@@ -230,14 +230,14 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
   {
     // ✅ CONFIRMED — discriminator observed in 2 live Core sell-into-pool txs (2026-04-16)
     // Computed Anchor name does NOT match any known instruction; actual name unknown.
-    // Account layout identical to coreFulfillBuy: [0]=seller(user), [1]=pool-state-PDA, [2]=ME-treasury
+    // Account layout identical to coreFulfillBuy: [0]=seller(user), [1]=pool OWNER/bidder wallet, [2]=ME-treasury
     // SOL flow: pool vault → user (+SOL) = pool buying NFT from user → fulfillBuy direction.
     // Core asset extracted from MPL Core inner CPI accounts[0] via extractCoreAssetFromInnerIx().
     name:          'coreFulfillBuyV2',
     disc:          Buffer.from('2a90cb9137290b8a', 'hex'),  // observed, name unconfirmed
     direction:     'fulfillBuy',
     sellerAcctIdx: 0,
-    buyerAcctIdx:  1,    // pool state PDA — best available pool identifier
+    buyerAcctIdx:  1,    // accs[1] = pool OWNER / bidder wallet (mirrors coreFulfillBuy; NOT the pool PDA)
     coreAssetIdx:  null, // variable — extracted from MPL Core inner CPI accounts[0]
   },
   {
@@ -263,7 +263,7 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ocp_fulfill_buy = 71e1aa41b5d40a21).
     // OCP = Open Creator Protocol; uses standard SPL token program → extractNftMint works.
     // fulfillBuy: user sells NFT into pool. Account layout mirrors solFulfillBuy:
-    //   accounts[0] = seller (fulfiller), accounts[1] = pool-state PDA (buyer identifier).
+    //   accounts[0] = seller (fulfiller), accounts[1] = pool OWNER / bidder wallet (the real buyer).
     name:          'solOcpFulfillBuy',
     disc:          anchorDisc('sol_ocp_fulfill_buy'),  // 71e1aa41b5d40a21
     direction:     'fulfillBuy',
