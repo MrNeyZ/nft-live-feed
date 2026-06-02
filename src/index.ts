@@ -13,7 +13,7 @@ import './health/source-health';
 import './mints/accumulator';
 import { currentMintStatuses, hydrateAccumulatorFromSnapshot, hydrateCountedMints } from './mints/accumulator';
 import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
-import { loadCountedLedger } from './mints/counted-ledger';
+import { loadCountedLedger, flushCountedLedgerNow } from './mints/counted-ledger';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
@@ -84,6 +84,16 @@ async function main() {
   const ledgerKeys = loadCountedLedger();
   hydrateCountedMints(ledgerKeys);
   console.log(`[mints/ledger] loaded entries=${ledgerKeys.length}`);
+  // Graceful-shutdown flush so a hard pm2 restart inside the ~5s debounce
+  // window can't lose recently-counted keys (which would let reconcile
+  // re-count them). `process.on('exit')` is the order-independent net — it
+  // fires synchronously even when another SIGTERM handler (snapshot) calls
+  // process.exit(0). The SIGTERM/SIGINT once-handlers flush early without
+  // exiting, leaving the existing shutdown chain unchanged. flushCountedLedgerNow
+  // is sync + idempotent, so calling it from multiple handlers is safe.
+  process.once('SIGTERM', () => flushCountedLedgerNow('SIGTERM'));
+  process.once('SIGINT',  () => flushCountedLedgerNow('SIGINT'));
+  process.on('exit',      () => flushCountedLedgerNow('exit'));
 
   // Server-side persistence for the live mint feed (Postgres source of truth).
   // Hydrates the in-memory recent-mints ring + meta buffer from `mint_events`

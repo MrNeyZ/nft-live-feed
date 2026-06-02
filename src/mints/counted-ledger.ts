@@ -21,7 +21,7 @@
  * File: data/mints-counted-ledger.json (gitignored; pm2 does not touch data/).
  * Mirrors the snapshot module's path / TTL / debounce conventions.
  */
-import { promises as fsp, readFileSync } from 'fs';
+import { promises as fsp, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import * as path from 'path';
 
 interface LedgerEntry {
@@ -108,6 +108,14 @@ function scheduleFlush(): void {
   if (typeof flushTimer.unref === 'function') flushTimer.unref();
 }
 
+/** TTL-pruned JSON payload + the surviving entry count. Shared by the async
+ *  (debounced) flush and the synchronous shutdown flush. */
+function serialize(): { json: string; count: number } {
+  const now = Date.now();
+  const arr = [...entries.values()].filter(e => now - e.ts <= TTL_MS);
+  return { json: JSON.stringify(arr), count: arr.length };
+}
+
 /** Atomic write via temp-file rename. Prunes TTL-expired entries on write so
  *  the file stays bounded. Re-marks dirty on failure to retry next tick. */
 async function flush(): Promise<void> {
@@ -116,10 +124,8 @@ async function flush(): Promise<void> {
   const p = ledgerPath();
   const tmp = `${p}.tmp`;
   try {
-    const now = Date.now();
-    const arr = [...entries.values()].filter(e => now - e.ts <= TTL_MS);
     await fsp.mkdir(path.dirname(p), { recursive: true });
-    await fsp.writeFile(tmp, JSON.stringify(arr), 'utf8');
+    await fsp.writeFile(tmp, serialize().json, 'utf8');
     await fsp.rename(tmp, p);
   } catch (err) {
     dirty = true;
@@ -130,3 +136,29 @@ async function flush(): Promise<void> {
 }
 
 let flushErrCount = 0;
+
+/**
+ * Synchronous flush for the graceful-shutdown path (SIGTERM / SIGINT / exit).
+ * Sync I/O is the only kind safe inside a `process.on('exit')` handler and is
+ * deterministic on signal (same rationale as the snapshot module). Cancels any
+ * pending debounce timer, writes pending entries atomically, and is idempotent
+ * — when nothing is pending (`dirty === false`) it's a no-op, so it's safe to
+ * call from several handlers. Fail-soft: warns, never throws.
+ */
+export function flushCountedLedgerNow(reason = 'shutdown'): void {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (!dirty) return;            // nothing pending — debounced flush already persisted
+  dirty = false;
+  const p = ledgerPath();
+  const tmp = `${p}.tmp`;
+  try {
+    const { json, count } = serialize();
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(tmp, json, 'utf8');
+    renameSync(tmp, p);
+    console.log(`[mints/ledger] flushed reason=${reason} entries=${count}`);
+  } catch (err) {
+    dirty = true;
+    console.warn(`[mints/ledger] shutdown flush failed reason=${reason}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
