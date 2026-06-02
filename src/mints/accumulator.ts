@@ -24,6 +24,7 @@ import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
 import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
 import { shouldEmitFeedCard, forgetFeedSampling } from './feed-sampler';
+import { appendCountedLedger } from './counted-ledger';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
  *  trigger at most one DAS `searchAssets` call per this window even if
@@ -301,6 +302,21 @@ function rememberCountedMint(key: string): void {
   }
 }
 
+/** Boot-time hydration of the dedupe guard from the durable on-disk ledger
+ *  (see counted-ledger.ts). Must run BEFORE the listener / reconcile start so
+ *  a restart can't re-count mints already tallied before the restart. */
+export function hydrateCountedMints(keys: string[]): void {
+  for (const k of keys) countedMints.add(k);
+  if (countedMints.size <= COUNTED_MINTS_MAX) return;
+  const overflow = countedMints.size - COUNTED_MINTS_MAX;
+  const it = countedMints.values();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    countedMints.delete(r.value);
+  }
+}
+
 function trimWindow(arr: RingItem[], cutoff: number): RingItem[] {
   let i = 0;
   while (i < arr.length && arr[i].ts < cutoff) i++;
@@ -561,6 +577,10 @@ export function recordMint(ev: MintEventWire): boolean {
     return false;
   }
   rememberCountedMint(dedupeKey);
+  // Persist to the durable ledger so this count survives a pm2 restart and
+  // reconcile can't re-count it inside its lookback window. Debounced; never
+  // a synchronous per-mint disk write. Fail-soft inside the ledger module.
+  appendCountedLedger(dedupeKey, ev.groupingKey);
 
   const isFirst = !map.has(ev.groupingKey);
   if (MINTS_DEBUG) {

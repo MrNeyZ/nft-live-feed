@@ -11,8 +11,9 @@ import './health/source-health';
 // Side-effect import: mint accumulator runs its 30s sweep timer. Detector
 // is started below in main() once the bus is wired.
 import './mints/accumulator';
-import { currentMintStatuses, hydrateAccumulatorFromSnapshot } from './mints/accumulator';
+import { currentMintStatuses, hydrateAccumulatorFromSnapshot, hydrateCountedMints } from './mints/accumulator';
 import { loadSnapshot, startSnapshotPersistence } from './mints/snapshot';
+import { loadCountedLedger } from './mints/counted-ledger';
 import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
@@ -75,6 +76,14 @@ async function main() {
     console.log(`[mints/snapshot] hydrated rows=${n}`);
   }
   startSnapshotPersistence(() => currentMintStatuses());
+
+  // Durable mint-dedupe ledger: restore the per-(sig,mint) counted keys from
+  // disk BEFORE the listener / reconcile start, so a restart can't let the
+  // gap-healer re-count mints already tallied pre-restart (snapshot restores
+  // the totals but not the dedupe set). Fail-soft: empty on missing/corrupt.
+  const ledgerKeys = loadCountedLedger();
+  hydrateCountedMints(ledgerKeys);
+  console.log(`[mints/ledger] loaded entries=${ledgerKeys.length}`);
 
   // Server-side persistence for the live mint feed (Postgres source of truth).
   // Hydrates the in-memory recent-mints ring + meta buffer from `mint_events`
