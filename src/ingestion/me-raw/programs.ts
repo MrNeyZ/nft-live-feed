@@ -165,8 +165,10 @@ export interface MmmIxDef {
   /**
    * Verified instruction-accounts index for the human buyer.
    * null = not confirmed from live data; parser falls back to token-flow / SOL-flow.
-   * For coreFulfillBuy the buyer is the pool owner, whose wallet is not a top-level
-   * instruction account — use accounts[1] (pool state PDA) as a stable pool identifier.
+   * For the fulfillBuy variants buyerAcctIdx points to the pool owner / bidder
+   * wallet: accounts[1] IS that real buyer wallet (verified — it equals the
+   * pool-state account's owner field, and is System-owned), NOT the pool PDA.
+   * The pool state PDA is a separate instruction account.
    */
   buyerAcctIdx: number | null;
   /**
