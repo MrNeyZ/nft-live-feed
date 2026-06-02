@@ -12,8 +12,9 @@ import type { MintEvent, MintStatus } from '../lib/types';
 import {
   colorForCollection, colorForCollectionMuted, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, shortMint, thumb200 } from '../lib/format';
+import { fmtAge, shortMint, thumb200, isNewCollection } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
+import { NewCollectionBadge } from './NewCollectionBadge';
 
 /** Trim + treat empty-string as "no value". `??` only catches null /
  *  undefined, so a localStorage payload from an earlier reducer regime
@@ -437,6 +438,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
+      {/* NEW — only when the pre-looked-up group carries enough data
+          (collectionCreatedAt + firstSeenAt); the per-mint event alone
+          can't prove freshness, so absent group → no badge. */}
+      {isNewCollection(group?.collectionCreatedAt, group?.firstSeenAt) && <NewCollectionBadge />}
       <span style={{
         minWidth: 64, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.

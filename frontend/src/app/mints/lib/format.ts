@@ -4,6 +4,18 @@
 // JSX can be split later without forcing each split file to re-import
 // or re-declare them. Behaviour byte-identical to the inline versions.
 
+/** "Newly created collection" heuristic (UI-only). Flagged NEW when the
+ *  on-chain creation time (`collectionCreatedAt`, from the collection-created
+ *  resolver) is within NEW_COLLECTION_WINDOW_MS of the first observed mint
+ *  (`firstSeenAt`). Pure: both args must be present positive numbers,
+ *  otherwise false (never invent freshness). */
+export const NEW_COLLECTION_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+export function isNewCollection(createdAt?: number, firstSeenAt?: number): boolean {
+  return typeof createdAt === 'number' && createdAt > 0
+    && typeof firstSeenAt === 'number' && firstSeenAt > 0
+    && Math.abs(firstSeenAt - createdAt) <= NEW_COLLECTION_WINDOW_MS;
+}
+
 /** Proxy size for inline thumbnails — 64×64 source via the local
  *  `/thumb` proxy. Pass-through for `data:` URIs and for URLs that
  *  already point at the proxy (idempotent). */

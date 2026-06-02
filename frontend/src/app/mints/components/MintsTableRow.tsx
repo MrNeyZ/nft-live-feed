@@ -14,8 +14,9 @@ import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
-import { fmtAgeShort, fmtSol, shortKey, thumb64 } from '../lib/format';
+import { fmtAgeShort, fmtSol, shortKey, thumb64, isNewCollection } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
+import { NewCollectionBadge } from './NewCollectionBadge';
 
 /** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
  *  (`displayState === 'shown'`); WATCH = incubating (pre-burst,
@@ -463,6 +464,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 size="lg" matches the enlarged status badge (table-only; the
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
+            {/* NEW — collection created right around its first mint (UI-only). */}
+            {isNewCollection(r.collectionCreatedAt, r.firstSeenAt) && <NewCollectionBadge />}
           </span>
         </div>
       </td>
