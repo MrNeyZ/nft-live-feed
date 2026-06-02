@@ -25,6 +25,7 @@ import { Router, Request, Response } from 'express';
  *  Express `Response` import above otherwise shadows it. */
 type FetchResponse = globalThis.Response;
 import { rateLimit } from './rate-limit';
+import { requireAuth } from './runtime';
 import {
   deriveBuyerEscrowPda,
   resolveEscrowBalances,
@@ -1129,7 +1130,7 @@ export function createRetardioOffersRouter(): Router {
   // 6/min/wallet so a stuck button doesn't drain ME credits).
   const limit = rateLimit({ limit: 6, windowMs: 60_000, label: 'tools/retardio-me-offer-scan' });
 
-  router.post('/tools/retardio-me-offer-scan', limit, async (req: Request, res: Response) => {
+  router.post('/tools/retardio-me-offer-scan', limit, requireAuth, async (req: Request, res: Response) => {
     const slug        = (req.body?.slug as string)        || DEFAULT_SLUG;
     const minOfferSol = Math.max(0, Number(req.body?.minOfferSol ?? 0));
     const scanLimit   = Math.min(SCAN_LIMIT_MAX, Math.max(1, Number(req.body?.limit ?? SCAN_LIMIT_DFLT)));
