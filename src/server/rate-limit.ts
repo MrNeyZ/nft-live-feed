@@ -35,17 +35,32 @@ interface Bucket {
   resetAt: number;
 }
 
-/** Client IP extraction. With `app.set('trust proxy', 1)` configured in
- *  `createApp()`, Express's `req.ip` is the value nginx appended to
- *  X-Forwarded-For (i.e., the real connecting client) — NOT the first
- *  header-supplied entry, which a hostile client controls. We deliberately
- *  do NOT parse `x-forwarded-for` ourselves any more: that field arrives as
- *  `<attacker_value>, <real_ip>` and the first comma-segment is forgeable.
- *  Trusting `req.ip` is the only correct path behind this single-hop proxy
- *  topology. Falls back to the socket peer for direct-loopback dev (no
- *  proxy in front) and an `unknown` sentinel as a last resort so the
- *  rate-limit map never holds an empty key. */
+/** Client IP for rate-limit bucket keying.
+ *
+ *  The real topology is Client → Cloudflare → nginx → Express — TWO proxy
+ *  hops. `app.set('trust proxy', 1)` only unwinds ONE, so `req.ip` resolves to
+ *  the Cloudflare EDGE IP (e.g. 172.68.x.x), not the real user. Keying buckets
+ *  on that lumps every user behind a given edge into one bucket (false
+ *  lockouts) and stops the limiter from isolating a single abuser. Mirror the
+ *  SSE per-IP cap (`clientIpForCap` in sse.ts). Priority:
+ *    1. CF-Connecting-IP — Cloudflare overwrites it at the edge to the true
+ *       client; not client-spoofable as long as all ingress is forced through
+ *       Cloudflare (the origin is not directly reachable — UFW CF-CIDR only).
+ *    2. first (left-most) X-Forwarded-For entry — the original client.
+ *    3. req.ip — single-hop / dev fallback.
+ *    4. socket peer — direct-loopback dev with no proxy.
+ *  An `unknown` sentinel is the last resort so the map never holds an empty
+ *  key. Trust note: #1/#2 are trustworthy only because the origin is not
+ *  directly exposed; if it were, the blast radius is just this bucket key,
+ *  never auth/data. */
 function clientIp(req: Request): string {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim()) return cf.trim();
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0];
+    if (first && first.trim()) return first.trim();
+  }
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
