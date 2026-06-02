@@ -310,14 +310,14 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     // SOL flow: pool vault (accts[16]) pays −1.138 SOL, accts[0] (signer/seller) receives +1.072 SOL.
     // Account layout mirrors other fulfillBuy instructions:
     //   accounts[0] = seller (user fulfiller / signer)
-    //   accounts[1] = pool-state PDA (best available pool identifier)
+    //   accounts[1] = pool OWNER / bidder wallet (the real buyer; not the pool PDA)
     //   accounts[2] = ME treasury
     // Mint extracted from SPL token balance changes (pNFT = standard SPL token).
     name:          'solMip1FulfillBuy',
     disc:          anchorDisc('sol_mip1_fulfill_buy'), // ec529e7a0818af91
     direction:     'fulfillBuy',
     sellerAcctIdx: 0,
-    buyerAcctIdx:  1,  // pool-state PDA — consistent with solFulfillBuy / coreFulfillBuy
+    buyerAcctIdx:  1,  // accs[1] = pool OWNER / bidder wallet — consistent with solFulfillBuy / coreFulfillBuy (NOT the pool PDA)
     coreAssetIdx:  null,
   },
   {
