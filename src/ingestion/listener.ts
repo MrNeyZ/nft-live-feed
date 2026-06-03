@@ -494,11 +494,13 @@ const TENSOR_SALE_INSTRUCTIONS: ReadonlySet<string> = new Set([
   'takebidlegacy', 'takebidcore', 'takebidfullmeta', 'takebidmetahash',
   'takebidt22', 'takebidwns',
   // tamm
-  // `sellnfttradepoolcore` is the MPL-Core trade-pool sell (log name
-  // `SellNftTradePoolCore`); its Anchor disc 25cd8d3556f52d4e is the one the
-  // parser keys on as the `sell` def. Without this entry the WS prefilter
-  // dropped every Core trade-pool sale before fetchRawTx.
-  'sell', 'sellnfttradepool', 'sellnfttradepoolcore', 'buynfttradepool', 'buynft',
+  // `sellnfttradepoolcore` (log `SellNftTradePoolCore`, disc 25cd8d3556f52d4e
+  // = parser `sell` def) and `buynftcore` (log `BuyNftCore`, disc
+  // a3663a6bb804a979 = parser `buy` def) are the MPL-Core pool sell/buy paths.
+  // Without these entries the WS prefilter dropped every Core pool trade
+  // before fetchRawTx.
+  'sell', 'sellnfttradepool', 'sellnfttradepoolcore',
+  'buynfttradepool', 'buynft', 'buynftcore',
 ]);
 
 const TENSOR_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['tcomp', 'tamm']);
