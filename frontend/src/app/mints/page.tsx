@@ -695,6 +695,7 @@ import { colorForCollection, isSolPubkey } from './lib/palette';
 
 function FeedFiltersPopover({
   selectedTypes, selectedSources, toggleType, toggleSource, activeCount,
+  showCnftMints, setShowCnftMints,
 }: {
   selectedTypes:   ReadonlySet<FeedTypeKey>;
   selectedSources: ReadonlySet<SourceKey>;
@@ -702,6 +703,9 @@ function FeedFiltersPopover({
   toggleType:      (k: FeedTypeKey | null) => void;
   toggleSource:    (k: SourceKey   | null) => void;
   activeCount:     number;
+  // "Show cNFT Mints" — Live Mint Feed only, default ON.
+  showCnftMints:    boolean;
+  setShowCnftMints: (v: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -776,6 +780,15 @@ function FeedFiltersPopover({
                 {SOURCE_KEYS_UI.map(s => (
                   <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)} label={s} size="sm" style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 ))}
+              </div>
+            </div>
+            {/* Show cNFT Mints — Live Mint Feed only. Default ON; Hide drops
+                compressed mints from the right pane (table/counters unaffected). */}
+            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+              <span className="feed-srow-lbl">cNFT</span>
+              <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
+                <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={!showCnftMints} onClick={() => setShowCnftMints(false)} label="Hide" size="sm" style={!showCnftMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
           </div>
@@ -1106,6 +1119,19 @@ export default function MintsPage() {
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.feed.source', [...selectedSources].join(',')); } catch { /* quota */ }
   }, [selectedSources]);
+  // "Show cNFT Mints" — Live Mint Feed only. Default ON. When OFF, compressed
+  // (Bubblegum) mints are hidden from the RIGHT pane via `isCnftLike` in the
+  // `visibleEvents` render filter. Does NOT touch the LEFT collections table,
+  // backend APIs, SSE, or any counter/stat — pure presentation. Persisted in
+  // localStorage ('0' = hidden); absent/anything-else = shown (default ON).
+  const [showCnftMints, setShowCnftMints] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try { return window.localStorage.getItem('vl.mints.feed.showCnft') !== '0'; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.feed.showCnft', showCnftMints ? '1' : '0'); } catch { /* quota */ }
+  }, [showCnftMints]);
   // Toggle a specific key; passing null = "Any" clears the whole group. ANY
   // and specific keys are mutually exclusive (ANY = empty set), and disabling
   // the last specific key leaves the set empty → ANY automatically.
@@ -1220,6 +1246,8 @@ export default function MintsPage() {
     return events.filter(ev =>
       ev.receivedAt >= feedCutoff
       && !isBlacklistedEvent(ev)
+      // "Show cNFT Mints" OFF → drop compressed mints from the feed only.
+      && (showCnftMints || !isCnftLike(ev))
       && matchesType(selectedTypes, ev.programSource, ev.sourceLabel)
       && matchesSource(selectedSources, ev.sourceLabel)
       && matchesStatusEvent(selectedStatuses, statusByKey, ev.groupingKey),
@@ -1227,7 +1255,7 @@ export default function MintsPage() {
     // isBlacklistedEvent closes over blacklistSet — listing it in deps
     // is enough to refilter on add/remove.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick, blacklistSet]);
+  }, [events, showCnftMints, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick, blacklistSet]);
 
   // Hover-scoped feed VIEW. Hover no longer hides non-matching mints — instead
   // matching mints cluster to the top at full opacity and the rest fade to
@@ -1256,7 +1284,7 @@ export default function MintsPage() {
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
   // 0 (both groups = Any) hides the badge.
-  const activeFeedFilterCount = selectedTypes.size + selectedSources.size;
+  const activeFeedFilterCount = selectedTypes.size + selectedSources.size + (showCnftMints ? 0 : 1);
 
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
@@ -2650,6 +2678,8 @@ export default function MintsPage() {
                 toggleType={toggleType}
                 toggleSource={toggleSource}
                 activeCount={activeFeedFilterCount}
+                showCnftMints={showCnftMints}
+                setShowCnftMints={setShowCnftMints}
               />
             </div>
           </div>
