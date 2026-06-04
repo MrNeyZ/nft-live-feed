@@ -1,0 +1,181 @@
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "slot": 424124117,
+        "transaction": {
+            "signatures": [
+                "2ZshWXyj47naARpnWBDUKtg1AH1ZAWF2YRhg9gFd44zKEVYJMPkA8zJBs8yJQpy4sY5AJ9Rq6k9iyKuihjYXqvLA"
+            ],
+            "message": {
+                "header": {
+                    "numRequiredSignatures": 1,
+                    "numReadonlySignedAccounts": 0,
+                    "numReadonlyUnsignedAccounts": 5
+                },
+                "accountKeys": [
+                    "CDpHJwwGT8vLvpG3NiMvBqussP1tCFNV9Y5Eaka6r4oY",
+                    "3vFg4GWBqfVSpUyWSzwpkceBfRQEhMYDtcawczb1QRPj",
+                    "5Xr1DvDrHpnAxCS5Z19o5h2NNxjUhdjkGBWN4zrRxse5",
+                    "AnRsMR5wqQ4eAPuzmAoUHEJX7mvaUBwxcyBizwc72H5J",
+                    "DwMLewkL9ukaDjD2byqq8ajDbM72ERecWZBz5mMjVj5L",
+                    "11111111111111111111111111111111",
+                    "C9RypZdhwphKAyM21rCaHoRhcvNFa7uYeSm4Mg6x1S7z",
+                    "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+                    "F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE",
+                    "RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y"
+                ],
+                "recentBlockhash": "B6H8EedQEQuHGapsChKDudF9jcyemdCxJSJx3H7DmMmm",
+                "instructions": [
+                    {
+                        "programIdIndex": 9,
+                        "accounts": [
+                            0,
+                            2,
+                            6,
+                            3,
+                            1,
+                            8,
+                            4,
+                            7,
+                            5
+                        ],
+                        "data": "6o832FXMriPRvScUm9MgCYTE2DEs4a7UaXWXZBhQv76KiTR7xHDwkz3qCAdrsewLs4uF82E9Yx4TBhdt4VxgsH3gMLB7x5vvp7EWgPR8m5wwMpSxiAqau2P85yV9ZdBqR",
+                        "stackHeight": 1
+                    }
+                ]
+            }
+        },
+        "meta": {
+            "err": null,
+            "status": {
+                "Ok": null
+            },
+            "fee": 5000,
+            "preBalances": [
+                3137680320,
+                0,
+                7377600,
+                2429040,
+                0,
+                1,
+                1872240,
+                1141441,
+                60980895799,
+                1141440
+            ],
+            "postBalances": [
+                3131825320,
+                3748080,
+                7377600,
+                2429040,
+                2101920,
+                1,
+                1872240,
+                1141441,
+                60980895799,
+                1141440
+            ],
+            "innerInstructions": [
+                {
+                    "index": 0,
+                    "instructions": [
+                        {
+                            "programIdIndex": 7,
+                            "accounts": [
+                                1,
+                                3,
+                                6,
+                                0,
+                                8,
+                                7,
+                                5,
+                                7
+                            ],
+                            "data": "G9HWxLsajDMMBuTGiFbcJbF1bS7YWqZiDv3GdqwskxF4tDZF3vkZddie1FchEGgs4jGyKaP6xNvz1wjhcEFH49KFpXWuauZQAZTVv8LxUk1M3K2UGEA1MTubvPVyqV7SVEDHo31pu3d",
+                            "stackHeight": 2
+                        },
+                        {
+                            "programIdIndex": 5,
+                            "accounts": [
+                                0,
+                                1
+                            ],
+                            "data": "11115iCu34aMA2LGQSiHMCxhLvr4SN4aUGEvTCNEpGmD1J9PDJBjWe1gY2syL4MXZzRnhM",
+                            "stackHeight": 3
+                        },
+                        {
+                            "programIdIndex": 5,
+                            "accounts": [
+                                0,
+                                1
+                            ],
+                            "data": "3Bxs4H4oxGjA9nnj",
+                            "stackHeight": 3
+                        },
+                        {
+                            "programIdIndex": 5,
+                            "accounts": [
+                                0,
+                                1
+                            ],
+                            "data": "3Bxs4bkF4RmXekB9",
+                            "stackHeight": 3
+                        },
+                        {
+                            "programIdIndex": 5,
+                            "accounts": [
+                                0,
+                                1
+                            ],
+                            "data": "3Bxs4BcCAW2khxE3",
+                            "stackHeight": 3
+                        },
+                        {
+                            "programIdIndex": 5,
+                            "accounts": [
+                                0,
+                                4
+                            ],
+                            "data": "11116sZiipZkWjEoX3nSofsnymQQaBjN6LRHDPicbcZUHT3SqsB6GuU8pHC98zqTeidRqH",
+                            "stackHeight": 2
+                        }
+                    ]
+                }
+            ],
+            "logMessages": [
+                "Program RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y invoke [1]",
+                "Program log: Instruction: MintTeam",
+                "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d invoke [2]",
+                "Program log: Instruction: CreateV2",
+                "Program 11111111111111111111111111111111 invoke [3]",
+                "Program 11111111111111111111111111111111 success",
+                "Program log: programs/mpl-core/src/state/collection.rs:139:Approve",
+                "Program 11111111111111111111111111111111 invoke [3]",
+                "Program 11111111111111111111111111111111 success",
+                "Program 11111111111111111111111111111111 invoke [3]",
+                "Program 11111111111111111111111111111111 success",
+                "Program 11111111111111111111111111111111 invoke [3]",
+                "Program 11111111111111111111111111111111 success",
+                "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d consumed 25488 of 179614 compute units",
+                "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d success",
+                "Program 11111111111111111111111111111111 invoke [2]",
+                "Program 11111111111111111111111111111111 success",
+                "Program log: Team mint (0-escrow receipt): NFT 3vFg4GWBqfVSpUyWSzwpkceBfRQEhMYDtcawczb1QRPj -> F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE (#748/2192, team_total=747)",
+                "Program RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y consumed 74558 of 200000 compute units",
+                "Program RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y success"
+            ],
+            "preTokenBalances": [],
+            "postTokenBalances": [],
+            "rewards": [],
+            "loadedAddresses": {
+                "writable": [],
+                "readonly": []
+            },
+            "computeUnitsConsumed": 74558,
+            "costUnits": 77217
+        },
+        "version": "legacy",
+        "blockTime": 1780528502
+    }
+}

@@ -19,6 +19,7 @@ import { createMarketRouter } from './market';
 import { createRuntimeRouter } from './runtime';
 import { createRetardioOffersRouter } from './tools-retardio-offers';
 import { createRareFeedRouter } from './tools-rare-feed';
+import { createMintAnalyzerRouter } from './tools-mint-analyzer';
 import { corsMiddleware } from './cors';
 
 export function createApp() {
@@ -116,6 +117,10 @@ export function createApp() {
   // Rare Feed tool — read API for rarity-scored value sales.
   // GET /api/tools/rare-feed/recent
   app.use('/api', createRareFeedRouter());
+
+  // Mint Analyzer tool — read-only tx decoder + mint verdict.
+  // GET /api/tools/mint-analyzer/analyze?sig=<signature>
+  app.use('/api', createMintAnalyzerRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is

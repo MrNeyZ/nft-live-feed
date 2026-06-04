@@ -659,7 +659,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // Cheap — Next.js dedupes prefetches per path so the hover-prefetch
   // path below is a no-op on already-warmed routes.
   useEffect(() => {
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/feed'];
     for (const h of HREFS) router.prefetch(h);
   }, [router]);
   // Pathname-change perf log. Pairs with the click-time stamp set in
@@ -1131,6 +1131,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       }}
                     >
                       Rare Feed
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      href="/tools/mint-analyzer"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.10)'; (e.currentTarget as HTMLAnchorElement).style.color = '#d0c8e4'; router.prefetch('/tools/mint-analyzer'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#aaaabf'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/mint-analyzer');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      Mint Analyzer
                     </Link>
                   </div>
                 )}
