@@ -1130,7 +1130,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                         setToolsOpen(false);
                       }}
                     >
-                      Rare Feed
+                      RARE
                     </Link>
                     <Link
                       role="menuitem"
@@ -1147,7 +1147,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                         setToolsOpen(false);
                       }}
                     >
-                      Mint Analyzer
+                      MINTX
                     </Link>
                   </div>
                 )}

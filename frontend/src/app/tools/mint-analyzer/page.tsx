@@ -62,6 +62,24 @@ const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; 
   custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#a890e8', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
 };
 
+// Large reconstructable status badge derived from the verdict (display-only;
+// no analyzer/verdict logic touched — this is a UI restatement).
+const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
+  direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: '#7ed9a8', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
+  possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#e8c14a', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
+  blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d97c7c', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
+  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#a890e8', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
+};
+
+// Confidence is a fixed function of the verdict class (display-only).
+const CONFIDENCE: Record<Verdict, 'HIGH' | 'MEDIUM'> = {
+  direct_mint_likely_reconstructable: 'HIGH',
+  blocked_server_captcha_signature:   'HIGH',
+  custom_program_manual_re_required:  'MEDIUM',
+  possible_requires_extra_inputs:     'MEDIUM',
+};
+const CONFIDENCE_COLOR: Record<'HIGH' | 'MEDIUM', string> = { HIGH: '#7ed9a8', MEDIUM: '#e8c14a' };
+
 const SIGNER_META: Record<SignerClass, { label: string; color: string }> = {
   fee_payer:              { label: 'FEE PAYER',       color: '#7a7a94' },
   user:                   { label: 'USER',            color: '#7ed9a8' },
@@ -104,6 +122,9 @@ export default function MintAnalyzerPage() {
   const [busy, setBusy]       = useState(false);
   const [error, setError]     = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<MintAnalysis | null>(null);
+  // Full API response body as displayed, kept verbatim for COPY JSON.
+  const [raw, setRaw]         = useState<unknown>(null);
+  const [copied, setCopied]   = useState(false);
 
   const run = async () => {
     const trimmed = sig.trim();
@@ -122,6 +143,7 @@ export default function MintAnalyzerPage() {
       const body = await r.json() as { ok: boolean; analysis?: MintAnalysis; error?: string };
       if (!body.ok || !body.analysis) { setError(body.error ?? 'Analyze failed.'); return; }
       setAnalysis(body.analysis);
+      setRaw(body);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -129,14 +151,30 @@ export default function MintAnalyzerPage() {
     }
   };
 
-  const v = analysis ? VERDICT_META[analysis.verdict] : null;
+  const copyJson = async () => {
+    if (raw == null) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(raw, null, 2));
+      playUiConfirm();
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError('Copy failed — clipboard unavailable in this browser.');
+    }
+  };
+
+  const v  = analysis ? VERDICT_META[analysis.verdict] : null;
+  const rb = analysis ? RECONSTRUCTABLE_BADGE[analysis.verdict] : null;
+  const conf = analysis ? CONFIDENCE[analysis.verdict] : null;
+  // Wrapper = opaque custom wrapper OR recognised launchpad fronting the mint.
+  const wrapper = analysis ? (analysis.customWrapper ?? analysis.knownLaunchpad) : null;
 
   return (
     <div className="feed-root page-transition" data-page="tools">
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
         {/* Header */}
         <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
-          Mint Analyzer
+          MINTX
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#7a7a94', flexWrap: 'wrap' }}>
           <LiveDot />
@@ -192,7 +230,7 @@ export default function MintAnalyzerPage() {
       </div>
 
       {/* Result */}
-      {analysis && v && (
+      {analysis && v && rb && conf && (
         <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '0 4px 24px' }}>
 
           {/* Verdict banner */}
@@ -201,8 +239,42 @@ export default function MintAnalyzerPage() {
             background: v.bg, border: `1px solid ${v.border}`,
             boxShadow: `0 0 24px ${v.bg}`,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#56566e', marginBottom: 6 }}>Verdict</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: v.color }}>{v.label}</div>
+            {/* Header row: label + confidence + copy-json */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#56566e' }}>Verdict</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: '#56566e' }}>CONFIDENCE</span>
+                <span style={{
+                  padding: '2px 8px', fontSize: 10, fontWeight: 800, letterSpacing: '0.5px',
+                  borderRadius: 4, fontFamily: MONO,
+                  color: CONFIDENCE_COLOR[conf], background: `${CONFIDENCE_COLOR[conf]}1a`,
+                  border: `1px solid ${CONFIDENCE_COLOR[conf]}3a`,
+                }}>{conf}</span>
+                <button
+                  type="button"
+                  onClick={copyJson}
+                  data-uisnd="skip"
+                  style={{
+                    padding: '3px 9px', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px',
+                    borderRadius: 4, cursor: 'pointer', fontFamily: MONO,
+                    border: '1px solid rgba(168,144,232,0.45)',
+                    background: copied ? 'rgba(126,217,168,0.16)' : 'rgba(168,144,232,0.10)',
+                    color: copied ? '#7ed9a8' : '#c4b8e8',
+                    transition: 'all 0.15s',
+                  }}
+                >{copied ? 'COPIED ✓' : 'COPY JSON'}</button>
+              </div>
+            </div>
+
+            {/* Large reconstructable status badge — the dominant signal */}
+            <div style={{
+              display: 'inline-block', padding: '10px 18px', borderRadius: 8,
+              fontSize: 26, fontWeight: 800, letterSpacing: '0.5px', lineHeight: 1.1,
+              color: rb.color, background: rb.bg, border: `1.5px solid ${rb.border}`,
+            }}>{rb.label}</div>
+
+            {/* Secondary verdict text */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: v.color, marginTop: 10, opacity: 0.9 }}>{v.label}</div>
             {analysis.verdictReasons.length > 0 && (
               <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: '#aaaabf', lineHeight: 1.6 }}>
                 {analysis.verdictReasons.map((rsn, i) => <li key={i}>{rsn}</li>)}
@@ -222,14 +294,31 @@ export default function MintAnalyzerPage() {
             </div>
           </div>
 
-          {/* Likely mint primitive + wrappers */}
+          {/* Likely mint primitive + dedicated wrapper block */}
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Likely mint primitive</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <Chip color="#7ed9a8">{PRIMITIVE_LABEL[analysis.likelyMintPrimitive]}</Chip>
-              {analysis.customWrapper && <Chip color="#a890e8">custom wrapper · {analysis.customWrapper.name ?? shortAddr(analysis.customWrapper.programId)}</Chip>}
-              {analysis.knownLaunchpad && <Chip color="#e8c14a">launchpad · {analysis.knownLaunchpad.name ?? shortAddr(analysis.knownLaunchpad.programId)}</Chip>}
             </div>
+
+            {/* Wrapper — explicit, never inferred from the verdict text */}
+            <div style={{ ...SECTION_LABEL, marginTop: 16 }}>Wrapper</div>
+            {wrapper ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span title={wrapper.programId} style={{
+                  display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 600,
+                  borderRadius: 5, fontFamily: MONO, color: '#a890e8',
+                  background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.35)',
+                }}>{wrapper.programId.slice(0, 12)}…</span>
+                {wrapper.name && <span style={{ fontSize: 11, color: '#56566e', fontFamily: MONO }}>· {wrapper.name}</span>}
+              </div>
+            ) : (
+              <span style={{
+                display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 700,
+                borderRadius: 5, fontFamily: MONO, color: '#7a7a94',
+                background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.28)',
+              }}>NONE</span>
+            )}
           </div>
 
           {/* Programs called */}
