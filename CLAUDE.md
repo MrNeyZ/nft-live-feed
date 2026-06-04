@@ -293,3 +293,86 @@ frontend/src/
   runtime/Gate.tsx         auth gate + BottomStatusBar
   lib/breakpoints.ts       responsive source of truth
 ```
+
+---
+
+## MINT ANALYZER
+
+Read-only Solana mint-transaction analyzer. Paste a tx signature → decode
+programs / instructions / signers → reconstruction verdict. Separate from
+the live-feed ingestion path; shares no state with it.
+
+**Current production state**
+- Live at `/tools/mint-analyzer`.
+- Commit introducing tool: `e6dd781`.
+- UI polish: `f31fd5f`.
+- Fixture coverage expansion: `80209f8`.
+
+**Purpose**
+- Read-only Solana mint transaction analyzer.
+- Input: transaction signature.
+- Output: likely mint primitive · wrapper detection · signer classification ·
+  launchpad detection · reconstruction verdict.
+- No wallet connect. No signing. No tx building. No tx sending. No DB writes.
+
+**Backend architecture**
+- Route: `GET /api/tools/mint-analyzer/analyze?sig=<signature>`
+  (`tools-mint-analyzer.ts`, mounted in `app.ts` under `/api`, rate-limited
+  30/min). No auth middleware; pure read path.
+- Files:
+    - `src/mint-analyzer/analyze.ts`        — pure decode + classification
+    - `src/mint-analyzer/programs.ts`       — program registry + discriminators
+    - `src/mint-analyzer/fetch-tx.ts`        — read-only getTransaction wrapper
+    - `src/mint-analyzer/types.ts`           — shared interfaces
+    - `src/server/tools-mint-analyzer.ts`    — Express router
+- Program IDs + platform signers are **imported** from
+  `src/ingestion/mint-raw/launchpad-detector.ts` (single source of truth) —
+  do not re-hardcode them in the analyzer.
+
+**Data source**
+- Helius `getTransaction`. `encoding=json`. `maxSupportedTransactionVersion=0`.
+
+**Classification outputs**
+- `MintPrimitive`: `candy_machine_v3_mintv2` · `mpl_core_create_v2` ·
+  `token_metadata_mint` · `bubblegum_mint` · `unknown`.
+- `Verdict`: `direct_mint_likely_reconstructable` ·
+  `possible_requires_extra_inputs` · `blocked_server_captcha_signature` ·
+  `custom_program_manual_re_required`.
+
+**Verdict meaning (UI label ⇢ verdict)**
+- `YES`       = `direct_mint_likely_reconstructable`
+- `MAYBE`     = `possible_requires_extra_inputs`
+- `NO`        = `blocked_server_captcha_signature`
+- `MANUAL RE` = `custom_program_manual_re_required`
+
+**Verdict trigger order** (`analyze.ts`): backend/platform co-signer → `NO`;
+else opaque custom wrapper fronting a primitive → `MANUAL RE`; else known
+launchpad entry program (LaunchMyNFT / Gravemint) → `MAYBE`; else recognised
+primitive → `YES`. NB: a Candy-Guard allowlist mint scores `YES` (guard is a
+primitive, not a launchpad) — `MAYBE` requires a known launchpad entry
+program; `NO` requires a known platform signer (vvv.so / gravemint.io).
+
+**Known examples**
+- `YES`       — `5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr`
+- `MAYBE`     — `3qjW71UQFuq9X65Fk4bKVmGyPs6XVGc8rtHF1UiqzBJ7AfQ9ZA1RVX1PpKYFGJfG93vwcCcuTR5edV2zXNtDDUeQ`
+- `NO`        — `4nvMBRxq7L7eY7spzMWggj1QjenbcZ5uUMEKb49Fy8vCMRUvSKc62gWtdxWRz7EEQtKFyrgPC72EfG2FvCjCxv4Q`
+- `MANUAL RE` — `2ZshWXyj47naARpnWBDUKtg1AH1ZAWF2YRhg9gFd44zKEVYJMPkA8zJBs8yJQpy4sY5AJ9Rq6k9iyKuihjYXqvLA`
+
+**Test coverage**
+- Offline fixtures in `src/mint-analyzer/__tests__/fixtures/`: `tx1.json`,
+  `tx2.json`, `tx3.json`, `tx_maybe.json`, `tx_no.json`.
+- Runner: `npm run test:mint-analyzer` (ts-node + Node `assert`, no network).
+- **Requirement: all four verdict states must remain covered by offline
+  fixture tests.**
+
+**Frontend**
+- Route: `/tools/mint-analyzer`. TOOLS menu label: **MINTX**
+  (Rare Feed label is **RARE**). Routes unchanged.
+- UI features: RECONSTRUCTABLE badge · CONFIDENCE badge · WRAPPER section ·
+  COPY JSON button (clipboard-only).
+
+**Do-nots**
+- Don't add wallet connect, signing, or tx building — v1 is read-only.
+- Don't re-hardcode program IDs / platform signers — import from the
+  launchpad detector.
+- Don't drop offline coverage of any of the four verdict states.
