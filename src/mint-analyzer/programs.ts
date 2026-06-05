@@ -117,6 +117,22 @@ export const KNOWN_PLATFORM_ACCOUNTS: Readonly<Record<string, string>> = {
   [VVVSO_PLATFORM_TREASURY]: 'vvv.so treasury',
 };
 
+/** Curated names for well-known "gate" assets a launchpad commonly requires
+ *  a minter to burn/transfer (mint passes, brand tokens). The analyzer is
+ *  offline + deterministic (no DAS lookup on the request path), so a small
+ *  static map lets the Flow Clues section surface a human name instead of a
+ *  bare mint. Keyed by mint address. Symbol-style short name per the asset's
+ *  on-chain metadata symbol. */
+export const KNOWN_GATE_ASSETS: Readonly<Record<string, string>> = {
+  // Shaolin Saga Mint Pass (symbol "SagaPass") — burned 1-per-mint as a gate.
+  'SAGAYK323FXqABniE47odLi2AhjotdRD91Juajbrfv6': 'SagaPass',
+};
+
+/** Human name for a known gate asset, else null. */
+export function gateAssetName(mint: string): string | null {
+  return KNOWN_GATE_ASSETS[mint] ?? null;
+}
+
 /** 8-byte Anchor instruction discriminator: sha256("global:<name>")[0..8].
  *  Mirrors `anchorDisc` in `src/ingestion/me-raw/programs.ts`. */
 export function anchorDisc(instructionName: string): string {

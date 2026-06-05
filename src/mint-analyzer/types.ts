@@ -79,6 +79,43 @@ export interface DecodedInstruction {
   instructionName: string | null;
 }
 
+/** Read-only "Mint Requirements / Flow Clues" — additive, never feeds the
+ *  verdict. Surfaces on-chain gate signals (burns/transfers before the mint,
+ *  candy-machine / core-create involvement) that the primitive/wrapper/verdict
+ *  triad alone doesn't expose. Purely descriptive heuristics. */
+export type FlowGateType =
+  | 'nft_burn_gate'
+  | 'spl_token_burn_gate'
+  | 'nft_transfer_gate'
+  | 'spl_token_transfer_gate'
+  | 'candy_machine_v3'
+  | 'mpl_core_create'
+  | 'token_metadata_create'
+  | 'unknown_custom_gate';
+
+export interface FlowGate {
+  type: FlowGateType;
+  confidence: 'high' | 'medium' | 'low';
+  assetName?: string;
+  mint?: string;
+  amount?: string;
+  owner?: string;
+  programId?: string;
+  evidence: string[];
+}
+
+export interface BurnedAsset      { name?: string; mint?: string; amount?: string; owner?: string; }
+export interface TransferredAsset { name?: string; mint?: string; amount?: string; from?: string; to?: string; }
+
+export interface FlowClues {
+  detectedGates: FlowGate[];
+  burnedAssets: BurnedAsset[];
+  transferredAssets: TransferredAsset[];
+  /** ordered, human-readable mint flow, e.g. ["Burn SagaPass", "Candy Machine V3", "MPL Core CreateV2"] */
+  mintFlow: string[];
+  notes: string[];
+}
+
 export interface ClassifiedSigner {
   address: string;
   class: SignerClass;
@@ -115,4 +152,7 @@ export interface MintAnalysis {
 
   verdict: Verdict;
   verdictReasons: string[];
+
+  /** Additive, read-only mint-requirement clues. Never influences `verdict`. */
+  flowClues: FlowClues;
 }

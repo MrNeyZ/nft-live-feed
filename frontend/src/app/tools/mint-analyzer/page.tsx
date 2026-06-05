@@ -28,6 +28,24 @@ interface DecodedInstruction {
   discriminatorHex: string; instructionName: string | null;
 }
 interface ClassifiedSigner { address: string; class: SignerClass; label?: string; }
+type FlowGateType =
+  | 'nft_burn_gate' | 'spl_token_burn_gate' | 'nft_transfer_gate' | 'spl_token_transfer_gate'
+  | 'candy_machine_v3' | 'mpl_core_create' | 'token_metadata_create' | 'unknown_custom_gate';
+interface FlowGate {
+  type: FlowGateType;
+  confidence: 'high' | 'medium' | 'low';
+  assetName?: string; mint?: string; amount?: string; owner?: string; programId?: string;
+  evidence: string[];
+}
+interface BurnedAsset { name?: string; mint?: string; amount?: string; owner?: string; }
+interface TransferredAsset { name?: string; mint?: string; amount?: string; from?: string; to?: string; }
+interface FlowClues {
+  detectedGates: FlowGate[];
+  burnedAssets: BurnedAsset[];
+  transferredAssets: TransferredAsset[];
+  mintFlow: string[];
+  notes: string[];
+}
 interface MintAnalysis {
   signature: string;
   status: 'success' | 'failed';
@@ -45,6 +63,7 @@ interface MintAnalysis {
   guardAuth: { candyGuard: boolean; notes: string[] };
   verdict: Verdict;
   verdictReasons: string[];
+  flowClues?: FlowClues;
 }
 
 const PRIMITIVE_LABEL: Record<MintPrimitive, string> = {
@@ -54,6 +73,24 @@ const PRIMITIVE_LABEL: Record<MintPrimitive, string> = {
   bubblegum_mint:          'Bubblegum · cNFT Mint',
   unknown:                 'Unknown',
 };
+
+// Flow-clue gate labels + chip colour. Burn/transfer gates read as amber
+// "requirements"; structural steps (candy/create) green; unknown purple.
+const GATE_LABEL: Record<FlowGateType, string> = {
+  nft_burn_gate:           'NFT burn gate',
+  spl_token_burn_gate:     'Token burn gate',
+  nft_transfer_gate:       'NFT transfer gate',
+  spl_token_transfer_gate: 'Token transfer gate',
+  candy_machine_v3:        'Candy Machine v3',
+  mpl_core_create:         'MPL Core create',
+  token_metadata_create:   'Token Metadata create',
+  unknown_custom_gate:     'Unknown custom gate',
+};
+function gateColor(t: FlowGateType): string {
+  if (t.endsWith('_burn_gate') || t.endsWith('_transfer_gate')) return '#e8c14a';
+  if (t === 'unknown_custom_gate') return '#a890e8';
+  return '#7ed9a8';
+}
 
 const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
   direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: '#7ed9a8', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
@@ -320,6 +357,73 @@ export default function MintAnalyzerPage() {
               }}>NONE</span>
             )}
           </div>
+
+          {/* Mint Requirements / Flow Clues — additive read-only section.
+              Surfaces burn/transfer gates + mint flow for ALL verdicts,
+              especially MANUAL RE where the verdict triad alone is thin. */}
+          {analysis.flowClues && (analysis.flowClues.detectedGates.length > 0 || analysis.flowClues.mintFlow.length > 0) && (
+            <div style={PANEL}>
+              <div style={SECTION_LABEL}>Mint requirements</div>
+
+              {analysis.flowClues.detectedGates.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', marginBottom: 6 }}>Detected gates</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {analysis.flowClues.detectedGates.map((g, i) => (
+                      <Chip key={i} color={gateColor(g.type)}>
+                        {GATE_LABEL[g.type]} · {g.confidence.toUpperCase()}
+                      </Chip>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {analysis.flowClues.burnedAssets.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Burned</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {analysis.flowClues.burnedAssets.map((b, i) => (
+                      <span key={i} title={b.mint} style={{
+                        display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
+                        borderRadius: 5, fontFamily: MONO, color: '#e8a14a',
+                        background: 'rgba(232,161,74,0.10)', border: '1px solid rgba(232,161,74,0.34)',
+                      }}>{b.name ?? shortAddr(b.mint ?? '?')}{b.amount && b.amount !== '1' ? ` ×${b.amount}` : ''}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {analysis.flowClues.transferredAssets.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Transferred</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {analysis.flowClues.transferredAssets.map((t, i) => (
+                      <span key={i} title={t.mint} style={{
+                        display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
+                        borderRadius: 5, fontFamily: MONO, color: '#7ea8d9',
+                        background: 'rgba(126,168,217,0.10)', border: '1px solid rgba(126,168,217,0.34)',
+                      }}>{t.name ?? shortAddr(t.mint ?? '?')}{t.amount && t.amount !== '1' ? ` ×${t.amount}` : ''}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {analysis.flowClues.mintFlow.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Flow</div>
+                  <div style={{ fontSize: 12, fontFamily: MONO, color: '#c8c8dc', lineHeight: 1.6 }}>
+                    {analysis.flowClues.mintFlow.join('  →  ')}
+                  </div>
+                </>
+              )}
+
+              {analysis.flowClues.notes.length > 0 && (
+                <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#aaaabf', lineHeight: 1.6 }}>
+                  {analysis.flowClues.notes.map((n, i) => <li key={i}>{n}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Programs called */}
           <div style={PANEL}>

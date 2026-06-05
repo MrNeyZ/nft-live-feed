@@ -15,14 +15,18 @@ import tx2Fixture from './fixtures/tx2.json';
 import tx3Fixture from './fixtures/tx3.json';
 import txMaybeFixture from './fixtures/tx_maybe.json';
 import txNoFixture from './fixtures/tx_no.json';
+import txBurnGateFixture from './fixtures/tx_burn_gate.json';
 
-const SIG1 = '5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr';
+const SIG1 ='5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr';
 const SIG2 = '2ZshWXyj47naARpnWBDUKtg1AH1ZAWF2YRhg9gFd44zKEVYJMPkA8zJBs8yJQpy4sY5AJ9Rq6k9iyKuihjYXqvLA';
 const SIG3 = '3zLWyBWJDNctGdEe6v57hgQW5j8Kxwdwv4FeU6DL1rvLeg9rGS26frEtA9vM2MhGbLEGCAtFFrq166kpBEsFFGZS';
 // MAYBE — LaunchMyNFT (entry program in KNOWN_LAUNCHPAD_IDS).
 const SIG_MAYBE = '3qjW71UQFuq9X65Fk4bKVmGyPs6XVGc8rtHF1UiqzBJ7AfQ9ZA1RVX1PpKYFGJfG93vwcCcuTR5edV2zXNtDDUeQ';
 // NO — vvv.so mint co-signed by the vvv.so platform signer.
 const SIG_NO = '4nvMBRxq7L7eY7spzMWggj1QjenbcZ5uUMEKb49Fy8vCMRUvSKc62gWtdxWRz7EEQtKFyrgPC72EfG2FvCjCxv4Q';
+// MANUAL RE + burn-gate flow clues — Core Candy Guard mint gated by an SPL
+// burn of 1 SagaPass (Shaolin Saga Mint Pass) before the MPL Core create.
+const SIG_BURN_GATE = '3KbsQgTpLjWGa1w87WRoRS9mNw9nYjVRi269HB2BrZo23KXufj3iZKwZ6RLgedpdfvz9zUjzDZXvAqM955rjckrp';
 
 const RFND_WRAPPER = 'RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y';
 const FORGE_WRAPPER = 'foRGEL4EUjeQMd8U2QL5Rx8je75ZFpmtLoWRyyAxxr7';
@@ -99,6 +103,34 @@ check('a signer is labelled vvv.so platform signer', () => assert.ok(
   aNo.signers.some(s => s.class === 'known_platform_signer' && (s.label ?? '').includes('vvv.so platform signer')),
 ));
 check('verdict blocked_server_captcha_signature', () => assert.strictEqual(aNo.verdict, 'blocked_server_captcha_signature'));
+
+// ── burn-gate: Flow Clues surface an NFT burn gate without changing verdict ─
+const aBurn = analyze(resultOf(txBurnGateFixture), SIG_BURN_GATE);
+console.log('\ntx_burn_gate — Core Candy Guard mint gated by SagaPass burn');
+check('status success', () => assert.strictEqual(aBurn.status, 'success'));
+check('verdict still custom_program_manual_re_required', () => assert.strictEqual(aBurn.verdict, 'custom_program_manual_re_required'));
+check('primitive still mpl_core_create_v2', () => assert.strictEqual(aBurn.likelyMintPrimitive, 'mpl_core_create_v2'));
+check('backendSignerObserved unchanged (false)', () => assert.strictEqual(aBurn.backendSignerObserved, false));
+check('detectedGates contains nft_burn_gate', () => assert.ok(
+  aBurn.flowClues.detectedGates.some(g => g.type === 'nft_burn_gate'),
+));
+check('nft_burn_gate confidence HIGH', () => assert.ok(
+  aBurn.flowClues.detectedGates.some(g => g.type === 'nft_burn_gate' && g.confidence === 'high'),
+));
+check('burnedAssets contains SagaPass', () => assert.ok(
+  aBurn.flowClues.burnedAssets.some(b => b.name === 'SagaPass'),
+));
+check('detectedGates contains candy_machine_v3', () => assert.ok(
+  aBurn.flowClues.detectedGates.some(g => g.type === 'candy_machine_v3'),
+));
+check('mintFlow burn precedes candy machine / create', () => {
+  const flow = aBurn.flowClues.mintFlow;
+  const burnIdx = flow.findIndex(s => /burn/i.test(s));
+  const mintIdx = flow.findIndex(s => /candy machine|create/i.test(s));
+  assert.ok(burnIdx >= 0, 'mintFlow has a burn step');
+  assert.ok(mintIdx >= 0, 'mintFlow has a candy-machine/create step');
+  assert.ok(burnIdx < mintIdx, 'burn step precedes the mint step');
+});
 
 console.log(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);
 process.exit(failures === 0 ? 0 : 1);
