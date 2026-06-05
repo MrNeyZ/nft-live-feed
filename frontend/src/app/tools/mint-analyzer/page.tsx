@@ -208,6 +208,11 @@ export default function MintAnalyzerPage() {
 
   return (
     <div className="feed-root page-transition" data-page="tools">
+      {/* Scroll container — .feed-root is a fixed 100vh flex column, so the
+          page content (header/input + result panels) must own its own
+          vertical scroll. paddingBottom clears the fixed BottomStatusBar HUD
+          so the final panel stays readable. Mirrors the /tools pattern. */}
+      <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
         {/* Header */}
         <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -516,6 +521,7 @@ export default function MintAnalyzerPage() {
 
         </div>
       )}
+      </div>
     </div>
   );
 }
