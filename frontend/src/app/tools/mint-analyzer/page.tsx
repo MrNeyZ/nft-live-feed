@@ -133,12 +133,12 @@ const PANEL: React.CSSProperties = {
   border: '1px solid rgba(168,144,232,0.32)',
   borderRadius: 12,
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
-  padding: 18,
-  marginBottom: 16,
+  padding: 12,
+  marginBottom: 11,
 };
 const SECTION_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-  color: '#56566e', marginBottom: 10,
+  color: '#56566e', marginBottom: 6,
 };
 const MONO = "'SF Mono','Fira Code',monospace";
 
@@ -372,7 +372,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.detectedGates.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', marginBottom: 6 }}>Detected gates</div>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', marginBottom: 4 }}>Detected gates</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.detectedGates.map((g, i) => (
                       <Chip key={i} color={gateColor(g.type)}>
@@ -385,7 +385,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.burnedAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Burned</div>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Burned</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.burnedAssets.map((b, i) => (
                       <span key={i} title={b.mint} style={{
@@ -400,7 +400,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.transferredAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Transferred</div>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Transferred</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.transferredAssets.map((t, i) => (
                       <span key={i} title={t.mint} style={{
@@ -415,7 +415,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.mintFlow.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '14px 0 6px' }}>Flow</div>
+                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Flow</div>
                   <div style={{ fontSize: 12, fontFamily: MONO, color: '#c8c8dc', lineHeight: 1.6 }}>
                     {analysis.flowClues.mintFlow.join('  →  ')}
                   </div>
@@ -423,7 +423,7 @@ export default function MintAnalyzerPage() {
               )}
 
               {analysis.flowClues.notes.length > 0 && (
-                <ul style={{ margin: '12px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#aaaabf', lineHeight: 1.6 }}>
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#aaaabf', lineHeight: 1.5 }}>
                   {analysis.flowClues.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
@@ -433,10 +433,10 @@ export default function MintAnalyzerPage() {
           {/* Programs called */}
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Programs called</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {analysis.programs.map(p => (
                 <span key={p.programId} title={p.programId} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px',
+                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px',
                   fontSize: 11, borderRadius: 5, fontFamily: MONO,
                   color: p.name ? '#d4d4e8' : '#e8c14a',
                   background: 'rgba(168,144,232,0.07)', border: '1px solid rgba(168,144,232,0.22)',
@@ -451,7 +451,7 @@ export default function MintAnalyzerPage() {
           {/* Signers */}
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Signers</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {analysis.signers.map((s, i) => {
                 const m = SIGNER_META[s.class];
                 return (
@@ -468,7 +468,7 @@ export default function MintAnalyzerPage() {
                 );
               })}
             </div>
-            <div style={{ marginTop: 10, fontSize: 11, color: analysis.backendSignerObserved ? '#d97c7c' : '#7ed9a8' }}>
+            <div style={{ marginTop: 6, fontSize: 11, color: analysis.backendSignerObserved ? '#d97c7c' : '#7ed9a8' }}>
               {analysis.backendSignerObserved
                 ? '⚠ Backend/platform co-signer observed — server signature required.'
                 : '✓ No backend/platform signer observed.'}
@@ -481,7 +481,7 @@ export default function MintAnalyzerPage() {
               <div style={SECTION_LABEL}>Guard / auth requirements</div>
               {analysis.guardAuth.candyGuard && <Chip color="#e8c14a">Candy Guard present</Chip>}
               {analysis.guardAuth.notes.length > 0 && (
-                <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: '#aaaabf', lineHeight: 1.6 }}>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: '#aaaabf', lineHeight: 1.5 }}>
                   {analysis.guardAuth.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
