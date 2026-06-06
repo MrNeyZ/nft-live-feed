@@ -21,6 +21,9 @@ type SignerClass = 'fee_payer' | 'user' | 'known_platform_signer' | 'unknown_pro
 type Verdict =
   | 'direct_mint_likely_reconstructable' | 'possible_requires_extra_inputs'
   | 'blocked_server_captcha_signature' | 'custom_program_manual_re_required';
+type AccessType =
+  | 'public' | 'nft_holder_gate' | 'treasury_manual_allowlist'
+  | 'backend_gated' | 'unknown';
 
 interface ProgramCall { programId: string; name: string | null; invocationCount: number; }
 interface DecodedInstruction {
@@ -30,11 +33,14 @@ interface DecodedInstruction {
 interface ClassifiedSigner { address: string; class: SignerClass; label?: string; }
 type FlowGateType =
   | 'nft_burn_gate' | 'spl_token_burn_gate' | 'nft_transfer_gate' | 'spl_token_transfer_gate'
-  | 'candy_machine_v3' | 'mpl_core_create' | 'token_metadata_create' | 'unknown_custom_gate';
+  | 'candy_machine_v3' | 'mpl_core_create' | 'token_metadata_create' | 'unknown_custom_gate'
+  | 'server_signature_gate' | 'off_chain_token_transfer_gate' | 'soft_transfer_not_burn';
 interface FlowGate {
   type: FlowGateType;
   confidence: 'high' | 'medium' | 'low';
   assetName?: string; mint?: string; amount?: string; owner?: string; programId?: string;
+  signers?: string[];
+  enforcedOnChain?: boolean;
   evidence: string[];
 }
 interface BurnedAsset { name?: string; mint?: string; amount?: string; owner?: string; }
@@ -63,6 +69,8 @@ interface MintAnalysis {
   guardAuth: { candyGuard: boolean; notes: string[] };
   verdict: Verdict;
   verdictReasons: string[];
+  accessType?: AccessType;
+  accessClues?: string[];
   flowClues?: FlowClues;
 }
 
@@ -77,16 +85,27 @@ const PRIMITIVE_LABEL: Record<MintPrimitive, string> = {
 // Flow-clue gate labels + chip colour. Burn/transfer gates read as amber
 // "requirements"; structural steps (candy/create) green; unknown purple.
 const GATE_LABEL: Record<FlowGateType, string> = {
-  nft_burn_gate:           'NFT burn gate',
-  spl_token_burn_gate:     'Token burn gate',
-  nft_transfer_gate:       'NFT transfer gate',
-  spl_token_transfer_gate: 'Token transfer gate',
-  candy_machine_v3:        'Candy Machine v3',
-  mpl_core_create:         'MPL Core create',
-  token_metadata_create:   'Token Metadata create',
-  unknown_custom_gate:     'Unknown custom gate',
+  nft_burn_gate:                 'NFT burn gate',
+  spl_token_burn_gate:           'Token burn gate',
+  nft_transfer_gate:             'NFT transfer gate',
+  spl_token_transfer_gate:       'Token transfer gate',
+  candy_machine_v3:              'Candy Machine v3',
+  mpl_core_create:               'MPL Core create',
+  token_metadata_create:         'Token Metadata create',
+  unknown_custom_gate:           'Unknown custom gate',
+  server_signature_gate:         'Server signature gate',
+  off_chain_token_transfer_gate: 'Off-chain token gate',
+  soft_transfer_not_burn:        'Soft transfer, not burn',
+};
+// Explicit colours for the server-gated family take precedence over the
+// suffix heuristic (off_chain_token_transfer_gate ends with _transfer_gate).
+const GATE_COLOR: Partial<Record<FlowGateType, string>> = {
+  server_signature_gate:         '#d97c7c', // danger red — server signature blocks reconstruction
+  off_chain_token_transfer_gate: '#e8a14a', // amber/orange — soft token gate
+  soft_transfer_not_burn:        '#c99a52', // muted amber/orange
 };
 function gateColor(t: FlowGateType): string {
+  if (GATE_COLOR[t]) return GATE_COLOR[t]!;
   if (t.endsWith('_burn_gate') || t.endsWith('_transfer_gate')) return '#e8c14a';
   if (t === 'unknown_custom_gate') return '#a890e8';
   return '#7ed9a8';
@@ -106,6 +125,17 @@ const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg:
   possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#e8c14a', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
   blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d97c7c', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
   custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#a890e8', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
+};
+
+// Access type — WHO was allowed to mint (orthogonal to the verdict). Colours
+// reuse the existing palette: green=public, blue=holder, purple=treasury,
+// red=backend-gated, gray=unknown. Display-only restatement of accessType.
+const ACCESS_META: Record<AccessType, { label: string; color: string }> = {
+  public:                    { label: 'Public Mint',        color: '#7ed9a8' },
+  nft_holder_gate:           { label: 'NFT Holder Gate',     color: '#7ea8d9' },
+  treasury_manual_allowlist: { label: 'Treasury Allowlist',  color: '#a890e8' },
+  backend_gated:             { label: 'Backend Gated',       color: '#d97c7c' },
+  unknown:                   { label: 'Unknown',             color: '#7a7a94' },
 };
 
 // Confidence is a fixed function of the verdict class (display-only).
@@ -324,6 +354,29 @@ export default function MintAnalyzerPage() {
             )}
           </div>
 
+          {/* Access type — additive panel directly below the verdict. Display-only
+              restatement of backend accessType/accessClues; no analyzer logic. */}
+          {analysis.accessType && (() => {
+            const am = ACCESS_META[analysis.accessType];
+            return (
+              <div style={PANEL}>
+                <div style={SECTION_LABEL}>Access type</div>
+                <span style={{
+                  display: 'inline-block', padding: '6px 14px', borderRadius: 6,
+                  fontSize: 15, fontWeight: 800, letterSpacing: '0.4px', lineHeight: 1.1,
+                  color: am.color, background: `${am.color}1a`, border: `1.5px solid ${am.color}55`,
+                }}>{am.label}</span>
+                {analysis.accessClues && analysis.accessClues.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                    {analysis.accessClues.map((c, i) => (
+                      <Chip key={i} color="#7a7a94">{c}</Chip>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Status / meta */}
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Transaction</div>
@@ -380,6 +433,22 @@ export default function MintAnalyzerPage() {
                       </Chip>
                     ))}
                   </div>
+                  {(() => {
+                    const gates = analysis.flowClues!.detectedGates;
+                    const ssg = gates.find(g => g.type === 'server_signature_gate' && (g.signers?.length ?? 0) > 0);
+                    const offChain = gates.some(g => g.enforcedOnChain === false);
+                    if (!ssg && !offChain) return null;
+                    return (
+                      <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, fontFamily: MONO }}>
+                        {ssg && (
+                          <span style={{ color: '#d97c7c' }}>
+                            Backend signer: {ssg.signers!.map(shortAddr).join(', ')}
+                          </span>
+                        )}
+                        {offChain && <span style={{ color: '#6a6a84' }}>Not enforced on-chain</span>}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
