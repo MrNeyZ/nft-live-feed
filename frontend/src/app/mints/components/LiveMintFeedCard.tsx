@@ -234,6 +234,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           hi-DPI displays render crisply without enlarging the card
           footprint. Falls back to the shared abbr/color placeholder
           when no image yet. */}
+      <span style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
+      {isNewCollection(group?.collectionCreatedAt, group?.firstSeenAt) && <NewCollectionBadge size="feed" />}
       <ItemThumb
         imageUrl={thumb200(cardImage)}
         /* 2nd-tier URL tried (with its own proxy→raw retry) before
@@ -253,6 +256,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         abbr={abbr}
         size={56}
       />
+      </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}
@@ -438,10 +442,6 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
-      {/* NEW — only when the pre-looked-up group carries enough data
-          (collectionCreatedAt + firstSeenAt); the per-mint event alone
-          can't prove freshness, so absent group → no badge. */}
-      {isNewCollection(group?.collectionCreatedAt, group?.firstSeenAt) && <NewCollectionBadge />}
       <span style={{
         minWidth: 64, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.

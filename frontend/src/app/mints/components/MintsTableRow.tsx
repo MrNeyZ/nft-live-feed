@@ -306,7 +306,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             untouched. */}
         <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
           <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
+          {isNewCollection(r.collectionCreatedAt, r.firstSeenAt) && <NewCollectionBadge />}
           <ItemThumb
             // primaryImg / fallbackImg are the first two non-null of
             // [hero, representative, shared placeholder] (see above).
@@ -464,8 +466,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 size="lg" matches the enlarged status badge (table-only; the
                 Live Mint Feed card keeps the default small pill). */}
             <MintsSourceBadge row={r} size="lg" />
-            {/* NEW — collection created right around its first mint (UI-only). */}
-            {isNewCollection(r.collectionCreatedAt, r.firstSeenAt) && <NewCollectionBadge />}
           </span>
         </div>
       </td>
