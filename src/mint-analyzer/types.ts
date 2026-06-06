@@ -60,6 +60,17 @@ export type Verdict =
   | 'blocked_server_captcha_signature'
   | 'custom_program_manual_re_required';
 
+/** Access-control class of the mint — who was allowed to mint, orthogonal to
+ *  `Verdict` (which is about reconstructability). Additive; never feeds the
+ *  verdict. `unknown` is the conservative default when no confident signal is
+ *  found. */
+export type AccessType =
+  | 'public'
+  | 'nft_holder_gate'
+  | 'treasury_manual_allowlist'
+  | 'backend_gated'
+  | 'unknown';
+
 export interface ProgramCall {
   programId: string;
   /** null when the program is not in the analyzer registry */
@@ -164,6 +175,13 @@ export interface MintAnalysis {
 
   verdict: Verdict;
   verdictReasons: string[];
+
+  /** Access-control class of the mint (public / holder gate / treasury / backend
+   *  gated / unknown). Orthogonal to `verdict`; additive and read-only. */
+  accessType?: AccessType;
+  /** Structural signals that drove `accessType`, e.g. 'launchmynft_wrapper',
+   *  'account_compression_verify_leaf', 'treasury_signer', 'short_public_payload'. */
+  accessClues?: string[];
 
   /** Additive, read-only mint-requirement clues. Never influences `verdict`. */
   flowClues: FlowClues;

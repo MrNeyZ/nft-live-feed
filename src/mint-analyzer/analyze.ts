@@ -22,6 +22,9 @@ import {
   BUBBLEGUM_PROGRAM,
   SPL_TOKEN_PROGRAM,
   TOKEN_2022_PROGRAM,
+  LAUNCHMYNFT_PROGRAM,
+  ACCOUNT_COMPRESSION_PROGRAM,
+  COMPRESSION_VERIFY_LEAF_DISC,
   gateAssetName,
   programName,
   instructionName,
@@ -30,6 +33,7 @@ import type {
   RawRpcTx,
   MintAnalysis,
   MintPrimitive,
+  AccessType,
   ProgramCall,
   DecodedInstruction,
   ClassifiedSigner,
@@ -351,6 +355,80 @@ function buildFlowClues(flat: FlatIx[], present: Set<string>, ctx: FlowCtx): Flo
   return { detectedGates, burnedAssets, transferredAssets, mintFlow, notes };
 }
 
+/** Conservative access-type detection — WHO was allowed to mint, orthogonal to
+ *  the reconstructability verdict. Purely additive: reads the already-flattened
+ *  instructions + signers and never touches the verdict. Rule order (first
+ *  match wins):
+ *    1. backend co-signature present                 → backend_gated
+ *    2. LaunchMyNFT + invoked Account Compression
+ *       `verifyLeaf` CPI (merkle/holder proof)       → nft_holder_gate
+ *    3. LaunchMyNFT + treasury/authority self-mint
+ *       (fee payer fills ≥3 slots of the wrapper ix,
+ *        i.e. it is also the treasury, not an
+ *        arms-length minter)                          → treasury_manual_allowlist
+ *    4. LaunchMyNFT + no verifyLeaf + short wrapper
+ *       payload (minimal mint args)                   → public
+ *    5. otherwise                                     → unknown
+ *  Payload length is only ever a SECONDARY clue/threshold — stronger structural
+ *  signals (verifyLeaf, treasury slots) decide first. Thresholds are generous
+ *  ranges, not the exact observed byte counts, to avoid overfitting. */
+function detectAccessType(ctx: {
+  flat: FlatIx[];
+  present: Set<string>;
+  feePayer: string | null;
+  knownLaunchpad: MintAnalysis['knownLaunchpad'];
+  backendSignerObserved: boolean;
+}): { accessType: AccessType; accessClues: string[] } {
+  const { flat, present, feePayer, knownLaunchpad, backendSignerObserved } = ctx;
+  const clues: string[] = [];
+
+  // (1) A backend/server co-signature is the strongest access gate.
+  if (backendSignerObserved) {
+    clues.push('backend_co_signer');
+    return { accessType: 'backend_gated', accessClues: clues };
+  }
+
+  const isLmnft = knownLaunchpad?.programId === LAUNCHMYNFT_PROGRAM;
+  if (isLmnft) clues.push('launchmynft_wrapper');
+
+  // The wrapper (LaunchMyNFT MintCore) outer instruction + its payload length.
+  const wrapperIx = flat.find(f => f.programId === LAUNCHMYNFT_PROGRAM && f.path.startsWith('outer'));
+  const payloadLen = wrapperIx ? wrapperIx.data.length : null;
+
+  // Invoked Account Compression verifyLeaf — the merkle/holder proof path. Keyed
+  // on an actually-dispatched instruction, NOT mere accountKeys membership (the
+  // compression + Bubblegum programs sit in the account list of every LMNFT mint).
+  const verifyLeaf = flat.some(f =>
+    f.programId === ACCOUNT_COMPRESSION_PROGRAM
+    && f.data.subarray(0, 8).toString('hex') === COMPRESSION_VERIFY_LEAF_DISC);
+  if (verifyLeaf) clues.push('account_compression_verify_leaf');
+  if (present.has(BUBBLEGUM_PROGRAM)) clues.push('bubblegum_present');
+
+  // Treasury / manual-allowlist self-mint: the fee payer is not an arms-length
+  // minter paying a distinct treasury — it occupies the treasury/authority
+  // slots of the wrapper ix too (≥3 occurrences vs the 2 minter/payer slots a
+  // normal mint fills). Layout-independent; no hardcoded treasury key.
+  let treasurySigner = false;
+  if (wrapperIx && feePayer) {
+    const fpSlots = wrapperIx.accounts.filter(a => a === feePayer).length;
+    treasurySigner = fpSlots >= 3;
+    if (treasurySigner) clues.push('treasury_signer');
+  }
+
+  // Secondary payload-length clues (generous ranges, not exact byte counts).
+  const LONG_PROOF_BYTES = 160;
+  const SHORT_PUBLIC_BYTES = 64;
+  if (payloadLen != null && payloadLen >= LONG_PROOF_BYTES) clues.push('long_merkle_proof_payload');
+  if (payloadLen != null && payloadLen <= SHORT_PUBLIC_BYTES) clues.push('short_public_payload');
+
+  let accessType: AccessType = 'unknown';
+  if (isLmnft && verifyLeaf) accessType = 'nft_holder_gate';
+  else if (isLmnft && treasurySigner) accessType = 'treasury_manual_allowlist';
+  else if (isLmnft && !verifyLeaf && payloadLen != null && payloadLen <= SHORT_PUBLIC_BYTES) accessType = 'public';
+
+  return { accessType, accessClues: clues };
+}
+
 export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   const keys = buildKeyList(tx);
   const flat = flattenInstructions(tx, keys);
@@ -533,6 +611,11 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   }
   if (!backendSignerObserved) verdictReasons.push('No backend/platform signer observed.');
 
+  // ── Access type (additive; orthogonal to the verdict above) ─────────────
+  const { accessType, accessClues } = detectAccessType({
+    flat, present, feePayer, knownLaunchpad, backendSignerObserved,
+  });
+
   return {
     signature,
     status: tx.meta?.err == null ? 'success' : 'failed',
@@ -550,6 +633,8 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
     guardAuth: { candyGuard, notes },
     verdict,
     verdictReasons,
+    accessType,
+    accessClues,
     // Additive read-only clues; computed independently of the verdict above.
     flowClues: buildFlowClues(flat, present, {
       serverSignatureGate,

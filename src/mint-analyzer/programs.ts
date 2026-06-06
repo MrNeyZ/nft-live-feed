@@ -49,6 +49,12 @@ export const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget1111111111111111111111111111
 export const SPL_TOKEN_PROGRAM      = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022_PROGRAM     = 'TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy';
 export const ASSOC_TOKEN_PROGRAM    = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+// SPL Account Compression — its `verifyLeaf` ix is CPI'd by a launchpad
+// (e.g. LaunchMyNFT MintCore) to prove a merkle leaf (holder / allowlist
+// membership) before the mint. Presence of an *invoked* verifyLeaf is the
+// access-type signal; the program merely appearing in accountKeys is not.
+export const ACCOUNT_COMPRESSION_PROGRAM = 'cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK';
+export const NOOP_PROGRAM                 = 'noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV';
 
 export type ProgramKind =
   | 'candy_guard'
@@ -61,6 +67,7 @@ export type ProgramKind =
   | 'launchpad_wrapper'
   | 'system'
   | 'token'
+  | 'compression'
   | 'unknown';
 
 interface ProgramInfo { name: string; kind: ProgramKind; }
@@ -82,6 +89,8 @@ export const PROGRAM_REGISTRY: Readonly<Record<string, ProgramInfo>> = {
   [SPL_TOKEN_PROGRAM]:          { name: 'SPL Token',          kind: 'token'              },
   [TOKEN_2022_PROGRAM]:         { name: 'SPL Token-2022',     kind: 'token'              },
   [ASSOC_TOKEN_PROGRAM]:        { name: 'Associated Token',   kind: 'token'              },
+  [ACCOUNT_COMPRESSION_PROGRAM]:{ name: 'Account Compression', kind: 'compression'        },
+  [NOOP_PROGRAM]:               { name: 'Noop',               kind: 'compression'        },
 };
 
 /** Programs that ARE the mint primitive / a recognised Metaplex standard.
@@ -149,10 +158,14 @@ export function anchorDisc(instructionName: string): string {
 // and Candy Machine v3 both dispatch `mintV2` (confirmed against fixture tx1:
 // disc 78791792ad6ec7cd on both the Guard outer ix and the CM v3 inner CPI).
 const CANDY_MINT_V2_DISC = anchorDisc('mint_v2'); // 78791792ad6ec7cd
+// SPL Account Compression `verifyLeaf` — CPI'd to prove a merkle leaf
+// (holder / allowlist proof) before a gated mint. Disc 7cdc16df680afae0.
+export const COMPRESSION_VERIFY_LEAF_DISC = anchorDisc('verify_leaf');
 
 const ANCHOR_IX_BY_PROGRAM: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   [CANDY_GUARD_PROGRAM]:      { [CANDY_MINT_V2_DISC]: 'mintV2' },
   [CANDY_MACHINE_V3_PROGRAM]: { [CANDY_MINT_V2_DISC]: 'mintV2' },
+  [ACCOUNT_COMPRESSION_PROGRAM]: { [COMPRESSION_VERIFY_LEAF_DISC]: 'verifyLeaf' },
 };
 
 // MPL Core dispatches by a single leading byte (see mpl-core IDL): the

@@ -19,6 +19,9 @@ import txBurnGateFixture from './fixtures/tx_burn_gate.json';
 import txMintxNoFixture from './fixtures/tx_mintx_no.json';
 import txVvvHolderFixture from './fixtures/tx_vvv_holder.json';
 import txVvvPublicFixture from './fixtures/tx_vvv_public.json';
+import txLmnftHolderFixture from './fixtures/tx_lmnft_holder.json';
+import txLmnftTreasuryFixture from './fixtures/tx_lmnft_treasury.json';
+import txLmnftPublicFixture from './fixtures/tx_lmnft_public.json';
 
 const SIG1 ='5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr';
 const SIG2 = '2ZshWXyj47naARpnWBDUKtg1AH1ZAWF2YRhg9gFd44zKEVYJMPkA8zJBs8yJQpy4sY5AJ9Rq6k9iyKuihjYXqvLA';
@@ -256,6 +259,66 @@ for (const [phase, fixture, sig] of [
       !['nft_burn_gate', 'spl_token_burn_gate', 'nft_transfer_gate', 'spl_token_transfer_gate',
         'off_chain_token_transfer_gate', 'soft_transfer_not_burn'].includes(g.type)),
   ));
+}
+
+// ── Access-type layer (additive; orthogonal to verdict) ───────────────────
+// LMNFT same-collection drop, three access phases that the verdict triad alone
+// cannot tell apart (all three are verdict=MAYBE LaunchMyNFT). Structural
+// signals: holder = invoked Account Compression verifyLeaf; treasury = fee
+// payer fills the wrapper-ix treasury slots; public = short minimal payload.
+const SIG_LMNFT_HOLDER = '5Y8RKLYSTA22qyDAv6KnwmpLpbVHTBVxWQKuvZvvW7H74KGUYWUZc22UtReka2PSuqoqCxEE4sEAbdP4XVNCaMZ6';
+const SIG_LMNFT_TREASURY = '5aVQogzJewKfhj8J73y19AfBQAsZmyaskHA14nRAeaWTUJg2Ny5rSfDQ7UzD6WAmW9XNZ5qbsBUMteivj7YrkR5T';
+const SIG_LMNFT_PUBLIC = 'USh3pn3KVjcNqyMPA5mqHWwHJjiXafquW19fvTEzY6GoPLWN1i1fud8qxFGtAQndof98Nyczk6hg2U3j74PD7W6';
+
+const aLmHolder = analyze(resultOf(txLmnftHolderFixture), SIG_LMNFT_HOLDER);
+console.log('\ntx_lmnft_holder — LaunchMyNFT MintCore gated by Account Compression verifyLeaf');
+check('verdict unchanged (MAYBE / possible_requires_extra_inputs)', () => assert.strictEqual(aLmHolder.verdict, 'possible_requires_extra_inputs'));
+check('knownLaunchpad = LaunchMyNFT', () => assert.strictEqual(aLmHolder.knownLaunchpad?.name, 'LaunchMyNFT'));
+check('accessType = nft_holder_gate', () => assert.strictEqual(aLmHolder.accessType, 'nft_holder_gate'));
+check('accessClues include launchmynft_wrapper', () => assert.ok((aLmHolder.accessClues ?? []).includes('launchmynft_wrapper')));
+check('accessClues include account_compression_verify_leaf', () => assert.ok((aLmHolder.accessClues ?? []).includes('account_compression_verify_leaf')));
+check('not misclassified backend_gated', () => assert.strictEqual(aLmHolder.backendSignerObserved, false));
+
+const aLmTreasury = analyze(resultOf(txLmnftTreasuryFixture), SIG_LMNFT_TREASURY);
+console.log('\ntx_lmnft_treasury — LaunchMyNFT MintCore self-minted by the treasury/authority');
+check('verdict unchanged (MAYBE / possible_requires_extra_inputs)', () => assert.strictEqual(aLmTreasury.verdict, 'possible_requires_extra_inputs'));
+check('accessType = treasury_manual_allowlist', () => assert.strictEqual(aLmTreasury.accessType, 'treasury_manual_allowlist'));
+check('accessClues include treasury_signer', () => assert.ok((aLmTreasury.accessClues ?? []).includes('treasury_signer')));
+check('no verifyLeaf clue (not a holder gate)', () => assert.ok(!(aLmTreasury.accessClues ?? []).includes('account_compression_verify_leaf')));
+
+const aLmPublic = analyze(resultOf(txLmnftPublicFixture), SIG_LMNFT_PUBLIC);
+console.log('\ntx_lmnft_public — LaunchMyNFT MintCore, arms-length public mint');
+check('verdict unchanged (MAYBE / possible_requires_extra_inputs)', () => assert.strictEqual(aLmPublic.verdict, 'possible_requires_extra_inputs'));
+check('accessType = public', () => assert.strictEqual(aLmPublic.accessType, 'public'));
+check('accessClues include short_public_payload', () => assert.ok((aLmPublic.accessClues ?? []).includes('short_public_payload')));
+check('no verifyLeaf clue', () => assert.ok(!(aLmPublic.accessClues ?? []).includes('account_compression_verify_leaf')));
+check('no treasury_signer clue', () => assert.ok(!(aLmPublic.accessClues ?? []).includes('treasury_signer')));
+
+// Backend-gated mints (VVV direct, MintX guard) carry accessType globally.
+const aVvvAccess = analyze(resultOf(txVvvHolderFixture), SIG_VVV_HOLDER);
+check('VVV holder accessType = backend_gated', () => assert.strictEqual(aVvvAccess.accessType, 'backend_gated'));
+const aMintxAccess = analyze(resultOf(txMintxNoFixture), SIG_MINTX_NO);
+check('MintX accessType = backend_gated', () => assert.strictEqual(aMintxAccess.accessType, 'backend_gated'));
+// Direct YES (Candy Machine) is not LMNFT and not backend-gated → unknown (not forced).
+const aDirectAccess = analyze(resultOf(tx1Fixture), SIG1);
+check('tx1 direct accessType = unknown (not forced)', () => assert.strictEqual(aDirectAccess.accessType, 'unknown'));
+
+// ── Access-type matrix ─────────────────────────────────────────────────────
+console.log('\n── access-type matrix ──');
+const matrix: Array<[string, string, MintAnalysis]> = [
+  ['lmnft_holder', SIG_LMNFT_HOLDER, aLmHolder],
+  ['lmnft_treasury', SIG_LMNFT_TREASURY, aLmTreasury],
+  ['lmnft_public', SIG_LMNFT_PUBLIC, aLmPublic],
+  ['vvv_holder', SIG_VVV_HOLDER, aVvvAccess],
+  ['mintx', SIG_MINTX_NO, aMintxAccess],
+  ['tx1_direct', SIG1, aDirectAccess],
+];
+for (const [label, sig, a] of matrix) {
+  console.log(
+    `  ${label.padEnd(15)} ${sig.slice(0, 8)}… | verdict=${a.verdict} | accessType=${a.accessType}` +
+    ` | launchpad=${a.knownLaunchpad?.name ?? a.customWrapper?.programId?.slice(0, 8) ?? '—'}` +
+    ` | primitive=${a.likelyMintPrimitive} | clues=[${(a.accessClues ?? []).join(', ')}]`,
+  );
 }
 
 console.log(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);
