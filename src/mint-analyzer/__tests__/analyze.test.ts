@@ -16,6 +16,9 @@ import tx3Fixture from './fixtures/tx3.json';
 import txMaybeFixture from './fixtures/tx_maybe.json';
 import txNoFixture from './fixtures/tx_no.json';
 import txBurnGateFixture from './fixtures/tx_burn_gate.json';
+import txMintxNoFixture from './fixtures/tx_mintx_no.json';
+import txVvvHolderFixture from './fixtures/tx_vvv_holder.json';
+import txVvvPublicFixture from './fixtures/tx_vvv_public.json';
 
 const SIG1 ='5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr';
 const SIG2 = '2ZshWXyj47naARpnWBDUKtg1AH1ZAWF2YRhg9gFd44zKEVYJMPkA8zJBs8yJQpy4sY5AJ9Rq6k9iyKuihjYXqvLA';
@@ -27,9 +30,26 @@ const SIG_NO = '4nvMBRxq7L7eY7spzMWggj1QjenbcZ5uUMEKb49Fy8vCMRUvSKc62gWtdxWRz7EE
 // MANUAL RE + burn-gate flow clues — Core Candy Guard mint gated by an SPL
 // burn of 1 SagaPass (Shaolin Saga Mint Pass) before the MPL Core create.
 const SIG_BURN_GATE = '3KbsQgTpLjWGa1w87WRoRS9mNw9nYjVRi269HB2BrZo23KXufj3iZKwZ6RLgedpdfvz9zUjzDZXvAqM955rjckrp';
+// NO (MintX) — server-gated Core Candy Guard mint co-signed by two MintX
+// backend signers, with a pre-mint SPL transfer (soft token gate) to a
+// MintX treasury vault ATA. Not a burn.
+const SIG_MINTX_NO = '4NJcYNEEeRAa1Xzsa8XQd1iPmHGhMmcw5VwHXfdoyc7LKA4m8Cayuu4J3tuy7Hn6bDayUjr7oWYNaBt9q8wik35K';
 
 const RFND_WRAPPER = 'RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y';
 const FORGE_WRAPPER = 'foRGEL4EUjeQMd8U2QL5Rx8je75ZFpmtLoWRyyAxxr7';
+// MintX backend co-signers + treasury vault ATA receiving the soft-gate token.
+const MINTX_SIGNER_A = 'xbWUT2Z3DWUrc4f65keHjntdtXiD7ov8d4Wj11yuBh8';
+const MINTX_SIGNER_B = 'EBxTysPFiZymqFswF5SyLKCC5ybj6ii8wg8s2Mbhseex';
+const MINTX_VAULT_ATA = '2jKMmXtUkfPr7xeue57tJt8a5TCxqQEwR8MUzz6eCqTc';
+
+// NO (generic, non-Candy-Guard) — vvv.so direct MPL Core CreateV2 mints whose
+// access is gated by a per-collection backend co-signer (5FyF…) that is
+// neither the fee-payer nor the minted asset. The vvv.so key here is NOT the
+// hardcoded platform signer, so detection must be STRUCTURAL: holder + public
+// phases of the same drop are on-chain identical and both must score NO.
+const SIG_VVV_HOLDER = '5d2vkvWEqeU4RLNxaFQUfD4pCuGXXopMMFBK1QVXhpfg2omSeFevirMj81wPMPsWHsgnzYTJui1Phr6kZ6PCNADT';
+const SIG_VVV_PUBLIC = '2Uc3e3oQ84hNf3QefWPbiBHsW8ez4PUtyovmRq4nff9CigYUrUo2rxQ6hfezmFRZdfF6FYzLftPaDBJu3DB4Vp3o';
+const VVV_BACKEND_SIGNER = '5FyFCWQjN3SWqFtAXYK1qbYqNBZm2VD3kJe33Cvd7wuk';
 
 function resultOf(fixture: unknown): RawRpcTx {
   return (fixture as { result: RawRpcTx }).result;
@@ -111,6 +131,12 @@ check('status success', () => assert.strictEqual(aBurn.status, 'success'));
 check('verdict still custom_program_manual_re_required', () => assert.strictEqual(aBurn.verdict, 'custom_program_manual_re_required'));
 check('primitive still mpl_core_create_v2', () => assert.strictEqual(aBurn.likelyMintPrimitive, 'mpl_core_create_v2'));
 check('backendSignerObserved unchanged (false)', () => assert.strictEqual(aBurn.backendSignerObserved, false));
+// Backward compat: a CMAGAKJ mint with NO extra co-signer must NOT trip the
+// new server-signature gate (its only signers are the payer + the asset).
+check('no server_signature_gate (not backend-gated)', () => assert.ok(
+  aBurn.flowClues.detectedGates.every(g =>
+    g.type !== 'server_signature_gate' && g.type !== 'off_chain_token_transfer_gate'),
+));
 check('detectedGates contains nft_burn_gate', () => assert.ok(
   aBurn.flowClues.detectedGates.some(g => g.type === 'nft_burn_gate'),
 ));
@@ -131,6 +157,106 @@ check('mintFlow burn precedes candy machine / create', () => {
   assert.ok(mintIdx >= 0, 'mintFlow has a candy-machine/create step');
   assert.ok(burnIdx < mintIdx, 'burn step precedes the mint step');
 });
+
+// ── NO (MintX): two backend co-signers → blocked_server_captcha_signature,
+//    with the off-chain soft-token gate visible as a pre-mint SPL transfer
+//    to the MintX treasury vault (NOT a burn). Locks in the MintX pattern. ─
+const aMintx = analyze(resultOf(txMintxNoFixture), SIG_MINTX_NO);
+console.log('\ntx_mintx_no — MintX server-gated Core Candy Guard MPL Core CreateV2');
+check('status success', () => assert.strictEqual(aMintx.status, 'success'));
+check('primitive mpl_core_create_v2', () => assert.strictEqual(aMintx.likelyMintPrimitive, 'mpl_core_create_v2'));
+check('backend signer observed', () => assert.strictEqual(aMintx.backendSignerObserved, true));
+check('xbWUT2… backend signer labelled MintX', () => assert.ok(
+  aMintx.signers.some(s => s.address === MINTX_SIGNER_A && s.class === 'known_platform_signer' && /MintX/i.test(s.label ?? '')),
+));
+check('EBxTys… backend signer labelled MintX', () => assert.ok(
+  aMintx.signers.some(s => s.address === MINTX_SIGNER_B && s.class === 'known_platform_signer' && /MintX/i.test(s.label ?? '')),
+));
+check('verdict blocked_server_captcha_signature', () => assert.strictEqual(aMintx.verdict, 'blocked_server_captcha_signature'));
+// AddressGate key (xbWUT2…) is detected STRUCTURALLY (referenced by the Core
+// Candy Guard ix, not fee-payer, not the asset) — so a new MintX drop whose
+// AddressGate key rotates would still be caught without hardcoding the key.
+check('xbWUT2… is a structural backend co-signer in guard ix', () => assert.ok(
+  aMintx.signers.some(s => s.address === MINTX_SIGNER_A
+    && (s.class === 'known_platform_signer' || s.class === 'unknown_program_signer')),
+));
+// Core Candy Guard (CMAGAKJ…) is the real entry primitive, so the spurious
+// System-funding "wrapper" is suppressed for server-gated mints.
+check('customWrapper suppressed (Candy Guard is a primitive)', () => assert.strictEqual(aMintx.customWrapper, null));
+check('verdictReasons mention server-gated / AddressGate', () => assert.ok(
+  aMintx.verdictReasons.some(r => /server-gated|AddressGate|backend co-signature/i.test(r)),
+));
+// Flow Clues — the three new server-gate markers:
+check('flowClues: server_signature_gate present', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'),
+));
+check('flowClues: server_signature_gate lists backend signers', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'
+    && (g.signers ?? []).includes(MINTX_SIGNER_B)),
+));
+check('flowClues: off_chain_token_transfer_gate present, enforcedOnChain=false', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'off_chain_token_transfer_gate' && g.enforcedOnChain === false),
+));
+check('flowClues: soft_transfer_not_burn present', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'soft_transfer_not_burn'),
+));
+// The soft gate is NOT mislabelled as a plain/on-chain transfer or burn gate.
+check('flowClues: NOT a plain spl_token_transfer_gate', () => assert.ok(
+  aMintx.flowClues.detectedGates.every(g => g.type !== 'spl_token_transfer_gate'),
+));
+check('flowClues: transfer to MintX treasury vault 2jKM…', () => assert.ok(
+  aMintx.flowClues.transferredAssets.some(t => t.to === MINTX_VAULT_ATA),
+));
+check('flowClues: gate is NOT a burn', () => assert.ok(
+  aMintx.flowClues.burnedAssets.length === 0
+    && aMintx.flowClues.detectedGates.every(g => g.type !== 'nft_burn_gate' && g.type !== 'spl_token_burn_gate'),
+));
+check('flowClues: candy_machine_v3 gate present', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'candy_machine_v3'),
+));
+check('flowClues: mpl_core_create present', () => assert.ok(
+  aMintx.flowClues.detectedGates.some(g => g.type === 'mpl_core_create'),
+));
+
+// ── NO (generic): vvv.so direct MPL Core mints gated by a structural backend
+//    co-signer. The holder and public phases are on-chain identical — both
+//    must flip from the old false YES to NO via the generic (non-Candy-Guard)
+//    backend-signer rule. ─────────────────────────────────────────────────
+for (const [phase, fixture, sig] of [
+  ['holder', txVvvHolderFixture, SIG_VVV_HOLDER] as const,
+  ['public', txVvvPublicFixture, SIG_VVV_PUBLIC] as const,
+]) {
+  const aV = analyze(resultOf(fixture), sig);
+  console.log(`\ntx_vvv_${phase} — vvv.so direct MPL Core CreateV2 with backend co-signer`);
+  check('status success', () => assert.strictEqual(aV.status, 'success'));
+  check('primitive mpl_core_create_v2', () => assert.strictEqual(aV.likelyMintPrimitive, 'mpl_core_create_v2'));
+  check('verdict blocked_server_captcha_signature', () => assert.strictEqual(aV.verdict, 'blocked_server_captcha_signature'));
+  check('backend signer observed', () => assert.strictEqual(aV.backendSignerObserved, true));
+  check('no custom wrapper (direct mint)', () => assert.strictEqual(aV.customWrapper, null));
+  check('5FyF… classified as backend co-signer', () => assert.ok(
+    aV.signers.some(s => s.address === VVV_BACKEND_SIGNER
+      && s.class === 'unknown_program_signer' && /backend co-signer/i.test(s.label ?? '')),
+  ));
+  check('fee payer NOT a backend signer', () => assert.ok(
+    aV.signers[0].class === 'fee_payer',
+  ));
+  check('flowClues: server_signature_gate present', () => assert.ok(
+    aV.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'),
+  ));
+  check('flowClues: server_signature_gate lists 5FyF…', () => assert.ok(
+    aV.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'
+      && (g.signers ?? []).includes(VVV_BACKEND_SIGNER)),
+  ));
+  check('verdictReason mentions extra backend co-signature', () => assert.ok(
+    aV.verdictReasons.some(r => /extra backend co-signature that is neither the minter nor the minted asset/i.test(r)),
+  ));
+  // Generic gate only — no burn/transfer gate, and not mislabelled as Candy Guard.
+  check('no burn/transfer gate', () => assert.ok(
+    aV.flowClues.detectedGates.every(g =>
+      !['nft_burn_gate', 'spl_token_burn_gate', 'nft_transfer_gate', 'spl_token_transfer_gate',
+        'off_chain_token_transfer_gate', 'soft_transfer_not_burn'].includes(g.type)),
+  ));
+}
 
 console.log(`\n${failures === 0 ? '✅ ALL PASS' : `❌ ${failures} FAILURE(S)`}`);
 process.exit(failures === 0 ? 0 : 1);

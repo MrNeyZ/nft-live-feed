@@ -20,6 +20,8 @@ import {
   VVVSO_PLATFORM_SIGNER,
   VVVSO_PLATFORM_TREASURY,
   GRAVEMINT_PLATFORM_SIGNER,
+  MINTX_PLATFORM_SIGNER_PRIMARY,
+  MINTX_PLATFORM_SIGNER_SECONDARY,
 } from '../ingestion/mint-raw/launchpad-detector';
 
 // Re-export the imported primitive program IDs so the rest of the analyzer
@@ -107,8 +109,12 @@ export const KNOWN_LAUNCHPAD_IDS: ReadonlySet<string> = new Set([
  *  signed by one of these is server-gated — reconstructing the mint requires
  *  an off-chain signature we cannot produce. */
 export const KNOWN_PLATFORM_SIGNERS: Readonly<Record<string, string>> = {
-  [VVVSO_PLATFORM_SIGNER]:     'vvv.so platform signer',
-  [GRAVEMINT_PLATFORM_SIGNER]: 'gravemint.io platform signer',
+  [VVVSO_PLATFORM_SIGNER]:            'vvv.so platform signer',
+  [GRAVEMINT_PLATFORM_SIGNER]:        'gravemint.io platform signer',
+  // MintX issues TWO server-side co-signatures per mint; either key
+  // present as a required signer marks the mint as backend-gated.
+  [MINTX_PLATFORM_SIGNER_PRIMARY]:    'MintX backend signer',
+  [MINTX_PLATFORM_SIGNER_SECONDARY]:  'MintX backend signer',
 };
 
 /** Diagnostic-only platform treasuries (writable non-signers). Surfaced as a

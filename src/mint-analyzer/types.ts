@@ -91,7 +91,15 @@ export type FlowGateType =
   | 'candy_machine_v3'
   | 'mpl_core_create'
   | 'token_metadata_create'
-  | 'unknown_custom_gate';
+  | 'unknown_custom_gate'
+  // Server-gated (MintX-style) Core Candy Guard mints — see analyze.ts:
+  //   server_signature_gate        — mint needs a backend/AddressGate co-signature
+  //   off_chain_token_transfer_gate — a token transfer the candy guard does NOT
+  //                                   enforce on-chain; the backend signer gates it
+  //   soft_transfer_not_burn        — the gate token is moved to a treasury, not burned
+  | 'server_signature_gate'
+  | 'off_chain_token_transfer_gate'
+  | 'soft_transfer_not_burn';
 
 export interface FlowGate {
   type: FlowGateType;
@@ -101,6 +109,10 @@ export interface FlowGate {
   amount?: string;
   owner?: string;
   programId?: string;
+  /** backend/server co-signers, for server_signature_gate */
+  signers?: string[];
+  /** false when a token movement is NOT enforced by an on-chain guard */
+  enforcedOnChain?: boolean;
   evidence: string[];
 }
 

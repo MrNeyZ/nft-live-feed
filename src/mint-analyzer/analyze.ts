@@ -152,7 +152,18 @@ const SPL_TOKEN_PROGRAMS = new Set([SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM]);
  *  A burn/transfer whose execution `order` precedes the first mint/create is
  *  classified as a likely *gate* (higher confidence). Amount === '1' reads as
  *  an NFT/pass; larger amounts as a fungible (SPL) token. */
-function buildFlowClues(flat: FlatIx[], present: Set<string>): FlowClues {
+interface FlowCtx {
+  /** true for a mint gated by a backend co-signature (Candy Guard or direct) */
+  serverSignatureGate: boolean;
+  /** true when a Core Candy Guard is present — varies the gate wording */
+  candyGuardPresent: boolean;
+  /** every backend co-signer (known platform + structural AddressGate) */
+  backendSigners: string[];
+  /** signer index 0 — the minter/user authorising the soft-gate transfer */
+  feePayer: string | null;
+}
+
+function buildFlowClues(flat: FlatIx[], present: Set<string>, ctx: FlowCtx): FlowClues {
   const detectedGates: FlowGate[] = [];
   const burnedAssets: BurnedAsset[] = [];
   const transferredAssets: TransferredAsset[] = [];
@@ -167,6 +178,34 @@ function buildFlowClues(flat: FlatIx[], present: Set<string>): FlowClues {
   const tmCreateOrders = flat.filter(f => f.programId === TOKEN_METADATA_PROGRAM).map(f => f.order);
   const mintAnchors = [...coreCreateOrders, ...candyMintOrders, ...tmCreateOrders];
   const firstMintOrder = mintAnchors.length ? Math.min(...mintAnchors) : Infinity;
+
+  // Any on-chain burn (SPL/Token-2022 Burn or MPL Core BurnV1). Its ABSENCE is
+  // one of the conditions that makes a pre-mint transfer a *soft* (off-chain)
+  // gate rather than an on-chain TokenBurn guard.
+  const hasBurn = flat.some(f => {
+    const t = f.data[0];
+    return (SPL_TOKEN_PROGRAMS.has(f.programId) && (t === 8 || t === 15))
+      || (f.programId === MPL_CORE_PROGRAM && t === 12);
+  });
+
+  // ── Server-signature gate (MintX-style backend co-signer) ──────────────
+  if (ctx.serverSignatureGate) {
+    const cg = ctx.candyGuardPresent;
+    detectedGates.push({
+      type: 'server_signature_gate',
+      confidence: 'high',
+      programId: cg ? CORE_CANDY_GUARD_PROGRAM : undefined,
+      signers: ctx.backendSigners,
+      owner: ctx.backendSigners[0],
+      evidence: [
+        cg
+          ? 'Mint requires a backend/server co-signature (Candy Guard AddressGate / platform minter).'
+          : 'Mint requires an extra backend co-signature that is neither the minter nor the minted asset.',
+        ctx.backendSigners.length ? `Backend co-signer(s): ${ctx.backendSigners.join(', ')}` : 'Backend co-signer present.',
+        'Issued server-side after an off-chain gate — cannot be reproduced client-side.',
+      ],
+    });
+  }
 
   // ── Burns / transfers (the gate signals) ───────────────────────────────
   for (const f of flat) {
@@ -197,16 +236,43 @@ function buildFlowClues(flat: FlatIx[], present: Set<string>): FlowClues {
         const from = f.accounts[0];
         const mint = checked ? f.accounts[1] : undefined;
         const to = checked ? f.accounts[2] : f.accounts[1];
+        const authority = checked ? f.accounts[3] : f.accounts[2];
         const amount = readU64(f.data, 1);
         const name = mint ? gateAssetName(mint) ?? undefined : undefined;
         const isNft = amount === '1';
-        detectedGates.push({
-          type: isNft ? 'nft_transfer_gate' : 'spl_token_transfer_gate',
-          confidence: 'medium',
-          assetName: name, mint, amount, owner: from, programId: f.programId,
-          evidence: [`SPL ${checked ? 'TransferChecked' : 'Transfer'} of ${amount ?? '?'} ${name ?? shortAddr(mint ?? to ?? '?')} at ${f.path}`,
-            'transfer precedes the mint/create in this tx'],
-        });
+        // Off-chain (MintX-style) soft gate: a top-level, user-authorised token
+        // transfer in a server-signature-gated mint, with NO on-chain burn. The
+        // Candy Guard does not enforce it (it isn't a TokenPayment/TokenGate/
+        // TokenBurn CPI) — the backend co-signer gates access off-chain.
+        const softGate = ctx.serverSignatureGate && !hasBurn && f.path.startsWith('outer')
+          && (ctx.feePayer == null || authority === ctx.feePayer);
+        if (softGate) {
+          detectedGates.push({
+            type: 'off_chain_token_transfer_gate',
+            confidence: 'high',
+            assetName: name, mint, amount, owner: authority, programId: f.programId,
+            enforcedOnChain: false,
+            evidence: [
+              `SPL ${checked ? 'TransferChecked' : 'Transfer'} of ${amount ?? '?'} ${name ?? shortAddr(mint ?? to ?? '?')} from the minter to ${shortAddr(to ?? '?')} at ${f.path}`,
+              'transfer precedes the mint/create in this tx',
+              'NOT enforced on-chain by Candy Guard (no TokenPayment/TokenGate/TokenBurn guard); the backend signer enforces access off-chain',
+            ],
+          });
+          detectedGates.push({
+            type: 'soft_transfer_not_burn',
+            confidence: 'high',
+            mint, amount, owner: authority, programId: f.programId, enforcedOnChain: false,
+            evidence: ['SPL Transfer (not Burn): the gate token is moved to a treasury/vault and retained, not destroyed'],
+          });
+        } else {
+          detectedGates.push({
+            type: isNft ? 'nft_transfer_gate' : 'spl_token_transfer_gate',
+            confidence: 'medium',
+            assetName: name, mint, amount, owner: from, programId: f.programId,
+            evidence: [`SPL ${checked ? 'TransferChecked' : 'Transfer'} of ${amount ?? '?'} ${name ?? shortAddr(mint ?? to ?? '?')} at ${f.path}`,
+              'transfer precedes the mint/create in this tx'],
+          });
+        }
         transferredAssets.push({ name, mint, amount, from, to });
         flowEvents.push({ order: f.order, label: `Transfer ${name ?? shortAddr(mint ?? to ?? '?')}` });
       }
@@ -266,6 +332,12 @@ function buildFlowClues(flat: FlatIx[], present: Set<string>): FlowClues {
     g.type === 'nft_transfer_gate' || g.type === 'spl_token_transfer_gate');
   if (burnGateBeforeMint) notes.push('Mint likely required burning a pass / brand token.');
   if (transferGate) notes.push('Mint likely required transferring a token/NFT (payment or gate) before the mint.');
+  if (detectedGates.some(g => g.type === 'server_signature_gate')) {
+    notes.push('Server-gated mint: a backend co-signature is required; not reconstructable client-side.');
+  }
+  if (detectedGates.some(g => g.type === 'off_chain_token_transfer_gate')) {
+    notes.push('Off-chain token gate: the pre-mint SPL transfer is NOT enforced by an on-chain guard — it is a soft payment retained by the treasury (a transfer, not a burn).');
+  }
   if (detectedGates.length === 0) {
     notes.push('No burn/transfer gates detected; the mint flow looks like a direct primitive call.');
   }
@@ -302,17 +374,8 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
     instructionName: instructionName(f.programId, f.data),
   }));
 
-  // ── Signers + classification ───────────────────────────────────────────
-  const nsig = tx.transaction.message.header?.numRequiredSignatures ?? 0;
-  const signers: ClassifiedSigner[] = keys.slice(0, nsig).map((address, i) => {
-    const platform = KNOWN_PLATFORM_SIGNERS[address];
-    if (platform) return { address, class: 'known_platform_signer' as const, label: platform };
-    if (i === 0) return { address, class: 'fee_payer' as const };
-    return { address, class: 'user' as const };
-  });
-  const backendSignerObserved = signers.some(s => s.class === 'known_platform_signer');
-
-  // ── Wrapper detection ──────────────────────────────────────────────────
+  // ── Wrapper detection (computed first so backend-signer detection can be
+  //    scoped to *direct* mints — see genericBackendSigners below) ──────────
   const entry = entryProgram(tx, keys);
   const primitive = inferMintPrimitive(present, flat);
 
@@ -326,6 +389,85 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
       customWrapper = { programId: entry, name: programName(entry) };
     }
   }
+
+  // ── Signers + classification ───────────────────────────────────────────
+  const nsig = tx.transaction.message.header?.numRequiredSignatures ?? 0;
+  const signerAddrs = keys.slice(0, nsig);
+  const feePayer = signerAddrs[0] ?? null;
+
+  // Minted asset(s): an MPL Core Create/CreateV2 asset signs to create itself
+  // (asset = accounts[0]). It is a signer but NOT a backend co-signer, so it
+  // must be excluded from backend-signer detection below.
+  const assetAddrs = new Set(
+    flat
+      .filter(f => f.programId === MPL_CORE_PROGRAM && (f.data[0] === 0 || f.data[0] === 20) && f.accounts[0])
+      .map(f => f.accounts[0]),
+  );
+
+  // Structural (key-independent) backend-signer detection, in two tiers:
+  //
+  //  (a) Candy Guard tier — a required signer referenced by a Core Candy Guard
+  //      mint instruction that is neither fee-payer nor minted asset is a Candy
+  //      Guard AddressGate / backend minter. Catches MintX drops whose
+  //      AddressGate key rotates per collection without hardcoding the key
+  //      (confirmed by the MintX audit across 4 candy guards / 76 mints).
+  //
+  //  (b) Generic tier — for a *direct* MPL Core mint (entry is the MPL Core
+  //      primitive itself: no custom wrapper, no known launchpad), ANY required
+  //      signer that is neither fee-payer nor minted asset is a backend/server
+  //      co-signature the client cannot reproduce (e.g. vvv.so's per-collection
+  //      authority key, which is NOT the hardcoded platform signer). Scoped to
+  //      direct mints so a custom-wrapper mint's own ephemeral signer (e.g.
+  //      foRGE's readonly authority signer in tx3) is NOT misread as a backend
+  //      co-signer — those stay MANUAL RE.
+  //
+  // PDAs referenced by an ix are never tx-level signers, so this only ever
+  // yields genuine keypair signers.
+  const coreGuardIxAccounts = new Set(
+    flat.filter(f => f.programId === CORE_CANDY_GUARD_PROGRAM).flatMap(f => f.accounts),
+  );
+  const candyGuardBackendSigners = signerAddrs.filter(
+    (address, i) => i !== 0 && coreGuardIxAccounts.has(address) && !assetAddrs.has(address),
+  );
+  const isDirectMint = primitive !== 'unknown' && !customWrapper && !knownLaunchpad;
+  const createsCoreAsset = assetAddrs.size > 0;
+  const genericBackendSigners = isDirectMint && createsCoreAsset
+    ? signerAddrs.filter((address, i) => i !== 0 && !assetAddrs.has(address))
+    : [];
+  const candyGuardSet = new Set(candyGuardBackendSigners);
+  const structuralBackendSigners = [...new Set([...candyGuardBackendSigners, ...genericBackendSigners])];
+  const structuralSet = new Set(structuralBackendSigners);
+
+  const signers: ClassifiedSigner[] = signerAddrs.map((address, i) => {
+    const platform = KNOWN_PLATFORM_SIGNERS[address];
+    if (platform) return { address, class: 'known_platform_signer' as const, label: platform };
+    if (structuralSet.has(address)) {
+      const label = candyGuardSet.has(address)
+        ? 'backend co-signer (Candy Guard AddressGate)'
+        : 'backend co-signer (server co-signature)';
+      return { address, class: 'unknown_program_signer' as const, label };
+    }
+    if (i === 0) return { address, class: 'fee_payer' as const };
+    return { address, class: 'user' as const };
+  });
+  const backendSignerObserved =
+    signers.some(s => s.class === 'known_platform_signer') || structuralBackendSigners.length > 0;
+  // Addresses of every backend co-signer (known platform + structural).
+  const backendSigners = signerAddrs.filter(a => KNOWN_PLATFORM_SIGNERS[a] || structuralSet.has(a));
+  // Server-gated mint: access is gated by a backend co-signature. True for a
+  // Core Candy Guard mint with a backend signer (MintX-style) OR a direct MPL
+  // Core mint with a generic backend co-signer (vvv.so-style).
+  const serverSignatureGate =
+    backendSignerObserved && (present.has(CORE_CANDY_GUARD_PROGRAM) || genericBackendSigners.length > 0);
+
+  // A server-gated Core Candy Guard mint funds accounts via System / SPL
+  // housekeeping before the guard ix, so `entryProgram` can mis-pick that
+  // infrastructure ix as a "wrapper". When the gate is positively identified
+  // AND a Candy Guard is present, the real entry is the Candy Guard (a
+  // primitive), so drop the spurious wrapper. Scoped to Candy-Guard-present so
+  // a genuine custom wrapper with a backend signer keeps its wrapper info, and
+  // fixtures with no backend signer (e.g. tx_burn_gate) keep their verdict.
+  if (serverSignatureGate && present.has(CORE_CANDY_GUARD_PROGRAM)) customWrapper = null;
 
   // ── Guard / auth ───────────────────────────────────────────────────────
   const candyGuard = present.has(CANDY_GUARD_PROGRAM) || present.has(CORE_CANDY_GUARD_PROGRAM);
@@ -341,6 +483,14 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   if (customWrapper) {
     notes.push(`Custom wrapper program (${customWrapper.programId}); instruction layout is undocumented — manual reverse-engineering required to reproduce.`);
   }
+  if (serverSignatureGate) {
+    if (present.has(CORE_CANDY_GUARD_PROGRAM)) {
+      const mintx = signers.find(s => /MintX/i.test(s.label ?? ''));
+      notes.push(`Server-gated Candy Guard mint${mintx ? ' (MintX)' : ''}: requires a backend co-signature (AddressGate). Any sibling token transfer is an off-chain soft gate, not enforced on-chain.`);
+    } else {
+      notes.push('Server-gated mint: requires an extra backend co-signature that is neither the minter nor the minted asset; cannot be reproduced client-side.');
+    }
+  }
   // Surface any known platform treasury seen as a (non-signer) account.
   for (const k of keys) {
     const acct = KNOWN_PLATFORM_ACCOUNTS[k];
@@ -352,8 +502,20 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   let verdict: Verdict;
   if (backendSignerObserved) {
     verdict = 'blocked_server_captcha_signature';
-    const sig = signers.find(s => s.class === 'known_platform_signer');
-    verdictReasons.push(`A known platform co-signer is required (${sig?.label ?? sig?.address}); the mint needs a server-issued signature that cannot be reproduced client-side.`);
+    const known = signers.find(s => s.class === 'known_platform_signer');
+    if (known) {
+      verdictReasons.push(`A known platform co-signer is required (${known.label ?? known.address}); the mint needs a server-issued signature that cannot be reproduced client-side.`);
+    }
+    if (candyGuardBackendSigners.length) {
+      verdictReasons.push(`Mint requires a Candy Guard AddressGate / backend co-signature (${candyGuardBackendSigners.join(', ')}) that cannot be reproduced client-side.`);
+    }
+    const genericOnly = genericBackendSigners.filter(a => !candyGuardSet.has(a) && !KNOWN_PLATFORM_SIGNERS[a]);
+    if (genericOnly.length) {
+      verdictReasons.push('Mint requires an extra backend co-signature that is neither the minter nor the minted asset.');
+    }
+    if (serverSignatureGate && present.has(CORE_CANDY_GUARD_PROGRAM)) {
+      verdictReasons.push('Core Candy Guard server-gated mint (MintX-style): the on-chain guard does not enforce the sibling token transfer — the backend co-signer gates access off-chain.');
+    }
   } else if (customWrapper) {
     verdict = 'custom_program_manual_re_required';
     verdictReasons.push(`Mint is fronted by a custom program (${customWrapper.programId}) with no known instruction layout; reconstructing it requires manual reverse-engineering.`);
@@ -389,6 +551,11 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
     verdict,
     verdictReasons,
     // Additive read-only clues; computed independently of the verdict above.
-    flowClues: buildFlowClues(flat, present),
+    flowClues: buildFlowClues(flat, present, {
+      serverSignatureGate,
+      candyGuardPresent: present.has(CORE_CANDY_GUARD_PROGRAM),
+      backendSigners,
+      feePayer,
+    }),
   };
 }

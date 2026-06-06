@@ -123,6 +123,26 @@ export const GRAVEMINT_PLATFORM_TREASURY = '4rUxPzDvQXfjZuHfApV7Bhf1uxsAjJDxgtYy
  *  update, etc.) cannot match. */
 export const GRAVEMINT_PROGRAM           = 'GRVMNt7b2Pojom2fTF6HytLRm2hfQCN8iHm9wLvSFWVJ';
 
+/** MintX (mintx.io) server-gated backend co-signers.
+ *
+ *  MintX fronts an otherwise-standard MPL Core **Candy Guard**
+ *  (`CMAGAKJ…JjWTJ`) mint, but additionally requires TWO backend
+ *  signatures issued server-side after an off-chain (soft token /
+ *  AddressGate) gate is satisfied. On every confirmed MintX mint the
+ *  signer set is: buyer at index 0, the new asset keypair (signs to
+ *  create itself), and these two keys — neither of which a client can
+ *  reproduce. The gate itself surfaces on-chain as a pre-mint SPL
+ *  transfer of the soft-gate token to a MintX treasury vault ATA (a
+ *  *transfer*, not a burn). Because the signatures are minted by MintX's
+ *  backend, the mint is NOT reconstructable — same blocked class as the
+ *  vvv.so / gravemint.io platform-signer gates above. Either key present
+ *  as a required signer is the fingerprint (checked via
+ *  `signerKeys.includes`, not a fixed index). Reference tx:
+ *    4NJcYNEEeRAa1Xzsa8XQd1iPmHGhMmcw5VwHXfdoyc7LKA4m8Cayuu4J3tuy7Hn6bDayUjr7oWYNaBt9q8wik35K
+ */
+export const MINTX_PLATFORM_SIGNER_PRIMARY   = 'xbWUT2Z3DWUrc4f65keHjntdtXiD7ov8d4Wj11yuBh8';
+export const MINTX_PLATFORM_SIGNER_SECONDARY = 'EBxTysPFiZymqFswF5SyLKCC5ybj6ii8wg8s2Mbhseex';
+
 /** Metaplex Candy Guard — the standard outer wrapper for Candy
  *  Machine v3 (and any future Metaplex-issued CM variants that route
  *  through the same Guard). Used as the **launchpad fingerprint** in
