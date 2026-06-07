@@ -253,6 +253,44 @@ function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
   return null;
 }
 
+/** Burn-then-remint guard. A genuine fresh LMNFT MintCore mint only
+ *  CREATEs a new Core asset; it never BURNs a pre-existing one. A tx that
+ *  carries an MPL **Core** `Burn` instruction alongside the create is an
+ *  LMNFT migration / claim (old asset burned, replacement minted) — not a
+ *  primary mint — so it must not surface in the Mint Tracker. The `Create`
+ *  log from the inner Core CPI would otherwise satisfy
+ *  `lmnftCoreNeedleIfPresent`.
+ *
+ *  Scoped to MPL **Core** burns specifically. MPL Core's BurnV1 logs as the
+ *  bare `Program log: Instruction: Burn` (no `V` suffix — confirmed on the
+ *  reference tx, which is a top-level MPL Core ix disc=12), a string that is
+ *  BYTE-IDENTICAL to the SPL Token program's `Burn` log. A plain
+ *  `shape.logs.some(/Burn/)` would therefore also fire on an unrelated SPL
+ *  Token burn — e.g. a fungible token-gate burn inside an otherwise-fresh
+ *  mint — and wrongly drop a legitimate mint. To disambiguate without any
+ *  discriminator/IDL dependency we walk the program-invoke stack in the
+ *  logs and only flag a `Burn` whose log is emitted while the MPL Core
+ *  program is the active (top-of-stack) program; an SPL Token burn is
+ *  bracketed by the Token program and is correctly ignored.
+ *  Ref (rejected): 2ehj3iTvJJMJqYkByLxrhmhfPDDbEaUamjjM6TKTmCzfWRK2SK4FZzDMYeWVeY146RPSgy7y2Jo5vEHXKoyQxHrb */
+const CORE_BURN_LOG_REGEX  = /^Program log: Instruction: Burn(V\d+)?$/;
+const PROGRAM_INVOKE_REGEX = /^Program (\S+) invoke \[\d+\]$/;
+const PROGRAM_RESULT_REGEX = /^Program (\S+) (?:success|failed)/;
+function hasCoreBurn(shape: ParsedTxShape): boolean {
+  const stack: string[] = [];
+  for (const line of shape.logs) {
+    const inv = PROGRAM_INVOKE_REGEX.exec(line);
+    if (inv) { stack.push(inv[1]); continue; }
+    if (PROGRAM_RESULT_REGEX.test(line)) { stack.pop(); continue; }
+    // A Burn instruction log fires while its program sits at the top of the
+    // invoke stack — count it only when that program is MPL Core.
+    if (CORE_BURN_LOG_REGEX.test(line) && stack[stack.length - 1] === MPL_CORE_PROGRAM) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** True iff `tx` is an LMNFT Token-Metadata mint — outer LMNFT dispatcher
  *  `Instruction: MintTm`, with Token Metadata program present and an
  *  inner Token Metadata CPI sequence (Create + Mint + optional Verify).
@@ -693,6 +731,14 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
 
   const lmnftCoreNeedle = lmnftCoreNeedleIfPresent(shape);
   if (lmnftCoreNeedle) {
+    if (hasCoreBurn(shape)) {
+      // Burn + create in the same tx → LMNFT migration / claim, not a
+      // fresh mint. Reject so it never reaches the Mint Tracker.
+      console.log(
+        `[mints/lmnft-core-skip] sig=${tx.signature ?? '—'} reason=burn_remint coreIx=${lmnftCoreNeedle}`,
+      );
+      return null;
+    }
     const core = extractCoreMintFromInner(tx, shape);
     if (!core) {
       // LMNFT outer + Core-create log present, but inner Core ix accs
