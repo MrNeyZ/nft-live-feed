@@ -80,6 +80,18 @@ const CORE_CREATE_DISCS: ReadonlySet<number> = new Set([CORE_CREATE_V1_DISC, COR
 const CORE_CANDY_MACHINE_PROGRAM = 'CMACYFENjoBMHzapRXyo1JZkVS6EtaDDzkjMrmQLvr4J';
 const CORE_CANDY_GUARD_PROGRAM   = 'CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ';
 void CORE_CANDY_GUARD_PROGRAM; // referenced for documentation; detection keys on the machine
+
+/** Magic Eden launchpad program. Fronts an MPL Core mint: the ME program
+ *  (`CMZYPASG…`) CPIs into mpl-core `Create` (V1, disc 0) to build the asset.
+ *  Distinct from the Core Candy Machine (`CMACYFEN…`) path and NOT recognized
+ *  by the targeted launchpad detector, so without a dedicated branch these
+ *  mints reject as `unknown_launchpad` and never reach the Mint Tracker.
+ *  The program id lands in `accountKeys` and the tx also mentions MPL Core, so
+ *  it arrives via the existing mpl_core WS/poll — no new subscription needed.
+ *  Reference tx:
+ *    4Tg4BrFXFrSzzEYqvaXEa2TaMJahydbnfiuofedsyCNr4uBtT31q5oKYSyapRC4ijLGg44fU1dR3i6SnmW76akoN
+ *    (asset 24oYx…, inner mpl-core Create disc=0, collection HxSsfM9… "Quack Heads"). */
+export const MAGIC_EDEN_LAUNCHPAD_PROGRAM = 'CMZYPASGWeTz7RNGHaRJfCq2XQ5pYK6nDvVQxzkH51zb';
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 
 /** Trusted NFT metadata host fragments. Matched substring-style on
@@ -479,6 +491,63 @@ export function detectCoreCandyMachineMint(tx: RawSolanaTx): CoreV2Detection | n
 
   return {
     accept: true, score: 2, reasons: ['core_candy_machine', 'collection_present'],
+    rejectReason: null,
+    mintAddress: asset, collectionAddress: collection, minter,
+    name: null, uri: null, pluginsCount: null,
+  };
+}
+
+/** Magic Eden launchpad Core mint detector.
+ *
+ *  Mirrors `detectCoreCandyMachineMint` but keys on the Magic Eden launchpad
+ *  program (`CMZYPASG…`) instead of the Core Candy Machine program. ME fronts
+ *  an MPL Core mint whose asset is created by an inner mpl-core `Create`
+ *  (V1, disc 0) or `CreateV2` (disc 20) — the same `CORE_CREATE_DISCS` family.
+ *  Account layout from the create ix: asset = accounts[0], collection =
+ *  accounts[1].
+ *
+ *  Conservative, identical gate set to the Core Candy Machine detector:
+ *  ME program present + MPL Core present + a freshly created asset (lamports
+ *  0 → >0) + a real collection (≠ asset / program / system). The DeFi /
+ *  Token-2022 rejects guard the rare pool case.
+ *
+ *  Returns null when the ME launchpad program isn't involved (caller no-ops). */
+export function detectMagicEdenCoreMint(tx: RawSolanaTx): CoreV2Detection | null {
+  const shape = readShape(tx);
+  if (!shape) return null;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(MAGIC_EDEN_LAUNCHPAD_PROGRAM)) return null;
+
+  const rej = (rejectReason: string, mint: string | null = null, collection: string | null = null): CoreV2Detection => ({
+    accept: false, score: 0, reasons: ['magic_eden_launchpad'], rejectReason,
+    mintAddress: mint, collectionAddress: collection, minter: shape.signerKeys[0] ?? null,
+    name: null, uri: null, pluginsCount: null,
+  });
+
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return rej('defi_program_present');
+  }
+  if (shape.accountKeys.includes(TOKEN_2022_PROGRAM)) return rej('token_2022_present');
+
+  // Asset minted by an mpl-core Create (V1) or CreateV2 inner ix.
+  const found = findCreateV2Ix(tx, shape.accountKeys, CORE_CREATE_DISCS);
+  if (!found) return null; // ME program present but no asset-create ix we model
+
+  const accIxs = found.accounts;
+  const asset      = accIxs.length > 0 && accIxs[0] >= 0 ? shape.accountKeys[accIxs[0]] ?? null : null;
+  const collection = accIxs.length > 1 && accIxs[1] >= 0 ? shape.accountKeys[accIxs[1]] ?? null : null;
+  const minter     = shape.signerKeys[0] ?? null;
+  if (!asset) return rej('no_asset_account', null, collection);
+
+  const hasRealCollection = !!collection
+    && collection !== MPL_CORE_PROGRAM
+    && collection !== asset
+    && collection !== SYSTEM_PROGRAM;
+  if (!hasRealCollection) return rej('no_collection', asset, collection);
+  if (!isFresh(shape, asset)) return rej('asset_not_fresh', asset, collection);
+
+  return {
+    accept: true, score: 2, reasons: ['magic_eden_launchpad', 'collection_present'],
     rejectReason: null,
     mintAddress: asset, collectionAddress: collection, minter,
     name: null, uri: null, pluginsCount: null,

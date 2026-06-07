@@ -50,7 +50,7 @@ import {
   CANDY_GUARD_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
-import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint } from './core-v2-detector';
+import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -816,6 +816,55 @@ export async function ingestMintRaw(
       );
     }
     if (!lp) {
+      // Magic Eden launchpad (CMZYPASG…) — fronts an MPL Core mint the
+      // targeted launchpad detector doesn't recognize (no ME program in its
+      // fingerprint set), so it would otherwise reject as unknown_launchpad.
+      // Same fallback class as the Core Candy Machine branch below: ME
+      // program + inner mpl-core Create → asset/collection extraction.
+      // Reaches us via the existing mpl_core WS/poll (the tx mentions the
+      // Core program). Audit: collection HxSsfM9… / "Quack Heads".
+      const me = detectMagicEdenCoreMint(tx);
+      if (me && me.accept && me.mintAddress && me.collectionAddress) {
+        logV2CoreAccept(sig, me.score, me.reasons, me.mintAddress, me.collectionAddress);
+        const priceLamports = extractMintPriceLamports(tx);
+        const mintType      = classifyMintType(priceLamports);
+        const groupingKey   = `collection:${me.collectionAddress}`;
+        const blockTime = tx.blockTime
+          ? new Date((tx.blockTime as number) * 1000).toISOString()
+          : new Date().toISOString();
+        const emitted = rec({
+          signature:         sig,
+          blockTime,
+          programSource:     'mpl_core',
+          mintAddress:       me.mintAddress,
+          collectionAddress: me.collectionAddress,
+          groupingKey,
+          groupingKind:      'collection',
+          mintType,
+          priceLamports,
+          ...paymentFieldsFrom(tx),
+          minter:            me.minter,
+          // Magic Eden launchpad — frontend renders the 'ME' pill.
+          sourceLabel:       'ME',
+          // Core-asset launchpad style. Kept consistent with the Core Candy
+          // Machine path; with sourceLabel='ME' this has no visual effect
+          // (the pink-CORE tint only triggers for sourceLabel==='Metaplex
+          // Core' — see frontend source.ts), it just marks the Core standard.
+          coreLaunchpad:     true,
+        });
+        if (emitted) enqueueMintEnrichment(groupingKey, me.mintAddress);
+        scheduleCollectionConfirmation(groupingKey, me.mintAddress, me.collectionAddress, sig);
+        // Collection-level identity. `getAsset(collectionAddress)` resolves
+        // the ME drop's name + image (the per-NFT DAS path returns the asset
+        // name "Foo #N" only, and the asset grouping carries no
+        // collection_metadata.name). Cached per-collection, so a burst burns
+        // one DAS call. Mirrors the Core Candy Machine branch below.
+        void enrichLaunchpadCollectionMeta(me.collectionAddress, groupingKey, {
+          patchName: true,
+          logTag:    'magiceden-core-meta',
+        });
+        return;
+      }
       // MPL Core Candy Machine (CMv3-core) — always on. Covers Core Candy
       // Guard + launchpad wrappers that the targeted detector and the
       // CreateV2 scorer both miss (asset minted via inner mpl-core `Create`,
