@@ -852,6 +852,24 @@ export async function ingestMintRaw(
         // feed — sampled-out cards skip the getAsset to save RPC credits.
         if (emitted) enqueueMintEnrichment(groupingKey, cm.mintAddress);
         scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
+        // Collection-level identity. This targeted Core Candy Machine
+        // fallback catches Core CM / MintX-style mints the launchpad
+        // detector misses, but it returns here — before the
+        // `lp.source==='CandyMachine'` branch that calls
+        // `enrichLaunchpadCollectionMeta`. Without this the row only ever
+        // sees per-NFT DAS, which yields the asset name ("Foo #N", not the
+        // collection title) and on fresh mints routinely "Asset Not Found",
+        // so collection name + image never resolve and the tracker's
+        // `isUsefulTrackerCollection` hides the row (audit: collection
+        // 7rvuvx…BkPh / "THE HATED", 778 mints, never shown).
+        // `getAsset(collectionAddress)` is long-indexed (the collection NFT
+        // is created upfront) and cached per-collection, so a several-
+        // hundred-mint burst burns one DAS call. Mirrors the CandyMachine
+        // branch below.
+        void enrichLaunchpadCollectionMeta(cm.collectionAddress, groupingKey, {
+          patchName: true,
+          logTag:    'core-cm-meta',
+        });
         return;
       }
       if (cm && !cm.accept && cm.rejectReason && cm.rejectReason !== 'no_collection') {
@@ -901,6 +919,14 @@ export async function ingestMintRaw(
             // branch uses — drops the row later if DAS can't
             // confirm the grouping.
             scheduleCollectionConfirmation(groupingKey, v2.mintAddress, v2.collectionAddress, sig);
+            // Collection-level identity — same as the targeted Core branch
+            // above. This accept path has the identical early return and
+            // would otherwise leave the row without collection name/image.
+            // Cached per-collection (no per-mint DAS amplification).
+            void enrichLaunchpadCollectionMeta(v2.collectionAddress, groupingKey, {
+              patchName: true,
+              logTag:    'core-cm-meta',
+            });
             return;
           }
           logV2CoreReject(sig, v2.score, v2.rejectReason ?? 'unknown', v2.reasons);
