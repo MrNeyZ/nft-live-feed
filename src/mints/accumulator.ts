@@ -645,7 +645,24 @@ export function recordMint(ev: MintEventWire): boolean {
   // Promote on threshold or burst (never demote here). Promotion is
   // additionally gated by `hasUsableIdentity` — see tryPromote below.
   const prevDisplay = a.displayState;
-  tryPromote(a, now);
+  // Cooled-collection revival. A `cooled` row that gets a fresh mint is
+  // brought back to WATCH (`incubating`) — never straight to ACTIVE on a
+  // single straggler. This makes a slow-drip collection reappear in the
+  // tracker table the moment it mints again (the per-mint Live Feed card
+  // already emits regardless of displayState), instead of staying hidden
+  // until it happens to re-burst. Any upgrade back to ACTIVE still goes
+  // through the UNCHANGED burst/threshold gate in `tryPromote` on the
+  // following mints (we skip `tryPromote` on this revival mint so one
+  // straggler can never re-promote via the >=50 threshold). Gated on
+  // `hasUsableIdentity` so a nameless/imageless row stays `cooled` (no
+  // noise revival). Cooldown/demotion logic in `sweep` is untouched.
+  if (prevDisplay === 'cooled' && hasUsableIdentity(a)) {
+    a.displayState = 'incubating';
+    a.shownReason  = undefined;
+    a.shownAt      = undefined;
+  } else {
+    tryPromote(a, now);
+  }
 
   // The mint is now fully COUNTED (observedMints / windows / supply / type
   // classification above) — the collection row + `mint_status` below are
@@ -788,6 +805,31 @@ export function currentMintStatuses(): MintStatusWire[] {
   out.sort((x, y) => y.v60 - x.v60 || y.observedMints - x.observedMints);
   return out;
 }
+
+/** Test-only affordances for the offline accumulator unit test. Inert in
+ *  production: no production code path references `__testHooks`, and it only
+ *  exposes the already-internal sweep tick + per-row state for assertions.
+ *  Kept on a single guarded export so the production surface is unchanged. */
+export const __testHooks = {
+  /** Run one synchronous sweep tick (cooldown demotion + idle eviction). */
+  runSweep: (): void => sweep(),
+  /** Current displayState for a grouping key, or null if absent. */
+  getDisplayState: (groupingKey: string): MintDisplayState | null =>
+    map.get(groupingKey)?.displayState ?? null,
+  /** Force a row's displayState — used to construct the otherwise
+   *  non-naturally-reachable `cooled`-without-identity case. */
+  setDisplayState: (groupingKey: string, s: MintDisplayState): void => {
+    const a = map.get(groupingKey);
+    if (a) a.displayState = s;
+  },
+  /** Strip resolved identity (name + image) from a row. */
+  clearIdentity: (groupingKey: string): void => {
+    const a = map.get(groupingKey);
+    if (a) { a.name = undefined; a.imageUrl = undefined; }
+  },
+  /** Drop all accumulator state (test isolation between cases). */
+  reset: (): void => { map.clear(); },
+};
 
 /** Read-only name probe — lets callers gate weaker-source name
  *  fallbacks on whether we already have a stronger name. Returns
