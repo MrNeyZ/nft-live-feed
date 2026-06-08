@@ -17,6 +17,7 @@ import txMaybeFixture from './fixtures/tx_maybe.json';
 import txNoFixture from './fixtures/tx_no.json';
 import txBurnGateFixture from './fixtures/tx_burn_gate.json';
 import txMintxNoFixture from './fixtures/tx_mintx_no.json';
+import txCgThirdPartyNoFixture from './fixtures/tx_cg_thirdparty_no.json';
 import txVvvHolderFixture from './fixtures/tx_vvv_holder.json';
 import txVvvPublicFixture from './fixtures/tx_vvv_public.json';
 import txLmnftHolderFixture from './fixtures/tx_lmnft_holder.json';
@@ -37,6 +38,15 @@ const SIG_BURN_GATE = '3KbsQgTpLjWGa1w87WRoRS9mNw9nYjVRi269HB2BrZo23KXufj3iZKwZ6
 // backend signers, with a pre-mint SPL transfer (soft token gate) to a
 // MintX treasury vault ATA. Not a burn.
 const SIG_MINTX_NO = '4NJcYNEEeRAa1Xzsa8XQd1iPmHGhMmcw5VwHXfdoyc7LKA4m8Cayuu4J3tuy7Hn6bDayUjr7oWYNaBt9q8wik35K';
+
+// NO (legacy Candy Guard thirdPartySigner) — standard Candy Machine v3 + Candy
+// Guard mintV2 with NO wrapper, but a required 3rd signer (FA9H…ctAY) that is
+// neither the fee payer nor the new mint keypair: it is a Candy Guard
+// thirdPartySigner remaining account, reused across many mints (a backend/
+// platform co-signature). Detected STRUCTURALLY via the legacy Guard1Jw… ix
+// account scan — must flip the old false YES to NO.
+const SIG_CG_TPS = '2Y9B2FpxgrHKFpPvg1fq4jK5EhayPF4X6GPaXzKcNMVTqvntQVF1iZWnWKkCQUc1LYVf4XH9RtdAjmhf5bJ3ZKKh';
+const CG_TPS_SIGNER = 'FA9HpyxHGppZ3gWWhpXpHFPsX4BbTNzuYaQQBSggctAY';
 
 const RFND_WRAPPER = 'RFND9n8ewvgg2hQLuwfR652KLUYNRFwXRkCrhJB3V5y';
 const FORGE_WRAPPER = 'foRGEL4EUjeQMd8U2QL5Rx8je75ZFpmtLoWRyyAxxr7';
@@ -220,6 +230,47 @@ check('flowClues: candy_machine_v3 gate present', () => assert.ok(
 check('flowClues: mpl_core_create present', () => assert.ok(
   aMintx.flowClues.detectedGates.some(g => g.type === 'mpl_core_create'),
 ));
+
+// ── NO (legacy Candy Guard thirdPartySigner): standard CM v3 + Candy Guard
+//    mintV2, no wrapper, but a reused backend co-signer (thirdPartySigner
+//    remaining account) — must score NO, detected structurally on the LEGACY
+//    Guard1Jw… ix (the prior detection only scanned the Core Candy Guard). ──
+const aCgTps = analyze(resultOf(txCgThirdPartyNoFixture), SIG_CG_TPS);
+console.log('\ntx_cg_thirdparty_no — legacy Candy Guard mintV2 + thirdPartySigner backend co-signer');
+check('status success', () => assert.strictEqual(aCgTps.status, 'success'));
+check('primitive candy_machine_v3_mintv2', () => assert.strictEqual(aCgTps.likelyMintPrimitive, 'candy_machine_v3_mintv2'));
+check('no custom wrapper', () => assert.strictEqual(aCgTps.customWrapper, null));
+check('backend signer observed', () => assert.strictEqual(aCgTps.backendSignerObserved, true));
+check('verdict blocked_server_captcha_signature', () => assert.strictEqual(aCgTps.verdict, 'blocked_server_captcha_signature'));
+check('FA9H… classified as backend co-signer (unknown_program_signer)', () => assert.ok(
+  aCgTps.signers.some(s => s.address === CG_TPS_SIGNER
+    && s.class === 'unknown_program_signer'
+    && /backend co-signer/i.test(s.label ?? '')),
+));
+check('fee payer + mint keypair NOT flagged as backend signers', () => assert.ok(
+  aCgTps.signers.filter(s => s.class === 'unknown_program_signer' || s.class === 'known_platform_signer').length === 1
+    && aCgTps.signers[0].class === 'fee_payer'
+    && aCgTps.signers.some(s => s.class === 'user'),
+));
+check('flowClues: server_signature_gate present', () => assert.ok(
+  aCgTps.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'),
+));
+check('flowClues: server_signature_gate lists FA9H… signer', () => assert.ok(
+  aCgTps.flowClues.detectedGates.some(g => g.type === 'server_signature_gate'
+    && (g.signers ?? []).includes(CG_TPS_SIGNER)),
+));
+check('accessType = backend_gated', () => assert.strictEqual(aCgTps.accessType, 'backend_gated'));
+check('verdictReasons mention backend / AddressGate co-signature', () => assert.ok(
+  aCgTps.verdictReasons.some(r => /backend co-signature|AddressGate|cannot be reproduced/i.test(r)),
+));
+
+// Regression: the existing direct YES (tx1, legacy Candy Guard, ONLY payer +
+// mint keypair) must stay YES — the new legacy scan must not flag its mint.
+check('tx1 still direct_mint_likely_reconstructable (no false NO)', () => {
+  const a = analyze(resultOf(tx1Fixture), SIG1);
+  assert.strictEqual(a.backendSignerObserved, false);
+  assert.strictEqual(a.verdict, 'direct_mint_likely_reconstructable');
+});
 
 // ── NO (generic): vvv.so direct MPL Core mints gated by a structural backend
 //    co-signer. The holder and public phases are on-chain identical — both

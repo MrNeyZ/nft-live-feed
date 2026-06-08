@@ -159,8 +159,10 @@ const SPL_TOKEN_PROGRAMS = new Set([SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM]);
 interface FlowCtx {
   /** true for a mint gated by a backend co-signature (Candy Guard or direct) */
   serverSignatureGate: boolean;
-  /** true when a Core Candy Guard is present — varies the gate wording */
+  /** true when ANY Candy Guard (legacy or Core) is present — varies wording */
   candyGuardPresent: boolean;
+  /** the Candy Guard program in use (legacy or Core), for gate evidence */
+  candyGuardProgramId?: string;
   /** every backend co-signer (known platform + structural AddressGate) */
   backendSigners: string[];
   /** signer index 0 — the minter/user authorising the soft-gate transfer */
@@ -198,12 +200,12 @@ function buildFlowClues(flat: FlatIx[], present: Set<string>, ctx: FlowCtx): Flo
     detectedGates.push({
       type: 'server_signature_gate',
       confidence: 'high',
-      programId: cg ? CORE_CANDY_GUARD_PROGRAM : undefined,
+      programId: ctx.candyGuardProgramId,
       signers: ctx.backendSigners,
       owner: ctx.backendSigners[0],
       evidence: [
         cg
-          ? 'Mint requires a backend/server co-signature (Candy Guard AddressGate / platform minter).'
+          ? 'Mint requires a backend/server co-signature (Candy Guard thirdPartySigner / AddressGate / platform minter).'
           : 'Mint requires an extra backend co-signature that is neither the minter nor the minted asset.',
         ctx.backendSigners.length ? `Backend co-signer(s): ${ctx.backendSigners.join(', ')}` : 'Backend co-signer present.',
         'Issued server-side after an off-chain gate — cannot be reproduced client-side.',
@@ -473,22 +475,38 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   const signerAddrs = keys.slice(0, nsig);
   const feePayer = signerAddrs[0] ?? null;
 
-  // Minted asset(s): an MPL Core Create/CreateV2 asset signs to create itself
-  // (asset = accounts[0]). It is a signer but NOT a backend co-signer, so it
-  // must be excluded from backend-signer detection below.
-  const assetAddrs = new Set(
+  // Minted asset(s): a self-signing new keypair that must be excluded from
+  // backend-signer detection below (it is a signer but NOT a co-signer).
+  //  (a) MPL Core Create/CreateV2 — asset = accounts[0]. Kept as its own set
+  //      because the generic backend-signer tier is scoped to Core mints.
+  const coreAssetAddrs = new Set(
     flat
       .filter(f => f.programId === MPL_CORE_PROGRAM && (f.data[0] === 0 || f.data[0] === 20) && f.accounts[0])
       .map(f => f.accounts[0]),
   );
+  //  (b) Legacy Token Metadata / Candy Machine v3 — a fresh SPL mint keypair
+  //      signs to create itself via SPL Token InitializeMint (tag 0) /
+  //      InitializeMint2 (tag 20); the new mint = accounts[0]. Same self-signing
+  //      role as the Core asset, so it must also be excluded — otherwise a
+  //      normal 2-signer CM v3 mint's mint keypair (referenced by the Candy
+  //      Guard mintV2 ix) would be misread as a thirdPartySigner co-signer.
+  const splMintAddrs = new Set(
+    flat
+      .filter(f => SPL_TOKEN_PROGRAMS.has(f.programId) && (f.data[0] === 0 || f.data[0] === 20) && f.accounts[0])
+      .map(f => f.accounts[0]),
+  );
+  const assetAddrs = new Set([...coreAssetAddrs, ...splMintAddrs]);
 
   // Structural (key-independent) backend-signer detection, in two tiers:
   //
-  //  (a) Candy Guard tier — a required signer referenced by a Core Candy Guard
-  //      mint instruction that is neither fee-payer nor minted asset is a Candy
-  //      Guard AddressGate / backend minter. Catches MintX drops whose
-  //      AddressGate key rotates per collection without hardcoding the key
-  //      (confirmed by the MintX audit across 4 candy guards / 76 mints).
+  //  (a) Candy Guard tier — a required signer referenced by a Candy Guard mint
+  //      instruction (legacy `Guard1Jw…` OR Core `CMAGAKJ…`) that is neither
+  //      fee-payer nor minted asset is a Candy Guard signer guard
+  //      (thirdPartySigner / AddressGate) / backend minter. Catches MintX drops
+  //      whose AddressGate key rotates per collection without hardcoding the key
+  //      (confirmed by the MintX audit across 4 candy guards / 76 mints), AND
+  //      legacy CM v3 + Candy Guard drops with a thirdPartySigner server gate
+  //      (e.g. 2Y9B…3ZKKh — FA9H…ctAY is a reused platform co-signer).
   //
   //  (b) Generic tier — for a *direct* MPL Core mint (entry is the MPL Core
   //      primitive itself: no custom wrapper, no known launchpad), ANY required
@@ -501,14 +519,19 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   //
   // PDAs referenced by an ix are never tx-level signers, so this only ever
   // yields genuine keypair signers.
-  const coreGuardIxAccounts = new Set(
-    flat.filter(f => f.programId === CORE_CANDY_GUARD_PROGRAM).flatMap(f => f.accounts),
+  const candyGuardIxAccounts = new Set(
+    flat
+      .filter(f => f.programId === CORE_CANDY_GUARD_PROGRAM || f.programId === CANDY_GUARD_PROGRAM)
+      .flatMap(f => f.accounts),
   );
   const candyGuardBackendSigners = signerAddrs.filter(
-    (address, i) => i !== 0 && coreGuardIxAccounts.has(address) && !assetAddrs.has(address),
+    (address, i) => i !== 0 && candyGuardIxAccounts.has(address) && !assetAddrs.has(address),
   );
   const isDirectMint = primitive !== 'unknown' && !customWrapper && !knownLaunchpad;
-  const createsCoreAsset = assetAddrs.size > 0;
+  // Scoped to MPL Core direct mints (vvv.so-style): uses the Core-asset set, NOT
+  // the broadened `assetAddrs`, so legacy Token-Metadata mints stay handled by
+  // the Candy Guard tier above and don't widen this generic tier.
+  const createsCoreAsset = coreAssetAddrs.size > 0;
   const genericBackendSigners = isDirectMint && createsCoreAsset
     ? signerAddrs.filter((address, i) => i !== 0 && !assetAddrs.has(address))
     : [];
@@ -533,10 +556,15 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
   // Addresses of every backend co-signer (known platform + structural).
   const backendSigners = signerAddrs.filter(a => KNOWN_PLATFORM_SIGNERS[a] || structuralSet.has(a));
   // Server-gated mint: access is gated by a backend co-signature. True for a
-  // Core Candy Guard mint with a backend signer (MintX-style) OR a direct MPL
-  // Core mint with a generic backend co-signer (vvv.so-style).
+  // Candy Guard mint with a backend co-signer — Core (MintX-style) OR legacy
+  // CM v3 (thirdPartySigner) — OR a direct MPL Core mint with a generic backend
+  // co-signer (vvv.so-style).
   const serverSignatureGate =
-    backendSignerObserved && (present.has(CORE_CANDY_GUARD_PROGRAM) || genericBackendSigners.length > 0);
+    backendSignerObserved && (
+      present.has(CORE_CANDY_GUARD_PROGRAM)
+      || candyGuardBackendSigners.length > 0
+      || genericBackendSigners.length > 0
+    );
 
   // A server-gated Core Candy Guard mint funds accounts via System / SPL
   // housekeeping before the guard ix, so `entryProgram` can mis-pick that
@@ -638,7 +666,10 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
     // Additive read-only clues; computed independently of the verdict above.
     flowClues: buildFlowClues(flat, present, {
       serverSignatureGate,
-      candyGuardPresent: present.has(CORE_CANDY_GUARD_PROGRAM),
+      candyGuardPresent: present.has(CORE_CANDY_GUARD_PROGRAM) || present.has(CANDY_GUARD_PROGRAM),
+      candyGuardProgramId: present.has(CORE_CANDY_GUARD_PROGRAM)
+        ? CORE_CANDY_GUARD_PROGRAM
+        : present.has(CANDY_GUARD_PROGRAM) ? CANDY_GUARD_PROGRAM : undefined,
       backendSigners,
       feePayer,
     }),
