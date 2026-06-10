@@ -590,11 +590,66 @@ function extractMintPriceFromTransfers(tx: RawSolanaTx): number | null {
   return best.lamports;
 }
 
-/** Mint price for the /mints tracker. Prefers the transfer-based per-NFT price
- *  (robust to relayer/fee-payer mints and batch mints); falls back to the
- *  legacy signer net-delta ONLY when no repeated treasury transfer exists. A
- *  clear repeated treasury transfer always wins over a fee-like signer delta. */
+/** Escrow-settlement mint program. `BvAPdAKH…`'s `MintBatchFromEscrow` mints
+ *  an MPL Core asset out of an escrow the user pre-funded in an EARLIER tx.
+ *  The mint tx disburses that escrow — paying creators/treasury, reimbursing
+ *  the minter's rent + fee, and funding new-account rent — so the signer's net
+ *  SOL delta is POSITIVE (reimbursed). Both generic fallbacks therefore read it
+ *  as free (signer delta ≤ 0 → clamp 0) which is wrong: the real price is what
+ *  the escrow paid the creators/treasury. */
+const ESCROW_MINT_PROGRAM = 'BvAPdAKHMskuT3sVxkgrvsboNHRnbf2rXexrMh2E3RKi';
+const ESCROW_MINT_IX_LOG  = 'Instruction: MintBatchFromEscrow';
+
+/** Creator/treasury payout for a `BvAPdAKH MintBatchFromEscrow` mint. Pure
+ *  balance-delta arithmetic on the already-fetched tx — NO RPC. Returns null
+ *  for any tx that isn't this exact wrapper+instruction, so every other path
+ *  (direct Core Create/CreateV2, Candy Machine, other launchpads, existing
+ *  paid mints) is completely unaffected.
+ *
+ *  Price = Σ positive SOL deltas on PRE-EXISTING accounts (pre > 0), excluding
+ *  the fee-payer/minter at index 0. This cleanly isolates the creator/treasury/
+ *  royalty/platform payouts:
+ *    - the escrow PDA has a NEGATIVE delta (the funding source) → excluded;
+ *    - newly-created rent accounts (asset, PDAs) have pre == 0           → excluded;
+ *    - the minter's reimbursement is the fee-payer at index 0            → excluded;
+ *    - the tx fee is charged to index 0 (also excluded) and is never a
+ *      positive delta on any account.
+ *  Verified on tx 5XYyU4… → exactly 250_000_000 (0.25 SOL). */
+function extractEscrowSettlementPrice(tx: RawSolanaTx): number | null {
+  // Gate: must be a BvAPdAKH MintBatchFromEscrow mint. Otherwise no-op.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const keys = (tx.transaction?.message as any)?.accountKeys as Array<string | { pubkey: string }> | undefined;
+  if (!Array.isArray(keys)) return null;
+  const hasWrapper = keys.some((k) => (typeof k === 'string' ? k : k?.pubkey) === ESCROW_MINT_PROGRAM);
+  if (!hasWrapper) return null;
+  const logs = tx.meta?.logMessages;
+  if (!Array.isArray(logs) || !logs.some((l) => typeof l === 'string' && l.includes(ESCROW_MINT_IX_LOG))) return null;
+
+  const pre  = tx.meta?.preBalances;
+  const post = tx.meta?.postBalances;
+  if (!Array.isArray(pre) || !Array.isArray(post) || pre.length === 0) return null;
+
+  let payout = 0;
+  for (let i = 1; i < pre.length && i < post.length; i++) {   // skip index 0 = fee-payer/minter
+    const p = pre[i] as number;
+    const q = post[i] as number;
+    if (!Number.isFinite(p) || !Number.isFinite(q)) continue;
+    if (p <= 0) continue;                 // newly-created / rent-funded account → not a payout
+    const d = q - p;
+    if (d > 0) payout += d;               // received SOL from escrow → creator / treasury / royalty / platform
+  }
+  return payout > 0 ? payout : null;
+}
+
+/** Mint price for the /mints tracker. Order of precedence:
+ *  1. Escrow-settlement payout (BvAPdAKH MintBatchFromEscrow only) — the signer
+ *     is reimbursed there, so this must win over the signer-delta fallback.
+ *  2. Transfer-based per-NFT price (repeated treasury transfer) — robust to
+ *     relayer/fee-payer and batch mints.
+ *  3. Legacy signer net-delta — only when neither of the above matches. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
+  const fromEscrow = extractEscrowSettlementPrice(tx);
+  if (fromEscrow != null && fromEscrow > 0) return fromEscrow;
   const fromTransfers = extractMintPriceFromTransfers(tx);
   if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
   return extractSignerLamportsPaid(tx);
