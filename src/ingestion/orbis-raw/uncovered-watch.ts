@@ -3,22 +3,20 @@
  *
  * Our Orbis parser supports only `BuyCoreV2` (Core) and `BuyNft` (legacy). A
  * recent audit found Orbis also lists compressed NFTs (`ListCnft`,
- * `ApproveCnftList`, `ReplaceLeaf`), which implies a cNFT-buy settlement path
- * we don't yet parse — and accepted-offer settlement is likewise unmodeled. No
- * real example of either has been captured.
+ * `ApproveCnftList`, `ReplaceLeaf`), implying a cNFT-buy settlement path we
+ * don't parse; accepted-offer settlement is likewise unmodeled. No real example
+ * of either has been captured.
  *
- * This watcher piggybacks on Orbis txs ALREADY fetched by normal ingestion and
- * fires only on the DROP path (parser returned !ok), so it can NEVER trigger on
- * a covered BuyCoreV2/BuyNft sale (those return on the accept branch upstream).
- * It logs when a dropped Orbis tx either:
- *   - emits a deterministic "sold for" settlement log our strict parser regex
- *     didn't match (a real sale shape we miss), OR
- *   - invokes a suspicious settlement-like instruction name (BuyCnft / Accept*
- *     / Fulfill* / TakeBid* / Collect* — excluding the covered buys and the
- *     CollectionOffer create/cancel ops).
+ * IMPORTANT — layering: the listener's Orbis WS prefilter sheds any tx whose
+ * logs lack `BuyCoreV2`/`BuyNft` (markSigFetched + return) BEFORE fetchRawTx, so
+ * an uncovered settlement (e.g. `BuyCnft`) never reaches `ingestOrbisRaw`. The
+ * primary observation point is therefore the PREFILTER (`noteOrbisUncoveredFromLogs`,
+ * fed the WS-delivered `value.logs` — zero extra RPC). The ingest-path entry
+ * (`noteOrbisUncovered`) is kept as a poller-fallback backstop for sigs the WS
+ * missed (stale socket) that the gap-healer fetched fresh.
  *
  * Pure logging: no extra RPC, no parser/DB/SSE/frontend change. Capped at
- * MAX_LOGS per process so it can never spam.
+ * MAX_LOGS total per process across both entry points so it can never spam.
  */
 import type { RawSolanaTx } from './types';
 
@@ -40,28 +38,47 @@ function suspectIxNames(ixNames: string[]): string[] {
   });
 }
 
-/**
- * Called from ingestOrbisRaw on the parser-drop path with the original tx and
- * the parser's reject reason. No-op unless something settlement-like is present
- * and the per-process cap hasn't been hit.
- */
-export function noteOrbisUncovered(tx: RawSolanaTx, parserReason: string): void {
+/** Shared core: emit one capped line if `logs` show a settlement-like signal
+ *  that is NOT one of the covered buys. */
+function emit(sig: string, logs: string[], source: string, reason: string): void {
   if (logged >= MAX_LOGS) return;
 
-  const logs = tx.meta?.logMessages ?? [];
-  const soldLine = logs.find((l) => /sold for/i.test(l));
   const ixNames = [...new Set(
-    logs.filter((l) => l.includes('Instruction:')).map((l) => l.split('Instruction:').pop()!.trim()),
+    logs.filter((l) => typeof l === 'string' && l.includes('Instruction:'))
+        .map((l) => l.split('Instruction:').pop()!.trim()),
   )];
-  const suspects = suspectIxNames(ixNames);
+  // Covered buys must stay silent even if a "sold for" line is present.
+  if (ixNames.some((n) => n === 'BuyCoreV2' || n === 'BuyNft')) return;
 
+  const soldLine = logs.find((l) => typeof l === 'string' && /sold for/i.test(l));
+  const suspects = suspectIxNames(ixNames);
   if (!soldLine && suspects.length === 0) return; // nothing settlement-like
 
   logged++;
   const compactSold = soldLine ? soldLine.replace(/^Program log:\s*/, '').slice(0, 200) : '(none)';
   console.log(
-    `[orbis/uncovered-settlement-watch] sig=${tx.signature} reason=${parserReason}` +
+    `[orbis/uncovered-settlement-watch] sig=${sig} source=${source} reason=${reason}` +
     ` hasSoldLog=${!!soldLine} suspectIx=[${suspects.join(',')}]` +
     ` ixNames=[${ixNames.join(',')}] settlementLog="${compactSold}"`,
   );
+}
+
+/**
+ * PREFILTER entry — inspect the WS-delivered log array directly (no tx object,
+ * no RPC). Call from the listener's Orbis prefilter BEFORE the tx is shed, so
+ * uncovered settlement candidates are observed even though they never reach
+ * ingestOrbisRaw. `logs` is the raw `value.logs` (unknown-typed).
+ */
+export function noteOrbisUncoveredFromLogs(sig: string, logs: unknown, reason: string): void {
+  if (!Array.isArray(logs)) return;
+  emit(sig, logs as string[], 'prefilter', reason);
+}
+
+/**
+ * INGEST backstop entry — called from ingestOrbisRaw's DROP path for sigs the
+ * WS missed and the poller fetched fresh. No-op for covered buys (they return
+ * on the accept branch upstream).
+ */
+export function noteOrbisUncovered(tx: RawSolanaTx, parserReason: string): void {
+  emit(tx.signature, tx.meta?.logMessages ?? [], 'ingest_drop', parserReason);
 }

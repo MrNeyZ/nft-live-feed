@@ -17,6 +17,7 @@ import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { ingestOrbisRaw } from './orbis-raw/ingest';
 import { ORBIS_PROGRAM, ORBIS_SALE_INSTRUCTIONS } from './orbis-raw/programs';
+import { noteOrbisUncoveredFromLogs } from './orbis-raw/uncovered-watch';
 import {
   ingestMintRaw,
   hasMintInstructionLog,
@@ -931,6 +932,11 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     if (ORBIS_PREFILTER_TARGETS.has(target.name) && !hasOrbisSaleInstruction(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
+      // Observability-only: before shedding, inspect the WS logs (already in
+      // hand — zero extra RPC) for an uncovered Orbis settlement (cNFT buy /
+      // accepted-offer). Covered BuyCoreV2/BuyNft never reach here (they pass
+      // hasOrbisSaleInstruction above). Capped logger; no behavior change.
+      noteOrbisUncoveredFromLogs(sig, value.logs, 'orbis_prefilter_skip');
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'orbis_no_sale_ix' });
         saleDebug('mark_fetched',   sig, { reason: 'orbis_prefilter_skip' });
