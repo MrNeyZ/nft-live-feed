@@ -113,6 +113,18 @@ const ME_REWARD_WRAPPER_PROGRAMS: ReadonlySet<string> = new Set([
   LUCKY_BUY_PROGRAM,
 ]);
 
+/** Agent-identity registry programs. `RegisterIdentityV1` (`1DREGFgy…`) mints
+ *  an on-demand "agent identity" Core asset — a utility/identity NFT, NOT a
+ *  curated collection drop. It runs both standalone and behind front-ends like
+ *  aign.fun (`ANUK3r5…`), so it's keyed on the INVOKED identity program — the
+ *  semantic root marker — rather than any one wrapper. A Core mint that invokes
+ *  one is rejected (`agent_identity_mint`), same mechanism as the ME-reward
+ *  reject. NOT a price/free filter; NOT keyed on aign.fun alone. Extend as new
+ *  identity-registry programs are observed. */
+const AGENT_IDENTITY_PROGRAMS: ReadonlySet<string> = new Set([
+  '1DREGFgysWYxLnRnKQnwrxnJQeSMk2HmGaC6whw2B2p',
+]);
+
 /** Trusted NFT metadata host fragments. Matched substring-style on
  *  the parsed URI (lowercased). Conservative bonus, not a gate. */
 const TRUSTED_URI_HOST_HINTS: readonly string[] = [
@@ -433,6 +445,22 @@ export function detectCoreCreateV2NftCandidate(tx: RawSolanaTx): CoreV2Detection
     };
   }
 
+  // Agent-identity registry reject — same fingerprint as the generic Core
+  // fallback. A `RegisterIdentityV1` (`1DREGFgy…`) mint reaches us here when its
+  // asset is created via CreateV2 (not the direct `Create` the generic fallback
+  // sees), so without this gate it would score and surface as a launchpad mint.
+  // Keyed on the identity program being INVOKED, after the real-mint gates pass.
+  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
+  for (const p of invoked) {
+    if (AGENT_IDENTITY_PROGRAMS.has(p)) {
+      return {
+        accept: false, score, reasons, rejectReason: 'agent_identity_mint',
+        mintAddress: asset, collectionAddress: collection,
+        minter, name: args.name, uri: args.uri, pluginsCount: args.pluginsCount,
+      };
+    }
+  }
+
   // Score bonuses — collection presence is already required above so
   // its bonus is effectively baseline, but emitted as a reason for
   // log auditability.
@@ -602,6 +630,18 @@ export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection
   // launchpad (`CMZYPASG…`) or any non-Lucky-Buy wrapper.
   for (const p of invoked) {
     if (ME_REWARD_WRAPPER_PROGRAMS.has(p)) return rej('magic_eden_lucky_buy_reward', asset, collection);
+  }
+
+  // Agent-identity registry reject. `RegisterIdentityV1` (`1DREGFgy…`) CPIs into
+  // mpl-core to mint an on-demand agent-identity asset (e.g. aign.fun, but also
+  // standalone) — a utility/identity NFT, not a real collection drop. Like the
+  // ME-reward case it otherwise passes every gate above (fresh Core mint into a
+  // real collection; the identity/front-end program is the non-primitive
+  // wrapper). Keyed on the identity program being INVOKED — not on aign.fun
+  // (`ANUK3r5…`) alone, since the program also mints standalone. Parser-level,
+  // no price/free dependency.
+  for (const p of invoked) {
+    if (AGENT_IDENTITY_PROGRAMS.has(p)) return rej('agent_identity_mint', asset, collection);
   }
 
   // Require a custom wrapper — at least one invoked program outside the
