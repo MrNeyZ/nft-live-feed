@@ -20,6 +20,7 @@ import { insertSaleEvent } from '../../db/insert';
 import { HeliusEnhancedTransaction } from '../helius/types';
 import { saleEventBus } from '../../events/emitter';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
+import { noteOrbisUncovered } from './uncovered-watch';
 
 /**
  * Fetch + parse + insert one Orbis transaction.
@@ -49,6 +50,11 @@ export async function ingestOrbisRaw(
     const touched = extractNftMintsInvolved(tx);
     if (touched.length > 0) saleEventBus.emitTxMintsTouched({ mints: touched });
     auditRecordOutcome(sig, 'parser_drop');
+    // Observability-only: capture an uncovered Orbis settlement (cNFT buy /
+    // accepted-offer) — a dropped tx that still emits a "sold for" log or a
+    // settlement-like instruction. Never fires for covered BuyCoreV2/BuyNft
+    // (those return on the accept branch below). No behavior change.
+    noteOrbisUncovered(tx, result.reason);
     console.log(`[orbis_raw] DROP  sig=${sig.slice(0, 12)}  reason="${result.reason}"`);
     return;
   }
