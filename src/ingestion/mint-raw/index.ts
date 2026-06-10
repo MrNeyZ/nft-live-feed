@@ -498,14 +498,22 @@ function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
 }
 
 /** Lamports paid by the signer (account index 0) — positive value means
- *  the signer parted with SOL. The tx fee (~5 000 lamports) is well below
- *  the 1 000 000-lamport MIN_PAID dust threshold so we don't need to
- *  subtract it explicitly for free/paid classification. */
+ *  the signer parted with SOL. The network tx fee is always charged to
+ *  accountKeys[0] (the fee payer), so it's part of the raw pre/post delta and
+ *  must be subtracted: on a free/reward mint where the signer pays nothing but
+ *  the fee, the un-subtracted delta == fee and surfaces as a bogus mint price
+ *  (e.g. Lucky Buy reward txs showed ~0.000077 SOL = a high priority fee).
+ *  Subtracting it leaves only the true SOL the signer spent on the mint. */
 function extractSignerLamportsPaid(tx: RawSolanaTx): number | null {
   const pre  = tx.meta?.preBalances;
   const post = tx.meta?.postBalances;
   if (!Array.isArray(pre) || !Array.isArray(post) || pre.length === 0) return null;
-  const delta = (pre[0] as number) - (post[0] as number);
+  // `meta.fee` is on the RPC getTransaction response but not in our
+  // RawTransactionMeta type — read it via a narrow cast (pre[] being valid
+  // already implies tx.meta is non-null).
+  const metaFee = (tx.meta as unknown as { fee?: number }).fee;
+  const fee = typeof metaFee === 'number' ? metaFee : 0;
+  const delta = (pre[0] as number) - (post[0] as number) - fee;
   if (!Number.isFinite(delta)) return null;   // invalid/missing balances → unknown
   // Clamp to 0: a negative delta means the fee-payer (accountKeys[0]) net-
   // RECEIVED lamports (e.g. Metaplex Core free mints / fee-payer != minter),
