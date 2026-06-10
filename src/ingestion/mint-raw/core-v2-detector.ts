@@ -455,6 +455,12 @@ const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
 const NOOP_PROGRAM_ID        = 'noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV';
 const MEMO_V1_PROGRAM        = 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo';
 const MEMO_V2_PROGRAM        = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+// Native signature-verification programs. They appear in many txs that carry a
+// signed allowlist / proof payload (ME Lucky Buy, gated mints, …) and are NOT
+// launchpads — so they must not satisfy the "custom wrapper" gate, or a bare
+// direct mint with an ed25519 proof would be misread as a launchpad mint.
+const ED25519_SIGVERIFY_PROGRAM = 'Ed25519SigVerify111111111111111111111111111';
+const SECP256K1_PROGRAM         = 'KeccakSecp256k11111111111111111111111111111';
 const CANDY_MACHINE_V3_PROGRAM = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR';
 const CANDY_GUARD_PROGRAM       = 'Guard1JwRhJkVH6XZhzoYxeBVQe872VH6QggF4BWmS9g';
 const BUBBLEGUM_PROGRAM         = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
@@ -470,6 +476,8 @@ const PRIMITIVE_PROGRAMS: ReadonlySet<string> = new Set([
   NOOP_PROGRAM_ID,
   MEMO_V1_PROGRAM,
   MEMO_V2_PROGRAM,
+  ED25519_SIGVERIFY_PROGRAM,
+  SECP256K1_PROGRAM,
   // Known launchpad / candy programs — each has its own detector above, so
   // they must not count as the "custom wrapper" that arms the generic path.
   CORE_CANDY_MACHINE_PROGRAM,

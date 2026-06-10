@@ -510,6 +510,20 @@ function tryPromote(a: Accum, now: number): void {
     return;
   }
   if (!hasUsableIdentity(a))             return;
+  // Recognized custom-launchpad (generic Core) carve-out. These rows carry an
+  // unspoofable detector fingerprint (an mpl-core Create driven by a real
+  // non-primitive wrapper — see detectGenericCoreLaunchpadMint) and are often
+  // low-velocity trickles (e.g. ME Lucky Buy drops) that never reach burst.
+  // Promote on the first mint so the drop surfaces — but ONLY past the
+  // identity gate above, so a name/image-less row keeps incubating until DAS
+  // resolves. Unlike the LMNFT-cNFT bypass this does NOT skip identity.
+  // Normal (non-coreLaunchpad) rows are unaffected; thresholds unchanged.
+  if (a.coreLaunchpad === true) {
+    a.displayState = 'shown';
+    a.shownReason  = 'launchpad';
+    a.shownAt      = now;
+    return;
+  }
   if (a.observedMints >= THRESHOLD_MIN_MINTS) {
     a.displayState = 'shown';
     a.shownReason  = 'threshold';
