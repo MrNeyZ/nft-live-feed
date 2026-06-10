@@ -50,7 +50,7 @@ import {
   CANDY_GUARD_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
-import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint, detectGenericCoreLaunchpadMint } from './core-v2-detector';
+import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint, detectGenericCoreLaunchpadMint, detectGenericTokenMetadataLaunchpadMint } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -1032,6 +1032,56 @@ export async function ingestMintRaw(
           }
           logV2CoreReject(sig, v2.score, v2.rejectReason ?? 'unknown', v2.reasons);
         }
+      }
+      // Generic UNKNOWN custom-launchpad LEGACY Token Metadata fallback.
+      // Always on (no flag). The TM analogue of the generic Core path above:
+      // any custom program that CPIs into Token Metadata
+      // (CreateMetadataAccountV3 + CreateMasterEditionV3 + VerifyCollection) to
+      // mint a real, freshly-created classic-SPL NonFungible into a real
+      // collection. NOT MPL Core. Runs last (after every Core/ME/candy/generic
+      // path misses) and requires a non-primitive wrapper so it never poaches a
+      // bare direct or Candy Machine TM mint. Token-2022, when present, is the
+      // payment currency — not a reject trigger. Reaches us via the existing
+      // token_metadata WS/poll. Audit: collection BR5k11k… / "WrappedBulls"
+      // (wrapper L2TExMFK…).
+      const tm = detectGenericTokenMetadataLaunchpadMint(tx);
+      if (tm && tm.accept && tm.mintAddress && tm.collectionAddress) {
+        logV2CoreAccept(sig, tm.score, tm.reasons, tm.mintAddress, tm.collectionAddress);
+        const priceLamports = extractMintPriceLamports(tx);
+        const mintType      = classifyMintType(priceLamports);
+        const groupingKey   = `collection:${tm.collectionAddress}`;
+        const blockTime = tx.blockTime
+          ? new Date((tx.blockTime as number) * 1000).toISOString()
+          : new Date().toISOString();
+        const emitted = rec({
+          signature:         sig,
+          blockTime,
+          programSource:     'mpl_token_metadata',
+          mintAddress:       tm.mintAddress,
+          collectionAddress: tm.collectionAddress,
+          groupingKey,
+          groupingKind:      'collection',
+          mintType,
+          priceLamports,
+          ...paymentFieldsFrom(tx),
+          minter:            tm.minter,
+          // Existing label → frontend `sourceBadge` renders METAPLEX.
+          sourceLabel:       'Metaplex',
+        });
+        if (emitted) enqueueMintEnrichment(groupingKey, tm.mintAddress);
+        scheduleCollectionConfirmation(groupingKey, tm.mintAddress, tm.collectionAddress, sig);
+        void enrichLaunchpadCollectionMeta(tm.collectionAddress, groupingKey, {
+          patchName: true,
+          logTag:    'generic-tm-meta',
+        });
+        return;
+      }
+      if (tm && !tm.accept && tm.rejectReason
+          && tm.rejectReason !== 'no_collection'
+          && tm.rejectReason !== 'no_custom_wrapper') {
+        // Surface only informative rejects; no_collection (pre-reveal /
+        // singleton) and no_custom_wrapper (direct/candy → not ours) are noise.
+        logV2CoreReject(sig, tm.score, tm.rejectReason, tm.reasons);
       }
       if (sig === DEBUG_SIG) {
         console.log(`[mints/debug-sig] sig=${sig} decision=reject reason=unknown_launchpad`);

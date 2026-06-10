@@ -592,6 +592,243 @@ export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection
   };
 }
 
+// ─── Legacy Metaplex Token Metadata generic launchpad fallback ────────────
+//
+// The generic Core detector above tracks unknown launchpads that CPI into
+// mpl-core. This sibling covers the parallel hole for the LEGACY Token
+// Metadata standard (CreateMetadataAccountV3 + CreateMasterEditionV3 +
+// VerifyCollection) driven by an unknown custom launchpad wrapper. NOT MPL
+// Core. Reference accept:
+//   3rtQjpaXA6pDJXdAwE8qz3f3CaThUVekVvte86CyRVtVj6r9gmb1hfM2Ruut2adQXNqvRu1EqbbY6VwhB9DWG1Zc
+//   (wrapper L2TExMFK…, asset AQ3sv5… "WrappedBulls #191", collection BR5k11k…
+//    "WrappedBulls", paid in a Token-2022 pump.fun token — payment only).
+
+/** Token Metadata legacy instruction discriminators (first data byte). */
+const TM_CREATE_METADATA_V3       = 33;
+const TM_CREATE_MASTER_EDITION_V3 = 17;
+/** Verify-collection-family ixs → the account index holding the collection
+ *  MINT in each variant's account layout. Used to read the on-chain-verified
+ *  collection directly from the verify ix. */
+const TM_VERIFY_COLLECTION_MINT_IDX: ReadonlyMap<number, number> = new Map([
+  [18, 3], // VerifyCollection                    [meta, auth, payer, collMint, …]
+  [30, 3], // VerifySizedCollectionItem           [meta, auth, payer, collMint, …]
+  [25, 4], // SetAndVerifyCollection              [meta, auth, payer, updAuth, collMint, …]
+  [32, 4], // SetAndVerifySizedCollectionItem     [meta, auth, payer, updAuth, collMint, …]
+  [52, 3], // Verify (unified, CollectionV1)      [auth, delegate?, meta, collMint, …]
+]);
+
+/** Canonical Associated Token Account program. The shared `ATA_PROGRAM`
+ *  constant in me-raw/programs.ts is currently MALFORMED (…LJe1bC instead of
+ *  the real …LJA8knL), so PRIMITIVE_PROGRAMS does not actually contain the
+ *  real ATA id. Every legacy-TM NFT creates an ATA, so without pinning the
+ *  correct id here the ATA program would masquerade as a "custom wrapper" and
+ *  poach plain direct / Candy Machine TM mints. Pinned locally; the shared
+ *  constant is left untouched (out of scope for this change). */
+const ATA_PROGRAM_CANONICAL = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+
+interface TmIx { disc: number; accounts: number[]; dataB58: string; }
+/** Collect every Token Metadata instruction (top + inner), with its
+ *  first-byte discriminator and resolved account indices. Single pass so the
+ *  detector can locate create/master-edition/verify ixs without re-walking. */
+function collectTokenMetadataIxs(tx: RawSolanaTx, accountKeys: string[]): TmIx[] {
+  const out: TmIx[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const consider = (ix: any): void => {
+    const programId: string = typeof ix.programId === 'string'
+      ? ix.programId
+      : typeof ix.programIdIndex === 'number' ? accountKeys[ix.programIdIndex] ?? '' : '';
+    if (programId !== TOKEN_METADATA_PROGRAM) return;
+    const dataB58: string = typeof ix.data === 'string' ? ix.data : '';
+    if (!dataB58) return;
+    let disc = -1;
+    try { const buf = Buffer.from(bs58.decode(dataB58)); if (buf.length >= 1) disc = buf[0]; } catch { return; }
+    const accounts: number[] = (ix.accounts ?? []).map((a: number | string) =>
+      typeof a === 'number' ? a : accountKeys.indexOf(a));
+    out.push({ disc, accounts, dataB58 });
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message = (tx.transaction?.message as any) ?? {};
+  const top = Array.isArray(message.instructions) ? message.instructions : [];
+  for (const ix of top) consider(ix);
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const ix of grp.instructions as any[]) consider(ix);
+    }
+  }
+  return out;
+}
+
+interface CreateMetadataV3Parsed { name: string; uri: string; collectionKey: string | null; }
+/** Parse the relevant prefix of a CreateMetadataAccountV3 ix payload:
+ *  DataV2 { name, symbol, uri, sellerFeeBasisPoints, creators?, collection?,
+ *  uses? }. We only need name, uri, and the collection key — so we stop after
+ *  the collection option and never touch `uses` / `isMutable` /
+ *  `collectionDetails`. Returns null on a short / malformed buffer. */
+function parseCreateMetadataV3Args(dataB58: string): CreateMetadataV3Parsed | null {
+  let buf: Buffer;
+  try { buf = Buffer.from(bs58.decode(dataB58)); } catch { return null; }
+  if (buf.length < 1 || buf[0] !== TM_CREATE_METADATA_V3) return null;
+  let off = 1;
+  const readStr = (): string | null => {
+    if (off + 4 > buf.length) return null;
+    const len = buf.readUInt32LE(off); off += 4;
+    if (len > 2048 || off + len > buf.length) return null;
+    const s = buf.slice(off, off + len).toString('utf8'); off += len;
+    return s;
+  };
+  const name = readStr();   if (name === null) return null;
+  const symbol = readStr(); if (symbol === null) return null;
+  void symbol;
+  const uri = readStr();    if (uri === null) return null;
+  if (off + 2 > buf.length) return null;
+  off += 2;                                            // sellerFeeBasisPoints (u16)
+  if (off + 1 > buf.length) return null;
+  const hasCreators = buf[off]; off += 1;              // creators: Option<Vec<Creator>>
+  if (hasCreators === 1) {
+    if (off + 4 > buf.length) return null;
+    const n = buf.readUInt32LE(off); off += 4;
+    const span = n * 34;                               // Creator = pubkey(32)+verified(1)+share(1)
+    if (n > 1024 || off + span > buf.length) return null;
+    off += span;
+  }
+  if (off + 1 > buf.length) return null;
+  const hasCollection = buf[off]; off += 1;            // collection: Option<Collection{verified,key}>
+  let collectionKey: string | null = null;
+  if (hasCollection === 1) {
+    if (off + 1 + 32 > buf.length) return null;
+    off += 1;                                          // verified (bool)
+    collectionKey = bs58.encode(buf.slice(off, off + 32)); off += 32;
+  }
+  return { name, uri, collectionKey };
+}
+
+/** True when `mint` appears in postTokenBalances as a classic SPL Token
+ *  (Tokenkeg…) account with 0 decimals — the NFT shape. Combined with a
+ *  CreateMasterEditionV3 in the same tx (supply 1) this proves a NonFungible.
+ *  Rejects fungible mints and Token-2022 mints — in particular the Token-2022
+ *  payment token that rides along in custom-launchpad TM mints. */
+function isClassicNftMint(tx: RawSolanaTx, mint: string): boolean {
+  const post = tx.meta?.postTokenBalances;
+  if (!Array.isArray(post)) return false;
+  for (const b of post) {
+    if (b.mint === mint && b.programId === SPL_TOKEN_PROGRAM && b.uiTokenAmount?.decimals === 0) return true;
+  }
+  return false;
+}
+
+/** Generic UNKNOWN custom-launchpad LEGACY Token Metadata fallback.
+ *
+ *  Last-resort detector for the legacy Metaplex Token Metadata standard, run
+ *  ONLY after the targeted launchpad, ME, Core Candy Machine and generic Core
+ *  detectors have all missed (see `ingestMintRaw`). Goal: track the long tail
+ *  of custom launchpad programs that CPI into Token Metadata to mint a real,
+ *  freshly-created NonFungible into a real collection — the TM analogue of
+ *  `detectGenericCoreLaunchpadMint`. This is NOT MPL Core.
+ *
+ *  Accept gates (all required):
+ *    - Token Metadata program present
+ *    - a CreateMetadataAccountV3 (disc 33) ix exists (the mint create)
+ *    - a CreateMasterEditionV3 (disc 17) ix exists ⇒ supply-1 NonFungible
+ *    - asset = create.accounts[1] is a classic SPL Token mint, decimals 0
+ *      (so a Token-2022 / fungible mint is rejected), freshly created in-tx
+ *    - a real collection — from a Verify-family ix's collection mint when
+ *      present, else the DataV2 collection key in the metadata create
+ *    - at least one invoked program is a non-primitive custom wrapper
+ *      (excludes bare direct / Candy Machine TM mints)
+ *  Hard rejects: DeFi/AMM blacklist present, pool-like name/uri.
+ *  Deliberately does NOT reject on Token-2022 presence — here it is the
+ *  payment currency, not the NFT mint.
+ *
+ *  Returns null when Token Metadata or a CreateMetadataAccountV3 is absent
+ *  (caller falls through to the final unknown_launchpad reject). Downstream,
+ *  `scheduleCollectionConfirmation` re-checks the collection via DAS and drops
+ *  the row if the grouping can't be confirmed. */
+export function detectGenericTokenMetadataLaunchpadMint(tx: RawSolanaTx): CoreV2Detection | null {
+  const shape = readShape(tx);
+  if (!shape) return null;
+  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM)) return null;
+
+  const rej = (
+    rejectReason: string, mint: string | null = null, collection: string | null = null,
+    name: string | null = null, uri: string | null = null,
+  ): CoreV2Detection => ({
+    accept: false, score: 0, reasons: ['generic_token_metadata_launchpad'], rejectReason,
+    mintAddress: mint, collectionAddress: collection, minter: shape.signerKeys[0] ?? null,
+    name, uri, pluginsCount: null,
+  });
+
+  // DeFi/AMM hard-reject (pool-position NFTs occasionally mint via TM). No
+  // Token-2022 reject — see the doc comment.
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return rej('defi_program_present');
+  }
+
+  const tmIxs = collectTokenMetadataIxs(tx, shape.accountKeys);
+  const createMeta = tmIxs.find(x => x.disc === TM_CREATE_METADATA_V3);
+  if (!createMeta) return null;             // not a TM create-mint (update / transfer / burn)
+
+  const parsed = parseCreateMetadataV3Args(createMeta.dataB58);
+  if (!parsed) return rej('borsh_decode_failed');
+
+  // Master edition ⇒ NonFungible (supply 1). An SFT / fungible TM mint has
+  // none and must not surface in /mints.
+  if (!tmIxs.some(x => x.disc === TM_CREATE_MASTER_EDITION_V3)) {
+    return rej('no_master_edition', null, parsed.collectionKey, parsed.name, parsed.uri);
+  }
+
+  // asset (mint) = CreateMetadataAccountV3 accounts[1].
+  const mintIdx = createMeta.accounts.length > 1 ? createMeta.accounts[1] : -1;
+  const asset = mintIdx >= 0 ? shape.accountKeys[mintIdx] ?? null : null;
+  if (!asset) return rej('no_asset_account', null, parsed.collectionKey, parsed.name, parsed.uri);
+
+  if (!isClassicNftMint(tx, asset)) return rej('not_nft_shape', asset, parsed.collectionKey, parsed.name, parsed.uri);
+  if (!isFresh(shape, asset))       return rej('asset_not_fresh', asset, parsed.collectionKey, parsed.name, parsed.uri);
+
+  // Collection — prefer a Verify-family ix's collection mint (verified
+  // on-chain in this tx); else the DataV2 collection key from the create.
+  let collection: string | null = null;
+  for (const x of tmIxs) {
+    const idx = TM_VERIFY_COLLECTION_MINT_IDX.get(x.disc);
+    if (idx === undefined) continue;
+    const ai = x.accounts.length > idx ? x.accounts[idx] : -1;
+    if (ai >= 0) { collection = shape.accountKeys[ai] ?? null; if (collection) break; }
+  }
+  if (!collection) collection = parsed.collectionKey;
+  const realCollection = !!collection
+    && collection !== asset
+    && collection !== SYSTEM_PROGRAM
+    && collection !== TOKEN_METADATA_PROGRAM
+    && collection !== SPL_TOKEN_PROGRAM;
+  if (!realCollection) return rej('no_collection', asset, collection, parsed.name, parsed.uri);
+
+  if (nameLooksLikePool(parsed.name, parsed.uri)) {
+    return rej('pool_like_name', asset, collection, parsed.name, parsed.uri);
+  }
+
+  // Custom wrapper required — at least one invoked program outside the
+  // primitive/infra + known-launchpad set (and not the ATA program). Without
+  // this gate a bare direct TM mint or a Candy Machine v3 mint (both invoke
+  // only primitive programs) would be poached; with it, only genuinely
+  // unknown custom launchpads pass.
+  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
+  let wrapper: string | null = null;
+  for (const p of invoked) {
+    if (!PRIMITIVE_PROGRAMS.has(p) && p !== ATA_PROGRAM_CANONICAL) { wrapper = p; break; }
+  }
+  if (!wrapper) return rej('no_custom_wrapper', asset, collection, parsed.name, parsed.uri);
+
+  return {
+    accept: true, score: 2,
+    reasons: ['generic_token_metadata_launchpad', 'collection_present', `wrapper:${wrapper}`],
+    rejectReason: null,
+    mintAddress: asset, collectionAddress: collection, minter: shape.signerKeys[0] ?? null,
+    name: parsed.name, uri: parsed.uri, pluginsCount: null,
+  };
+}
+
 /** MPL **Core** Candy Machine mint detector (CMv3-core).
  *
  *  Covers the path the targeted detector + CreateV2 scorer both miss: a Core
