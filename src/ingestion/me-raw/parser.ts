@@ -36,6 +36,7 @@ import {
   balanceDeltas,
 } from './price';
 import { LUCKY_BUY_PROGRAM, ME_PACKS_PROGRAM } from './programs';
+import { noteMmmV2Disc } from './v2-disc-watch';
 
 /** Deterministic Lucky Buy detector. Scans the tx's account-keys list
  *  (static + loaded-address tables) for the dedicated lucky-buy raffle
@@ -115,7 +116,13 @@ export function parseRawMeTransaction(tx: RawSolanaTx): ParseResult {
 
   // Try ME AMM first — instruction names unambiguous from open-source program.
   const mmmMatch = findMmmSaleIx(tx);
-  if (mmmMatch) return parseMmmSale(tx, mmmMatch);
+  if (mmmMatch) {
+    const mmmResult = parseMmmSale(tx, mmmMatch);
+    // Observability-only: capture dormant coreFulfillBuyV2 occurrences. No-op
+    // for every other instruction; never alters the returned result.
+    noteMmmV2Disc(tx.signature, mmmMatch.instructionName, mmmResult);
+    return mmmResult;
+  }
 
   // Try ME v2 fixed-price.
   const meV2Match = findMeV2SaleIx(tx);
