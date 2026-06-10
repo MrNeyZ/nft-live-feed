@@ -762,7 +762,7 @@ const STALE_TARGET_MS = 120_000; // 2 minutes — busy targets (me_v2, mmm, tcom
 // much longer stale threshold; the global tier-1/tier-2 watchdog (slot 20s /
 // event 30s) still catches a genuinely dead connection because the busy
 // targets keep `lastEventTs`/`lastSlotTs` fresh.
-const QUIET_TARGETS: ReadonlySet<string> = new Set(['candy_guard', 'tamm', 'me_cnft']);
+const QUIET_TARGETS: ReadonlySet<string> = new Set(['candy_guard', 'tamm', 'me_cnft', 'orbis']);
 const STALE_TARGET_QUIET_MS = 10 * 60_000; // 10 minutes
 function staleThresholdMs(name: string): number {
   return QUIET_TARGETS.has(name) ? STALE_TARGET_QUIET_MS : STALE_TARGET_MS;
