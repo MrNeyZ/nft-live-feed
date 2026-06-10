@@ -27,6 +27,7 @@ import {
   TOKEN_AUTH_RULES_PROGRAM,
   SPL_TOKEN_PROGRAM,
   ATA_PROGRAM,
+  LUCKY_BUY_PROGRAM,
 } from '../me-raw/programs';
 
 // ─── DeFi / pool program hard-rejects ─────────────────────────────────────
@@ -99,6 +100,18 @@ void CORE_CANDY_GUARD_PROGRAM; // referenced for documentation; detection keys o
  *    (asset 24oYx…, inner mpl-core Create disc=0, collection HxSsfM9… "Quack Heads"). */
 export const MAGIC_EDEN_LAUNCHPAD_PROGRAM = 'CMZYPASGWeTz7RNGHaRJfCq2XQ5pYK6nDvVQxzkH51zb';
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+
+/** Magic Eden "reward" wrapper programs. Gamified flows (Lucky Buy, `LUCK57…`)
+ *  that CPI into mpl-core to mint a consolation/reward asset into an ME-owned
+ *  reward collection — NOT a real paid collection drop. A Core mint wrapped by
+ *  one of these is a reward/claim, so the generic Core fallback rejects it
+ *  (`magic_eden_lucky_buy_reward`) rather than surfacing it in /mints. Distinct
+ *  from MAGIC_EDEN_LAUNCHPAD_PROGRAM (`CMZYPASG…`), which IS a real launchpad
+ *  and stays accepted via its dedicated detector. Extend as new ME reward
+ *  wrappers are observed. */
+const ME_REWARD_WRAPPER_PROGRAMS: ReadonlySet<string> = new Set([
+  LUCKY_BUY_PROGRAM,
+]);
 
 /** Trusted NFT metadata host fragments. Matched substring-style on
  *  the parsed URI (lowercased). Conservative bonus, not a gate. */
@@ -574,12 +587,28 @@ export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection
   if (!hasRealCollection) return rej('no_collection', asset, collection);
   if (!isFresh(shape, asset)) return rej('asset_not_fresh', asset, collection);
 
+  // Programs actually invoked by the tx — drives both the ME-reward reject and
+  // the custom-wrapper gate below.
+  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
+
+  // Magic Eden Lucky Buy reward/claim reject. Lucky Buy (`LUCK57…`) is a
+  // gamified "spin" that CPIs into mpl-core to mint a consolation/reward asset
+  // into an ME reward collection (e.g. "Lucky Emmy" 9BSPDYd…) — not a real paid
+  // collection drop. Such a tx otherwise passes every gate above (real fresh
+  // Core mint into a real collection; Lucky Buy is the non-primitive wrapper),
+  // so it would surface in /mints. Reject it here, keyed on the ME reward
+  // program being INVOKED (not merely an account operand). Conservative: fires
+  // only after a real Core mint is confirmed, and never touches the real ME
+  // launchpad (`CMZYPASG…`) or any non-Lucky-Buy wrapper.
+  for (const p of invoked) {
+    if (ME_REWARD_WRAPPER_PROGRAMS.has(p)) return rej('magic_eden_lucky_buy_reward', asset, collection);
+  }
+
   // Require a custom wrapper — at least one invoked program outside the
   // primitive/infra + known-launchpad set. Without this gate a bare direct
   // CreateV2 (no wrapper) would match here instead of falling through to the
   // dedicated v2 scorer; with it, the generic path only ever fires on
   // genuinely-unknown custom launchpads.
-  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
   let wrapper: string | null = null;
   for (const p of invoked) { if (!PRIMITIVE_PROGRAMS.has(p)) { wrapper = p; break; } }
   if (!wrapper) return rej('no_custom_wrapper', asset, collection);
