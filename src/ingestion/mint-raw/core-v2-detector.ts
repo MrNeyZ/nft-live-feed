@@ -22,6 +22,12 @@
 import bs58 from 'bs58';
 import type { RawSolanaTx } from '../me-raw/types';
 import { MPL_CORE_PROGRAM } from './launchpad-detector';
+import {
+  TOKEN_METADATA_PROGRAM,
+  TOKEN_AUTH_RULES_PROGRAM,
+  SPL_TOKEN_PROGRAM,
+  ATA_PROGRAM,
+} from '../me-raw/programs';
 
 // ─── DeFi / pool program hard-rejects ─────────────────────────────────────
 //
@@ -434,6 +440,147 @@ export function detectCoreCreateV2NftCandidate(tx: RawSolanaTx): CoreV2Detection
     name:              args.name,
     uri:               args.uri,
     pluginsCount:      args.pluginsCount,
+  };
+}
+
+/** "Primitive" / infrastructure programs — the building blocks every mint
+ *  composes from, plus the launchpad/candy programs that have their OWN
+ *  dedicated detectors above. A tx whose only invoked programs are these is
+ *  either a bare direct mint (handled by the v2 scorer) or a known launchpad
+ *  (handled earlier) — NOT an unknown custom launchpad. The generic fallback
+ *  below requires at least one invoked program OUTSIDE this set (the custom
+ *  wrapper) before it will accept, so it never fires on a plain direct
+ *  CreateV2 and never poaches a tx a dedicated detector already owns. */
+const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
+const NOOP_PROGRAM_ID        = 'noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV';
+const MEMO_V1_PROGRAM        = 'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo';
+const MEMO_V2_PROGRAM        = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+const CANDY_MACHINE_V3_PROGRAM = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR';
+const CANDY_GUARD_PROGRAM       = 'Guard1JwRhJkVH6XZhzoYxeBVQe872VH6QggF4BWmS9g';
+const BUBBLEGUM_PROGRAM         = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
+const PRIMITIVE_PROGRAMS: ReadonlySet<string> = new Set([
+  MPL_CORE_PROGRAM,
+  TOKEN_METADATA_PROGRAM,
+  TOKEN_AUTH_RULES_PROGRAM,
+  SPL_TOKEN_PROGRAM,
+  TOKEN_2022_PROGRAM,
+  ATA_PROGRAM,
+  SYSTEM_PROGRAM,
+  COMPUTE_BUDGET_PROGRAM,
+  NOOP_PROGRAM_ID,
+  MEMO_V1_PROGRAM,
+  MEMO_V2_PROGRAM,
+  // Known launchpad / candy programs — each has its own detector above, so
+  // they must not count as the "custom wrapper" that arms the generic path.
+  CORE_CANDY_MACHINE_PROGRAM,
+  CORE_CANDY_GUARD_PROGRAM,
+  MAGIC_EDEN_LAUNCHPAD_PROGRAM,
+  CANDY_MACHINE_V3_PROGRAM,
+  CANDY_GUARD_PROGRAM,
+  BUBBLEGUM_PROGRAM,
+]);
+
+/** Collect every program id actually INVOKED by the tx (top-level + inner
+ *  instructions), resolved through `accountKeys` for the raw-json index form.
+ *  Used to decide whether a custom (non-primitive) wrapper program is driving
+ *  the mint. Account keys that merely appear as instruction operands are NOT
+ *  counted — only program ids of real instructions. */
+function collectInvokedPrograms(tx: RawSolanaTx, accountKeys: string[]): Set<string> {
+  const out = new Set<string>();
+  const resolve = (ix: { programId?: string; programIdIndex?: number }): string => {
+    if (typeof ix.programId === 'string') return ix.programId;
+    if (typeof ix.programIdIndex === 'number') return accountKeys[ix.programIdIndex] ?? '';
+    return '';
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message = (tx.transaction?.message as any) ?? {};
+  const top = Array.isArray(message.instructions) ? message.instructions : [];
+  for (const ix of top) { const p = resolve(ix); if (p) out.add(p); }
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const ix of grp.instructions as any[]) { const p = resolve(ix); if (p) out.add(p); }
+    }
+  }
+  return out;
+}
+
+/** Generic UNKNOWN custom-launchpad MPL Core fallback.
+ *
+ *  Last-resort Core mint detector, run ONLY after the targeted launchpad
+ *  detector, the Magic Eden detector, AND the Core Candy Machine detector
+ *  have all missed (see `ingestMintRaw`). Goal: track the long tail of
+ *  custom launchpad programs that CPI into mpl-core `Create`/`CreateV2`
+ *  without us having to enumerate each wrapper program id.
+ *
+ *  This intentionally does NOT key on any specific wrapper program. Instead
+ *  it proves the tx is a real Core NFT mint driven by *some* custom program:
+ *    - MPL Core present
+ *    - an mpl-core Create (disc 0) or CreateV2 (disc 20) ix exists
+ *    - asset = create.accounts[0], freshly created in THIS tx (lamports 0→>0)
+ *    - collection = create.accounts[1], real (≠ null / asset / system / Core)
+ *    - at least one invoked program is a non-primitive custom wrapper
+ *      (i.e. not bare-direct-mint, not a program a dedicated detector owns)
+ *  Hard rejects: DeFi/AMM blacklist present, Token-2022 present, no fresh
+ *  asset (transfer/sale-only txs have no fresh Create), no real collection.
+ *
+ *  Returns null when MPL Core or a create-ix is absent, or when no custom
+ *  wrapper is involved (caller falls through to the v2 scorer / reject).
+ *  Reference accept: 5UsaHCoHZQFgJiS62uE82t9La6wLmoEn3zRcLcvifctTQrSCza3mzJoJo6E4TcrpDxjxqzqrTyypeKscWH39GRzf
+ *  (wrapper 22NeePs5…, inner mpl-core Create disc=0, collection 7c3tY7n… "little swag figures2"). */
+export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection | null {
+  const shape = readShape(tx);
+  if (!shape) return null;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return null;
+
+  const rej = (rejectReason: string, mint: string | null = null, collection: string | null = null): CoreV2Detection => ({
+    accept: false, score: 0, reasons: ['generic_core_launchpad'], rejectReason,
+    mintAddress: mint, collectionAddress: collection, minter: shape.signerKeys[0] ?? null,
+    name: null, uri: null, pluginsCount: null,
+  });
+
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return rej('defi_program_present');
+  }
+  if (shape.accountKeys.includes(TOKEN_2022_PROGRAM)) return rej('token_2022_present');
+
+  // Must be an actual Core mint — a fresh asset built by an inner/top
+  // mpl-core Create (disc 0) or CreateV2 (disc 20). Transfer / sale-only
+  // txs carry no such create ix, so this also satisfies the
+  // "reject obvious transfer/sale-only tx" requirement.
+  const found = findCreateV2Ix(tx, shape.accountKeys, CORE_CREATE_DISCS);
+  if (!found) return null;
+
+  const accIxs = found.accounts;
+  const asset      = accIxs.length > 0 && accIxs[0] >= 0 ? shape.accountKeys[accIxs[0]] ?? null : null;
+  const collection = accIxs.length > 1 && accIxs[1] >= 0 ? shape.accountKeys[accIxs[1]] ?? null : null;
+  const minter     = shape.signerKeys[0] ?? null;
+  if (!asset) return rej('no_asset_account', null, collection);
+
+  const hasRealCollection = !!collection
+    && collection !== MPL_CORE_PROGRAM
+    && collection !== asset
+    && collection !== SYSTEM_PROGRAM;
+  if (!hasRealCollection) return rej('no_collection', asset, collection);
+  if (!isFresh(shape, asset)) return rej('asset_not_fresh', asset, collection);
+
+  // Require a custom wrapper — at least one invoked program outside the
+  // primitive/infra + known-launchpad set. Without this gate a bare direct
+  // CreateV2 (no wrapper) would match here instead of falling through to the
+  // dedicated v2 scorer; with it, the generic path only ever fires on
+  // genuinely-unknown custom launchpads.
+  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
+  let wrapper: string | null = null;
+  for (const p of invoked) { if (!PRIMITIVE_PROGRAMS.has(p)) { wrapper = p; break; } }
+  if (!wrapper) return rej('no_custom_wrapper', asset, collection);
+
+  return {
+    accept: true, score: 2, reasons: ['generic_core_launchpad', 'collection_present', `wrapper:${wrapper}`],
+    rejectReason: null,
+    mintAddress: asset, collectionAddress: collection, minter,
+    name: null, uri: null, pluginsCount: null,
   };
 }
 

@@ -50,7 +50,7 @@ import {
   CANDY_GUARD_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
-import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint } from './core-v2-detector';
+import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint, detectGenericCoreLaunchpadMint } from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -925,6 +925,58 @@ export async function ingestMintRaw(
         // Surface only the informative rejects (skip the common pre-reveal
         // no_collection noise) so the path stays observable without flooding.
         logV2CoreReject(sig, cm.score, cm.rejectReason, cm.reasons);
+      }
+      // Generic UNKNOWN custom-launchpad fallback. Always on (no flag): it
+      // covers the long tail of launchpad wrapper programs we don't enumerate
+      // — any custom program that CPIs into mpl-core Create/CreateV2 to mint a
+      // real, freshly-created asset into a real collection. Runs only after
+      // the three dedicated detectors miss, and requires a non-primitive
+      // wrapper program so it never poaches a bare direct CreateV2 (left to
+      // the v2 scorer below) nor a tx a dedicated detector already owns.
+      // Reaches us via the existing mpl_core WS/poll. Audit: collection
+      // 7c3tY7n… / "little swag figures2" (wrapper 22NeePs5…).
+      const gen = detectGenericCoreLaunchpadMint(tx);
+      if (gen && gen.accept && gen.mintAddress && gen.collectionAddress) {
+        logV2CoreAccept(sig, gen.score, gen.reasons, gen.mintAddress, gen.collectionAddress);
+        const priceLamports = extractMintPriceLamports(tx);
+        const mintType      = classifyMintType(priceLamports);
+        const groupingKey   = `collection:${gen.collectionAddress}`;
+        const blockTime = tx.blockTime
+          ? new Date((tx.blockTime as number) * 1000).toISOString()
+          : new Date().toISOString();
+        const emitted = rec({
+          signature:         sig,
+          blockTime,
+          programSource:     'mpl_core',
+          mintAddress:       gen.mintAddress,
+          collectionAddress: gen.collectionAddress,
+          groupingKey,
+          groupingKind:      'collection',
+          mintType,
+          priceLamports,
+          ...paymentFieldsFrom(tx),
+          minter:            gen.minter,
+          // Reuse the existing `Metaplex Core` label → frontend renders CORE.
+          sourceLabel:       'Metaplex Core',
+          // Visual subtype only: Core launchpad mint (pink-tinted CORE badge).
+          coreLaunchpad:     true,
+        });
+        if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress);
+        scheduleCollectionConfirmation(groupingKey, gen.mintAddress, gen.collectionAddress, sig);
+        // Collection-level identity — same pattern as the ME / Core CM
+        // branches above; without it the row only ever sees per-NFT DAS.
+        void enrichLaunchpadCollectionMeta(gen.collectionAddress, groupingKey, {
+          patchName: true,
+          logTag:    'generic-core-meta',
+        });
+        return;
+      }
+      if (gen && !gen.accept && gen.rejectReason
+          && gen.rejectReason !== 'no_collection'
+          && gen.rejectReason !== 'no_custom_wrapper') {
+        // Surface only informative rejects; the common no_collection (pre-reveal)
+        // and no_custom_wrapper (bare direct mint → v2 scorer) cases are noise.
+        logV2CoreReject(sig, gen.score, gen.rejectReason, gen.reasons);
       }
       // Feature-flagged Direct MPL Core CreateV2 fallback. OFF by
       // default (MINT_TRACKER_CORE_V2_SCORER unset). When ON, we run
