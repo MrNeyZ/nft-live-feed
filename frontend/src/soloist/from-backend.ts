@@ -29,7 +29,9 @@ function collectionMeta(name: string | null): { abbr: string; color: string } {
 }
 
 function mapMarketplace(mp: string): Marketplace {
-  return (mp === 'tensor' || mp === 'tensor_amm') ? 'tensor' : 'me';
+  if (mp === 'tensor' || mp === 'tensor_amm') return 'tensor';
+  if (mp === 'orbis') return 'orbis';
+  return 'me';
 }
 
 /**
@@ -116,6 +118,9 @@ export function marketplaceUrl(event: FeedEvent): string | null {
     if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
     return 'https://www.tensor.trade';
   }
+  // Orbis: no verified deep-link URL scheme yet — render the badge without a
+  // link rather than mis-routing an Orbis sale to magiceden.io below.
+  if (event.marketplace === 'orbis') return null;
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
   // bare ME homepage as the last resort so the badge always links somewhere
   // on the same marketplace.

@@ -5,6 +5,7 @@ export type Marketplace =
   | 'magic_eden_amm'
   | 'tensor'
   | 'tensor_amm'
+  | 'orbis'
   | 'unknown';
 
 export type Currency = 'SOL' | 'USDC';

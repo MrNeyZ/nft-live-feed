@@ -489,8 +489,14 @@ export function TypeBadge({ type }: { type: 'buy' | 'sell' }) {
  * `stopPropagation` so a badge click doesn't bubble into the row.
  */
 export function MktIconBadge({ mp, href }: { mp: Marketplace; href?: string | null }) {
-  const src = mp === 'me' ? '/brand/me.png' : mp === 'tensor' ? '/brand/tensor.png' : null;
-  if (!src) return <MktBadge mp={mp} href={href} />;
+  // Orbis logo may not be uploaded yet — if /brand/orbis.png 404s, fall back to
+  // the text `ORBIS` badge instead of rendering a broken image.
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = mp === 'me' ? '/brand/me.png'
+    : mp === 'tensor' ? '/brand/tensor.png'
+    : mp === 'orbis'  ? '/brand/orbis.png'
+    : null;
+  if (!src || imgFailed) return <MktBadge mp={mp} href={href} />;
   const chip: React.CSSProperties = {
     display:'inline-flex', alignItems:'center', justifyContent:'center',
     width:18, height:18, borderRadius:4, overflow:'hidden',
@@ -502,6 +508,7 @@ export function MktIconBadge({ mp, href }: { mp: Marketplace; href?: string | nu
       src={src}
       alt=""
       draggable={false}
+      onError={() => setImgFailed(true)}
       style={{ display:'block', width:'100%', height:'100%', objectFit:'cover', pointerEvents:'none' }}
     />
   );
@@ -530,8 +537,15 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
     background: '#8068d820', color: '#a890e8', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
-  const style = mp === 'me' ? meStyle : tStyle;
-  const label = mp === 'me' ? 'ME' : 'T';
+  // Orbis — teal, distinct from ME (pink) and Tensor (purple). Same chrome.
+  const oStyle = {
+    display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
+    padding: '1px 6px', borderRadius: 3, border: '1px solid #2bb6a348',
+    background: '#2bb6a320', color: '#5fd6c4', letterSpacing: '0.2px',
+    flexShrink: 0, lineHeight: '14px',
+  } as const;
+  const style = mp === 'me' ? meStyle : mp === 'orbis' ? oStyle : tStyle;
+  const label = mp === 'me' ? 'ME' : mp === 'orbis' ? 'ORBIS' : 'T';
   if (href) {
     return (
       <a

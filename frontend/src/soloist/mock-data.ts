@@ -3,7 +3,7 @@
 // subscription to the backend SSE stream when wiring up live data.
 
 export type Side = 'buy' | 'sell';
-export type Marketplace = 'me' | 'tensor';
+export type Marketplace = 'me' | 'tensor' | 'orbis';
 
 export interface Collection {
   name: string;

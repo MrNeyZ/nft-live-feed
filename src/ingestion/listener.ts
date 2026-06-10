@@ -15,6 +15,8 @@
 import WebSocket from 'ws';
 import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
+import { ingestOrbisRaw } from './orbis-raw/ingest';
+import { ORBIS_PROGRAM, ORBIS_SALE_INSTRUCTIONS } from './orbis-raw/programs';
 import {
   ingestMintRaw,
   hasMintInstructionLog,
@@ -80,6 +82,14 @@ const TARGETS: Target[] = [
     name:    'me_cnft',
     program: 'M3mxk5W2tt27WGT7THox7PmgRDp4m6NEhL5xvxrBfS1',
     ingest:  ingestMeRaw,
+  },
+  {
+    // Orbis marketplace (MPL-Core-first). Low volume; same class as ME/Tensor.
+    // Delegate-mode listings settle atomically on BuyCoreV2 / BuyNft — the
+    // strict sale prefilter below sheds list/delist/offer/update before RPC.
+    name:    'orbis',
+    program: ORBIS_PROGRAM,
+    ingest:  ingestOrbisRaw,
   },
   // ─── Mint targets ─────────────────────────────────────────────────────────
   // MPL Core: low-volume, allow both WS + cursor poll like sales programs.
@@ -639,6 +649,27 @@ function hasTensorSaleInstruction(logs: unknown): boolean {
   return false;
 }
 
+// ─── Orbis log prefilter ──────────────────────────────────────────────────────
+//
+// Same shape as the Tensor prefilter: Orbis emits Anchor `Instruction: <name>`
+// log lines, so we can shed every non-sale tx (list / delist / offer / update /
+// cancel) before paying for getTransaction. Only the two verified buy paths
+// (BuyCoreV2 / BuyNft) pass. Fail-OPEN when logs are absent so a sale is never
+// silently dropped — the parser's "sold for" check is the final authority.
+const ORBIS_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['orbis']);
+
+/** Scan WS logs for an Orbis-sale Anchor instruction. Fail-open if logs absent. */
+function hasOrbisSaleInstruction(logs: unknown): boolean {
+  if (!Array.isArray(logs) || logs.length === 0) return true;
+  for (const line of logs as string[]) {
+    const lower = (line ?? '').toLowerCase();
+    if (!lower.startsWith(LOG_IX_PREFIX)) continue;
+    const ix = lower.slice(LOG_IX_PREFIX.length);
+    if (ORBIS_SALE_INSTRUCTIONS.has(ix)) return true;
+  }
+  return false;
+}
+
 // Per-target skip counters are routed into the aggregated [telemetry] line in
 // src/ingestion/telemetry.ts so the console stays at one summary line / min.
 
@@ -892,6 +923,20 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       }
       markSeen(sig);        // block poller path via seenSigs FIFO
       markSigFetched(sig);  // block fetchRawTx path via recentSigs (3 min TTL)
+      return;
+    }
+
+    // Orbis log prefilter. Same deterministic Anchor-log basis as Tensor —
+    // skip non-sale Orbis txs (list/delist/offer/update) before fetchRawTx.
+    if (ORBIS_PREFILTER_TARGETS.has(target.name) && !hasOrbisSaleInstruction(value.logs)) {
+      stats.filtered++;
+      incPrefilterSkip();
+      if (isSigTarget(sig)) {
+        saleDebug('prefilter_skip', sig, { program: target.name, reason: 'orbis_no_sale_ix' });
+        saleDebug('mark_fetched',   sig, { reason: 'orbis_prefilter_skip' });
+      }
+      markSeen(sig);
+      markSigFetched(sig);
       return;
     }
 
