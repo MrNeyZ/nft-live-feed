@@ -754,7 +754,25 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-              <span>{display}</span>
+              <span>
+                {(payment && showInToken && tokenAmount != null) ? (
+                  <>
+                    {tokenAmount}{' '}
+                    {/* token name → Solscan token page; only the name is
+                        clickable, styling inherited so no layout change. */}
+                    <a
+                      href={`https://solscan.io/token/${payment.mint}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      title={`View ${tokenLabel} on Solscan`}
+                      style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                    >{tokenLabel}</a>
+                  </>
+                ) : display}
+              </span>
               {payment && (
                 <button
                   type="button"
