@@ -20,7 +20,7 @@
 
 import { Router, Request, Response } from 'express';
 import { getMeStats } from '../enrichment/me-stats';
-import { rateLimit, isValidSlug } from './rate-limit';
+import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
 import { resolveTensorMeta, tensorFetch } from './listings-store';
 
 const BID_TTL_MS = 60_000;
@@ -137,6 +137,45 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
   return entry;
 }
 
+// ── cNFT collection floor by on-chain collection ADDRESS ────────────────────
+// Slug-less cNFT collections (DRiP / Tensor-native) never get an ME slug, so
+// the slug-keyed floor above — and the frontend `isCnftDust` predicate — can't
+// run, and they leak into the feed regardless of a dust floor. Resolve the
+// Tensor collId straight from the collection address (`resolveTensorMeta` →
+// tensordev `find_collection?filter=<address>`) and read the single cheapest
+// active listing as the floor. Cached per address (hit AND miss) so a hot
+// collection costs at most one Tensor round-trip per TTL; `tensorFetch` already
+// serializes tensordev calls at ≥1 req/s. Returns null on any miss — the caller
+// (and the frontend predicate) then FAILS SAFE and shows the collection.
+const CNFT_FLOOR_TTL_MS = 120_000;
+const cnftFloorCache = new Map<string, { floorLamports: number | null; fetchedAt: number }>();
+
+async function fetchCnftFloorByAddress(address: string): Promise<number | null> {
+  if (!process.env.TENSOR_API_KEY) return null;
+  const meta = await resolveTensorMeta(address);
+  if (!meta) return null;
+  const res = await tensorFetch(
+    'https://api.mainnet.tensordev.io/api/v1/mint/active_listings'
+    + `?collId=${encodeURIComponent(meta.collId)}&sortBy=ListingPriceAsc&limit=1`,
+  );
+  if (!res.ok) return null;
+  const json = await res.json() as { mints?: Array<{ listing?: { price?: string } }> };
+  const raw = json.mints?.[0]?.listing?.price;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function getCnftFloorForAddress(address: string): Promise<number | null> {
+  const hit = cnftFloorCache.get(address);
+  const now = Date.now();
+  if (hit && now - hit.fetchedAt < CNFT_FLOOR_TTL_MS) return hit.floorLamports;
+  let floorLamports: number | null = null;
+  try { floorLamports = await fetchCnftFloorByAddress(address); }
+  catch { floorLamports = null; }
+  cnftFloorCache.set(address, { floorLamports, fetchedAt: now });
+  return floorLamports;
+}
+
 export function createCollectionBidsRouter(): Router {
   const router = Router();
   // 60 req/min/IP covers a steady dashboard refresh (every 30 s) per
@@ -172,6 +211,32 @@ export function createCollectionBidsRouter(): Router {
       res.json({ bids: Object.fromEntries(entries) });
     } catch (err) {
       console.error('[collection-bids] error', err);
+      res.status(500).json({ error: 'internal server error' });
+    }
+  });
+
+  // cNFT collection floor by on-chain collection address — the slug-less
+  // counterpart to /bids. Powers the frontend cNFT dust filter for DRiP /
+  // Tensor cNFT collections that carry no ME slug. Same rate budget as /bids.
+  const cnftFloorLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'collections/cnft-floor' });
+  router.get('/cnft-floor', cnftFloorLimit, async (req: Request, res: Response) => {
+    const raw = String(req.query.addresses ?? '').trim();
+    if (!raw) {
+      res.json({ floors: {} });
+      return;
+    }
+    const addresses = Array.from(new Set(
+      raw.split(',').map(s => s.trim()).filter(isValidMint),
+    )).slice(0, MAX_SLUGS_PER_REQUEST);
+
+    try {
+      const entries = await Promise.all(addresses.map(async (address) => {
+        const floorLamports = await getCnftFloorForAddress(address);
+        return [address, { floorLamports }] as const;
+      }));
+      res.json({ floors: Object.fromEntries(entries) });
+    } catch (err) {
+      console.error('[collection-bids] cnft-floor error', err);
       res.status(500).json({ error: 'internal server error' });
     }
   });

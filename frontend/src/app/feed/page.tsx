@@ -728,6 +728,60 @@ export default function FeedPage() {
     if (floorFetchTimerRef.current) clearTimeout(floorFetchTimerRef.current);
   }, []);
 
+  // ── Slug-less cNFT floor (DRiP / Tensor) ────────────────────────────────────
+  // The /bids fetch above is ME-slug-keyed; cNFT collections without an ME slug
+  // (DRiP, Tensor-native) never get a floor there, so `isCnftDust` failed open.
+  // Resolve their floor by ON-CHAIN COLLECTION ADDRESS via /cnft-floor and merge
+  // into the SAME `floorBySlug` map (keyed by address — `isCnftDust` looks up
+  // `meCollectionSlug ?? collectionAddress`). Mirrors the slug path's debounce /
+  // TTL / cap; the ME-slug flow is untouched.
+  const requestedCnftAddrRef = useRef<Map<string, number>>(new Map());
+  const pendingCnftAddrRef    = useRef<Set<string>>(new Set());
+  const cnftFloorTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const now = Date.now();
+    for (const e of events) {
+      if (e.nftType !== 'cnft' || e.meCollectionSlug || !e.collectionAddress) continue;
+      const addr = e.collectionAddress;
+      const last = requestedCnftAddrRef.current.get(addr);
+      if (last != null && now - last < FLOOR_REQUEST_TTL_MS) continue;
+      pendingCnftAddrRef.current.add(addr);
+    }
+    if (pendingCnftAddrRef.current.size === 0 || cnftFloorTimerRef.current) return;
+    cnftFloorTimerRef.current = setTimeout(async () => {
+      cnftFloorTimerRef.current = null;
+      const batch = Array.from(pendingCnftAddrRef.current).slice(0, 20);
+      pendingCnftAddrRef.current.clear();
+      const fetchedAt = Date.now();
+      for (const a of batch) requestedCnftAddrRef.current.set(a, fetchedAt);
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/collections/cnft-floor?addresses=${encodeURIComponent(batch.join(','))}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json() as {
+          floors?: Record<string, { floorLamports: number | null }>;
+        };
+        if (!data.floors) return;
+        setFloorBySlug(prev => {
+          const next = { ...prev };
+          for (const [addr, v] of Object.entries(data.floors!)) {
+            next[addr] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
+          }
+          const keys = Object.keys(next);
+          if (keys.length > FLOOR_BY_SLUG_MAX) {
+            const drop = keys.length - FLOOR_BY_SLUG_MAX;
+            for (let i = 0; i < drop; i++) delete next[keys[i]];
+          }
+          return next;
+        });
+      } catch { /* transient — retried on the next unseen slug-less cNFT */ }
+    }, 500);
+  }, [events]);
+  useEffect(() => () => {
+    if (cnftFloorTimerRef.current) clearTimeout(cnftFloorTimerRef.current);
+  }, []);
+
   const filtered = useMemo(() => events.filter(e => {
     // Collection-floor gate for cNFTs (replaces the old sale-price guard):
     // shared predicate — see `@/soloist/cnft-filter`. Hide cNFT low-floor

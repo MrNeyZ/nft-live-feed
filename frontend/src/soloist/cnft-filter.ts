@@ -25,10 +25,16 @@ export const CNFT_MIN_VISIBLE_FLOOR_SOL = 0.005;
  * converges to "known" within one fetch tick.
  */
 export function isCnftDust(
-  e: Pick<FeedEvent, 'nftType' | 'meCollectionSlug'>,
-  floorSolBySlug: (slug: string) => number | null | undefined,
+  e: Pick<FeedEvent, 'nftType' | 'meCollectionSlug' | 'collectionAddress'>,
+  floorSolByKey: (key: string) => number | null | undefined,
 ): boolean {
-  if (e.nftType !== 'cnft' || !e.meCollectionSlug) return false;
-  const floor = floorSolBySlug(e.meCollectionSlug);
+  if (e.nftType !== 'cnft') return false;
+  // Floor lookup key: prefer the ME slug (existing flow, unchanged); fall back
+  // to the on-chain collection address for slug-less Tensor / DRiP cNFTs, whose
+  // floor is resolved via the address-keyed `/api/collections/cnft-floor`
+  // endpoint. Both keys resolve into the SAME collection-floor map.
+  const key = e.meCollectionSlug ?? e.collectionAddress ?? null;
+  if (!key) return false;
+  const floor = floorSolByKey(key);
   return floor != null && floor <= CNFT_MIN_VISIBLE_FLOOR_SOL;
 }
