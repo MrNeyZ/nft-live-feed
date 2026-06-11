@@ -18,6 +18,66 @@ import { fmtAgeShort, fmtSol, shortKey, thumb64, isNewCollection } from '../lib/
 import { MintsSourceBadge } from './MintsSourceBadge';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
+// ── Shared floating-popover (glass panel) styles ────────────────────
+// Premium look shared by the MINTS + SUPPLY hover popovers: deeper
+// gradient body, clearer purple border, soft glow + drop shadow, subtle
+// backdrop blur. Label/value rows (label left/muted, value right/bright)
+// give a readable hierarchy; the header + footer read as supporting tiers.
+// Layout positions/flip behavior are unchanged — only the surface skin.
+const POPOVER_PANEL_STYLE: React.CSSProperties = {
+  position:               'fixed',
+  zIndex:                 9999,
+  pointerEvents:          'none',
+  minWidth:               196,
+  maxWidth:               280,
+  background:             'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
+  border:                 '1px solid rgba(168,144,232,0.46)',
+  borderRadius:           9,
+  padding:                '11px 13px',
+  textAlign:              'left',
+  color:                  '#ece7f8',
+  boxShadow:              '0 14px 34px rgba(0,0,0,0.62), 0 0 0 1px rgba(0,0,0,0.32), 0 0 18px rgba(128,104,216,0.16)',
+  backdropFilter:         'blur(11px)',
+  WebkitBackdropFilter:   'blur(11px)',
+};
+const POPOVER_HEADER_STYLE: React.CSSProperties = {
+  fontSize:       10,
+  fontWeight:     700,
+  letterSpacing:  '0.9px',
+  textTransform:  'uppercase',
+  color:          '#9d93c6',
+  marginBottom:   8,
+  paddingBottom:  7,
+  borderBottom:   '1px solid rgba(168,144,232,0.16)',
+};
+const POPOVER_FOOTER_STYLE: React.CSSProperties = {
+  marginTop:      9,
+  paddingTop:     7,
+  borderTop:      '1px solid rgba(168,144,232,0.13)',
+  fontSize:       10,
+  lineHeight:     1.42,
+  letterSpacing:  '0.2px',
+  color:          '#7c749c',
+  whiteSpace:     'normal',
+};
+/** A single label-left / value-right row inside a popover panel. Numbers
+ *  stay monospace + tabular; the highlighted value reads brightest. */
+function PopRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }): JSX.Element {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 20, lineHeight: 1.65 }}>
+      <span style={{ fontSize: 11.5, fontWeight: 500, color: '#948cb4', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{
+        fontSize:           highlight ? 13 : 12.5,
+        fontWeight:         highlight ? 800 : 600,
+        color:              highlight ? '#c9bdf0' : '#ece7f8',
+        fontFamily:         "'SF Mono','Fira Code',monospace",
+        fontVariantNumeric: 'tabular-nums',
+        whiteSpace:         'nowrap',
+      }}>{value}</span>
+    </div>
+  );
+}
+
 /** Per-row status pill in the COLLECTION cell. ACTIVE = promoted
  *  (`displayState === 'shown'`); WATCH = incubating (pre-burst,
  *  surfaced here so the table isn't empty when traffic is sparse).
@@ -143,10 +203,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     const el = supplyCellRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // Estimate ~70 px max popover height (3 lines + padding + border).
-    // If the cell's top doesn't have at least that much room above the
-    // viewport, flip to render below the cell.
-    const flip = r.top < 80;
+    // Estimate ~180 px max popover height (header + up to 3 rows + footer
+    // + padding/border). If the cell's top doesn't have at least that much
+    // room above the viewport, flip to render below the cell.
+    const flip = r.top < 190;
     setSupplyHover({
       x: r.left + r.width / 2,
       y: flip ? r.bottom + 6 : r.top - 6,
@@ -163,7 +223,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     const el = mintsCellRef.current;
     if (!el) return;
     const r2 = el.getBoundingClientRect();
-    const flip = r2.top < 80;
+    const flip = r2.top < 190;
     setMintsHover({ x: r2.left + r2.width / 2, y: flip ? r2.bottom + 6 : r2.top - 6, flip });
   };
   const closeMintsPopover = () => setMintsHover(null);
@@ -607,34 +667,20 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               <div
                 role="tooltip"
                 style={{
-                  position: 'fixed',
+                  ...POPOVER_PANEL_STYLE,
                   top:  mintsHover.y,
                   left: mintsHover.x,
                   transform: mintsHover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
-                  zIndex: 9999,
-                  pointerEvents: 'none',
-                  background: 'rgba(20,16,38,0.96)',
-                  border: '1px solid rgba(168,144,232,0.35)',
-                  borderRadius: 3,
-                  padding: '6px 9px',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: '#e8e3f5',
-                  whiteSpace: 'nowrap',
-                  textAlign: 'left',
-                  letterSpacing: '0.2px',
-                  lineHeight: 1.45,
-                  fontFamily: "'SF Mono','Fira Code',monospace",
-                  boxShadow: '0 6px 18px rgba(0,0,0,0.55)',
                 }}
               >
-                <div>Observed: {observed.toLocaleString()}</div>
-                {emitted !== null && <div>Displayed cards: {emitted.toLocaleString()}</div>}
-                {sampledOut !== null && <div>Sampled out: {sampledOut.toLocaleString()}</div>}
-                {ratioText !== null && <div>Display ratio: {ratioText}</div>}
-                <div style={{ marginTop: 3, fontSize: 10, color: '#8a82a8', letterSpacing: '0.3px' }}>
+                <div style={POPOVER_HEADER_STYLE}>Mint stats</div>
+                <PopRow label="Observed" value={observed.toLocaleString()} />
+                {emitted    !== null && <PopRow label="Displayed cards" value={emitted.toLocaleString()} />}
+                {sampledOut !== null && <PopRow label="Sampled out" value={sampledOut.toLocaleString()} />}
+                {ratioText  !== null && <PopRow label="Display ratio" value={ratioText} highlight />}
+                <div style={POPOVER_FOOTER_STYLE}>
                   {emitted !== null
-                    ? 'high-velocity feed cards are sampled; all mints are still counted'
+                    ? 'High-velocity feed cards are sampled; all mints are still counted.'
                     : `${tfCount.toLocaleString()} card(s) in last ${mintTf}`}
                 </div>
               </div>,
@@ -672,12 +718,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const verified = r.supplyVerified === true && !mintedFromFallback;
         let display: string;
         // Popover content (replaces the old native `title` text). Built
-        // as structured lines so the popover renders a small terminal-
-        // style block: headline line + optional progress line + small
-        // muted subtitle. `subtitle` is the data-source provenance
-        // (verified / DAS-resolved / optimistic).
-        let popHead: string;
-        let popProgress: string | null = null;
+        // as label/value rows so the glass panel renders a readable
+        // hierarchy: optional bright headline value + provenance footer.
+        // `popSubtitle` is the data-source provenance (verified /
+        // DAS-resolved / optimistic), shown as the muted footer line.
+        const popRows: { label: string; value: string; highlight?: boolean }[] = [];
         let popSubtitle: string | null = null;
         // SUPPLY sits below MINTS + RATE in the visual hierarchy:
         // muted by default, even quieter when the value is still
@@ -699,17 +744,18 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             : pct >= 10 ? `${Math.round(pct)}%`
             : `${pct.toFixed(1)}%`;
           display     = minted.toLocaleString();
-          popHead     = `Minted: ${minted.toLocaleString()} / ${cap.toLocaleString()}`;
-          popProgress = `Progress: ${pctText}`;
+          popRows.push({ label: 'Minted', value: minted.toLocaleString() });
+          popRows.push({ label: 'Cap', value: cap.toLocaleString() });
+          popRows.push({ label: 'Progress', value: pctText, highlight: true });
           popSubtitle = mintedLabel;
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
-          popHead = `Max supply: ${cap.toLocaleString()}`;
+          popRows.push({ label: 'Max supply', value: cap.toLocaleString(), highlight: true });
           popSubtitle = 'minted count not yet known';
         } else if (minted !== null) {
           display = minted.toLocaleString();
-          popHead = `Minted: ${minted.toLocaleString()}`;
+          popRows.push({ label: 'Minted', value: minted.toLocaleString(), highlight: true });
           popSubtitle = mintedFromFallback
             ? 'DAS-resolved · total supply unknown'
             : (verified
@@ -718,7 +764,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           if (!verified) color = '#7c7a98';
         } else {
           display = '—';
-          popHead = 'Supply unavailable';
+          popRows.push({ label: 'Supply', value: '—', highlight: true });
           popSubtitle = `observed ${r.observedMints.toLocaleString()} mint(s)`;
         }
         return (
@@ -737,33 +783,20 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 style={{
                   // Fixed-position + portaled to <body> ⇒ ignores every
                   // ancestor's overflow / transform / z-index stack.
-                  position: 'fixed',
+                  ...POPOVER_PANEL_STYLE,
                   top:  supplyHover.y,
                   left: supplyHover.x,
                   // Default: above the cell (translate up by 100% of own
                   // height + center horizontally). Flip = below the cell
                   // (only translate horizontally; y is already cell.bottom+6).
                   transform: supplyHover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
-                  zIndex: 9999,
-                  pointerEvents: 'none',
-                  background: 'rgba(20,16,38,0.96)',
-                  border: '1px solid rgba(168,144,232,0.35)',
-                  borderRadius: 3,
-                  padding: '6px 9px',
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: '#e8e3f5',
-                  whiteSpace: 'nowrap',
-                  textAlign: 'left',
-                  letterSpacing: '0.2px',
-                  lineHeight: 1.45,
-                  fontFamily: "'SF Mono','Fira Code',monospace",
-                  boxShadow: '0 6px 18px rgba(0,0,0,0.55)',
                 }}
               >
-                <div>{popHead}</div>
-                {popProgress && <div>{popProgress}</div>}
-                {popSubtitle && <div style={{ marginTop: 3, fontSize: 10, color: '#8a82a8', letterSpacing: '0.3px' }}>{popSubtitle}</div>}
+                <div style={POPOVER_HEADER_STYLE}>Supply</div>
+                {popRows.map((row) => (
+                  <PopRow key={row.label} label={row.label} value={row.value} highlight={row.highlight} />
+                ))}
+                {popSubtitle && <div style={POPOVER_FOOTER_STYLE}>{popSubtitle}</div>}
               </div>,
               document.body
             )}
