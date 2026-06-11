@@ -202,6 +202,12 @@ const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERV
 // limit=50 over-fetched by ~2.5×. 25 keeps 1.25× burst headroom over the
 // observed rate while halving idle credit drain. Env override still honored.
 const MPL_CORE_POLL_LIMIT       = parseInt(process.env.MINT_MPL_CORE_POLL_LIMIT       ?? '25',   10) || 25;
+// At-cap pagination safety cap. When a live mpl_core sweep returns the full
+// MPL_CORE_POLL_LIMIT (cursor-band overflow — the documented mint-loss), keep
+// paging with before=<oldest fetched> (still bounded by until=prevCursor) up to
+// this many TOTAL pages so no newer-than-cursor sig is skipped. Default 5 →
+// ≤ 5×limit sigs enumerated per overflow sweep; quiet sweeps never paginate.
+const MPL_CORE_POLL_MAX_PAGES   = parseInt(process.env.MINT_MPL_CORE_POLL_MAX_PAGES   ?? '5',    10) || 5;
 let   mplCorePollSweeps   = 0;
 let   mplCorePollFetched  = 0;
 let   mplCorePollAccepted = 0;
@@ -1356,9 +1362,9 @@ async function pollTarget(
   // skipped when the newest sig is identical to the stored cursor — guards
   // against tight loops on RPC lag / race conditions where the same head
   // sig is returned twice.
+  const prevCursor = lastSigByProgram.get(target.program);
   if (rows.length > 0 && rows[0].signature) {
-    const prev = lastSigByProgram.get(target.program);
-    if (rows[0].signature !== prev) {
+    if (rows[0].signature !== prevCursor) {
       lastSigByProgram.set(target.program, rows[0].signature);
     }
   }
@@ -1376,6 +1382,50 @@ async function pollTarget(
   // pollAll loop's shared accumulators don't double-count.
   const isMplCoreForce    = !!opts?.force && target.name === 'mpl_core';
   const isCandyGuardForce = !!opts?.force && target.name === 'candy_guard';
+
+  // ── At-cap pagination (live mpl_core sweep only) ──────────────────────────
+  // A full first page (length === limit) means the cursor band OVERFLOWED: the
+  // RPC returns only the LIMIT newest sigs and silently skips older-but-still-
+  // newer-than-prevCursor ones (the documented mint-loss). Walk them with
+  // before=<oldest fetched>, still bounded by until=prevCursor, appending each
+  // page into `rows` so the existing per-row loop below processes them verbatim.
+  // The cursor was already advanced to the page-1 newest above, so the covered
+  // window stays gap-free. Quiet sweeps (length < limit) and non-mpl_core / warm
+  // sweeps skip this entirely → behaviour identical to before.
+  let pagesFetched = 1;
+  let safetyCapHit = false;
+  const atCap = isMplCoreForce && effectiveLimit === MPL_CORE_POLL_LIMIT && rows.length === effectiveLimit;
+  if (atCap && MPL_CORE_POLL_MAX_PAGES > 1) {
+    let before = rows[rows.length - 1].signature;
+    let caughtUp = false;
+    while (pagesFetched < MPL_CORE_POLL_MAX_PAGES) {
+      if (!running || !isTargetActive(target.name) || gen !== currentGeneration()) { caughtUp = true; break; }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pageParams: any = { limit: effectiveLimit, commitment: 'confirmed', before };
+      if (prevCursor) pageParams.until = prevCursor;
+      let pageRows: Array<{ signature: string; err: unknown; blockTime?: number | null }> | null = null;
+      try {
+        incSigListFetch();
+        noteSigList('listener', target.name);
+        const pr = await fetch(rpcHttpUrl(), {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getSignaturesForAddress', params: [target.program, pageParams] }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (pr.ok) {
+          const pj = await pr.json() as { result?: Array<{ signature: string; err: unknown; blockTime?: number | null }> };
+          if (Array.isArray(pj.result)) pageRows = pj.result;
+        }
+      } catch { /* network/timeout — stop paging; next sweep + reconcile poller backstop */ }
+      if (!pageRows || pageRows.length === 0) { caughtUp = true; break; }
+      pagesFetched++;
+      for (const extra of pageRows) rows.push(extra);
+      if (pageRows.length < effectiveLimit) { caughtUp = true; break; }   // reached the cursor-band end
+      before = pageRows[pageRows.length - 1].signature;
+    }
+    safetyCapHit = !caughtUp && pagesFetched >= MPL_CORE_POLL_MAX_PAGES;
+  }
 
   for (const row of rows) {
     fetched++;
@@ -1477,7 +1527,8 @@ async function pollTarget(
   if (isMplCoreForce) {
     console.log(
       `[mints/poller] sweep target=mpl_core sigs=${rows.length} fetched=${fetched} ` +
-      `accepted=${unseen} rejected=0 skipped=${skipped}`,
+      `accepted=${unseen} rejected=0 skipped=${skipped} ` +
+      `pages=${pagesFetched} atCap=${atCap} safetyCapHit=${safetyCapHit}`,
     );
   }
 }
