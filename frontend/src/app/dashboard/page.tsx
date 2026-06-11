@@ -615,7 +615,7 @@ export default function Dashboard() {
     if (typeof window === 'undefined') return;
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
-  useEffect(() => { document.title = 'VictoryLabs — Dashboard'; }, []);
+  useEffect(() => { document.title = 'Dashboard | VictoryLabs'; }, []);
   const [tf, setTf] = useState<Timeframe>('1H');
   const [tab, setTab] = useState<Tab>('active');
   const [selected, setSelected] = useState<string | null>(null);

@@ -846,7 +846,7 @@ export default function MintsPage() {
     if (typeof window === 'undefined') return;
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
-  useEffect(() => { document.title = 'VictoryLabs — Mints'; }, []);
+  useEffect(() => { document.title = 'Mint Tracker | VictoryLabs'; }, []);
   const [rows, setRows]       = useState<Map<string, MintStatus>>(() => loadPersistedCollections());
   /** Rolling buffer of individual mint events for the bottom Live Feed.
    *  Newest at index 0; capped at LIVE_FEED_MAX. Hydrated synchronously

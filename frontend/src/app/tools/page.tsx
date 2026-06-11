@@ -263,7 +263,7 @@ function savePersisted(slug: string, result: ScanResult): void {
 }
 
 export default function ToolsPage() {
-  useEffect(() => { document.title = 'VictoryLabs — Tools'; }, []);
+  useEffect(() => { document.title = 'Tools | VictoryLabs'; }, []);
   const [busy, setBusy]                 = useState(false);
   // 429-driven cooldown. When the backend rate-limits us we soft-warn
   // (keeping any cached rows visible) and disable the Scan button until

@@ -596,7 +596,7 @@ export default function CollectionPage() {
   const slug = decodeURIComponent(params.slug);
 
   useEffect(() => {
-    document.title = slug ? `VictoryLabs — ${slug}` : 'VictoryLabs — Collection';
+    document.title = slug ? `${slug} | VictoryLabs` : 'Collection | VictoryLabs';
   }, [slug]);
 
   // Tab + chart selectors (verbatim from original)

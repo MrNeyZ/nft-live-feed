@@ -19,7 +19,7 @@ const playfairDisplay = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: 'VictoryLabs — Live Feed',
+  title: 'Live Feed | VictoryLabs',
   description: 'Solana-wide NFT sales in real time',
   // Favicon = the new V-mark: a dark rounded square + the purple "V" from
   // the typography wordmark (squared-up / upright, chunkier than the slanted

@@ -10,6 +10,6 @@ import { useEffect } from 'react';
 import { MultiNativeView } from '../multi-native/MultiNativeView';
 
 export default function MultiTabPage() {
-  useEffect(() => { document.title = 'VictoryLabs — Multi-tab'; }, []);
+  useEffect(() => { document.title = 'Multi View | VictoryLabs'; }, []);
   return <MultiNativeView />;
 }

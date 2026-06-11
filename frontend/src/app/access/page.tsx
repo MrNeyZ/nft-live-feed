@@ -20,7 +20,7 @@ export default function AccessPage() {
   // `document.title` in a mount-only useEffect rather than exporting
   // `metadata`, since they're all `'use client'` pages and Next forbids
   // metadata exports there).
-  useEffect(() => { document.title = 'VictoryLabs — Access Required'; }, []);
+  useEffect(() => { document.title = 'Access Required | VictoryLabs'; }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {

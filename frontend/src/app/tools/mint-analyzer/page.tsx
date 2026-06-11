@@ -183,7 +183,7 @@ function Chip({ children, color = '#a890e8' }: { children: React.ReactNode; colo
 }
 
 export default function MintAnalyzerPage() {
-  useEffect(() => { document.title = 'VictoryLabs — Mint Analyzer'; }, []);
+  useEffect(() => { document.title = 'Mint Analyzer | VictoryLabs'; }, []);
 
   const [sig, setSig]         = useState('');
   const [busy, setBusy]       = useState(false);

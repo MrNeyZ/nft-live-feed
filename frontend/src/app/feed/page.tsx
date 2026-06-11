@@ -154,7 +154,7 @@ export default function FeedPage() {
     if (typeof window === 'undefined') return;
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, []);
-  useEffect(() => { document.title = 'VictoryLabs — Live Feed'; }, []);
+  useEffect(() => { document.title = 'Live Feed | VictoryLabs'; }, []);
   // Age-bucket walker — one global setInterval that re-stamps
   // `data-age-bucket` on every `.feed-card[data-event-ts]` element every
   // 30 s. CSS rules under those selectors apply a subtle opacity decay

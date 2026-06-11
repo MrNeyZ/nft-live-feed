@@ -29,7 +29,7 @@ function fmtAge(iso: string | null): string {
 }
 
 export default function RareFeedPage() {
-  useEffect(() => { document.title = 'VictoryLabs — Rare Feed'; }, []);
+  useEffect(() => { document.title = 'Rare Feed | VictoryLabs'; }, []);
 
   const { rows, minScore, setMinScore, rarity, setRarity, error, loading, lastUpdated } = useRareFeed();
 
