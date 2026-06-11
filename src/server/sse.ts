@@ -674,7 +674,12 @@ export function createSseRouter(): Router {
 
     const heartbeat = setInterval(() => {
       try {
-        const ok = res.write(': heartbeat\n\n');
+        // Real `ping` SSE event (was a `: heartbeat` comment). A named event is
+        // delivered to the EventSource client so the frontend can track
+        // last-frame-time and detect a silently half-open connection; it also
+        // serves the same transport-keepalive role the comment did. Does not
+        // touch sale/mint frames or the event bus.
+        const ok = res.write(`event: ping\ndata: {"t":${Date.now()}}\n\n`);
         if (ok) {
           stats.consecutiveBackpressure = 0;
           stats.lastWriteOkAt = Date.now();

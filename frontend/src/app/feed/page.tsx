@@ -388,12 +388,41 @@ export default function FeedPage() {
     // pattern when the backend restarts (every connected tab would
     // otherwise hammer the just-rebooted backend on a 3 s grid).
     let attempt = 0;
+    // ── SSE stall recovery (Fix A + B) ──────────────────────────────────────
+    // lastFrameAt is bumped on EVERY meaningful SSE frame (open / ping / sale /
+    // meta / status / …). The backend now emits a `ping` event every 25 s, so
+    // lastFrameAt stays fresh even with no sales — a silently half-open
+    // connection (no error, no data) is detectable as lastFrameAt going stale.
+    let lastFrameAt = Date.now();
+    let lastRecoverAt = 0;
+    const STALE_MS = 70_000;            // ~2.8× the 25 s ping → no false trips
+    const WATCHDOG_INTERVAL_MS = 15_000;
+    const RECOVER_DEBOUNCE_MS = 3_000;  // collapse visibility+focus+online bursts
+    const markFrame = () => { lastFrameAt = Date.now(); };
     const scheduleReconnect = () => {
       if (cancelled || document.hidden) return;
       const base = Math.min(30_000, 1_000 * 2 ** attempt);
       const jitter = Math.random() * 1_000;
       reconnectTimer = setTimeout(connect, base + jitter);
       attempt++;
+    };
+    // Immediate recovery: refetch the snapshot (backfill missed sales) then open
+    // a fresh stream. Used by the visibility/online/focus listeners and the
+    // heartbeat watchdog. Debounced + skipped while hidden or already-healthy so
+    // it can never storm.
+    const recover = (reason: string) => {
+      if (cancelled || document.hidden) return;
+      const now = Date.now();
+      if (now - lastRecoverAt < RECOVER_DEBOUNCE_MS) return;
+      const healthy = es && es.readyState === EventSource.OPEN && (now - lastFrameAt) < STALE_MS;
+      if (healthy) return;
+      lastRecoverAt = now;
+      lastFrameAt = now;            // reset so the watchdog doesn't immediately re-fire
+      attempt = 0;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      console.debug(`[sse/feed] recover (${reason})`);
+      es?.close();
+      backfillSnapshot().finally(() => { if (!cancelled) connect(); });
     };
 
     /** Buffer-or-dispatch. Read the pause flag from a ref so the effect
@@ -423,10 +452,15 @@ export default function FeedPage() {
       // starts from 1 s again instead of inheriting the prior cap.
       es.addEventListener('open', () => {
         attempt = 0;
+        lastFrameAt = Date.now();
         sseStatusRef.current = 'open';
         console.debug('[sse/feed] connected');
       });
+      // Heartbeat: backend emits `ping` every 25 s. We only need it to keep
+      // lastFrameAt fresh for the watchdog — no state change.
+      es.addEventListener('ping', markFrame);
       es.addEventListener('sale', (e: MessageEvent) => {
+        markFrame();
         try {
           const raw = fromBackend(JSON.parse(e.data) as BackendEvent);
           // Inject any persisted seller-remaining count we already
@@ -559,6 +593,7 @@ export default function FeedPage() {
       // each known source plus a fresh frame on every state flip. Bypass
       // the pause buffer — operator status info should always be live.
       es.addEventListener('status', (e: MessageEvent) => {
+        markFrame();
         try {
           const { source, state } = JSON.parse(e.data) as {
             source: 'magiceden' | 'tensor';
@@ -579,33 +614,62 @@ export default function FeedPage() {
     // action — the reducer handles dedup against any live events that might
     // have already arrived for the same signatures. The snapshot is mount-
     // time only and bypasses the pause buffer.
-    fetch(`${API_BASE}/api/events/latest?limit=${SNAPSHOT_LIMIT}`)
-      .then(r => r.json())
-      .then((data: LatestApiResponse) => {
-        if (cancelled) return;
-        const events: FeedEvent[] = data.events.map(r => {
-          const ev = fromBackend(fromRow(r));
-          // REST snapshot doesn't carry sellerRemainingCount — re-attach
-          // any value we resolved in a prior session, keyed by
-          // seller+collection so the badge survives reloads.
-          const k = sellerCountKey(ev.seller, ev.collectionAddress);
-          const persisted = k ? sellerCountRef.current.get(k) : undefined;
-          return typeof persisted === 'number'
-            ? { ...ev, sellerRemainingCount: persisted }
-            : ev;
+    // Pull the latest snapshot (newest-first) and dispatch it. Reused by the
+    // recovery paths (visibility/online/focus + watchdog) so any events missed
+    // while the stream was dead are backfilled — not just on first mount.
+    const backfillSnapshot = () =>
+      fetch(`${API_BASE}/api/events/latest?limit=${SNAPSHOT_LIMIT}`)
+        .then(r => r.json())
+        .then((data: LatestApiResponse) => {
+          if (cancelled) return;
+          const events: FeedEvent[] = data.events.map(r => {
+            const ev = fromBackend(fromRow(r));
+            // REST snapshot doesn't carry sellerRemainingCount — re-attach
+            // any value we resolved in a prior session, keyed by
+            // seller+collection so the badge survives reloads.
+            const k = sellerCountKey(ev.seller, ev.collectionAddress);
+            const persisted = k ? sellerCountRef.current.get(k) : undefined;
+            return typeof persisted === 'number'
+              ? { ...ev, sellerRemainingCount: persisted }
+              : ev;
+          })
+            // Boundary filter — drop blacklisted sales out of the hydration
+            // snapshot so they never enter state on refresh (no flash).
+            .filter(ev => !isFeedEventBlacklisted(ev, blacklistSetRef.current));
+          captureScroll();
+          dispatch({ type: 'snapshot', events });
         })
-          // Boundary filter — drop blacklisted sales out of the hydration
-          // snapshot so they never enter state on refresh (no flash).
-          .filter(ev => !isFeedEventBlacklisted(ev, blacklistSetRef.current));
-        captureScroll();
-        dispatch({ type: 'snapshot', events });
-      })
-      .catch(() => { /* snapshot failed — live stream still attempts to connect */ })
-      .finally(() => { if (!cancelled) connect(); });
+        .catch(() => { /* snapshot failed — live stream still attempts to connect */ });
+
+    // Initial boot: snapshot → open the stream (reducer dedups against any
+    // live events that already arrived for the same signatures).
+    backfillSnapshot().finally(() => { if (!cancelled) connect(); });
+
+    // Fix B — heartbeat watchdog. The backend pings every 25 s; if NO frame
+    // (incl. ping) arrives for STALE_MS while the tab is visible, the socket is
+    // silently half-open (no `error` fired) → force a recover.
+    const watchdog = setInterval(() => {
+      if (cancelled || document.hidden) return;
+      if (Date.now() - lastFrameAt > STALE_MS) recover('watchdog');
+    }, WATCHDOG_INTERVAL_MS);
+
+    // Fix A — recover on tab-return / network-return / window focus. The error
+    // path disables native EventSource retry (es.close()) and the backoff bails
+    // while hidden, so without these a drop while backgrounded never reconnects
+    // until a manual reload.
+    const onVisible = () => { if (!document.hidden) recover('visible'); };
+    const onOnline  = () => recover('online');
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    window.addEventListener('online', onOnline);
 
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearInterval(watchdog);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      window.removeEventListener('online', onOnline);
       es?.close();
       // Drop any buffered actions on unmount — they belong to the closed
       // EventSource session and will be replaced by a fresh snapshot the
