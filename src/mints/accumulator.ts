@@ -23,7 +23,7 @@ import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
 import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
-import { shouldEmitFeedCard, forgetFeedSampling } from './feed-sampler';
+import { shouldEmitFeedCard, forgetFeedSampling, getFeedSampling } from './feed-sampler';
 import { appendCountedLedger } from './counted-ledger';
 
 /** Per-row refresh cadence for the MINTED column. A single row can
@@ -437,6 +437,9 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     displayState:      a.displayState,
     shownReason:       a.shownReason,
     observedMints:     a.observedMints,
+    // Display-only: feed cards emitted (after velocity sampling) for this
+    // collection. null until any sampling state exists. Read-only lookup.
+    emittedCards:      getFeedSampling(a.groupingKey)?.emitted ?? null,
     v60,
     v5m: Math.round(v5m * 10) / 10,
     lastMintAt:        a.lastMintAt,

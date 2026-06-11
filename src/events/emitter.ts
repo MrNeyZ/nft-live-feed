@@ -286,6 +286,12 @@ export interface MintStatusWire {
   displayState:      MintDisplayState;
   shownReason?:      'threshold' | 'burst' | 'launchpad';
   observedMints:     number;
+  /** Live Mint Feed cards actually emitted for this collection (session-local,
+   *  same scope as observedMints). Under velocity sampling this is
+   *  < observedMints; observedMints − emittedCards = cards sampled out.
+   *  Optional/back-compat: null/absent when no sampling state exists yet.
+   *  Display-only — drives the MINTS-column hover tooltip. */
+  emittedCards?:     number | null;
   /** Mints in the last 60 s window. */
   v60:               number;
   /** Average mints/min over the last 5 min window. */

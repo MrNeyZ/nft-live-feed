@@ -108,3 +108,13 @@ if (typeof metricsTimer.unref === 'function') metricsTimer.unref();
 export function forgetFeedSampling(groupingKey: string): void {
   stats.delete(groupingKey);
 }
+
+/** Read-only per-collection sampling counts for the mint_status wire.
+ *  `emitted` = feed cards displayed; `sampledOut` = cards suppressed under
+ *  velocity sampling (both session-local, same scope as observedMints).
+ *  Returns null when the group has no sampling state yet. No side effects,
+ *  no behaviour change. */
+export function getFeedSampling(groupingKey: string): { emitted: number; sampledOut: number } | null {
+  const s = stats.get(groupingKey);
+  return s ? { emitted: s.emitted, sampledOut: s.sampledOut } : null;
+}

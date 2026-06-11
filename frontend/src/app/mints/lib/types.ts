@@ -81,6 +81,10 @@ export interface MintStatus {
   displayState:      'incubating' | 'shown' | 'cooled';
   shownReason?:      'threshold' | 'burst' | 'launchpad';
   observedMints:     number;
+  /** Live Mint Feed cards emitted for this collection (session-local, same
+   *  scope as observedMints). observedMints − emittedCards = sampled-out cards.
+   *  Optional/back-compat: undefined when the backend hasn't sent it. */
+  emittedCards?:     number | null;
   v60:               number;
   v5m:               number;
   lastMintAt:        number;

@@ -154,6 +154,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     });
   };
   const closeSupplyPopover = () => setSupplyHover(null);
+  // MINTS-cell popover — same portaled/flip pattern as SUPPLY. Clarifies that
+  // the column shows DISPLAYED (sampled) feed cards vs the true observed count,
+  // so a high-velocity collection doesn't read as "mints lost".
+  const mintsCellRef = useRef<HTMLTableCellElement | null>(null);
+  const [mintsHover, setMintsHover] = useState<null | { x: number; y: number; flip: boolean }>(null);
+  const openMintsPopover = () => {
+    const el = mintsCellRef.current;
+    if (!el) return;
+    const r2 = el.getBoundingClientRect();
+    const flip = r2.top < 80;
+    setMintsHover({ x: r2.left + r2.width / 2, y: flip ? r2.bottom + 6 : r2.top - 6, flip });
+  };
+  const closeMintsPopover = () => setMintsHover(null);
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -564,19 +577,70 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           timeframe + falls back to the cumulative number for context. */}
       {(() => {
         const tfCount = tfStatsByKey.get(r.groupingKey)?.count ?? 0;
-        const tip = `${tfCount.toLocaleString()} mint(s) in last ${mintTf}` +
-          ` · ${r.observedMints.toLocaleString()} since session start`;
+        // Tooltip content. observedMints + emittedCards are session-cumulative
+        // (apples-to-apples); the cell itself shows the timeframe-windowed
+        // count. emittedCards is optional → back-compat: show only Observed.
+        const observed   = r.observedMints;
+        const emitted    = (typeof r.emittedCards === 'number' && r.emittedCards >= 0) ? r.emittedCards : null;
+        const sampledOut = emitted !== null ? Math.max(0, observed - emitted) : null;
+        const ratioPct   = (emitted !== null && observed > 0)
+          ? (emitted / observed) * 100
+          : null;
+        const ratioText  = ratioPct === null ? null
+          : ratioPct >= 10 ? `${Math.round(ratioPct)}%`
+          : `${ratioPct.toFixed(1)}%`;
         return (
-          <td
-            
-            // Same green family as RATE (#5ce0a0) but softer — keeps
-            // MINTS in the same family visually while leaving RATE
-            // the brightest value. fontWeight 800 stays unchanged so
-            // the column still reads heavy / structural.
-            style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
-          >
-            {tfCount.toLocaleString()}
-          </td>
+          <>
+            <td
+              ref={mintsCellRef}
+              onMouseEnter={openMintsPopover}
+              onMouseLeave={closeMintsPopover}
+              // Same green family as RATE (#5ce0a0) but softer — keeps
+              // MINTS in the same family visually while leaving RATE
+              // the brightest value. fontWeight 800 stays unchanged so
+              // the column still reads heavy / structural.
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+            >
+              {tfCount.toLocaleString()}
+            </td>
+            {mintsHover && typeof document !== 'undefined' && createPortal(
+              <div
+                role="tooltip"
+                style={{
+                  position: 'fixed',
+                  top:  mintsHover.y,
+                  left: mintsHover.x,
+                  transform: mintsHover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
+                  zIndex: 9999,
+                  pointerEvents: 'none',
+                  background: 'rgba(20,16,38,0.96)',
+                  border: '1px solid rgba(168,144,232,0.35)',
+                  borderRadius: 3,
+                  padding: '6px 9px',
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: '#e8e3f5',
+                  whiteSpace: 'nowrap',
+                  textAlign: 'left',
+                  letterSpacing: '0.2px',
+                  lineHeight: 1.45,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  boxShadow: '0 6px 18px rgba(0,0,0,0.55)',
+                }}
+              >
+                <div>Observed: {observed.toLocaleString()}</div>
+                {emitted !== null && <div>Displayed cards: {emitted.toLocaleString()}</div>}
+                {sampledOut !== null && <div>Sampled out: {sampledOut.toLocaleString()}</div>}
+                {ratioText !== null && <div>Display ratio: {ratioText}</div>}
+                <div style={{ marginTop: 3, fontSize: 10, color: '#8a82a8', letterSpacing: '0.3px' }}>
+                  {emitted !== null
+                    ? 'high-velocity feed cards are sampled; all mints are still counted'
+                    : `${tfCount.toLocaleString()} card(s) in last ${mintTf}`}
+                </div>
+              </div>,
+              document.body
+            )}
+          </>
         );
       })()}
       {/* SUPPLY — planned cap when known (LMNFT path, from the
