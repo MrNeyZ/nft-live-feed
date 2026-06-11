@@ -610,16 +610,16 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 // part of the same nav surface.
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
   display:        'block',
-  padding:        '8px 12px',
+  padding:        '6px 16px',
   textAlign:      'center',
   fontSize:       12,
   fontWeight:     600,
-  letterSpacing:  '0.5px',
+  letterSpacing:  '0.6px',
   textTransform:  'uppercase',
-  lineHeight:     1.2,
+  lineHeight:     1.25,
   color:          '#b6b2cc',
   textDecoration: 'none',
-  borderRadius:   5,
+  borderRadius:   6,
   transition:     'background 0.12s, color 0.12s',
   cursor:         'pointer',
 };
@@ -1088,21 +1088,28 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     role="menu"
                     aria-label="Tools menu"
                     style={{
-                      position: 'absolute', top: '100%', left: 0,
-                      // Flush to the tab (no marginTop) so the pointer never
-                      // crosses an empty gap — the wrapper's onPointerLeave
-                      // would otherwise close the menu before it's reachable.
+                      // Centered under the TOOLS tab, intentionally a touch
+                      // wider than the tab. Flush to the tab (no marginTop)
+                      // so the pointer never crosses an empty gap — the
+                      // wrapper's onPointerLeave would otherwise close the
+                      // menu before it's reachable.
+                      position: 'absolute', top: '100%', left: '50%',
+                      transform: 'translateX(-50%)',
                       marginTop: 0,
-                      minWidth: '100%',
-                      padding: 5,
+                      minWidth: 124,
+                      width: 'max-content',
+                      padding: 4,
                       background: 'linear-gradient(168deg, rgba(30,23,52,0.98) 0%, rgba(16,12,28,0.98) 100%)',
                       border: '1px solid rgba(168,144,232,0.42)',
-                      borderRadius: 9,
-                      boxShadow: '0 14px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.34), 0 0 16px rgba(128,104,216,0.16)',
+                      // Square top edge reads as "attached" to the nav; only
+                      // the bottom corners round.
+                      borderRadius: '0 0 9px 9px',
+                      borderTop: '1px solid rgba(168,144,232,0.22)',
+                      boxShadow: '0 14px 28px rgba(0,0,0,0.58), 0 0 0 1px rgba(0,0,0,0.32), 0 0 14px rgba(128,104,216,0.14)',
                       backdropFilter: 'blur(11px)',
                       WebkitBackdropFilter: 'blur(11px)',
                       zIndex: 1000,
-                      display: 'flex', flexDirection: 'column', gap: 2,
+                      display: 'flex', flexDirection: 'column', gap: 1,
                     }}
                   >
                     <a
@@ -1111,7 +1118,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       target="_blank"
                       rel="noopener noreferrer"
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.18)'; (e.currentTarget as HTMLAnchorElement).style.color = '#ece7f8'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
                     >
                       Burner
@@ -1121,7 +1128,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.18)'; (e.currentTarget as HTMLAnchorElement).style.color = '#ece7f8'; router.prefetch('/tools'); }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
@@ -1138,7 +1145,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools/rare-feed"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.18)'; (e.currentTarget as HTMLAnchorElement).style.color = '#ece7f8'; router.prefetch('/tools/rare-feed'); }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools/rare-feed'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
@@ -1155,7 +1162,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools/mint-analyzer"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.18)'; (e.currentTarget as HTMLAnchorElement).style.color = '#ece7f8'; router.prefetch('/tools/mint-analyzer'); }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools/mint-analyzer'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {

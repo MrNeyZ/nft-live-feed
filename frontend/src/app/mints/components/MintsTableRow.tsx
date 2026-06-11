@@ -19,59 +19,50 @@ import { MintsSourceBadge } from './MintsSourceBadge';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
 // ── Shared floating-popover (glass panel) styles ────────────────────
-// Premium look shared by the MINTS + SUPPLY hover popovers: deeper
-// gradient body, clearer purple border, soft glow + drop shadow, subtle
-// backdrop blur. Label/value rows (label left/muted, value right/bright)
-// give a readable hierarchy; the header + footer read as supporting tiers.
-// Layout positions/flip behavior are unchanged — only the surface skin.
+// Tight premium stats-card shared by the MINTS + SUPPLY hover popovers:
+// deep gradient body, clear purple border, soft glow + drop shadow,
+// backdrop blur. Compact — no footer/helper paragraph. Values dominate
+// (large, bright); labels are small + muted. Layout positions/flip
+// behavior are unchanged — only the surface skin + content density.
 const POPOVER_PANEL_STYLE: React.CSSProperties = {
   position:               'fixed',
   zIndex:                 9999,
   pointerEvents:          'none',
-  minWidth:               196,
-  maxWidth:               280,
+  minWidth:               160,
   background:             'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
   border:                 '1px solid rgba(168,144,232,0.46)',
   borderRadius:           9,
-  padding:                '11px 13px',
+  padding:                '9px 12px 10px',
   textAlign:              'left',
   color:                  '#ece7f8',
-  boxShadow:              '0 14px 34px rgba(0,0,0,0.62), 0 0 0 1px rgba(0,0,0,0.32), 0 0 18px rgba(128,104,216,0.16)',
+  boxShadow:              '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px rgba(128,104,216,0.15)',
   backdropFilter:         'blur(11px)',
   WebkitBackdropFilter:   'blur(11px)',
 };
 const POPOVER_HEADER_STYLE: React.CSSProperties = {
-  fontSize:       10,
+  fontSize:       9.5,
   fontWeight:     700,
-  letterSpacing:  '0.9px',
+  letterSpacing:  '1.3px',
   textTransform:  'uppercase',
-  color:          '#9d93c6',
-  marginBottom:   8,
-  paddingBottom:  7,
-  borderBottom:   '1px solid rgba(168,144,232,0.16)',
+  color:          '#8a81b0',
+  marginBottom:   7,
+  paddingBottom:  6,
+  borderBottom:   '1px solid rgba(168,144,232,0.15)',
 };
-const POPOVER_FOOTER_STYLE: React.CSSProperties = {
-  marginTop:      9,
-  paddingTop:     7,
-  borderTop:      '1px solid rgba(168,144,232,0.13)',
-  fontSize:       10,
-  lineHeight:     1.42,
-  letterSpacing:  '0.2px',
-  color:          '#7c749c',
-  whiteSpace:     'normal',
-};
-/** A single label-left / value-right row inside a popover panel. Numbers
- *  stay monospace + tabular; the highlighted value reads brightest. */
+/** A single label-left / value-right row inside a popover panel. The value
+ *  dominates (large, bright, monospace + tabular); the label is small and
+ *  muted. `highlight` makes the value the brightest accent in the card. */
 function PopRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }): JSX.Element {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 20, lineHeight: 1.65 }}>
-      <span style={{ fontSize: 11.5, fontWeight: 500, color: '#948cb4', whiteSpace: 'nowrap' }}>{label}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
+      <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: '0.2px', color: '#7e7799', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{
-        fontSize:           highlight ? 13 : 12.5,
-        fontWeight:         highlight ? 800 : 600,
-        color:              highlight ? '#c9bdf0' : '#ece7f8',
+        fontSize:           highlight ? 15 : 14,
+        fontWeight:         highlight ? 800 : 700,
+        color:              highlight ? '#cdc2f2' : '#f2eefb',
         fontFamily:         "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
+        lineHeight:         1.15,
         whiteSpace:         'nowrap',
       }}>{value}</span>
     </div>
@@ -203,10 +194,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     const el = supplyCellRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    // Estimate ~180 px max popover height (header + up to 3 rows + footer
+    // Estimate ~150 px max popover height (header + up to 4 compact rows
     // + padding/border). If the cell's top doesn't have at least that much
     // room above the viewport, flip to render below the cell.
-    const flip = r.top < 190;
+    const flip = r.top < 150;
     setSupplyHover({
       x: r.left + r.width / 2,
       y: flip ? r.bottom + 6 : r.top - 6,
@@ -223,7 +214,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     const el = mintsCellRef.current;
     if (!el) return;
     const r2 = el.getBoundingClientRect();
-    const flip = r2.top < 190;
+    const flip = r2.top < 150;
     setMintsHover({ x: r2.left + r2.width / 2, y: flip ? r2.bottom + 6 : r2.top - 6, flip });
   };
   const closeMintsPopover = () => setMintsHover(null);
@@ -675,14 +666,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               >
                 <div style={POPOVER_HEADER_STYLE}>Mint stats</div>
                 <PopRow label="Observed" value={observed.toLocaleString()} />
-                {emitted    !== null && <PopRow label="Displayed cards" value={emitted.toLocaleString()} />}
-                {sampledOut !== null && <PopRow label="Sampled out" value={sampledOut.toLocaleString()} />}
-                {ratioText  !== null && <PopRow label="Display ratio" value={ratioText} highlight />}
-                <div style={POPOVER_FOOTER_STYLE}>
-                  {emitted !== null
-                    ? 'High-velocity feed cards are sampled; all mints are still counted.'
-                    : `${tfCount.toLocaleString()} card(s) in last ${mintTf}`}
-                </div>
+                {emitted    !== null && <PopRow label="Displayed" value={emitted.toLocaleString()} />}
+                {sampledOut !== null && <PopRow label="Sampled" value={sampledOut.toLocaleString()} />}
+                {ratioText  !== null && <PopRow label="Ratio" value={ratioText} highlight />}
               </div>,
               document.body
             )}
@@ -718,12 +704,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const verified = r.supplyVerified === true && !mintedFromFallback;
         let display: string;
         // Popover content (replaces the old native `title` text). Built
-        // as label/value rows so the glass panel renders a readable
-        // hierarchy: optional bright headline value + provenance footer.
-        // `popSubtitle` is the data-source provenance (verified /
-        // DAS-resolved / optimistic), shown as the muted footer line.
+        // as compact label/value rows — values dominate, no provenance
+        // footer. Essential rows only: Minted / Cap / Progress when known,
+        // otherwise just Minted.
         const popRows: { label: string; value: string; highlight?: boolean }[] = [];
-        let popSubtitle: string | null = null;
         // SUPPLY sits below MINTS + RATE in the visual hierarchy:
         // muted by default, even quieter when the value is still
         // optimistic (not yet refreshed from on-chain). Verified /
@@ -731,7 +715,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // unverified drops another step so the "still resolving"
         // state reads as in-flight without being unreadable.
         let color = '#a8a6c4';
-        const mintedLabel = mintedFromFallback ? 'DAS-resolved' : (verified ? 'verified on-chain' : 'optimistic — awaiting on-chain refresh');
         if (minted !== null && cap !== null) {
           // Both known — visible cell shows ONLY the current minted
           // count; "minted / cap (pct)" lives in the hover popover.
@@ -747,25 +730,17 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           popRows.push({ label: 'Minted', value: minted.toLocaleString() });
           popRows.push({ label: 'Cap', value: cap.toLocaleString() });
           popRows.push({ label: 'Progress', value: pctText, highlight: true });
-          popSubtitle = mintedLabel;
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
-          popRows.push({ label: 'Max supply', value: cap.toLocaleString(), highlight: true });
-          popSubtitle = 'minted count not yet known';
+          popRows.push({ label: 'Cap', value: cap.toLocaleString(), highlight: true });
         } else if (minted !== null) {
           display = minted.toLocaleString();
           popRows.push({ label: 'Minted', value: minted.toLocaleString(), highlight: true });
-          popSubtitle = mintedFromFallback
-            ? 'DAS-resolved · total supply unknown'
-            : (verified
-                ? 'verified on-chain · total supply unknown'
-                : 'optimistic — awaiting on-chain refresh');
           if (!verified) color = '#7c7a98';
         } else {
           display = '—';
           popRows.push({ label: 'Supply', value: '—', highlight: true });
-          popSubtitle = `observed ${r.observedMints.toLocaleString()} mint(s)`;
         }
         return (
           <>
@@ -796,7 +771,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 {popRows.map((row) => (
                   <PopRow key={row.label} label={row.label} value={row.value} highlight={row.highlight} />
                 ))}
-                {popSubtitle && <div style={POPOVER_FOOTER_STYLE}>{popSubtitle}</div>}
               </div>,
               document.body
             )}
