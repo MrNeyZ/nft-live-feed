@@ -609,17 +609,19 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 // letterSpacing: '0.5px'`. Kept in sync so the dropdown text reads as
 // part of the same nav surface.
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
-  display:        'block',
-  padding:        '6px 16px',
-  textAlign:      'center',
-  fontSize:       12,
+  display:        'flex',
+  alignItems:     'center',
+  justifyContent: 'center',
+  height:         28,
+  padding:        '0 10px',
+  fontSize:       11.5,
   fontWeight:     600,
-  letterSpacing:  '0.6px',
+  letterSpacing:  '0.5px',
   textTransform:  'uppercase',
-  lineHeight:     1.25,
-  color:          '#b6b2cc',
+  lineHeight:     1,
+  color:          '#bdb7d6',
   textDecoration: 'none',
-  borderRadius:   6,
+  borderRadius:   8,
   transition:     'background 0.12s, color 0.12s',
   cursor:         'pointer',
 };
@@ -1085,41 +1087,66 @@ export function TopNav({ active }: { active?: Page } = {}) {
                 >{p.label}</button>
                 {toolsOpen && (
                   <div
+                    // Invisible hover bridge. Starts flush to the tab (top:100%)
+                    // and uses transparent paddingTop to span the visual gap, so
+                    // the pointer never crosses dead space — the wrapper's
+                    // onPointerLeave stays suppressed while travelling from the
+                    // TOOLS tab to the floating panel below.
+                    style={{
+                      position: 'absolute', top: '100%', left: '50%',
+                      transform: 'translateX(-50%)',
+                      paddingTop: 7,
+                      zIndex: 1000,
+                    }}
+                  >
+                  <div
                     role="menu"
                     aria-label="Tools menu"
                     style={{
-                      // Centered under the TOOLS tab, intentionally a touch
-                      // wider than the tab. Flush to the tab (no marginTop)
-                      // so the pointer never crosses an empty gap — the
-                      // wrapper's onPointerLeave would otherwise close the
-                      // menu before it's reachable.
-                      position: 'absolute', top: '100%', left: '50%',
-                      transform: 'translateX(-50%)',
-                      marginTop: 0,
-                      minWidth: 124,
-                      width: 'max-content',
-                      padding: 4,
-                      background: 'linear-gradient(168deg, rgba(30,23,52,0.98) 0%, rgba(16,12,28,0.98) 100%)',
-                      border: '1px solid rgba(168,144,232,0.42)',
-                      // Square top edge reads as "attached" to the nav; only
-                      // the bottom corners round.
-                      borderRadius: '0 0 9px 9px',
-                      borderTop: '1px solid rgba(168,144,232,0.22)',
-                      boxShadow: '0 14px 28px rgba(0,0,0,0.58), 0 0 0 1px rgba(0,0,0,0.32), 0 0 14px rgba(128,104,216,0.14)',
-                      backdropFilter: 'blur(11px)',
-                      WebkitBackdropFilter: 'blur(11px)',
-                      zIndex: 1000,
-                      display: 'flex', flexDirection: 'column', gap: 1,
+                      // Floating command-menu: fully rounded, glassy, detached
+                      // from the tab. The bridge above keeps hover alive across
+                      // the gap, so the panel can float without a square top edge.
+                      position: 'relative',
+                      width: 150,
+                      padding: 7,
+                      // Mostly opaque so feed cards behind don't bleed through —
+                      // glass lip stays via the subtle gradient + faint blur, but
+                      // the panel reads as a solid dropdown, not a blur blob.
+                      background: 'linear-gradient(180deg, rgba(24,18,40,0.985) 0%, rgba(15,11,26,0.985) 100%)',
+                      // Soft but visible border + faint top highlight.
+                      border: '1px solid rgba(168,144,232,0.30)',
+                      borderTop: '1px solid rgba(196,176,250,0.34)',
+                      // Fully rounded — no tombstone top edge.
+                      borderRadius: 16,
+                      boxShadow: '0 14px 34px rgba(0,0,0,0.65)',
+                      backdropFilter: 'blur(6px)',
+                      WebkitBackdropFilter: 'blur(6px)',
+                      display: 'flex', flexDirection: 'column', gap: 2,
                     }}
                   >
+                    {/* Centered connector notch — a small rotated glass square
+                        tucked under the TOOLS tab so the menu reads as anchored
+                        without a flat top edge. */}
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'absolute', top: -4, left: '50%',
+                        width: 8, height: 8,
+                        transform: 'translateX(-50%) rotate(45deg)',
+                        background: 'rgba(24,18,40,0.985)',
+                        borderLeft: '1px solid rgba(196,176,250,0.34)',
+                        borderTop: '1px solid rgba(196,176,250,0.34)',
+                        borderRadius: 2,
+                      }}
+                    />
                     <a
                       role="menuitem"
                       href="https://wallet.victorylabs.app/burner"
                       target="_blank"
                       rel="noopener noreferrer"
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0ebff'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#bdb7d6'; }}
                     >
                       Burner
                     </a>
@@ -1128,8 +1155,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0ebff'; router.prefetch('/tools'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#bdb7d6'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
                           (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
@@ -1145,8 +1172,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools/rare-feed"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools/rare-feed'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0ebff'; router.prefetch('/tools/rare-feed'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#bdb7d6'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
                           (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
@@ -1162,8 +1189,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       href="/tools/mint-analyzer"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.14)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f4f0fc'; router.prefetch('/tools/mint-analyzer'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#b6b2cc'; }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0ebff'; router.prefetch('/tools/mint-analyzer'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#bdb7d6'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
                           (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
@@ -1174,6 +1201,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     >
                       MINTX
                     </Link>
+                  </div>
                   </div>
                 )}
               </div>
