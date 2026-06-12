@@ -740,29 +740,40 @@ function FeedFiltersPopover({
       />
       {open && (
         <div
+          // Same settings surface as the LEFT Mint Collections panel
+          // (.feed-filters-panel material + .feed-set-group sections), adapted
+          // to float: opaque matte base so feed cards behind never bleed
+          // through, all-around border + radius (the embedded strip has none),
+          // stronger drop shadow. Pills / rows / section title / typography are
+          // the shared VictoryLabs settings system — identical to the left.
           style={{
             position: 'absolute', top: '100%', right: 0, marginTop: 6,
-            // Floats clearly above the first feed cards (high z-index +
-            // pronounced shadow) instead of cutting into them. Lighter violet
-            // tone matches the Mint Tracker / Live Events settings surfaces.
-            background: 'rgba(42,35,70,0.98)',
-            border: '1px solid rgba(168,144,232,0.16)',
-            borderRadius: 6,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.6)',
-            padding: '6px 10px', zIndex: 100,
-            // Widened to ~one feed-card width so the Type and Source rows each
-            // fit on a single line (no wrapping). Capped to the viewport so it
-            // never overflows the panel on narrow screens.
-            width: 356, maxWidth: 'calc(100vw - 16px)',
-            display: 'flex', flexDirection: 'column', gap: 3,
+            // EXACT reuse of the left Mint Collections panel recipe so the two
+            // settings surfaces read as one system — no approximated colors:
+            //   • card gradient identity  (#201a3a → #1a1530, line ~2212)
+            //   • .feed-filters-panel overlay (rgba(0,0,0,0.26), globals ~920)
+            //     stacked on top → exact effective tone of the left strip,
+            //     opaque so feed cards behind never bleed through.
+            //   • card border (rgba(168,144,232,0.32)) + card box-shadow.
+            background:
+              'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+            border: '1px solid rgba(168,144,232,0.32)',
+            borderRadius: 12,
+            boxShadow:
+              'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+            padding: '8px 14px 9px', zIndex: 100,
+            // ~one feed-card width so the Type / Source rows fit on a single
+            // line at the left panel's 72px label spacing. Capped to viewport.
+            width: 344, maxWidth: 'calc(100vw - 16px)',
+            display: 'flex', flexDirection: 'column',
           }}
         >
-          {/* Miniature of the main Mint Tracker settings panel — same
-              .feed-set-group + header + aligned .feed-srow rows + compact pills,
-              just on the floating popover surface. One system, two surfaces. */}
-          <div className="feed-set-group">
-            <div className="feed-set-group-hd">Filters</div>
-            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+          {/* CONTENT — same semantic group + section header + aligned .feed-srow
+              rows as the left Mint Collections panel. Default 72px label column
+              (no inline override) so row spacing matches the left exactly. */}
+          <div className="feed-set-group feed-set-group--content">
+            <div className="feed-set-group-hd">Content</div>
+            <div className="feed-srow">
               <span className="feed-srow-lbl">Type</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 <Pill active={selectedTypes.size === 0} onClick={() => toggleType(null)}   label="Any"  size="sm" style={selectedTypes.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
@@ -773,7 +784,7 @@ function FeedFiltersPopover({
                 <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT" size="sm" style={selectedTypes.has('candy') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
-            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+            <div className="feed-srow">
               <span className="feed-srow-lbl">Source</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)} label="Any" size="sm" style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
@@ -784,7 +795,7 @@ function FeedFiltersPopover({
             </div>
             {/* Show cNFT Mints — Live Mint Feed only. Default ON; Hide drops
                 compressed mints from the right pane (table/counters unaffected). */}
-            <div className="feed-srow" style={{ gridTemplateColumns: '52px 1fr' }}>
+            <div className="feed-srow">
               <span className="feed-srow-lbl">cNFT</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
