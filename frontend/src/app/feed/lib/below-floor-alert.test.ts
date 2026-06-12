@@ -16,7 +16,11 @@ const CASES: Array<[number | null, number, boolean, string]> = [
   [0.1,   0.004, true,  'AMM-polluted scenario uses real ME floor 0.1 → alert'],
   // Guard rows.
   [null,  0.004, false, 'floor missing → suppressed'],
-  [0.1,   0.06,  false, 'floor 0.1, sale 0.06 (-40%, above -50%) → no alert'],
+  [0.1,   0.061, false, 'floor 0.1, sale 0.061 (-39%, above -40%) → no alert'],
+  // Threshold = -40% verification cases.
+  [0.05,  0.029, true,  'floor 0.05, sale -42% → alert'],
+  [0.05,  0.0305,false, 'floor 0.05, sale -39% → no alert'],
+  [0.009, 0.0009,false, 'floor 0.009, sale -90% → still no alert (tiny floor)'],
 ];
 
 let failures = 0;

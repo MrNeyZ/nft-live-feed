@@ -15,8 +15,8 @@
 export const MIN_BELOW_FLOOR_ALERT_FLOOR_SOL = 0.02;
 
 /** Alert fires when the sale is at or below this fraction of floor
- *  (delta = price/floor − 1). −0.5 ⇒ price ≤ 50% of floor. */
-export const BELOW_FLOOR_ALERT_DELTA = -0.5;
+ *  (delta = price/floor − 1). −0.4 ⇒ price ≤ 60% of floor. */
+export const BELOW_FLOOR_ALERT_DELTA = -0.4;
 
 /**
  * Whether a live sale should play the below-floor deep-discount alert.
