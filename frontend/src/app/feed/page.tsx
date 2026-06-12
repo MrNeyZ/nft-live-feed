@@ -191,6 +191,10 @@ export default function FeedPage() {
   // be active at once. Only one price tier can be selected at a time;
   // clicking the active tier flips back to 'all'.
   const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01' | 'p1'>('all');
+  // Marketplace gate (Any / ME / Tensor / Orbis). `e.marketplace` is already
+  // normalised to 'me' | 'tensor' | 'orbis' by mapMarketplace, so this is a
+  // direct compare. Not persisted — mirrors the sibling PRICE/TYPE filters.
+  const [marketFilter, setMarketFilter] = useState<'all' | 'me' | 'tensor' | 'orbis'>('all');
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
   // Frontend-only collection blacklist (independent of WATCH). Independent,
@@ -882,6 +886,8 @@ export default function FeedPage() {
       if (priceFilter === 'p01'  && candidate < 0.1)  return false;
       if (priceFilter === 'p1'   && candidate < 1)    return false;
     }
+    // Marketplace gate (independent of Type/Price). 'all' = Any.
+    if (marketFilter !== 'all' && e.marketplace !== marketFilter) return false;
     const t = e.saleTypeRaw;
     if (filter === 'buy')     return t === SALE_TYPE_BUY;
     if (filter === 'sell')    return t === SALE_TYPE_SELL;
@@ -889,7 +895,7 @@ export default function FeedPage() {
     if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
     if (filter === 'listing') return false; // backend does not emit listings in v1
     return true;
-  }), [events, filter, priceFilter, collFilter, blacklistSet, floorBySlug]);
+  }), [events, filter, priceFilter, marketFilter, collFilter, blacklistSet, floorBySlug]);
 
   // Per seller+collection sell-side aggregator over the visible feed.
   // Drives the noise-cut on the seller-remaining badge: only the most
@@ -1136,6 +1142,32 @@ export default function FeedPage() {
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
                                 
+                                size="sm"
+                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* MARKET — marketplace gate. 'Any' clears it; pills
+                          match the normalised `e.marketplace` values. */}
+                      <div className="feed-srow" role="group" aria-label="Marketplace">
+                        <span className="feed-srow-lbl">Market</span>
+                        <div className="feed-srow-ctl feed-seg">
+                          {([
+                            { key: 'all',    label: 'Any'       },
+                            { key: 'me',     label: 'MagicEden'  },
+                            { key: 'tensor', label: 'Tensor'     },
+                            { key: 'orbis',  label: 'Orbis'      },
+                          ] as const).map(m => {
+                            const isActive = marketFilter === m.key;
+                            return (
+                              <Pill
+                                key={m.key}
+                                active={isActive}
+                                color="#a890e8"
+                                onClick={() => setMarketFilter(m.key)}
+                                label={m.label}
                                 size="sm"
                                 style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
                               />
