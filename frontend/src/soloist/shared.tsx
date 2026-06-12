@@ -429,11 +429,19 @@ export function SettingsToggle({
   style?: React.CSSProperties;
 }) {
   const text = count && count > 0 ? `${label} · ${count}` : label;
+  // A mouse click leaves the button keyboard-focused, so a later stray Space/
+  // Enter re-toggles the panel. Blur after MOUSE activation only (e.detail > 0).
+  // Keyboard activation (Tab → Enter/Space) reports e.detail === 0, so we keep
+  // focus there and don't break keyboard accessibility.
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    onClick(e);
+    if (e.detail > 0) e.currentTarget.blur();
+  };
   return (
     <Pill
       active={active}
-      onClick={onClick}
-      
+      onClick={handleClick}
+
       icon={<span style={{ fontSize: 11, lineHeight: 1 }}>⚙</span>}
       label={text}
       style={style}

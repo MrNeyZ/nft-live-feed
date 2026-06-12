@@ -776,7 +776,6 @@ function FeedFiltersPopover({
             <div className="feed-srow">
               <span className="feed-srow-lbl">Type</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                <Pill active={selectedTypes.size === 0} onClick={() => toggleType(null)}   label="Any"  size="sm" style={selectedTypes.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 <Pill active={selectedTypes.has('cnft')} onClick={() => toggleType('cnft')} label="cNFT" size="sm" style={selectedTypes.has('cnft') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 <Pill active={selectedTypes.has('core')} onClick={() => toggleType('core')} label="CORE" size="sm" style={selectedTypes.has('core') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 {/* "NFT" maps to the 'candy' key (Candy Machine / Candy Guard).
@@ -787,7 +786,6 @@ function FeedFiltersPopover({
             <div className="feed-srow">
               <span className="feed-srow-lbl">Source</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)} label="Any" size="sm" style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 {SOURCE_KEYS_UI.map(s => (
                   <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)} label={s} size="sm" style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 ))}
@@ -2310,9 +2308,6 @@ export default function MintsPage() {
                 <div className="feed-srow">
                   <span className="feed-srow-lbl">Source</span>
                   <div className="feed-srow-ctl feed-seg">
-                    <Pill active={selectedSources.size === 0} onClick={() => toggleSource(null)}
-                      label="Any" size="sm"
-                      style={selectedSources.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                     {SOURCE_KEYS_UI.map(s => (
                       <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)}
                         label={s} size="sm"
@@ -2323,9 +2318,6 @@ export default function MintsPage() {
                 <div className="feed-srow">
                   <span className="feed-srow-lbl">Status</span>
                   <div className="feed-srow-ctl feed-seg">
-                    <Pill active={selectedStatuses.size === 0} onClick={() => toggleStatus(null)}
-                      label="Any" size="sm"
-                      style={selectedStatuses.size === 0 ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                     {([['active','Active'],['watch','Watch'],['sold','Sold']] as const).map(([k,lbl]) => (
                       <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
                         label={lbl} size="sm"
