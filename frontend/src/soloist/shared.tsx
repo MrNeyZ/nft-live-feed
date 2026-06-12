@@ -2,6 +2,11 @@
 
 // Shared presentational primitives used across the Soloist design.
 // Port of soloist-shared.jsx — kept visually identical.
+//
+// ASSET_REV: 2026-06-12a — bump to force a fresh content hash on the shared
+// chunk (715) so browsers fetch a brand-new /_next URL. Needed once because a
+// Cloudflare edge had cached an HTML 404 (text/html) under the old stable
+// chunk URL during a past live `.next` wipe, which survived hard refresh.
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';

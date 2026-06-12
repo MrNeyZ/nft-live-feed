@@ -1,5 +1,11 @@
 'use client';
 
+// ASSET_REV: 2026-06-12a — bump to force a fresh content hash on the mints page
+// chunk (app/mints/page-*.js). A Cloudflare edge had cached an HTML 404
+// (text/html) under the old stable chunk URL during a past live `.next` wipe,
+// blocking the script (nosniff) and black-screening /mints even after a hard
+// refresh. A new URL is fetched fresh (un-poisoned). See shared.tsx ASSET_REV.
+
 // VictoryLabs — Mints.
 // Real-time NFT mint tracker. Subscribes to the existing SSE stream's
 // `mint_status` channel; one in-process accumulator on the backend
