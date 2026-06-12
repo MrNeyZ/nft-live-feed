@@ -84,8 +84,10 @@ function isDensity(v: unknown): v is Density {
 // ── Feed App ─────────────────────────────────────────────────────────────────
 
 
-const FILTERS: { key: FilterKey; label: string; color: string }[] = [
-  { key: 'all',     label: 'All',        color: '#a890e8' },
+// Multi-select TYPE pills. No 'All' pill — an empty selection means "all
+// types" (see the `typeSet` gate in `filtered`).
+type TypeKey = Exclude<FilterKey, 'all'>;
+const FILTERS: { key: TypeKey; label: string; color: string }[] = [
   { key: 'buy',     label: 'Buy',        color: '#5ce0a0' },
   { key: 'sell',    label: 'Sell',       color: '#ef7878' },
   { key: 'buyAmm',  label: 'Buy AMM',    color: '#5ce0a0' },
@@ -186,15 +188,21 @@ export default function FeedPage() {
     const id = setInterval(tick, 30_000);
     return () => clearInterval(id);
   }, []);
-  const [filter, setFilter] = useState<FilterKey>('all');
-  // Price-tier quick filter. Independent of `filter` (Type) — both can
-  // be active at once. Only one price tier can be selected at a time;
-  // clicking the active tier flips back to 'all'.
-  const [priceFilter, setPriceFilter] = useState<'all' | 'p001' | 'p01' | 'p1'>('all');
-  // Marketplace gate (Any / ME / Tensor / Orbis). `e.marketplace` is already
-  // normalised to 'me' | 'tensor' | 'orbis' by mapMarketplace, so this is a
-  // direct compare. Not persisted — mirrors the sibling PRICE/TYPE filters.
-  const [marketFilter, setMarketFilter] = useState<'all' | 'me' | 'tensor' | 'orbis'>('all');
+  // TYPE / PRICE / MARKET are multi-select. Each is a Set of selected pill
+  // keys; an EMPTY set means "all" (that dimension is not filtered). Toggling
+  // a pill adds/removes its key. None are persisted — mirrors the prior
+  // single-select behavior of these three filters.
+  const [typeSet, setTypeSet] = useState<Set<TypeKey>>(() => new Set());
+  const [priceSet, setPriceSet] = useState<Set<'p001' | 'p01' | 'p1'>>(() => new Set());
+  const [marketSet, setMarketSet] = useState<Set<'me' | 'tensor' | 'orbis'>>(() => new Set());
+  // Generic toggle for a Set-valued multi-select filter.
+  function toggleInSet<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, key: T) {
+    setter(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
   const [collFilter, setCollFilter] = useState<string | null>(null);
   const [collInput, setCollInput] = useState('');
   // Frontend-only collection blacklist (independent of WATCH). Independent,
@@ -879,23 +887,35 @@ export default function FeedPage() {
     // `price` is the seller-net-preferred figure already in SOL; fall
     // back to gross when the display value isn't finite (paranoia —
     // shouldn't happen for normal sales).
-    if (priceFilter !== 'all') {
+    if (priceSet.size > 0) {
       const candidate = Number.isFinite(e.price) ? e.price : e.grossPrice;
       if (!Number.isFinite(candidate) || candidate <= 0) return false;
-      if (priceFilter === 'p001' && candidate < 0.01) return false;
-      if (priceFilter === 'p01'  && candidate < 0.1)  return false;
-      if (priceFilter === 'p1'   && candidate < 1)    return false;
+      // Pills are min-price thresholds; multi-select is OR, i.e. the loosest
+      // (smallest) selected threshold wins. 0.1 → ≥0.1; 0.01+0.1 → ≥0.01.
+      const minThreshold = Math.min(
+        priceSet.has('p001') ? 0.01 : Infinity,
+        priceSet.has('p01')  ? 0.1  : Infinity,
+        priceSet.has('p1')   ? 1    : Infinity,
+      );
+      if (candidate < minThreshold) return false;
     }
-    // Marketplace gate (independent of Type/Price). 'all' = Any.
-    if (marketFilter !== 'all' && e.marketplace !== marketFilter) return false;
-    const t = e.saleTypeRaw;
-    if (filter === 'buy')     return t === SALE_TYPE_BUY;
-    if (filter === 'sell')    return t === SALE_TYPE_SELL;
-    if (filter === 'buyAmm')  return t === SALE_TYPE_BUY_AMM;
-    if (filter === 'sellAmm') return t === SALE_TYPE_SELL_AMM;
-    if (filter === 'listing') return false; // backend does not emit listings in v1
+    // Marketplace gate — empty set = all. OR across selected marketplaces.
+    if (marketSet.size > 0 && !marketSet.has(e.marketplace as 'me' | 'tensor' | 'orbis')) return false;
+    // Type gate — empty set = all types. Map the raw sale type to a pill key
+    // and require membership. Listings aren't emitted by the backend, so a
+    // listings-only selection (no key matches) shows nothing — unchanged.
+    if (typeSet.size > 0) {
+      const t = e.saleTypeRaw;
+      const key: TypeKey | null =
+        t === SALE_TYPE_BUY      ? 'buy'
+        : t === SALE_TYPE_SELL     ? 'sell'
+        : t === SALE_TYPE_BUY_AMM  ? 'buyAmm'
+        : t === SALE_TYPE_SELL_AMM ? 'sellAmm'
+        : null;
+      if (!key || !typeSet.has(key)) return false;
+    }
     return true;
-  }), [events, filter, priceFilter, marketFilter, collFilter, blacklistSet, floorBySlug]);
+  }), [events, typeSet, priceSet, marketSet, collFilter, blacklistSet, floorBySlug]);
 
   // Per seller+collection sell-side aggregator over the visible feed.
   // Drives the noise-cut on the seller-remaining badge: only the most
@@ -1026,7 +1046,7 @@ export default function FeedPage() {
                   }} />
                   ME {meStale ? 'STALE' : 'OK'}
                 </span>
-                {(filter !== 'all' || collFilter) && (
+                {(typeSet.size > 0 || collFilter) && (
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     marginLeft: 6, padding: '2px 8px', fontSize: 10, fontWeight: 600,
@@ -1035,8 +1055,8 @@ export default function FeedPage() {
                     background: 'rgba(168,144,232,0.08)',
                     color: '#a890e8',
                   }}>
-                    {filter !== 'all' && (FILTERS.find(f => f.key === filter)?.label ?? filter)}
-                    {filter !== 'all' && collFilter && (
+                    {typeSet.size > 0 && FILTERS.filter(f => typeSet.has(f.key)).map(f => f.label).join(' / ')}
+                    {typeSet.size > 0 && collFilter && (
                       <span style={{ color: '#56566e' }}>•</span>
                     )}
                     {collFilter && (
@@ -1082,13 +1102,13 @@ export default function FeedPage() {
                         <span className="feed-srow-lbl">Type</span>
                         <div className="feed-srow-ctl">
                           {FILTERS.map(f => {
-                            const isActive = filter === f.key;
+                            const isActive = typeSet.has(f.key);
                             return (
                               <Pill
                                 key={f.key}
                                 active={isActive}
                                 color={f.color}
-                                onClick={() => setFilter(f.key)}
+                                onClick={() => toggleInSet(setTypeSet, f.key)}
                                 label={f.label}
                                 size="sm"
                                 style={isActive ? settingsPillActive(f.color) : SETTINGS_PILL_INACTIVE}
@@ -1102,24 +1122,23 @@ export default function FeedPage() {
                     {/* GROUP 2 — DISPLAY (price · density · hover pause) */}
                     <div className="feed-set-group feed-set-group--display">
                       <div className="feed-set-group-hd">Display</div>
-                      {/* PRICE — segmented min-price selector. 'Any' clears the
-                          gate; thresholds match the existing filter logic. */}
+                      {/* PRICE — multi-select min-price thresholds. No 'Any'
+                          pill; an empty selection means all prices. */}
                       <div className="feed-srow" role="group" aria-label="Minimum price">
                         <span className="feed-srow-lbl">Price</span>
                         <div className="feed-srow-ctl feed-seg">
                           {([
-                            { key: 'all',  label: 'Any'  },
                             { key: 'p001', label: '0.01' },
                             { key: 'p01',  label: '0.1'  },
                             { key: 'p1',   label: '1.0'  },
                           ] as const).map(p => {
-                            const isActive = priceFilter === p.key;
+                            const isActive = priceSet.has(p.key);
                             return (
                               <Pill
                                 key={p.key}
                                 active={isActive}
                                 color="#a890e8"
-                                onClick={() => setPriceFilter(p.key)}
+                                onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
                                 style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
@@ -1149,24 +1168,24 @@ export default function FeedPage() {
                           })}
                         </div>
                       </div>
-                      {/* MARKET — marketplace gate. 'Any' clears it; pills
-                          match the normalised `e.marketplace` values. */}
+                      {/* MARKET — multi-select marketplace gate. No 'Any' pill;
+                          an empty selection means all marketplaces. Pills match
+                          the normalised `e.marketplace` values. */}
                       <div className="feed-srow" role="group" aria-label="Marketplace">
                         <span className="feed-srow-lbl">Market</span>
                         <div className="feed-srow-ctl feed-seg">
                           {([
-                            { key: 'all',    label: 'Any'       },
                             { key: 'me',     label: 'MagicEden'  },
                             { key: 'tensor', label: 'Tensor'     },
                             { key: 'orbis',  label: 'Orbis'      },
                           ] as const).map(m => {
-                            const isActive = marketFilter === m.key;
+                            const isActive = marketSet.has(m.key);
                             return (
                               <Pill
                                 key={m.key}
                                 active={isActive}
                                 color="#a890e8"
-                                onClick={() => setMarketFilter(m.key)}
+                                onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
                                 style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
