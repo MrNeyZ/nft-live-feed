@@ -74,40 +74,6 @@ export function Gate({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, []);
 
-  // Deployment-skew self-heal. When the frontend is rebuilt, chunk hashes +
-  // BUILD_ID change. A browser tab still running an older bundle that then
-  // client-navigates (e.g. into /mints) requests the previous build's chunks,
-  // which 404 → ChunkLoadError → the route never mounts and the app freezes on
-  // the loading shell ("black screen + dots"). Detect that exact error class
-  // and force ONE reload to pull the current bundle. A sessionStorage guard
-  // prevents a reload loop if the failure is something other than skew; it's
-  // cleared a few seconds after a successful load so future deploys self-heal.
-  useEffect(() => {
-    const RELOAD_FLAG = 'vl.chunkReloadAt';
-    const isChunkError = (msg: string) =>
-      /ChunkLoadError|Loading chunk [\w-]+ failed|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(msg);
-    const onErr = (ev: ErrorEvent | PromiseRejectionEvent) => {
-      const r = (ev as PromiseRejectionEvent).reason;
-      const e = (ev as ErrorEvent).error;
-      const msg = `${r?.name ?? ''} ${r?.message ?? ''} ${e?.name ?? ''} ${e?.message ?? ''} ${(ev as ErrorEvent).message ?? ''}`;
-      if (!isChunkError(msg)) return;
-      try {
-        if (sessionStorage.getItem(RELOAD_FLAG)) return; // already reloaded this session — avoid a loop
-        sessionStorage.setItem(RELOAD_FLAG, '1');
-      } catch { /* private mode: reload anyway, once is acceptable */ }
-      window.location.reload();
-    };
-    window.addEventListener('error', onErr);
-    window.addEventListener('unhandledrejection', onErr);
-    // If we got here and the app settled, allow future skews to self-heal again.
-    const clear = setTimeout(() => { try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* ignore */ } }, 10000);
-    return () => {
-      window.removeEventListener('error', onErr);
-      window.removeEventListener('unhandledrejection', onErr);
-      clearTimeout(clear);
-    };
-  }, []);
-
   if (state.kind === 'loading') {
     return <GateShell><div style={{ color: '#55556e', fontSize: 12 }}>…</div></GateShell>;
   }
