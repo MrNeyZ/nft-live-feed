@@ -103,6 +103,23 @@ export function fromBackend(b: BackendEvent): FeedEvent {
 }
 
 /**
+ * Normalise a collection name (or ME slug) into an Orbis marketplace slug.
+ * "Mutants On Sol Crew" → "mutants-on-sol-crew"; "mosc_pre_reveal" →
+ * "mosc-pre-reveal". Lowercase, & → "and", drop quotes, collapse any run of
+ * non-alphanumerics to a single hyphen, trim leading/trailing hyphens.
+ */
+export function toOrbisSlug(nameOrSlug: string): string {
+  return nameOrSlug
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-');
+}
+
+/**
  * Build the marketplace URL for an event's badge — routes by the event's
  * detected marketplace so a Tensor sale links to tensor.trade and a Magic
  * Eden sale links to magiceden.io.
@@ -118,11 +135,17 @@ export function marketplaceUrl(event: FeedEvent): string | null {
     if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
     return 'https://www.tensor.trade';
   }
-  // Orbis: collection page on orbisonsol.io, keyed by the SAME collection slug
-  // ME/Tensor reuse (`meCollectionSlug`) — never derived from the name. No slug
-  // → render the badge without a link rather than mis-routing it.
+  // Orbis: its slug is name-derived ("Mutants On Sol Crew" →
+  // "mutants-on-sol-crew"), NOT the ME slug ("mosc_pre_reveal"). Build from the
+  // display collection name when we have a real one; fall back to the ME slug
+  // (run through the same normaliser so underscores become hyphens) only when
+  // the name is missing. No source at all → unlinked badge.
   if (event.marketplace === 'orbis') {
-    if (event.meCollectionSlug) return `https://www.orbisonsol.io/marketplace/${event.meCollectionSlug}`;
+    const name = event.collectionName && event.collectionName !== 'Unknown'
+      ? event.collectionName
+      : event.meCollectionSlug;
+    const orbisSlug = name ? toOrbisSlug(name) : '';
+    if (orbisSlug) return `https://www.orbisonsol.io/marketplace/${orbisSlug}`;
     return null;
   }
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
