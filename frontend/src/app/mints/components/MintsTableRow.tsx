@@ -359,7 +359,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none' }} />
         {/* Left status marker — PRIMARY row indicator. Strong 3px full-height
             per-state collection color (opaque / `cc` on watch). */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accentBorderColor, pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accentBorderColor, boxShadow: `0 0 5px ${accentColor}59`, pointerEvents: 'none' }} />
         {/* Fixed-slot CSS grid for the identity area — children DON'T flow:
             [rank 22][image 46][status 22][name 100][icons+source + SHOW (1fr)].
             Status track was 66 px to fit the old ACTIVE/WATCH labels; after

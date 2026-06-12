@@ -735,14 +735,23 @@ function FeedFiltersPopover({
   }, [open]);
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>
-      {/* Canonical shared Settings toggle — identical control across every
-          VictoryLabs panel. Active when the popover is open or a filter is set;
-          `count` renders the "Settings · N" active-filter badge. */}
+      {/* Canonical shared Settings toggle. Styled as a PASSIVE utility control
+          (not an active nav tab): muted dark fill, low-contrast border, dim
+          text + gear, no glow — in BOTH states. Open is indicated only by a
+          hair-brighter fill (no brighter border, no thicker border, no glow),
+          so attention stays on the cards / mint activity / MINT OK status.
+          `count` still renders the "Settings · N" active-filter badge. */}
       <SettingsToggle
         active={open || activeCount > 0}
         onClick={() => setOpen(v => !v)}
-        
+
         count={activeCount}
+        style={{
+          background: open ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.028)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          color: '#7c7c92',
+          boxShadow: 'none',
+        }}
       />
       {open && (
         <div
