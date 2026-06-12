@@ -812,10 +812,31 @@ const NFT_MINT_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: MintAsset',
 ];
 
+/** Count MPL Core asset creations in the tx logs. The Core program's per-asset
+ *  instruction logs as the generic `Instruction: Create`, which is NOT safe to
+ *  count globally (the SPL Associated-Token-Account program logs the same line
+ *  for token-account creation). We therefore scope it: a Create only counts
+ *  when the immediately-preceding `Program … invoke` line was the Core program.
+ *  Bulk Core launchpad mints (e.g. LaunchMyNFT → Core) CPI into Core once per
+ *  NFT, so this equals the number of assets minted. Verified on bulk sig
+ *  4s8MDy…bwE9 → 12 Core Create invocations / 12 NFTs. */
+function countCoreCreates(logs: readonly unknown[]): number {
+  let n = 0;
+  for (let i = 1; i < logs.length; i++) {
+    const l = logs[i];
+    if (typeof l !== 'string' || l !== 'Program log: Instruction: Create') continue;
+    const prev = logs[i - 1];
+    if (typeof prev === 'string'
+        && prev.startsWith(`Program ${MPL_CORE_PROGRAM} invoke`)) n++;
+  }
+  return n;
+}
+
 /** Conservative per-tx NFT-mint count from the tx logs: the MAX occurrence
- *  among the known per-NFT mint instructions, clamped to >=1. Single mints →
- *  1; programs whose per-asset instruction isn't in the set → 1 (undercount,
- *  so a ">1" suffix is never wrongly shown on a single mint). */
+ *  among the known per-NFT mint instructions (incl. Core-scoped `Create`),
+ *  clamped to >=1. Single mints → 1; programs whose per-asset instruction
+ *  isn't in the set → 1 (undercount, so a ">1" suffix is never wrongly shown
+ *  on a single mint). */
 function countNftMints(tx: RawSolanaTx): number {
   const logs = tx.meta?.logMessages;
   if (!Array.isArray(logs)) return 1;
@@ -825,6 +846,10 @@ function countNftMints(tx: RawSolanaTx): number {
     for (const l of logs) if (typeof l === 'string' && l.includes(needle)) n++;
     if (n > max) max = n;
   }
+  // MPL Core launchpad mints log `Instruction: Create` (not in the needle
+  // set); count those program-scoped so bulk Core drops report correctly.
+  const coreCreates = countCoreCreates(logs);
+  if (coreCreates > max) max = coreCreates;
   return max > 1 ? max : 1;
 }
 

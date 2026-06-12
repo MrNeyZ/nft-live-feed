@@ -68,12 +68,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const nftName        = (ev.nftName && ev.nftName.length > 0)
     ? ev.nftName
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
-  // Bulk-mint suffix: append " (N)" after the name only when the tx minted
-  // more than one NFT. Single mints (count 1 / absent) are unchanged.
-  // Kept separate from `nftName` so the abbr/placeholder seed isn't affected.
-  const displayName = (ev.nftCount && ev.nftCount > 1)
-    ? `${nftName} (${ev.nftCount})`
-    : nftName;
+  // Bulk-mint indicator renders as a compact "×N" pill in the source/price
+  // cluster (see below), not inline in the name — so the name line stays
+  // clean and single vs bulk mints are visually distinct at a glance.
+  const displayName = nftName;
+  const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
   // trailing `#N` to derive a collection-style label ("Kryptos").
@@ -155,14 +154,28 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     // eslint-disable-next-line no-console
     console.debug(`[mints/flork] sig=${ev.signature.slice(0, 8)}… tier=${tier} url=${cardImage ?? '—'}`);
   }
+  // Per-NFT price. `priceLamports` is the signer's total SOL delta for the
+  // whole tx — for a bulk mint that's the SUM across N NFTs, which would
+  // otherwise make a bulk card show ~N× the real mint price and read as a
+  // different, expensive collection. Divide by `nftCount` so the PRICE column
+  // means the same thing (per-NFT) on single and bulk cards alike; the `×N`
+  // pill carries the multiplicity. Single mints (count 1/absent) are unchanged.
+  const perNftLamports = ev.priceLamports != null && isBulkMint
+    ? ev.priceLamports / (ev.nftCount as number)
+    : ev.priceLamports;
   // `<= 0` (not `=== 0`): legacy DB rows can carry a negative priceLamports
   // (signer net-received lamports); render those as FREE, never negative SOL.
-  const priceText      = ev.priceLamports == null
+  const priceText      = perNftLamports == null
     ? '—'
-    : ev.priceLamports <= 0 ? 'FREE' : formatSol(ev.priceLamports / 1e9);
-  const priceColor     = ev.priceLamports == null
+    : perNftLamports <= 0 ? 'FREE' : formatSol(perNftLamports / 1e9);
+  // Tooltip shows the tx total when we divided, so the raw on-chain number is
+  // still discoverable on hover. Null for single mints (no title).
+  const priceTitle     = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
+    ? `${formatSol(ev.priceLamports / 1e9)} SOL total · ${ev.nftCount} NFTs`
+    : undefined;
+  const priceColor     = perNftLamports == null
     ? '#55556e'
-    : ev.priceLamports <= 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
+    : perNftLamports <= 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows
@@ -391,6 +404,21 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           </div>
         )}
       </div>
+      {/* Bulk-mint count pill — shown only when the tx minted >1 NFT
+          (parser `nftCount`). Compact "×N" chip in the source/price cluster;
+          violet accent so it reads as meta-info distinct from the type/source
+          pills. flexShrink:0 + render-only-when-bulk → no layout shift and
+          single mints are unchanged (no pill). */}
+      {isBulkMint && (
+        <span
+          title={`${ev.nftCount} NFTs minted in this transaction`}
+          style={{
+            display: 'inline-block', padding: '2px 7px', fontSize: 10, fontWeight: 800,
+            borderRadius: 4, background: 'rgba(168,144,232,0.20)', color: '#cdbcf5',
+            letterSpacing: '0.2px', flexShrink: 0, fontVariantNumeric: 'tabular-nums',
+          }}
+        >×{ev.nftCount}</span>
+      )}
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -442,7 +470,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
-      <span style={{
+      <span title={priceTitle} style={{
         minWidth: 64, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
         // Bumped fontSize 13 → 14 and fontWeight 700 → 800 — single
