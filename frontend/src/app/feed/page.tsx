@@ -17,6 +17,7 @@ import {
 } from '@/soloist/feed-store';
 import { isCnftDust } from '@/soloist/cnft-filter';
 import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
+import { shouldPlayBelowFloorAlert } from './lib/below-floor-alert';
 import type { Density, FilterKey } from './lib/types';
 import { FeedCard } from './lib/feed-card';
 
@@ -478,23 +479,30 @@ export default function FeedPage() {
           // (Sales whose collection name only arrives via a later `meta`
           // patch are caught by the render backstop instead.)
           if (isFeedEventBlacklisted(ev, blacklistSetRef.current)) return;
-          // Deep-discount alert: only fires from the LIVE SSE path
-          // (never from REST snapshot / persisted hydration). Backend
-          // floorDelta = (price - floor) / floor, so price <= floor*0.5
-          // ↔ floorDelta <= -0.5. When backend's floorDelta is null
-          // (floor not yet resolved at sale time) we recompute from the
-          // local `floorBySlug` cache — same fallback FeedCard already
-          // uses for the FloorChip, just lifted into the alert path so
-          // bid_sells with a known cached floor don't silently miss.
-          let alertDelta: number | null = typeof ev.floorDelta === 'number' ? ev.floorDelta : null;
-          if (alertDelta == null && ev.meCollectionSlug) {
-            const f = floorBySlugRef.current[ev.meCollectionSlug];
-            const safePrice = Number.isFinite(ev.price) ? ev.price : ev.grossPrice;
-            if (typeof f === 'number' && f > 0 && Number.isFinite(safePrice) && safePrice > 0) {
-              alertDelta = (safePrice - f) / f;
-            }
-          }
-          if (alertDelta != null && alertDelta <= -0.5) {
+          // Deep-discount alert: only fires from the LIVE SSE path (never from
+          // REST snapshot / persisted hydration).
+          //
+          // Floor source = the TRUSTED Magic Eden collection floor from the
+          // `floorBySlug` cache (sourced from ME /collections/{slug}/stats — see
+          // the floor-lookup section below), NOT the wire `ev.floorDelta`. The
+          // backend's floorDelta is computed against the listings-store "min
+          // observed listing", which an MMM/AMM pool sale or a lowball relist
+          // can drag down to a few thousandths of a SOL — turning a real -96%
+          // vs the true floor into a harmless-looking -20% (alert wrongly
+          // skipped), or firing on sub-cent noise. The ME /stats floor is immune
+          // to that pollution. (The FloorChip badge still uses ev.floorDelta —
+          // intentionally left unchanged here; see audit note.)
+          //
+          // Two suppression rules, both on the FLOOR (never the sale price):
+          //   1. floor missing / null / 0 → no alert (can't trust the delta).
+          //   2. floor <= 0.02 SOL        → no alert (tiny-value noise, not a
+          //      meaningful flip even at a large negative %).
+          // Decision lives in the pure `shouldPlayBelowFloorAlert` helper.
+          const alertFloorSol = ev.meCollectionSlug
+            ? floorBySlugRef.current[ev.meCollectionSlug]
+            : null;
+          const safePrice = Number.isFinite(ev.price) ? ev.price : ev.grossPrice;
+          if (shouldPlayBelowFloorAlert(alertFloorSol, safePrice)) {
             playDeepDiscountAlert(ev.signature);
           }
           enqueue({ type: 'live', event: ev });
