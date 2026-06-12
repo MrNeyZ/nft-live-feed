@@ -68,10 +68,25 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const nftName        = (ev.nftName && ev.nftName.length > 0)
     ? ev.nftName
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
-  // Bulk-mint indicator renders as a compact "×N" pill in the source/price
-  // cluster (see below), not inline in the name — so the name line stays
-  // clean and single vs bulk mints are visually distinct at a glance.
-  const displayName = nftName;
+  // Title shown on the card's prominent first line. Prefer the per-mint
+  // `nftName` (DAS-patched via `mint_meta`, e.g. "pack") — but ONLY when it's a
+  // genuine per-NFT name, i.e. not just the collection name repeated. The
+  // collection name belongs on the SUBTITLE; surfacing it here too (the old
+  // fallback) produced identical top/second lines ("Card NFT 2" / "Card NFT
+  // 2"). When no real per-NFT name has resolved, fall back to the short mint
+  // address — never the collection name. (`nftName` above stays the avatar abbr
+  // seed.) The collection-name guard checks raw + `#N`-stripped forms so a
+  // backend that ships nftName == collectionName is treated as "no per-NFT name".
+  const collNameStripped = collectionName
+    ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim()
+    : null;
+  const hasRealNftName = !!ev.nftName
+    && ev.nftName.length > 0
+    && ev.nftName !== collectionName
+    && ev.nftName !== collNameStripped;
+  const displayName = hasRealNftName
+    ? (ev.nftName as string)
+    : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
   const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
@@ -168,10 +183,16 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const priceText      = perNftLamports == null
     ? '—'
     : perNftLamports <= 0 ? 'FREE' : formatSol(perNftLamports / 1e9);
+  // Total tx price (formatted) — only meaningful on a paid bulk mint, where
+  // it differs from the per-NFT figure. Surfaced both in the `×N = TOTAL` pill
+  // and in the price tooltip below. Null for single / free mints.
+  const totalText      = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
+    ? formatSol(ev.priceLamports / 1e9)
+    : null;
   // Tooltip shows the tx total when we divided, so the raw on-chain number is
   // still discoverable on hover. Null for single mints (no title).
-  const priceTitle     = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
-    ? `${formatSol(ev.priceLamports / 1e9)} SOL total · ${ev.nftCount} NFTs`
+  const priceTitle     = totalText != null
+    ? `${priceText} ◎ each · ${totalText} ◎ total · ${ev.nftCount} NFTs`
     : undefined;
   const priceColor     = perNftLamports == null
     ? '#55556e'
@@ -273,21 +294,41 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}
-        <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {isSolPubkey(ev.mintAddress) ? (
-            <a
-              href={`https://solscan.io/token/${ev.mintAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              
-              style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
-            >
-              {displayName}
-            </a>
-          ) : (
-            displayName
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            {isSolPubkey(ev.mintAddress) ? (
+              <a
+                href={`https://solscan.io/token/${ev.mintAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+
+                style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+              >
+                {displayName}
+              </a>
+            ) : (
+              displayName
+            )}
+          </div>
+          {/* Bulk-mint count — calm chip immediately after the NFT name
+              (e.g. "pack  ×5"). Count-only; the total tx price stays in the
+              price tooltip / "ea" suffix. Muted low-opacity violet so it does
+              NOT compete with the CORE/source/price badges. Hidden for single
+              mints; flexShrink:0 so the name truncates and the chip survives. */}
+          {isBulkMint && (
+            <span
+              title={`${ev.nftCount} NFTs minted in this transaction`}
+              style={{
+                flexShrink: 0, fontSize: 9.5, fontWeight: 600,
+                padding: '1px 5px', borderRadius: 4, lineHeight: 1.3,
+                background: 'rgba(168,144,232,0.10)',
+                border: '1px solid rgba(168,144,232,0.12)',
+                color: '#a59ec0', letterSpacing: '0.2px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >×{ev.nftCount}</span>
           )}
         </div>
         {/* Bottom line: collection name (smaller, muted) per the
@@ -404,21 +445,6 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           </div>
         )}
       </div>
-      {/* Bulk-mint count pill — shown only when the tx minted >1 NFT
-          (parser `nftCount`). Compact "×N" chip in the source/price cluster;
-          violet accent so it reads as meta-info distinct from the type/source
-          pills. flexShrink:0 + render-only-when-bulk → no layout shift and
-          single mints are unchanged (no pill). */}
-      {isBulkMint && (
-        <span
-          title={`${ev.nftCount} NFTs minted in this transaction`}
-          style={{
-            display: 'inline-block', padding: '2px 7px', fontSize: 10, fontWeight: 800,
-            borderRadius: 4, background: 'rgba(168,144,232,0.20)', color: '#cdbcf5',
-            letterSpacing: '0.2px', flexShrink: 0, fontVariantNumeric: 'tabular-nums',
-          }}
-        >×{ev.nftCount}</span>
-      )}
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
