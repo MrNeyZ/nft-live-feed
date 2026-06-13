@@ -48,6 +48,7 @@ import {
   getMintTrackerCoreV2ScorerEnabled,
   LAUNCHMYNFT_PROGRAM,
   CANDY_GUARD_PROGRAM,
+  CANDY_MACHINE_V3_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
 import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint, detectGenericCoreLaunchpadMint, detectGenericTokenMetadataLaunchpadMint } from './core-v2-detector';
@@ -805,39 +806,54 @@ function findMintInstruction(
 // Per-NFT mint instructions — each fires ~once per minted NFT and never for
 // ancillary token/metadata account creation, so counting them is a safe
 // per-tx mint count. Verified on bulk sig 5awC3…Nqhq → MintV1×5 / MintAsset×5.
+// Per-NFT mint instructions counted by plain substring — each fires ~once per
+// minted NFT and never for ancillary token/metadata account creation, so
+// counting them is a safe per-tx mint count. Verified on bulk sig
+// 5awC3…Nqhq → MintV1×5 / MintAsset×5.
+//
+// NB: `Instruction: MintV2` is intentionally NOT here. It's emitted by Candy
+// Machine v3, but Candy Guard re-logs the same line around the inner Candy
+// Machine CPI — so one logical NFT produces TWO `Instruction: MintV2` lines
+// (1 guard wrapper + 1 machine). It's counted program-scoped below instead.
 const NFT_MINT_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: MintV1',
-  'Instruction: MintV2',
   'Instruction: MintCv3',
   'Instruction: MintAsset',
 ];
 
-/** Count MPL Core asset creations in the tx logs. The Core program's per-asset
- *  instruction logs as the generic `Instruction: Create`, which is NOT safe to
- *  count globally (the SPL Associated-Token-Account program logs the same line
- *  for token-account creation). We therefore scope it: a Create only counts
- *  when the immediately-preceding `Program … invoke` line was the Core program.
- *  Bulk Core launchpad mints (e.g. LaunchMyNFT → Core) CPI into Core once per
- *  NFT, so this equals the number of assets minted. Verified on bulk sig
- *  4s8MDy…bwE9 → 12 Core Create invocations / 12 NFTs. */
-function countCoreCreates(logs: readonly unknown[]): number {
+/** Count `Program log: <instruction>` lines emitted DIRECTLY by `program` —
+ *  i.e. the immediately-preceding log line is that program's `invoke`.
+ *  Program-scoping is required when the bare instruction string is ambiguous
+ *  across the CPI tree:
+ *    • MPL Core's per-asset `Instruction: Create` collides with the SPL
+ *      Associated-Token-Account program's identical `Instruction: Create`.
+ *    • Candy Machine v3's `Instruction: MintV2` is re-logged by the Candy
+ *      Guard wrapper one frame up, double-counting a single mint.
+ *  Scoping to the issuing program counts each minted asset exactly once.
+ *  Verified: bulk Core sig 4s8MDy…bwE9 → 12 Core Create / 12 NFTs;
+ *  guarded single CM sig 36cLwZ… → 2 raw MintV2 / 1 scoped. */
+function countScopedInstruction(
+  logs: readonly unknown[],
+  instruction: string,
+  program: string,
+): number {
+  const needle = `Program log: ${instruction}`;
   let n = 0;
   for (let i = 1; i < logs.length; i++) {
-    const l = logs[i];
-    if (typeof l !== 'string' || l !== 'Program log: Instruction: Create') continue;
+    if (logs[i] !== needle) continue;
     const prev = logs[i - 1];
     if (typeof prev === 'string'
-        && prev.startsWith(`Program ${MPL_CORE_PROGRAM} invoke`)) n++;
+        && prev.startsWith(`Program ${program} invoke`)) n++;
   }
   return n;
 }
 
 /** Conservative per-tx NFT-mint count from the tx logs: the MAX occurrence
- *  among the known per-NFT mint instructions (incl. Core-scoped `Create`),
- *  clamped to >=1. Single mints → 1; programs whose per-asset instruction
- *  isn't in the set → 1 (undercount, so a ">1" suffix is never wrongly shown
- *  on a single mint). */
-function countNftMints(tx: RawSolanaTx): number {
+ *  among the known per-NFT mint instructions (incl. program-scoped Core
+ *  `Create` and Candy Machine `MintV2`), clamped to >=1. Single mints → 1;
+ *  programs whose per-asset instruction isn't recognised → 1 (undercount, so a
+ *  ">1" suffix is never wrongly shown on a single mint). */
+export function countNftMints(tx: RawSolanaTx): number {
   const logs = tx.meta?.logMessages;
   if (!Array.isArray(logs)) return 1;
   let max = 0;
@@ -848,8 +864,13 @@ function countNftMints(tx: RawSolanaTx): number {
   }
   // MPL Core launchpad mints log `Instruction: Create` (not in the needle
   // set); count those program-scoped so bulk Core drops report correctly.
-  const coreCreates = countCoreCreates(logs);
+  const coreCreates = countScopedInstruction(logs, 'Instruction: Create', MPL_CORE_PROGRAM);
   if (coreCreates > max) max = coreCreates;
+  // Candy Machine v3 `mintV2`: scoped to the Candy Machine program so the
+  // Candy Guard wrapper's duplicate `Instruction: MintV2` line doesn't
+  // double-count one NFT (sig 36cLwZ… → 2 raw / 1 scoped = 1 NFT).
+  const cmMints = countScopedInstruction(logs, 'Instruction: MintV2', CANDY_MACHINE_V3_PROGRAM);
+  if (cmMints > max) max = cmMints;
   return max > 1 ? max : 1;
 }
 
