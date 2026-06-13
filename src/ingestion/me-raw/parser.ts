@@ -210,6 +210,24 @@ function parseMeV2Sale(
     ? sellerNet
     : payment.priceLamports;
 
+  // Listing-escrow / rent-refund guard (ME v2 fixed-price path only).
+  // When a fixed-price listing is filled, Magic Eden closes the seller's
+  // listing PDA in the SAME transaction and refunds its rent/deposit to the
+  // seller's wallet. `computeSellerNetLamports` reads the seller wallet's raw
+  // pre/post lamport delta, so that refund (≈0.0035 SOL of reclaimed rent)
+  // is added on top of the real NFT proceeds — inflating seller-net above the
+  // actual sale price. Observed on coreExecuteSaleV2
+  //   3WkwA8QBgnqKwhfpnUBCrSjFXYY7LS2dQh1LNJsSG6wogv1nFDqJLJK245sgnVQVe4Stc2a3YvK7sXrEqD4ia3mm
+  // → seller-net 0.013465 vs true price 0.010112 (refunded escrow 0.003564).
+  // A legitimate seller-net can never exceed the buyer's gross outflow, so
+  // when it does the value is contaminated and we drop it; the UI then falls
+  // back to gross, which is the correct economic sale price. Skipped for
+  // lucky-buy, where gross IS the raffle-escrow spend (unreliable) and
+  // sellerNet is the intended price source.
+  const sellerNetClean = !luckyBuy && sellerNet != null && sellerNet > priceLamports
+    ? null
+    : sellerNet;
+
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
@@ -221,8 +239,8 @@ function parseMeV2Sale(
     buyer,
     priceLamports,
     priceSol:          Number(priceLamports) / 1e9,
-    sellerNetLamports: sellerNet,
-    sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
+    sellerNetLamports: sellerNetClean,
+    sellerNetPriceSol: sellerNetClean != null ? Number(sellerNetClean) / 1e9 : null,
     currency:          'SOL',
     rawData:           {
       _parser:     'me_v2_raw',

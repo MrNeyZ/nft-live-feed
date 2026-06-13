@@ -93,6 +93,11 @@ interface TestCase {
   /** Max price in SOL (inclusive) for a range check. */
   expectPriceLte?: number;
   expectInstruction?: string;
+  /** Upper bound (inclusive, SOL) for the DISPLAYED price the feed renders:
+   *  `sellerNetPriceSol ?? priceSol` (see frontend price-mode.ts / from-backend.ts).
+   *  Regression guard for the listing-escrow rent-refund overcount — seller-net
+   *  must not exceed gross, else it surfaces a price inflated by reclaimed rent. */
+  expectDisplayPriceLte?: number;
 }
 
 const CASES: TestCase[] = [
@@ -241,6 +246,26 @@ const CASES: TestCase[] = [
     expectPriceLte:    0.006,
     expectInstruction: 'coreFulfillSell',
   },
+  // ── 2026-06-13: listing-escrow rent-refund overcount regression ──────────────
+  // Reported: feed showed 0.013 SOL; true listing/sale price is 0.01 SOL.
+  // Root cause: seller's listing PDA is closed in-tx and its ~0.003564 SOL
+  // rent/deposit is refunded to the seller wallet, inflating the raw seller
+  // lamport delta (0.013465) above the real proceeds. The parser now drops
+  // seller-net when it exceeds gross, so the displayed price (sellerNet ?? gross)
+  // falls back to gross 0.010112 → renders 0.01, NOT 0.013.
+  {
+    sig:                 '3WkwA8QBgnqKwhfpnUBCrSjFXYY7LS2dQh1LNJsSG6wogv1nFDqJLJK245sgnVQVe4Stc2a3YvK7sXrEqD4ia3mm',
+    label:               'Core listing purchase — rent-refund overcount (ME v2 — coreExecuteSaleV2)',
+    expectOk:            true,
+    expectMarketplace:   'magic_eden',
+    expectNftType:       'core',
+    expectSeller:        'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectBuyer:         '9YDQ9MYusBAdjhEEAzR8uRdUQrc8S6oaPfWfgGFUpiTy',
+    expectPriceGte:      0.0100,
+    expectPriceLte:      0.0102,
+    expectDisplayPriceLte: 0.0102, // before fix: 0.013465 (seller-net) → FAIL
+    expectInstruction:   'coreExecuteSaleV2',
+  },
 ];
 
 // ─── Checker ──────────────────────────────────────────────────────────────────
@@ -313,6 +338,11 @@ async function main() {
     }
     if (tc.expectInstruction) {
       ok = check('instruction', (e.rawData as Record<string,unknown>)._instruction, tc.expectInstruction) && ok;
+    }
+    if (tc.expectDisplayPriceLte !== undefined) {
+      // Mirror the feed's render value: sellerNetPriceSol ?? priceSol.
+      const displayPrice = e.sellerNetPriceSol ?? e.priceSol;
+      ok = checkRange('displayPrice', displayPrice, 0, tc.expectDisplayPriceLte) && ok;
     }
 
     if (ok) {
