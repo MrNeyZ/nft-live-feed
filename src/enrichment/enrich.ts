@@ -1,6 +1,6 @@
 import { SaleEvent } from '../models/sale-event';
 import { getAsset, NftMetadata } from './helius-das';
-import { getMetaplexOnchainMetadata, fetchImageFromJsonUri } from './metaplex-onchain';
+import { getMetaplexOnchainMetadata, fetchMetaFromJsonUri } from './metaplex-onchain';
 import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
@@ -354,7 +354,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     // pull the image straight from the off-chain JSON. Gated on imageUrl still
     // null, so it never runs when DAS already gave us an image.
     if (metadata && !metadata.imageUrl && metadata.jsonUri) {
-      const offImg = await fetchImageFromJsonUri(metadata.jsonUri, mint);
+      const offImg = (await fetchMetaFromJsonUri(metadata.jsonUri, mint)).image;
       if (offImg) metadata = { ...metadata, imageUrl: offImg };
     }
 

@@ -317,31 +317,36 @@ function pickOffchainImage(meta: {
 }
 
 /**
- * Last-resort image resolver: fetch the DAS `content.json_uri` directly and
- * extract a still-image URL from the off-chain JSON.
+ * Last-resort image + name resolver: fetch the DAS `content.json_uri` directly
+ * and extract the still-image URL AND the asset `name` from the off-chain JSON.
  *
  * Why this exists: DAS getAsset sometimes returns a `json_uri` but empty
- * `content.links`/`files` — common for freshly-minted MPL Core assets whose
- * off-chain JSON Helius hasn't indexed yet (and `getMetaplexOnchainMetadata`
- * can't help Core — no Token-Metadata PDA). The off-chain JSON itself usually
- * has a perfectly good `image`. Verified against Syndicate Founder Capos
+ * `content.links`/`files` AND an empty `content.metadata.name` — common for
+ * freshly-minted MPL Core assets whose off-chain JSON Helius hasn't indexed
+ * yet (and `getMetaplexOnchainMetadata` can't help Core — no Token-Metadata
+ * PDA). The off-chain JSON itself usually already has a perfectly good `image`
+ * AND `name` (e.g. "Micros #8881"). Returning the name too lets the per-NFT
+ * card title resolve from the same single fetch instead of waiting for DAS to
+ * backfill `metadata.name` (which may never happen before the retry queue
+ * gives up). Verified against Syndicate Founder Capos
  * (mint BZi99puCZvsPy8yo4N2CdXUfW23ovTnTmuL6xcQ4gytA).
  *
- * Single fetch, fail-soft (never throws — returns null on any failure so
- * enrichment keeps `imageUrl` null), timeout + size cap. The returned URL is
- * gateway-normalised (ipfs:// / ar:// / dead Pinata gateway) so it is directly
- * usable; `gateway.irys.xyz` URLs are returned as-is (see normaliseUri).
+ * Single fetch, fail-soft (never throws — returns {null,null} on any failure
+ * so enrichment keeps both fields null), timeout + size cap. The returned URL
+ * is gateway-normalised (ipfs:// / ar:// / dead Pinata gateway) so it is
+ * directly usable; `gateway.irys.xyz` URLs are returned as-is (see normaliseUri).
  */
-export async function fetchImageFromJsonUri(
+export async function fetchMetaFromJsonUri(
   jsonUri: string,
   mint: string,
-): Promise<string | null> {
+): Promise<{ image: string | null; name: string | null }> {
   const tag = mint.slice(0, 8);
+  const none = { image: null, name: null };
   try {
     const url = normaliseUri(jsonUri);
     if (!/^https?:\/\//i.test(url)) {
       console.log(`[enrich/json-uri] mint=${tag} image=no reason=unsupported_scheme`);
-      return null;
+      return none;
     }
 
     const res = await fetch(url, {
@@ -350,35 +355,38 @@ export async function fetchImageFromJsonUri(
     });
     if (!res.ok) {
       console.log(`[enrich/json-uri] mint=${tag} image=no reason=http_${res.status}`);
-      return null;
+      return none;
     }
 
     const declaredLen = Number(res.headers.get('content-length') ?? '0');
     if (declaredLen && declaredLen > JSON_MAX_BYTES) {
       console.log(`[enrich/json-uri] mint=${tag} image=no reason=too_large`);
-      return null;
+      return none;
     }
     const text = await res.text();
     if (text.length > JSON_MAX_BYTES) {
       console.log(`[enrich/json-uri] mint=${tag} image=no reason=too_large_body`);
-      return null;
+      return none;
     }
 
-    let parsed: Parameters<typeof pickOffchainImage>[0];
+    let parsed: Parameters<typeof pickOffchainImage>[0] & { name?: unknown };
     try {
       parsed = JSON.parse(text);
     } catch {
       console.log(`[enrich/json-uri] mint=${tag} image=no reason=bad_json`);
-      return null;
+      return none;
     }
 
     const raw = avifToPng(pickOffchainImage(parsed));
     const image = raw ? normaliseUri(raw) : null;
-    console.log(`[enrich/json-uri] mint=${tag} image=${image ? 'yes' : 'no'} reason=${image ? 'ok' : 'no_image'}`);
-    return image;
+    const name = typeof parsed.name === 'string' && parsed.name.trim().length > 0
+      ? parsed.name.trim()
+      : null;
+    console.log(`[enrich/json-uri] mint=${tag} image=${image ? 'yes' : 'no'} name=${name ? 'yes' : 'no'} reason=${image || name ? 'ok' : 'no_image'}`);
+    return { image, name };
   } catch (err) {
     const reason = (err as Error)?.name === 'TimeoutError' ? 'timeout' : 'fetch_error';
     console.log(`[enrich/json-uri] mint=${tag} image=no reason=${reason}`);
-    return null;
+    return none;
   }
 }

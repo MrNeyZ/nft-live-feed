@@ -20,7 +20,7 @@
  */
 import { getAsset } from '../enrichment/helius-das';
 import { isMintTrackerEnabled } from '../runtime/mode';
-import { fetchImageFromJsonUri } from '../enrichment/metaplex-onchain';
+import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import {
@@ -290,6 +290,12 @@ async function runAttempt(entry: Pending): Promise<void> {
   let nftName:        string | null = null;
   let imageUrl:       string | null = null;
   let collectionName: string | null = null;
+  // Raw (uncleaned) per-NFT name for the card title. Kept separate from the
+  // cleaned `nftName` (which feeds the collection-row fallback): the frontend
+  // treats `nftName === collectionName`/stripped-collection as "no per-NFT
+  // name" and falls back to shortMint, so the card title MUST carry the real
+  // per-asset name (e.g. "Micros #8881"), not the stripped "Micros".
+  let rawNftName:     string | null = null;
   try {
     metricGetAsset++;
     const meta = await getAsset(entry.mintAddress);
@@ -300,15 +306,27 @@ async function runAttempt(entry: Pending): Promise<void> {
     // below (or worse, ride the wire to /mints as the row title). See
     // src/mints/clean-name.ts for the full rationale.
     nftName        = cleanName(meta.nftName);
+    rawNftName     = typeof meta.nftName === 'string' && meta.nftName.trim().length > 0
+      ? meta.nftName.trim()
+      : null;
     imageUrl       = meta.imageUrl           ?? null;
     collectionName = cleanName(meta.collectionName);
-    // DAS gave a json_uri but no resolved image (empty links/files) — common
-    // for freshly-minted MPL Core assets. Fetch the off-chain JSON once and
-    // pull the image from it. Gated on imageUrl still null; once this lands a
-    // unique image the retry loop below stops, so it isn't refetched per retry.
-    if (!imageUrl && meta.jsonUri) {
-      const offImg = await fetchImageFromJsonUri(meta.jsonUri, entry.mintAddress);
-      if (offImg) imageUrl = offImg;
+    // DAS often hasn't indexed a freshly-minted MPL Core asset's image OR its
+    // `metadata.name` yet, but the off-chain JSON (json_uri) already carries
+    // both. Fetch it once when EITHER is missing and backfill from it. The
+    // raw name resolves the per-NFT card title from the SAME fetch instead of
+    // waiting for DAS to backfill `metadata.name` — which often never happens
+    // before this retry entry is dropped once grouping confirms (the exact
+    // cause of empty nft_name on sig 4V1ESV… → "Micros #8881").
+    if ((!imageUrl || !rawNftName) && meta.jsonUri) {
+      const off = await fetchMetaFromJsonUri(meta.jsonUri, entry.mintAddress);
+      if (!imageUrl && off.image) imageUrl = off.image;
+      if (!rawNftName && off.name) {
+        rawNftName = off.name;
+        // Seed the cleaned name too if DAS gave us nothing, so the
+        // collection-row fallback below still has something to work with.
+        if (!nftName) nftName = cleanName(off.name);
+      }
     }
   } catch {
     // Transient failure — treat as "no answer this round" and let
@@ -465,12 +483,15 @@ async function runAttempt(entry: Pending): Promise<void> {
       saleEventBus.emitMintMeta({
         signature:   entry.signature,
         mintAddress: entry.mintAddress,
-        nftName:     nftName ?? null,
+        // Per-NFT card title: emit the RAW per-asset name (not the cleaned
+        // collection-ish name) so the frontend's `hasRealNftName` guard
+        // accepts it instead of falling back to shortMint(mintAddress).
+        nftName:     rawNftName ?? null,
         imageUrl:    imageUrl ?? null,
       });
       console.log(
         `[mints/meta] patched mint=${entry.mintAddress} ` +
-        `name=${nftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
+        `name=${rawNftName ?? finalName ?? '—'} image=${imageUrl ? 'yes' : 'no'}`,
       );
     }
     // Bump the per-collection resolved counter only when this attempt
