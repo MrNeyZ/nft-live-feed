@@ -11,6 +11,7 @@
     "test:mint-analyzer": "ts-node src/mint-analyzer/__tests__/analyze.test.ts",
     "test:mint-accumulator": "MINT_BURST_V60=2 MINT_BURST_V5M=2 MINT_DISPLAY_THRESHOLD=50 MINT_IDLE_COOLDOWN_MS=1 ts-node src/mints/__tests__/accumulator-revival.test.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",
+    "backfill:me-logprice": "ts-node src/scripts/backfill-me-v2-logprice.ts",
     "debug:mints:launchpads": "ts-node src/scripts/debug-mints-launchpads.ts",
     "debug:mints:supply": "ts-node src/scripts/debug-mints-supply.ts",
     "debug:mints:launchpad-survey": "ts-node src/scripts/debug-mints-launchpad-survey.ts",

@@ -110,8 +110,11 @@ const CASES: TestCase[] = [
     expectMint:        'AjHfKN7Hctf77n5QmHysQoinwewvFwpw3eGJBzZHge7e',
     expectSeller:      '1BWutmTvYPwDtmw9abTkS4Ssr8no61spGAvW1X6NDix',
     expectBuyer:       '4KMMoffzUMnQZ1dP8WqPW6PB9L8cDEpVcUDPbhWh7q1t',
-    expectPriceGte:    0.28,
-    expectPriceLte:    0.31,
+    // Canonical ME log price = 0.27 SOL exactly. Previous range [0.28, 0.31]
+    // tracked the buyer GROSS outflow (0.290961512 = price + royalty + fee +
+    // network fee); the parser now reads the explicit `"price":270000000` log.
+    expectPriceGte:    0.2699,
+    expectPriceLte:    0.2701,
     expectInstruction: 'mip1ExecuteSaleV2',
   },
   {
@@ -247,12 +250,16 @@ const CASES: TestCase[] = [
     expectInstruction: 'coreFulfillSell',
   },
   // ── 2026-06-13: listing-escrow rent-refund overcount regression ──────────────
-  // Reported: feed showed 0.013 SOL; true listing/sale price is 0.01 SOL.
+  // Reported: feed showed 0.013 SOL; true listing/sale price is 0.0099 SOL.
   // Root cause: seller's listing PDA is closed in-tx and its ~0.003564 SOL
   // rent/deposit is refunded to the seller wallet, inflating the raw seller
-  // lamport delta (0.013465) above the real proceeds. The parser now drops
-  // seller-net when it exceeds gross, so the displayed price (sellerNet ?? gross)
-  // falls back to gross 0.010112 → renders 0.01, NOT 0.013.
+  // lamport delta (0.013465) above the real proceeds. The parser drops
+  // seller-net when it exceeds the canonical price, so the displayed price
+  // (sellerNet ?? priceSol) falls back to priceSol.
+  // 2026-06-13 (log-price fix): priceSol is now the explicit ME log price
+  // (`"price":9900000` = 0.0099), not the buyer GROSS (0.010111873 = price +
+  // taker fee 198000 + network fee). Both render "not 0.013"; 0.0099 is the
+  // true on-chain list price. The prior [0.0100,0.0102] band tracked gross.
   {
     sig:                 '3WkwA8QBgnqKwhfpnUBCrSjFXYY7LS2dQh1LNJsSG6wogv1nFDqJLJK245sgnVQVe4Stc2a3YvK7sXrEqD4ia3mm',
     label:               'Core listing purchase — rent-refund overcount (ME v2 — coreExecuteSaleV2)',
@@ -261,9 +268,30 @@ const CASES: TestCase[] = [
     expectNftType:       'core',
     expectSeller:        'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
     expectBuyer:         '9YDQ9MYusBAdjhEEAzR8uRdUQrc8S6oaPfWfgGFUpiTy',
-    expectPriceGte:      0.0100,
-    expectPriceLte:      0.0102,
-    expectDisplayPriceLte: 0.0102, // before fix: 0.013465 (seller-net) → FAIL
+    expectPriceGte:      0.0098,
+    expectPriceLte:      0.0100,
+    expectDisplayPriceLte: 0.0100, // before fix: 0.013465 (seller-net) → FAIL
+    expectInstruction:   'coreExecuteSaleV2',
+  },
+  // ── 2026-06-13: log-price fix — buyer-gross fallback overcount ────────────────
+  // Reported: feed showed 0.015 SOL; true ME list/sale price is 0.014.
+  // Root cause: seller's listing PDA rent (~0.003564) refunded in-tx inflated
+  // seller-net to 0.017563520 > price, so the rent-refund guard dropped it and
+  // the display fell back to the buyer GROSS (0.015279685 = price 14000000 +
+  // royalty 966000 + taker fee 280000 + network fee 33685) → 0.015. The parser
+  // now reads the explicit ME settlement log `"price":14000000` → priceSol
+  // 0.014, and the dropped seller-net falls back to that canonical price.
+  {
+    sig:                 '21V7qFKDykbnTLaaPU556Hrii2PEuEnrXgxwpcUGHjdCManefpG3zBpotN8zW7a35Y7zKvna6jmpykNMH33nT5pu',
+    label:               'Core listing purchase — gross-fallback overcount (ME v2 — coreExecuteSaleV2)',
+    expectOk:            true,
+    expectMarketplace:   'magic_eden',
+    expectNftType:       'core',
+    expectSeller:        '9oBbApTGE65kLPiU17m5mCPqmQxgegssktUjkhvJwyDL',
+    expectBuyer:         '6wFyqABzLpmVun7cBExwdAxTEpjicSbxVNYH5JNqXfmX',
+    expectPriceGte:      0.01399,
+    expectPriceLte:      0.01401,
+    expectDisplayPriceLte: 0.01401, // before fix: 0.015279685 (gross) → FAIL
     expectInstruction:   'coreExecuteSaleV2',
   },
 ];

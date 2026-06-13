@@ -61,6 +61,39 @@ function readLpFeeFromLogs(logs: unknown): number | null {
   return null;
 }
 
+/** Extract the explicit settlement price (lamports) from a Magic Eden v2
+ *  fixed-price sale's program logs. ME v2 emits a JSON log line carrying the
+ *  true list/sale price on both the intermediate `BuyV2`
+ *    Program log: {"price":14000000,"buyer_expiry":...}
+ *  and the terminal settlement instruction (executeSaleV2 / mip1ExecuteSaleV2 /
+ *  coreExecuteSaleV2), which additionally carries the fee/royalty breakdown:
+ *    Program log: {"maker_fee":0,"taker_fee":280000,"price":14000000,
+ *                  "seller_expiry":-1,"buyer_expiry":...,"royalty":966000}
+ *  This `price` is the canonical sale price — it EXCLUDES royalty, marketplace
+ *  fee and network fee, unlike the buyer's gross SOL outflow
+ *  (extractPaymentInfo) which bundles all three and so overstates the price
+ *  (e.g. sig 21V7qF…: log price 14_000_000 vs gross 15_279_685). The
+ *  settlement breakdown line (the one carrying fee/royalty fields) is the
+ *  authoritative value, so it is preferred; a bare price line is the fallback.
+ *  Returns null if no price line is present (wrapper hiding logs / log shape
+ *  change). Tolerates whitespace and optional quoting around the field. */
+function readMeV2PriceFromLogs(logs: unknown): bigint | null {
+  if (!Array.isArray(logs)) return null;
+  let bare: bigint | null = null;
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    const m = line.match(/["']?price["']?\s*:\s*(\d+)/);
+    if (!m) continue;
+    let n: bigint;
+    try { n = BigInt(m[1]); } catch { continue; }
+    if (n <= 0n) continue;
+    // Settlement breakdown line — fee/royalty fields present → canonical.
+    if (/maker_fee|taker_fee|royalty/.test(line)) return n;
+    if (bare === null) bare = n; // bare BuyV2 line → fallback
+  }
+  return bare;
+}
+
 function txHasProgram(tx: RawSolanaTx, programId: string): boolean {
   const msg = tx.transaction?.message;
   if (!msg) return false;
@@ -206,9 +239,18 @@ function parseMeV2Sale(
   // require seller absent from accountKeys, which doesn't happen for
   // the SPL paths Lucky Buy operates on).
   const luckyBuy = isLuckyBuyTx(tx);
+
+  // Canonical ME v2 price comes from the program's own settlement log
+  // (`"price":N`), the true list/sale price — it excludes royalty, marketplace
+  // fee and network fee. The buyer's gross SOL outflow (payment.priceLamports)
+  // bundles all three and overstates the sale price, so it is used only as a
+  // fallback when the log line is absent. Lucky-buy is unchanged: its `price`
+  // log is the raffle entry, not the NFT value, so we ignore the log there and
+  // keep the sellerNet-as-gross override.
+  const logPrice = luckyBuy ? null : readMeV2PriceFromLogs(tx.meta?.logMessages);
   const priceLamports = luckyBuy && sellerNet != null
     ? sellerNet
-    : payment.priceLamports;
+    : logPrice ?? payment.priceLamports;
 
   // Listing-escrow / rent-refund guard (ME v2 fixed-price path only).
   // When a fixed-price listing is filled, Magic Eden closes the seller's
@@ -219,9 +261,10 @@ function parseMeV2Sale(
   // actual sale price. Observed on coreExecuteSaleV2
   //   3WkwA8QBgnqKwhfpnUBCrSjFXYY7LS2dQh1LNJsSG6wogv1nFDqJLJK245sgnVQVe4Stc2a3YvK7sXrEqD4ia3mm
   // → seller-net 0.013465 vs true price 0.010112 (refunded escrow 0.003564).
-  // A legitimate seller-net can never exceed the buyer's gross outflow, so
+  // A legitimate seller-net can never exceed the canonical sale price, so
   // when it does the value is contaminated and we drop it; the UI then falls
-  // back to gross, which is the correct economic sale price. Skipped for
+  // back to priceLamports — now the explicit ME log price (above), the correct
+  // economic sale price, rather than the fee-inflated buyer gross. Skipped for
   // lucky-buy, where gross IS the raffle-escrow spend (unreliable) and
   // sellerNet is the intended price source.
   const sellerNetClean = !luckyBuy && sellerNet != null && sellerNet > priceLamports
