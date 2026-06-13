@@ -803,9 +803,6 @@ function findMintInstruction(
  *  never starve the sales path at the shared `rpcLimiter`. Under a
  *  hot Token Metadata launch this lets sale fetches stay snappy even
  *  if mint fetches queue up or get stale-dropped. */
-// Per-NFT mint instructions — each fires ~once per minted NFT and never for
-// ancillary token/metadata account creation, so counting them is a safe
-// per-tx mint count. Verified on bulk sig 5awC3…Nqhq → MintV1×5 / MintAsset×5.
 // Per-NFT mint instructions counted by plain substring — each fires ~once per
 // minted NFT and never for ancillary token/metadata account creation, so
 // counting them is a safe per-tx mint count. Verified on bulk sig
@@ -863,9 +860,23 @@ export function countNftMints(tx: RawSolanaTx): number {
     if (n > max) max = n;
   }
   // MPL Core launchpad mints log `Instruction: Create` (not in the needle
-  // set); count those program-scoped so bulk Core drops report correctly.
-  const coreCreates = countScopedInstruction(logs, 'Instruction: Create', MPL_CORE_PROGRAM);
-  if (coreCreates > max) max = coreCreates;
+  // set); count those program-scoped so bulk Core drops report correctly —
+  // UNLESS the tx also burns Core assets. A Core `Instruction: Burn` signals a
+  // merge/forge/consume primitive (e.g. the unrecognised `prm1az…` deposit+
+  // merge program), which CPIs extra Core `Create`s for ancillary/output
+  // objects that are NOT additional minted NFTs. Counting them reports a false
+  // bulk (sig 4X4stq… → 2 Core Create + 2 Core Burn = 1 real NFT, wrongly ×2).
+  // Verified-bulk Core drops never burn (4s8MDy… → 12 Create / 0 Burn → 12),
+  // so gating on zero Core burns preserves true bulk while killing the forge
+  // over-count. Source-independent: a clean primary mint never burns Core
+  // assets in the same tx. (A LaunchMyNFT-specific gate was rejected — the
+  // verified bulk tx is driven by `7FGMn1z6…`, not LaunchMyNFT, and doesn't
+  // contain that program, so such a gate would regress the 12-count to 1.)
+  const coreBurns = countScopedInstruction(logs, 'Instruction: Burn', MPL_CORE_PROGRAM);
+  if (coreBurns === 0) {
+    const coreCreates = countScopedInstruction(logs, 'Instruction: Create', MPL_CORE_PROGRAM);
+    if (coreCreates > max) max = coreCreates;
+  }
   // Candy Machine v3 `mintV2`: scoped to the Candy Machine program so the
   // Candy Guard wrapper's duplicate `Instruction: MintV2` line doesn't
   // double-count one NFT (sig 36cLwZ… → 2 raw / 1 scoped = 1 NFT).

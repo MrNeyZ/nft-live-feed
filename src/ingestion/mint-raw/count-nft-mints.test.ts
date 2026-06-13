@@ -52,6 +52,16 @@ const CASES: Case[] = [
     label:  'single — MPL Core ×1',
     expect: 1,
   },
+  {
+    sig:    '4X4stqDxmEyFCYCZLW9ERd5sWhMfjyVTqTNhhV1wyFHmRRcqdjvHQuQAyhiHQcV8Wcw1trYbiVuTCGFQ8ujaLf4w',
+    label:  'forge/merge — prm1az… deposit+merge, 2 Core Create + 2 Core Burn = 1 NFT',
+    expect: 1, // before burn-guard: 2 (false bulk)
+  },
+  {
+    sig:    '5Ya3tAjULZefHGhDR49akvo3jifJ3zV8dnyGPD99da3X4DBkg1dAC6Qpc5dcA7xjcCLJhMneuWpc22aBhzw63xS3',
+    label:  'forge/merge — prm1az… deposit only, 1 Core Create / 0 Burn = 1 NFT',
+    expect: 1,
+  },
 ];
 
 async function main() {
