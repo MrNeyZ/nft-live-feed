@@ -152,13 +152,14 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             rel="noopener noreferrer"
             title={snsDomain}
             onClick={(e) => e.stopPropagation()}
-            style={ME_ICON_LINK_STYLE}
+            // marginLeft pulls SNS 2px closer to ME (cluster gap is already 0).
+            style={{ ...ME_ICON_LINK_STYLE, marginLeft: -2 }}
           >
-            {/* ~15% larger than the 11px ME icon — compensates for the SNS
-                glyph's 81%/93% fill so it reads at the same visual weight. 13px
-                stays within the ~14px party-row line, so wallet text doesn't move. */}
+            {/* Exact same rendered box as the ME icon: 11×11. The asset is
+                trimmed full-bleed (100% height fill) so an 11×11 render fills
+                the box like ME instead of floating inside transparent padding. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/sns.png" alt="SNS" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+            <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
           </a>
         )}
       </span>
