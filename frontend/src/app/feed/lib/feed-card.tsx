@@ -125,21 +125,6 @@ function WalletLink({ wallet }: { wallet: string | null }) {
       >
         {isMe ? 'YOU' : shortWallet(wallet)}
       </a>
-      {/* SNS badge — renders ONLY once a .sol domain resolves for this wallet.
-          The address text itself is never replaced. 14px line-height matches
-          the wallet row so its appearance causes no vertical layout shift; the
-          native title is the hover tooltip ("name.sol"). Links to the SNS
-          profile page. */}
-      {snsDomain && (
-        <a
-          href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={snsDomain}
-          onClick={(e) => e.stopPropagation()}
-          style={SNS_BADGE_STYLE}
-        >.sol</a>
-      )}
       <a
         href={meUrl}
         target="_blank"
@@ -150,6 +135,23 @@ function WalletLink({ wallet }: { wallet: string | null }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/me.png" alt="ME" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
       </a>
+      {/* SNS logo — renders ONLY once a .sol domain resolves; sits immediately
+          after the ME icon at the same 11×11 size, so its appearance causes no
+          vertical layout shift. Native title is the hover tooltip ("name.sol");
+          click opens the SNS profile. */}
+      {snsDomain && (
+        <a
+          href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={snsDomain}
+          onClick={(e) => e.stopPropagation()}
+          style={ME_ICON_LINK_STYLE}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+        </a>
+      )}
     </span>
   );
 }
@@ -180,25 +182,6 @@ const YOU_BADGE_STYLE: React.CSSProperties = {
   border: '1px solid rgba(95,168,230,0.45)',
   textDecoration: 'none',
   lineHeight: '14px',
-};
-/** Tiny ".sol" SNS pill — sits between the wallet text and the ME icon.
- *  14px line-height matches the wallet row so showing it shifts nothing
- *  vertically; teal palette mirrors the app's positive/value accent. */
-const SNS_BADGE_STYLE: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  flexShrink: 0,
-  height: 14,
-  padding: '0 4px',
-  fontSize: 9,
-  fontWeight: 700,
-  letterSpacing: '0.2px',
-  borderRadius: 3,
-  color: '#7ed9a8',
-  background: 'rgba(126,217,168,0.12)',
-  border: '1px solid rgba(126,217,168,0.34)',
-  textDecoration: 'none',
-  fontFamily: "'SF Mono','Fira Code',monospace",
 };
 const ME_ICON_LINK_STYLE: React.CSSProperties = {
   display: 'inline-flex',
