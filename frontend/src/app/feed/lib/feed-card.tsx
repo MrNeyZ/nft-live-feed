@@ -10,6 +10,7 @@
 
 import { createContext, memo, useContext, useEffect, useState } from 'react';
 import { shortWallet, timeAgo } from '@/soloist/mock-data';
+import { useSnsDomain } from './use-sns-domain';
 import { marketplaceUrl } from '@/soloist/from-backend';
 import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
 import { displayPrice } from '@/soloist/price-mode';
@@ -97,6 +98,10 @@ const MY_WALLET = 'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE';
  *  `flexShrink: 0` on the icon keeps it inline-aligned even when the
  *  parent row gets squeezed on narrow viewports. */
 function WalletLink({ wallet }: { wallet: string | null }) {
+  // Lazy SNS resolution — fires only for this (visible) card's wallet; cached
+  // module-wide so repeats don't re-hit the backend. Hook is always called
+  // (Rules of Hooks); it no-ops on a null wallet.
+  const snsDomain = useSnsDomain(wallet);
   if (!wallet) {
     return <span style={{ color: '#9494b0', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
   }
@@ -120,6 +125,21 @@ function WalletLink({ wallet }: { wallet: string | null }) {
       >
         {isMe ? 'YOU' : shortWallet(wallet)}
       </a>
+      {/* SNS badge — renders ONLY once a .sol domain resolves for this wallet.
+          The address text itself is never replaced. 14px line-height matches
+          the wallet row so its appearance causes no vertical layout shift; the
+          native title is the hover tooltip ("name.sol"). Links to the SNS
+          profile page. */}
+      {snsDomain && (
+        <a
+          href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={snsDomain}
+          onClick={(e) => e.stopPropagation()}
+          style={SNS_BADGE_STYLE}
+        >.sol</a>
+      )}
       <a
         href={meUrl}
         target="_blank"
@@ -160,6 +180,25 @@ const YOU_BADGE_STYLE: React.CSSProperties = {
   border: '1px solid rgba(95,168,230,0.45)',
   textDecoration: 'none',
   lineHeight: '14px',
+};
+/** Tiny ".sol" SNS pill — sits between the wallet text and the ME icon.
+ *  14px line-height matches the wallet row so showing it shifts nothing
+ *  vertically; teal palette mirrors the app's positive/value accent. */
+const SNS_BADGE_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  flexShrink: 0,
+  height: 14,
+  padding: '0 4px',
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.2px',
+  borderRadius: 3,
+  color: '#7ed9a8',
+  background: 'rgba(126,217,168,0.12)',
+  border: '1px solid rgba(126,217,168,0.34)',
+  textDecoration: 'none',
+  fontFamily: "'SF Mono','Fira Code',monospace",
 };
 const ME_ICON_LINK_STYLE: React.CSSProperties = {
   display: 'inline-flex',
