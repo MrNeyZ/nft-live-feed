@@ -8,8 +8,8 @@
 // VictoryLabs palette/tokens — no ME branding, logos, or pink chrome.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, ItemThumb, compressImage, MktIconBadge } from '@/soloist/shared';
-import { formatSol, type Marketplace } from '@/soloist/mock-data';
+import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
+import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
 
@@ -118,18 +118,6 @@ function fmtSol(n: number | null): string {
 /** Integer counts (sales, listed, supply) with thousands separators. */
 function fmtInt(n: number | null): string {
   return n == null ? '—' : Math.round(n).toLocaleString();
-}
-
-/** Map a sale_events marketplace string to the shared badge's Marketplace
- *  union. Returns null for unknown/missing so the row shows no badge.
- *    magic_eden / magic_eden_amm / me / Magic Eden → 'me'
- *    tensor / tensor_amm / tensor_trade / Tensor   → 'tensor' */
-function mktBadgeKind(mp: string | null): Marketplace | null {
-  if (!mp) return null;
-  const v = mp.toLowerCase();
-  if (v.includes('tensor')) return 'tensor';
-  if (v.includes('magic') || v.includes('eden') || v === 'me') return 'me';
-  return null;
 }
 
 /** Short relative age for a sale's block_time ("3m", "2h", "1d"). */
@@ -631,6 +619,32 @@ export default function TrendingCollectionsPage() {
                                 border: '1px solid rgba(168,144,232,0.40)',
                               }}>cNFT</span>
                             )}
+                            {/* Marketplace external-link badges (tiny 13px icons,
+                                same pattern as Mint Collections). stopPropagation
+                                so a click opens the marketplace without disturbing
+                                the row's hover-sales preview. */}
+                            <a
+                              href={`https://magiceden.io/marketplace/${c.slug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open on Magic Eden"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
+                            <a
+                              href={`https://www.tensor.trade/trade/${c.slug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open on Tensor"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                            </a>
                           </div>
                           <div style={{ fontSize: 10, color: '#56566e', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.slug}</div>
                         </div>
@@ -698,7 +712,6 @@ export default function TrendingCollectionsPage() {
             {preview.status === 'ready' && preview.sales.map((s) => {
               const sname = s.nftName ?? (s.mint ? `${s.mint.slice(0, 4)}…${s.mint.slice(-4)}` : '—');
               const sabbr = (sname[0] ?? '?').toUpperCase() + (sname[1] ?? '').toUpperCase();
-              const mkt = mktBadgeKind(s.marketplace);
               return (
                 <div key={s.signature} style={{
                   display: 'flex', alignItems: 'center', gap: 9,
@@ -711,14 +724,8 @@ export default function TrendingCollectionsPage() {
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
                     <div style={{ fontSize: 9.5, color: '#56566e', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
                   </div>
-                  {/* Marketplace badge + price, right-aligned. Badge is the shared
-                      18px MktIconBadge (same as Mint Collections); the 30px thumb
-                      still governs row height, so this adds no vertical growth. */}
-                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {mkt && <MktIconBadge mp={mkt} />}
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#7ed9a8', fontFamily: MONO }}>
-                      {fmtSol(s.priceSol)}
-                    </span>
+                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: '#7ed9a8', fontFamily: MONO }}>
+                    {fmtSol(s.priceSol)}
                   </div>
                 </div>
               );
