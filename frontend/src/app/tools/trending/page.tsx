@@ -50,6 +50,31 @@ interface TrendingResponse {
   message?: string;
 }
 
+// Hover-preview sale row (mirror of backend TrendingSaleDTO).
+interface TrendingSale {
+  signature:   string;
+  blockTime:   string;
+  priceSol:    number | null;
+  buyer:       string | null;
+  seller:      string | null;
+  nftName:     string | null;
+  imageUrl:    string | null;
+  marketplace: string | null;
+  saleType:    string | null;
+  mint:        string | null;
+}
+interface SalesResponse {
+  ok: boolean;
+  slug?: string;
+  range?: string;
+  count?: number;
+  sales?: TrendingSale[];
+}
+
+const PREVIEW_MAX   = 10;
+const PREVIEW_WIDTH = 320;
+const SALES_CACHE_TTL_MS = 60_000;
+
 type Range = '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
 const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
   { key: '10m', label: '10M' },
@@ -93,6 +118,17 @@ function fmtSol(n: number | null): string {
 /** Integer counts (sales, listed, supply) with thousands separators. */
 function fmtInt(n: number | null): string {
   return n == null ? '—' : Math.round(n).toLocaleString();
+}
+
+/** Short relative age for a sale's block_time ("3m", "2h", "1d"). */
+function fmtAgo(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60)     return `${s}s`;
+  if (s < 3600)   return `${Math.floor(s / 60)}m`;
+  if (s < 86400)  return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
 /** Percent-change cell value + color. Positive = green, negative = red,
@@ -320,6 +356,92 @@ export default function TrendingCollectionsPage() {
     }
   }, [sortKey]);
 
+  // ── Hover sales preview ─────────────────────────────────────────────────
+  // One floating panel anchored to the hovered row. Sales are fetched once
+  // per slug+range on row-enter (not on mouse-move) and cached in-memory for
+  // 60 s so re-hovering doesn't re-hit the backend. The panel is
+  // pointer-events:none so it never steals hover from the table.
+  type PreviewStatus = 'loading' | 'ready' | 'error' | 'empty';
+  interface Preview {
+    slug: string;
+    name: string;
+    salesCount: number | null;
+    top: number;
+    left: number;
+    status: PreviewStatus;
+    sales: TrendingSale[];
+  }
+  const [preview, setPreview] = useState<Preview | null>(null);
+  // slug+range → cached sales (60s TTL).
+  const salesCacheRef = useRef<Map<string, { sales: TrendingSale[]; fetchedAt: number }>>(new Map());
+  const salesInFlightRef = useRef<Set<string>>(new Set());
+  // Which slug the cursor is currently on — guards async setState so a slow
+  // fetch that resolves after the cursor moved away doesn't clobber the panel.
+  const hoverSlugRef = useRef<string | null>(null);
+
+  const anchorFor = useCallback((el: HTMLElement): { top: number; left: number } => {
+    const r = el.getBoundingClientRect();
+    const fitsRight = window.innerWidth - r.right >= PREVIEW_WIDTH + 16;
+    const left = fitsRight ? r.right + 8 : Math.max(8, r.left - PREVIEW_WIDTH - 8);
+    // Clamp vertically so the panel stays on screen (panel maxHeight ~ 430).
+    const top = Math.min(Math.max(8, r.top), Math.max(8, window.innerHeight - 438));
+    return { top, left };
+  }, []);
+
+  const onRowEnter = useCallback((c: TrendingCollection, el: HTMLElement) => {
+    hoverSlugRef.current = c.slug;
+    const { top, left } = anchorFor(el);
+    const name = c.name ?? c.slug;
+    const want = c.salesCount == null ? PREVIEW_MAX : Math.min(Math.max(c.salesCount, 0), PREVIEW_MAX);
+
+    // No sales in window per the trending row → show empty immediately, no fetch.
+    if (want === 0) {
+      setPreview({ slug: c.slug, name, salesCount: c.salesCount, top, left, status: 'empty', sales: [] });
+      return;
+    }
+
+    const key = `${c.slug}|${range}`;
+    const cached = salesCacheRef.current.get(key);
+    if (cached && Date.now() - cached.fetchedAt < SALES_CACHE_TTL_MS) {
+      setPreview({ slug: c.slug, name, salesCount: c.salesCount, top, left,
+        status: cached.sales.length ? 'ready' : 'empty', sales: cached.sales.slice(0, want) });
+      return;
+    }
+
+    setPreview({ slug: c.slug, name, salesCount: c.salesCount, top, left, status: 'loading', sales: [] });
+
+    if (salesInFlightRef.current.has(key)) return;
+    salesInFlightRef.current.add(key);
+    void (async () => {
+      try {
+        const url = `${API_BASE}/api/tools/trending-collections/${encodeURIComponent(c.slug)}/sales` +
+          `?range=${encodeURIComponent(range)}&limit=${want}`;
+        const res = await fetch(url, { headers: { ...authHeaders() } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json() as SalesResponse;
+        if (!body.ok || !Array.isArray(body.sales)) throw new Error('bad payload');
+        salesCacheRef.current.set(key, { sales: body.sales, fetchedAt: Date.now() });
+        if (hoverSlugRef.current !== c.slug) return;   // cursor moved away
+        setPreview(p => (p && p.slug === c.slug
+          ? { ...p, status: body.sales!.length ? 'ready' : 'empty', sales: body.sales!.slice(0, want) }
+          : p));
+      } catch {
+        if (hoverSlugRef.current !== c.slug) return;
+        setPreview(p => (p && p.slug === c.slug ? { ...p, status: 'error', sales: [] } : p));
+      } finally {
+        salesInFlightRef.current.delete(key);
+      }
+    })();
+  }, [range, anchorFor]);
+
+  const onRowLeave = useCallback(() => {
+    hoverSlugRef.current = null;
+    setPreview(null);
+  }, []);
+
+  // Dismiss the panel when the timeframe changes (rows reload under it).
+  useEffect(() => { hoverSlugRef.current = null; setPreview(null); }, [range]);
+
   return (
     <div className="feed-root page-transition" data-page="tools">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
@@ -452,7 +574,10 @@ export default function TrendingCollectionsPage() {
                 const hl = highlights.get(c.slug);
                 const hlStyle = hl ? HIGHLIGHT_STYLE[hl] : null;
                 return (
-                  <tr key={c.slug} className="tools-offer-row" style={{
+                  <tr key={c.slug} className="tools-offer-row"
+                    onMouseEnter={(e) => onRowEnter(c, e.currentTarget)}
+                    onMouseLeave={onRowLeave}
+                    style={{
                     borderBottom: '1px solid rgba(255,255,255,0.022)',
                     // Refresh diff tint — left bar + soft row bg, fades out when
                     // the 3 s highlight window clears. transition keeps it from
@@ -520,6 +645,68 @@ export default function TrendingCollectionsPage() {
           </table>
         </div>
       </div>
+
+      {/* Floating hover preview — recent sales for the hovered collection.
+          position:fixed + pointer-events:none so it floats beside the row
+          without affecting table layout or stealing hover. */}
+      {preview && (
+        <div style={{
+          position: 'fixed', top: preview.top, left: preview.left, width: PREVIEW_WIDTH,
+          zIndex: 50, pointerEvents: 'none',
+          // VictoryLabs dark-purple glass card — same chrome as the results panel.
+          background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+          border: '1px solid rgba(168,144,232,0.32)',
+          borderRadius: 10,
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.65), 0 0 24px rgba(128,104,216,0.12)',
+          maxHeight: 430, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Header: name · timeframe · showing X / salesCount */}
+          <div style={{ padding: '9px 11px', borderBottom: '1px solid rgba(168,144,232,0.14)' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {preview.name}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: '#7a7a94' }}>
+              <span style={{ color: '#a890e8', fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
+              <span style={{ color: '#3a3a52' }}>·</span>
+              <span>showing {preview.sales.length} / {preview.salesCount ?? '—'}</span>
+            </div>
+          </div>
+
+          {/* Body: loading / error / empty / rows */}
+          <div className="scroll-area" style={{ overflowY: 'auto' }}>
+            {preview.status === 'loading' && (
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#7a7a94' }}>Loading recent sales…</div>
+            )}
+            {preview.status === 'error' && (
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#ef7878' }}>Couldn’t load sales.</div>
+            )}
+            {preview.status === 'empty' && (
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#56566e' }}>No sales in this timeframe.</div>
+            )}
+            {preview.status === 'ready' && preview.sales.map((s) => {
+              const sname = s.nftName ?? (s.mint ? `${s.mint.slice(0, 4)}…${s.mint.slice(-4)}` : '—');
+              const sabbr = (sname[0] ?? '?').toUpperCase() + (sname[1] ?? '').toUpperCase();
+              return (
+                <div key={s.signature} style={{
+                  display: 'flex', alignItems: 'center', gap: 9,
+                  padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.025)',
+                }}>
+                  <div style={{ flexShrink: 0, width: 30, height: 30 }}>
+                    <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color="#8068d8" abbr={sabbr} size={30} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
+                    <div style={{ fontSize: 9.5, color: '#56566e', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
+                  </div>
+                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: '#7ed9a8', fontFamily: MONO }}>
+                    {fmtSol(s.priceSol)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

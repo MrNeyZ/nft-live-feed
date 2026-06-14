@@ -9,14 +9,24 @@
  *     &offset=<0..>                 (default 0)
  *     &chain=solana                 (default solana)
  *
+ *   GET /api/tools/trending-collections/:slug/sales
+ *     ?range=10m|1h|6h|1d|7d|30d   (default 1d)
+ *     &limit=<1..10>                (default 10, hard-capped at 10)
+ *
  * Thin proxy over Magic Eden's pre-aggregated collection_stats endpoint.
  * Validates + whitelists every param locally (bad param → 400, no upstream
  * round-trip), then returns our normalized DTO — ME's raw shape never leaves
  * the backend. Read-only: no DB writes, no RPC. Cache + in-flight dedup live
  * in the adapter (me-trending-stats.ts).
+ *
+ * The /:slug/sales sub-route powers the trending page's hover preview. It
+ * reads ONLY from the existing `sale_events` table (via getEventsByCollection)
+ * — no Magic Eden call, no RPC, no writes — and returns the most recent sales
+ * for that slug inside the selected timeframe.
  */
 import { Router, Request, Response } from 'express';
-import { rateLimit } from './rate-limit';
+import { rateLimit, isValidSlug } from './rate-limit';
+import { getEventsByCollection } from '../db/queries';
 import {
   getTrendingCollections,
   MeTrendingUpstreamError,
@@ -37,6 +47,38 @@ const DEFAULT_DIRECTION: TrendingDirection = 'desc';
 const DEFAULT_CHAIN: TrendingChain         = 'solana';
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT     = 200;
+
+/** Hover-preview sales: hard ceiling of 10 rows regardless of request. */
+const SALES_MAX_LIMIT = 10;
+/** Window length (ms) for each timeframe — maps the range pill to a
+ *  `block_time >= now-window` cutoff for the sale_events query. */
+const RANGE_WINDOW_MS: Record<TrendingRange, number> = {
+  '10m': 10 * 60_000,
+  '1h':  60 * 60_000,
+  '6h':  6 * 60 * 60_000,
+  '1d':  24 * 60 * 60_000,
+  '7d':  7 * 24 * 60 * 60_000,
+  '30d': 30 * 24 * 60 * 60_000,
+};
+
+/** Compact sale row the hover panel renders — a normalized subset of
+ *  SaleEventRow; the full DB row never leaves the backend. */
+interface TrendingSaleDTO {
+  signature:   string;
+  blockTime:   string;          // ISO
+  priceSol:    number | null;
+  buyer:       string | null;
+  seller:      string | null;
+  nftName:     string | null;
+  imageUrl:    string | null;
+  marketplace: string | null;
+  saleType:    string | null;
+  mint:        string | null;
+}
+
+interface SalesCacheEntry { sales: TrendingSaleDTO[]; fetchedAt: number }
+const salesCache = new Map<string, SalesCacheEntry>();
+const SALES_TTL_MS = 60_000;
 
 function inEnum<T extends string>(v: string, allowed: readonly T[]): v is T {
   return (allowed as readonly string[]).includes(v);
@@ -145,6 +187,65 @@ export function createTrendingCollectionsRouter(): Router {
         });
       }
       console.error('[tools/trending-collections] error', err);
+      return res.status(500).json({ ok: false, error: 'internal_error' });
+    }
+  });
+
+  // ── Hover preview: recent sales for one collection (DB-only) ──────────────
+  // Reads existing sale_events; no ME call, no RPC, no writes. Powers the
+  // trending page's right-side hover panel.
+  const salesLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/trending-collections/sales' });
+
+  router.get('/tools/trending-collections/:slug/sales', salesLimit, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug ?? '').trim();
+    if (!isValidSlug(slug)) {
+      return res.status(400).json({ ok: false, error: 'invalid_slug' });
+    }
+
+    const rangeRaw = String(req.query.range ?? DEFAULT_RANGE).trim();
+    if (!inEnum(rangeRaw, TRENDING_RANGES)) {
+      return res.status(400).json({ ok: false, error: 'invalid_range', allowed: TRENDING_RANGES });
+    }
+
+    // limit: 1..10, default 10, hard-capped at 10. NaN/<1 → 400.
+    let limitNum = SALES_MAX_LIMIT;
+    if (req.query.limit !== undefined) {
+      const n = Number(req.query.limit);
+      if (!Number.isFinite(n) || n < 1) {
+        return res.status(400).json({ ok: false, error: 'invalid_limit', max: SALES_MAX_LIMIT });
+      }
+      limitNum = Math.min(SALES_MAX_LIMIT, Math.floor(n));
+    }
+
+    const cacheKey = `${slug}|${rangeRaw}|${limitNum}`;
+    const now = Date.now();
+    const hit = salesCache.get(cacheKey);
+    if (hit && now - hit.fetchedAt < SALES_TTL_MS) {
+      return res.json({
+        ok: true, slug, range: rangeRaw, count: hit.sales.length,
+        sales: hit.sales, fromCache: true,
+      });
+    }
+
+    try {
+      const since = new Date(now - RANGE_WINDOW_MS[rangeRaw]);
+      const rows = await getEventsByCollection(slug, since, limitNum);
+      const sales: TrendingSaleDTO[] = rows.map(r => ({
+        signature:   r.signature,
+        blockTime:   r.block_time,
+        priceSol:    r.price_sol != null && Number.isFinite(Number(r.price_sol)) ? Number(r.price_sol) : null,
+        buyer:       r.buyer ?? null,
+        seller:      r.seller ?? null,
+        nftName:     r.nft_name ?? null,
+        imageUrl:    r.image_url ?? null,
+        marketplace: r.marketplace ?? null,
+        saleType:    r.sale_type ?? null,
+        mint:        r.mint_address ?? null,
+      }));
+      salesCache.set(cacheKey, { sales, fetchedAt: Date.now() });
+      return res.json({ ok: true, slug, range: rangeRaw, count: sales.length, sales, fromCache: false });
+    } catch (err) {
+      console.error(`[tools/trending-collections/sales] slug=${slug} error`, err);
       return res.status(500).json({ ok: false, error: 'internal_error' });
     }
   });
