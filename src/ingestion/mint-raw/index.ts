@@ -530,7 +530,7 @@ const SYS_TRANSFER_IX = 2;
  *  MINT_PRICE_DEBUG=1 — compact, one line, no per-row spam otherwise. */
 const MINT_PRICE_DEBUG_SIG = 'oWrqGgpfRtud3k2DVJumtpF9DxZQCUWJpGEjzHwkNrbyK9VHsh1gN5Ps6oYV7XXRjKzCHSyKYHaAopR8asGDhjK';
 
-interface SysTransfer { dest: string; lamports: number; }
+interface SysTransfer { src: string; dest: string; destIdx: number; lamports: number; }
 
 /** Decode every System Program `transfer` leg (top-level + inner). Instruction
  *  data is base58 (encoding 'json'): bytes[0..4)=u32 LE ix index, [4..12)=u64
@@ -545,9 +545,10 @@ function collectSystemTransfers(tx: RawSolanaTx): SysTransfer[] {
     if (buf.length < 12 || buf.readUInt32LE(0) !== SYS_TRANSFER_IX) return;
     const lamports = Number(buf.readBigUInt64LE(4));
     if (!Number.isFinite(lamports) || lamports <= 0) return;
-    const destIdx = ix.accounts?.[1];           // System transfer accounts = [from, to]
-    if (destIdx == null) return;
-    out.push({ dest: resolveAccountKey(tx, destIdx), lamports });
+    const srcIdx  = ix.accounts?.[0];           // System transfer accounts = [from, to]
+    const destIdx = ix.accounts?.[1];
+    if (srcIdx == null || destIdx == null) return;
+    out.push({ src: resolveAccountKey(tx, srcIdx), dest: resolveAccountKey(tx, destIdx), destIdx, lamports });
   };
   const top = tx.transaction?.message?.instructions;
   if (Array.isArray(top)) for (const ix of top) scan(ix);
@@ -642,17 +643,53 @@ function extractEscrowSettlementPrice(tx: RawSolanaTx): number | null {
   return payout > 0 ? payout : null;
 }
 
+/** Relayer single-mint price (fee-payer != minter). Payment shows up as one or
+ *  more DISTINCT System transfers from the minter to PRE-EXISTING creator/
+ *  treasury wallets — no repeat to group on, so extractMintPriceFromTransfers'
+ *  count>=2 batch-repeat rule misses it, and the index-0 signer-delta reads the
+ *  relayer (who net-RECEIVES its rent+fee reimbursement) → bogus free.
+ *
+ *  Price = Σ minter→creator legs, including only transfers where:
+ *    - src exists and src !== feePayer  → paid by the real minter, not relayer-
+ *      funded rent / reimbursement hops (those originate from accountKeys[0]);
+ *    - dest exists and dest !== feePayer → not the relayer reimbursement leg;
+ *    - preBalances[destIdx] > 0          → an existing creator/treasury wallet,
+ *      not a freshly-created asset/PDA (rent, pre == 0).
+ *
+ *  Returns null unless a qualifying minter→creator leg exists. For direct-payer
+ *  mints the creator legs have src === feePayer and are excluded → null → the
+ *  signer-delta fallback runs verbatim, so those paths are untouched. */
+function extractRelayerSingleMintPrice(tx: RawSolanaTx): number | null {
+  const feePayer = resolveAccountKey(tx, 0);
+  if (!feePayer) return null;
+  const pre = tx.meta?.preBalances;
+  if (!Array.isArray(pre)) return null;
+  const legs = collectSystemTransfers(tx).filter(t =>
+    t.src && t.src !== feePayer &&
+    t.dest && t.dest !== feePayer &&
+    Number.isFinite(pre[t.destIdx] as number) && (pre[t.destIdx] as number) > 0,
+  );
+  if (legs.length === 0) return null;
+  const sum = legs.reduce((acc, t) => acc + t.lamports, 0);
+  return sum > 0 ? sum : null;
+}
+
 /** Mint price for the /mints tracker. Order of precedence:
  *  1. Escrow-settlement payout (BvAPdAKH MintBatchFromEscrow only) — the signer
  *     is reimbursed there, so this must win over the signer-delta fallback.
  *  2. Transfer-based per-NFT price (repeated treasury transfer) — robust to
  *     relayer/fee-payer and batch mints.
- *  3. Legacy signer net-delta — only when neither of the above matches. */
+ *  3. Relayer single-mint price (fee-payer != minter, single NFT, one-or-more
+ *     distinct creator/treasury transfers) — recovers direct MPL Core CreateV2
+ *     relayer mints the count>=2 batch rule misses.
+ *  4. Legacy signer net-delta — only when none of the above matches. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromEscrow = extractEscrowSettlementPrice(tx);
   if (fromEscrow != null && fromEscrow > 0) return fromEscrow;
   const fromTransfers = extractMintPriceFromTransfers(tx);
   if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
+  const fromRelayer = extractRelayerSingleMintPrice(tx);
+  if (fromRelayer != null && fromRelayer > 0) return fromRelayer;
   return extractSignerLamportsPaid(tx);
 }
 
