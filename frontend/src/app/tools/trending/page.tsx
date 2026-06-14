@@ -62,6 +62,27 @@ const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
 const DEFAULT_RANGE: Range = '1d';
 const FETCH_LIMIT = 100;
 
+// Persist the selected timeframe so returning to the page (after navigating
+// away) restores the last choice instead of snapping back to the default.
+const RANGE_STORAGE_KEY = 'victorylabs:tools-trending:range';
+const VALID_RANGES = new Set<Range>(RANGES.map(r => r.key));
+
+/** Read the saved range, falling back to DEFAULT_RANGE when absent/invalid or
+ *  when localStorage is unavailable (SSR / private mode). */
+function loadSavedRange(): Range {
+  if (typeof window === 'undefined') return DEFAULT_RANGE;
+  try {
+    const v = window.localStorage.getItem(RANGE_STORAGE_KEY);
+    if (v && VALID_RANGES.has(v as Range)) return v as Range;
+  } catch { /* private mode — ignore */ }
+  return DEFAULT_RANGE;
+}
+
+function saveRange(r: Range): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(RANGE_STORAGE_KEY, r); } catch { /* ignore */ }
+}
+
 const MONO = "'SF Mono','Fira Code',monospace";
 
 /** SOL formatter that tolerates the DTO's nullable numbers. */
@@ -108,10 +129,21 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
     <th
       onClick={() => onSort(col)}
       data-uisnd="skip"
-      style={{ ...thStyleNum, cursor: 'pointer', color: active ? '#c4b8e8' : '#56566e' }}
+      style={{
+        ...thStyleNum,
+        cursor: 'pointer',
+        color: active ? '#f0ebff' : '#56566e',
+        fontWeight: active ? 800 : thStyleNum.fontWeight,
+        // Strong-but-non-layout active cue: opaque-safe accent gradient + an
+        // inset bottom bar (no border-box growth, so th height is unchanged).
+        background: active
+          ? 'linear-gradient(180deg, rgba(128,104,216,0.30) 0%, rgba(128,104,216,0.15) 100%), rgba(28,22,48,0.98)'
+          : thStyle.background,
+        boxShadow: active ? 'inset 0 -2px 0 #a890e8' : undefined,
+      }}
     >
       {label}
-      <span style={{ marginLeft: 5, color: active ? '#8068d8' : '#3a3a52', fontWeight: 700 }}>
+      <span style={{ marginLeft: 6, color: active ? '#a890e8' : '#3a3a52', fontWeight: 800 }}>
         {active ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
       </span>
     </th>
@@ -164,7 +196,9 @@ const POLL_MS = 10_000;
 export default function TrendingCollectionsPage() {
   useEffect(() => { document.title = 'Trending | VictoryLabs'; }, []);
 
-  const [range, setRange]   = useState<Range>(DEFAULT_RANGE);
+  // Lazy initializer reads the persisted range once on mount (client-only —
+  // this subtree never SSRs, so no hydration mismatch / no extra fetch).
+  const [range, setRange]   = useState<Range>(loadSavedRange);
   const [rows, setRows]     = useState<TrendingCollection[]>([]);
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState<string | null>(null);
@@ -280,7 +314,7 @@ export default function TrendingCollectionsPage() {
   useEffect(() => () => { if (hlTimerRef.current) clearTimeout(hlTimerRef.current); }, []);
 
   const onSort = useCallback((key: SortKey) => {
-    playUiConfirm();
+    // No click sound on sort — header is a frequent, low-ceremony control.
     if (key === sortKey) {
       setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
     } else {
@@ -342,7 +376,7 @@ export default function TrendingCollectionsPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => { if (key !== range) setRange(key); }}
+                onClick={() => { if (key !== range) { setRange(key); saveRange(key); } }}
                 data-uisnd="skip"
                 style={{
                   padding: '5px 14px', fontSize: 12, fontWeight: 700,
