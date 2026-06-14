@@ -7,7 +7,7 @@
 // trending table (timeframe pills + compact ranked rows) but adopts the
 // VictoryLabs palette/tokens — no ME branding, logos, or pink chrome.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
@@ -93,6 +93,74 @@ function PctCell({ value }: { value: number | null }) {
   return <span style={{ color: m.color, fontWeight: 700 }}>{m.text}</span>;
 }
 
+/** Right-aligned sortable column header. Shows ↓/↑ on the active column (accent
+ *  purple) and a faint ↕ affordance on the rest. No layout change vs the plain
+ *  <th> — just an added glyph + click handler. */
+function SortTh({ label, col, sortKey, sortDir, onSort }: {
+  label: string;
+  col: SortKey;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+}) {
+  const active = sortKey === col;
+  return (
+    <th
+      onClick={() => onSort(col)}
+      data-uisnd="skip"
+      style={{ ...thStyleNum, cursor: 'pointer', color: active ? '#c4b8e8' : '#56566e' }}
+    >
+      {label}
+      <span style={{ marginLeft: 5, color: active ? '#8068d8' : '#3a3a52', fontWeight: 700 }}>
+        {active ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
+      </span>
+    </th>
+  );
+}
+
+// ── Client-side sort ────────────────────────────────────────────────────────
+// Sortable columns map to a numeric accessor on the DTO. Default is volume
+// desc (matches the backend's own ordering). Nulls always sink to the bottom
+// regardless of direction so missing-data rows never crowd the top.
+type SortKey = 'floor' | 'topOffer' | 'floorPct' | 'volume' | 'sales' | 'listedPct';
+type SortDir = 'asc' | 'desc';
+
+const SORT_ACCESSOR: Record<SortKey, (c: TrendingCollection) => number | null> = {
+  floor:     c => c.floorSol,
+  topOffer:  c => c.topOfferSol,
+  floorPct:  c => c.floorPctChange,
+  volume:    c => c.volumeSol,
+  sales:     c => c.salesCount,
+  listedPct: c => c.listedPct,
+};
+
+function sortRows(rows: TrendingCollection[], key: SortKey, dir: SortDir): TrendingCollection[] {
+  const acc  = SORT_ACCESSOR[key];
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = acc(a);
+    const vb = acc(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;   // nulls bottom, both directions
+    if (vb == null) return -1;
+    if (va === vb) return 0;
+    return (va < vb ? -1 : 1) * mult;
+  });
+}
+
+// ── Refresh diff highlight ───────────────────────────────────────────────────
+// On each background refresh we compare each slug's new rank (position in the
+// sorted list) against its previous rank: brand-new slug, moved up, or moved
+// down. The row carries the tint for 3 s, then clears.
+type HighlightKind = 'new' | 'up' | 'down';
+const HIGHLIGHT_STYLE: Record<HighlightKind, { bg: string; bar: string }> = {
+  new:  { bg: 'rgba(168,144,232,0.13)', bar: '#a890e8' },
+  up:   { bg: 'rgba(126,217,168,0.12)', bar: '#7ed9a8' },
+  down: { bg: 'rgba(217,124,124,0.11)', bar: '#d97c7c' },
+};
+const HIGHLIGHT_MS = 3000;
+const POLL_MS = 10_000;
+
 export default function TrendingCollectionsPage() {
   useEffect(() => { document.title = 'Trending | VictoryLabs'; }, []);
 
@@ -101,10 +169,39 @@ export default function TrendingCollectionsPage() {
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('volume');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [highlights, setHighlights] = useState<Map<string, HighlightKind>>(new Map());
 
-  const load = useCallback(async (r: Range, opts?: { fromClick?: boolean }) => {
-    if (opts?.fromClick) playUiConfirm();
-    setBusy(true);
+  // Sorted view the table actually renders; rank = index in this list.
+  const sortedRows = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
+
+  // Refs so the stable `load` callback (and the poll interval) can read the
+  // live sort + rows without re-creating themselves on every sort change.
+  const sortKeyRef = useRef(sortKey); sortKeyRef.current = sortKey;
+  const sortDirRef = useRef(sortDir); sortDirRef.current = sortDir;
+  const rowsRef    = useRef(rows);    rowsRef.current    = rows;
+  // Previous slug→rank map, used to diff ranks on each refresh.
+  const prevRankRef = useRef<Map<string, number>>(new Map());
+  const inFlightRef = useRef(false);
+  const hlTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleHighlightClear = useCallback(() => {
+    if (hlTimerRef.current) clearTimeout(hlTimerRef.current);
+    hlTimerRef.current = setTimeout(() => setHighlights(new Map()), HIGHLIGHT_MS);
+  }, []);
+
+  const load = useCallback(async (
+    r: Range,
+    opts?: { fromClick?: boolean; highlight?: boolean; background?: boolean },
+  ) => {
+    const { fromClick = false, highlight = false, background = false } = opts ?? {};
+    // Drop overlapping fetches (a poll firing mid-request, etc.) so rows can't
+    // be set out of order.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (fromClick) playUiConfirm();
+    if (!background) setBusy(true);
     setError(null);
     try {
       const url =
@@ -128,17 +225,69 @@ export default function TrendingCollectionsPage() {
         setError(body.message ?? body.error ?? 'Unexpected response.');
         return;
       }
+      // Rank the incoming data under the CURRENT sort so the diff is computed
+      // against what the user is actually looking at.
+      const nextSorted = sortRows(body.collections, sortKeyRef.current, sortDirRef.current);
+      const nextRank = new Map(nextSorted.map((c, i) => [c.slug, i]));
+      if (highlight) {
+        const prev = prevRankRef.current;
+        const hl = new Map<string, HighlightKind>();
+        for (const [slug, idx] of nextRank) {
+          if (!prev.has(slug)) { hl.set(slug, 'new'); continue; }
+          const p = prev.get(slug)!;
+          if (idx < p) hl.set(slug, 'up');
+          else if (idx > p) hl.set(slug, 'down');
+        }
+        if (hl.size > 0) { setHighlights(hl); scheduleHighlightClear(); }
+      } else {
+        // Initial load / timeframe switch: reset the baseline, never highlight
+        // (a different timeframe's ranks aren't comparable to the old ones).
+        setHighlights(new Map());
+      }
+      prevRankRef.current = nextRank;
       setRows(body.collections);
       setLoaded(true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      inFlightRef.current = false;
+      if (!background) setBusy(false);
     }
-  }, []);
+  }, [scheduleHighlightClear]);
 
-  // Initial load + reload whenever the timeframe changes.
+  // Initial load + reload whenever the timeframe changes (no highlight).
   useEffect(() => { void load(range); }, [range, load]);
+
+  // Live refresh — poll every 10 s, keep the current timeframe, run in the
+  // background (no spinner/button flicker) and diff ranks for the highlight.
+  useEffect(() => {
+    const id = setInterval(() => {
+      void load(range, { highlight: true, background: true });
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [range, load]);
+
+  // When the user changes the sort, re-baseline ranks under the new sort from
+  // the current data so the next poll only highlights genuine data movement —
+  // not the reordering the click itself caused. Never highlights.
+  useEffect(() => {
+    const sorted = sortRows(rowsRef.current, sortKey, sortDir);
+    prevRankRef.current = new Map(sorted.map((c, i) => [c.slug, i]));
+    setHighlights(new Map());
+  }, [sortKey, sortDir]);
+
+  // Clear the pending highlight timer on unmount.
+  useEffect(() => () => { if (hlTimerRef.current) clearTimeout(hlTimerRef.current); }, []);
+
+  const onSort = useCallback((key: SortKey) => {
+    playUiConfirm();
+    if (key === sortKey) {
+      setSortDir(d => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  }, [sortKey]);
 
   return (
     <div className="feed-root page-transition" data-page="tools">
@@ -154,7 +303,7 @@ export default function TrendingCollectionsPage() {
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#7a7a94', flexWrap: 'wrap', rowGap: 2 }}>
               <LiveDot />
-              <span>read-only · ranked by volume</span>
+              <span>read-only · live · auto-refresh 10s</span>
               {loaded && !error && (
                 <>
                   <span style={{ color: '#3a3a52', margin: '0 8px' }}>·</span>
@@ -251,12 +400,12 @@ export default function TrendingCollectionsPage() {
               <tr>
                 <th style={{ ...thStyle, textAlign: 'center', padding: '12px 8px' }}>#</th>
                 <th style={thStyleNft}>COLLECTION</th>
-                <th style={thStyleNum}>FLOOR</th>
-                <th style={thStyleNum}>TOP OFFER</th>
-                <th style={thStyleNum}>FLOOR %</th>
-                <th style={thStyleNum}>VOLUME</th>
-                <th style={thStyleNum}>SALES</th>
-                <th style={thStyleNum}>LISTED</th>
+                <SortTh label="FLOOR"     col="floor"     sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortTh label="TOP OFFER" col="topOffer"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortTh label="FLOOR %"   col="floorPct"  sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortTh label="VOLUME"    col="volume"    sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortTh label="SALES"     col="sales"     sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <SortTh label="LISTED"    col="listedPct" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               </tr>
             </thead>
             <tbody>
@@ -266,12 +415,20 @@ export default function TrendingCollectionsPage() {
               {loaded && rows.length === 0 && !busy && (
                 <tr><td colSpan={8} style={emptyCell}>No collections returned for this timeframe.</td></tr>
               )}
-              {rows.map((c, i) => {
+              {sortedRows.map((c, i) => {
                 const name = c.name ?? c.slug;
                 const abbr = (name[0] ?? '?').toUpperCase() + (name[1] ?? '').toUpperCase();
+                const hl = highlights.get(c.slug);
+                const hlStyle = hl ? HIGHLIGHT_STYLE[hl] : null;
                 return (
                   <tr key={c.slug} className="tools-offer-row" style={{
                     borderBottom: '1px solid rgba(255,255,255,0.022)',
+                    // Refresh diff tint — left bar + soft row bg, fades out when
+                    // the 3 s highlight window clears. transition keeps it from
+                    // snapping; no layout shift (inset shadow, not a border box).
+                    background: hlStyle ? hlStyle.bg : 'transparent',
+                    boxShadow: hlStyle ? `inset 3px 0 0 ${hlStyle.bar}` : 'none',
+                    transition: 'background 0.5s ease, box-shadow 0.5s ease',
                   }}>
                     <td style={{ ...tdStyleNum, textAlign: 'center', color: '#7a7a94', fontWeight: 700, padding: '12px 8px' }}>
                       {i + 1}
