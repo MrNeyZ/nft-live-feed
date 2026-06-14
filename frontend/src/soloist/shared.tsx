@@ -688,7 +688,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // Cheap — Next.js dedupes prefetches per path so the hover-prefetch
   // path below is a no-op on already-warmed routes.
   useEffect(() => {
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/trending', '/feed'];
     for (const h of HREFS) router.prefetch(h);
   }, [router]);
   // Pathname-change perf log. Pairs with the click-time stamp set in
@@ -1213,6 +1213,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       }}
                     >
                       MINTX
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      href="/tools/trending"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0ebff'; router.prefetch('/tools/trending'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#bdb7d6'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/trending');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      TRENDING
                     </Link>
                   </div>
                   </div>

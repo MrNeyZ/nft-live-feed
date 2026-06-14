@@ -20,6 +20,7 @@ import { createRuntimeRouter } from './runtime';
 import { createRetardioOffersRouter } from './tools-retardio-offers';
 import { createRareFeedRouter } from './tools-rare-feed';
 import { createMintAnalyzerRouter } from './tools-mint-analyzer';
+import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { corsMiddleware } from './cors';
 
 export function createApp() {
@@ -121,6 +122,10 @@ export function createApp() {
   // Mint Analyzer tool — read-only tx decoder + mint verdict.
   // GET /api/tools/mint-analyzer/analyze?sig=<signature>
   app.use('/api', createMintAnalyzerRouter());
+
+  // Trending Collections tool — read-only ME pre-aggregated stats proxy.
+  // GET /api/tools/trending-collections?range=1d&sort=volume&limit=100
+  app.use('/api', createTrendingCollectionsRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
