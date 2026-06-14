@@ -129,7 +129,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
           one unit; it's a single child of the outer span so the wallet-text→
           cluster spacing stays at the outer gap (4px) — wallet text spacing
           unchanged. Both icons render at the same 11×11 box (no layout shift). */}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
         <a
           href={meUrl}
           target="_blank"
@@ -154,8 +154,11 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             onClick={(e) => e.stopPropagation()}
             style={ME_ICON_LINK_STYLE}
           >
+            {/* ~15% larger than the 11px ME icon — compensates for the SNS
+                glyph's 81%/93% fill so it reads at the same visual weight. 13px
+                stays within the ~14px party-row line, so wallet text doesn't move. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+            <img src="/brand/sns.png" alt="SNS" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
           </a>
         )}
       </span>
