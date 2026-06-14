@@ -125,33 +125,40 @@ function WalletLink({ wallet }: { wallet: string | null }) {
       >
         {isMe ? 'YOU' : shortWallet(wallet)}
       </a>
-      <a
-        href={meUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-
-        style={ME_ICON_LINK_STYLE}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/me.png" alt="ME" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
-      </a>
-      {/* SNS logo — renders ONLY once a .sol domain resolves; sits immediately
-          after the ME icon at the same 11×11 size, so its appearance causes no
-          vertical layout shift. Native title is the hover tooltip ("name.sol");
-          click opens the SNS profile. */}
-      {snsDomain && (
+      {/* Wallet action-icon cluster. Tight inner gap (2px) groups ME + SNS as
+          one unit; it's a single child of the outer span so the wallet-text→
+          cluster spacing stays at the outer gap (4px) — wallet text spacing
+          unchanged. Both icons render at the same 11×11 box (no layout shift). */}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
         <a
-          href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
+          href={meUrl}
           target="_blank"
           rel="noopener noreferrer"
-          title={snsDomain}
-          onClick={(e) => e.stopPropagation()}
+
           style={ME_ICON_LINK_STYLE}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+          <img src="/brand/me.png" alt="ME" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
         </a>
-      )}
+        {/* SNS logo — renders ONLY once a .sol domain resolves; sits immediately
+            next to the ME icon at the same 11×11 box (asset padding trimmed so it
+            fills the box like ME), so its appearance causes no layout shift.
+            Native title is the hover tooltip ("name.sol"); click opens the SNS
+            profile. */}
+        {snsDomain && (
+          <a
+            href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={snsDomain}
+            onClick={(e) => e.stopPropagation()}
+            style={ME_ICON_LINK_STYLE}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+          </a>
+        )}
+      </span>
     </span>
   );
 }
