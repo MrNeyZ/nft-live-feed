@@ -132,14 +132,11 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
       style={{
         ...thStyleNum,
         cursor: 'pointer',
+        // Active cue is text-only — brighter label + heavier weight (and the
+        // accent arrow below). No background block / bar so the header row
+        // stays uniform and reads as a table, not a selected tab.
         color: active ? '#f0ebff' : '#56566e',
         fontWeight: active ? 800 : thStyleNum.fontWeight,
-        // Strong-but-non-layout active cue: opaque-safe accent gradient + an
-        // inset bottom bar (no border-box growth, so th height is unchanged).
-        background: active
-          ? 'linear-gradient(180deg, rgba(128,104,216,0.30) 0%, rgba(128,104,216,0.15) 100%), rgba(28,22,48,0.98)'
-          : thStyle.background,
-        boxShadow: active ? 'inset 0 -2px 0 #a890e8' : undefined,
       }}
     >
       {label}
