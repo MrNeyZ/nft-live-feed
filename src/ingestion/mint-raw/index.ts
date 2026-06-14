@@ -667,6 +667,7 @@ function extractRelayerSingleMintPrice(tx: RawSolanaTx): number | null {
   const legs = collectSystemTransfers(tx).filter(t =>
     t.src && t.src !== feePayer &&
     t.dest && t.dest !== feePayer &&
+    t.src !== t.dest &&                 // self-transfer is never a mint payment (sig cGmx… 1-lamport EBxTys→EBxTys)
     Number.isFinite(pre[t.destIdx] as number) && (pre[t.destIdx] as number) > 0,
   );
   if (legs.length === 0) return null;
