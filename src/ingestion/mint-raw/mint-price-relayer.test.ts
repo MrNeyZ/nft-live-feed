@@ -60,6 +60,16 @@ const CASES: Case[] = [
     expect: 20000000, // before fix: 0 (FREE)
   },
   {
+    // Same relayer pattern as 41fx but a LARGE split payment: minter BYMRjB
+    // pays two distinct existing creator wallets (0.0075 + 0.1425) plus a
+    // 0.004 relayer reimbursement. Both creator dests have preBalance > 0, so
+    // the relayer extractor sums them (0.15 SOL). Showed FREE in prod only
+    // because the build serving ingestion predated the relayer extractor.
+    sig:    '5LPqZp4BTeTcMRfKY6XugMJsKM6231MUWkYrJwmBSWahPLiAfNNfoURPAR5J2aANY1EWmfKZ4UFALMWDNnCH3oCg',
+    label:  'relayer single-mint — Narrrfs World Genesis (large split payment)',
+    expect: 150000000, // before fix: 0 (FREE); 0.0075 + 0.1425 SOL creator/treasury
+  },
+  {
     sig:    '41GvAExDTdEPdBnJQBSj4N5HHgxiRipQWYMTr8X6kCDJkwvJT3PMJ7PQHeARBuk2hQCz35PUnUZYf2X7AfbLMHYw',
     label:  'direct-payer priced — LaunchMyNFT (must stay unchanged)',
     expect: 29206320,
@@ -76,9 +86,29 @@ const CASES: Case[] = [
   },
 ];
 
+/** Offline, deterministic guard: a tx with NO payment transfers where the
+ *  signer's only outflow is the network fee must price as 0 (FREE). Covers
+ *  "preserve true free mints" without depending on a live fixture. */
+function syntheticFreeCheck(): { ok: boolean; got: number | null } {
+  const fee = 44_400;
+  const tx = {
+    signature: 'SYNTH_FREE_NO_TRANSFERS',
+    transaction: { message: { accountKeys: ['Minter1111111111111111111111111111111111111'], instructions: [] } },
+    meta: { fee, preBalances: [1_000_000], postBalances: [1_000_000 - fee], innerInstructions: [], preTokenBalances: [], postTokenBalances: [] },
+  } as unknown as RawSolanaTx;
+  const got = extractMintPriceLamports(tx);
+  return { ok: got === 0, got };
+}
+
 async function main(): Promise<void> {
   console.log('extractMintPriceLamports — relayer single-mint regression\n');
   let pass = 0, fail = 0;
+
+  // Offline unit case first (no network).
+  const synth = syntheticFreeCheck();
+  if (synth.ok) { console.log('✅ synthetic free — no transfers, signer delta == fee\n   priceLamports=0'); pass++; }
+  else { console.log(`❌ synthetic free — expected 0, got ${synth.got}`); fail++; }
+
   for (const tc of CASES) {
     const tx = await getTx(tc.sig);
     if (!tx) { console.log(`❌ ${tc.label}\n   fetch returned null (tx pruned?)`); fail++; continue; }
@@ -91,7 +121,7 @@ async function main(): Promise<void> {
       fail++;
     }
   }
-  console.log(`\nRESULT: ${pass} passed  ${fail} failed  (${CASES.length} total)`);
+  console.log(`\nRESULT: ${pass} passed  ${fail} failed  (${CASES.length + 1} total)`);
   if (fail > 0) process.exit(1);
 }
 main().catch((err) => { console.error(err); process.exit(1); });
