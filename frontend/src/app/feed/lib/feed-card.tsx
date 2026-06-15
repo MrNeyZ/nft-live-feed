@@ -319,6 +319,15 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // hierarchy is preserved — labels just stop dissolving into bg.
   fontSize: 10.5, color: '#5a5a78', display: 'flex', alignItems: 'center', gap: 6,
 };
+/** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
+ *  the wallet (and the ME/SNS badges after it) start at the same X on every
+ *  row instead of stair-stepping with the label's natural width. Width holds
+ *  the wider "seller:" label at 10.5px; flexShrink:0 keeps it from collapsing. */
+const FC_PARTY_LABEL_STYLE: React.CSSProperties = {
+  flexShrink: 0,
+  width: 44,
+  whiteSpace: 'nowrap',
+};
 const FC_RIGHT_COL_STYLE: React.CSSProperties = {
   // Right-col gap tightened from 6 → 4 to match the new compact
   // card rhythm. paddingTop dropped to 0 (was 1) so the timestamp
@@ -633,7 +642,7 @@ export const FeedCard = memo(function FeedCard({
               11×11 ME icon match the underlying text metric). */}
           <div style={FC_PARTIES_COL_STYLE}>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span>seller:</span>
+              <span style={FC_PARTY_LABEL_STYLE}>seller:</span>
               <WalletLink wallet={event.seller} />
               {/* Seller-remaining badge — small, inline next to the
                   seller wallet. Renders only on sell-type events when
@@ -672,7 +681,7 @@ export const FeedCard = memo(function FeedCard({
               )}
             </div>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span>buyer:</span>
+              <span style={FC_PARTY_LABEL_STYLE}>buyer:</span>
               <WalletLink wallet={event.buyer} />
             </div>
           </div>
