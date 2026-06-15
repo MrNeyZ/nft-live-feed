@@ -138,7 +138,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
           style={ME_ICON_LINK_STYLE}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/me.png" alt="ME" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+          <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
         </a>
         {/* SNS logo — renders ONLY once a .sol domain resolves; sits immediately
             next to the ME icon at the same 11×11 box (asset padding trimmed so it
@@ -161,7 +161,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             {/* CSS-only ~1px hairline outline (darker green) to crisp the logo
                 edge on bright/high-DPI screens. Single 0.5px drop-shadow, no
                 offset/glow — asset untouched. Remove this filter line to revert. */}
-            <img src="/brand/sns.png?v=3" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
+            <img src="/brand/sns.png?v=3" alt="SNS" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
           </a>
         )}
       </span>
@@ -201,11 +201,9 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
   alignItems: 'center',
   lineHeight: 0,
   flexShrink: 0,
-  // Lowered from 0.85 → 0.65 so the marketplace icons recede behind
-  // the wallet text. They still read at a glance (the icons are
-  // distinctive shapes, not text), but they no longer dominate the
-  // metadata row.
-  opacity: 0.65,
+  // Canonical marketplace-icon opacity, unified to 0.85 to match /mints and
+  // /tools/trending (was 0.65 here — the only divergent value).
+  opacity: 0.85,
   textDecoration: 'none',
 };
 

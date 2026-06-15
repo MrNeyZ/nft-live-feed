@@ -591,7 +591,7 @@ export default function TrendingCollectionsPage() {
                     boxShadow: hlStyle ? `inset 3px 0 0 ${hlStyle.bar}` : 'none',
                     transition: 'background 0.5s ease, box-shadow 0.5s ease',
                   }}>
-                    <td style={{ ...tdStyleNum, textAlign: 'center', color: '#7a7a94', fontWeight: 700, padding: '12px 8px' }}>
+                    <td style={{ ...tdStyleNum, textAlign: 'center', color: '#7a7a94', fontWeight: 700, padding: '11px 8px' }}>
                       {i + 1}
                     </td>
                     <td style={{ padding: '12px 8px 12px 14px', verticalAlign: 'middle' }}>
@@ -753,7 +753,7 @@ const thStyle: React.CSSProperties = {
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
 const thStyleNft: React.CSSProperties = { ...thStyle, padding: '12px 10px 12px 14px' };
 const tdStyleNum: React.CSSProperties = {
-  padding: '12px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700,
+  padding: '11px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700,
   color: '#f0eef8', fontFamily: MONO, verticalAlign: 'middle',
   fontVariantNumeric: 'tabular-nums',
 };
