@@ -119,6 +119,45 @@ export async function updateSellerRemainingCount(
 }
 
 /**
+ * Persist a late exact-scan seller-remaining-count refresh (migration 015's
+ * column) by (seller, collection_address) for RECENT rows only. The
+ * exact-scan `seller_count_update` carries no signature, so it can't target a
+ * single sale by signature like `updateSellerRemainingCount` does — instead it
+ * fans the refined count out to that wallet+collection's recent sales so a
+ * reload reads the same (more accurate) number the live feed converged to.
+ *
+ * Conservative 24h window keeps the UPDATE bounded (won't rewrite ancient
+ * history) and matches how the badge is only meaningful for live/recent dumps.
+ *
+ * MUST NOT throw or block: callers `void` this and the SSE emit proceeds
+ * regardless. DB errors are swallowed with a warn. No-op for non-finite counts
+ * or missing seller/collection.
+ */
+export async function updateSellerRemainingCountByCollection(
+  seller: string,
+  collection: string,
+  count: number,
+): Promise<void> {
+  if (!seller || !collection || typeof count !== 'number' || !Number.isFinite(count)) return;
+  try {
+    await getPool().query(
+      `UPDATE sale_events
+          SET seller_remaining_count = $1
+        WHERE seller = $2
+          AND collection_address = $3
+          AND block_time >= NOW() - interval '24 hours'`,
+      [count, seller, collection],
+    );
+  } catch (err) {
+    console.warn(
+      `[seller-count-persist] late UPDATE failed seller=${seller.slice(0, 8)}… ` +
+      `collection=${collection.slice(0, 8)}… count=${count}:`,
+      err,
+    );
+  }
+}
+
+/**
  * Update a previously fast-path-inserted event with corrected raw-parser data.
  * Emits a `rawpatch` SSE event so connected clients update their cards.
  *

@@ -21,7 +21,7 @@ import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 import { noteRecentSell, getRecentSellCount, getRecentSellerCountAny } from '../enrichment/recent-sell-tracker';
 import { scheduleExactSellerCount } from '../enrichment/seller-count-exact';
-import { updateSellerRemainingCount } from '../db/insert';
+import { updateSellerRemainingCount, updateSellerRemainingCountByCollection } from '../db/insert';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -575,6 +575,14 @@ saleEventBus.onSellerCountUpdate((u) => {
   };
   if (u.signal) payload.signal = u.signal;
   enqueue(`event: seller_count\ndata: ${JSON.stringify(payload)}\n\n`);
+  // Eventual consistency: persist the refined exact-scan count too. This frame
+  // has no signature, so fan it out by (seller, collection) to that wallet's
+  // recent sales — otherwise a reload would read the older fast-count
+  // (live 99 → F5 97). Fire-and-forget: never blocks/breaks the emit above;
+  // the helper swallows + warns on DB error. Finite counts only.
+  if (typeof u.count === 'number' && Number.isFinite(u.count)) {
+    void updateSellerRemainingCountByCollection(u.seller, u.collection, u.count);
+  }
 });
 
 // 60 s audit — cross-checks accumulator's accepted/emitted with
