@@ -58,7 +58,7 @@ export function MintFeedPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
       border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
     }}>
@@ -71,7 +71,7 @@ export function MintFeedPanel() {
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
           <LiveDot />
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
           <span style={{
@@ -83,7 +83,7 @@ export function MintFeedPanel() {
           }}>
             <span style={{
               display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: '#5ce0a0', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+              background: '#43b984', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
             }} />
             MINT OK
           </span>
@@ -92,7 +92,7 @@ export function MintFeedPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
           <Pill
             active
-            color={paused ? '#c9a820' : '#5ce0a0'}
+            color={paused ? '#c7b479' : '#43b984'}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -105,7 +105,7 @@ export function MintFeedPanel() {
         padding: '8px 8px', scrollbarGutter: 'stable both-edges',
       }}>
         {list.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', color: '#241f3b', padding: '36px 16px', fontSize: 12 }}>
             Waiting for individual mint events…
           </div>
         )}

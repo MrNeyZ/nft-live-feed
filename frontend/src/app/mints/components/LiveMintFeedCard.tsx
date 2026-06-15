@@ -195,8 +195,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     ? `${priceText} ◎ each · ${totalText} ◎ total · ${ev.nftCount} NFTs`
     : undefined;
   const priceColor     = perNftLamports == null
-    ? '#55556e'
-    : perNftLamports <= 0 ? '#5ce0a0' : (embedded ? '#ffffff' : '#f0eef8');
+    ? '#9a9ab4'
+    : perNftLamports <= 0 ? '#43b984' : (embedded ? '#ffffff' : '#f0eef8');
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows
@@ -465,12 +465,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         const tint =
           // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
           // typeLabel is unchanged); raw Core falls through to purple below.
-          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
-          ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' } :
+          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
+          ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' } :
           ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
-                                                        { bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
+          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
+                                                        { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
           display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
@@ -516,7 +516,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // page-level 5 s force tick; boundary precision is fine for
         // this surface (avoids a per-card 1 s timer on 150 cards).
         const ageMs = now - ev.receivedAt;
-        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#b6a8d0' : '#877496');
+        const ageColor:  string = ageMs < 15000 ? '#9a9ab4' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
           <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>

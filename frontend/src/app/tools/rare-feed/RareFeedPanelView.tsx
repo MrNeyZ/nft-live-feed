@@ -34,7 +34,7 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', maxWidth: maxW, margin: '0 auto',
       overflow: 'hidden',
-      background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
       border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
       marginBottom: embedded ? 0 : 16,
@@ -52,21 +52,21 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Rare events</h1>
             <LiveDot />
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
               ({rows.length.toLocaleString()})
             </span>
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
               marginLeft: 4, padding: '1px 5px', borderRadius: 3,
               fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-              border: error ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
+              border: error ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
               background: error ? 'rgba(239,120,120,0.14)' : 'transparent',
-              color: error ? '#ef7878' : 'rgba(92,224,160,0.65)',
+              color: error ? '#d96867' : 'rgba(92,224,160,0.65)',
             }}>
               <span style={{
                 display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                background: error ? '#ef7878' : '#5ce0a0',
-                boxShadow: error ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
+                background: error ? '#d96867' : '#43b984',
+                boxShadow: error ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
               }} />
               RARE {error ? 'ERR' : 'OK'}
             </span>
@@ -105,5 +105,5 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
 }
 
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
+  textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
 };

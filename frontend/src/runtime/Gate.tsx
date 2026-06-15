@@ -75,7 +75,7 @@ export function Gate({ children }: { children: ReactNode }) {
   }, []);
 
   if (state.kind === 'loading') {
-    return <GateShell><div style={{ color: '#55556e', fontSize: 12 }}>…</div></GateShell>;
+    return <GateShell><div style={{ color: '#9a9ab4', fontSize: 12 }}>…</div></GateShell>;
   }
   if (state.kind === 'login') {
     return <GateShell><LoginScreen onSuccess={() => { void resolve(); }} /></GateShell>;
@@ -468,7 +468,7 @@ const GATE_CSS = `
   min-height: 100vh;
   padding: 60px 24px;
   display: flex; align-items: center; justify-content: center;
-  color: #aaaabf;
+  color: #9a9ab4;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   background: #050308;
@@ -519,8 +519,8 @@ const GATE_CSS = `
   font-weight: 700;
   letter-spacing: 2.5px;
   text-transform: uppercase;
-  color: #0c0a1a;
-  background: linear-gradient(180deg, #c2a8f5 0%, #9378dd 100%);
+  color: #08060c;
+  background: linear-gradient(180deg, #ad92ee 0%, #7c5cf0 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   cursor: pointer;
@@ -533,7 +533,7 @@ const GATE_CSS = `
 }
 .vl-cta:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #cdb6f8 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #ad92ee 0%, #9f84e8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset,
@@ -542,7 +542,7 @@ const GATE_CSS = `
 }
 .vl-cta:active:not([disabled]) {
   transform: translateY(1px);
-  background: linear-gradient(180deg, #9378dd 0%, #7a63c4 100%);
+  background: linear-gradient(180deg, #7c5cf0 0%, #7a63c4 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.08) inset,
     0 0 0 rgba(22, 14, 42, 0.75),
@@ -550,7 +550,7 @@ const GATE_CSS = `
 }
 .vl-cta[disabled] {
   cursor: not-allowed;
-  color: #4a4766;
+  color: #241f3b;
   background: linear-gradient(180deg, #332a4d 0%, #241e39 100%);
   border-color: rgba(255, 255, 255, 0.05);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 0 rgba(10, 6, 20, 0.5);
@@ -588,7 +588,7 @@ const GATE_CSS = `
   text-align: left;
 }
 .vl-cta.vl-cta--block .vl-cta-label {
-  font-size: 13px; font-weight: 700; letter-spacing: 1.8px; color: #0c0a1a;
+  font-size: 13px; font-weight: 700; letter-spacing: 1.8px; color: #08060c;
   text-transform: uppercase;
 }
 .vl-cta.vl-cta--block .vl-cta-desc {
@@ -604,7 +604,7 @@ const GATE_CSS = `
 .vl-cta.vl-cta--block[disabled] .vl-cta-label,
 .vl-cta.vl-cta--block[disabled] .vl-cta-desc,
 .vl-cta.vl-cta--block[disabled] .vl-cta-chev {
-  color: #4a4766;
+  color: #241f3b;
 }
 
 /* Wallet field (post-connect) */
@@ -638,7 +638,7 @@ const GATE_CSS = `
   width: 6px; height: 6px;
   margin-left: 14px;
   border-radius: 50%;
-  background: #a890e8;
+  background: #ad92ee;
   box-shadow: 0 0 10px rgba(168, 144, 232, 0.8);
 }
 .vl-wallet-field .vl-wallet-text {
@@ -647,7 +647,7 @@ const GATE_CSS = `
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 12.5px;
   font-weight: 500;
-  color: #c4b3f0;
+  color: #ad92ee;
   letter-spacing: 0.2px;
   flex-shrink: 0;
   min-width: 0;
@@ -664,8 +664,8 @@ const GATE_CSS = `
   outline: none;
   font-family: inherit;
   font-size: 13.5px;
-  color: #e8e6f2;
-  caret-color: #a890e8;
+  color: #f0eef8;
+  caret-color: #ad92ee;
   letter-spacing: 0.2px;
 }
 .vl-wallet-field input.vl-passphrase::placeholder {
@@ -673,7 +673,7 @@ const GATE_CSS = `
   letter-spacing: 0.5px;
 }
 .vl-wallet-field input.vl-passphrase:disabled {
-  color: #55556e;
+  color: #9a9ab4;
 }
 
 /* 3D arrow button, right-aligned inside the wallet field */
@@ -687,8 +687,8 @@ const GATE_CSS = `
   font-family: inherit;
   font-size: 16px;
   font-weight: 600;
-  color: #0c0a1a;
-  background: linear-gradient(180deg, #c2a8f5 0%, #9378dd 100%);
+  color: #08060c;
+  background: linear-gradient(180deg, #ad92ee 0%, #7c5cf0 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   cursor: pointer;
@@ -701,7 +701,7 @@ const GATE_CSS = `
 }
 .vl-arrow:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #cdb6f8 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #ad92ee 0%, #9f84e8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset,
@@ -714,11 +714,11 @@ const GATE_CSS = `
     0 1px 0 rgba(255, 255, 255, 0.08) inset,
     0 0 0 rgba(22, 14, 42, 0.75),
     0 3px 8px -3px rgba(128, 104, 216, 0.3);
-  background: linear-gradient(180deg, #9378dd 0%, #7a63c4 100%);
+  background: linear-gradient(180deg, #7c5cf0 0%, #7a63c4 100%);
 }
 .vl-arrow[disabled] {
   cursor: not-allowed;
-  color: #4a4766;
+  color: #241f3b;
   background: linear-gradient(180deg, #332a4d 0%, #241e39 100%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 0 rgba(10, 6, 20, 0.5);
   transform: none;
@@ -730,23 +730,23 @@ const GATE_CSS = `
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 1.5px;
-  color: #6a6a84;
+  color: #9a9ab4;
   padding: 4px 2px;
   transition: color 0.12s;
   align-self: flex-end;
 }
-.vl-change:hover { color: #c4b3f0; }
+.vl-change:hover { color: #ad92ee; }
 
 .vl-error {
   display: flex; align-items: center; gap: 8px;
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 11px;
-  color: #d87575;
+  color: #d96867;
   letter-spacing: 0.5px;
 }
 .vl-error .vl-err-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: #d87575; box-shadow: 0 0 8px rgba(216, 117, 117, 0.5);
+  background: #d96867; box-shadow: 0 0 8px rgba(216, 117, 117, 0.5);
 }
 
 /* Stage + supporting layout (matches preview's v2 column) */

@@ -104,7 +104,7 @@ export const WALLET_PALETTE: readonly string[] = [
 export function colorForWallet(addr: string | null | undefined): string {
   // Existing muted-metadata grey is the sentinel when no minter is on
   // the wire — keeps the cell visually neutral until a hash lands.
-  if (!addr) return '#7a7a94';
+  if (!addr) return '#9a9ab4';
   let h = 2166136261 >>> 0;
   for (let i = 0; i < addr.length; i++) {
     h ^= addr.charCodeAt(i);

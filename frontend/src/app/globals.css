@@ -35,6 +35,23 @@
   --dashboard-max:     1000px;
   --tools-max:         1100px;
   --mints-max:         1400px;
+  /* ── VictoryLabs final design tokens (approved palette) ──────────────
+     Single source of truth for chrome colors. Marketplace-icon brand
+     colors, dashboard chart series, and artwork are intentionally NOT
+     tokenized here. */
+  --vl-white:           #FFFFFF;   /* price only */
+  --vl-text-primary:    #F0EEF8;   /* NFT names, primary text */
+  --vl-text-muted:      #9A9AB4;   /* collection names, wallets, timestamps, labels */
+  --vl-purple-primary:  #7C5CF0;   /* the only saturated purple accent */
+  --vl-purple-muted:    #AD92EE;
+  --vl-green-primary:   #43B984;   /* the only green */
+  --vl-red-primary:     #D96867;   /* the only red */
+  --vl-gold-primary:    #C7B479;   /* LMNFT / rarity / special only */
+  --vl-gray-base:       #08060C;   /* page background */
+  --vl-gray-surface:    #1A1530;   /* panel surface */
+  --vl-border-subtle:   #241F3B;
+  --vl-border-primary:  #38315A;
+  --vl-glow-purple:     #7C5CF0;
   /* Table tokens — centralize current row sizing across the three
      dense-analytics tables on the site. Values match the live
      hardcoded equivalents exactly (no density change in this pass):
@@ -320,7 +337,7 @@ html[data-layout="phone"] .feed-thumb img {
   font-weight: 800;                          /* override (matches prototype) */
   font-size: 24px;                           /* override (prototype: 22px) */
   letter-spacing: -0.5px;                    /* prototype */
-  color: #ae92ee;                            /* slightly desaturated from #b794f4 — calmer */
+  color: #ad92ee;                            /* slightly desaturated from #b794f4 — calmer */
   /* A soft purple bloom (~prototype level) + a tight dark drop for a
      little of the old PNG's weight — dialled back so the wordmark sits
      inside the topbar's chrome rather than grabbing attention. No neon.
@@ -339,7 +356,7 @@ html[data-layout="phone"] .feed-thumb img {
   font-style: normal;
   font-weight: 600;                          /* prototype (kept) */
   font-size: 18px;                           /* prototype (kept) */
-  color: #f4f0ff;                            /* prototype used var(--vl-fg) = #f4f0ff; literal here since nft-live-feed has no --vl-fg */
+  color: #f0eef8;                            /* prototype used var(--vl-fg) = #f0eef8; literal here since nft-live-feed has no --vl-fg */
   margin-left: 2px;                          /* +1px breathing room for the upright cut */
   letter-spacing: -0.1px;                    /* slightly looser than the italic setting */
 }
@@ -579,13 +596,13 @@ nextjs-portal,
 
 html, body {
   height: 100%;
-  color: #aaaabf;
+  color: #9a9ab4;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   overflow: hidden;
-  background: #030206;
+  background: #08060c;
   /* Clarity pass: page-wide purple wash kept low (sharpness pass);
-     base bumped one shade darker (#050308 → #030206) so cards have
+     base bumped one shade darker (#050308 → #08060c) so cards have
      more contrast against the page without lifting the card itself.
      A near-imperceptible SVG-noise layer is composited under the
      purple wash to break the "AI-flat-gradient" feel — alpha is
@@ -603,7 +620,7 @@ html, body {
    color as `body` so what the user sees is the theme background, not
    a black/white system default. The `color-scheme` hint also tells
    the UA to use dark form-control / scrollbar defaults. */
-html { background-color: #030206; color-scheme: dark; }
+html { background-color: #08060c; color-scheme: dark; }
 
 body { display: block; height: 100vh; }
 
@@ -1045,8 +1062,8 @@ a { color: inherit; text-decoration: none; }
   border: none; background: transparent; cursor: pointer;
   font-size: 10px; line-height: 1; color: inherit;
 }
-.feed-chip-watch { border: 1px solid #a890e855; background: #a890e81e; color: #b9a6ef; }
-.feed-chip-bl    { border: 1px solid #e58aa355; background: #e58aa31e; color: #ec9fb4; }
+.feed-chip-watch { border: 1px solid #ad92ee55; background: #ad92ee1e; color: #b9a6ef; }
+.feed-chip-bl    { border: 1px solid #d9686755; background: #d968671e; color: #ec9fb4; }
 
 @media (max-width: 720px) {
   .feed-settings { grid-template-columns: 1fr; gap: 8px 0; }
@@ -1088,12 +1105,12 @@ a { color: inherit; text-decoration: none; }
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  /* Bumped from #56566e → #6e6e8a so Type/Price/Watch labels read
+  /* Bumped from #9a9ab4 → #9a9ab4 so Type/Price/Watch labels read
      in the same family as the Density label (#74749a) rather than
      looking dead next to it. Density's `.feed-filter-row-priority`
      override still keeps Density a notch brighter for clear
      hierarchy without the prior big mismatch. */
-  color: #6e6e8a;
+  color: #9a9ab4;
 }
 .feed-filter-pills {
   display: flex; flex-wrap: wrap;
@@ -1116,7 +1133,7 @@ a { color: inherit; text-decoration: none; }
   border-radius: 4px;
   border: 1px solid rgba(168, 144, 232, 0.12);
   background: rgba(0, 0, 0, 0.32);
-  color: #e8e6f2;
+  color: #f0eef8;
   outline: none;
   /* Compact field that flexes within its group column but never grows into
      a giant full-width input; shrinks cleanly on narrow widths. */
@@ -1131,11 +1148,11 @@ a { color: inherit; text-decoration: none; }
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 .feed-coll-input::placeholder {
-  /* Bumped from #45455e → #5a5a78 so the empty-state placeholder
+  /* Bumped from #241f3b → #9a9ab4 so the empty-state placeholder
      reads as a hint, not a dead string. Same family as the new
-     #6e6e8a default label color, kept one tier dimmer so the input
+     #9a9ab4 default label color, kept one tier dimmer so the input
      still looks empty until typed into. */
-  color: #5a5a78;
+  color: #9a9ab4;
   font-family: 'SF Mono', 'Fira Code', monospace;
   letter-spacing: 0.5px;
 }
@@ -1395,7 +1412,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes statFlicker {
-  0%   { color: #5ce0a0; text-shadow: 0 0 8px rgba(92, 224, 160, 0.6); }
+  0%   { color: #43b984; text-shadow: 0 0 8px rgba(92, 224, 160, 0.6); }
   100% { color: inherit; text-shadow: none; }
 }
 
@@ -1692,8 +1709,8 @@ body[data-bottombar="1"] .feed-root {
 /* /mints tracker — zero-row empty state. Two compact rows
    (primary + helper) styled to feel intentional rather than
    "loading". The primary line uses the same muted heading tone
-   as the rest of the tracker chrome (#55556e), and the helper
-   sits one notch deeper (#3a3a52) at a smaller size — same
+   as the rest of the tracker chrome (#9a9ab4), and the helper
+   sits one notch deeper (#241f3b) at a smaller size — same
    palette / language as the existing column headers and
    secondary metadata in the page. Letter-spacing on the primary
    line nudges it toward a deliberate "no-data" header rather
@@ -1701,7 +1718,7 @@ body[data-bottombar="1"] .feed-root {
    no border, no illustration. */
 .mints-empty-primary {
   text-align: center;
-  color: #55556e;
+  color: #9a9ab4;
   padding: 56px 0 8px;
   font-size: 12.5px;
   font-weight: 600;
@@ -1710,7 +1727,7 @@ body[data-bottombar="1"] .feed-root {
 }
 .mints-empty-helper {
   text-align: center;
-  color: #3a3a52;
+  color: #241f3b;
   padding: 0 24px 56px;
   font-size: 11px;
   letter-spacing: 0.2px;

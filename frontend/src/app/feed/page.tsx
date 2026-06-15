@@ -88,17 +88,17 @@ function isDensity(v: unknown): v is Density {
 // types" (see the `typeSet` gate in `filtered`).
 type TypeKey = Exclude<FilterKey, 'all'>;
 const FILTERS: { key: TypeKey; label: string; color: string }[] = [
-  { key: 'buy',     label: 'Buy',        color: '#7ed9a8' },
-  { key: 'sell',    label: 'Sell',       color: '#ef7878' },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: '#7ed9a8' },
-  { key: 'sellAmm', label: 'Sell AMM',   color: '#ef7878' },
-  { key: 'listing', label: 'Listings',   color: '#a890e8' },
+  { key: 'buy',     label: 'Buy',        color: '#43b984' },
+  { key: 'sell',    label: 'Sell',       color: '#d96867' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: '#43b984' },
+  { key: 'sellAmm', label: 'Sell AMM',   color: '#d96867' },
+  { key: 'listing', label: 'Listings',   color: '#ad92ee' },
 ];
 
 /** Inactive-pill style for Type/Price utility filters inside the
  *  filters panel. Brought up to the same family as
  *  DENSITY_PILL_INACTIVE_STYLE — faint white-α 0.025 fill, white-α
- *  0.08 border, color #8e8eb0 — so the panel reads as one
+ *  0.08 border, color #9a9ab4 — so the panel reads as one
  *  consistent tone instead of "Density bright / everything else
  *  ghost". Pills are still clearly inactive (no per-color
  *  highlight, no border at full lilac), but visible. Active pills
@@ -107,7 +107,7 @@ const FILTERS: { key: TypeKey; label: string; color: string }[] = [
 const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.025)',
   border: '1px solid rgba(255, 255, 255, 0.08)',
-  color: '#8e8eb0',
+  color: '#9a9ab4',
 };
 
 /** Settings pill styling (SETTINGS_PILL_INACTIVE / settingsPillActive) and the
@@ -132,13 +132,13 @@ const DENSITY_PILL_INACTIVE_STYLE: React.CSSProperties = {
   ...DENSITY_PILL_BASE_STYLE,
   background:    'rgba(255, 255, 255, 0.025)',
   border:        '1px solid rgba(255, 255, 255, 0.08)',
-  color:         '#8e8eb0',
+  color:         '#9a9ab4',
   fontWeight:    600,
 };
 const DENSITY_PILL_ACTIVE_STYLE: React.CSSProperties = {
   ...DENSITY_PILL_BASE_STYLE,
   background:    'rgba(168, 144, 232, 0.26)',
-  border:        '1px solid #a890e8',
+  border:        '1px solid #ad92ee',
   boxShadow:     '0 0 0 1px rgba(168, 144, 232, 0.36), 0 0 10px rgba(168, 144, 232, 0.42)',
   color:         '#f0eef8',
   fontWeight:    700,
@@ -995,7 +995,7 @@ export default function FeedPage() {
               flush with the embedded /dashboard table card top. */}
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+            background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
             border: '1px solid rgba(168,144,232,0.65)',
             borderRadius: 12,
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
@@ -1013,11 +1013,11 @@ export default function FeedPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
                 <LiveDot />
-                {/* Event count — dimmed from #8068d8 → #6a6a84 so the
+                {/* Event count — dimmed from #7c5cf0 → #9a9ab4 so the
                     title "Live events" + the LiveDot stay primary; the
                     count is supplementary context (operator usually
                     reads the rows, not the number). */}
-                <span style={{ fontSize: 11, fontWeight: 500, color: '#6a6a84', marginLeft: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
                 {/* Source-health indicator. Green = both sources fresh.
@@ -1033,16 +1033,16 @@ export default function FeedPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 3,
                     marginLeft: 4, padding: '1px 5px', borderRadius: 3,
                     fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-                    border: meStale ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
+                    border: meStale ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
                     background: meStale ? 'rgba(239,120,120,0.14)' : 'transparent',
-                    color: meStale ? '#ef7878' : 'rgba(92,224,160,0.65)',
+                    color: meStale ? '#d96867' : 'rgba(92,224,160,0.65)',
                     cursor: 'help',
                   }}
                 >
                   <span style={{
                     display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                    background: meStale ? '#ef7878' : '#7ed9a8',
-                    boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
+                    background: meStale ? '#d96867' : '#43b984',
+                    boxShadow: meStale ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
                   }} />
                   ME {meStale ? 'STALE' : 'OK'}
                 </span>
@@ -1053,11 +1053,11 @@ export default function FeedPage() {
                     borderRadius: 4, letterSpacing: '0.2px',
                     border: '1px solid rgba(168,144,232,0.32)',
                     background: 'rgba(168,144,232,0.08)',
-                    color: '#a890e8',
+                    color: '#ad92ee',
                   }}>
                     {typeSet.size > 0 && FILTERS.filter(f => typeSet.has(f.key)).map(f => f.label).join(' / ')}
                     {typeSet.size > 0 && collFilter && (
-                      <span style={{ color: '#6a6a84' }}>•</span>
+                      <span style={{ color: '#9a9ab4' }}>•</span>
                     )}
                     {collFilter && (
                       <span style={{
@@ -1079,7 +1079,7 @@ export default function FeedPage() {
                     persistence + pause logic unchanged.) */}
                 <Pill
                   active
-                  color={paused ? '#c9a820' : '#7ed9a8'}
+                  color={paused ? '#c7b479' : '#43b984'}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -1137,11 +1137,11 @@ export default function FeedPage() {
                               <Pill
                                 key={p.key}
                                 active={isActive}
-                                color="#a890e8"
+                                color="#ad92ee"
                                 onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1157,12 +1157,12 @@ export default function FeedPage() {
                               <Pill
                                 key={d}
                                 active={isActive}
-                                color="#a890e8"
+                                color="#ad92ee"
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
                                 
                                 size="sm"
-                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1184,11 +1184,11 @@ export default function FeedPage() {
                               <Pill
                                 key={m.key}
                                 active={isActive}
-                                color="#a890e8"
+                                color="#ad92ee"
                                 onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1243,7 +1243,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#a890e8"
+                            color="#ad92ee"
                             onClick={() => {
                               const v = collInput.trim();
                               if (v) { setCollFilter(v); setCollInput(''); }
@@ -1251,7 +1251,7 @@ export default function FeedPage() {
                             label="+"
                             
                             size="sm"
-                            style={settingsPillActive('#a890e8')}
+                            style={settingsPillActive('#ad92ee')}
                           />
                           {collFilter && (
                             <span className="feed-chip feed-chip-watch">
@@ -1282,12 +1282,12 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#e58aa3"
+                            color="#d96867"
                             onClick={() => addBlacklist(blInput)}
                             label="+"
                             
                             size="sm"
-                            style={settingsPillActive('#e58aa3')}
+                            style={settingsPillActive('#d96867')}
                           />
                           {blacklistSlugs.map((slug) => (
                             <span key={slug} className="feed-chip feed-chip-bl">
@@ -1324,7 +1324,7 @@ export default function FeedPage() {
                   meStale ? (
                     <div style={{
                       textAlign: 'center', padding: '40px 16px', fontSize: 13,
-                      color: '#ef7878',
+                      color: '#d96867',
                       border: '1px solid rgba(239,120,120,0.28)',
                       background: 'rgba(239,120,120,0.06)',
                       borderRadius: 8, margin: '24px 8px',
@@ -1337,7 +1337,7 @@ export default function FeedPage() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', color: '#6a6a84', padding: '48px 0', fontSize: 13 }}>
+                    <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '48px 0', fontSize: 13 }}>
                       No events match current filters
                     </div>
                   )
@@ -1399,7 +1399,7 @@ export default function FeedPage() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 200, height: 200, objectFit: 'contain',
-              borderRadius: 8, background: '#0e0b22',
+              borderRadius: 8, background: '#08060c',
               boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
               cursor: 'default',
             }}

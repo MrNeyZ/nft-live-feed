@@ -76,7 +76,7 @@ export function SalesFeedPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
       border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
     }}>
@@ -90,21 +90,21 @@ export function SalesFeedPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live events</h1>
           <LiveDot />
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
             marginLeft: 4, padding: '1px 5px', borderRadius: 3,
             fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-            border: meStale ? '1px solid #ef787866' : '1px solid rgba(92,224,160,0.22)',
+            border: meStale ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
             background: meStale ? 'rgba(239,120,120,0.14)' : 'transparent',
-            color: meStale ? '#ef7878' : 'rgba(92,224,160,0.65)',
+            color: meStale ? '#d96867' : 'rgba(92,224,160,0.65)',
           }}>
             <span style={{
               display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: meStale ? '#ef7878' : '#5ce0a0',
-              boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
+              background: meStale ? '#d96867' : '#43b984',
+              boxShadow: meStale ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
             }} />
             ME {meStale ? 'STALE' : 'OK'}
           </span>
@@ -113,7 +113,7 @@ export function SalesFeedPanel() {
           <SettingsToggle active={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
           <Pill
             active
-            color={paused ? '#c9a820' : '#5ce0a0'}
+            color={paused ? '#c7b479' : '#43b984'}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -131,7 +131,7 @@ export function SalesFeedPanel() {
             borderBottom: '1px solid rgba(168,144,232,0.12)',
             background: 'rgba(168,144,232,0.04)',
           }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#7a7a94' }}>Density</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#9a9ab4' }}>Density</span>
             <div style={{ display: 'flex', gap: 4 }}>
               {DENSITIES.map(d => {
                 const isActive = density === d;
@@ -139,11 +139,11 @@ export function SalesFeedPanel() {
                   <Pill
                     key={d}
                     active={isActive}
-                    color="#a890e8"
+                    color="#ad92ee"
                     onClick={() => setDensity(d)}
                     label={d.charAt(0).toUpperCase() + d.slice(1)}
                     size="sm"
-                    style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
+                    style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                   />
                 );
               })}
@@ -153,7 +153,7 @@ export function SalesFeedPanel() {
 
         <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
           {list.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
+            <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '48px 0', fontSize: 13 }}>
               Waiting for sales…
             </div>
           )}

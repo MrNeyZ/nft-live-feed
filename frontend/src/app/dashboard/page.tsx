@@ -268,7 +268,7 @@ function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
   return d;
 }
 
-function Sparkline({ data, color = '#36b868', w = 80, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
+function Sparkline({ data, color = '#43b984', w = 80, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
   if (!Array.isArray(data) || data.length < 2) return <svg width={w} height={h} />;
   // Guard the spread: a malformed (non-array / huge) `data` makes
   // `Math.min(...data)` throw and blanks the whole dashboard. Fold instead.
@@ -293,7 +293,7 @@ function Sparkline({ data, color = '#36b868', w = 80, h = 20 }: { data: number[]
 
 // ── Volume Bars SVG ──────────────────────────────────────────────────────────
 
-function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
+function VolBars({ data, color = '#43b984', w = 52, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
   if (!data || data.length === 0) return <svg width={w} height={h} />;
   const max = Math.max(...data);
   const sum = data.reduce((a, b) => a + b, 0);
@@ -303,7 +303,7 @@ function VolBars({ data, color = '#36b868', w = 52, h = 20 }: { data: number[]; 
   // while a small total drifts up into the cell's existing top padding.
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-volbars">
-      <text x={w} y={-2} fontSize="8" textAnchor="end" fill="#7a7a94" opacity="0.72" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
+      <text x={w} y={-2} fontSize="8" textAnchor="end" fill="#9a9ab4" opacity="0.72" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
         Σ {sum >= 100 ? sum.toFixed(0) : sum.toFixed(sum >= 10 ? 1 : 2)}
       </text>
       {data.map((v, i) => {
@@ -489,7 +489,7 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span
             className={col._isLive ? 'dashboard-live-rank' : undefined}
-            style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
+            style={{ color: '#9a9ab4', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
           >{rank}</span>
           <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
           <span style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px' }}>{col.name}</span>
@@ -501,16 +501,16 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
+        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#43b984', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
-        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
+        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c7b479', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
@@ -563,7 +563,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span
             className={col._isLive ? 'dashboard-live-rank' : undefined}
-            style={{ color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
+            style={{ color: '#9a9ab4', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
           >{rank}</span>
           <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
           <div>
@@ -578,16 +578,16 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {formatSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#5ce0a0', opacity: 0.9 }}>↑</span>}
+        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: '#43b984', opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
         {formatSol(col._avgPrice)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
-        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c9a820', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
+        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: '#c7b479', opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#6e6e8a', fontWeight: 500 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: '#9a9ab4', fontWeight: 500 }}>
         {fmtBid(bid?.tnsrBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
@@ -1013,9 +1013,9 @@ export default function Dashboard() {
   // round-trip. Live Sale Feed (.feed-card) and Live Mint Feed
   // (.mints-feed-row) use distinct classes and stay denser by design.
   const thStyle: React.CSSProperties = {
-    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: 'var(--th-label-color, #5a5a78)',
+    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: 'var(--th-label-color, #9a9ab4)',
     letterSpacing: '0.8px', textAlign: 'right', borderBottom: '1px solid rgba(168,144,232,0.12)',
-    whiteSpace: 'nowrap', background: '#201a3a', position: 'sticky', top: 0, zIndex: 1,
+    whiteSpace: 'nowrap', background: '#1a1530', position: 'sticky', top: 0, zIndex: 1,
   };
 
   return (
@@ -1032,12 +1032,12 @@ export default function Dashboard() {
         <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--dashboard-max, 1000px)', margin: '0 auto', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
                 Trending collections
               </h1>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <LiveDot />
-                <span style={{ fontSize: 11, color: '#4fb67d' }}>Feed is live</span>
+                <span style={{ fontSize: 11, color: '#43b984' }}>Feed is live</span>
               </div>
             </div>
           </div>
@@ -1052,7 +1052,7 @@ export default function Dashboard() {
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--dashboard-max, 1000px)',
         margin: '0 auto',
-        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.65)',
         borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px rgba(128,104,216,0.06)',
@@ -1083,7 +1083,7 @@ export default function Dashboard() {
                 icon={
                   <span style={{
                     display: 'inline-block', width: 4, height: 4, borderRadius: '50%',
-                    background: t === 'active' ? '#5ce0a0' : '#7a7a94',
+                    background: t === 'active' ? '#43b984' : '#9a9ab4',
                     opacity: 0.75,
                   }} />
                 }
@@ -1094,7 +1094,7 @@ export default function Dashboard() {
               />
             ))}
             <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#6e6e8a', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', letterSpacing: '0.5px' }}>
               {sortedCols.length.toLocaleString()} <span style={{ color: '#4d4d6e', fontWeight: 500 }}>collections</span>
             </span>
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
@@ -1127,9 +1127,9 @@ export default function Dashboard() {
                   <span className="feed-srow-lbl">Source</span>
                   <div className="feed-srow-ctl feed-seg">
                     {([
-                      { k: 'all',    l: 'All',        c: '#a890e8' },
-                      { k: 'me',     l: 'Magic Eden', c: '#e87ab0' },
-                      { k: 'tensor', l: 'Tensor',     c: '#a890e8' },
+                      { k: 'all',    l: 'All',        c: '#ad92ee' },
+                      { k: 'me',     l: 'Magic Eden', c: '#9a9ab4' },
+                      { k: 'tensor', l: 'Tensor',     c: '#ad92ee' },
                     ] as const).map(f => (
                       <Pill
                         key={f.k}
@@ -1156,7 +1156,7 @@ export default function Dashboard() {
                     <button style={{
                       padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
                       border: '1px solid rgba(92,224,160,0.4)', background: 'rgba(92,224,160,0.12)',
-                      color: '#5ce0a0', cursor: 'pointer', marginLeft: 4,
+                      color: '#43b984', cursor: 'pointer', marginLeft: 4,
                     }}>+ Watchlist</button>
                   </div>
                 </div>
@@ -1191,42 +1191,42 @@ export default function Dashboard() {
               <tr>
                 <th onClick={() => handleSortClick('collection')} style={{ ...thStyle, textAlign: 'left', paddingLeft: 8, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    COLLECTION {sortArrow('collection') && <span style={{ color: '#8068d8' }}>{sortArrow('collection')}</span>}
+                    COLLECTION {sortArrow('collection') && <span style={{ color: '#7c5cf0' }}>{sortArrow('collection')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('sales')} style={{ ...thStyle, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    SALES {sortArrow('sales') && <span style={{ color: '#8068d8' }}>{sortArrow('sales')}</span>}
+                    SALES {sortArrow('sales') && <span style={{ color: '#7c5cf0' }}>{sortArrow('sales')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('floor')} style={{ ...thStyle, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    FLOOR {sortArrow('floor') && <span style={{ color: '#8068d8' }}>{sortArrow('floor')}</span>}
+                    FLOOR {sortArrow('floor') && <span style={{ color: '#7c5cf0' }}>{sortArrow('floor')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('avg')} style={{ ...thStyle, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    AVG {sortArrow('avg') && <span style={{ color: '#8068d8' }}>{sortArrow('avg')}</span>}
+                    AVG {sortArrow('avg') && <span style={{ color: '#7c5cf0' }}>{sortArrow('avg')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('me_bid')} style={{ ...thStyle, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    ME BID {sortArrow('me_bid') && <span style={{ color: '#8068d8' }}>{sortArrow('me_bid')}</span>}
+                    ME BID {sortArrow('me_bid') && <span style={{ color: '#7c5cf0' }}>{sortArrow('me_bid')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('tnsr_bid')} style={{ ...thStyle, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    TNSR BID {sortArrow('tnsr_bid') && <span style={{ color: '#8068d8' }}>{sortArrow('tnsr_bid')}</span>}
+                    TNSR BID {sortArrow('tnsr_bid') && <span style={{ color: '#7c5cf0' }}>{sortArrow('tnsr_bid')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('floor_7d')} style={{ ...thStyle, textAlign: 'center', cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    7D FLOOR {sortArrow('floor_7d') && <span style={{ color: '#8068d8' }}>{sortArrow('floor_7d')}</span>}
+                    7D FLOOR {sortArrow('floor_7d') && <span style={{ color: '#7c5cf0' }}>{sortArrow('floor_7d')}</span>}
                   </span>
                 </th>
                 <th onClick={() => handleSortClick('vol_7d')} style={{ ...thStyle, textAlign: 'center', paddingRight: 18, cursor: 'pointer' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    7D VOLUME {sortArrow('vol_7d') && <span style={{ color: '#8068d8' }}>{sortArrow('vol_7d')}</span>}
+                    7D VOLUME {sortArrow('vol_7d') && <span style={{ color: '#7c5cf0' }}>{sortArrow('vol_7d')}</span>}
                   </span>
                 </th>
               </tr>

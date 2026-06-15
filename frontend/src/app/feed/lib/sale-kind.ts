@@ -48,7 +48,7 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   // direction-consistent.
   buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
   sellAmm: { label: 'AMM',  fg: 'rgb(245,88,102)',  bg: 'rgba(245,88,102,0.16)',  borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#8f8fa8',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  unknown: { label: '—',    fg: '#9a9ab4',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 export function saleKind(saleTypeRaw: string | null): SaleKind {

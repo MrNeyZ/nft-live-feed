@@ -79,7 +79,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
     const dotRFresh  = isPC ? 4.0 : 3.6;
     const dotRStale  = isPC ? 3.2 : 2.8;
     const gridStroke = isPC ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.07)';
-    const axisColor  = isPC ? '#6f6f8c' : '#5a5a78';
+    const axisColor  = isPC ? '#6f6f8c' : '#9a9ab4';
 
     ctx.clearRect(0, 0, w, h);
 
@@ -164,7 +164,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
       const isSell = t.type === 'sell';
       const age = now - t.ts;
       const isFresh = age < 1800;
-      const color = isSell ? '#f87171' : '#a890e8';
+      const color = isSell ? '#f87171' : '#ad92ee';
 
       if (isFresh) {
         const k = age / 1800;

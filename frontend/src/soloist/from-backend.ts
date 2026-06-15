@@ -5,11 +5,11 @@ import type { FeedEvent as BackendEvent, LatestApiResponse, RestRow } from '@/ty
 import { fromRow } from '@/types';
 import { COLLECTIONS_DB, FeedEvent, Marketplace, Side } from './mock-data';
 
-const FALLBACK_COLOR = '#8068d8';
+const FALLBACK_COLOR = '#7c5cf0';
 const FALLBACK_ABBR  = '??';
 const FALLBACK_PALETTE = [
-  '#ff8c42', '#36b868', '#8068d8', '#4e8cd4', '#c9a820',
-  '#28a878', '#d47832', '#b01d62', '#2fa8d8', '#c084fc', '#e879f9',
+  '#c7b479', '#43b984', '#7c5cf0', '#4e8cd4', '#c7b479',
+  '#43b984', '#c7b479', '#b01d62', '#2fa8d8', '#c084fc', '#e879f9',
 ];
 
 function collectionMeta(name: string | null): { abbr: string; color: string } {

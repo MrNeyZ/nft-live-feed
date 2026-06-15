@@ -44,7 +44,7 @@ function TimeAgo({ ts }: { ts: number }) {
   // negative ages already collapse into the `ageMs < 5000` branch
   // below ("just now") since `<` evaluates true for any negative.
   if (!Number.isFinite(ts)) {
-    return <span style={{ fontSize: 11, color: '#9d8aac', fontWeight: 500 }}>—</span>;
+    return <span style={{ fontSize: 11, color: '#9a9ab4', fontWeight: 500 }}>—</span>;
   }
   // SSR-safe: getTickServerSnapshot returns 0; first client paint
   // will reconcile to a real `now` on the next tick (≤1 s). Falling back
@@ -55,15 +55,15 @@ function TimeAgo({ ts }: { ts: number }) {
   let color: string;
   let weight: 500 | 600 = 500;
   if (ageMs < 15000) {
-    color  = '#e87ab0'; // pink — covers both "just now" (<5s) and 6-15s
+    color  = '#9a9ab4'; // pink — covers both "just now" (<5s) and 6-15s
     weight = 600;
   } else if (ageMs < 180000) {
     color  = '#c7b479'; // yellow — 16s to 3min
   } else {
-    // Stale tier — bumped #a094c0 → #b6a8d0 (text-clarity pass).
+    // Stale tier — bumped #a094c0 → #9a9ab4 (text-clarity pass).
     // Fresh pink + yellow tiers stay loud; this lifts the quiet
     // floor so old timestamps still scan instead of dissolving.
-    color  = '#b6a8d0';
+    color  = '#9a9ab4';
   }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   // tabular-nums locks digit width so the right-edge timestamp lane
@@ -172,10 +172,10 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 const WALLET_LINK_STYLE: React.CSSProperties = {
   // Wallet text sits one tier above the seller:/buyer: label and
   // one tier below the title. Text-clarity pass lifted #7e7e9c →
-  // #9b9bbe so short wallet addresses stop reading as low-contrast
+  // #9a9ab4 so short wallet addresses stop reading as low-contrast
   // mush against the bumped card bg. Still clearly below the title
   // (#f0eef8) — same hierarchy, just a higher readability floor.
-  color: '#9b9bbe', fontWeight: 500,
+  color: '#9a9ab4', fontWeight: 500,
   fontFamily: "'SF Mono','Fira Code',monospace",
   // No persistent decoration — matches the NFT-name link's behavior.
   // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
@@ -231,7 +231,7 @@ function FloorChip({ delta }: { delta: number }) {
   // still reads as green-or-red (preserves directional cue) without
   // competing with the price/badge for attention.
   const fg = bright
-    ? (above ? '#7ed9a8' : '#ef7878')
+    ? (above ? '#43b984' : '#d96867')
     : (above ? '#7a9a85' : '#9a7878');
   const bg = bright
     ? (above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)')
@@ -302,7 +302,7 @@ const FC_NAME_SPAN_STYLE: React.CSSProperties = {
   fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
-const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#e8e6f2' };
+const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#f0eef8' };
 const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   // Tighten the seller/buyer stack — gap dropped from 1 → 0 (rows
   // are already 14 px tall via lineHeight) and marginTop trimmed
@@ -311,11 +311,11 @@ const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
-  // Text-clarity pass: label tone lifted #45455e → #6a6a84 so
+  // Text-clarity pass: label tone lifted #241f3b → #9a9ab4 so
   // `seller:` / `buyer:` is legible at idle. Wallet text is still
-  // brighter (#9b9bbe), so the three-tier title → wallet → label
+  // brighter (#9a9ab4), so the three-tier title → wallet → label
   // hierarchy is preserved — labels just stop dissolving into bg.
-  fontSize: 10.5, color: '#6a6a84', display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 10.5, color: '#9a9ab4', display: 'flex', alignItems: 'center', gap: 6,
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every
@@ -361,7 +361,7 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
-  // SOL unit suffix — text-clarity pass lifted #6a6a82 → #8585a0
+  // SOL unit suffix — text-clarity pass lifted #9a9ab4 → #8585a0
   // and opacity 0.7 → 0.85 so the unit reads clearly at scroll
   // speed without crowding the digits (still well below pure-white
   // price text). Digits remain dominant, suffix is now legible.
@@ -730,7 +730,7 @@ export const FeedCard = memo(function FeedCard({
                 aria-label="Unclaimed Metaplex resize rent"
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
-                  color: '#a8a6c4', background: 'transparent',
+                  color: '#9a9ab4', background: 'transparent',
                   border: '1px solid rgba(168,144,232,0.32)',
                   padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
                   fontFamily: "'SF Mono','Fira Code',monospace",

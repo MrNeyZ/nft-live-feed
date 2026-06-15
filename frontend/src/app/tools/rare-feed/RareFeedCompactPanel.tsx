@@ -96,7 +96,7 @@ function RareMiniCard({ e, selected, onSelect, onHover, onLeave }: RowProps) {
 
       {/* Bottom line: collection name (flex, muted) + ME/Tensor links. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#7a7a94', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#9a9ab4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {e.collectionName ?? ''}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -133,7 +133,7 @@ export function RareFeedCompactPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
       border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
     }}>
@@ -145,13 +145,13 @@ export function RareFeedCompactPanel() {
       }}>
         <h1 style={{ fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Rare</h1>
         <LiveDot />
-        <span style={{ fontSize: 10, color: '#56566e' }}>{rows.length} signals · hover to highlight</span>
+        <span style={{ fontSize: 10, color: '#9a9ab4' }}>{rows.length} signals · hover to highlight</span>
       </div>
 
       {/* Mini-cards. */}
       <div ref={listRef} style={{ flex: 1, overflowY: 'auto' }}>
         {rows.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#55556e', padding: '32px 0', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '32px 0', fontSize: 12 }}>
             No rare sales in the live window yet
           </div>
         )}

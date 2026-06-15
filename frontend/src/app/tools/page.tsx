@@ -65,8 +65,8 @@ function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
   // Match site palette: green for active, amber for unclear, dim red
   // for expired. Same opacity tier as the existing FREE/PAID/MIXED
   // badges on /mints.
-  if (s === 'AVAILABLE') return { color: '#5ce0a0', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
-  if (s === 'EXPECTED')  return { color: '#e8c14a', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
+  if (s === 'AVAILABLE') return { color: '#43b984', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
+  if (s === 'EXPECTED')  return { color: '#c7b479', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
   return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
 }
 
@@ -113,20 +113,20 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
   // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
   // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
-  // Mint Tracker palette match: ACTIVE text moves from neon #5ce0a0
-  // to the MINTS-column green #7ed9a8; EXPIRED red softened from
-  // #a07474 to #b88080 (closer to Feed SELL family). Bg/border alphas
+  // Mint Tracker palette match: ACTIVE text moves from neon #43b984
+  // to the MINTS-column green #43b984; EXPIRED red softened from
+  // #a07474 to #d96867 (closer to Feed SELL family). Bg/border alphas
   // stay at metadata-tier levels.
   return s === 'EXPIRED'
-    ? { color: '#b88080', background: 'rgba(184,128,128,0.02)', border: '1px solid rgba(184,128,128,0.07)' }
-    : { color: '#7ed9a8', background: 'rgba(126,217,168,0.025)', border: '1px solid rgba(126,217,168,0.10)' };
+    ? { color: '#d96867', background: 'rgba(184,128,128,0.02)', border: '1px solid rgba(184,128,128,0.07)' }
+    : { color: '#43b984', background: 'rgba(126,217,168,0.025)', border: '1px solid rgba(126,217,168,0.10)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
  *  the listing-state dimension still reads at a glance even though
  *  there's no second border to carry it. */
 function listingLineColor(s: ListingState): string {
-  return s === 'UNLISTED' ? '#a890e8' : '#7a7a94';
+  return s === 'UNLISTED' ? '#ad92ee' : '#9a9ab4';
 }
 
 /** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
@@ -134,14 +134,14 @@ function listingLineColor(s: ListingState): string {
  *  badges read together as "is the offer real" + "is it backed". Gray
  *  for unknown stays neutral so missing data doesn't grab the eye. */
 function fundingBadgeStyle(s: FundingStatus): React.CSSProperties {
-  // Mint Tracker palette match: funded green pulled to #7ed9a8 (same
+  // Mint Tracker palette match: funded green pulled to #43b984 (same
   // muted green as MintsTableRow's MINTS column) and border alphas
   // trimmed across all states so the badge reads as quiet metadata
   // beneath the BEST OFFER number, not a button.
-  if (s === 'funded')      return { color: '#7ed9a8', background: 'rgba(126,217,168,0.10)', border: '1px solid rgba(126,217,168,0.25)' };
-  if (s === 'low_balance') return { color: '#e8c14a', background: 'rgba(232,193,74,0.10)',  border: '1px solid rgba(232,193,74,0.25)' };
-  if (s === 'empty')       return { color: '#d97c7c', background: 'rgba(217,124,124,0.08)', border: '1px solid rgba(217,124,124,0.25)' };
-  return                          { color: '#7a7a94', background: 'rgba(122,122,148,0.08)', border: '1px solid rgba(122,122,148,0.22)' };
+  if (s === 'funded')      return { color: '#43b984', background: 'rgba(126,217,168,0.10)', border: '1px solid rgba(126,217,168,0.25)' };
+  if (s === 'low_balance') return { color: '#c7b479', background: 'rgba(232,193,74,0.10)',  border: '1px solid rgba(232,193,74,0.25)' };
+  if (s === 'empty')       return { color: '#d96867', background: 'rgba(217,124,124,0.08)', border: '1px solid rgba(217,124,124,0.25)' };
+  return                          { color: '#9a9ab4', background: 'rgba(122,122,148,0.08)', border: '1px solid rgba(122,122,148,0.22)' };
 }
 function fundingLabel(s: FundingStatus): string {
   if (s === 'funded')      return 'FUNDED';
@@ -528,37 +528,37 @@ export default function ToolsPage() {
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
               Magic Eden Bid Offers Scanner
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#7a7a94', flexWrap: 'wrap', rowGap: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap', rowGap: 2 }}>
               <LiveDot />
               {/* Single metadata line: slug + scan stats inline, separated
                   by the same muted '·' used in the prior stats row. */}
-              <span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+              <span style={{ color: '#ad92ee', fontFamily: "'SF Mono','Fira Code',monospace" }}>
                 {selectedSlug}
               </span>
               {result && !error && (() => {
-                const sep = <span style={{ color: '#3a3a52', margin: '0 10px' }}>·</span>;
+                const sep = <span style={{ color: '#241f3b', margin: '0 10px' }}>·</span>;
                 return (
                   <>
                     {sep}
-                    <span>scanned {result.scanned}<span style={{ color: '#56566e' }}>/</span>{result.listedTotal}</span>
+                    <span>scanned {result.scanned}<span style={{ color: '#9a9ab4' }}>/</span>{result.listedTotal}</span>
                     {sep}
-                    <span>offers <span style={{ color: '#5ce0a0', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#56566e' }}>/</span>{result.offersFetched}</span>
+                    <span>offers <span style={{ color: '#43b984', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#9a9ab4' }}>/</span>{result.offersFetched}</span>
                     {sep}
                     <span>rows {result.withOffers.length}</span>
                     {result.addedCount !== undefined && (
                       <>
                         {sep}
                         {result.addedCount > 0 ? (
-                          <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
+                          <span style={{ color: '#ad92ee', fontWeight: 700 }}>+{result.addedCount} new</span>
                         ) : (
                           <span>+0 new</span>
                         )}
                       </>
                     )}
-                    {result.fromCache && <>{sep}<span style={{ color: '#c9a820' }}>cached</span></>}
+                    {result.fromCache && <>{sep}<span style={{ color: '#c7b479' }}>cached</span></>}
                   </>
                 );
               })()}
@@ -572,13 +572,13 @@ export default function ToolsPage() {
               style={{
                 padding: '6px 10px', fontSize: 12, fontWeight: 600,
                 borderRadius: 4, border: '1px solid rgba(168,144,232,0.55)',
-                background: 'rgba(20,14,34,0.85)', color: '#d4d4e8',
+                background: 'rgba(20,14,34,0.85)', color: '#f0eef8',
                 outline: 'none', cursor: busy ? 'wait' : 'pointer',
                 minWidth: 180, fontFamily: 'inherit',
               }}
             >
               {COLLECTIONS.map(c => (
-                <option key={c.slug} value={c.slug} style={{ background: '#1a1530', color: '#d4d4e8' }}>
+                <option key={c.slug} value={c.slug} style={{ background: '#1a1530', color: '#f0eef8' }}>
                   {c.label}
                 </option>
               ))}
@@ -594,7 +594,7 @@ export default function ToolsPage() {
                 borderRadius: 5, cursor: (busy || inCooldown) ? 'not-allowed' : 'pointer',
                 border: '1px solid rgba(168,144,232,0.55)',
                 background: (busy || inCooldown) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-                color: (busy || inCooldown) ? '#7a7a94' : '#d4d4e8',
+                color: (busy || inCooldown) ? '#9a9ab4' : '#f0eef8',
                 boxShadow: (busy || inCooldown) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
                 transition: 'all 0.15s',
               }}
@@ -618,7 +618,7 @@ export default function ToolsPage() {
             </div>
           ) : (
             <div style={{
-              marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#ef7878',
+              marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
               background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
               borderRadius: 5,
             }}>
@@ -634,7 +634,7 @@ export default function ToolsPage() {
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
-        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
         // Aligned with Mint Tracker panel (1aef538): border 0.65→0.32,
         // inner sheen 0.08→0.06, outer purple aura 0.15→0.10. Same hue,
         // less neon ring around the chrome.
@@ -669,22 +669,22 @@ export default function ToolsPage() {
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
                 <th style={{ ...thStyleNft,  cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
-                  NFT {sortArrow('nft')     && <span style={{ color: '#8068d8' }}>{sortArrow('nft')}</span>}
+                  NFT {sortArrow('nft')     && <span style={{ color: '#7c5cf0' }}>{sortArrow('nft')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('listing')}>
-                  LISTING {sortArrow('listing') && <span style={{ color: '#8068d8' }}>{sortArrow('listing')}</span>}
+                  LISTING {sortArrow('listing') && <span style={{ color: '#7c5cf0' }}>{sortArrow('listing')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('offer')}>
-                  BEST OFFER {sortArrow('offer') && <span style={{ color: '#8068d8' }}>{sortArrow('offer')}</span>}
+                  BEST OFFER {sortArrow('offer') && <span style={{ color: '#7c5cf0' }}>{sortArrow('offer')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('spread')}>
-                  SPREAD {sortArrow('spread') && <span style={{ color: '#8068d8' }}>{sortArrow('spread')}</span>}
+                  SPREAD {sortArrow('spread') && <span style={{ color: '#7c5cf0' }}>{sortArrow('spread')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
-                  AGE {sortArrow('age') && <span style={{ color: '#8068d8' }}>{sortArrow('age')}</span>}
+                  AGE {sortArrow('age') && <span style={{ color: '#7c5cf0' }}>{sortArrow('age')}</span>}
                 </th>
                 <th style={{ ...thStyleSmall, textAlign: 'center', cursor: 'pointer' }} onClick={() => onHeaderClick('status')}>
-                  STATUS {sortArrow('status') && <span style={{ color: '#8068d8' }}>{sortArrow('status')}</span>}
+                  STATUS {sortArrow('status') && <span style={{ color: '#7c5cf0' }}>{sortArrow('status')}</span>}
                 </th>
                 <th style={{ ...thStyleSmall, textAlign: 'center' }}>LINKS</th>
               </tr>
@@ -692,7 +692,7 @@ export default function ToolsPage() {
             <tbody>
               {!result && !busy && (
                 <tr><td colSpan={7} style={emptyCell}>
-                  Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
+                  Click <span style={{ color: '#ad92ee', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
                 </td></tr>
               )}
               {busy && !result && (
@@ -797,7 +797,7 @@ export default function ToolsPage() {
                             style preserved via ItemThumb's borderRadius.
                             Row grows naturally; no other column touched. */}
                         <div style={{ flexShrink: 0, width: 50, height: 50 }}>
-                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#8068d8" abbr={abbr} size={50} />
+                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#7c5cf0" abbr={abbr} size={50} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -823,13 +823,13 @@ export default function ToolsPage() {
                                 borderRadius: 3, lineHeight: 1.2,
                                 border: '1px solid rgba(168,144,232,0.7)',
                                 background: 'linear-gradient(180deg, rgba(168,144,232,0.95) 0%, rgba(128,104,216,0.95) 100%)',
-                                color: '#0e0b22',
+                                color: '#08060c',
                                 boxShadow: '0 0 0 1px rgba(20,14,34,0.7), 0 1px 4px rgba(0,0,0,0.5)',
                                 pointerEvents: 'none', userSelect: 'none',
                               }}>NEW</span>
                             )}
                           </div>
-                          <div style={{ fontSize: 10, color: '#56566e', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
+                          <div style={{ fontSize: 10, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
                         </div>
                       </div>
                     </td>
@@ -839,7 +839,7 @@ export default function ToolsPage() {
                           rather than below it. Color/size unchanged. */}
                       {row.listingPrice != null ? formatSol(row.listingPrice) : '—'}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#7ed9a8' }}>
+                    <td style={{ ...tdStyleNum, color: '#43b984' }}>
                       {row.bestOfferStatus === 'EXPIRED' && (
                         // Inline EXPIRED tag — kept here in addition to the
                         // STATUS column so the offer-price reading itself
@@ -900,11 +900,11 @@ export default function ToolsPage() {
                       // Neutral grey for unlisted (no spread to express);
                       // existing green/red palette for listed rows.
                       // Mint Tracker palette match: positive spread uses
-                      // MINTS-column green (#7ed9a8); negative uses a
-                      // softer red (#d97c7c) — same family as Feed's
+                      // MINTS-column green (#43b984); negative uses a
+                      // softer red (#d96867) — same family as Feed's
                       // SELL tone but lower-saturation so the spread
                       // number no longer dominates the row.
-                      color: row.spreadSol == null ? '#56566e' : (positiveSpread ? '#7ed9a8' : '#d97c7c'),
+                      color: row.spreadSol == null ? '#9a9ab4' : (positiveSpread ? '#43b984' : '#d96867'),
                       fontWeight: 700,
                     }}>
                       {row.spreadSol == null ? '—' : (
@@ -931,8 +931,8 @@ export default function ToolsPage() {
                         </>
                       )}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#7a7a94', fontWeight: 500 }}>
-                      {/* AGE softened (#aaaabf → #7a7a94) so the money columns
+                    <td style={{ ...tdStyleNum, color: '#9a9ab4', fontWeight: 500 }}>
+                      {/* AGE softened (#9a9ab4 → #9a9ab4) so the money columns
                           (BEST OFFER + SPREAD) win the hierarchy. */}
                       {fmtAge(row.bestOfferCreatedAt)}
                     </td>
@@ -1013,7 +1013,7 @@ export default function ToolsPage() {
 const thStyle: React.CSSProperties = {
   // Mint Tracker scale match: padding 12/10, fontSize 11, weight 700.
   padding: '12px 10px', fontSize: 11, fontWeight: 700,
-  color: 'var(--th-label-color, #56566e)', letterSpacing: '0.6px', textAlign: 'left',
+  color: 'var(--th-label-color, #9a9ab4)', letterSpacing: '0.6px', textAlign: 'left',
   // Mint Tracker thead contrast exact match: bg (28,22,48,0.96) — was
   // (16,12,26,0.96) which read darker than the Mints header and made
   // the column labels feel like a different layer of UI.
@@ -1035,13 +1035,13 @@ const tdStyleNum: React.CSSProperties = {
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  // Mint Tracker row scale (14/10). Color #7a7a94 stays per the prior
+  // Mint Tracker row scale (14/10). Color #9a9ab4 stays per the prior
   // hierarchy pass so LINKS recede behind BEST OFFER + SPREAD.
-  padding: '14px 10px', fontSize: 11, color: '#7a7a94', fontFamily: "'SF Mono','Fira Code',monospace",
+  padding: '14px 10px', fontSize: 11, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
+  textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
 };
 function linkChipStyle(color: string): React.CSSProperties {
   return {

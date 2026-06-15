@@ -100,42 +100,42 @@ const GATE_LABEL: Record<FlowGateType, string> = {
 // Explicit colours for the server-gated family take precedence over the
 // suffix heuristic (off_chain_token_transfer_gate ends with _transfer_gate).
 const GATE_COLOR: Partial<Record<FlowGateType, string>> = {
-  server_signature_gate:         '#d97c7c', // danger red — server signature blocks reconstruction
-  off_chain_token_transfer_gate: '#e8a14a', // amber/orange — soft token gate
+  server_signature_gate:         '#d96867', // danger red — server signature blocks reconstruction
+  off_chain_token_transfer_gate: '#c7b479', // amber/orange — soft token gate
   soft_transfer_not_burn:        '#c99a52', // muted amber/orange
 };
 function gateColor(t: FlowGateType): string {
   if (GATE_COLOR[t]) return GATE_COLOR[t]!;
-  if (t.endsWith('_burn_gate') || t.endsWith('_transfer_gate')) return '#e8c14a';
-  if (t === 'unknown_custom_gate') return '#a890e8';
-  return '#7ed9a8';
+  if (t.endsWith('_burn_gate') || t.endsWith('_transfer_gate')) return '#c7b479';
+  if (t === 'unknown_custom_gate') return '#ad92ee';
+  return '#43b984';
 }
 
 const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
-  direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: '#7ed9a8', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
-  possible_requires_extra_inputs:     { label: 'Possible — requires extra inputs',     color: '#e8c14a', bg: 'rgba(232,193,74,0.10)',  border: 'rgba(232,193,74,0.40)' },
-  blocked_server_captcha_signature:   { label: 'Blocked — server/captcha/signature',   color: '#d97c7c', bg: 'rgba(217,124,124,0.10)', border: 'rgba(217,124,124,0.40)' },
-  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#a890e8', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
+  direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: '#43b984', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
+  possible_requires_extra_inputs:     { label: 'Possible — requires extra inputs',     color: '#c7b479', bg: 'rgba(232,193,74,0.10)',  border: 'rgba(232,193,74,0.40)' },
+  blocked_server_captcha_signature:   { label: 'Blocked — server/captcha/signature',   color: '#d96867', bg: 'rgba(217,124,124,0.10)', border: 'rgba(217,124,124,0.40)' },
+  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#ad92ee', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
 };
 
 // Large reconstructable status badge derived from the verdict (display-only;
 // no analyzer/verdict logic touched — this is a UI restatement).
 const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
-  direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: '#7ed9a8', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
-  possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#e8c14a', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
-  blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d97c7c', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
-  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#a890e8', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
+  direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: '#43b984', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
+  possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#c7b479', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
+  blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d96867', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
+  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#ad92ee', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
 };
 
 // Access type — WHO was allowed to mint (orthogonal to the verdict). Colours
 // reuse the existing palette: green=public, blue=holder, purple=treasury,
 // red=backend-gated, gray=unknown. Display-only restatement of accessType.
 const ACCESS_META: Record<AccessType, { label: string; color: string }> = {
-  public:                    { label: 'Public Mint',        color: '#7ed9a8' },
+  public:                    { label: 'Public Mint',        color: '#43b984' },
   nft_holder_gate:           { label: 'NFT Holder Gate',     color: '#7ea8d9' },
-  treasury_manual_allowlist: { label: 'Treasury Allowlist',  color: '#a890e8' },
-  backend_gated:             { label: 'Backend Gated',       color: '#d97c7c' },
-  unknown:                   { label: 'Unknown',             color: '#7a7a94' },
+  treasury_manual_allowlist: { label: 'Treasury Allowlist',  color: '#ad92ee' },
+  backend_gated:             { label: 'Backend Gated',       color: '#d96867' },
+  unknown:                   { label: 'Unknown',             color: '#9a9ab4' },
 };
 
 // Confidence is a fixed function of the verdict class (display-only).
@@ -145,13 +145,13 @@ const CONFIDENCE: Record<Verdict, 'HIGH' | 'MEDIUM'> = {
   custom_program_manual_re_required:  'MEDIUM',
   possible_requires_extra_inputs:     'MEDIUM',
 };
-const CONFIDENCE_COLOR: Record<'HIGH' | 'MEDIUM', string> = { HIGH: '#7ed9a8', MEDIUM: '#e8c14a' };
+const CONFIDENCE_COLOR: Record<'HIGH' | 'MEDIUM', string> = { HIGH: '#43b984', MEDIUM: '#c7b479' };
 
 const SIGNER_META: Record<SignerClass, { label: string; color: string }> = {
-  fee_payer:              { label: 'FEE PAYER',       color: '#7a7a94' },
-  user:                   { label: 'USER',            color: '#7ed9a8' },
-  known_platform_signer:  { label: 'PLATFORM SIGNER', color: '#d97c7c' },
-  unknown_program_signer: { label: 'PROGRAM SIGNER',  color: '#e8c14a' },
+  fee_payer:              { label: 'FEE PAYER',       color: '#9a9ab4' },
+  user:                   { label: 'USER',            color: '#43b984' },
+  known_platform_signer:  { label: 'PLATFORM SIGNER', color: '#d96867' },
+  unknown_program_signer: { label: 'PROGRAM SIGNER',  color: '#c7b479' },
 };
 
 function shortAddr(s: string): string {
@@ -159,7 +159,7 @@ function shortAddr(s: string): string {
 }
 
 const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+  background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
   border: '1px solid rgba(168,144,232,0.32)',
   borderRadius: 12,
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
@@ -168,11 +168,11 @@ const PANEL: React.CSSProperties = {
 };
 const SECTION_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-  color: '#56566e', marginBottom: 6,
+  color: '#9a9ab4', marginBottom: 6,
 };
 const MONO = "'SF Mono','Fira Code',monospace";
 
-function Chip({ children, color = '#a890e8' }: { children: React.ReactNode; color?: string }) {
+function Chip({ children, color = '#ad92ee' }: { children: React.ReactNode; color?: string }) {
   return (
     <span style={{
       display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
@@ -245,10 +245,10 @@ export default function MintAnalyzerPage() {
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
         {/* Header */}
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
           MINTX
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#7a7a94', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · decodes a mint tx signature into a reconstruction verdict</span>
         </div>
@@ -267,7 +267,7 @@ export default function MintAnalyzerPage() {
               flex: 1, minWidth: 280, padding: '9px 12px', fontSize: 12,
               fontFamily: MONO, borderRadius: 5,
               border: '1px solid rgba(168,144,232,0.40)',
-              background: 'rgba(20,14,34,0.85)', color: '#d4d4e8', outline: 'none',
+              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
             }}
           />
           <button
@@ -281,7 +281,7 @@ export default function MintAnalyzerPage() {
               cursor: (busy || sig.trim().length === 0) ? 'not-allowed' : 'pointer',
               border: '1px solid rgba(168,144,232,0.55)',
               background: (busy || sig.trim().length === 0) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: (busy || sig.trim().length === 0) ? '#7a7a94' : '#d4d4e8',
+              color: (busy || sig.trim().length === 0) ? '#9a9ab4' : '#f0eef8',
               boxShadow: (busy || sig.trim().length === 0) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
               transition: 'all 0.15s',
             }}
@@ -292,7 +292,7 @@ export default function MintAnalyzerPage() {
 
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#ef7878',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
             background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
             borderRadius: 5,
           }}>
@@ -313,9 +313,9 @@ export default function MintAnalyzerPage() {
           }}>
             {/* Header row: label + confidence + copy-json */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#56566e' }}>Verdict</div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4' }}>Verdict</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: '#56566e' }}>CONFIDENCE</span>
+                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: '#9a9ab4' }}>CONFIDENCE</span>
                 <span style={{
                   padding: '2px 8px', fontSize: 10, fontWeight: 800, letterSpacing: '0.5px',
                   borderRadius: 4, fontFamily: MONO,
@@ -331,7 +331,7 @@ export default function MintAnalyzerPage() {
                     borderRadius: 4, cursor: 'pointer', fontFamily: MONO,
                     border: '1px solid rgba(168,144,232,0.45)',
                     background: copied ? 'rgba(126,217,168,0.16)' : 'rgba(168,144,232,0.10)',
-                    color: copied ? '#7ed9a8' : '#c4b8e8',
+                    color: copied ? '#43b984' : '#c4b8e8',
                     transition: 'all 0.15s',
                   }}
                 >{copied ? 'COPIED ✓' : 'COPY JSON'}</button>
@@ -348,7 +348,7 @@ export default function MintAnalyzerPage() {
             {/* Secondary verdict text */}
             <div style={{ fontSize: 13, fontWeight: 600, color: v.color, marginTop: 10, opacity: 0.9 }}>{v.label}</div>
             {analysis.verdictReasons.length > 0 && (
-              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: '#aaaabf', lineHeight: 1.6 }}>
+              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: '#9a9ab4', lineHeight: 1.6 }}>
                 {analysis.verdictReasons.map((rsn, i) => <li key={i}>{rsn}</li>)}
               </ul>
             )}
@@ -369,7 +369,7 @@ export default function MintAnalyzerPage() {
                 {analysis.accessClues && analysis.accessClues.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
                     {analysis.accessClues.map((c, i) => (
-                      <Chip key={i} color="#7a7a94">{c}</Chip>
+                      <Chip key={i} color="#9a9ab4">{c}</Chip>
                     ))}
                   </div>
                 )}
@@ -381,11 +381,11 @@ export default function MintAnalyzerPage() {
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Transaction</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 12, fontFamily: MONO }}>
-              <div><span style={{ color: '#56566e' }}>status </span><span style={{ color: analysis.status === 'success' ? '#7ed9a8' : '#d97c7c', fontWeight: 700 }}>{analysis.status.toUpperCase()}</span></div>
-              <div><span style={{ color: '#56566e' }}>slot </span><span style={{ color: '#d4d4e8' }}>{analysis.slot.toLocaleString()}</span></div>
-              <div><span style={{ color: '#56566e' }}>time </span><span style={{ color: '#d4d4e8' }}>{analysis.blockTime ? new Date(analysis.blockTime).toUTCString() : '—'}</span></div>
-              {analysis.fee != null && <div><span style={{ color: '#56566e' }}>fee </span><span style={{ color: '#d4d4e8' }}>{(analysis.fee / 1e9).toFixed(6)} SOL</span></div>}
-              {analysis.computeUnitsConsumed != null && <div><span style={{ color: '#56566e' }}>CU </span><span style={{ color: '#d4d4e8' }}>{analysis.computeUnitsConsumed.toLocaleString()}</span></div>}
+              <div><span style={{ color: '#9a9ab4' }}>status </span><span style={{ color: analysis.status === 'success' ? '#43b984' : '#d96867', fontWeight: 700 }}>{analysis.status.toUpperCase()}</span></div>
+              <div><span style={{ color: '#9a9ab4' }}>slot </span><span style={{ color: '#f0eef8' }}>{analysis.slot.toLocaleString()}</span></div>
+              <div><span style={{ color: '#9a9ab4' }}>time </span><span style={{ color: '#f0eef8' }}>{analysis.blockTime ? new Date(analysis.blockTime).toUTCString() : '—'}</span></div>
+              {analysis.fee != null && <div><span style={{ color: '#9a9ab4' }}>fee </span><span style={{ color: '#f0eef8' }}>{(analysis.fee / 1e9).toFixed(6)} SOL</span></div>}
+              {analysis.computeUnitsConsumed != null && <div><span style={{ color: '#9a9ab4' }}>CU </span><span style={{ color: '#f0eef8' }}>{analysis.computeUnitsConsumed.toLocaleString()}</span></div>}
             </div>
           </div>
 
@@ -393,7 +393,7 @@ export default function MintAnalyzerPage() {
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Likely mint primitive</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Chip color="#7ed9a8">{PRIMITIVE_LABEL[analysis.likelyMintPrimitive]}</Chip>
+              <Chip color="#43b984">{PRIMITIVE_LABEL[analysis.likelyMintPrimitive]}</Chip>
             </div>
 
             {/* Wrapper — explicit, never inferred from the verdict text */}
@@ -402,15 +402,15 @@ export default function MintAnalyzerPage() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span title={wrapper.programId} style={{
                   display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 600,
-                  borderRadius: 5, fontFamily: MONO, color: '#a890e8',
+                  borderRadius: 5, fontFamily: MONO, color: '#ad92ee',
                   background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.35)',
                 }}>{wrapper.programId.slice(0, 12)}…</span>
-                {wrapper.name && <span style={{ fontSize: 11, color: '#56566e', fontFamily: MONO }}>· {wrapper.name}</span>}
+                {wrapper.name && <span style={{ fontSize: 11, color: '#9a9ab4', fontFamily: MONO }}>· {wrapper.name}</span>}
               </div>
             ) : (
               <span style={{
                 display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 700,
-                borderRadius: 5, fontFamily: MONO, color: '#7a7a94',
+                borderRadius: 5, fontFamily: MONO, color: '#9a9ab4',
                 background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.28)',
               }}>NONE</span>
             )}
@@ -425,7 +425,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.detectedGates.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', marginBottom: 4 }}>Detected gates</div>
+                  <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 4 }}>Detected gates</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.detectedGates.map((g, i) => (
                       <Chip key={i} color={gateColor(g.type)}>
@@ -441,11 +441,11 @@ export default function MintAnalyzerPage() {
                     return (
                       <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, fontFamily: MONO }}>
                         {ssg && (
-                          <span style={{ color: '#d97c7c' }}>
+                          <span style={{ color: '#d96867' }}>
                             Backend signer: {ssg.signers!.map(shortAddr).join(', ')}
                           </span>
                         )}
-                        {offChain && <span style={{ color: '#6a6a84' }}>Not enforced on-chain</span>}
+                        {offChain && <span style={{ color: '#9a9ab4' }}>Not enforced on-chain</span>}
                       </div>
                     );
                   })()}
@@ -454,12 +454,12 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.burnedAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Burned</div>
+                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Burned</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.burnedAssets.map((b, i) => (
                       <span key={i} title={b.mint} style={{
                         display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
-                        borderRadius: 5, fontFamily: MONO, color: '#e8a14a',
+                        borderRadius: 5, fontFamily: MONO, color: '#c7b479',
                         background: 'rgba(232,161,74,0.10)', border: '1px solid rgba(232,161,74,0.34)',
                       }}>{b.name ?? shortAddr(b.mint ?? '?')}{b.amount && b.amount !== '1' ? ` ×${b.amount}` : ''}</span>
                     ))}
@@ -469,7 +469,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.transferredAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Transferred</div>
+                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Transferred</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.transferredAssets.map((t, i) => (
                       <span key={i} title={t.mint} style={{
@@ -484,7 +484,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.mintFlow.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#6a6a84', margin: '8px 0 4px' }}>Flow</div>
+                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Flow</div>
                   <div style={{ fontSize: 12, fontFamily: MONO, color: '#c8c8dc', lineHeight: 1.6 }}>
                     {analysis.flowClues.mintFlow.join('  →  ')}
                   </div>
@@ -492,7 +492,7 @@ export default function MintAnalyzerPage() {
               )}
 
               {analysis.flowClues.notes.length > 0 && (
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#aaaabf', lineHeight: 1.5 }}>
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#9a9ab4', lineHeight: 1.5 }}>
                   {analysis.flowClues.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
@@ -507,11 +507,11 @@ export default function MintAnalyzerPage() {
                 <span key={p.programId} title={p.programId} style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px',
                   fontSize: 11, borderRadius: 5, fontFamily: MONO,
-                  color: p.name ? '#d4d4e8' : '#e8c14a',
+                  color: p.name ? '#f0eef8' : '#c7b479',
                   background: 'rgba(168,144,232,0.07)', border: '1px solid rgba(168,144,232,0.22)',
                 }}>
                   <span style={{ fontWeight: 600 }}>{p.name ?? shortAddr(p.programId)}</span>
-                  <span style={{ color: '#56566e' }}>×{p.invocationCount}</span>
+                  <span style={{ color: '#9a9ab4' }}>×{p.invocationCount}</span>
                 </span>
               ))}
             </div>
@@ -531,13 +531,13 @@ export default function MintAnalyzerPage() {
                       color: m.color, background: `${m.color}1a`, border: `1px solid ${m.color}3a`,
                     }}>{m.label}</span>
                     <a href={`https://solscan.io/account/${s.address}`} target="_blank" rel="noopener noreferrer"
-                       style={{ color: '#d4d4e8', textDecoration: 'none' }}>{s.address}</a>
-                    {s.label && <span style={{ color: '#56566e' }}>· {s.label}</span>}
+                       style={{ color: '#f0eef8', textDecoration: 'none' }}>{s.address}</a>
+                    {s.label && <span style={{ color: '#9a9ab4' }}>· {s.label}</span>}
                   </div>
                 );
               })}
             </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: analysis.backendSignerObserved ? '#d97c7c' : '#7ed9a8' }}>
+            <div style={{ marginTop: 6, fontSize: 11, color: analysis.backendSignerObserved ? '#d96867' : '#43b984' }}>
               {analysis.backendSignerObserved
                 ? '⚠ Backend/platform co-signer observed — server signature required.'
                 : '✓ No backend/platform signer observed.'}
@@ -548,9 +548,9 @@ export default function MintAnalyzerPage() {
           {(analysis.guardAuth.candyGuard || analysis.guardAuth.notes.length > 0) && (
             <div style={PANEL}>
               <div style={SECTION_LABEL}>Guard / auth requirements</div>
-              {analysis.guardAuth.candyGuard && <Chip color="#e8c14a">Candy Guard present</Chip>}
+              {analysis.guardAuth.candyGuard && <Chip color="#c7b479">Candy Guard present</Chip>}
               {analysis.guardAuth.notes.length > 0 && (
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: '#aaaabf', lineHeight: 1.5 }}>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: '#9a9ab4', lineHeight: 1.5 }}>
                   {analysis.guardAuth.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
@@ -563,7 +563,7 @@ export default function MintAnalyzerPage() {
             <div style={{ overflowX: 'auto' }} className="scroll-area">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: MONO, fontSize: 11 }}>
                 <thead>
-                  <tr style={{ color: '#56566e', textAlign: 'left' }}>
+                  <tr style={{ color: '#9a9ab4', textAlign: 'left' }}>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>PATH</th>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>PROGRAM</th>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>INSTRUCTION</th>
@@ -573,14 +573,14 @@ export default function MintAnalyzerPage() {
                 <tbody>
                   {analysis.instructions.map((ix, i) => (
                     <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={{ padding: '6px 10px', color: '#7a7a94' }}>{ix.path}</td>
-                      <td style={{ padding: '6px 10px', color: ix.programName ? '#d4d4e8' : '#e8c14a' }} title={ix.programId}>
+                      <td style={{ padding: '6px 10px', color: '#9a9ab4' }}>{ix.path}</td>
+                      <td style={{ padding: '6px 10px', color: ix.programName ? '#f0eef8' : '#c7b479' }} title={ix.programId}>
                         {ix.programName ?? shortAddr(ix.programId)}
                       </td>
-                      <td style={{ padding: '6px 10px', color: ix.instructionName ? '#7ed9a8' : '#56566e' }}>
+                      <td style={{ padding: '6px 10px', color: ix.instructionName ? '#43b984' : '#9a9ab4' }}>
                         {ix.instructionName ?? '—'}
                       </td>
-                      <td style={{ padding: '6px 10px', color: '#a890e8' }}>{ix.discriminatorHex || '—'}</td>
+                      <td style={{ padding: '6px 10px', color: '#ad92ee' }}>{ix.discriminatorHex || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

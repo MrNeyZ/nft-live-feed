@@ -113,25 +113,25 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
   // borrow the CANDY pink palette so launchpad Core reads differently from raw
   // Core ecosystem activity. Colours only — exact CANDY bg/fg.
   if (coreLaunchpad && s === 'Metaplex Core') {
-    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
+    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#d96867' };
   }
   switch (s) {
-    case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' };
+    case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' };
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
     case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
-    case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#e87ab0' };
-    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
+    case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#9a9ab4' };
+    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#d96867' };
     // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
-    // and a brighter fg (#a890e8 → #b9a4ef) so the badge reads as a
+    // and a brighter fg (#ad92ee → #ad92ee) so the badge reads as a
     // legible launchpad pill rather than disabled. Border via the
     // pill's existing bg-tint frame (no glow added).
-    case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.20)', fg: '#b9a4ef' };
-    case 'Metaplex':               return { label: 'METAPLEX', bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
-    case 'Bubblegum':              return { label: 'cNFT',     bg: 'rgba(92,224,160,0.15)',  fg: '#5ce0a0' };
+    case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.20)', fg: '#ad92ee' };
+    case 'Metaplex':               return { label: 'METAPLEX', bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
+    case 'Bubblegum':              return { label: 'cNFT',     bg: 'rgba(92,224,160,0.15)',  fg: '#43b984' };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the
     // platform treasury. Distinct fuchsia palette so the row reads
     // separately from generic CANDY without competing visually.
     case 'nfts.gay':               return { label: 'GAY',      bg: 'rgba(232,122,200,0.18)', fg: '#ff7fd0' };
-    default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: '#7a7a94' };
+    default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: '#9a9ab4' };
   }
 }

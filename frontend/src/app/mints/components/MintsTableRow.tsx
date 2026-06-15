@@ -97,7 +97,7 @@ const STATUS_BADGE_BASE: React.CSSProperties = {
 };
 const STATUS_BADGE_ACTIVE: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#7ed9a8',
+  color:      '#43b984',
   background: 'rgba(92,224,160,0.14)',
   border:     '1px solid rgba(92,224,160,0.42)',
 };
@@ -112,7 +112,7 @@ const STATUS_BADGE_WATCH: React.CSSProperties = {
 // max supply visually clusters with sell-side cues elsewhere.
 const STATUS_BADGE_SOLD: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#ef7878',
+  color:      '#d96867',
   background: 'rgba(239,120,120,0.12)',
   border:     '1px solid rgba(239,120,120,0.45)',
 };
@@ -369,7 +369,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             fixed pixel width (not `auto`). Other tracks and columnGap are
             untouched. */}
         <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
-          <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8a8aa6', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
+          <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9a9ab4', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
           {isNewCollection(r.collectionCreatedAt, r.firstSeenAt) && <NewCollectionBadge />}
@@ -561,7 +561,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 const b = e.currentTarget;
                 b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)';
                 b.style.boxShadow  = 'none';
-                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#b4a8d8'; t.style.textShadow = 'none'; }
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#9a9ab4'; t.style.textShadow = 'none'; }
               }
             }}
             style={{
@@ -607,7 +607,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             <span style={{
               // Strong pass: text rendered as a compact muted label —
               // smaller (10.5 → 9.5), lighter weight (700 → 600), and
-              // a noticeably dimmer idle color (#b4a8d8 → #6e6688) so
+              // a noticeably dimmer idle color (#9a9ab4 → #6e6688) so
               // the SHOW column no longer pulls the eye on every row.
               // Hover/pinned restore strong purple/white via the parent
               // handlers (unchanged).
@@ -646,11 +646,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               ref={mintsCellRef}
               onMouseEnter={openMintsPopover}
               onMouseLeave={closeMintsPopover}
-              // Same green family as RATE (#7ed9a8) but softer — keeps
+              // Same green family as RATE (#43b984) but softer — keeps
               // MINTS in the same family visually while leaving RATE
               // the brightest value. fontWeight 800 stays unchanged so
               // the column still reads heavy / structural.
-              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#7ed9a8', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#43b984', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {tfCount.toLocaleString()}
             </td>
@@ -714,7 +714,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // cap-known cases use the same secondary-tier gray;
         // unverified drops another step so the "still resolving"
         // state reads as in-flight without being unreadable.
-        let color = '#a8a6c4';
+        let color = '#9a9ab4';
         if (minted !== null && cap !== null) {
           // Both known — visible cell shows ONLY the current minted
           // count; "minted / cap (pct)" lives in the hover popover.
@@ -808,10 +808,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const display = (payment && showInToken && tokenAmount != null)
           ? `${tokenAmount} ${tokenLabel}`
           : solDisplay;
-        const cellColor = isFree     ? '#7ed9a8'
-                        : isUnknown  ? '#45455e'
-                        : payment    ? '#c9bdf0'
-                        :              '#a8a6c4';
+        const cellColor = isFree     ? '#43b984'
+                        : isUnknown  ? '#241f3b'
+                        :              '#ffffff';
         const tip = isUnknown
           ? `No mint price observed yet for this collection`
           : isFree
@@ -871,7 +870,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                     <img src={tokenInfo.image} alt="" width={12} height={12}
                       style={{ width: 12, height: 12, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
                   ) : (
-                    <span style={{ fontSize: 7, fontWeight: 800, color: '#a890e8', letterSpacing: 0, lineHeight: 1 }}>
+                    <span style={{ fontSize: 7, fontWeight: 800, color: '#ad92ee', letterSpacing: 0, lineHeight: 1 }}>
                       {tokenLabel.slice(0, 1).toUpperCase()}
                     </span>
                   )}
@@ -889,7 +888,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '11px 18px 11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#a8a6c4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        style={{ padding: '11px 18px 11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#9a9ab4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>

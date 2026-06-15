@@ -28,10 +28,10 @@ const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSyst
 
 /** Score → fallback rank-chip tint (Rare Feed non-tier rows only). */
 export function scoreColor(score: number): string {
-  if (score >= 80) return '#5ce0a0';
-  if (score >= 60) return '#a890e8';
-  if (score >= 40) return '#e8c14a';
-  return '#7a7a94';
+  if (score >= 80) return '#43b984';
+  if (score >= 60) return '#ad92ee';
+  if (score >= 40) return '#c7b479';
+  return '#9a9ab4';
 }
 
 const TIERS = ['MYTHIC', 'LEGENDARY', 'EPIC'] as const;

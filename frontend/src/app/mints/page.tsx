@@ -676,10 +676,10 @@ type MintTab = 'active' | 'recent';
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
-    case 'free':    return { label: 'FREE',    bg: 'rgba(92,224,160,0.15)',  fg: '#7ed9a8' };
-    case 'paid':    return { label: 'PAID',    bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
-    case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' };
-    default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: '#7a7a94' };
+    case 'free':    return { label: 'FREE',    bg: 'rgba(92,224,160,0.15)',  fg: '#43b984' };
+    case 'paid':    return { label: 'PAID',    bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
+    case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' };
+    default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: '#9a9ab4' };
   }
 }
 
@@ -765,13 +765,13 @@ function FeedFiltersPopover({
             position: 'absolute', top: '100%', right: 0, marginTop: 6,
             // EXACT reuse of the left Mint Collections panel recipe so the two
             // settings surfaces read as one system — no approximated colors:
-            //   • card gradient identity  (#201a3a → #1a1530, line ~2212)
+            //   • card gradient identity  (#1a1530 → #1a1530, line ~2212)
             //   • .feed-filters-panel overlay (rgba(0,0,0,0.26), globals ~920)
             //     stacked on top → exact effective tone of the left strip,
             //     opaque so feed cards behind never bleed through.
             //   • card border (rgba(168,144,232,0.32)) + card box-shadow.
             background:
-              'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+              'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
             border: '1px solid rgba(168,144,232,0.32)',
             borderRadius: 12,
             boxShadow:
@@ -2169,12 +2169,12 @@ export default function MintsPage() {
         <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--mints-max, 1400px)', margin: '0 auto', alignSelf: 'center', transform: embedded ? undefined : 'translateX(10px)', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
                 Live mint tracker
               </h1>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <LiveDot />
-                <span style={{ fontSize: 11, color: '#4fb67d' }}>
+                <span style={{ fontSize: 11, color: '#43b984' }}>
                   {(() => {
                     if (displaySorted.length === 0) return 'No active mints';
                     const active = displaySorted.filter(r => r.displayState === 'shown').length;
@@ -2226,13 +2226,13 @@ export default function MintsPage() {
         // Restore the VictoryLabs dark-purple panel identity (the v2
         // strong-pass de-saturated this to cold #15121f/#0f0c19 which
         // detached the page from the rest of the app). Original was
-        // #201a3a → #1a1530 with a loud 0.65 purple border and a 0.15
+        // #1a1530 → #1a1530 with a loud 0.65 purple border and a 0.15
         // outer purple aura — kept the hue, trimmed the excess. New:
         // same purple gradient, border alpha 0.65 → 0.32 (half),
         // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
         // the same purple terminal panel /feed and /dashboard ship,
         // just with less neon ring around it.
-        background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
         border: '1px solid rgba(168,144,232,0.32)',
         borderRadius: 12,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
@@ -2265,7 +2265,7 @@ export default function MintsPage() {
                          textTransform: 'uppercase',
                          border: mintTab === t ? '1px solid rgba(168,144,232,0.44)' : '1px solid transparent',
                          background: mintTab === t ? 'rgba(168,144,232,0.20)' : 'transparent',
-                         color: mintTab === t ? '#f0eef8' : '#8a8aa6', boxShadow: 'none' }}
+                         color: mintTab === t ? '#f0eef8' : '#9a9ab4', boxShadow: 'none' }}
               />
             ))}
             <span style={{ marginLeft: 6 }}><LiveDot /></span>
@@ -2361,12 +2361,12 @@ export default function MintsPage() {
                     />
                     <Pill
                       active
-                      color="#e58aa3"
+                      color="#d96867"
                       onClick={() => addBlacklist(blInput)}
                       label="+"
                       
                       size="sm"
-                      style={settingsPillActive('#e58aa3')}
+                      style={settingsPillActive('#d96867')}
                     />
                     {blacklistSlugs.map((slug) => (
                       <span key={slug} className="feed-chip feed-chip-bl">
@@ -2414,7 +2414,7 @@ export default function MintsPage() {
             case). Subtle text only — no pill/glow. */}
         {!settingsOpen && (selectedSources.size > 0 || selectedStatuses.size > 0) && (
           <div style={{
-            padding: '6px 18px', fontSize: 10, color: '#6a6a84',
+            padding: '6px 18px', fontSize: 10, color: '#9a9ab4',
             letterSpacing: '0.3px', flexShrink: 0,
             borderBottom: '1px solid rgba(168,144,232,0.08)',
           }}>
@@ -2604,7 +2604,7 @@ export default function MintsPage() {
           hidden in embed). */}
       {(
         <div style={{
-          background: 'linear-gradient(180deg, #201a3a 0%, #1a1530 100%)',
+          background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
           border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
           // Pane fills its grid cell vertically — minHeight: 0 lets the
@@ -2621,7 +2621,7 @@ export default function MintsPage() {
                   the naming is mint-specific. */}
               <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
               <LiveDot />
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#6a6a84', marginLeft: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
                 ({visibleEvents.length.toLocaleString()})
               </span>
               {/* MINT OK pill — same chrome as /feed's "ME OK" health pill
@@ -2636,7 +2636,7 @@ export default function MintsPage() {
               }}>
                 <span style={{
                   display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                  background: '#7ed9a8', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+                  background: '#43b984', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
                 }} />
                 MINT OK
               </span>
@@ -2665,9 +2665,9 @@ export default function MintsPage() {
                       border: '1px solid rgba(168,144,232,0.75)', whiteSpace: 'nowrap',
                     }}
                   >
-                    <span style={{ color: '#a890e8', textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
+                    <span style={{ color: '#ad92ee', textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nm}</span>
-                    <span style={{ color: '#a890e8', fontWeight: 800 }}>×</span>
+                    <span style={{ color: '#ad92ee', fontWeight: 800 }}>×</span>
                   </span>
                 );
               })}
@@ -2682,10 +2682,10 @@ export default function MintsPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                     maxWidth: 160, padding: '2px 8px', borderRadius: 4,
                     fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-                    color: '#c9bdf0', background: 'rgba(128,104,216,0.16)',
+                    color: '#9a9ab4', background: 'rgba(128,104,216,0.16)',
                     border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
                   }}>
-                    <span style={{ color: '#7a7a94', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
+                    <span style={{ color: '#9a9ab4', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nm}</span>
                   </span>
                 );
@@ -2733,7 +2733,7 @@ export default function MintsPage() {
             scrollbarGutter: 'stable both-edges',
           }}>
             {visibleEvents.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#3a3a52', padding: '36px 16px', fontSize: 12 }}>
+              <div style={{ textAlign: 'center', color: '#241f3b', padding: '36px 16px', fontSize: 12 }}>
                 {events.length === 0
                   ? 'Waiting for individual mint events…'
                   : activeFeedFilterCount > 0
@@ -2775,7 +2775,7 @@ export default function MintsPage() {
  *  unselected headers don't render an empty `<span>`. */
 function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
   if (active !== key) return null;
-  return <span style={{ color: '#8068d8' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+  return <span style={{ color: '#7c5cf0' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
 // Comfortable density baseline shared with /dashboard (mirrors the
@@ -2788,7 +2788,7 @@ const thStyle: React.CSSProperties = {
   padding: '12px 10px',
   fontSize: 11,
   fontWeight: 700,
-  color: '#6a6a84',
+  color: '#9a9ab4',
   letterSpacing: '0.6px',
   // Numeric columns are centered over their fixed-width cells (COLLECTION
   // overrides back to left below). Centered header + centered value keeps
