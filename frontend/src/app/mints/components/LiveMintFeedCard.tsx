@@ -89,16 +89,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     ? (ev.nftName as string)
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
   // Char-based title shortening — reuses the Sales feed's `shortenNftName`
-  // (single source of truth). Laptop/default INHERITS that helper's existing
-  // 18-char limit (its `maxLen` default, used by the Sales feed card today);
-  // PC = round(18 × 1.25) = 23 (~25% more). Applied ONLY to a real per-NFT
+  // (single source of truth). The old Live Mint Feed had NO char limit (pure
+  // CSS ellipsis); this is a manual cap restoring the width users historically
+  // saw: laptop = 13 chars, PC = 16 (round(13 × 1.25), ~25% more). CSS ellipsis
+  // is retained below as a safety fallback. Applied ONLY to a real per-NFT
   // name; the address-stub fallback (`shortMint(...)`) is already short and
   // must not be run through the helper's "#<num>" reformatter. Layout read is
   // render-safe: the live feed mounts client-side (no SSR cards), so no
   // hydration mismatch; the per-5s page tick + new-card mounts pick up a
   // layout-mode toggle.
   const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
-  const titleLimit  = isPc ? 23 : 18;
+  const titleLimit  = isPc ? 16 : 13;
   const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
   const titleFull   = titleShort ? titleShort.fullName : displayName;
