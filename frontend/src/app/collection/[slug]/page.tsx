@@ -417,7 +417,7 @@ const TradeRowItem = memo(function TradeRowItem({
             <span style={{ fontWeight:600, color:'#f0eef8' }}>{baseName}</span>
             {num && <span style={{ color:'#9a9ab4', marginLeft:4 }}>#{num}</span>}
           </span>
-          <span style={{ fontSize:12, color: isNew ? '#9a9ab4' : '#9a9ab4', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
+          <span style={{ fontSize:12, color: isNew ? '#7c5cf0' : '#9a9ab4', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
           <span style={{ fontSize:12, color:'#9a9ab4' }}>{shortWallet(event.buyer)}</span>

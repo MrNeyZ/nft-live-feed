@@ -55,7 +55,7 @@ function TimeAgo({ ts }: { ts: number }) {
   let color: string;
   let weight: 500 | 600 = 500;
   if (ageMs < 15000) {
-    color  = '#9a9ab4'; // pink — covers both "just now" (<5s) and 6-15s
+    color  = '#7c5cf0'; // PURPLE_PRIMARY — freshest tier: "just now" (<5s) + 6-15s hot window
     weight = 600;
   } else if (ageMs < 180000) {
     color  = '#c7b479'; // yellow — 16s to 3min

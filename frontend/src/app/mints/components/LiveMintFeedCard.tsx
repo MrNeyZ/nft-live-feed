@@ -516,7 +516,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // page-level 5 s force tick; boundary precision is fine for
         // this surface (avoids a per-card 1 s timer on 150 cards).
         const ageMs = now - ev.receivedAt;
-        const ageColor:  string = ageMs < 15000 ? '#9a9ab4' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
+        const ageColor:  string = ageMs < 15000 ? '#7c5cf0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
           <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>
