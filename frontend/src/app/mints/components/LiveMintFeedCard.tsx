@@ -99,9 +99,6 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // hydration mismatch; the per-5s page tick + new-card mounts pick up a
   // layout-mode toggle.
   const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
-  // Laptop-only flag (PC / Phone stay false → untouched). Used solely to add a
-  // touch of breathing room before the X icon on laptop; see its marginLeft.
-  const isLaptop    = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'laptop';
   const titleLimit  = isPc ? 17 : 13;
   const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
@@ -141,6 +138,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const collectionText = collectionFull.length > titleLimit
     ? collectionFull.slice(0, titleLimit).trim() + '...'
     : collectionFull;
+  // X/Twitter search target — only when a real collection NAME resolved
+  // (`strippedCollection`), never the base58 address fallback. Hoisted to
+  // component scope so the X icon can render in its own fixed-width outer
+  // slot (below) rather than inside the collection-name text flow.
+  const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
   const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
   // Image priority on the live-feed CARD:
   //   1. `ev.nftImageUrl` — the per-mint asset image surfaced by DAS
@@ -381,10 +383,6 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             users recognise it as interactive. */}
         {(() => {
           const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
-          // X badge eligible only when we have a real collection
-          // name (`strippedCollection`), not the short-address
-          // fallback — searching base58 yields nothing useful.
-          const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
           const baseStyle: React.CSSProperties = {
             // Collection tier in the card's text hierarchy: NFT
             // title above is the bright primary (#f0eef8, weight
@@ -435,32 +433,13 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ) : (
             <div style={baseStyle} title={collectionFull}>{collectionText}</div>
           );
-          // Single flex wrapper hosts the name + the optional X badge
-          // sibling. The wrapper takes the marginTop that used to sit
-          // on `baseStyle` so the vertical rhythm between title /
-          // collection / wallet is unchanged. When no `xName` is
-          // available the wrapper still renders so layout is
-          // identical across rows with/without the badge.
+          // Collection-name line only. The X/Twitter icon used to live here
+          // (its width floated with the name length); it now renders in its
+          // own fixed-width outer-row slot below. `marginTop: 2` preserves the
+          // title → collection → wallet vertical rhythm.
           return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginTop: 2, minWidth: 0 }}>
               {nameEl}
-              {xName && (
-                <a
-                  href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  
-                  /* Laptop-only: ~10px of breathing room between the collection
-                     name and the X + type-badge cluster. PC / Phone = 0 (no
-                     change). Absorbed by the flex:1 name column, so price / age
-                     / title / image positions are unaffected. */
-                  style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none', marginLeft: isLaptop ? 10 : 0 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
-                </a>
-              )}
             </div>
           );
         })()}
@@ -485,6 +464,29 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           </div>
         )}
       </div>
+      {/* Fixed-width X/Twitter slot — its own outer-row column so the icon's
+          position no longer floats with collection-name length or the type
+          badge. Always reserves its width (even when no link) so the type
+          slot to its right never shifts. Icon centered; size unchanged (12px). */}
+      <div style={{ width: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {xName && (
+          <a
+            href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, opacity: 0.85, textDecoration: 'none' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/x.png" alt="X" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+          </a>
+        )}
+      </div>
+      {/* Fixed-width NFT-type slot — sized to fit the widest badge (CANDY) and
+          centers the pill, so the badge sits in its own column independent of
+          the X icon and text length. The pill keeps its exact size/font/
+          padding/colors. */}
+      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -540,6 +542,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
+      </div>
       <span title={priceTitle} style={{
         minWidth: 64, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
