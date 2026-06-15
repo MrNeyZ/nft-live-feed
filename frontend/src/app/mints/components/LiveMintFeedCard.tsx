@@ -99,7 +99,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // hydration mismatch; the per-5s page tick + new-card mounts pick up a
   // layout-mode toggle.
   const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
-  const titleLimit  = isPc ? 16 : 13;
+  const titleLimit  = isPc ? 17 : 13;
   const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
   const titleFull   = titleShort ? titleShort.fullName : displayName;
