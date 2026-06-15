@@ -18,7 +18,7 @@ import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } f
 import { useParams } from 'next/navigation';
 import { Connection } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
-import { FeedEvent, formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
+import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
 import {
   fromBackend,
   fromRow,
@@ -130,8 +130,8 @@ function abbrOf(name: string): string {
 }
 function colorOf(name: string): string {
   let h = 0; for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i)) | 0;
-  const palette = ['#c7b479', '#43b984', '#7c5cf0', '#4e8cd4', '#c7b479', '#43b984', '#c7b479', '#b01d62', '#2fa8d8', '#c084fc', '#e879f9'];
-  return palette[Math.abs(h) % palette.length];
+  // Generated collection identity (header/avatar chips) → approved CATEGORY_LAYER.
+  return CATEGORY_LAYER[Math.abs(h) % CATEGORY_LAYER.length];
 }
 
 // ── Normalized NFT presentation (Collection page only) ─────────────────────

@@ -3,14 +3,15 @@
 
 import type { FeedEvent as BackendEvent, LatestApiResponse, RestRow } from '@/types';
 import { fromRow } from '@/types';
-import { COLLECTIONS_DB, FeedEvent, Marketplace, Side } from './mock-data';
+import { CATEGORY_LAYER, COLLECTIONS_DB, FeedEvent, Marketplace, Side } from './mock-data';
 
-const FALLBACK_COLOR = '#7c5cf0';
+// Known collections resolve their canonical hand-picked color via
+// COLLECTIONS_DB below; only UNKNOWN collections fall through to the
+// generated identity layer, so the hash fallback draws from the approved
+// CATEGORY_LAYER (CAT_PURPLE as the no-name sentinel).
+const FALLBACK_COLOR = '#8C6CF2';
 const FALLBACK_ABBR  = '??';
-const FALLBACK_PALETTE = [
-  '#c7b479', '#43b984', '#7c5cf0', '#4e8cd4', '#c7b479',
-  '#43b984', '#c7b479', '#b01d62', '#2fa8d8', '#c084fc', '#e879f9',
-];
+const FALLBACK_PALETTE = CATEGORY_LAYER;
 
 function collectionMeta(name: string | null): { abbr: string; color: string } {
   if (!name) return { abbr: FALLBACK_ABBR, color: FALLBACK_COLOR };

@@ -12,7 +12,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Marketplace, rndFloat, rndInt,
+  CATEGORY_LAYER, Marketplace, rndFloat, rndInt,
 } from './mock-data';
 import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
@@ -598,8 +598,8 @@ function abbrOf(name: string): string {
 }
 function colorOf(name: string): string {
   let h = 0; for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i)) | 0;
-  const palette = ['#c7b479', '#43b984', '#7c5cf0', '#4e8cd4', '#c7b479', '#43b984', '#c7b479', '#b01d62', '#2fa8d8', '#c084fc', '#e879f9'];
-  return palette[Math.abs(h) % palette.length];
+  // Generated collection identity (search/avatar chips) → approved CATEGORY_LAYER.
+  return CATEGORY_LAYER[Math.abs(h) % CATEGORY_LAYER.length];
 }
 
 /** Module-level cache for the sliding tab indicator's geometry.

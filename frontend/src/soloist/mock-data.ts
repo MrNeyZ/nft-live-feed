@@ -5,6 +5,27 @@
 export type Side = 'buy' | 'sell';
 export type Marketplace = 'me' | 'tensor' | 'orbis';
 
+/** Approved CATEGORY_LAYER — the single source of truth for *generated*
+ *  collection identity colors (deterministic hash → index). Drives the
+ *  left vertical bars, small collection marker dots, and fallback
+ *  avatar/chip tiles. Seven fixed hues, no extra shades; consumers may
+ *  add opacity suffixes but never new colors. NOT for normal text,
+ *  prices, card borders/backgrounds, rarity badges, or charts.
+ *  Canonical per-collection colors in COLLECTIONS_DB are intentionally
+ *  hand-picked and are NOT drawn from this layer.
+ *  NB: there is deliberately no CAT_GOLD — GOLD_PRIMARY (#C7B479) is a
+ *  BASE-palette color reserved for LMNFT / rarity / special statuses
+ *  and is never a collection identity category. YELLOW is the category. */
+export const CATEGORY_LAYER: readonly string[] = [
+  '#46C08A', // CAT_GREEN
+  '#4AA6E0', // CAT_BLUE
+  '#8C6CF2', // CAT_PURPLE
+  '#DD6A66', // CAT_RED
+  '#E08A4B', // CAT_ORANGE
+  '#D77AB0', // CAT_PINK
+  '#E6C84F', // CAT_YELLOW
+];
+
 export interface Collection {
   name: string;
   abbr: string;

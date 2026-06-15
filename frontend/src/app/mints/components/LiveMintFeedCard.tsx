@@ -10,7 +10,7 @@ import { ItemThumb } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import type { MintEvent, MintStatus } from '../lib/types';
 import {
-  colorForCollection, colorForCollectionMuted, colorForWallet, isSolPubkey,
+  colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
 import { fmtAge, shortMint, thumb200, isNewCollection } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
@@ -349,22 +349,18 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           const baseStyle: React.CSSProperties = {
             // Collection tier in the card's text hierarchy: NFT
             // title above is the bright primary (#f0eef8, weight
-            // 600); collection name here takes the muted-tint
-            // variant of the same deterministic accent the stripe /
-            // tracker / fallback-avatar use (see
-            // `COLLECTION_PALETTE_MUTED`) — each entry is pre-blended
-            // 25 % collection hue / 75 % neutral gray so collections
-            // still visually group by colour, but the line reads as
-            // gray-with-a-tint rather than a second headline. Real
-            // desaturation, not an alpha overlay (the previous
-            // `+'cc'` form just darkened bright hues; it didn't pull
-            // them toward neutral). Wallet line below takes its own
-            // muted wallet palette so bots / repeat minters cluster
-            // visually. Four-tier ladder (title → collection →
-            // wallet → age/source) preserved; only the *colours*
-            // changed, not the size/weight/position.
+            // 600); collection name here is flat neutral TEXT_MUTED.
+            // It is normal text, so it deliberately carries no
+            // collection identity tint — the CATEGORY_LAYER accent is
+            // reserved for the stripe / tracker bar / fallback avatar.
+            // Wallet line below keeps its own muted wallet palette so
+            // bots / repeat minters cluster visually. Four-tier ladder
+            // (title → collection → wallet → age/source) preserved;
+            // only the *colours* changed, not the size/weight/position.
             fontSize: 11,
-            color: colorForCollectionMuted(ev.collectionAddress ?? ev.groupingKey),
+            // Normal text → flat neutral TEXT_MUTED; collection identity
+            // colors (CATEGORY_LAYER) are reserved for the bar/marker/avatar.
+            color: '#9a9ab4',
             fontWeight: 500,
             // Hierarchy kept but not washed-out: pulled back from the
             // v2 0.62 to 0.78 so the line still reads as secondary
