@@ -467,8 +467,13 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       {/* Fixed-width X/Twitter slot — its own outer-row column so the icon's
           position no longer floats with collection-name length or the type
           badge. Always reserves its width (even when no link) so the type
-          slot to its right never shifts. Icon centered; size unchanged (12px). */}
-      <div style={{ width: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          slot to its right never shifts. Icon centered; size unchanged (12px).
+          `marginLeft: 10` shifts the X + type badge GROUP ~10px right (more
+          breathing room after the text). It's paired with `marginRight: -10`
+          on the type slot so the flex:1 text column stays the same width (the
+          shift is reclaimed from the badge→price gap, not from the text), and
+          price / age / thumbnail / title / collection all stay put. */}
+      <div style={{ width: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}>
         {xName && (
           <a
             href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
@@ -485,8 +490,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       {/* Fixed-width NFT-type slot — sized to fit the widest badge (CANDY) and
           centers the pill, so the badge sits in its own column independent of
           the X icon and text length. The pill keeps its exact size/font/
-          padding/colors. */}
-      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          padding/colors. `marginRight: -10` compensates the X slot's
+          `marginLeft: 10` so the badge group shifts right as one unit while
+          price / age stay exactly where they were (the shift comes out of the
+          badge→price gap, which goes 12→2px; price is right-aligned in a 64px
+          box so visible spacing before the digits is preserved). */}
+      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: -10 }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
