@@ -47,14 +47,17 @@ import { sellerCountKey } from './lib/format';
 // page lifecycle owns the side-effect; the helpers themselves remain pure
 // re: the page state.
 import {
-  loadSellerCounts, flushSellerCountsNow, schedulePersistSellerCounts,
+  loadSellerCounts, schedulePersistSellerCounts,
+  getPersistedSellerCountBySignature, upsertPersistedSellerCountBySignature,
+  flushPersistedSellerCounts,
 } from './lib/seller-count-storage';
 if (typeof window !== 'undefined') {
   // Best-effort flush on tab close. `pagehide` is the more reliable
   // mobile-safe sibling of `beforeunload`; both fire synchronously and
-  // localStorage.setItem is allowed in either.
-  window.addEventListener('pagehide',     flushSellerCountsNow);
-  window.addEventListener('beforeunload', flushSellerCountsNow);
+  // localStorage.setItem is allowed in either. Flushes BOTH the primary
+  // seller+collection map and the signature secondary index.
+  window.addEventListener('pagehide',     flushPersistedSellerCounts);
+  window.addEventListener('beforeunload', flushPersistedSellerCounts);
 }
 /** Scroll tolerance (px) for treating the user as "at top". */
 const AT_TOP_THRESHOLD = 4;
@@ -569,6 +572,12 @@ export default function FeedPage() {
             const k = sellerCountKey(seller, collection)!;
             sellerCountRef.current.set(k, count);
             schedulePersistSellerCounts(sellerCountRef.current);
+            // Secondary index keyed by the originating sale signature — the
+            // reload-recovery fallback for rows whose snapshot
+            // collectionAddress is null (so the seller+collection key above
+            // can't be rebuilt). Late `seller_count_update` frames carry no
+            // signature; the helper no-ops on those.
+            upsertPersistedSellerCountBySignature(signature, count);
           }
           // UNSAMPLED orphan check — counts how many feed rows the
           // patch will actually update. 0 means the sale frame either
@@ -648,12 +657,18 @@ export default function FeedPage() {
           const events: FeedEvent[] = data.events.map(r => {
             const ev = fromBackend(fromRow(r));
             // REST snapshot doesn't carry sellerRemainingCount — re-attach
-            // any value we resolved in a prior session, keyed by
-            // seller+collection so the badge survives reloads.
+            // any value we resolved in a prior session. Primary key is
+            // seller+collection so one value lights every sibling row; but
+            // rows whose snapshot collectionAddress is null can't form that
+            // key, so fall back to the signature secondary index. Only ever
+            // SETS a finite count — never overwrites with null.
             const k = sellerCountKey(ev.seller, ev.collectionAddress);
-            const persisted = k ? sellerCountRef.current.get(k) : undefined;
-            return typeof persisted === 'number'
-              ? { ...ev, sellerRemainingCount: persisted }
+            const byColl = k ? sellerCountRef.current.get(k) : undefined;
+            const recovered = typeof byColl === 'number'
+              ? byColl
+              : getPersistedSellerCountBySignature(ev.signature);
+            return typeof recovered === 'number'
+              ? { ...ev, sellerRemainingCount: recovered }
               : ev;
           })
             // Boundary filter — drop blacklisted sales out of the hydration
