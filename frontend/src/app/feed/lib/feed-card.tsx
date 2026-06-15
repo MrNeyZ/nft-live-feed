@@ -152,12 +152,11 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             rel="noopener noreferrer"
             title={snsDomain}
             onClick={(e) => e.stopPropagation()}
-            // marginLeft pulls SNS 2px closer to ME (cluster gap is already 0).
-            style={{ ...ME_ICON_LINK_STYLE, marginLeft: -2 }}
+            style={ME_ICON_LINK_STYLE}
           >
-            {/* Exact same rendered box as the ME icon: 11×11. The asset is
-                trimmed full-bleed (100% height fill) so an 11×11 render fills
-                the box like ME instead of floating inside transparent padding. */}
+            {/* Same rendered box as the ME icon: 11×11. Asset is tight-cropped
+                with a dark-green outline so the glyph reads heavier (no negative
+                margin — the cluster's gap:0 keeps it beside ME). */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
           </a>
