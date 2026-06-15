@@ -118,7 +118,7 @@ html[data-layout="pc"] {
   --feed-max:           840px;
   --dashboard-max:     1140px;
   --tools-max:         1280px;
-  --mints-max:         1460px;
+  --mints-max:         1560px;
   /* Slightly tighter row rhythm in PC mode: 14 → 13 px vertical pad on
      the dense-analytics tables (dashboard, mints rows). Cell font / gap
      untouched; only ~2 px shaved off each row's vertical breathing room
