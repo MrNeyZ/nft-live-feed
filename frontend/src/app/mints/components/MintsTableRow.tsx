@@ -328,7 +328,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // enough to let the ambient accent wash breathe and the rows feel
         // less boxed-in — still a visible 1 px hairline keeping table
         // structure intact, not removed.
-        borderBottom: '1px solid rgba(255,255,255,0.014)',
+        borderBottom: '1px solid rgba(255,255,255,0.022)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values
@@ -856,7 +856,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                     // height stable regardless of toggle state. transform:
                     // scale on hover is paint-only.
                     width: 14, height: 14, padding: 0,
-                    border: showInToken ? '1px solid rgba(168,144,232,0.65)' : '1px solid rgba(168,144,232,0.28)',
+                    border: showInToken ? '1px solid rgba(168,144,232,0.65)' : '1px solid rgba(168,144,232,0.32)',
                     borderRadius: '50%', background: 'rgba(168,144,232,0.10)',
                     cursor: 'pointer', display: 'inline-flex',
                     alignItems: 'center', justifyContent: 'center',

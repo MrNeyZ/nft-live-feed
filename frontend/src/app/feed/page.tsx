@@ -1051,7 +1051,7 @@ export default function FeedPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     marginLeft: 6, padding: '2px 8px', fontSize: 10, fontWeight: 600,
                     borderRadius: 4, letterSpacing: '0.2px',
-                    border: '1px solid rgba(168,144,232,0.28)',
+                    border: '1px solid rgba(168,144,232,0.32)',
                     background: 'rgba(168,144,232,0.08)',
                     color: '#a890e8',
                   }}>

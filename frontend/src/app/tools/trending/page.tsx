@@ -692,7 +692,7 @@ export default function TrendingCollectionsPage() {
           maxHeight: 430, overflow: 'hidden', display: 'flex', flexDirection: 'column',
         }}>
           {/* Header: name · timeframe · showing X / salesCount */}
-          <div style={{ padding: '9px 11px', borderBottom: '1px solid rgba(168,144,232,0.14)' }}>
+          <div style={{ padding: '9px 11px', borderBottom: '1px solid rgba(168,144,232,0.12)' }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {preview.name}
             </div>
@@ -720,7 +720,7 @@ export default function TrendingCollectionsPage() {
               return (
                 <div key={s.signature} style={{
                   display: 'flex', alignItems: 'center', gap: 9,
-                  padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.025)',
+                  padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.022)',
                 }}>
                   <div style={{ flexShrink: 0, width: 30, height: 30 }}>
                     <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color="#8068d8" abbr={sabbr} size={30} />

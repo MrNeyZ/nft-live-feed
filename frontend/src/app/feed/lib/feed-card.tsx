@@ -733,7 +733,7 @@ export const FeedCard = memo(function FeedCard({
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
                   color: '#a8a6c4', background: 'transparent',
-                  border: '1px solid rgba(168,166,196,0.30)',
+                  border: '1px solid rgba(168,144,232,0.32)',
                   padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   textTransform: 'uppercase', flexShrink: 0,

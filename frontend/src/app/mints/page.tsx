@@ -2414,7 +2414,7 @@ export default function MintsPage() {
           <div style={{
             padding: '6px 18px', fontSize: 10, color: '#6a6a84',
             letterSpacing: '0.3px', flexShrink: 0,
-            borderBottom: '1px solid rgba(168,144,232,0.06)',
+            borderBottom: '1px solid rgba(168,144,232,0.08)',
           }}>
             Source: {selectedSources.size === 0 ? 'Any' : [...selectedSources].join(', ')}
             {' · '}Status: {selectedStatuses.size === 0 ? 'Any' : [...selectedStatuses].map(s => s === 'active' ? 'Active' : s === 'watch' ? 'Watch' : 'Sold').join(', ')}
@@ -2488,7 +2488,7 @@ export default function MintsPage() {
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: '1px solid rgba(168,144,232,0.10)' }} onClick={() => handleSortClick('collection')}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: '1px solid rgba(168,144,232,0.08)' }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 {/* SHOW — empty header (action column, no label). aria-label
@@ -2529,7 +2529,7 @@ export default function MintsPage() {
                   // `padding: '13px 18px 13px 10px'` for the terminal
                   // gutter). Without the matching right-pad the header
                   // would float ~8 px past the value column.
-                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer', borderRight: '1px solid rgba(168,144,232,0.10)' }}
+                  style={{ ...thStyle, textAlign: 'right', paddingRight: 18, cursor: 'pointer', borderRight: '1px solid rgba(168,144,232,0.08)' }}
                   onClick={() => handleSortClick('created')}
                 >
                   CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
