@@ -2210,7 +2210,12 @@ export default function MintsPage() {
         flex: 1,
         minHeight: 0,
         display: 'grid',
-        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 942px) minmax(320px, 0.95fr)',
+        // Left-column cap is a token (`--mints-table-max`, default 942px) so the
+        // PC tier alone can widen the collections table; the right Live Mint
+        // Feed track is the `fr` column, so it auto-shrinks by exactly the
+        // amount the left cap grows (no separate right-width change needed).
+        // Laptop/tablet/phone never set the token → fall back to 942px.
+        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, var(--mints-table-max, 942px)) minmax(320px, 0.95fr)',
         gap: 10,
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
@@ -2436,7 +2441,12 @@ export default function MintsPage() {
             // pre-cap width. COLLECTION (300) and metric columns (426) unchanged;
             // surplus beyond 942 still sits to the table's right. width:100%
             // kept so narrower panes fill without extra overflow.
-            width: '100%', maxWidth: 942, borderCollapse: 'collapse', tableLayout: 'fixed',
+            // maxWidth tracks the same `--mints-table-max` token as the grid's
+            // left-column cap so the table actually fills the reclaimed space on
+            // PC (COLLECTION is the auto/remainder column, so it absorbs the
+            // extra width — metric cols + row height/fonts unchanged). Default
+            // 942px keeps laptop/tablet/phone identical.
+            width: '100%', maxWidth: 'var(--mints-table-max, 942px)', borderCollapse: 'collapse', tableLayout: 'fixed',
             // Inner table-frame hairline at the row-content right edge.
             // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
             // stable`, so the table's right edge already lands just left

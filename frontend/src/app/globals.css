@@ -136,6 +136,13 @@ html[data-layout="pc"] {
   --dashboard-max:     1140px;
   --tools-max:         1280px;
   --mints-max:         1560px;
+  /* PC-only: widen the left collections table cap 942 → 997 (+55). Because
+     the right Live Mint Feed is the grid's `fr` track, growing this cap
+     shrinks that panel by the same 55px (~9% of its ~608px PC width) and
+     hands the space to the table. Laptop/tablet/phone never set this token,
+     so they keep the 942px inline default — geometry-only, no row-height,
+     font, card-size, gap, or page-height change. */
+  --mints-table-max:   997px;
   /* Slightly tighter row rhythm in PC mode: 14 → 13 px vertical pad on
      the dense-analytics tables (dashboard, mints rows). Cell font / gap
      untouched; only ~2 px shaved off each row's vertical breathing room
