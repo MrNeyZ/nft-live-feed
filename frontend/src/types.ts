@@ -40,6 +40,11 @@ export interface FeedEvent {
   raritySource?: string | null;
   /** Verified ME collection slug, e.g. "froganas". Null until meta patch arrives. */
   meCollectionSlug: string | null;
+  /** Server-persisted seller-remaining-count (DB column seller_remaining_count,
+   *  migration 015). Populated on the REST snapshot path via fromRow; absent on
+   *  live SSE sale frames (resolved async, then delivered over `seller_count`).
+   *  Makes the SELL badge consistent across devices/reloads. */
+  sellerRemainingCount?: number | null;
   /** Resize-status snapshot from the backend resolver. Only
    *  'metaplex_resized_unclaimed' triggers the RESIZE chip; other
    *  values render no chip. Absent / null = no lookup scheduled (sale
@@ -86,6 +91,10 @@ export interface RestRow {
   /** Resize-status stamped on the REST snapshot from the resolver
    *  cache (which is DB-preloaded on boot). Survives a page refresh. */
   resize_status?: string | null;
+  /** Server-persisted seller-remaining-count (DB column, migration 015).
+   *  Null when never resolved. Makes the SELL badge consistent across
+   *  devices/reloads without depending on per-browser localStorage. */
+  seller_remaining_count?: number | null;
 }
 
 export function fromRow(row: RestRow): FeedEvent {
@@ -107,6 +116,7 @@ export function fromRow(row: RestRow): FeedEvent {
     magicEdenUrl: row.magic_eden_url,
     source: row.parser_source ? 'me_raw' : 'helius',
     meCollectionSlug: row.me_collection_slug,
+    sellerRemainingCount: row.seller_remaining_count ?? null,
     floorDelta: row.floor_delta ?? null,
     rarityRank:       row.rarity_rank ?? null,
     totalSupply:      row.total_supply ?? null,

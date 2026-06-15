@@ -34,6 +34,11 @@ export interface SaleEventRow {
   ingested_at: string;
   /** '_parser' field from raw_data JSON; null means Helius-parsed. */
   parser_source: string | null;
+  /** Persisted seller-remaining-count (DB column, migration 015). Written
+   *  fire-and-forget by the seller_count resolution path in sse.ts. NULL when
+   *  never resolved. Makes the SELL badge consistent across devices/reloads
+   *  without depending on per-browser localStorage. */
+  seller_remaining_count: number | null;
   /** Resize-status stamped at /latest response time from the in-process
    *  resolver cache (NOT a DB column — added in the handler). Survives a
    *  page refresh so the RESIZE badge persists across reloads. */
@@ -88,6 +93,7 @@ const LATEST_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
          nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         seller_remaining_count,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
   FROM sale_events
@@ -105,6 +111,7 @@ const BY_COLLECTION_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
          nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         seller_remaining_count,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
   FROM sale_events
@@ -120,6 +127,7 @@ const BY_COLLECTION_NO_WINDOW_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
          nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         seller_remaining_count,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
   FROM sale_events

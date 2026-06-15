@@ -89,6 +89,36 @@ const PATCH_RAW_SQL = `
 `;
 
 /**
+ * Persist the resolved seller-remaining-count for a sale (migration 015,
+ * column `seller_remaining_count`). Called fire-and-forget from the
+ * seller_count SSE resolution path so the SELL badge is server-authoritative
+ * and consistent across devices/reloads — not just the browser that happened
+ * to see the live frame.
+ *
+ * MUST NOT throw or block: the caller `void`s this and the SSE emit proceeds
+ * regardless. DB errors are swallowed with a warn (the live SSE frame + the
+ * per-browser localStorage fallback still cover the immediate render). No-op
+ * for non-finite counts or a missing signature.
+ */
+export async function updateSellerRemainingCount(
+  signature: string,
+  count: number,
+): Promise<void> {
+  if (!signature || typeof count !== 'number' || !Number.isFinite(count)) return;
+  try {
+    await getPool().query(
+      'UPDATE sale_events SET seller_remaining_count = $1 WHERE signature = $2',
+      [count, signature],
+    );
+  } catch (err) {
+    console.warn(
+      `[seller-count-persist] UPDATE failed sig=${signature.slice(0, 12)}… count=${count}:`,
+      err,
+    );
+  }
+}
+
+/**
  * Update a previously fast-path-inserted event with corrected raw-parser data.
  * Emits a `rawpatch` SSE event so connected clients update their cards.
  *

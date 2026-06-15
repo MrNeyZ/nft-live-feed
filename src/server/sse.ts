@@ -21,6 +21,7 @@ import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
 import { noteRecentSell, getRecentSellCount, getRecentSellerCountAny } from '../enrichment/recent-sell-tracker';
 import { scheduleExactSellerCount } from '../enrichment/seller-count-exact';
+import { updateSellerRemainingCount } from '../db/insert';
 
 /**
  * GET /events/stream — Server-Sent Events endpoint.
@@ -509,6 +510,17 @@ saleEventBus.onSale(           (event)  => {
     // still computes `signal` internally above to gate the
     // exact-fallback trigger; it just doesn't ship to clients.
     enqueue(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
+    // Durable persistence (migration 015): write the resolved count to
+    // sale_events so /api/events/latest returns it on every device/reload —
+    // fixing the Mac-shows-it / PC-doesn't divergence where the count lived
+    // only in the browser that saw this live frame. Fire-and-forget: the
+    // helper swallows + warns on DB error and never blocks/breaks the SSE
+    // emit above. Only finite counts (the late exact-scan refresh carries no
+    // signature, so it can't target a row by signature — it still upgrades
+    // the value live; persistence here covers the originating sale).
+    if (typeof count === 'number' && Number.isFinite(count)) {
+      void updateSellerRemainingCount(signature, count);
+    }
     // Avoid 'signal is declared but never read' under strict-unused linting
     // when the env-gated logs above are stripped from a production build.
     void signal;

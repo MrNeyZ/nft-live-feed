@@ -100,6 +100,11 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     imageUrl: b.imageUrl ?? null,
     collectionAddress: b.collectionAddress ?? null,
     resizeStatus:      b.resizeStatus ?? null,
+    // Server-persisted count from the REST snapshot (migration 015). Absent on
+    // live SSE sale frames (b.sellerRemainingCount undefined) — those get the
+    // count via the async `seller_count` patch — so this is null there and the
+    // snapshot path supplies it on reload, server-authoritative across devices.
+    sellerRemainingCount: b.sellerRemainingCount ?? null,
   };
 }
 

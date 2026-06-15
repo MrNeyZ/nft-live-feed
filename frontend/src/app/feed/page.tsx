@@ -656,12 +656,18 @@ export default function FeedPage() {
           if (cancelled) return;
           const events: FeedEvent[] = data.events.map(r => {
             const ev = fromBackend(fromRow(r));
-            // REST snapshot doesn't carry sellerRemainingCount — re-attach
-            // any value we resolved in a prior session. Primary key is
-            // seller+collection so one value lights every sibling row; but
-            // rows whose snapshot collectionAddress is null can't form that
-            // key, so fall back to the signature secondary index. Only ever
-            // SETS a finite count — never overwrites with null.
+            // Server-authoritative count (migration 015) takes priority: when
+            // the REST row carries a finite seller_remaining_count it's the
+            // same on every device, so keep it and skip localStorage entirely.
+            if (typeof ev.sellerRemainingCount === 'number' && Number.isFinite(ev.sellerRemainingCount)) {
+              return ev;
+            }
+            // Fallback only (server value absent — e.g. not yet persisted at
+            // snapshot time): re-attach any value this browser resolved in a
+            // prior session. Primary key is seller+collection so one value
+            // lights every sibling row; rows whose snapshot collectionAddress
+            // is null can't form that key, so fall back to the signature
+            // secondary index. Only ever SETS a finite count — never null.
             const k = sellerCountKey(ev.seller, ev.collectionAddress);
             const byColl = k ? sellerCountRef.current.get(k) : undefined;
             const recovered = typeof byColl === 'number'
