@@ -394,7 +394,11 @@ const TradeRowItem = memo(function TradeRowItem({
 }) {
   void tick;  // re-render hook: parent bumps `tick` so timeAgo refreshes
   const ago = event.ts > Date.now() - 10000 ? 'just now' : timeAgo(event.ts);
-  const isNew = event.ts > Date.now() - 5000;
+  // Fresh-trade flash + pink accent gate on the wall-clock LIVE arrival
+  // (`clientArrivedAt`), NOT `event.ts` — `ts` is on-chain blockTime,
+  // already older than this 5 s window by paint time, so it never lit.
+  // Snapshot/history rows carry no `clientArrivedAt` → never flash.
+  const isNew = event.clientArrivedAt != null && event.clientArrivedAt > Date.now() - 5000;
   // Shared presentation: same resolver as ListingRowItem. The imageByMint
   // map is built from the current listings snapshot so an NFT that's both
   // listed and trading shows the same thumbnail in both panels.
@@ -417,7 +421,7 @@ const TradeRowItem = memo(function TradeRowItem({
             <span style={{ fontWeight:600, color:'#f0eef8' }}>{baseName}</span>
             {num && <span style={{ color:'#9a9ab4', marginLeft:4 }}>#{num}</span>}
           </span>
-          <span style={{ fontSize:12, color: isNew ? '#7c5cf0' : '#9a9ab4', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
+          <span style={{ fontSize:12, color: isNew ? '#e87ab0' : '#9a9ab4', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
           <span style={{ fontSize:12, color:'#9a9ab4' }}>{shortWallet(event.buyer)}</span>
@@ -1028,7 +1032,8 @@ export default function CollectionPage() {
         try {
           const b = JSON.parse(e.data) as BackendEvent;
           if (b.meCollectionSlug !== slug) return;
-          dispatchFeed({ type: 'live', event: fromBackend(b) });
+          // Wall-clock arrival gates the fresh-trade flash (`ts` is blockTime).
+          dispatchFeed({ type: 'live', event: { ...fromBackend(b), clientArrivedAt: Date.now() } });
         } catch { /* skip */ }
       });
       es.addEventListener('meta', (e: MessageEvent) => {

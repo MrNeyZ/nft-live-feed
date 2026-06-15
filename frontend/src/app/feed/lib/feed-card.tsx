@@ -55,7 +55,7 @@ function TimeAgo({ ts }: { ts: number }) {
   let color: string;
   let weight: 500 | 600 = 500;
   if (ageMs < 15000) {
-    color  = '#7c5cf0'; // PURPLE_PRIMARY — freshest tier: "just now" (<5s) + 6-15s hot window
+    color  = '#e87ab0'; // bright pink — freshest tier: "just now" (<5s) + 6-15s hot window (pre-migration color, restored)
     weight = 600;
   } else if (ageMs < 180000) {
     color  = '#c7b479'; // yellow — 16s to 3min
@@ -452,13 +452,18 @@ export const FeedCard = memo(function FeedCard({
   if (effectiveFloorDelta == null && slugFloor != null && slugFloor > 0 && safePrice != null) {
     effectiveFloorDelta = (safePrice - slugFloor) / slugFloor;
   }
-  // Row-flash class lasts 6 s from event.ts. Computed once at mount with a
-  // one-shot setTimeout to flip false — no per-tick recompute needed since
-  // every card mounts at most once per event.
-  const [isNew, setIsNew] = useState(() => event.ts > Date.now() - 6000);
+  // Row-flash class lasts 6 s from the wall-clock LIVE arrival
+  // (`clientArrivedAt`), NOT `event.ts` — `ts` is the on-chain blockTime
+  // and is routinely already >6 s old by the time the row paints (block
+  // finality + ingest + SSE + render), so gating on it made the flash
+  // never fire. Snapshot / persisted rows have no `clientArrivedAt` and
+  // so never flash. Computed once at mount with a one-shot setTimeout to
+  // flip false — every card mounts at most once per event.
+  const arrivedAt = event.clientArrivedAt;
+  const [isNew, setIsNew] = useState(() => arrivedAt != null && arrivedAt > Date.now() - 6000);
   useEffect(() => {
-    if (!isNew) return;
-    const remaining = 6000 - (Date.now() - event.ts);
+    if (!isNew || arrivedAt == null) return;
+    const remaining = 6000 - (Date.now() - arrivedAt);
     if (remaining <= 0) { setIsNew(false); return; }
     const t = setTimeout(() => setIsNew(false), remaining);
     return () => clearTimeout(t);

@@ -62,7 +62,8 @@ export function useSalesFeed(subscribe?: StreamSubscribe | null): UseSalesFeed {
       try {
         const ev = fromBackend(JSON.parse(e.data) as BackendEvent);
         if (isFeedEventBlacklisted(ev, blRef.current)) return;
-        dispatch({ type: 'live', event: ev });
+        // Wall-clock arrival gates the new-event flash (`ts` is blockTime).
+        dispatch({ type: 'live', event: { ...ev, clientArrivedAt: Date.now() } });
       } catch { /* malformed frame — skip */ }
     };
     const onMeta = (e: MessageEvent) => {

@@ -219,9 +219,15 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // Boundary precision is gated by the page-level 5 s force tick
   // (same cadence used by the age-tier color below) — a 14 s card
   // flips off within 5 s of crossing the threshold.
-  const ageMsCard    = now - ev.receivedAt;
-  const isFreshFlash = ageMsCard < 2500;
-  const isRecent     = !isFreshFlash && ageMsCard < 15000;
+  // Freshness for the flash/halo gates on the wall-clock LIVE arrival
+  // (`clientArrivedAt`), NOT `receivedAt` — `receivedAt` is anchored to
+  // on-chain blockTime and is routinely already past the 2.5 s flash
+  // window by the time the row paints (block finality + ingest + SSE +
+  // render), so the flash never fired. Snapshot / restored rows carry no
+  // `clientArrivedAt` → freshMs is Infinity → they never flash.
+  const freshMs      = ev.clientArrivedAt != null ? now - ev.clientArrivedAt : Infinity;
+  const isFreshFlash = freshMs < 2500;
+  const isRecent     = !isFreshFlash && freshMs < 15000;
   return (
     <div
       className={
@@ -512,7 +518,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // page-level 5 s force tick; boundary precision is fine for
         // this surface (avoids a per-card 1 s timer on 150 cards).
         const ageMs = now - ev.receivedAt;
-        const ageColor:  string = ageMs < 15000 ? '#7c5cf0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
+        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
           <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>

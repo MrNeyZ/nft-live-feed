@@ -1571,7 +1571,10 @@ export default function MintsPage() {
           // or unparseable.
           const blockTimeMs = m.blockTime ? Date.parse(m.blockTime) : NaN;
           const receivedAt  = Number.isFinite(blockTimeMs) ? blockTimeMs : Date.now();
-          const ev: MintEvent = { ...m, receivedAt };
+          // Wall-clock arrival gates the fresh-mint flash. `receivedAt` is
+          // anchored to blockTime (already older than the 2.5 s flash window
+          // by paint time), so the flash must key off this instead.
+          const ev: MintEvent = { ...m, receivedAt, clientArrivedAt: Date.now() };
           if (pausedFeedRef.current) {
             // Hover-pause: defer feed-list mutation. Buffer is bounded
             // — drop oldest when capped so a long hover can't blow up

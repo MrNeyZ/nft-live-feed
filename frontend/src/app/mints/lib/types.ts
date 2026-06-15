@@ -183,9 +183,17 @@ export interface MintEvent {
   sourceLabel:       SourceLabel;
   /** Visual subtype: Core Candy Machine v3 launchpad mint → pink CORE badge. */
   coreLaunchpad?:    boolean;
-  /** Wall-clock receive time (ms). Drives the "Xs ago" column without
-   *  re-parsing blockTime on every tick. */
+  /** Timestamp anchor (ms). Anchored to on-chain blockTime (see the
+   *  live SSE handler) so the "Xs ago" column + ordering stay truthful
+   *  across reconnect replays. NOTE: this is NOT wall-clock arrival —
+   *  for the fresh-arrival flash gate use `clientArrivedAt` instead. */
   receivedAt:        number;
+  /** Wall-clock time (ms) the event actually arrived on the LIVE SSE
+   *  path in this tab. Undefined for snapshot / replay / restored rows
+   *  so they never replay the fresh-arrival flash. The flash predicate
+   *  keys off this, not `receivedAt` (which is blockTime and is already
+   *  older than the flash window by the time the row paints). */
+  clientArrivedAt?:  number;
   /** Per-mint metadata, lazily filled by the SSE `mint_meta` patch
    *  once DAS surfaces them. Live Mint Feed cards swap a
    *  shortMint(mintAddress) placeholder for the real NFT name + image

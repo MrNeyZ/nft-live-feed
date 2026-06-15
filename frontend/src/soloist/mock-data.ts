@@ -77,6 +77,12 @@ export interface FeedEvent {
   floorDelta: number | null;
   marketplace: Marketplace;
   ts: number;
+  /** Wall-clock time (ms) the event arrived on the LIVE SSE path in
+   *  this tab. Undefined for snapshot / persisted / replay rows so they
+   *  never replay the new-event flash. The flash gate keys off this,
+   *  NOT `ts` (which is on-chain blockTime and is already older than the
+   *  flash window by the time the row paints). */
+  clientArrivedAt?: number;
   side: Side;
   /** Backend NFT type (e.g. 'legacy', 'pnft', 'core', 'metaplex_core', 'cnft'). Used for cNFT filtering. */
   nftType: string;

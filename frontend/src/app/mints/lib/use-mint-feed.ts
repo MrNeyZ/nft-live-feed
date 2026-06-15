@@ -104,7 +104,8 @@ export function useMintFeed(subscribe?: StreamSubscribe | null): UseMintFeed {
         if (!m.signature) return;
         if (isMintEventBlacklisted(m, blRef.current)) return;
         const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-        const ev: MintEvent = { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() };
+        // Wall-clock arrival gates the fresh-mint flash (`receivedAt` is blockTime).
+        const ev: MintEvent = { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now(), clientArrivedAt: Date.now() };
         setEvents(prev => {
           const key = evKey(ev);
           if (prev.some(p => evKey(p) === key)) return prev;

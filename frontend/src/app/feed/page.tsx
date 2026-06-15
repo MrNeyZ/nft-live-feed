@@ -517,7 +517,10 @@ export default function FeedPage() {
           if (shouldPlayBelowFloorAlert(alertFloorSol, safePrice)) {
             playDeepDiscountAlert(ev.signature);
           }
-          enqueue({ type: 'live', event: ev });
+          // Stamp wall-clock arrival on the LIVE path only — gates the
+          // new-event flash. `ts` is blockTime (already older than the
+          // flash window by paint time), so the flash must key off this.
+          enqueue({ type: 'live', event: { ...ev, clientArrivedAt: Date.now() } });
         } catch { /* malformed frame — skip */ }
       });
       // Enrichment patches: fill in nftName / collectionName / meCollectionSlug
