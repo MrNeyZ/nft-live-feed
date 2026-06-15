@@ -99,6 +99,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // hydration mismatch; the per-5s page tick + new-card mounts pick up a
   // layout-mode toggle.
   const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
+  // Laptop-only flag (PC / Phone stay false → untouched). Used solely to add a
+  // touch of breathing room before the X icon on laptop; see its marginLeft.
+  const isLaptop    = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'laptop';
   const titleLimit  = isPc ? 17 : 13;
   const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
@@ -447,7 +450,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
                   target="_blank"
                   rel="noopener noreferrer"
                   
-                  style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
+                  /* Laptop-only: ~10px of breathing room between the collection
+                     name and the X + type-badge cluster. PC / Phone = 0 (no
+                     change). Absorbed by the flex:1 name column, so price / age
+                     / title / image positions are unaffected. */
+                  style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none', marginLeft: isLaptop ? 10 : 0 }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -505,7 +512,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
-          display: 'inline-block', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          // inline-flex + center so the label glyphs sit dead-center in the
+          // pill (inline-block left it baseline-aligned → slightly "hanging").
+          // Same padding/font/size → identical pill height; row/card height
+          // unchanged. All layouts.
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
           letterSpacing: '0.3px', flexShrink: 0,
           textDecoration: 'none',
