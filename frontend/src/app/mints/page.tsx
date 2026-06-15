@@ -2207,7 +2207,7 @@ export default function MintsPage() {
         flex: 1,
         minHeight: 0,
         display: 'grid',
-        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 2fr) minmax(320px, 0.9fr)',
+        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 2fr) minmax(320px, 0.925fr)',
         gap: 16,
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
