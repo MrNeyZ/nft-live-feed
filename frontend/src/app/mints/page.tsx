@@ -2424,13 +2424,14 @@ export default function MintsPage() {
 
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{
-            // Cap the table at its content width (COLLECTION 300 + SHOW ~108 +
-            // metrics 426 = 834) so on wide panes the surplus sits to the RIGHT
-            // of the table instead of inflating the flexible SHOW column — which
-            // pushed the metric columns far from the collection name (detached
-            // numbers). width:100% is kept so narrower panes still fill without
-            // extra overflow.
-            width: '100%', maxWidth: 834, borderCollapse: 'collapse', tableLayout: 'fixed',
+            // Table cap (COLLECTION 300 + SHOW ~216 + metrics 426 = 942):
+            // aggressive first pass — raised from 834 so the flexible SHOW
+            // column ~doubles (108 -> 216) and the empty band before the Live
+            // Mint Feed shrinks by ~108px, bringing the table closer to its
+            // pre-cap width. COLLECTION (300) and metric columns (426) unchanged;
+            // surplus beyond 942 still sits to the table's right. width:100%
+            // kept so narrower panes fill without extra overflow.
+            width: '100%', maxWidth: 942, borderCollapse: 'collapse', tableLayout: 'fixed',
             // Inner table-frame hairline at the row-content right edge.
             // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
             // stable`, so the table's right edge already lands just left
