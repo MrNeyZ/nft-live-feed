@@ -662,15 +662,15 @@ a { color: inherit; text-decoration: none; }
    defined). slideDown still drives the actual entrance motion;
    these handle the color decay only. */
 @keyframes flashBuy {
-  0%   { background: rgba(64, 212, 168, 0.20); }
-  40%  { background: rgba(64, 212, 168, 0.10); }
-  100% { background: rgba(64, 212, 168, 0.030); }
+  0%   { background: rgba(67, 185, 132, 0.20); }
+  40%  { background: rgba(67, 185, 132, 0.10); }
+  100% { background: rgba(67, 185, 132, 0.030); }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(245,  88, 102, 0.20); }
-  40%  { background: rgba(245,  88, 102, 0.10); }
-  100% { background: rgba(245,  88, 102, 0.025); }
+  0%   { background: rgba(217, 104, 103, 0.20); }
+  40%  { background: rgba(217, 104, 103, 0.10); }
+  100% { background: rgba(217, 104, 103, 0.025); }
 }
 
 @keyframes flashListingFeed {
@@ -1444,14 +1444,14 @@ a { color: inherit; text-decoration: none; }
 /* ── Dashboard page ──────────────────────────────────────────────────────── */
 
 @keyframes flashUp {
-  0%   { background: rgba(92, 224, 160, 0.22); }
-  40%  { background: rgba(92, 224, 160, 0.12); }
+  0%   { background: rgba(67, 185, 132, 0.22); }
+  40%  { background: rgba(67, 185, 132, 0.12); }
   100% { background: transparent; }
 }
 
 @keyframes flashDown {
-  0%   { background: rgba(239, 120, 120, 0.22); }
-  40%  { background: rgba(239, 120, 120, 0.12); }
+  0%   { background: rgba(217, 104, 103, 0.22); }
+  40%  { background: rgba(217, 104, 103, 0.12); }
   100% { background: transparent; }
 }
 
@@ -2020,8 +2020,8 @@ body[data-bottombar="1"] .feed-root {
   to   { opacity: 1; transform: none;             }
 }
 @keyframes mintsFeedFreshFlash {
-  0%   { background: rgba(92, 224, 160, 0.22); border-color: rgba(92, 224, 160, 0.45); }
-  40%  { background: rgba(92, 224, 160, 0.10); border-color: rgba(92, 224, 160, 0.20); }
+  0%   { background: rgba(67, 185, 132, 0.22); border-color: rgba(67, 185, 132, 0.45); }
+  40%  { background: rgba(67, 185, 132, 0.10); border-color: rgba(67, 185, 132, 0.20); }
   100% { background: rgba(255, 255, 255, 0.02); border-color: rgba(255, 255, 255, 0.06); }
 }
 .mints-feed-row-fresh {
