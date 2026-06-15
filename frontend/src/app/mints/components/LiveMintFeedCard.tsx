@@ -127,6 +127,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     (strippedCollection && strippedCollection.length > 0)
       ? strippedCollection
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
+  // Char-cap the collection line to the SAME limit as the NFT title
+  // (laptop/default 13 · PC 17). `shortenNftName` is deliberately NOT reused
+  // here: its `#<num>` reformatter mangles collection names that legitimately
+  // end in a digit (e.g. "SMB Gen2" → "SMB Gen #2"), so this is a plain
+  // slice + ellipsis. The full name stays in the `title` tooltip and CSS
+  // ellipsis remains the safety fallback. The short-address fallback is
+  // already shorter than the cap, so it passes through untouched.
+  const collectionFull = collectionLine;
+  const collectionText = collectionFull.length > titleLimit
+    ? collectionFull.slice(0, titleLimit).trim() + '...'
+    : collectionFull;
   const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
   // Image priority on the live-feed CARD:
   //   1. `ev.nftImageUrl` — the per-mint asset image surfaced by DAS
@@ -414,11 +425,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               onClick={(e) => e.stopPropagation()}
+              title={collectionFull}
             >
-              {collectionLine}
+              {collectionText}
             </a>
           ) : (
-            <div style={baseStyle}>{collectionLine}</div>
+            <div style={baseStyle} title={collectionFull}>{collectionText}</div>
           );
           // Single flex wrapper hosts the name + the optional X badge
           // sibling. The wrapper takes the marginTop that used to sit
