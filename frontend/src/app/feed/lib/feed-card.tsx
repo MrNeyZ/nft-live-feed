@@ -158,7 +158,10 @@ function WalletLink({ wallet }: { wallet: string | null }) {
                 Spaced 6px from ME (cluster gap) so the two read as separate
                 action icons rather than one merged badge. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/sns.png?v=2" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+            {/* CSS-only ~1px hairline outline (darker green) to crisp the logo
+                edge on bright/high-DPI screens. Single 0.5px drop-shadow, no
+                offset/glow — asset untouched. Remove this filter line to revert. */}
+            <img src="/brand/sns.png?v=2" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.5px #2f6b3d)' }} />
           </a>
         )}
       </span>
