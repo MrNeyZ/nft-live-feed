@@ -376,7 +376,12 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   alignItems:     'center',
   justifyContent: 'center',
   flexShrink:     0,
-  marginLeft:     4,
+  // Cluster↔badge gap = parent row gap (6px) + this margin. Trimmed
+  // 4→0.5 to tighten ONLY the ME/SNS-cluster ↔ count-badge space
+  // (10→6.5px, ~35% smaller). Lives on the badge — not the row gap —
+  // so the `seller:`↔wallet spacing and wallet text position are
+  // untouched. Badge size/typography/row height unchanged.
+  marginLeft:     0.5,
   minWidth:       16,
   height:         16,
   padding:        '0 4px',
