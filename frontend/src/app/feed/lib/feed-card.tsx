@@ -129,7 +129,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
           one unit; it's a single child of the outer span so the wallet-text→
           cluster spacing stays at the outer gap (4px) — wallet text spacing
           unchanged. Both icons render at the same 11×11 box (no layout shift). */}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <a
           href={meUrl}
           target="_blank"
@@ -152,12 +152,11 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             rel="noopener noreferrer"
             title={snsDomain}
             onClick={(e) => e.stopPropagation()}
-            // marginLeft pulls SNS 1px closer to ME (cluster gap is already 0).
-            style={{ ...ME_ICON_LINK_STYLE, marginLeft: -1 }}
+            style={ME_ICON_LINK_STYLE}
           >
-            {/* Same rendered box as the ME icon: 11×11. Asset is tight-cropped
-                with a thicker dark-green outline so the glyph reads heavier at
-                this tiny size. */}
+            {/* Original uploaded SNS logo, rendered at the ME icon's 11×11 box.
+                Spaced 6px from ME (cluster gap) so the two read as separate
+                action icons rather than one merged badge. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/sns.png" alt="SNS" width={11} height={11} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
           </a>
