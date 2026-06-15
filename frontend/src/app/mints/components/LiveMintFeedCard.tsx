@@ -14,6 +14,7 @@ import {
 } from '../lib/palette';
 import { fmtAge, shortMint, thumb200, isNewCollection } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
+import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
 /** Trim + treat empty-string as "no value". `??` only catches null /
@@ -87,6 +88,18 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const displayName = hasRealNftName
     ? (ev.nftName as string)
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
+  // Char-based title shortening — reuses the Sales feed's `shortenNftName`
+  // (single source of truth). PC mode allows ~25% more chars than
+  // laptop/default (20 vs 16). Applied ONLY to a real per-NFT name; the
+  // address-stub fallback (`shortMint(...)`) is already short and must not be
+  // run through the helper's "#<num>" reformatter. Layout read is render-safe:
+  // the live feed mounts client-side (no SSR cards), so no hydration mismatch;
+  // the per-5s page tick + new-card mounts pick up a layout-mode toggle.
+  const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
+  const titleLimit  = isPc ? 20 : 16;
+  const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
+  const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
+  const titleFull   = titleShort ? titleShort.fullName : displayName;
   const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
@@ -301,7 +314,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, maxWidth: 'var(--mints-feed-title-max, none)' }}>
+          {/* Title: char-shortened via shortenNftName (titleText); full name
+              kept in the `title` tooltip. CSS ellipsis retained as a safety
+              fallback for any name the char cap doesn't fully tame. */}
+          <div title={titleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {isSolPubkey(ev.mintAddress) ? (
               <a
                 href={`https://solscan.io/token/${ev.mintAddress}`}
@@ -312,10 +328,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
                 onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
               >
-                {displayName}
+                {titleText}
               </a>
             ) : (
-              displayName
+              titleText
             )}
           </div>
           {/* Bulk-mint count — calm chip immediately after the NFT name
