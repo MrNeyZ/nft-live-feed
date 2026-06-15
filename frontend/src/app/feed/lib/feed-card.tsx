@@ -129,7 +129,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
           one unit; it's a single child of the outer span so the wallet-text→
           cluster spacing stays at the outer gap (4px) — wallet text spacing
           unchanged. Both icons render at the same 11×11 box (no layout shift). */}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
         <a
           href={meUrl}
           target="_blank"
