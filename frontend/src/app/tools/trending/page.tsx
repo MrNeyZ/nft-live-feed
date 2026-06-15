@@ -382,7 +382,12 @@ export default function TrendingCollectionsPage() {
   const anchorFor = useCallback((el: HTMLElement): { top: number; left: number } => {
     const r = el.getBoundingClientRect();
     const fitsRight = window.innerWidth - r.right >= PREVIEW_WIDTH + 16;
-    const left = fitsRight ? r.right + 8 : Math.max(8, r.left - PREVIEW_WIDTH - 8);
+    // Prefer the right of the row. When there isn't room, DON'T flip left (that
+    // covers the rank/collection identity columns) — pin to the viewport's right
+    // edge so only the least-important right-most columns can be overlapped.
+    const left = fitsRight
+      ? r.right + 8
+      : Math.max(8, window.innerWidth - PREVIEW_WIDTH - 8);
     // Clamp vertically so the panel stays on screen (panel maxHeight ~ 430).
     const top = Math.min(Math.max(8, r.top), Math.max(8, window.innerHeight - 438));
     return { top, left };
