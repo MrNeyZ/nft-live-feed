@@ -1530,6 +1530,18 @@ html[data-layout="phone"] [data-page="collection"] .trade-row {
 html[data-layout="phone"] [data-page="mints"] .mints-grid {
   grid-template-columns: 1fr !important;
 }
+/* PC-only Live Mint Feed title cap. The right-feed NFT title truncates via
+   pure CSS ellipsis bounded by its flex column (no char/px limit); on laptop
+   the narrower panel makes that effective width ~356px. PC's wider panel let
+   titles run longer with no defined stop, so impose an explicit cap ~25%
+   above laptop: 356 → 445px. Only the LiveMintFeedCard title div consumes
+   `--mints-feed-title-max` (default `none`), so this affects ONLY that title.
+   Scoped to data-layout="pc" + the non-embedded /mints page → laptop, tablet,
+   phone and the /multi embed are untouched. Width-only: no height, font,
+   padding, gap, or image change; vertical alignment preserved. */
+html[data-layout="pc"] [data-page="mints"]:not([data-embedded]) {
+  --mints-feed-title-max: 445px;
+}
 /* Same fallback for narrow widths even when layout-mode hasn't been
    explicitly set to phone — covers PC users who shrink the window.
    Aligned with the centralized tablet breakpoint (≤768) from

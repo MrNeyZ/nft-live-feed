@@ -301,7 +301,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         {/* Top line: NFT name. Clickable → Solscan token page when
             a real mint address is present. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, maxWidth: 'var(--mints-feed-title-max, none)' }}>
             {isSolPubkey(ev.mintAddress) ? (
               <a
                 href={`https://solscan.io/token/${ev.mintAddress}`}
