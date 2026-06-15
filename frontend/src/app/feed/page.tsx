@@ -621,6 +621,18 @@ export default function FeedPage() {
           }
         } catch { /* malformed frame — skip */ }
       });
+      // Late-resolved rarity (sync-miss → async DB resolve). Lights up the
+      // rarity badge + Rare Feed without a reload. Reducer sticky-merges by
+      // mintAddress and ignores non-finite/non-positive payloads.
+      es.addEventListener('rarity', (e: MessageEvent) => {
+        try {
+          const patch = JSON.parse(e.data) as { mintAddress: string; rarityRank: number;
+            totalSupply: number; raritySource: string | null };
+          if (patch.mintAddress && patch.rarityRank > 0 && patch.totalSupply > 0) {
+            enqueue({ type: 'rarity', patch });
+          }
+        } catch { /* malformed frame — skip */ }
+      });
       // Per-source health: backend emits one `status` frame on connect for
       // each known source plus a fresh frame on every state flip. Bypass
       // the pause buffer — operator status info should always be live.

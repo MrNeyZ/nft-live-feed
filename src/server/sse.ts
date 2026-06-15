@@ -530,6 +530,10 @@ saleEventBus.onMetaUpdate(     (update) => enqueue(`event: meta\ndata: ${JSON.st
 saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onResizeStatusPatch((patch) => enqueue(`event: resize_status\ndata: ${JSON.stringify(patch)}\n\n`));
+// Late-resolved rarity (sync-miss → async DB resolve). Forwarded to live
+// clients so the Sales rarity badge + Rare Feed appear without a reload. The
+// producer only fires this with a finite rank + supply>0 (never null/negative).
+saleEventBus.onRarityPatch(    (patch)  => enqueue(`event: rarity\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onListingRemove(  (delta)  => enqueue(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => enqueue(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
 // Source-status flips are operator-relevant — keep them immediate so a

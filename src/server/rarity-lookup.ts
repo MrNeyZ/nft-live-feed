@@ -10,6 +10,11 @@
  * the REST path uses the async batch lookup (one query for all uncached mints).
  */
 import { getPool } from '../db/client';
+import { saleEventBus } from '../events/emitter';
+
+// Count of late rarity patches emitted (sync-miss → async DB resolve). Logged
+// sparsely (first emit + every 50th) so the path is observable without spam.
+let lateRarityPatchCount = 0;
 
 export interface RarityLite {
   rarityRank:       number;
@@ -62,6 +67,26 @@ export async function primeRarity(mint: string): Promise<RarityLite | null> {
       );
       const v = toLite(rows[0]);
       cacheSet(mint, v);
+      // Late resolution: the live `sale` frame for this mint already went out
+      // without rarity (sync getter is in-process-only and missed while cold).
+      // Push a patch so connected clients light up the badge / Rare Feed
+      // without a reload. `toLite` returns non-null ONLY for a finite rank +
+      // supply>0, so this never emits a null/negative patch. Fire-and-forget.
+      if (v) {
+        saleEventBus.emitRarityPatch({
+          mintAddress:  mint,
+          rarityRank:   v.rarityRank,
+          totalSupply:  v.totalSupply,
+          raritySource: v.raritySource,
+        });
+        lateRarityPatchCount++;
+        if (lateRarityPatchCount === 1 || lateRarityPatchCount % 50 === 0) {
+          console.log(
+            `[rarity-patch] emitted late rarity patch #${lateRarityPatchCount} ` +
+            `mint=${mint.slice(0, 8)}… rank=${v.rarityRank}/${v.totalSupply} src=${v.raritySource ?? '—'}`,
+          );
+        }
+      }
       return v;
     } catch {
       return null;   // fail-soft — never block the feed

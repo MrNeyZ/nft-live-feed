@@ -101,6 +101,18 @@ export interface ResizeStatusPatch {
   resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
+/** Late-resolved rarity patch — backend `rarity` SSE channel. The live `sale`
+ *  frame can go out without rarity (the backend sync getter is in-process-only
+ *  and misses while cold); the backend resolves it async and emits this so the
+ *  badge / Rare Feed appear without a reload. Keyed by `mintAddress`; only ever
+ *  carries a finite rank + supply>0. */
+export interface RarityPatch {
+  mintAddress:  string;
+  rarityRank:   number;
+  totalSupply:  number;
+  raritySource: string | null;
+}
+
 export type FeedAction =
   | { type: 'snapshot';      events: FeedEvent[] }
   | { type: 'live';          event:  FeedEvent }
@@ -108,6 +120,7 @@ export type FeedAction =
   | { type: 'rawpatch';      patch:  RawPatch }
   | { type: 'seller_count';  patch:  SellerCountPatch }
   | { type: 'resize_status'; patch:  ResizeStatusPatch }
+  | { type: 'rarity';        patch:  RarityPatch }
   | { type: 'remove';        signature: string }
   | { type: 'reset' };
 
@@ -287,6 +300,33 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
         state,
         ev => ev.signature === patch.signature,
         ev => ev.resizeStatus === patch.resizeStatus ? ev : { ...ev, resizeStatus: patch.resizeStatus },
+      );
+    }
+    case 'rarity': {
+      // Late-resolved rarity, matched by mintAddress (fans out to every row of
+      // the same mint). Sticky merge: if the row ALREADY has a finite rank +
+      // supply we keep it (never overwrite resolved rarity); otherwise fill
+      // from the patch. The patch itself is guaranteed finite + supply>0 by the
+      // backend, so we never write null/negative. RarityRankBadge re-renders
+      // automatically once the fields are present — no card-side change.
+      const { patch } = action;
+      if (!(patch.rarityRank > 0) || !(patch.totalSupply > 0)) return state;
+      return patchWhere(
+        state,
+        ev => ev.mintAddress === patch.mintAddress,
+        ev => {
+          const hasRarity =
+            typeof ev.rarityRank === 'number' && Number.isFinite(ev.rarityRank) && ev.rarityRank > 0 &&
+            typeof ev.totalSupply === 'number' && Number.isFinite(ev.totalSupply) && ev.totalSupply > 0;
+          if (hasRarity) return ev; // keep existing finite rarity — sticky
+          return {
+            ...ev,
+            rarityRank:       patch.rarityRank,
+            totalSupply:      patch.totalSupply,
+            rarityPercentile: patch.rarityRank / patch.totalSupply,
+            raritySource:     patch.raritySource,
+          };
+        },
       );
     }
     case 'remove': {

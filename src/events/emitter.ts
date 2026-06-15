@@ -11,6 +11,19 @@ export interface ResizeStatusPatch {
   resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
+/** Late-resolved rarity patch. Emitted by the rarity-lookup prime path when
+ *  an async provider resolution lands AFTER the live `sale` frame already went
+ *  out without rarity (the sync getter is in-process-only and misses while
+ *  cold). Keyed by `mintAddress` so the feed reducer can light up every
+ *  matching row's rarity badge without a reload. Only ever carries a finite,
+ *  positive rank + supply — the emitter never fires a null/negative patch. */
+export interface RarityPatch {
+  mintAddress:  string;
+  rarityRank:   number;
+  totalSupply:  number;
+  raritySource: string | null;
+}
+
 export interface RawPatch {
   signature:   string;
   seller:      string;
@@ -421,6 +434,19 @@ class SaleEventBus extends EventEmitter {
   }
   offResizeStatusPatch(listener: (patch: ResizeStatusPatch) => void): this {
     return this.off('resize_status', listener);
+  }
+
+  /** Rarity resolved asynchronously for a mint whose live `sale` frame went
+   *  out without a rank (cold in-process cache miss). SSE forwards on the
+   *  `rarity` channel; the feed reducer sticky-merges it by `mintAddress`. */
+  emitRarityPatch(patch: RarityPatch): void {
+    this.emit('rarity', patch);
+  }
+  onRarityPatch(listener: (patch: RarityPatch) => void): this {
+    return this.on('rarity', listener);
+  }
+  offRarityPatch(listener: (patch: RarityPatch) => void): this {
+    return this.off('rarity', listener);
   }
 
   /** Per-mint removal delta, emitted by listings-store when a mint is

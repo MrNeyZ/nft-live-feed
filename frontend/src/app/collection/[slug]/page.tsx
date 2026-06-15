@@ -1055,6 +1055,18 @@ export default function CollectionPage() {
           dispatchFeed({ type: 'remove', signature });
         } catch { /* skip */ }
       });
+      // Late-resolved rarity (sync-miss → async DB resolve): sticky-merge by
+      // mintAddress so this slug's trade rows light up the rarity badge
+      // without a reload. Reducer ignores non-finite/non-positive payloads.
+      es.addEventListener('rarity', (e: MessageEvent) => {
+        try {
+          const patch = JSON.parse(e.data) as { mintAddress: string; rarityRank: number;
+            totalSupply: number; raritySource: string | null };
+          if (patch.mintAddress && patch.rarityRank > 0 && patch.totalSupply > 0) {
+            dispatchFeed({ type: 'rarity', patch });
+          }
+        } catch { /* skip */ }
+      });
       // Backend listings-store delta: one listing row removed from this
       // slug's state, targeted by id so a cancel on ME doesn't purge a
       // sibling MMM pool entry for the same mint.

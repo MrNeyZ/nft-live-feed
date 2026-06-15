@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   feedReducer, initFeedState, orderedEvents,
-  type MetaPatch, type ResizeStatusPatch,
+  type MetaPatch, type ResizeStatusPatch, type RarityPatch,
 } from '@/soloist/feed-store';
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
@@ -75,11 +75,14 @@ export function useSalesFeed(subscribe?: StreamSubscribe | null): UseSalesFeed {
     const onResize = (e: MessageEvent) => {
       try { const patch = JSON.parse(e.data) as ResizeStatusPatch; if (patch.signature && patch.resizeStatus) dispatch({ type: 'resize_status', patch }); } catch { /* skip */ }
     };
+    const onRarity = (e: MessageEvent) => {
+      try { const patch = JSON.parse(e.data) as RarityPatch; if (patch.mintAddress && patch.rarityRank > 0 && patch.totalSupply > 0) dispatch({ type: 'rarity', patch }); } catch { /* skip */ }
+    };
     const onStatus = (e: MessageEvent) => {
       try { const { source, state: st } = JSON.parse(e.data) as { source: 'magiceden' | 'tensor'; state: 'ok' | 'stale' }; setSourceState(prev => ({ ...prev, [source]: st })); } catch { /* skip */ }
     };
     const HANDLERS: Array<[string, (e: MessageEvent) => void]> = [
-      ['sale', onSale], ['meta', onMeta], ['remove', onRemove], ['resize_status', onResize], ['status', onStatus],
+      ['sale', onSale], ['meta', onMeta], ['remove', onRemove], ['resize_status', onResize], ['rarity', onRarity], ['status', onStatus],
     ];
 
     const scheduleReconnect = () => {
