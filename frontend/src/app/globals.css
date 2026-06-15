@@ -34,7 +34,7 @@
   --feed-max:           660px;
   --dashboard-max:     1000px;
   --tools-max:         1100px;
-  --mints-max:         1500px;
+  --mints-max:         1400px;
   /* Table tokens — centralize current row sizing across the three
      dense-analytics tables on the site. Values match the live
      hardcoded equivalents exactly (no density change in this pass):
