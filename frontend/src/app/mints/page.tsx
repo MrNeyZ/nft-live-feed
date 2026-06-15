@@ -2166,7 +2166,7 @@ export default function MintsPage() {
           of 20/14) to tighten the gap between the title and the table
           grid below — matches /tools' denser feel. */}
       {!embedded && (
-        <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--mints-max, 1400px)', margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--mints-max, 1400px)', margin: 0, boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
               <h1 style={{ fontSize: 22, fontWeight: 700, color: '#e8e6f2', letterSpacing: '-0.5px' }}>
@@ -2210,8 +2210,8 @@ export default function MintsPage() {
         gridTemplateColumns: embedded ? '1fr' : 'minmax(0, 942px) minmax(320px, 0.95fr)',
         gap: 10,
         width: '100%',
-        maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
-        margin: '0 auto',
+        maxWidth: 'none',
+        margin: 0,
         paddingBottom: embedded ? 0 : 8,
         boxSizing: 'border-box',
       }}>
