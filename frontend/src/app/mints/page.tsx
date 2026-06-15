@@ -676,7 +676,7 @@ type MintTab = 'active' | 'recent';
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
-    case 'free':    return { label: 'FREE',    bg: 'rgba(92,224,160,0.15)',  fg: '#5ce0a0' };
+    case 'free':    return { label: 'FREE',    bg: 'rgba(92,224,160,0.15)',  fg: '#7ed9a8' };
     case 'paid':    return { label: 'PAID',    bg: 'rgba(168,144,232,0.15)', fg: '#a890e8' };
     case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: '#e8c14a' };
     default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: '#7a7a94' };
@@ -2618,7 +2618,7 @@ export default function MintsPage() {
                   the naming is mint-specific. */}
               <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
               <LiveDot />
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#6a6a84', marginLeft: 4 }}>
                 ({visibleEvents.length.toLocaleString()})
               </span>
               {/* MINT OK pill — same chrome as /feed's "ME OK" health pill
@@ -2633,7 +2633,7 @@ export default function MintsPage() {
               }}>
                 <span style={{
                   display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                  background: '#5ce0a0', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+                  background: '#7ed9a8', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
                 }} />
                 MINT OK
               </span>
@@ -2785,7 +2785,7 @@ const thStyle: React.CSSProperties = {
   padding: '12px 10px',
   fontSize: 11,
   fontWeight: 700,
-  color: '#56566e',
+  color: '#6a6a84',
   letterSpacing: '0.6px',
   // Numeric columns are centered over their fixed-width cells (COLLECTION
   // overrides back to left below). Centered header + centered value keeps

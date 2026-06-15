@@ -133,15 +133,15 @@ function fmtAgo(iso: string): string {
 
 /** Percent-change cell value + color. Positive = green, negative = red,
  *  zero/missing = muted. Mirrors the green/red money palette used across
- *  /feed and /mints (#7ed9a8 / #d97c7c). */
+ *  /feed and /mints (#7ed9a8 / #ef7878). */
 function pctMeta(n: number | null): { text: string; color: string } {
-  if (n == null || !Number.isFinite(n)) return { text: '—', color: '#56566e' };
+  if (n == null || !Number.isFinite(n)) return { text: '—', color: '#6a6a84' };
   const rounded = Math.abs(n) < 0.05 ? 0 : n;
   if (rounded === 0) return { text: '0%', color: '#7a7a94' };
   const sign = rounded > 0 ? '+' : '';
   return {
     text: `${sign}${rounded.toFixed(1)}%`,
-    color: rounded > 0 ? '#7ed9a8' : '#d97c7c',
+    color: rounded > 0 ? '#7ed9a8' : '#ef7878',
   };
 }
 
@@ -171,7 +171,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
         // Active cue is text-only — brighter label + heavier weight (and the
         // accent arrow below). No background block / bar so the header row
         // stays uniform and reads as a table, not a selected tab.
-        color: active ? '#f0ebff' : '#56566e',
+        color: active ? '#f0ebff' : '#6a6a84',
         fontWeight: active ? 800 : thStyleNum.fontWeight,
       }}
     >
@@ -221,7 +221,7 @@ type HighlightKind = 'new' | 'up' | 'down';
 const HIGHLIGHT_STYLE: Record<HighlightKind, { bg: string; bar: string }> = {
   new:  { bg: 'rgba(168,144,232,0.13)', bar: '#a890e8' },
   up:   { bg: 'rgba(126,217,168,0.12)', bar: '#7ed9a8' },
-  down: { bg: 'rgba(217,124,124,0.11)', bar: '#d97c7c' },
+  down: { bg: 'rgba(217,124,124,0.11)', bar: '#ef7878' },
 };
 const HIGHLIGHT_MS = 3000;
 const POLL_MS = 10_000;
@@ -651,7 +651,7 @@ export default function TrendingCollectionsPage() {
                               <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           </div>
-                          <div style={{ fontSize: 10, color: '#56566e', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.slug}</div>
+                          <div style={{ fontSize: 10, color: '#6a6a84', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.slug}</div>
                         </div>
                       </div>
                     </td>
@@ -665,7 +665,7 @@ export default function TrendingCollectionsPage() {
                       <div style={{ fontWeight: 700, color: '#f0eef8' }}>
                         {c.listedPct != null ? `${(c.listedPct * 100).toFixed(1)}%` : '—'}
                       </div>
-                      <div style={{ fontSize: 10, fontWeight: 500, color: '#56566e', marginTop: 1 }}>
+                      <div style={{ fontSize: 10, fontWeight: 500, color: '#6a6a84', marginTop: 1 }}>
                         {fmtInt(c.listedCount)}<span style={{ color: '#3a3a52' }}> / </span>{fmtInt(c.totalSupply)}
                       </div>
                     </td>
@@ -712,7 +712,7 @@ export default function TrendingCollectionsPage() {
               <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#ef7878' }}>Couldn’t load sales.</div>
             )}
             {preview.status === 'empty' && (
-              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#56566e' }}>No sales in this timeframe.</div>
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#6a6a84' }}>No sales in this timeframe.</div>
             )}
             {preview.status === 'ready' && preview.sales.map((s) => {
               const sname = s.nftName ?? (s.mint ? `${s.mint.slice(0, 4)}…${s.mint.slice(-4)}` : '—');
@@ -727,7 +727,7 @@ export default function TrendingCollectionsPage() {
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#e8e6f2', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
-                    <div style={{ fontSize: 9.5, color: '#56566e', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
+                    <div style={{ fontSize: 9.5, color: '#6a6a84', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
                   </div>
                   <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: '#7ed9a8', fontFamily: MONO }}>
                     {fmtSol(s.priceSol)}
@@ -745,7 +745,7 @@ export default function TrendingCollectionsPage() {
 // ── Shared table chrome — mirrors the Offers tool (Mint Tracker scale) ──────
 const thStyle: React.CSSProperties = {
   padding: '12px 10px', fontSize: 11, fontWeight: 700,
-  color: '#56566e', letterSpacing: '0.6px', textAlign: 'left',
+  color: '#6a6a84', letterSpacing: '0.6px', textAlign: 'left',
   background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
   textTransform: 'uppercase', userSelect: 'none',
   position: 'sticky', top: 0, zIndex: 1,
@@ -753,9 +753,10 @@ const thStyle: React.CSSProperties = {
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
 const thStyleNft: React.CSSProperties = { ...thStyle, padding: '12px 10px 12px 14px' };
 const tdStyleNum: React.CSSProperties = {
-  padding: '12px 10px', textAlign: 'right', fontSize: 13, fontWeight: 600,
+  padding: '12px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700,
   color: '#f0eef8', fontFamily: MONO, verticalAlign: 'middle',
+  fontVariantNumeric: 'tabular-nums',
 };
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#55556e', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
+  textAlign: 'center', color: '#6a6a84', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
 };

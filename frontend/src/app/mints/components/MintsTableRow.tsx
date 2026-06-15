@@ -97,7 +97,7 @@ const STATUS_BADGE_BASE: React.CSSProperties = {
 };
 const STATUS_BADGE_ACTIVE: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#5ce0a0',
+  color:      '#7ed9a8',
   background: 'rgba(92,224,160,0.14)',
   border:     '1px solid rgba(92,224,160,0.42)',
 };
@@ -646,7 +646,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               ref={mintsCellRef}
               onMouseEnter={openMintsPopover}
               onMouseLeave={closeMintsPopover}
-              // Same green family as RATE (#5ce0a0) but softer — keeps
+              // Same green family as RATE (#7ed9a8) but softer — keeps
               // MINTS in the same family visually while leaving RATE
               // the brightest value. fontWeight 800 stays unchanged so
               // the column still reads heavy / structural.
@@ -808,7 +808,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const display = (payment && showInToken && tokenAmount != null)
           ? `${tokenAmount} ${tokenLabel}`
           : solDisplay;
-        const cellColor = isFree     ? '#5ce0a0'
+        const cellColor = isFree     ? '#7ed9a8'
                         : isUnknown  ? '#45455e'
                         : payment    ? '#c9bdf0'
                         :              '#a8a6c4';

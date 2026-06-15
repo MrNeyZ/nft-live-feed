@@ -233,7 +233,7 @@ function FloorChip({ delta }: { delta: number }) {
   // still reads as green-or-red (preserves directional cue) without
   // competing with the price/badge for attention.
   const fg = bright
-    ? (above ? '#5ce0a0' : '#ef7878')
+    ? (above ? '#7ed9a8' : '#ef7878')
     : (above ? '#7a9a85' : '#9a7878');
   const bg = bright
     ? (above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)')
@@ -313,11 +313,11 @@ const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
-  // Text-clarity pass: label tone lifted #45455e → #5a5a78 so
+  // Text-clarity pass: label tone lifted #45455e → #6a6a84 so
   // `seller:` / `buyer:` is legible at idle. Wallet text is still
   // brighter (#9b9bbe), so the three-tier title → wallet → label
   // hierarchy is preserved — labels just stop dissolving into bg.
-  fontSize: 10.5, color: '#5a5a78', display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 10.5, color: '#6a6a84', display: 'flex', alignItems: 'center', gap: 6,
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every

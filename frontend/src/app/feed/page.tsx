@@ -88,9 +88,9 @@ function isDensity(v: unknown): v is Density {
 // types" (see the `typeSet` gate in `filtered`).
 type TypeKey = Exclude<FilterKey, 'all'>;
 const FILTERS: { key: TypeKey; label: string; color: string }[] = [
-  { key: 'buy',     label: 'Buy',        color: '#5ce0a0' },
+  { key: 'buy',     label: 'Buy',        color: '#7ed9a8' },
   { key: 'sell',    label: 'Sell',       color: '#ef7878' },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: '#5ce0a0' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: '#7ed9a8' },
   { key: 'sellAmm', label: 'Sell AMM',   color: '#ef7878' },
   { key: 'listing', label: 'Listings',   color: '#a890e8' },
 ];
@@ -1013,11 +1013,11 @@ export default function FeedPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
                 <LiveDot />
-                {/* Event count — dimmed from #8068d8 → #56566e so the
+                {/* Event count — dimmed from #8068d8 → #6a6a84 so the
                     title "Live events" + the LiveDot stay primary; the
                     count is supplementary context (operator usually
                     reads the rows, not the number). */}
-                <span style={{ fontSize: 11, fontWeight: 500, color: '#56566e', marginLeft: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#6a6a84', marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
                 {/* Source-health indicator. Green = both sources fresh.
@@ -1041,7 +1041,7 @@ export default function FeedPage() {
                 >
                   <span style={{
                     display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                    background: meStale ? '#ef7878' : '#5ce0a0',
+                    background: meStale ? '#ef7878' : '#7ed9a8',
                     boxShadow: meStale ? '0 0 6px #ef787880' : '0 0 4px rgba(92,224,160,0.40)',
                   }} />
                   ME {meStale ? 'STALE' : 'OK'}
@@ -1057,7 +1057,7 @@ export default function FeedPage() {
                   }}>
                     {typeSet.size > 0 && FILTERS.filter(f => typeSet.has(f.key)).map(f => f.label).join(' / ')}
                     {typeSet.size > 0 && collFilter && (
-                      <span style={{ color: '#56566e' }}>•</span>
+                      <span style={{ color: '#6a6a84' }}>•</span>
                     )}
                     {collFilter && (
                       <span style={{
@@ -1079,7 +1079,7 @@ export default function FeedPage() {
                     persistence + pause logic unchanged.) */}
                 <Pill
                   active
-                  color={paused ? '#c9a820' : '#5ce0a0'}
+                  color={paused ? '#c9a820' : '#7ed9a8'}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -1337,7 +1337,7 @@ export default function FeedPage() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', color: '#55556e', padding: '48px 0', fontSize: 13 }}>
+                    <div style={{ textAlign: 'center', color: '#6a6a84', padding: '48px 0', fontSize: 13 }}>
                       No events match current filters
                     </div>
                   )
