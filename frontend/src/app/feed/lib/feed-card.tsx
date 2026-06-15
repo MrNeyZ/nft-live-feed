@@ -161,7 +161,7 @@ function WalletLink({ wallet }: { wallet: string | null }) {
             {/* CSS-only ~1px hairline outline (darker green) to crisp the logo
                 edge on bright/high-DPI screens. Single 0.5px drop-shadow, no
                 offset/glow — asset untouched. Remove this filter line to revert. */}
-            <img src="/brand/sns.png?v=2" alt="SNS" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
+            <img src="/brand/sns.png?v=3" alt="SNS" width={12} height={12} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
           </a>
         )}
       </span>
