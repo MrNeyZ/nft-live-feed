@@ -675,6 +675,54 @@ function extractRelayerSingleMintPrice(tx: RawSolanaTx): number | null {
   return sum > 0 ? sum : null;
 }
 
+/** Asset-creation deposit for a direct MPL Core `Create` / `CreateV2`.
+ *
+ *  A Core asset mint funds the new asset account's rent via a System
+ *  `createAccount`, paid by the create payer — frequently NOT the minter
+ *  (sponsored / gasless mints, fee-payer != minter). The minter's own SOL
+ *  delta is then 0, so every generic price path reads the mint as FREE even
+ *  though real value (the rent deposit) changed hands to bring the NFT into
+ *  existence. For those sponsored creates we surface that deposit as the
+ *  create price instead of FREE.
+ *
+ *  Deposit = the lamports of the System `createAccount` whose NEW account is
+ *  owned by the MPL Core program — i.e. the asset account itself. That owner
+ *  check is what pins the leg to the real NFT asset and not some ancillary PDA,
+ *  and it cannot match a Core asset *Transfer* (no createAccount), so a tx that
+ *  only moves an existing Core asset (like this sig's first instruction) is
+ *  correctly ignored. Top-level + inner createAccounts are both scanned (Core
+ *  CPIs the System createAccount from inside CreateV2); for a bulk drop the
+ *  per-asset deposits are summed to a whole-tx total, mirroring the signer-delta
+ *  convention (the card divides by `nftCount` to show the per-NFT figure).
+ *
+ *  Data layout of SystemInstruction::CreateAccount (base58 `data`):
+ *    [0..4) u32 ix = 0 · [4..12) u64 lamports · [12..20) u64 space ·
+ *    [20..52) Pubkey owner.
+ *
+ *  Returns null when no Core-owned account is created here, so token-metadata /
+ *  candy-machine / bubblegum / Core asset transfers / existing paid Core mints
+ *  are all unaffected. Verified on sig 5CN8…CLnPq → 3_574_080 (0.00357408 SOL),
+ *  asset DgGaTX… funded by BJQik…. */
+const SYS_CREATE_ACCOUNT_IX = 0;
+function extractCoreCreateDepositLamports(tx: RawSolanaTx): number | null {
+  let total = 0;
+  const scan = (ix: { programIdIndex: number; accounts: number[]; data: string }): void => {
+    if (!ix || resolveAccountKey(tx, ix.programIdIndex) !== SYSTEM_PROGRAM || !ix.data) return;
+    let buf: Buffer;
+    try { buf = Buffer.from(bs58.decode(ix.data)); } catch { return; }
+    if (buf.length < 52 || buf.readUInt32LE(0) !== SYS_CREATE_ACCOUNT_IX) return;
+    const lamports = Number(buf.readBigUInt64LE(4));
+    if (!Number.isFinite(lamports) || lamports <= 0) return;
+    if (bs58.encode(buf.subarray(20, 52)) !== MPL_CORE_PROGRAM) return;  // only the Core asset account
+    total += lamports;
+  };
+  const top = tx.transaction?.message?.instructions;
+  if (Array.isArray(top)) for (const ix of top) scan(ix);
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) for (const g of inner) if (Array.isArray(g.instructions)) for (const ix of g.instructions) scan(ix);
+  return total > 0 ? total : null;
+}
+
 /** Mint price for the /mints tracker. Order of precedence:
  *  1. Escrow-settlement payout (BvAPdAKH MintBatchFromEscrow only) — the signer
  *     is reimbursed there, so this must win over the signer-delta fallback.
@@ -683,7 +731,12 @@ function extractRelayerSingleMintPrice(tx: RawSolanaTx): number | null {
  *  3. Relayer single-mint price (fee-payer != minter, single NFT, one-or-more
  *     distinct creator/treasury transfers) — recovers direct MPL Core CreateV2
  *     relayer mints the count>=2 batch rule misses.
- *  4. Legacy signer net-delta — only when none of the above matches. */
+ *  4. Signer net-delta — the minter's own SOL spend, when positive.
+ *  5. Core asset-creation deposit — ONLY when the minter paid nothing: a direct
+ *     MPL Core Create/CreateV2 still costs the create payer the asset's rent
+ *     (sponsored / gasless mints), so show that deposit rather than FREE.
+ *     Gated to Core asset creates; every paid path returns above it, so
+ *     existing paid-mint behaviour is untouched. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromEscrow = extractEscrowSettlementPrice(tx);
   if (fromEscrow != null && fromEscrow > 0) return fromEscrow;
@@ -691,7 +744,11 @@ export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
   const fromRelayer = extractRelayerSingleMintPrice(tx);
   if (fromRelayer != null && fromRelayer > 0) return fromRelayer;
-  return extractSignerLamportsPaid(tx);
+  const fromSigner = extractSignerLamportsPaid(tx);
+  if (fromSigner != null && fromSigner > 0) return fromSigner;
+  const fromCoreDeposit = extractCoreCreateDepositLamports(tx);
+  if (fromCoreDeposit != null && fromCoreDeposit > 0) return fromCoreDeposit;
+  return fromSigner;
 }
 
 /** SPL / Token-2022 amount the signer parted with, when the mint was
