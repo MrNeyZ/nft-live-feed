@@ -7,12 +7,11 @@
 
 import type { CSSProperties } from 'react';
 import { ItemThumb } from '@/soloist/shared';
-import { formatSol } from '@/soloist/mock-data';
 import type { MintEvent, MintStatus } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, shortMint, thumb200, isNewCollection } from '../lib/format';
+import { fmtAge, fmtSol, shortMint, thumb200, isNewCollection } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -214,12 +213,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // (signer net-received lamports); render those as FREE, never negative SOL.
   const priceText      = perNftLamports == null
     ? '—'
-    : perNftLamports <= 0 ? 'FREE' : formatSol(perNftLamports / 1e9);
+    : perNftLamports <= 0 ? 'FREE' : fmtSol(perNftLamports);
   // Total tx price (formatted) — only meaningful on a paid bulk mint, where
   // it differs from the per-NFT figure. Surfaced both in the `×N = TOTAL` pill
   // and in the price tooltip below. Null for single / free mints.
   const totalText      = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
-    ? formatSol(ev.priceLamports / 1e9)
+    ? fmtSol(ev.priceLamports)
     : null;
   // Tooltip shows the tx total when we divided, so the raw on-chain number is
   // still discoverable on hover. Null for single mints (no title).
