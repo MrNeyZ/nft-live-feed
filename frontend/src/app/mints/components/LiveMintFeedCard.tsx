@@ -495,7 +495,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
           never overflows into the X icon. price / age keep their positions via
           the flex:1 column. */}
-      <div style={{ width: 50, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 60, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -523,17 +523,16 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
-          // inline-flex + center so the label glyphs sit dead-center in the
-          // pill (inline-block left it baseline-aligned → slightly "hanging").
-          // `width: 50` (hard, not minWidth) makes EVERY type badge (CORE /
-          // CANDY / LMNFT / LEGACY / NFT / cNFT / pNFT) exactly 50px wide so
-          // the colored pills are truly identical with zero per-badge offset.
-          // box-sizing:border-box (globals.css) → 50 is the total, matching the
-          // 50px slot. Same padding/font/size/colors → identical pill HEIGHT;
-          // row/card height unchanged. All layouts.
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 50, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          // Matched to the Mint Tracker table source badge (MintsSourceBadge
+          // `lg`): hard width 60, lineHeight 16 (taller background) and
+          // letterSpacing 0.4 so the right-feed type pill reads at the same
+          // size as the table badge. inline-flex + center keeps the label
+          // dead-centered (equivalent to the table's textAlign:center).
+          // box-sizing:border-box → 60 is the total, matching the 60px slot.
+          // Pill height 20px < 56px thumb, so row/card height is unchanged.
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 60, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
-          letterSpacing: '0.3px', flexShrink: 0,
+          letterSpacing: '0.4px', flexShrink: 0, lineHeight: '16px',
           textDecoration: 'none',
         };
         // Derive the link via the same helper the mints table uses.
