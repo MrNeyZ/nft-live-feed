@@ -525,11 +525,13 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         const pillStyle: React.CSSProperties = {
           // inline-flex + center so the label glyphs sit dead-center in the
           // pill (inline-block left it baseline-aligned → slightly "hanging").
-          // `minWidth: 82` normalizes ALL type badges (CORE / CANDY / LMNFT /
-          // LEGACY / NFT) to one width so the colored pills align down the
-          // column. Same padding/font/size/colors → identical pill HEIGHT;
+          // `width: 50` (hard, not minWidth) makes EVERY type badge (CORE /
+          // CANDY / LMNFT / LEGACY / NFT / cNFT / pNFT) exactly 50px wide so
+          // the colored pills are truly identical with zero per-badge offset.
+          // box-sizing:border-box (globals.css) → 50 is the total, matching the
+          // 50px slot. Same padding/font/size/colors → identical pill HEIGHT;
           // row/card height unchanged. All layouts.
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 50, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 50, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
           letterSpacing: '0.3px', flexShrink: 0,
           textDecoration: 'none',
