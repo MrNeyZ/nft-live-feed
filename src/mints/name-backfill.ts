@@ -24,7 +24,7 @@ import { isMintTrackerEnabled } from '../runtime/mode';
 // ── Tuning (kept conservative to protect Helius/DAS credits) ────────────────
 const INITIAL_DELAY_MS = 90_000;       // let boot/ingestion settle first
 const SWEEP_INTERVAL_MS = 5 * 60_000;  // every 5 min
-const BATCH_LIMIT = 25;                // rows examined per sweep
+const BATCH_LIMIT = 75;                // rows examined per sweep (~900/hr at 5-min interval)
 const REQUEST_GAP_MS = 500;            // throttle between getAsset calls (matches enricher)
 const GRACE_MINUTES = 7;              // skip rows younger than this (DAS index grace; 5–10 range)
 const WINDOW_HOURS = 24;             // only chase recent rows
