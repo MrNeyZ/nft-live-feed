@@ -567,6 +567,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // Tighter letter-spacing so the bumped size doesn't push the
         // age pill to the right by more than ~1 px at common amounts.
         letterSpacing: '-0.2px',
+        // Visual-only nudge ~8px right (closer to the timer) — does not
+        // affect flex layout, so timer / badges / text column stay put.
+        transform: 'translateX(8px)',
       }}>{priceText}</span>
       {(() => {
         // Age tier coloring — mirrors /feed's TimeAgo tiers (pink
