@@ -26,8 +26,11 @@ import { sourceBadge, sourceHref } from '../lib/source';
  *  inside the same physical slot instead of letting their narrower pill
  *  shrink the cell. Longer labels (METAPLEX / UNKNOWN — rare) still
  *  render full width and grow the slot naturally via `minWidth`. */
-const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9,  padding 1×6
-const SOURCE_SLOT_W_LG = 56; // lg: fontSize 10, padding 2×8
+const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9, padding 1×6 — minWidth (grows for long labels)
+// lg (collections table) — HARD fixed width so every source badge is pixel-
+// identical (option A). 60px fits all common labels (CORE…LEGACY, GRAVE, cNFT,
+// VVV, ME, GAY); a rare UNKNOWN fallback may clip — accepted, not optimized for.
+const SOURCE_PILL_W_LG = 60;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
@@ -42,6 +45,10 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     background: sb.bg, color: sb.fg, letterSpacing: '0.4px',
     textDecoration: 'none', cursor: href ? 'pointer' : 'default',
     flexShrink: 0, lineHeight: lg ? '16px' : '13px', textTransform: 'uppercase',
+    // lg: hard 60px width + centered text so every table source badge is
+    // identical. sm keeps its intrinsic shrink-to-fit width.
+    width: lg ? SOURCE_PILL_W_LG : undefined,
+    textAlign: lg ? 'center' : undefined,
   };
   const plainTitle = row.sourceLabel === 'LaunchMyNFT'
     ? 'LaunchMyNFT mint page unavailable'
@@ -67,16 +74,15 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
   ) : (
     <span  style={pillStyle}>{sb.label}</span>
   );
-  // Fixed-width slot — pins horizontal footprint so CORE / VVV occupy the
-  // same physical column as LMNFT / CANDY / GRAVE. minWidth (not width) so
-  // an unusually long label (METAPLEX, UNKNOWN) can still grow the slot
-  // naturally instead of clipping. Centering the colored pill inside keeps
-  // narrow labels visually balanced.
-  const slotMinW = lg ? SOURCE_SLOT_W_LG : SOURCE_SLOT_W_SM;
+  // Fixed-width slot — pins horizontal footprint so CORE / VVV occupy the same
+  // physical column as LMNFT / CANDY / GRAVE. lg (collections table) uses a HARD
+  // 60px width matching the pill so every badge is pixel-identical (a rare
+  // UNKNOWN may clip — accepted). sm keeps minWidth so its long labels grow.
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, minWidth: slotMinW,
+      flexShrink: 0,
+      ...(lg ? { width: SOURCE_PILL_W_LG } : { minWidth: SOURCE_SLOT_W_SM }),
     }}>
       {pill}
     </span>
