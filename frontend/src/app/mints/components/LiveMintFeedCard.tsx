@@ -214,7 +214,13 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     : ev.priceLamports;
   // `<= 0` (not `=== 0`): legacy DB rows can carry a negative priceLamports
   // (signer net-received lamports); render those as FREE, never negative SOL.
-  const priceText      = perNftLamports == null
+  // Collection-CREATE is NOT an NFT mint — it has no mint price, so it must
+  // never render FREE / a SOL amount / any mint-priced label. Blank string
+  // (not '—', which reads as "price unknown") keeps the 56px price column
+  // width so the card footprint is unchanged.
+  const priceText      = isCollectionCreate
+    ? ''
+    : perNftLamports == null
     ? '—'
     : perNftLamports <= 0 ? 'FREE' : fmtMintPrice(perNftLamports);
   // Total tx price (formatted) — only meaningful on a paid bulk mint, where
@@ -303,6 +309,20 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // its footprint and the panel never reflows. Eased so the fade reads
         // as deliberate rather than a flicker.
         opacity: dimmed ? 0.15 : 1,
+        // Collection-CREATE "special frame": a slightly thicker (3px) LEFT
+        // accent + a subtle purple glow around the card, keeping the existing
+        // purple palette. The left border lives on `.mints-feed-row` (2px) —
+        // overriding only its width/color inline bumps the accent without
+        // touching the right edge. The glow uses `filter: drop-shadow` rather
+        // than `box-shadow` on purpose: an inline box-shadow would beat (and
+        // kill) the `.mints-feed-row:hover` ring, whereas drop-shadow composes
+        // with it, so the hover-lift contract is preserved. Color-only +
+        // a 1px-wider left border → no card resize, normal mint cards untouched.
+        ...(isCollectionCreate ? {
+          borderLeftWidth: 3,
+          borderLeftColor: 'rgba(124,108,230,0.75)',
+          filter: 'drop-shadow(0 0 6px rgba(124,108,230,0.40))',
+        } : {}),
         // Transitions live on `.mints-feed-row` in globals.css so the
         // hover lift (transform + scale) animates in lock-step with bg
         // and border-color. Inline `transition` removed — it shadowed
@@ -537,7 +557,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           rows where the helper returns null render the prior plain
           span. Visual chrome (padding, fontSize, borderRadius,
           letterSpacing) is verbatim — only `<span>` becomes `<a>`. */}
-      {(() => {
+      {/* Collection-CREATE is not a mint, so it carries no mint-type / source
+          label (CORE / CANDY / cNFT / NFT). The 52px slot above stays reserved
+          so the card footprint and the price/age columns don't shift. */}
+      {!isCollectionCreate && (() => {
         const tint =
           // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
           // typeLabel is unchanged); raw Core falls through to purple below.
