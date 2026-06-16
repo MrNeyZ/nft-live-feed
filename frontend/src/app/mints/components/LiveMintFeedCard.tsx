@@ -464,13 +464,16 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           </div>
         )}
       </div>
-      {/* Fixed-width X/Twitter slot — its own outer-row column so the icon's
-          position no longer floats with collection-name length or the type
-          badge. Always reserves its width (even when no link) so the type
-          slot to its right never shifts. Icon centered; size unchanged (12px).
-          Narrow (18px) so the flex:1 text column keeps as much width as
-          possible; no margin offsets — the badge group sits naturally between
-          the text and price. */}
+      {/* Badge group — X slot + NFT-type slot wrapped so they read as one
+          compact unit. Internal gap 4px (was a 12px outer-row gap, which read
+          as two separate badges). A single fixed-width, flexShrink:0 child of
+          the card row, so the flex:1 text column absorbs the freed width and
+          price / age keep their positions. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+      {/* Fixed-width X/Twitter slot — own column so the icon's position no
+          longer floats with collection-name length or the type badge. Always
+          reserves its 18px (even when no link) so the type slot never shifts.
+          Icon centered; size unchanged (12px). */}
       <div style={{ width: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {xName && (
           <a
@@ -547,6 +550,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           <span style={pillStyle}>{nftTypeLabel}</span>
         );
       })()}
+      </div>
       </div>
       <span title={priceTitle} style={{
         minWidth: 64, textAlign: 'right',
