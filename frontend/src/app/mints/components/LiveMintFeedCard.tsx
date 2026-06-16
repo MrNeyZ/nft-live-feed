@@ -495,7 +495,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
           never overflows into the X icon. price / age keep their positions via
           the flex:1 column. */}
-      <div style={{ width: 54, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 52, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -531,9 +531,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           // ≈54−14=40px fits every right-feed label (CORE/cNFT/CANDY/NFT;
           // CANDY ≈32px). Pill height ~17px < 56px thumb, so card height
           // unchanged. (LEGACY is a table-only label, never emitted here.)
-          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 54, padding: '2px 7px', fontSize: 9.5, fontWeight: 700, borderRadius: 4,
+          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 52, padding: '1.5px 6.5px', fontSize: 9, fontWeight: 700, borderRadius: 3.5,
           background: tint.bg, color: tint.fg,
-          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '15px',
+          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '14px',
           textDecoration: 'none',
         };
         // Derive the link via the same helper the mints table uses.
