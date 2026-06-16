@@ -523,17 +523,16 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
-          // Same badge family as the Mint Tracker table source badge
-          // (MintsSourceBadge), just SCALED DOWN: the table is the `lg` variant
-          // (60px / fontSize 10 / pad 2×8 / br 4 / lh 16); this is the `sm`
-          // proportions at width 50 — fontSize 9, pad 1×6, br 3, lh 13,
-          // letterSpacing 0.4. inline-flex + center keeps the label dead-centered
-          // (equivalent to the table's textAlign:center). box-sizing:border-box →
-          // 50 is the total, matching the 50px slot. Pill height ~15px < 56px
-          // thumb, so row/card height is unchanged.
-          display: 'inline-block', textAlign: 'center', width: 50, padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+          // Proportional scaled copy of the Mint Tracker table `lg` source badge
+          // (MintsSourceBadge): 60→50 px = ×0.83333. Every metric scaled by that
+          // factor: padding 2×8 → 1.67×6.67, fontSize 10 → 8.33, borderRadius
+          // 4 → 3.33, lineHeight 16 → 13.33, letterSpacing 0.4 → 0.33. Same
+          // display model as the table (inline-block + textAlign:center inside
+          // the fixed centered slot). boxSizing:border-box keeps width exactly 50
+          // total. Pill height ~13px < 56px thumb, so row/card height unchanged.
+          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 50, padding: '1.67px 6.67px', fontSize: 8.33, fontWeight: 700, borderRadius: 3.33,
           background: tint.bg, color: tint.fg,
-          letterSpacing: '0.4px', flexShrink: 0, lineHeight: '13px',
+          letterSpacing: '0.33px', flexShrink: 0, lineHeight: '13.33px',
           textDecoration: 'none',
         };
         // Derive the link via the same helper the mints table uses.
