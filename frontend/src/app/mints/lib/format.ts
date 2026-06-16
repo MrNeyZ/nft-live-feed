@@ -4,6 +4,8 @@
 // JSX can be split later without forcing each split file to re-import
 // or re-declare them. Behaviour byte-identical to the inline versions.
 
+import { formatSol } from '@/soloist/mock-data';
+
 /** "Newly created collection" heuristic (UI-only). Flagged NEW when the
  *  on-chain creation time (`collectionCreatedAt`, from the collection-created
  *  resolver) is within NEW_COLLECTION_WINDOW_MS of the first observed mint
@@ -84,6 +86,24 @@ export function fmtSol(lamports: number | null): string {
   if (lamports >= 1_000_000) return truncSol(lamports, 3);   // ≥ 0.001 SOL
   if (lamports >= 100_000)   return truncSol(lamports, 5);   // ≥ 0.0001 SOL
   return truncSol(lamports, 6);
+}
+
+/** Mint-price display rule shared by the Live Mint Feed card AND the Mint
+ *  Tracker table price column (single source of truth — do not duplicate).
+ *  Lamports in; null → '—', ≤0 → 'FREE' (same contract as `fmtSol`).
+ *    • < 0.1 SOL → TRUNCATE (floor) to ≤3 decimals, never round
+ *        0.00411 → 0.004 · 0.0036 → 0.003 · 0.059 → 0.059 · 0.0999 → 0.099
+ *    • ≥ 0.1 SOL → shared `formatSol` (rounded), trailing zeros trimmed
+ *        0.2 → 0.2 · 0.55 → 0.55 · 0.553 → 0.55 · 0.6 → 0.6 · 1.822 → 1.82
+ *  A sub-0.001 SOL paid mint can't be shown in 3 dp, so it falls back to the
+ *  rounded `formatSol` rather than reading as a bare 0. DB/raw value unchanged. */
+export function fmtMintPrice(lamports: number | null): string {
+  if (lamports == null) return '—';
+  if (lamports <= 0)    return 'FREE';
+  // < 0.1 SOL, ≥ 0.001 SOL → floor to 3 dp (truncSol already trims zeros).
+  if (lamports < 100_000_000 && lamports >= 1_000_000) return truncSol(lamports, 3);
+  // ≥ 0.1 SOL (or sub-0.001 fallback) → rounded formatSol, trailing zeros off.
+  return trimTrailingZeros(formatSol(lamports / 1e9));
 }
 
 /** Strip trailing zeros (and a now-bare decimal point) from a formatted

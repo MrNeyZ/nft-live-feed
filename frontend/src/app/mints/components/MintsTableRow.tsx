@@ -14,7 +14,7 @@ import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
-import { fmtAgeShort, fmtSol, shortKey, thumb64, isNewCollection } from '../lib/format';
+import { fmtAgeShort, fmtMintPrice, shortKey, thumb64, isNewCollection } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
@@ -793,7 +793,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                               mirrors SUPPLY column tone) */}
       {(() => {
         const price     = lastPriceByKey.get(r.groupingKey);
-        const solDisplay = (typeof price === 'number') ? fmtSol(price) : '—';
+        const solDisplay = (typeof price === 'number') ? fmtMintPrice(price) : '—';
         const isUnknown = solDisplay === '—';
         const isFree    = solDisplay === 'FREE';
         const payment   = lastPaymentByKey?.get(r.groupingKey) ?? null;

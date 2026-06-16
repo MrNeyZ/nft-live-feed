@@ -11,9 +11,8 @@ import type { MintEvent, MintStatus } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, shortMint, thumb200, isNewCollection } from '../lib/format';
+import { fmtAge, fmtMintPrice, shortMint, thumb200, isNewCollection } from '../lib/format';
 import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
-import { formatSol } from '@/soloist/mock-data';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
@@ -25,30 +24,6 @@ function normalizeUrl(v: string | null | undefined): string | null {
   if (typeof v !== 'string') return null;
   const t = v.trim();
   return t.length > 0 ? t : null;
-}
-
-/** Live Mint Feed card price formatter (display only; lamports in — callers
- *  guard null / ≤0 → '—' / 'FREE'). Below 0.1 SOL we TRUNCATE (floor) to at
- *  most 3 decimals so tiny mint prices read cleanly and never round up
- *  (0.00411 → 0.004, 0.0036 → 0.003, 0.059 → 0.059, 0.0999 → 0.099). At ≥0.1
- *  SOL we defer to the shared `formatSol`, then trim trailing zeros so
- *  0.20 → 0.2 / 0.60 → 0.6 while 0.11, 0.55 and 1.822 → 1.82 are unaffected.
- *  A sub-0.001 SOL paid mint can't be shown in 3 dp, so it also falls back to
- *  `formatSol` rather than reading as a bare 0. DB/raw value unchanged. */
-function fmtMintCardPrice(lamports: number): string {
-  if (lamports < 100_000_000) {                       // < 0.1 SOL
-    const milliSol = Math.floor(lamports / 1_000_000); // 0.001-SOL units, floored
-    if (milliSol > 0) {
-      return (milliSol / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-    }
-  }
-  // ≥ 0.1 SOL (or sub-0.001 fallback): shared formatSol, then strip trailing
-  // zeros. Preserves any non-digit suffix formatSol appends (e.g. 'K' ≥1000).
-  const s = formatSol(lamports / 1e9);
-  const m = s.match(/^(\d+)\.(\d+)(\D*)$/);
-  if (!m) return s;
-  const frac = m[2].replace(/0+$/, '');
-  return frac ? `${m[1]}.${frac}${m[3]}` : `${m[1]}${m[3]}`;
 }
 
 interface Props {
@@ -238,12 +213,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // (signer net-received lamports); render those as FREE, never negative SOL.
   const priceText      = perNftLamports == null
     ? '—'
-    : perNftLamports <= 0 ? 'FREE' : fmtMintCardPrice(perNftLamports);
+    : perNftLamports <= 0 ? 'FREE' : fmtMintPrice(perNftLamports);
   // Total tx price (formatted) — only meaningful on a paid bulk mint, where
   // it differs from the per-NFT figure. Surfaced both in the `×N = TOTAL` pill
   // and in the price tooltip below. Null for single / free mints.
   const totalText      = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
-    ? fmtMintCardPrice(ev.priceLamports)
+    ? fmtMintPrice(ev.priceLamports)
     : null;
   // Tooltip shows the tx total when we divided, so the raw on-chain number is
   // still discoverable on hover. Null for single mints (no title).
