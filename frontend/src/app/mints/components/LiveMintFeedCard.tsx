@@ -468,12 +468,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           position no longer floats with collection-name length or the type
           badge. Always reserves its width (even when no link) so the type
           slot to its right never shifts. Icon centered; size unchanged (12px).
-          `marginLeft: 10` shifts the X + type badge GROUP ~10px right (more
-          breathing room after the text). It's paired with `marginRight: -10`
-          on the type slot so the flex:1 text column stays the same width (the
-          shift is reclaimed from the badge→price gap, not from the text), and
-          price / age / thumbnail / title / collection all stay put. */}
-      <div style={{ width: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 10 }}>
+          Narrow (18px) so the flex:1 text column keeps as much width as
+          possible; no margin offsets — the badge group sits naturally between
+          the text and price. */}
+      <div style={{ width: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {xName && (
           <a
             href={`https://x.com/search?q=${encodeURIComponent(xName)}&src=recent_search_click`}
@@ -490,12 +488,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       {/* Fixed-width NFT-type slot — sized to fit the widest badge (CANDY) and
           centers the pill, so the badge sits in its own column independent of
           the X icon and text length. The pill keeps its exact size/font/
-          padding/colors. `marginRight: -10` compensates the X slot's
-          `marginLeft: 10` so the badge group shifts right as one unit while
-          price / age stay where they are (the flex:1 text column absorbs the
-          net +6px; the badge→price gap settles at ~8px — restored breathing
-          room before the price). */}
-      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: -4 }}>
+          padding/colors. Width 56 still fits the widest badge (CANDY ≈ 49px)
+          while handing the freed width back to the text column; no margin
+          offsets — price / age keep their positions via the flex:1 column. */}
+      <div style={{ width: 56, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
