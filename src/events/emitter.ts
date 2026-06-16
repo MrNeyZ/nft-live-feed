@@ -243,6 +243,12 @@ export interface MintEventWire {
    *  pink palette so launchpad Core mints read differently from raw Core
    *  ecosystem activity. Absent/false on every other path. */
   coreLaunchpad?:    boolean;
+  /** True when the tx CREATES a collection (mpl-core CreateCollection /
+   *  CreateCollectionV1) rather than minting an asset. Set by the parser from
+   *  the matched instruction needle — exact on-chain evidence, never a name
+   *  heuristic. The frontend renders these with a distinct COLLECTION frame so
+   *  they aren't mistaken for normal mints. Absent/false on every mint path. */
+  collectionCreate?: boolean;
   /** Number of NFTs minted by this transaction. 1 for a normal single
    *  mint; >1 for bulk-mint txs (counted from per-NFT mint instructions
    *  in the tx logs). Absent on hydrated legacy rows → treated as 1. */

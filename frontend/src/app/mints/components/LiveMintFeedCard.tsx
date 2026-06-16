@@ -103,6 +103,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
   const titleFull   = titleShort ? titleShort.fullName : displayName;
   const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
+  // Collection-CREATE event (mpl-core CreateCollection) — not a normal mint.
+  // Rendered with a distinct purple-blue frame + COLLECTION pill below.
+  const isCollectionCreate = ev.collectionCreate === true;
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
   // trailing `#N` to derive a collection-style label ("Kryptos").
@@ -281,12 +284,19 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // inline — an inline `border` would override the CSS colored sides.
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 12px',
-        '--mint-accent': colorForCollection(ev.collectionAddress ?? ev.groupingKey),
+        // Collection-create reuses the existing side-accent layer but pins it to
+        // a fixed purple-blue so the card reads as a "collection created" event,
+        // not a per-collection-tinted mint. Color-only → no layout change.
+        '--mint-accent': isCollectionCreate
+          ? '#7c6ce6'
+          : colorForCollection(ev.collectionAddress ?? ev.groupingKey),
         borderRadius: 7,
         // Surface 1:1 with /feed `.feed-card`: 0.035 base tint + the same
         // faint top-down sheen gradient (backgroundImage applied after the
         // shorthand so it isn't reset). Was 0.02 / no gradient.
-        background: 'rgba(255,255,255,0.035)',
+        // Collection-create gets a faint purple-blue wash instead of the neutral
+        // white tint — subtle but distinct. Same surface footprint (no size change).
+        background: isCollectionCreate ? 'rgba(124,108,230,0.07)' : 'rgba(255,255,255,0.035)',
         backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0.007) 50%, rgba(255,255,255,0) 100%)',
         // Hover-scope dim — non-matching mints fade out while a collection row
         // is hovered. Opacity-only (no display/size change) so the card keeps
@@ -369,6 +379,21 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
                 fontVariantNumeric: 'tabular-nums',
               }}
             >×{ev.nftCount}</span>
+          )}
+          {/* Collection-create marker — small, calm purple-blue pill so the
+              event reads as "a collection was created", not a mint. flexShrink:0
+              so the title truncates and the pill survives. */}
+          {isCollectionCreate && (
+            <span
+              title="Collection created (not a mint)"
+              style={{
+                flexShrink: 0, fontSize: 8.5, fontWeight: 700,
+                padding: '1px 5px', borderRadius: 4, lineHeight: 1.4,
+                background: 'rgba(124,108,230,0.16)',
+                border: '1px solid rgba(124,108,230,0.30)',
+                color: '#b9aef0', letterSpacing: '0.4px', textTransform: 'uppercase',
+              }}
+            >COLLECTION</span>
           )}
         </div>
         {/* Bottom line: collection name (smaller, muted) per the

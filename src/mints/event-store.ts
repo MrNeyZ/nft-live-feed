@@ -37,8 +37,8 @@ const INSERT_SQL = `
   INSERT INTO mint_events
     (signature, mint_address, collection_address, grouping_key, grouping_kind,
      source_label, program_source, mint_type, price_lamports, minter, block_time,
-     core_launchpad, payment_mint, payment_amount, payment_decimals)
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+     core_launchpad, payment_mint, payment_amount, payment_decimals, collection_create)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
   ON CONFLICT (signature, mint_address) DO NOTHING
 `;
 
@@ -61,6 +61,7 @@ export async function insertMintEvent(ev: MintEventWire): Promise<void> {
       ev.paymentMint     ?? null,
       ev.paymentAmount   ?? null,
       ev.paymentDecimals ?? null,
+      ev.collectionCreate === true,
     ]);
   } catch (err) {
     noteStoreError('insert', err);
@@ -94,7 +95,7 @@ const LOAD_SQL = `
   SELECT signature, mint_address, collection_address, grouping_key, grouping_kind,
          source_label, program_source, mint_type, price_lamports, minter, block_time,
          nft_name, nft_image_url, core_launchpad,
-         payment_mint, payment_amount, payment_decimals
+         payment_mint, payment_amount, payment_decimals, collection_create
     FROM mint_events
    ORDER BY block_time DESC NULLS LAST, id DESC
    LIMIT $1
@@ -116,6 +117,7 @@ export async function loadRecentMintEvents(limit = RECENT_LIMIT): Promise<Stored
     minter:            r.minter ?? null,
     sourceLabel:       r.source_label,
     coreLaunchpad:     r.core_launchpad === true,
+    collectionCreate:  r.collection_create === true,
     paymentMint:       r.payment_mint ?? null,
     paymentAmount:     r.payment_amount ?? null,
     paymentDecimals:   r.payment_decimals != null ? Number(r.payment_decimals) : null,

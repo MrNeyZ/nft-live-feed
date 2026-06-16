@@ -183,6 +183,11 @@ export interface MintEvent {
   sourceLabel:       SourceLabel;
   /** Visual subtype: Core Candy Machine v3 launchpad mint → pink CORE badge. */
   coreLaunchpad?:    boolean;
+  /** True when this event CREATES a collection (mpl-core CreateCollection),
+   *  not a mint. Rendered with a distinct COLLECTION frame + pill so it isn't
+   *  mistaken for a normal mint. Set by the backend parser from the on-chain
+   *  instruction. */
+  collectionCreate?: boolean;
   /** Timestamp anchor (ms). Anchored to on-chain blockTime (see the
    *  live SSE handler) so the "Xs ago" column + ordering stay truthful
    *  across reconnect replays. NOTE: this is NOT wall-clock arrival —

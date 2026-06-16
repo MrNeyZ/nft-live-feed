@@ -1689,6 +1689,14 @@ export async function ingestMintRaw(
 
   const sourceLabel = detectSourceLabel(hit.programSource, accountKeys);
 
+  // Collection-CREATE vs asset mint: the matched needle is exact on-chain
+  // evidence. CreateCollection / CreateCollectionV1 build the collection master
+  // (no asset minted); CreateV1 / CreateV2 mint an asset. Flag the former so the
+  // frontend renders it as a distinct COLLECTION event, not a normal mint.
+  const isCollectionCreate =
+    hit.needle === 'Instruction: CreateCollection'
+    || hit.needle === 'Instruction: CreateCollectionV1';
+
   const emitted = rec({
     signature:         sig,
     blockTime,
@@ -1702,6 +1710,7 @@ export async function ingestMintRaw(
     ...paymentFieldsFrom(tx),
     minter,
     sourceLabel,
+    collectionCreate:  isCollectionCreate,
   });
   // Async, non-blocking metadata fetch — fired once per groupingKey
   // ever (enricher dedups internally). Never awaited; ingestion
