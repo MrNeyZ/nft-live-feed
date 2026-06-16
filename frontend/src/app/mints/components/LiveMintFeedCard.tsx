@@ -531,7 +531,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           // (equivalent to the table's textAlign:center). box-sizing:border-box →
           // 50 is the total, matching the 50px slot. Pill height ~15px < 56px
           // thumb, so row/card height is unchanged.
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 50, padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
+          display: 'inline-block', textAlign: 'center', width: 50, padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
           background: tint.bg, color: tint.fg,
           letterSpacing: '0.4px', flexShrink: 0, lineHeight: '13px',
           textDecoration: 'none',
