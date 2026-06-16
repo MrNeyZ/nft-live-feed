@@ -470,7 +470,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           price / age keep their positions. `transform: translateX(10px)` is a
           visual-only nudge right — it shifts the rendered group without
           affecting flex layout, so price / age / text column are untouched. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, transform: 'translateX(22px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, transform: 'translateX(26px)' }}>
       {/* Fixed-width X/Twitter slot — own column so the icon's position no
           longer floats with collection-name length or the type badge. Always
           reserves its 18px (even when no link) so the type slot never shifts.
