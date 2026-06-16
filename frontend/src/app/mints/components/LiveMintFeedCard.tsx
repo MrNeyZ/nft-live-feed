@@ -492,10 +492,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           the X icon and text length. The pill keeps its exact size/font/
           padding/colors. `marginRight: -10` compensates the X slot's
           `marginLeft: 10` so the badge group shifts right as one unit while
-          price / age stay exactly where they were (the shift comes out of the
-          badge→price gap, which goes 12→2px; price is right-aligned in a 64px
-          box so visible spacing before the digits is preserved). */}
-      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: -10 }}>
+          price / age stay where they are (the flex:1 text column absorbs the
+          net +6px; the badge→price gap settles at ~8px — restored breathing
+          room before the price). */}
+      <div style={{ width: 66, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: -4 }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
