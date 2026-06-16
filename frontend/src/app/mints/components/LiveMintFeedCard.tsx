@@ -489,13 +489,13 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           </a>
         )}
       </div>
-      {/* Fixed-width NFT-type slot — sized to fit the widest badge (CANDY) and
-          centers the pill, so the badge sits in its own column independent of
-          the X icon and text length. The pill keeps its exact size/font/
-          padding/colors. Width 56 still fits the widest badge (CANDY ≈ 49px)
-          while handing the freed width back to the text column; no margin
-          offsets — price / age keep their positions via the flex:1 column. */}
-      <div style={{ width: 56, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Fixed-width NFT-type slot — sized to the uniform pill width (82px) so
+          every badge (CORE / CANDY / LMNFT / LEGACY / NFT) occupies an
+          identical column and CORE no longer reads as shifted left vs the wider
+          CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
+          never overflows into the X icon. price / age keep their positions via
+          the flex:1 column. */}
+      <div style={{ width: 82, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -525,9 +525,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         const pillStyle: React.CSSProperties = {
           // inline-flex + center so the label glyphs sit dead-center in the
           // pill (inline-block left it baseline-aligned → slightly "hanging").
-          // Same padding/font/size → identical pill height; row/card height
-          // unchanged. All layouts.
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          // `minWidth: 82` normalizes ALL type badges (CORE / CANDY / LMNFT /
+          // LEGACY / NFT) to one width so the colored pills align down the
+          // column. Same padding/font/size/colors → identical pill HEIGHT;
+          // row/card height unchanged. All layouts.
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 82, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
           letterSpacing: '0.3px', flexShrink: 0,
           textDecoration: 'none',
