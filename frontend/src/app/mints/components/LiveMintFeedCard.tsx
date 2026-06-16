@@ -279,7 +279,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // BOTH layers live in globals.css (`.mints-feed-row`), driven by the
         // `--mint-accent` var below. The border is intentionally NOT set
         // inline — an inline `border` would override the CSS colored sides.
-        display: 'flex', alignItems: 'center', gap: 12,
+        display: 'flex', alignItems: 'center', gap: 10,
         padding: '10px 12px',
         '--mint-accent': colorForCollection(ev.collectionAddress ?? ev.groupingKey),
         borderRadius: 7,
@@ -558,7 +558,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       </div>
       </div>
       <span title={priceTitle} style={{
-        minWidth: 64, textAlign: 'right',
+        minWidth: 56, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
         // Bumped fontSize 13 → 14 and fontWeight 700 → 800 — single
         // element, no card resize, but the price now clearly outranks
@@ -583,7 +583,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
-          <span style={{ minWidth: 56, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>
+          <span style={{ minWidth: 50, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>
             {fmtAge(ev.receivedAt)}
           </span>
         );

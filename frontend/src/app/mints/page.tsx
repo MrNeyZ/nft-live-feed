@@ -2215,7 +2215,7 @@ export default function MintsPage() {
         // Feed track is the `fr` column, so it auto-shrinks by exactly the
         // amount the left cap grows (no separate right-width change needed).
         // Laptop/tablet/phone never set the token → fall back to 942px.
-        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, var(--mints-table-max, 942px)) minmax(320px, 0.95fr)',
+        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, var(--mints-table-max, 942px)) minmax(420px, 0.95fr)',
         gap: 10,
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
