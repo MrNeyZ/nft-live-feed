@@ -22,6 +22,7 @@ import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
 import { startMintReconcile } from './ingestion/mint-raw/reconcile';
+import { startMintNameBackfill } from './mints/name-backfill';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 import { startRareFeed } from './rare-feed';
 import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
@@ -165,6 +166,9 @@ async function main() {
     // Bounded gap-healer for launchpad-mint misses (see reconcile.ts). Only
     // active alongside the listener, since it backfills what the listener drops.
     startMintReconcile();
+    // Low-rate sweep that fills per-NFT names DAS indexed AFTER the bounded
+    // collection-confirm retry window expired (see name-backfill.ts).
+    startMintNameBackfill();
   }
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
