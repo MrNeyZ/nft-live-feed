@@ -495,7 +495,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
           never overflows into the X icon. price / age keep their positions via
           the flex:1 column. */}
-      <div style={{ width: 60, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 50, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -523,16 +523,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
-          // Matched to the Mint Tracker table source badge (MintsSourceBadge
-          // `lg`): hard width 60, lineHeight 16 (taller background) and
-          // letterSpacing 0.4 so the right-feed type pill reads at the same
-          // size as the table badge. inline-flex + center keeps the label
-          // dead-centered (equivalent to the table's textAlign:center).
-          // box-sizing:border-box → 60 is the total, matching the 60px slot.
-          // Pill height 20px < 56px thumb, so row/card height is unchanged.
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 60, padding: '2px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4,
+          // Same badge family as the Mint Tracker table source badge
+          // (MintsSourceBadge), just SCALED DOWN: the table is the `lg` variant
+          // (60px / fontSize 10 / pad 2×8 / br 4 / lh 16); this is the `sm`
+          // proportions at width 50 — fontSize 9, pad 1×6, br 3, lh 13,
+          // letterSpacing 0.4. inline-flex + center keeps the label dead-centered
+          // (equivalent to the table's textAlign:center). box-sizing:border-box →
+          // 50 is the total, matching the 50px slot. Pill height ~15px < 56px
+          // thumb, so row/card height is unchanged.
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 50, padding: '1px 6px', fontSize: 9, fontWeight: 700, borderRadius: 3,
           background: tint.bg, color: tint.fg,
-          letterSpacing: '0.4px', flexShrink: 0, lineHeight: '16px',
+          letterSpacing: '0.4px', flexShrink: 0, lineHeight: '13px',
           textDecoration: 'none',
         };
         // Derive the link via the same helper the mints table uses.
