@@ -2788,7 +2788,7 @@ export default function MintsPage() {
  *  unselected headers don't render an empty `<span>`. */
 function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
   if (active !== key) return null;
-  return <span style={{ color: '#7c5cf0' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+  return <span style={{ color: '#ad92ee' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
 // Comfortable density baseline shared with /dashboard (mirrors the

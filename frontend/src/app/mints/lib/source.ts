@@ -113,14 +113,14 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
   // borrow the CANDY pink palette so launchpad Core reads differently from raw
   // Core ecosystem activity. Colours only — exact CANDY bg/fg.
   if (coreLaunchpad && s === 'Metaplex Core') {
-    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#d96867' };
+    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
   }
   switch (s) {
     case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' };
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
     case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#9a9ab4' };
-    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#d96867' };
+    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
     // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
     // and a brighter fg (#ad92ee → #ad92ee) so the badge reads as a
     // legible launchpad pill rather than disabled. Border via the

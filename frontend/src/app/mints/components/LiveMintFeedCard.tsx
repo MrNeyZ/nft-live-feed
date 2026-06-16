@@ -564,11 +564,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         const tint =
           // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
           // typeLabel is unchanged); raw Core falls through to purple below.
-          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
+          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
           ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' } :
           ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
           ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
+          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
           // Practical values tuned to read like the Mint Tracker table source
