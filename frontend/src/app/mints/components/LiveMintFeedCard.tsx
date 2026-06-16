@@ -468,8 +468,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           compact unit. Internal gap 4px (was a 12px outer-row gap, which read
           as two separate badges). A single fixed-width, flexShrink:0 child of
           the card row, so the flex:1 text column absorbs the freed width and
-          price / age keep their positions. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          price / age keep their positions. `transform: translateX(10px)` is a
+          visual-only nudge right — it shifts the rendered group without
+          affecting flex layout, so price / age / text column are untouched. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, transform: 'translateX(10px)' }}>
       {/* Fixed-width X/Twitter slot — own column so the icon's position no
           longer floats with collection-name length or the type badge. Always
           reserves its 18px (even when no link) so the type slot never shifts.
