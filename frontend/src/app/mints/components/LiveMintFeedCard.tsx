@@ -495,7 +495,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
           never overflows into the X icon. price / age keep their positions via
           the flex:1 column. */}
-      <div style={{ width: 50, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 54, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -523,16 +523,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#d96867' } :
                                                         { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
         const pillStyle: React.CSSProperties = {
-          // Proportional scaled copy of the Mint Tracker table `lg` source badge
-          // (MintsSourceBadge): 60→50 px = ×0.83333. Every metric scaled by that
-          // factor: padding 2×8 → 1.67×6.67, fontSize 10 → 8.33, borderRadius
-          // 4 → 3.33, lineHeight 16 → 13.33, letterSpacing 0.4 → 0.33. Same
-          // display model as the table (inline-block + textAlign:center inside
-          // the fixed centered slot). boxSizing:border-box keeps width exactly 50
-          // total. Pill height ~13px < 56px thumb, so row/card height unchanged.
-          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 50, padding: '1.67px 6.67px', fontSize: 8.33, fontWeight: 700, borderRadius: 3.33,
+          // Practical values tuned to read like the Mint Tracker table source
+          // badge (MintsSourceBadge) while fitting the right-feed layout: same
+          // pill feel, slightly smaller. Same display model as the table
+          // (inline-block + textAlign:center inside the fixed centered slot).
+          // boxSizing:border-box keeps width exactly 54 total. Content area
+          // ≈54−14=40px fits every right-feed label (CORE/cNFT/CANDY/NFT;
+          // CANDY ≈32px). Pill height ~17px < 56px thumb, so card height
+          // unchanged. (LEGACY is a table-only label, never emitted here.)
+          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 54, padding: '2px 7px', fontSize: 9.5, fontWeight: 700, borderRadius: 4,
           background: tint.bg, color: tint.fg,
-          letterSpacing: '0.33px', flexShrink: 0, lineHeight: '13.33px',
+          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '15px',
           textDecoration: 'none',
         };
         // Derive the link via the same helper the mints table uses.
