@@ -23,12 +23,18 @@ import { isMintTrackerEnabled } from '../runtime/mode';
 
 // ── Tuning (kept conservative to protect Helius/DAS credits) ────────────────
 const INITIAL_DELAY_MS = 90_000;       // let boot/ingestion settle first
-const SWEEP_INTERVAL_MS = 5 * 60_000;  // every 5 min
-const BATCH_LIMIT = 75;                // rows examined per sweep (~900/hr at 5-min interval)
+const SWEEP_INTERVAL_MS = 3 * 60_000;  // every 3 min (was 5) — land fresh names sooner
+const BATCH_LIMIT = 75;                // rows examined per sweep
 const REQUEST_GAP_MS = 500;            // throttle between getAsset calls (matches enricher)
-const GRACE_MINUTES = 7;              // skip rows younger than this (DAS index grace; 5–10 range)
+// DAS indexes standard NFTs (V1_NFT / mpl_core) within ~1–3 min, so a 3-min
+// grace (was 7) cuts the time a fresh card shows the shortMint stub by ~4 min
+// while still giving DAS time to index. MAX_ATTEMPTS raised 3→6 so the lower
+// grace can't permanently give up on an asset DAS indexes a little later: at a
+// 3-min sweep the retry window now spans ~3–18 min (was ~7–17). cNFTs DAS
+// never indexes (Asset Not Found) still correctly retire after MAX_ATTEMPTS.
+const GRACE_MINUTES = 3;
 const WINDOW_HOURS = 24;             // only chase recent rows
-const MAX_ATTEMPTS = 3;              // per-signature tries this process-life, then give up
+const MAX_ATTEMPTS = 6;              // per-signature tries this process-life, then give up
 
 // Recent-only, name-missing, NFT-shaped rows old enough for DAS to have indexed.
 const SELECT_SQL = `
