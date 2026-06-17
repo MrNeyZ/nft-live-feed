@@ -15,6 +15,10 @@ import { rateLimit, isValidMint } from './rate-limit';
 const HELIUS_URL = (): string =>
   `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+// Token-2022 holdings live under a separate program; a single
+// getTokenAccountsByOwner over the legacy program misses them entirely
+// (they would be silently absent from tokenUsd). Query both and merge.
+const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 // Jupiter Lite price API (no key) — the project has no existing per-token USD
 // source, so this is the smallest addition. One batched call per wallet.
 const JUP_PRICE_URL = 'https://lite-api.jup.ag/price/v3';
@@ -173,18 +177,19 @@ function finishTxs(wallet: string, total: number, now: number): number {
 }
 
 async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
-  const [bal, tok, txs] = await Promise.all([
+  const [bal, tok, tok22, txs] = await Promise.all([
     rpc('getBalance', [wallet]),
     rpc('getTokenAccountsByOwner', [wallet, { programId: TOKEN_PROGRAM }, { encoding: 'jsonParsed' }]),
+    rpc('getTokenAccountsByOwner', [wallet, { programId: TOKEN_2022_PROGRAM }, { encoding: 'jsonParsed' }]),
     countTxs(wallet),
   ]);
   const solLamports =
     typeof (bal as { value?: unknown })?.value === 'number'
       ? ((bal as { value: number }).value)
       : null;
-  const accts = Array.isArray((tok as { value?: unknown[] })?.value)
-    ? (tok as { value: unknown[] }).value
-    : [];
+  const acctsOf = (t: unknown): unknown[] =>
+    Array.isArray((t as { value?: unknown[] })?.value) ? (t as { value: unknown[] }).value : [];
+  const accts = [...acctsOf(tok), ...acctsOf(tok22)];
   const holdings = accts
     .map((a) => {
       const info = (a as { account?: { data?: { parsed?: { info?: {
