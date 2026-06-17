@@ -245,8 +245,23 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const titleFull   = titleShort ? titleShort.fullName : displayName;
   const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
   // Collection-CREATE event (mpl-core CreateCollection) — not a normal mint.
-  // Rendered with a distinct purple-blue frame + COLLECTION pill below.
+  // Rendered as a calm "system event": subtle frame + a DEPLOY badge.
   const isCollectionCreate = ev.collectionCreate === true;
+  // Deploy card title = the resolved COLLECTION name (e.g. "SLAB", "PUMPS"),
+  // reusing the existing metadata pipeline (`group.name`, populated by the
+  // backend `enrichLaunchpadCollectionMeta` → mint_status patch). No new
+  // resolver. `#N` suffix stripped to a collection-style label; falls back to
+  // the shortened collection address when the name hasn't resolved yet.
+  const deployTitleName = (() => {
+    if (!isCollectionCreate) return null;
+    const stripped = collectionName ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim() : '';
+    if (stripped) return stripped;
+    return ev.collectionAddress ? shortMint(ev.collectionAddress) : 'Collection';
+  })();
+  // For deploy cards the title shows the collection name (above); for mints it
+  // stays the per-NFT title computed earlier.
+  const cardTitleText = isCollectionCreate ? (deployTitleName as string) : titleText;
+  const cardTitleFull = isCollectionCreate ? (deployTitleName as string) : titleFull;
   // Defensive frontend strip — when backend patched `group.name`
   // with the raw per-NFT name (e.g. "Kryptos #287"), strip the
   // trailing `#N` to derive a collection-style label ("Kryptos").
@@ -450,19 +465,15 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // its footprint and the panel never reflows. Eased so the fade reads
         // as deliberate rather than a flicker.
         opacity: dimmed ? 0.15 : 1,
-        // Collection-CREATE "special frame": a slightly thicker (3px) LEFT
-        // accent + a subtle purple glow around the card, keeping the existing
-        // purple palette. The left border lives on `.mints-feed-row` (2px) —
-        // overriding only its width/color inline bumps the accent without
-        // touching the right edge. The glow uses `filter: drop-shadow` rather
-        // than `box-shadow` on purpose: an inline box-shadow would beat (and
-        // kill) the `.mints-feed-row:hover` ring, whereas drop-shadow composes
-        // with it, so the hover-lift contract is preserved. Color-only +
-        // a 1px-wider left border → no card resize, normal mint cards untouched.
+        // Collection-CREATE "system event" frame: a subtle purple LEFT accent
+        // and the faint purple background wash above — nothing louder than a
+        // normal mint card. The earlier outer drop-shadow bloom was removed so
+        // a deploy never overpowers actual mint activity (visual hierarchy:
+        // normal mint < collection deploy < burst/important). Color + a 1px-
+        // wider left border only → no card resize, normal mint cards untouched.
         ...(isCollectionCreate ? {
           borderLeftWidth: 3,
-          borderLeftColor: 'rgba(124,108,230,0.75)',
-          filter: 'drop-shadow(0 0 6px rgba(124,108,230,0.40))',
+          borderLeftColor: 'rgba(124,108,230,0.55)',
         } : {}),
         // Transitions live on `.mints-feed-row` in globals.css so the
         // hover lift (transform + scale) animates in lock-step with bg
@@ -506,7 +517,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           {/* Title: char-shortened via shortenNftName (titleText); full name
               kept in the `title` tooltip. CSS ellipsis retained as a safety
               fallback for any name the char cap doesn't fully tame. */}
-          <div title={titleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+          <div title={cardTitleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {isSolPubkey(ev.mintAddress) ? (
               <a
                 href={`https://solscan.io/token/${ev.mintAddress}`}
@@ -520,7 +531,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
                 {titleText}
               </a>
             ) : (
-              titleText
+              cardTitleText
             )}
           </div>
           {/* Bulk-mint count — calm chip immediately after the NFT name
@@ -541,21 +552,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
               }}
             >×{ev.nftCount}</span>
           )}
-          {/* Collection-create marker — small, calm purple-blue pill so the
-              event reads as "a collection was created", not a mint. flexShrink:0
-              so the title truncates and the pill survives. */}
-          {isCollectionCreate && (
-            <span
-              title="Collection created (not a mint)"
-              style={{
-                flexShrink: 0, fontSize: 8.5, fontWeight: 700,
-                padding: '1px 5px', borderRadius: 4, lineHeight: 1.4,
-                background: 'rgba(124,108,230,0.16)',
-                border: '1px solid rgba(124,108,230,0.30)',
-                color: '#b9aef0', letterSpacing: '0.4px', textTransform: 'uppercase',
-              }}
-            >COLLECTION</span>
-          )}
+          {/* Collection-create marker moved to the right (price) area as a
+              DEPLOY badge — see below. No inline pill here, so the title line
+              stays identical in height to a normal mint card. */}
         </div>
         {/* Bottom line: collection name (smaller, muted) per the
             targeted-mode spec. Falls back to the shortened collection
@@ -563,7 +562,10 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             (via the on-chain collection address) when one is known. Cursor +
             underline-on-hover match the title-line link styling so
             users recognise it as interactive. */}
-        {(() => {
+        {/* Deploy cards already show the collection name as the title, so the
+            secondary collection line is suppressed for them to avoid a
+            duplicate (the deployer wallet line below becomes the subtitle). */}
+        {!isCollectionCreate && (() => {
           // Collection name links to the Solscan collection page (was the
           // LaunchMyNFT site). Use the on-chain collection address; the
           // `/account/` route resolves for both Metaplex collection mints
@@ -738,6 +740,25 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       })()}
       </div>
       </div>
+      {isCollectionCreate ? (
+        // Deploy events have no price. Rather than a reserved-but-blank price
+        // column (which read as broken), the DEPLOY badge occupies that area —
+        // right-aligned within the same 56px footprint so the age column stays
+        // aligned with normal mint cards. Premium neutral purple; same height
+        // as the source badges (14px line-height), slimmer width, tight padding.
+        <span style={{
+          minWidth: 56, display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          flexShrink: 0, transform: 'translateX(8px)',
+        }}>
+          <span title="Collection deployed" style={{
+            display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+            padding: '1.5px 7px', borderRadius: 3.5, lineHeight: '14px',
+            background: 'rgba(124,108,230,0.16)',
+            border: '1px solid rgba(124,108,230,0.34)',
+            color: '#b9aef0',
+          }}>DEPLOY</span>
+        </span>
+      ) : (
       <span title={priceTitle} style={{
         minWidth: 56, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
@@ -755,6 +776,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // affect flex layout, so timer / badges / text column stay put.
         transform: 'translateX(8px)',
       }}>{priceText}</span>
+      )}
       {(() => {
         // Age tier coloring — mirrors /feed's TimeAgo tiers (pink
         // <15s, amber 15s–3m, muted >3m). Re-evaluated on the
