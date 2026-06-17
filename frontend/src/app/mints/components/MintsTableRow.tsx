@@ -777,7 +777,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </>
         );
       })()}
-      <td style={{ padding: '11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <td style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {fmtAgeShort(r.lastMintAt)}
       </td>
       {/* PRICE — latest observed mint price for this collection.
@@ -888,7 +888,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '11px 18px 11px 10px', textAlign: 'right', verticalAlign: 'middle', fontSize: 12.5, color: '#9a9ab4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        style={{ padding: '11px 18px 11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#9a9ab4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>
