@@ -12,7 +12,7 @@ import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
 import { fmtAge, fmtMintPrice, shortMint, thumb200, isNewCollection } from '../lib/format';
-import { buildLaunchMyNftUrl, sourceHref } from '../lib/source';
+import { sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
@@ -418,15 +418,17 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         </div>
         {/* Bottom line: collection name (smaller, muted) per the
             targeted-mode spec. Falls back to the shortened collection
-            address, then to "—". Clickable when we can build a
-            LaunchMyNFT link for this row's group — same target as
-            the LMNFT pill in the trending table on the left. We
-            resolve the URL via `buildLaunchMyNftUrl` which already
-            handles the deployer-only explore fallback. Cursor +
+            address, then to "—". Clickable to the Solscan collection page
+            (via the on-chain collection address) when one is known. Cursor +
             underline-on-hover match the title-line link styling so
             users recognise it as interactive. */}
         {(() => {
-          const lmnftHref = group ? buildLaunchMyNftUrl(group) : null;
+          // Collection name links to the Solscan collection page (was the
+          // LaunchMyNFT site). Use the on-chain collection address; the
+          // `/account/` route resolves for both Metaplex collection mints
+          // and MPL Core collections (where `/token/` is wrong).
+          const collAddr = group?.collectionAddress ?? ev.collectionAddress ?? null;
+          const collectionHref = collAddr ? `https://solscan.io/account/${collAddr}` : null;
           const baseStyle: React.CSSProperties = {
             // Collection tier in the card's text hierarchy: NFT
             // title above is the bright primary (#f0eef8, weight
@@ -457,9 +459,9 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             // ellipsis never fires.
             minWidth: 0, flex: 1,
           };
-          const nameEl = lmnftHref ? (
+          const nameEl = collectionHref ? (
             <a
-              href={lmnftHref}
+              href={collectionHref}
               target="_blank"
               rel="noopener noreferrer"
               
