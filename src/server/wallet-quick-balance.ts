@@ -25,17 +25,15 @@ const TOP_N = 3;
 // call. Long-tail dust/spam — mostly unpriced — is skipped; this captures the
 // dominant value for a whale check without fanning out N price requests.
 const PRICE_CAP = 50;
-// Activity-tier TXS. We page getSignaturesForAddress (newest→older) up to
-// TXS_MAX_PAGES; if we reach genesis the count is exact, otherwise we return
-// the floor (TXS_MAX_PAGES × 1000). The frontend maps this to an activity
-// TIER (e.g. 50K+), never a fake exact lifetime count — so the floor at the
-// cap is honest. RPC has no cheaper count, so this is a bounded scan, NOT a
-// full wallet scan. Its own 24h cache (txsCache) means the deep scan runs at
-// most once per wallet per day even though the rest of quick-balance refreshes
-// every 60s; the scan also runs in parallel with the token pipeline.
-const TXS_MAX_PAGES = 50;           // ceiling tier = "50K+"
+// Lightweight bonus TXS. Bounded getSignaturesForAddress scan (newest→older),
+// hard-stopped at TXS_MAX_PAGES × TXS_PAGE_LIMIT = 25,000. Exact when genesis
+// is reached within the budget; otherwise the count is 25,000 and the frontend
+// shows "25K+" (= "very active wallet", no fake precision for whales). NEVER
+// scans past page 25. Runs in parallel with the token pipeline; its own short
+// cache (txsCache) keeps the scan off the hot path between refreshes.
+const TXS_MAX_PAGES = 25;
 const TXS_PAGE_LIMIT = 1000;
-const TXS_TTL_MS = 24 * 60 * 60 * 1000;
+const TXS_TTL_MS = 10 * 60 * 1000; // 10 min
 interface TxsEntry { value: number; fetchedAt: number }
 const txsCache = new Map<string, TxsEntry>();
 

@@ -96,18 +96,14 @@ function fmtUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-// TXS activity tiers (never a fake exact count): exact below 100, else the
-// highest tier threshold crossed, always with "+". The backend's bounded scan
-// caps at 50K, so 50K+ is the practical ceiling.
-const TXS_TIERS: Array<[number, string]> = [
-  [1_000_000, '1KK+'], [500_000, '500K+'], [250_000, '250K+'],
-  [100_000, '100K+'], [50_000, '50K+'], [10_000, '10K+'],
-  [5_000, '5K+'], [1_000, '1K+'], [500, '500+'], [100, '100+'],
-];
-function fmtTxsTier(n: number): string {
-  if (n < 100) return String(n);
-  for (const [t, label] of TXS_TIERS) if (n >= t) return label;
-  return `${n}+`;
+// Compact TXS: exact below 1K, then K (532 · 6.9K · 14K). The backend's
+// bounded scan caps at 25,000, so 25,000 means "≥25K" → "25K+" (very active
+// wallet, no fake precision for whales).
+function fmtTxs(n: number): string {
+  if (n >= 25000) return '25K+';
+  if (n < 1000) return String(n);
+  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
+  return `${Math.floor(n / 1000)}K`;
 }
 
 function MinterWalletLink({ wallet }: { wallet: string }) {
@@ -135,7 +131,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
 
   const sol =
     data === 'loading' ? '…' : data?.solLamports != null ? `${(data.solLamports / 1e9).toFixed(2)} ◎` : '—';
-  const txs = data === 'loading' ? '…' : data?.txs != null ? fmtTxsTier(data.txs) : '—';
+  const txs = data === 'loading' ? '…' : data?.txs != null ? fmtTxs(data.txs) : '—';
   // Total USD value of priced SPL holdings (whale check). null → "$0".
   const tokens = data === 'loading' ? '…' : data?.tokenUsd != null ? fmtUsd(data.tokenUsd) : data ? '$0' : '—';
 
