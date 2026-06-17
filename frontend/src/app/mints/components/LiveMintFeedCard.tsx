@@ -60,8 +60,8 @@ interface Props {
 // balances and says so.
 interface QuickBalance {
   solLamports: number | null;
-  tokenAccounts: number;
-  topTokens: Array<{ mint: string; amount: number; symbol: string | null }>;
+  tokenUsd: number | null;
+  topTokens: Array<{ mint: string; symbol: string | null; usd: number }>;
   fetchedAt: number;
 }
 const WB_TTL_MS = 60_000;
@@ -89,11 +89,10 @@ function fetchQuickBalance(wallet: string): Promise<QuickBalance | null> {
   return p;
 }
 
-function fmtTokenAmount(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-  return n >= 1 ? n.toFixed(2) : n.toPrecision(2);
+function fmtUsd(n: number): string {
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M`;
+  if (n >= 1) return `$${Math.round(n).toLocaleString('en-US')}`;
+  return `$${n.toFixed(2)}`;
 }
 
 function MinterWalletLink({ wallet }: { wallet: string }) {
@@ -121,7 +120,8 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
 
   const sol =
     data === 'loading' ? '…' : data?.solLamports != null ? `${(data.solLamports / 1e9).toFixed(2)} ◎` : '—';
-  const tokens = data === 'loading' ? '…' : data ? String(data.tokenAccounts) : '—';
+  // Total USD value of priced SPL holdings (whale check). null → "$0".
+  const tokens = data === 'loading' ? '…' : data?.tokenUsd != null ? fmtUsd(data.tokenUsd) : data ? '$0' : '—';
 
   return (
     <>
@@ -162,7 +162,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
               {data.topTokens.map((t) => (
                 <div key={t.mint} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 10, lineHeight: 1.5 }}>
                   <span style={{ color: '#b9b2d6' }}>{t.symbol ?? shortMint(t.mint)}</span>
-                  <span style={{ color: '#9a9ab4', fontVariantNumeric: 'tabular-nums' }}>{fmtTokenAmount(t.amount)}</span>
+                  <span style={{ color: '#9a9ab4', fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.usd)}</span>
                 </div>
               ))}
             </div>

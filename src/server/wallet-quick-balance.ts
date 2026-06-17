@@ -15,14 +15,22 @@ import { rateLimit, isValidMint } from './rate-limit';
 const HELIUS_URL = (): string =>
   `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+// Jupiter Lite price API (no key) — the project has no existing per-token USD
+// source, so this is the smallest addition. One batched call per wallet.
+const JUP_PRICE_URL = 'https://lite-api.jup.ag/price/v3';
 const TTL_MS = 60_000;
 const TIMEOUT_MS = 8_000;
 const TOP_N = 3;
+// Cap on how many holdings (largest by raw amount) we price in one Jupiter
+// call. Long-tail dust/spam — mostly unpriced — is skipped; this captures the
+// dominant value for a whale check without fanning out N price requests.
+const PRICE_CAP = 50;
 
 export interface QuickBalance {
   solLamports: number | null;
-  tokenAccounts: number;
-  topTokens: Array<{ mint: string; amount: number; symbol: string | null }>;
+  // Total USD value of priced SPL holdings (null when nothing could be priced).
+  tokenUsd: number | null;
+  topTokens: Array<{ mint: string; symbol: string | null; usd: number }>;
   fetchedAt: number;
 }
 
@@ -82,6 +90,33 @@ async function resolveSymbols(mints: string[]): Promise<Map<string, string>> {
   return out;
 }
 
+// mint → USD price (per whole token), in ONE Jupiter batched call. Tokens
+// without a Jupiter price are simply absent (skipped from the total).
+async function fetchJupPrices(mints: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (mints.length === 0) return out;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(`${JUP_PRICE_URL}?ids=${mints.join(',')}`, {
+      headers: { accept: 'application/json' },
+      signal: ctrl.signal,
+    });
+    if (r.ok) {
+      const j = (await r.json()) as Record<string, { usdPrice?: unknown } | null>;
+      for (const [mint, v] of Object.entries(j)) {
+        const p = (v as { usdPrice?: unknown } | null)?.usdPrice;
+        if (typeof p === 'number' && p > 0) out.set(mint, p);
+      }
+    }
+  } catch {
+    /* skip pricing on failure — total falls back to null */
+  } finally {
+    clearTimeout(t);
+  }
+  return out;
+}
+
 async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
   const [bal, tok] = await Promise.all([
     rpc('getBalance', [wallet]),
@@ -103,12 +138,22 @@ async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
     })
     .filter((h) => h.mint && h.amount > 0)
     .sort((a, b) => b.amount - a.amount);
-  const top = holdings.slice(0, TOP_N);
+
+  // Price the largest holdings (by raw amount), convert to USD, aggregate.
+  const candidates = holdings.slice(0, PRICE_CAP);
+  const prices = await fetchJupPrices(candidates.map((h) => h.mint));
+  const priced = candidates
+    .map((h) => ({ mint: h.mint, usd: (prices.get(h.mint) ?? 0) * h.amount }))
+    .filter((h) => h.usd > 0)
+    .sort((a, b) => b.usd - a.usd);
+  const tokenUsd = priced.length ? priced.reduce((s, h) => s + h.usd, 0) : null;
+
+  const top = priced.slice(0, TOP_N);
   const symbols = await resolveSymbols(top.map((h) => h.mint));
   return {
     solLamports,
-    tokenAccounts: holdings.length,
-    topTokens: top.map((h) => ({ ...h, symbol: symbols.get(h.mint) ?? null })),
+    tokenUsd,
+    topTokens: top.map((h) => ({ mint: h.mint, symbol: symbols.get(h.mint) ?? null, usd: h.usd })),
     fetchedAt: Date.now(),
   };
 }
@@ -136,7 +181,7 @@ export function createWalletQuickBalanceRouter(): Router {
       }
       res.json(qb);
     } catch {
-      res.json({ solLamports: null, tokenAccounts: 0, topTokens: [], fetchedAt: now });
+      res.json({ solLamports: null, tokenUsd: null, topTokens: [], fetchedAt: now });
     }
   });
   return router;
