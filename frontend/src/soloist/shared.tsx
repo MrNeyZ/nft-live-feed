@@ -683,13 +683,29 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // mounted nav can still take a beat on the first hover — calling
   // router.prefetch on pointer-enter primes the chunk before click).
   const router = useRouter();
-  // One-time pre-warm on TopNav mount: prefetch every internal nav
-  // route so the very first switch after the app boots feels instant.
-  // Cheap — Next.js dedupes prefetches per path so the hover-prefetch
-  // path below is a no-op on already-warmed routes.
+  // One-time pre-warm on TopNav mount: prefetch every internal nav route so the
+  // first switch after boot feels instant. IDLE-DEFERRED + staggered (one route
+  // per idle callback) so the 7 prefetches don't contend with THIS page's
+  // hydration on slow hardware — firing them eagerly at mount delayed both first
+  // paint and the prefetches themselves. requestIdleCallback (with a setTimeout
+  // fallback) yields to hydration first; Next dedupes per path so the hover/
+  // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/trending', '/feed'];
-    for (const h of HREFS) router.prefetch(h);
+    const hasRic = 'requestIdleCallback' in window;
+    const schedule = (cb: () => void): number =>
+      hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
+    const unschedule = (h: number): void => {
+      if (hasRic) window.cancelIdleCallback(h); else window.clearTimeout(h);
+    };
+    let idx = 0;
+    let handle = schedule(function pump() {
+      if (idx >= HREFS.length) return;
+      router.prefetch(HREFS[idx++]);
+      handle = schedule(pump);
+    });
+    return () => unschedule(handle);
   }, [router]);
   // Pathname-change perf log. Pairs with the click-time stamp set in
   // each Link's onClick to print a one-liner like
