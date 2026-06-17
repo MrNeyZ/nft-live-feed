@@ -22,13 +22,15 @@ const TOP_N = 3;
 export interface QuickBalance {
   solLamports: number | null;
   tokenAccounts: number;
-  topTokens: Array<{ mint: string; amount: number }>;
+  topTokens: Array<{ mint: string; amount: number; symbol: string | null }>;
   fetchedAt: number;
 }
 
 const cache = new Map<string, QuickBalance>();
 
-async function rpc(method: string, params: unknown[]): Promise<unknown> {
+// `params` is positional (array) for standard RPC methods (getBalance,
+// getTokenAccountsByOwner) and a named object for DAS methods (getAssetBatch).
+async function rpc(method: string, params: unknown): Promise<unknown> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -46,6 +48,38 @@ async function rpc(method: string, params: unknown[]): Promise<unknown> {
   } finally {
     clearTimeout(t);
   }
+}
+
+// Resolve token tickers for the top mints in ONE DAS getAssetBatch call.
+// Prefers content.metadata.symbol, falls back to token_info.symbol. Returns
+// a mint→symbol map; missing/empty symbols are simply absent (frontend then
+// falls back to the short mint).
+async function resolveSymbols(mints: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (mints.length === 0) return out;
+  const result = await rpc('getAssetBatch', { ids: mints });
+  if (!Array.isArray(result)) return out;
+  for (const a of result) {
+    const asset = a as {
+      id?: string;
+      content?: { metadata?: { symbol?: unknown } };
+      token_info?: { symbol?: unknown };
+    } | null;
+    const id = asset?.id;
+    const raw =
+      (typeof asset?.content?.metadata?.symbol === 'string' && asset.content.metadata.symbol) ||
+      (typeof asset?.token_info?.symbol === 'string' && asset.token_info.symbol) ||
+      '';
+    // Strip zero-width / filler / control chars some tokens stuff into their
+    // symbol, collapse whitespace, and cap length so the tooltip stays clean.
+    const sym = raw
+      .replace(/[\u0000-\u001f\u00a0\u200b-\u200f\u2060\u3164\ufeff]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 12);
+    if (id && sym) out.set(id, sym);
+  }
+  return out;
 }
 
 async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
@@ -69,10 +103,12 @@ async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
     })
     .filter((h) => h.mint && h.amount > 0)
     .sort((a, b) => b.amount - a.amount);
+  const top = holdings.slice(0, TOP_N);
+  const symbols = await resolveSymbols(top.map((h) => h.mint));
   return {
     solLamports,
     tokenAccounts: holdings.length,
-    topTokens: holdings.slice(0, TOP_N),
+    topTokens: top.map((h) => ({ ...h, symbol: symbols.get(h.mint) ?? null })),
     fetchedAt: Date.now(),
   };
 }

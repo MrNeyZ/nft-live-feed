@@ -61,7 +61,7 @@ interface Props {
 interface QuickBalance {
   solLamports: number | null;
   tokenAccounts: number;
-  topTokens: Array<{ mint: string; amount: number }>;
+  topTokens: Array<{ mint: string; amount: number; symbol: string | null }>;
   fetchedAt: number;
 }
 const WB_TTL_MS = 60_000;
@@ -139,40 +139,34 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
       {hover && typeof document !== 'undefined' && createPortal(
         <div
           style={{
-            position: 'fixed', zIndex: 9999, pointerEvents: 'none', minWidth: 168,
+            position: 'fixed', zIndex: 9999, pointerEvents: 'none', minWidth: 104,
             top: hover.y, left: hover.x,
             transform: hover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
             background: 'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
-            border: '1px solid rgba(168,144,232,0.46)', borderRadius: 9, padding: '9px 12px 10px',
-            color: '#ece7f8', textAlign: 'left',
-            boxShadow: '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px rgba(128,104,216,0.15)',
-            backdropFilter: 'blur(11px)', WebkitBackdropFilter: 'blur(11px)',
+            border: '1px solid rgba(168,144,232,0.40)', borderRadius: 7, padding: '6px 8px',
+            color: '#ece7f8', textAlign: 'left', fontFamily: "'SF Mono','Fira Code',monospace",
+            boxShadow: '0 8px 22px rgba(0,0,0,0.55), 0 0 12px rgba(128,104,216,0.12)',
+            backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
           }}
         >
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: '#8a81b0', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid rgba(168,144,232,0.15)' }}>
-            Minter wallet
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
+            <span style={{ color: '#7e7799' }}>SOL</span>
+            <span style={{ color: '#cdc2f2', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
-            <span style={{ fontSize: 10.5, fontWeight: 500, color: '#7e7799' }}>SOL balance</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: '#cdc2f2', fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
-            <span style={{ fontSize: 10.5, fontWeight: 500, color: '#7e7799' }}>Token holdings</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#f2eefb', fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
+            <span style={{ color: '#7e7799' }}>TOKENS</span>
+            <span style={{ color: '#e7e1f6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
           </div>
           {data && data !== 'loading' && data.topTokens.length > 0 && (
-            <div style={{ marginTop: 5, paddingTop: 5, borderTop: '1px solid rgba(168,144,232,0.15)' }}>
+            <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(168,144,232,0.14)' }}>
               {data.topTokens.map((t) => (
-                <div key={t.mint} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '1px 0', fontSize: 10, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>
-                  <span>{shortMint(t.mint)}</span>
-                  <span style={{ color: '#cdc2f2' }}>{fmtTokenAmount(t.amount)}</span>
+                <div key={t.mint} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 10, lineHeight: 1.5 }}>
+                  <span style={{ color: '#b9b2d6' }}>{t.symbol ?? shortMint(t.mint)}</span>
+                  <span style={{ color: '#9a9ab4', fontVariantNumeric: 'tabular-nums' }}>{fmtTokenAmount(t.amount)}</span>
                 </div>
               ))}
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 8.5, color: '#6b6486', letterSpacing: '0.2px' }}>
-            balances only · no USD value
-          </div>
         </div>,
         document.body,
       )}
