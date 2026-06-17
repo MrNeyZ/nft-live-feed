@@ -418,6 +418,7 @@ export function createRuntimeRouter(): Router {
         `SELECT grouping_key, COUNT(*) AS count
            FROM mint_events
           WHERE created_at >= $1
+            AND collection_create = false
           GROUP BY grouping_key`,
         [since],
       );

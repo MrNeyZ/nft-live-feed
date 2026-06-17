@@ -645,6 +645,24 @@ export function recordMint(ev: MintEventWire): boolean {
   // Sticky-true: once any Core Candy Machine v3 mint is seen for this
   // collection, the row stays marked as a Core launchpad (pink CORE badge).
   if (ev.coreLaunchpad === true) a.coreLaunchpad = true;
+
+  // Collection-CREATE event (mpl-core CreateCollection) — a DEPLOY, not a mint.
+  // It must surface as a Live Mint Feed card and seed the collection row's
+  // CREATED timestamp (= tx blockTime, exact on-chain create), but must NEVER
+  // touch the supply / velocity / type counters: no fake +1 mint. Emitted
+  // unsampled (a singular event) and returns before any counting below.
+  if (ev.collectionCreate === true) {
+    const createdMs = Date.parse(ev.blockTime);
+    if (Number.isFinite(createdMs)
+        && (a.collectionCreatedAt == null || createdMs < a.collectionCreatedAt)) {
+      a.collectionCreatedAt = createdMs;
+    }
+    saleEventBus.emitMint(ev);
+    rememberRecentMint(ev);
+    saleEventBus.emitMintStatus(buildStatus(a, now));
+    return true;
+  }
+
   a.observedMints++;
   a.supplyMintedLocal++;
   a.lastMintAt = now;

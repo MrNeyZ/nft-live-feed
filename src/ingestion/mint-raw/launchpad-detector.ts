@@ -199,6 +199,12 @@ export interface LaunchpadHit {
    *  `items_available` directly off the on-chain state. Null for
    *  every other source. */
   candyMachineState?: string | null;
+  /** True when this hit is a collection DEPLOY (mpl-core CreateCollection /
+   *  CreateCollectionV1), NOT an asset mint. `collectionAddress` is the created
+   *  collection (Core ix accounts[0]); `mintAddress` is null (no asset);
+   *  `minter` is the deployer / update authority (accounts[1]). The caller
+   *  emits a distinct COLLECTION_CREATE event instead of the normal mint path. */
+  collectionCreate?: boolean;
 }
 
 interface ParsedTxShape {
@@ -260,6 +266,67 @@ function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
   for (const line of shape.logs) {
     const m = line.match(CORE_CREATE_LOG_REGEX);
     if (m) return `Instruction: ${m[1]}`;
+  }
+  return null;
+}
+
+/** LMNFT Core collection-DEPLOY needle. A CreateCollection / CreateCollectionV1
+ *  builds the collection master (no asset minted) — deliberately EXCLUDED from
+ *  `CORE_CREATE_LOG_REGEX` (the mint needle) so a deploy never parses as a mint.
+ *  This separate needle surfaces the deploy as its own COLLECTION_CREATE event.
+ *  Same dual fingerprint as the mint needle (LMNFT outer + MPL Core present). */
+const CORE_COLLECTION_CREATE_LOG_REGEX = /^Program log: Instruction: (CreateCollection|CreateCollectionV1)$/;
+function lmnftCoreCollectionCreateNeedle(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))    return null;
+  for (const line of shape.logs) {
+    const m = line.match(CORE_COLLECTION_CREATE_LOG_REGEX);
+    if (m) return `Instruction: ${m[1]}`;
+  }
+  return null;
+}
+
+/** Pull the created-collection address + deployer out of the Core
+ *  CreateCollection ix. The Core CreateCollection(V1) account layout is:
+ *      accounts[0] = collection (the new master being created)
+ *      accounts[1] = updateAuthority / deployer (often the payer/signer)
+ *  This is the inverse-role mapping of `extractCoreMintFromInner` (where
+ *  accounts[0] is the asset and [1] is the collection) — keeping them as
+ *  separate functions is what prevents the deploy→mint misclassification that
+ *  stored the deployer wallet as the collectionAddress. Scans top-level first
+ *  (deploy txs CPI Core directly), then inner. Returns null if no Core ix. */
+function extractCoreCollectionCreate(
+  tx: RawSolanaTx,
+  shape: ParsedTxShape,
+): { collectionAddress: string; deployer: string | null } | null {
+  const scan = (
+    list: Array<{ programIdIndex?: number; programId?: string; accounts?: Array<number | string> }> | undefined,
+  ): { collectionAddress: string; deployer: string | null } | null => {
+    if (!Array.isArray(list)) return null;
+    for (const ix of list) {
+      const programId = typeof ix.programId === 'string'
+        ? ix.programId
+        : typeof ix.programIdIndex === 'number'
+          ? shape.accountKeys[ix.programIdIndex]
+          : '';
+      if (programId !== MPL_CORE_PROGRAM) continue;
+      const accs = (ix.accounts ?? []).map(a => typeof a === 'string' ? a : shape.accountKeys[a]);
+      const collection = accs[0];
+      if (collection) return { collectionAddress: collection, deployer: accs.length > 1 ? accs[1] : null };
+    }
+    return null;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const top = (tx.transaction?.message as any)?.instructions;
+  const fromTop = scan(top);
+  if (fromTop) return fromTop;
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fromInner = scan((grp as any).instructions);
+      if (fromInner) return fromInner;
+    }
   }
   return null;
 }
@@ -775,6 +842,31 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     lmnftCoreNeedle,
     };
+  }
+  // LMNFT Core collection-DEPLOY (CreateCollection / CreateCollectionV1).
+  // Checked AFTER the asset-mint needle so a lazy-create-on-first-mint tx
+  // (carrying both a CreateV2 asset and a CreateCollection) is still treated
+  // as a mint. A deploy-only tx mints no asset → surfaces as a distinct
+  // COLLECTION_CREATE hit with the created collection as collectionAddress and
+  // the update authority as the deployer/minter (never the reverse).
+  const lmnftColCreateNeedle = lmnftCoreCollectionCreateNeedle(shape);
+  if (lmnftColCreateNeedle) {
+    const cc = extractCoreCollectionCreate(tx, shape);
+    if (cc) {
+      console.log(
+        `[mints/lmnft-collection-create] sig=${tx.signature ?? '—'} coreIx=${lmnftColCreateNeedle} ` +
+        `collection=${cc.collectionAddress} deployer=${cc.deployer ?? 'null'}`,
+      );
+      return {
+        source:            'LaunchMyNFT',
+        standard:          'core',
+        mintAddress:       null,
+        collectionAddress: cc.collectionAddress,
+        minter:            cc.deployer ?? shape.signerKeys[0] ?? null,
+        matchedNeedle:     lmnftColCreateNeedle,
+        collectionCreate:  true,
+      };
+    }
   }
   // LMNFT outer present but NO Core-create log → skipped here as
   // `core_update_only` so config / update / SetName txs are visibly

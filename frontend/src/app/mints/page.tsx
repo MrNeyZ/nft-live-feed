@@ -507,6 +507,11 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
   const freeCount: Record<string, number> = {};
   const paidCount: Record<string, number> = {};
   for (const ev of events) {
+    // Collection-CREATE is a deploy, not a mint — never count it toward a
+    // collection's MINTS / velocity here. The authoritative row (with its
+    // CREATED timestamp) arrives via the backend `mint_status` frame on
+    // reconnect; counting it would fake a +1 supply on the table row.
+    if (ev.collectionCreate === true) continue;
     const key = rebuildEventGroupingKey(ev);
     if (!key) {
       console.log(
@@ -1622,7 +1627,13 @@ export default function MintsPage() {
           // lastMintAt to the event's wall-clock. The next
           // `mint_status` frame from the backend will overwrite the
           // synthesized row with authoritative v60/v5m/state values.
-          setRows(prev => {
+          //
+          // Collection-CREATE events are deploys, not mints: skip the
+          // table mirror entirely so they never fake a +1 on the MINTS
+          // column. The card still renders from the feed `events` list,
+          // and the backend `mint_status` frame (fired in the same SSE
+          // batch) seeds/refreshes the row with the real CREATED time.
+          if (!ev.collectionCreate) setRows(prev => {
             const next = new Map(prev);
             const cur  = next.get(ev.groupingKey);
             // Use the same blockTime anchor the feed uses, so the

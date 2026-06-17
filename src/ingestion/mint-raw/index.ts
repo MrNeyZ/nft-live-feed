@@ -1030,6 +1030,44 @@ export async function ingestMintRaw(
         `result=${lp ? `hit(source=${lp.source},standard=${lp.standard},mint=${lp.mintAddress ?? 'null'},coll=${lp.collectionAddress ?? 'null'},needle=${lp.matchedNeedle ?? '—'})` : 'null'}`,
       );
     }
+    // Collection-DEPLOY event (mpl-core CreateCollection via LaunchMyNFT).
+    // Emitted as a distinct COLLECTION_CREATE: collectionAddress is the created
+    // collection, minter is the deployer, NO asset, NO price, NO supply +1.
+    // Returns before the NFT-shape mint gate (which would reject a deploy).
+    // recordMint is called directly (not via `rec`) so countNftMints can't tag
+    // it with a bogus ×N badge — a deploy mints zero NFTs.
+    if (lp && lp.collectionCreate === true && lp.collectionAddress) {
+      const groupingKey = `collection:${lp.collectionAddress}`;
+      const blockTime = tx.blockTime
+        ? new Date((tx.blockTime as number) * 1000).toISOString()
+        : new Date().toISOString();
+      console.log(
+        `[mints/launchpad] accept source=${lp.source} type=COLLECTION_CREATE ix=${lp.matchedNeedle ?? '—'} ` +
+        `collection=${lp.collectionAddress} deployer=${lp.minter ?? 'null'} sig=${sig}`,
+      );
+      recordMint({
+        signature:         sig,
+        blockTime,
+        programSource:     'mpl_core',
+        mintAddress:       null,
+        collectionAddress: lp.collectionAddress,
+        groupingKey,
+        groupingKind:      'collection',
+        // No mint price — classifyMintType(null) is 'unknown'; the frontend
+        // renders a blank price for collectionCreate, never FREE/a SOL amount.
+        mintType:          'unknown',
+        priceLamports:     null,
+        minter:            lp.minter,
+        sourceLabel:       launchpadSourceLabel(lp.source),
+        collectionCreate:  true,
+      });
+      // Resolve the collection name + image so the card/table show identity.
+      void enrichLaunchpadCollectionMeta(lp.collectionAddress, groupingKey, {
+        patchName: true,
+        logTag:    'collection-create-meta',
+      });
+      return;
+    }
     if (!lp) {
       // Magic Eden launchpad (CMZYPASG…) — fronts an MPL Core mint the
       // targeted launchpad detector doesn't recognize (no ME program in its
