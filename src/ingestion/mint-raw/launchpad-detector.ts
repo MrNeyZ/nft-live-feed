@@ -242,7 +242,18 @@ function readTxShape(tx: RawSolanaTx): ParsedTxShape | null {
  *  Strict end-of-line match to avoid `Instruction: CreateTokenAccount`
  *  (Token program) collisions; ATA's create logs as `Program log:
  *  Create` (no `Instruction:` prefix) so it's also disjoint. */
-const CORE_CREATE_LOG_REGEX = /^Program log: Instruction: (Create|CreateV1|CreateV2|CreateCollection|CreateCollectionV1)$/;
+// Per-ASSET Core create variants only. `CreateCollection` / `CreateCollectionV1`
+// are collection DEPLOY instructions (no NFT asset minted) — including them made
+// a LaunchMyNFT collection-deploy tx match the mint needle, after which
+// `extractCoreMintFromInner` applied the asset layout (accounts[0]=asset,
+// accounts[1]=collection) to a CreateCollection ix whose real layout is
+// accounts[0]=collection, accounts[1]=updateAuthority. Result: the new
+// collection was stored as the minted asset and the DEPLOYER WALLET as the
+// collectionAddress, so the collection-created resolver aged the wallet's
+// signature history instead of the collection (CREATED showed wallet age, e.g.
+// "4h"). Deploy txs must not surface as mints.
+// Ref (rejected): 4vbkGLJiYemmjQPuF6tj9obqspz1Hj3NmJASYXB9tTsvdiyLZ3SWJmdxRS6cRo2McSsFDH3xzfVRTfYPjMBNk2Rd
+const CORE_CREATE_LOG_REGEX = /^Program log: Instruction: (Create|CreateV1|CreateV2)$/;
 function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
   if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))    return null;
