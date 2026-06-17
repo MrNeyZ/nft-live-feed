@@ -58,7 +58,23 @@ const ASSET_SEED = Buffer.from('asset');
  *  The prefix layout up through `nonce` is identical for V1 and V2,
  *  so reading at fixed offset 103 works for both. We don't gate on the
  *  LeafSchema variant tag at byte 6 for the same reason. */
-const NOOP_LEAF_NONCE_OFFSET = 103;
+// Bubblegum LeafSchemaEvent (wrapped in the spl-noop ApplicationData V1
+// envelope, head bytes [1,0]). The LeafSchema::V1 body begins after a 9-byte
+// envelope header, laid out as:
+//     id (Pubkey, 32) @ 9 .. 41      ← the canonical cNFT asset id
+//     owner (Pubkey, 32) @ 41 .. 73
+//     delegate (Pubkey, 32) @ 73 .. 105
+//     nonce (u64 LE, 8) @ 105 .. 113  ← the leaf index used to derive id
+// The previous NONCE offset of 103 was off by 2 bytes: it read into the
+// delegate/nonce boundary, yielding a ~23-billion garbage nonce that derived a
+// PHANTOM asset PDA which DAS can never resolve (every LMNFT cNFT mint surfaced
+// with a fabricated mintAddress + empty name). Verified against three live
+// MintToCollectionV1 txs: id@9 resolves in DAS, nonce@105 == the real leaf
+// index, and PDA(["asset", tree, nonce@105]) == id@9.
+// Ref: 4ysjhrsAazda3kc52K9WkaJhsgsGjrj1TiALXSsjwnkxy2uUQQ1apTfNRF3UXQoKu9EyUXgkPGRvvtKFpHjYk27T
+const NOOP_LEAF_ID_OFFSET    = 9;
+const NOOP_LEAF_ID_LEN       = 32;
+const NOOP_LEAF_NONCE_OFFSET = 105;
 const NOOP_LEAF_NONCE_LEN    = 8;
 const NOOP_MIN_DATA_LEN      = NOOP_LEAF_NONCE_OFFSET + NOOP_LEAF_NONCE_LEN;
 
@@ -759,6 +775,7 @@ function extractCnftFromInner(
     if (!Array.isArray(grp.instructions)) continue;
     let merkleTree: string | null = null;
     let nonceLe:    Buffer | null = null;
+    let leafIdB58:  string | null = null;
     for (const ix of grp.instructions) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ixAny = ix as any;
@@ -789,10 +806,34 @@ function extractCnftFromInner(
           NOOP_LEAF_NONCE_OFFSET,
           NOOP_LEAF_NONCE_OFFSET + NOOP_LEAF_NONCE_LEN,
         ));
+        // The LeafSchema also carries the canonical asset `id` directly.
+        try {
+          leafIdB58 = new PublicKey(
+            data.subarray(NOOP_LEAF_ID_OFFSET, NOOP_LEAF_ID_OFFSET + NOOP_LEAF_ID_LEN),
+          ).toBase58();
+        } catch { leafIdB58 = null; }
       }
     }
     if (merkleTree) {
-      const assetId = nonceLe ? deriveCnftAssetId(merkleTree, nonceLe) : null;
+      // Phantom guard: accept the asset id ONLY when the id read straight from
+      // the LeafSchema event equals the id derived from (tree, nonce). They
+      // agree iff both the id and nonce offsets are correct for this event
+      // layout — so a future Bubblegum variant that shifts the bytes can never
+      // again emit a fabricated, unresolvable asset id. On any mismatch /
+      // missing field, assetId degrades to null (the row groups by tree, the
+      // existing no-mint-anchor behaviour) instead of a phantom address.
+      let assetId: string | null = null;
+      if (leafIdB58 && nonceLe) {
+        const derived = deriveCnftAssetId(merkleTree, nonceLe);
+        if (derived && derived === leafIdB58) {
+          assetId = derived;
+        } else {
+          console.log(
+            `[mints/cnft-skip] reason=asset_id_mismatch tree=${merkleTree} ` +
+            `leafId=${leafIdB58} derived=${derived ?? 'null'} sig=${tx.signature ?? '—'}`,
+          );
+        }
+      }
       return { merkleTree, assetId };
     }
   }
