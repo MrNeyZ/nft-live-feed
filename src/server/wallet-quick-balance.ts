@@ -25,9 +25,20 @@ const TOP_N = 3;
 // call. Long-tail dust/spam — mostly unpriced — is skipped; this captures the
 // dominant value for a whale check without fanning out N price requests.
 const PRICE_CAP = 50;
+// Lifetime-TXS approximation. We page getSignaturesForAddress (newest→older)
+// up to TXS_MAX_PAGES; if we reach genesis the count is exact, otherwise we
+// return the floor (TXS_MAX_PAGES × 1000) — a "≥N very active" signal. The
+// walk runs in parallel with the token pipeline so it adds ~no hover latency,
+// and the 60s cache makes repeat hovers free. RPC has no cheaper lifetime
+// count, so this trades exactness on huge wallets for a bounded, hover-safe
+// loop.
+const TXS_MAX_PAGES = 25;
+const TXS_PAGE_LIMIT = 1000;
 
 export interface QuickBalance {
   solLamports: number | null;
+  // Approximate lifetime transaction count (exact ≤ TXS_MAX_PAGES×1000, else floored).
+  txs: number | null;
   // Total USD value of priced SPL holdings (null when nothing could be priced).
   tokenUsd: number | null;
   topTokens: Array<{ mint: string; symbol: string | null; usd: number }>;
@@ -117,10 +128,34 @@ async function fetchJupPrices(mints: string[]): Promise<Map<string, number>> {
   return out;
 }
 
+// Approximate lifetime tx count via bounded getSignaturesForAddress paging.
+// Exact when genesis is reached within the page budget; otherwise the floor.
+async function countTxs(wallet: string): Promise<number | null> {
+  let before: string | undefined;
+  let total = 0;
+  for (let i = 0; i < TXS_MAX_PAGES; i++) {
+    const params = before
+      ? [wallet, { limit: TXS_PAGE_LIMIT, before }]
+      : [wallet, { limit: TXS_PAGE_LIMIT }];
+    const page = (await rpc('getSignaturesForAddress', params)) as
+      | Array<{ signature?: string }>
+      | null;
+    if (!Array.isArray(page)) return i === 0 ? null : total; // RPC fail
+    if (page.length === 0) return total; // genesis → exact
+    total += page.length;
+    if (page.length < TXS_PAGE_LIMIT) return total; // genesis → exact
+    const last = page[page.length - 1]?.signature;
+    if (!last) return total;
+    before = last;
+  }
+  return total; // hit the page cap → floor (≥ total)
+}
+
 async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
-  const [bal, tok] = await Promise.all([
+  const [bal, tok, txs] = await Promise.all([
     rpc('getBalance', [wallet]),
     rpc('getTokenAccountsByOwner', [wallet, { programId: TOKEN_PROGRAM }, { encoding: 'jsonParsed' }]),
+    countTxs(wallet),
   ]);
   const solLamports =
     typeof (bal as { value?: unknown })?.value === 'number'
@@ -152,6 +187,7 @@ async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
   const symbols = await resolveSymbols(top.map((h) => h.mint));
   return {
     solLamports,
+    txs,
     tokenUsd,
     topTokens: top.map((h) => ({ mint: h.mint, symbol: symbols.get(h.mint) ?? null, usd: h.usd })),
     fetchedAt: Date.now(),
@@ -181,7 +217,7 @@ export function createWalletQuickBalanceRouter(): Router {
       }
       res.json(qb);
     } catch {
-      res.json({ solLamports: null, tokenUsd: null, topTokens: [], fetchedAt: now });
+      res.json({ solLamports: null, txs: null, tokenUsd: null, topTokens: [], fetchedAt: now });
     }
   });
   return router;

@@ -60,6 +60,7 @@ interface Props {
 // balances and says so.
 interface QuickBalance {
   solLamports: number | null;
+  txs: number | null;
   tokenUsd: number | null;
   topTokens: Array<{ mint: string; symbol: string | null; usd: number }>;
   fetchedAt: number;
@@ -95,6 +96,14 @@ function fmtUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+// Compact tx-count formatting: 532 · 1.2K · 14K · 108K · 1.3KK
+function fmtTxs(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
+  if (n < 1e6) return `${Math.round(n / 1000)}K`;
+  return `${(n / 1e6).toFixed(1)}KK`;
+}
+
 function MinterWalletLink({ wallet }: { wallet: string }) {
   const ref = useRef<HTMLAnchorElement | null>(null);
   const [hover, setHover] = useState<null | { x: number; y: number; flip: boolean }>(null);
@@ -120,6 +129,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
 
   const sol =
     data === 'loading' ? '…' : data?.solLamports != null ? `${(data.solLamports / 1e9).toFixed(2)} ◎` : '—';
+  const txs = data === 'loading' ? '…' : data?.txs != null ? fmtTxs(data.txs) : '—';
   // Total USD value of priced SPL holdings (whale check). null → "$0".
   const tokens = data === 'loading' ? '…' : data?.tokenUsd != null ? fmtUsd(data.tokenUsd) : data ? '$0' : '—';
 
@@ -152,6 +162,10 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
             <span style={{ color: '#7e7799' }}>SOL</span>
             <span style={{ color: '#cdc2f2', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
+            <span style={{ color: '#7e7799' }}>TXS</span>
+            <span style={{ color: '#e7e1f6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{txs}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
             <span style={{ color: '#7e7799' }}>TOKENS</span>
