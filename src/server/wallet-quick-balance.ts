@@ -25,15 +25,19 @@ const TOP_N = 3;
 // call. Long-tail dust/spam — mostly unpriced — is skipped; this captures the
 // dominant value for a whale check without fanning out N price requests.
 const PRICE_CAP = 50;
-// Lifetime-TXS approximation. We page getSignaturesForAddress (newest→older)
-// up to TXS_MAX_PAGES; if we reach genesis the count is exact, otherwise we
-// return the floor (TXS_MAX_PAGES × 1000) — a "≥N very active" signal. The
-// walk runs in parallel with the token pipeline so it adds ~no hover latency,
-// and the 60s cache makes repeat hovers free. RPC has no cheaper lifetime
-// count, so this trades exactness on huge wallets for a bounded, hover-safe
-// loop.
-const TXS_MAX_PAGES = 25;
+// Activity-tier TXS. We page getSignaturesForAddress (newest→older) up to
+// TXS_MAX_PAGES; if we reach genesis the count is exact, otherwise we return
+// the floor (TXS_MAX_PAGES × 1000). The frontend maps this to an activity
+// TIER (e.g. 50K+), never a fake exact lifetime count — so the floor at the
+// cap is honest. RPC has no cheaper count, so this is a bounded scan, NOT a
+// full wallet scan. Its own 24h cache (txsCache) means the deep scan runs at
+// most once per wallet per day even though the rest of quick-balance refreshes
+// every 60s; the scan also runs in parallel with the token pipeline.
+const TXS_MAX_PAGES = 50;           // ceiling tier = "50K+"
 const TXS_PAGE_LIMIT = 1000;
+const TXS_TTL_MS = 24 * 60 * 60 * 1000;
+interface TxsEntry { value: number; fetchedAt: number }
+const txsCache = new Map<string, TxsEntry>();
 
 export interface QuickBalance {
   solLamports: number | null;
@@ -131,6 +135,10 @@ async function fetchJupPrices(mints: string[]): Promise<Map<string, number>> {
 // Approximate lifetime tx count via bounded getSignaturesForAddress paging.
 // Exact when genesis is reached within the page budget; otherwise the floor.
 async function countTxs(wallet: string): Promise<number | null> {
+  const now = Date.now();
+  const hit = txsCache.get(wallet);
+  if (hit && now - hit.fetchedAt < TXS_TTL_MS) return hit.value; // 24h cache
+
   let before: string | undefined;
   let total = 0;
   for (let i = 0; i < TXS_MAX_PAGES; i++) {
@@ -140,15 +148,26 @@ async function countTxs(wallet: string): Promise<number | null> {
     const page = (await rpc('getSignaturesForAddress', params)) as
       | Array<{ signature?: string }>
       | null;
-    if (!Array.isArray(page)) return i === 0 ? null : total; // RPC fail
-    if (page.length === 0) return total; // genesis → exact
+    // RPC failure: don't cache a bad value — return null (frontend hides TXS),
+    // retry on a later hover.
+    if (!Array.isArray(page)) return i === 0 ? null : finishTxs(wallet, total, now);
+    if (page.length === 0) return finishTxs(wallet, total, now); // genesis → exact
     total += page.length;
-    if (page.length < TXS_PAGE_LIMIT) return total; // genesis → exact
+    if (page.length < TXS_PAGE_LIMIT) return finishTxs(wallet, total, now); // genesis → exact
     const last = page[page.length - 1]?.signature;
-    if (!last) return total;
+    if (!last) return finishTxs(wallet, total, now);
     before = last;
   }
-  return total; // hit the page cap → floor (≥ total)
+  return finishTxs(wallet, total, now); // hit the page cap → floor (≥ total)
+}
+
+// Cache a successful count for 24h (opportunistic prune of expired entries).
+function finishTxs(wallet: string, total: number, now: number): number {
+  txsCache.set(wallet, { value: total, fetchedAt: now });
+  if (txsCache.size > 5000) {
+    for (const [k, v] of txsCache) if (now - v.fetchedAt > TXS_TTL_MS) txsCache.delete(k);
+  }
+  return total;
 }
 
 async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
