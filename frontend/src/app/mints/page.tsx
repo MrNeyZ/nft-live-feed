@@ -2477,22 +2477,21 @@ export default function MintsPage() {
                   between the COLLECTION content and the MINTS metric, giving
                   the ME-style [identity][flexible action gap][metrics] rhythm. */}
               <col /> {/* SHOW (flexible / remainder) */}
-              {/* Compaction pass: the metric columns were uneven
-                  (78/88/90/100/96), which made the inter-column gaps read
-                  inconsistently (esp. SUPPLY→LAST). Pulled toward a tighter,
-                  more uniform set (78/84/84/92/88) so the right side reads
-                  as one compact data block. SUPPLY and LAST are equalised
-                  (84) to close that gap; PRICE stays the widest metric (92)
-                  for token+icon; CREATED keeps room for its 18 px terminal
-                  gutter. Paired with the ~36 % narrower SHOW column
-                  (--mints-show-col-w) so the action no longer wastes the
-                  space between COLLECTION and MINTS. COLLECTION remains the
-                  auto remainder (largest column, overflow-safe). */}
-              <col style={{ width: 78 }} /> {/* MINTS    */}
+              {/* Even-spacing pass: the metric widths (78/84/84/92/88) had a
+                  14 px spread that made the inter-column gaps read unevenly
+                  (SUPPLY→LAST wide, LAST→PRICE narrow, PRICE→CREATED wide).
+                  Flattened to a near-uniform set so the column pitch — and
+                  thus the visual gaps — is consistent across MINTS…CREATED.
+                  PRICE keeps +3 for its price+icon content and CREATED +3 for
+                  its 18 px terminal gutter. The metric SUM is unchanged (426)
+                  so the flexible SHOW column and the overall table width stay
+                  exactly as before; only the internal split changed. No
+                  alignment/font/padding/data changes. */}
+              <col style={{ width: 84 }} /> {/* MINTS    */}
               <col style={{ width: 84 }} /> {/* SUPPLY   */}
               <col style={{ width: 84 }} /> {/* LAST     */}
-              <col style={{ width: 92 }} /> {/* PRICE    */}
-              <col style={{ width: 88 }} /> {/* CREATED  */}
+              <col style={{ width: 87 }} /> {/* PRICE    */}
+              <col style={{ width: 87 }} /> {/* CREATED  */}
               {/* SOURCE column removed — source badge is now rendered
                   inline inside the COLLECTION cell. The freed width
                   goes to COLLECTION (auto / remainder col). */}
