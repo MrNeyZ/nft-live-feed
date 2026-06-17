@@ -21,6 +21,10 @@ const JUP_PRICE_URL = 'https://lite-api.jup.ag/price/v3';
 const TTL_MS = 60_000;
 const TIMEOUT_MS = 8_000;
 const TOP_N = 3;
+// Hide insignificant holdings from the tooltip list (dust-row spam). Only
+// affects which rows are shown — the TOKENS total (tokenUsd) still sums ALL
+// priced tokens.
+const MIN_VISIBLE_TOKEN_USD = 20;
 // Cap on how many holdings (largest by raw amount) we price in one Jupiter
 // call. Long-tail dust/spam — mostly unpriced — is skipped; this captures the
 // dominant value for a whale check without fanning out N price requests.
@@ -200,7 +204,9 @@ async function fetchQuickBalance(wallet: string): Promise<QuickBalance> {
     .sort((a, b) => b.usd - a.usd);
   const tokenUsd = priced.length ? priced.reduce((s, h) => s + h.usd, 0) : null;
 
-  const top = priced.slice(0, TOP_N);
+  // Total above sums ALL priced tokens; the visible list hides dust (< $20).
+  // priced is already sorted desc, so this stays top-3-by-USD after filtering.
+  const top = priced.filter((h) => h.usd >= MIN_VISIBLE_TOKEN_USD).slice(0, TOP_N);
   const symbols = await resolveSymbols(top.map((h) => h.mint));
   return {
     solLamports,
