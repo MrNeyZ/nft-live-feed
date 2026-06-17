@@ -6,6 +6,8 @@
 // (pre-looked-up from `rows` in the page), and `now`.
 
 import type { CSSProperties } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ItemThumb } from '@/soloist/shared';
 import type { MintEvent, MintStatus } from '../lib/types';
 import {
@@ -47,6 +49,135 @@ interface Props {
    *  so the LEFT and RIGHT panes share one `hoverPaused` state. */
   onPauseEnter?: () => void;
   onPauseLeave?: () => void;
+}
+
+// ── Minter-wallet hover tooltip ──────────────────────────────────────
+// Lazy, cached SOL + token-holdings popover for the minter wallet, mirroring
+// the MINTS/SUPPLY hover popovers. Fetches the same-origin
+// /api/wallet/:address/quick-balance only on hover (no polling); a 60s module
+// cache + server-side cache keep RPC usage bounded. No USD value is available
+// (no price oracle), so it shows SOL, token-account count, and top raw
+// balances and says so.
+interface QuickBalance {
+  solLamports: number | null;
+  tokenAccounts: number;
+  topTokens: Array<{ mint: string; amount: number }>;
+  fetchedAt: number;
+}
+const WB_TTL_MS = 60_000;
+const WB_API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+const wbCache = new Map<string, QuickBalance>();
+const wbInflight = new Map<string, Promise<QuickBalance | null>>();
+
+function fetchQuickBalance(wallet: string): Promise<QuickBalance | null> {
+  const hit = wbCache.get(wallet);
+  if (hit && Date.now() - hit.fetchedAt < WB_TTL_MS) return Promise.resolve(hit);
+  const inflight = wbInflight.get(wallet);
+  if (inflight) return inflight;
+  const p = fetch(`${WB_API_BASE}/api/wallet/${wallet}/quick-balance`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d: QuickBalance | null) => {
+      if (d) wbCache.set(wallet, d);
+      wbInflight.delete(wallet);
+      return d;
+    })
+    .catch(() => {
+      wbInflight.delete(wallet);
+      return null;
+    });
+  wbInflight.set(wallet, p);
+  return p;
+}
+
+function fmtTokenAmount(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n >= 1 ? n.toFixed(2) : n.toPrecision(2);
+}
+
+function MinterWalletLink({ wallet }: { wallet: string }) {
+  const ref = useRef<HTMLAnchorElement | null>(null);
+  const [hover, setHover] = useState<null | { x: number; y: number; flip: boolean }>(null);
+  const [data, setData] = useState<QuickBalance | null | 'loading'>(null);
+
+  const onEnter = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline';
+    const r = e.currentTarget.getBoundingClientRect();
+    const flip = r.top < 180; // not enough room above → render below
+    setHover({ x: r.left + r.width / 2, y: flip ? r.bottom + 8 : r.top - 8, flip });
+    const cached = wbCache.get(wallet);
+    if (cached && Date.now() - cached.fetchedAt < WB_TTL_MS) {
+      setData(cached);
+      return;
+    }
+    setData('loading');
+    fetchQuickBalance(wallet).then((d) => setData(d ?? null));
+  };
+  const onLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none';
+    setHover(null);
+  };
+
+  const sol =
+    data === 'loading' ? '…' : data?.solLamports != null ? `${(data.solLamports / 1e9).toFixed(2)} ◎` : '—';
+  const tokens = data === 'loading' ? '…' : data ? String(data.tokenAccounts) : '—';
+
+  return (
+    <>
+      <a
+        ref={ref}
+        href={`https://solscan.io/account/${wallet}`}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+      >
+        {shortMint(wallet)}
+      </a>
+      {hover && typeof document !== 'undefined' && createPortal(
+        <div
+          style={{
+            position: 'fixed', zIndex: 9999, pointerEvents: 'none', minWidth: 168,
+            top: hover.y, left: hover.x,
+            transform: hover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
+            background: 'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
+            border: '1px solid rgba(168,144,232,0.46)', borderRadius: 9, padding: '9px 12px 10px',
+            color: '#ece7f8', textAlign: 'left',
+            boxShadow: '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px rgba(128,104,216,0.15)',
+            backdropFilter: 'blur(11px)', WebkitBackdropFilter: 'blur(11px)',
+          }}
+        >
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '1.3px', textTransform: 'uppercase', color: '#8a81b0', marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid rgba(168,144,232,0.15)' }}>
+            Minter wallet
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
+            <span style={{ fontSize: 10.5, fontWeight: 500, color: '#7e7799' }}>SOL balance</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#cdc2f2', fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
+            <span style={{ fontSize: 10.5, fontWeight: 500, color: '#7e7799' }}>Token holdings</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#f2eefb', fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
+          </div>
+          {data && data !== 'loading' && data.topTokens.length > 0 && (
+            <div style={{ marginTop: 5, paddingTop: 5, borderTop: '1px solid rgba(168,144,232,0.15)' }}>
+              {data.topTokens.map((t) => (
+                <div key={t.mint} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '1px 0', fontSize: 10, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+                  <span>{shortMint(t.mint)}</span>
+                  <span style={{ color: '#cdc2f2' }}>{fmtTokenAmount(t.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontSize: 8.5, color: '#6b6486', letterSpacing: '0.2px' }}>
+            balances only · no USD value
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedded = false, onPauseEnter, onPauseLeave }: Props) {
@@ -496,17 +627,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             wire (some replays / cNFT paths). */}
         {ev.minter && (
           <div style={{ fontSize: 10.5, color: colorForWallet(ev.minter), fontFamily: "'SF Mono','Fira Code',monospace", marginTop: 2, opacity: embedded ? 0.9 : 0.74, display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <a
-              href={`https://solscan.io/account/${ev.minter}`}
-              target="_blank"
-              rel="noreferrer"
-              
-              style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
-            >
-              {shortMint(ev.minter)}
-            </a>
+            <MinterWalletLink wallet={ev.minter} />
           </div>
         )}
       </div>

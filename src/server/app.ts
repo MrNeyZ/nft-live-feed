@@ -11,6 +11,7 @@ import { createCollectionTradeHistoryRouter } from './collection-trade-history';
 import { createListingsCheckRouter } from './listings-check';
 import { createBuyMeRouter } from './buy-me';
 import { createSubscribersRouter } from './subscribers';
+import { createWalletQuickBalanceRouter } from './wallet-quick-balance';
 import { createCollectionSearchRouter } from './collection-search';
 import { startCatalogRefreshLoop } from './collection-catalog';
 import { createCollectionIconRouter } from './collection-icon';
@@ -85,6 +86,11 @@ export function createApp() {
   const subscribersRouter = createSubscribersRouter();
   app.use('/collections',     subscribersRouter);
   app.use('/api/collections', subscribersRouter);
+
+  // Minter-wallet quick balance (Live Mint Feed hover tooltip) — lazy, cached.
+  const walletQuickBalanceRouter = createWalletQuickBalanceRouter();
+  app.use('/',     walletQuickBalanceRouter);
+  app.use('/api',  walletQuickBalanceRouter);
 
   const collectionSearchRouter = createCollectionSearchRouter();
   app.use('/collections',     collectionSearchRouter);
