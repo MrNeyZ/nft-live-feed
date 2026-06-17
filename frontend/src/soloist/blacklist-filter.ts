@@ -60,7 +60,32 @@ export function isFeedEventBlacklisted(e: FeedEventLike, userSet: ReadonlySet<st
   return false;
 }
 
-// ── /mints user blacklist ───────────────────────────────────────────────────
+// ── /mints permanent + user blacklist ───────────────────────────────────────
+/** Permanent /mints collection blacklist (exact base58 address). Mirrors the
+ *  backend single source of truth src/mints/blacklist.ts BLACKLISTED_COLLECTIONS.
+ *  The backend already drops these before SSE/REST emit; this is the allowed
+ *  additional client-side safety so a stale localStorage cache can't resurface
+ *  a hidden collection. Exact match only — never a name/substring/fuzzy match. */
+export const MINTS_PERMANENT_COLLECTIONS: ReadonlySet<string> = new Set<string>([
+  'CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac', // Collector Crypt
+  'HeAu1tatE1jVcyW3mGyZRru2y6NjcD4cPKtqNy1tFWW6', // Dripshop Live
+]);
+/** Exact match on collectionAddress or the `collection:<addr>` groupingKey.
+ *  Case-sensitive (base58) — addresses are never lowercased. */
+function isMintPermanentBlacklisted(
+  groupingKey?: string | null,
+  collectionAddress?: string | null,
+): boolean {
+  if (collectionAddress && MINTS_PERMANENT_COLLECTIONS.has(collectionAddress)) return true;
+  if (groupingKey) {
+    const addr = groupingKey.startsWith('collection:')
+      ? groupingKey.slice('collection:'.length)
+      : groupingKey;
+    if (MINTS_PERMANENT_COLLECTIONS.has(addr)) return true;
+  }
+  return false;
+}
+
 interface MintEventLike {
   groupingKey?: string | null;
   collectionAddress?: string | null;
@@ -76,6 +101,7 @@ interface MintStatusLike {
 /** Per-mint card match — groupingKey / collectionAddress / mintAddress.
  *  Identical to the prior render-time isBlacklistedEvent. */
 export function isMintEventBlacklisted(e: MintEventLike, userSet: ReadonlySet<string>): boolean {
+  if (isMintPermanentBlacklisted(e.groupingKey, e.collectionAddress)) return true;
   if (userSet.size === 0) return false;
   if (e.groupingKey && userSet.has(e.groupingKey.toLowerCase())) return true;
   if (e.collectionAddress && userSet.has(e.collectionAddress.toLowerCase())) return true;
@@ -86,6 +112,7 @@ export function isMintEventBlacklisted(e: MintEventLike, userSet: ReadonlySet<st
 /** Collection-row match — groupingKey / collectionAddress / lastMintAddress /
  *  name. Identical to the prior render-time isBlacklistedRow. */
 export function isMintStatusBlacklisted(r: MintStatusLike, userSet: ReadonlySet<string>): boolean {
+  if (isMintPermanentBlacklisted(r.groupingKey, r.collectionAddress)) return true;
   if (userSet.size === 0) return false;
   if (r.groupingKey && userSet.has(r.groupingKey.toLowerCase())) return true;
   if (r.collectionAddress && userSet.has(r.collectionAddress.toLowerCase())) return true;

@@ -1204,6 +1204,14 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
   let written = 0;
   for (const r of rows) {
     if (map.has(r.groupingKey)) continue;
+    // Hard blacklist also applies on snapshot restore — a collection added to
+    // BLACKLISTED_COLLECTIONS after a snapshot was written must not resurface
+    // in the table on the next boot. recordMint already blocks the live path;
+    // this closes the restore path with the same single source of truth.
+    if (isCollectionBlacklisted(r.collectionAddress)) {
+      noteBlacklistDrop(r.collectionAddress as string);
+      continue;
+    }
     // Reconstruct an Accum from the wire shape. Fields not in the
     // snapshot (events60s, events5m, free/paid/unknown counts,
     // firstObservedAt, mintedFetchedAt, supplyMintedLocal,

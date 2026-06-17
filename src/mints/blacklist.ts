@@ -27,6 +27,12 @@ export const BLACKLISTED_COLLECTIONS: ReadonlySet<string> = new Set([
   'phygZDQZJZVHvJGYPGoKPYUtXw7mstSYtTtcuh8LJcC',
   // collectiblescom (Magic Eden slug) — operator request.
   'EuZxduirhpWBYk4vKsrwzsrZk311FsTiKmQ57UFhGHh9',
+  // Collector Crypt (MPL Core collection) — operator request. Resolved from
+  // mint tx 4kahMtP1SNHXZRxbzXBwWBKr911K3NDwKLQkpZ4aEqfXdZaXQ7aJQ1iYbnWQPnk6VPj5hFMqd3pagk2gYLG8KYWy.
+  'CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac',
+  // Dripshop Live (MPL Core collection) — operator request. Resolved from
+  // mint tx 3kCVssihxpS8h5ggqkj9qUU23DgFV3GNx6nkqmXcWPfVkkEn7YrGcmi6u2TbRh3dMuPrkxvbt8ZCGWgqpA5PKRAk.
+  'HeAu1tatE1jVcyW3mGyZRru2y6NjcD4cPKtqNy1tFWW6',
 ]);
 
 /** Lifetime-bounded log gate: each blacklisted collection logs once
