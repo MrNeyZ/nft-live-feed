@@ -575,19 +575,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // of filling the cell and letting the centered label float in the
               // mid-cell void. All the empty space falls on the COLLECTION side,
               // independent of how wide the flexible SHOW cell gets.
-              position: 'absolute', top: 0, bottom: 0, left: 'auto', right: -24,
+              position: 'absolute', top: 0, bottom: 0, left: 'auto', right: -16,
               // Right-anchored action zone that fills the gap up to a 180px cap.
               // min(calc(100% - 16px), 180px): on narrow SHOW cells it fills the
               // gap (minus the L/R insets); on wide desktop cells it stops at
               // 180px so the centered label stays gap-like instead of floating
-              // mid-cell. right:-24 pushes the zone 24px past the cell edge,
-              // overlapping into the MINTS column. This offset is the ONLY lever
-              // for the band→MINTS-number gap (the COLLECTION/SHOW boundary does
-              // not affect it); -24 (was -16) shifts the band ~8px toward MINTS
-              // so it sits symmetric between the source chip and the MINTS
-              // number (~41px each side at the 942px table — see the COLLECTION
-              // <col> comment in page.tsx). Band right edge 540 still clears the
-              // MINTS number (left edge ~581). Grows LEFT only.
+              // mid-cell. right:-16 pushes the zone 16px past the cell edge,
+              // overlapping into the MINTS column. Grows LEFT only.
               width: 'min(calc(100% - 16px), 180px)',
               // SHOW label centered inside the action container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
