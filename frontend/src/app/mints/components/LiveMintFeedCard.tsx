@@ -744,17 +744,18 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // Deploy events have no price. Rather than a reserved-but-blank price
         // column (which read as broken), the DEPLOY badge occupies that area —
         // right-aligned within the same 56px footprint so the age column stays
-        // aligned with normal mint cards. Premium neutral purple; same height
-        // as the source badges (14px line-height), slimmer width, tight padding.
+        // aligned with normal mint cards. Styled to match the CORE/CANDY source
+        // pills (same fontSize/padding/radius, no outline) so it reads as a calm
+        // source/type badge rather than a standalone button — subtle purple/blue
+        // system-event tone. Shorter than the price element, so card height holds.
         <span style={{
           minWidth: 56, display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
           flexShrink: 0, transform: 'translateX(8px)',
         }}>
           <span title="Collection deployed" style={{
-            display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
-            padding: '1.5px 7px', borderRadius: 3.5, lineHeight: '14px',
-            background: 'rgba(124,108,230,0.16)',
-            border: '1px solid rgba(124,108,230,0.34)',
+            display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+            padding: '1px 6px', borderRadius: 3, lineHeight: '13px',
+            background: 'rgba(124,108,230,0.20)',
             color: '#b9aef0',
           }}>DEPLOY</span>
         </span>

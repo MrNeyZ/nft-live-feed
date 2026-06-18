@@ -314,10 +314,10 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // Label-vs-wallet separation pass: the `seller:` / `buyer:` label is
   // dropped to a muted #63637a so it reads as clearly secondary, while
   // the wallet keeps a brighter tone (WALLET_LINK_STYLE) as the value
-  // to read. Row gap set to 6 px between label and wallet address.
+  // to read. Row gap set to 4 px between label and wallet address.
   // (Was #9a9ab4 — identical to the wallet, which made the two blur
   // together.)
-  fontSize: 10.5, color: '#63637a', display: 'flex', alignItems: 'center', gap: 6,
+  fontSize: 10.5, color: '#63637a', display: 'flex', alignItems: 'center', gap: 4,
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every
