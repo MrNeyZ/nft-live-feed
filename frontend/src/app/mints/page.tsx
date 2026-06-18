@@ -2482,24 +2482,26 @@ export default function MintsPage() {
                   flexible SHOW column instead of sitting unused inside this
                   cell. Name truncation is unaffected (the name is a fixed 100px
                   grid track with ellipsis, independent of this width).
-                  Width is 326 (not 300): the trailing 1fr track holds the
-                  icons+source group (up to 3×13 icons + gaps + the 66 px source
-                  chip ≈ 117 px). At 300 the 1fr track was only ~69 px, so the
-                  chip overflowed the cell's right edge by ~48 px and collided
-                  with the SHOW band. The SHOW band (MintsTableRow.tsx) is
-                  right-anchored with `width:min(calc(100%-16px),180px)` — so its
-                  VISIBLE width is hard-capped at 180 px, and for a sub-196 px
-                  SHOW cell it always starts ~32 px in from the cell's left edge.
-                  Net geometry at the 942 px table: SHOW = 516 − this width;
-                  band = min(SHOW−16, 180); chip→band gap = this width − 316.
-                  326 is the widest setting that keeps the band near its 180 cap
-                  (≈174 px, vs ≈150 at 350) while still leaving a ≥8 px gap
-                  (≈10 px) at every table width. Going below 320 only collapses
-                  the gap (→4 px) without widening the capped band, so it is not
-                  worth it. SHOW is the flexible remainder col, so this trade is
-                  width-for-width — the overall table width (maxWidth 942) is
-                  unchanged. */}
-              <col style={{ width: 326 }} /> {/* COLLECTION (content width) */}
+                  Width is 378, set by REAL getBoundingClientRect measurement
+                  (not a model) so the 3-column group COLLECTION | SHOW | MINTS
+                  is VISUALLY symmetric: the gap from the source chip's right
+                  edge to the SHOW band's left edge equals the gap from the
+                  band's right edge to the MINTS number's left edge.
+                  Why this lever (the column, not the SHOW cell): the SHOW band
+                  is centred in its own <td>, so border-to-border it is already
+                  symmetric — but the visible content edges are offset INTO the
+                  neighbour cells. The source chip overflows the COLLECTION cell
+                  (~14 px past its right border), while the MINTS number, centred
+                  in its 84 px cell, sits ~38 px inside the MINTS left border.
+                  That 24 px imbalance left the centred band visually shoved
+                  toward the chip (measured chip→band 31 px vs band→number 83 px
+                  at width 326). Widening COLLECTION shifts the SHOW <td> right
+                  and re-centres it on the true content midpoint; the band, still
+                  centred in the td, lands symmetric. Measured sweep: width 378 →
+                  chip→band 58 px, band→number 58.2 px (≤1 px). SHOW is the
+                  flexible remainder col, so the table width is unchanged; name
+                  is a fixed 100 px grid track so truncation is unaffected. */}
+              <col style={{ width: 378 }} /> {/* COLLECTION (content width) */}
               {/* SHOW — flexible spacer / action zone. This is now the auto
                   (remainder) column, so it stretches to consume ALL space
                   between the COLLECTION content and the MINTS metric, giving
