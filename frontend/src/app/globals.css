@@ -2162,6 +2162,16 @@ body[data-bottombar="1"] .feed-root {
     color-mix(in srgb,var(--c) 12%,transparent) 62%,
     transparent 100%);
 }
+/* (1b) right-side source rim — restores two-sided framing. Much weaker/softer
+   than the left accent (≈22% vs 40% peak), only the rightmost ~2px, fading
+   toward the edge so it reads as a material rim catching the source hue, not a
+   second colored block. Follows the capsule radius; pointer-events:none and
+   absolute so the footprint/padding are unchanged. No glow, no fill change. */
+.vl-srcchip::after{
+  content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:2px;
+  border-radius:0 6px 6px 0;
+  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--c) 22%,transparent) 100%);
+}
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
   position:relative; z-index:2; width:6.6px; height:6.6px; border-radius:50%; flex:none;
