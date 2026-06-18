@@ -566,22 +566,22 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             }}
             style={{
               // Absolutely-positioned fill so the action strip spans the
-              // ENTIRE row content height (td → row stretches all cells to the
-              // tallest sibling's height; abs child with top/bottom 0 inherits
-              // that height exactly).
-              //
-              // OFFSET-ONLY change vs the original: width is unchanged (still
-              // the wide min(calc(100%-16px),180px) band), but positioning went
-              // from right-anchored (right:-16, which shoved the band into MINTS
-              // → measured content gaps 70 px vs 22 px) to CENTRED in the cell
-              // via left:0 + right:0 + marginInline:auto. The COLLECTION col
-              // (page.tsx, 378) is sized so the SHOW <td>'s centre lands on the
-              // true content midpoint between the source chip and the MINTS
-              // number, so a band centred in the td is visually symmetric:
-              // measured chip→band 46 px ≈ band→number 46 px (≤1 px). Centre via
-              // margin:auto holds at every table width. Same band width/size as
-              // before — only the horizontal offset moved.
-              position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, marginInline: 'auto',
+              // ENTIRE row content height (td → row stretches all cells
+              // to the tallest sibling's height; abs child with top/bottom
+              // 0 inherits that height exactly). The container is anchored to
+              // the RIGHT of the (wide, flexible) SHOW cell with left:auto +
+              // right:8, and sized to its content (fit-content) so it hugs the
+              // SHOW label and its right edge sits ~8 px before MINTS — instead
+              // of filling the cell and letting the centered label float in the
+              // mid-cell void. All the empty space falls on the COLLECTION side,
+              // independent of how wide the flexible SHOW cell gets.
+              position: 'absolute', top: 0, bottom: 0, left: 'auto', right: -16,
+              // Right-anchored action zone that fills the gap up to a 180px cap.
+              // min(calc(100% - 16px), 180px): on narrow SHOW cells it fills the
+              // gap (minus the L/R insets); on wide desktop cells it stops at
+              // 180px so the centered label stays gap-like instead of floating
+              // mid-cell. right:-16 pushes the zone 16px past the cell edge,
+              // overlapping into the MINTS column. Grows LEFT only.
               width: 'min(calc(100% - 16px), 180px)',
               // SHOW label centered inside the action container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
