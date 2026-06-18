@@ -46,8 +46,11 @@ const CHIP_LABEL: Record<string, string> = {
 
 /** Fixed chip width — sized to fit the widest kept label (LMNFT) with the dot
  *  + reference padding, so every source chip is the same width and the
- *  dot+label group centers identically row to row. */
-const SRCCHIP_W = 74;
+ *  dot+label group centers identically row to row. 66px ≈ dot (6.6) + gap (6) +
+ *  LMNFT glyphs + the 10px side padding, so the centered group fills the slot
+ *  instead of floating in dead space (shorter labels CORE/VVV/ME center in the
+ *  same physical width). */
+const SRCCHIP_W = 66;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   void size; // sizing is fixed by the chip primitive; prop kept for callers

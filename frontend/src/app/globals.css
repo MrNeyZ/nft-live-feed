@@ -2154,12 +2154,12 @@ body[data-bottombar="1"] .feed-root {
 }
 /* (1) left source-accent zone — smooth multi-stop dissolve, no 2px rail */
 .vl-srcchip::before{
-  content:''; position:absolute; left:0; top:0; bottom:0; z-index:1; pointer-events:none; width:46%;
+  content:''; position:absolute; left:0; top:0; bottom:0; z-index:1; pointer-events:none; width:36%;
   border-radius:6px 0 0 6px;
   background:linear-gradient(90deg,
-    color-mix(in srgb,var(--c) 40%,transparent) 0%,
-    color-mix(in srgb,var(--c) 26%,transparent) 32%,
-    color-mix(in srgb,var(--c) 12%,transparent) 62%,
+    color-mix(in srgb,var(--c) 34%,transparent) 0%,
+    color-mix(in srgb,var(--c) 20%,transparent) 40%,
+    color-mix(in srgb,var(--c) 9%,transparent) 72%,
     transparent 100%);
 }
 /* (1b) right-side ambient glow — NOT a rim/edge/stripe. Just the last ~12% of
@@ -2180,5 +2180,9 @@ body[data-bottombar="1"] .feed-root {
   box-shadow:0 0 0 1.5px color-mix(in srgb,var(--c) 24%,transparent),inset 0 0 1px rgba(255,255,255,.6);
 }
 /* (3) label tint — text stays tertiary under the dot/accent */
-.vl-srcchip-lbl{ position:relative; z-index:2; color:color-mix(in srgb,var(--c) 44%,#eeecf7); }
+/* (3) label tint — restore the original VictoryLabs source colour: the label
+   reads in the full per-source accent (var(--c) = sourceBadge fg), same hue the
+   pre-redesign flat badge used (CORE purple / LMNFT gold / CANDY pink / …),
+   not the washed near-white mix. */
+.vl-srcchip-lbl{ position:relative; z-index:2; color:var(--c); }
 .vl-srcchip:hover{ filter:brightness(1.06); }
