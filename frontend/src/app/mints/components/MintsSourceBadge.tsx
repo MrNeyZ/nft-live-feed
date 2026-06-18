@@ -99,12 +99,23 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     </span>
   );
   // Placement wrapper — same flex slot/position as before; flexShrink:0 so the
-  // chip never squeezes. Pin the wrapper to the full SRCCHIP_W so it reserves
-  // the exact capsule width (== the anchor) and can never size below the chip
-  // and shrink the <a>'s hitbox. justifyContent:center keeps the (full-width)
-  // anchor flush — no visual change, the chip already filled this width.
+  // chip never squeezes; width pinned to the full SRCCHIP_W (== the anchor).
+  //
+  // position:relative + z-index lift the chip ABOVE the SHOW action zone. That
+  // zone (MintsTableRow.tsx — the `<td>` SHOW cell) is `position:absolute;
+  // right:-16; width:min(calc(100% - 16px),180px)`, anchored to the SHOW cell's
+  // right and grown LEFTWARD, intentionally overlapping into the COLLECTION
+  // column. As a later DOM sibling with z-index:auto it painted on top of this
+  // chip, so on laptop (narrow table → chip near the COLLECTION/SHOW boundary)
+  // the SHOW band covered the chip's right portion and swallowed its clicks —
+  // only the chip's left edge (dot/first glyph) stayed hittable. A positive
+  // z-index moves the chip's stacking context above the SHOW band's auto level
+  // (both resolve in the same row stacking context — neither <td> sets z-index),
+  // so the <a> is the topmost element across its full visible capsule. The SHOW
+  // band's idle fill is ~0.05 alpha over only the small overlap, so lifting the
+  // chip is visually imperceptible — no width/height/colour/layout change.
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: SRCCHIP_W }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: SRCCHIP_W, position: 'relative', zIndex: 3 }}>
       {chip}
     </span>
   );
