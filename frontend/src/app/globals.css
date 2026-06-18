@@ -2175,7 +2175,7 @@ body[data-bottombar="1"] .feed-root {
 }
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
-  position:relative; z-index:2; width:6.6px; height:6.6px; border-radius:50%; flex:none;
+  position:relative; z-index:2; pointer-events:none; width:6.6px; height:6.6px; border-radius:50%; flex:none;
   background:radial-gradient(circle at 34% 30%,color-mix(in srgb,var(--c) 55%,#fff),var(--c) 72%);
   box-shadow:0 0 0 1.5px color-mix(in srgb,var(--c) 24%,transparent),inset 0 0 1px rgba(255,255,255,.6);
 }
@@ -2184,5 +2184,10 @@ body[data-bottombar="1"] .feed-root {
    reads in the full per-source accent (var(--c) = sourceBadge fg), same hue the
    pre-redesign flat badge used (CORE purple / LMNFT gold / CANDY pink / …),
    not the washed near-white mix. */
-.vl-srcchip-lbl{ position:relative; z-index:2; color:var(--c); }
+.vl-srcchip-lbl{ position:relative; z-index:2; pointer-events:none; color:var(--c); }
+/* Whole-capsule hitbox: the dot + label are pointer-events:none (above) and the
+   accent/glow pseudo-elements already are, so every click — padding, accent
+   zone, dot, label, glow — lands on the <a.vl-srcchip> itself, never just the
+   text node. cursor:pointer covers the full capsule for linked chips only. */
+a.vl-srcchip{ cursor:pointer; }
 .vl-srcchip:hover{ filter:brightness(1.06); }
