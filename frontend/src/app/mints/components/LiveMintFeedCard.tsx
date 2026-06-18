@@ -720,19 +720,25 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           rows where the helper returns null render the prior plain
           span. Visual chrome (padding, fontSize, borderRadius,
           letterSpacing) is verbatim — only `<span>` becomes `<a>`. */}
-      {/* Collection-CREATE reuses the SAME 52px type-badge slot that holds the
-          CORE/CANDY pill on a normal mint card — so DEPLOY renders 1:1 where a
-          mint's type badge would, not as a separate widget. Same pill geometry
-          (width/padding/radius/line-height) as the type pill below; only the
-          tone differs (subtle purple/blue system-event). Deploy has no mint
-          type/source, so the normal type-pill builder is skipped for it. */}
+      {/* Collection-CREATE reuses the SAME type-badge slot that holds the
+          CORE/CNDY chip on a normal mint card — so DEPLOY renders 1:1 where a
+          mint's type chip would, not as a separate widget. Same `.vl-srcchip`
+          primitive as the mint chips so the column reads as one system; only
+          the accent differs: a muted slate-lilac (`#9a9ab4`, the existing
+          neutral palette gray — NOT purple/CORE) so it reads as a system event,
+          quieter than the source chips. Label is `DPLY` — `DEPLOY` (6) would
+          clip inside the dot + fixed 66px chip; `DPLY` matches the 4-char chip
+          rhythm (CORE/CNDY). Deploy has no mint type/source, so the normal
+          type-chip builder is skipped for it; full word stays in the tooltip. */}
       {isCollectionCreate ? (
-        <span title="Collection deployed" style={{
-          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 52,
-          padding: '1.5px 6.5px', fontSize: 9, fontWeight: 700, borderRadius: 3.5,
-          background: 'rgba(124,108,230,0.18)', color: '#b9aef0',
-          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '14px',
-        }}>DEPLOY</span>
+        <span
+          className="vl-srcchip"
+          title="Collection deployed"
+          style={{ '--c': '#9a9ab4', width: SRCCHIP_W } as React.CSSProperties}
+        >
+          <span className="vl-srcchip-dot" />
+          <span className="vl-srcchip-lbl">DPLY</span>
+        </span>
       ) : (() => {
         // Per-source accent (`--c`) for the shared `.vl-srcchip` material —
         // the original VictoryLabs source fg's, identical to the table chip:
