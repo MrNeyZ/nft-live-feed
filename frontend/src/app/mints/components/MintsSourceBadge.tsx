@@ -32,23 +32,33 @@ const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9, padding 1×6 — minWidth (grows
 // VVV, ME, GAY); a rare UNKNOWN fallback may clip — accepted, not optimized for.
 const SOURCE_PILL_W_LG = 60;
 
-/** Per-source accent (`--c`) for the Stripe-Premium `.vl-srcchip`.
- *  CORE / LMNFT / CANDY use the exact reference values from
- *  stripe-premium-final.html (purple / gold / teal). Every other source
- *  reuses its existing badge accent (`sb.fg`) so no new shades are invented;
- *  the premium capsule material is identical across all of them. */
-const CHIP_ACCENT: Record<string, string> = {
-  CORE:  '#7C5CF0',
-  LMNFT: '#C7B479',
-  CANDY: '#5BB6A6',
+/** Display-only label normalization for the fixed-width table chip. Keeps
+ *  labels short so they center cleanly in the fixed slot; only abbreviates
+ *  where it stays readable (LMNFT/PRNT/VVV/CORE/cNFT/ME/GAY left as-is).
+ *  Source logic and `sourceBadge()` labels are unchanged — this affects the
+ *  rendered text only; tooltips still use the full source name. */
+const CHIP_LABEL: Record<string, string> = {
+  CANDY:   'CNDY',
+  GRAVE:   'GRAV',
+  LEGACY:  'LGCY',
+  UNKNOWN: 'UNK',
 };
+
+/** Fixed chip width — sized to fit the widest kept label (LMNFT) with the dot
+ *  + reference padding, so every source chip is the same width and the
+ *  dot+label group centers identically row to row. */
+const SRCCHIP_W = 74;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   void size; // sizing is fixed by the chip primitive; prop kept for callers
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
-  const accent = CHIP_ACCENT[sb.label] ?? sb.fg;
-  const chipStyle = { '--c': accent } as React.CSSProperties;
+  // Restore the original per-source VictoryLabs accent (sb.fg): CORE purple
+  // (#ad92ee), LMNFT gold (#c7b479), CANDY pink (#e58aa3), and GRAVE / VVV /
+  // LEGACY / cNFT / PRNT / GAY / ME unchanged. No invented shades.
+  const accent = sb.fg;
+  const label  = CHIP_LABEL[sb.label] ?? sb.label;
+  const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
   const plainTitle = row.sourceLabel === 'LaunchMyNFT'
     ? 'LaunchMyNFT mint page unavailable'
     : row.sourceLabel;
@@ -72,12 +82,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
       onClick={(e) => e.stopPropagation()}
     >
       <span className="vl-srcchip-dot" />
-      <span className="vl-srcchip-lbl">{sb.label}</span>
+      <span className="vl-srcchip-lbl">{label}</span>
     </a>
   ) : (
     <span className="vl-srcchip" style={chipStyle} title={plainTitle}>
       <span className="vl-srcchip-dot" />
-      <span className="vl-srcchip-lbl">{sb.label}</span>
+      <span className="vl-srcchip-lbl">{label}</span>
     </span>
   );
   // Placement wrapper — same flex slot/position as before; flexShrink:0 so the
