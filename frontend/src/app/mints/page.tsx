@@ -2492,14 +2492,21 @@ export default function MintsPage() {
                   SHOW cell it always starts ~32 px in from the cell's left edge.
                   Net geometry at the 942 px table: SHOW = 516 − this width;
                   band = min(SHOW−16, 180); chip→band gap = this width − 316.
-                  326 is the widest setting that keeps the band near its 180 cap
-                  (≈174 px, vs ≈150 at 350) while still leaving a ≥8 px gap
-                  (≈10 px) at every table width. Going below 320 only collapses
-                  the gap (→4 px) without widening the capped band, so it is not
-                  worth it. SHOW is the flexible remainder col, so this trade is
-                  width-for-width — the overall table width (maxWidth 942) is
-                  unchanged. */}
-              <col style={{ width: 326 }} /> {/* COLLECTION (content width) */}
+                  Width is 328, paired with the SHOW band's right:-24 offset
+                  (MintsTableRow.tsx), to make the SHOW band visually SYMMETRIC
+                  between the source chip and the MINTS number. Geometry at the
+                  942 px table (x from table-left): chip right edge is fixed at
+                  ~327 (badge group is left-anchored at the end of the fixed
+                  100 px name track, independent of this width); MINTS-number
+                  left edge is fixed at ~581. The band spans
+                  [C + R + 16, 516 + R] with R = the band's right-offset
+                  magnitude. With C=328, R=24 the band is [368, 540]: left gap
+                  368−327 ≈ 41 px, right gap 581−540 ≈ 41 px, band center 454 ==
+                  midpoint(327,581) → centered. The right gap depends only on R
+                  (not on this boundary), which is why symmetry needs both
+                  levers. SHOW is the flexible remainder col, so the table width
+                  (maxWidth 942) is unchanged. */}
+              <col style={{ width: 328 }} /> {/* COLLECTION (content width) */}
               {/* SHOW — flexible spacer / action zone. This is now the auto
                   (remainder) column, so it stretches to consume ALL space
                   between the COLLECTION content and the MINTS metric, giving
