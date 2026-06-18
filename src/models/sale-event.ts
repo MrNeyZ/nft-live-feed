@@ -56,6 +56,12 @@ export interface SaleEvent {
   magicEdenUrl: string | null;
   /** Magic Eden verified collection slug, e.g. "froganas". Used to build /marketplace/{slug} URL. */
   meCollectionSlug?: string | null;
+  /** On-chain VERIFIED creator addresses resolved by enrichment (DAS). NOT
+   *  persisted to sale_events — it exists only so the post-enrichment
+   *  blacklist gate can match issuers (e.g. DRiP) that mint each drop under a
+   *  fresh per-drop collection address with no name/slug. Null/absent when
+   *  enrichment was skipped or DAS returned no verified creators. */
+  verifiedCreators?: string[] | null;
   /**
    * Floor-price delta: (salePrice − floorPrice) / floorPrice.
    * e.g. −0.12 = 12% below floor. Null when floor is unavailable.

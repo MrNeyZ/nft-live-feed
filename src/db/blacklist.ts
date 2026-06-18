@@ -39,6 +39,26 @@ export const COLLECTION_BLACKLIST = new Set<string>([
   '3reTJCRky6oiRh9FF1rTLd2bYWcpymhj3ANZ1BdqNcMw', // Man & Machine Dialogues (DRiP, Tensor-only)
 ]);
 
+/**
+ * VERIFIED on-chain creator addresses. Matched against DAS-resolved
+ * `creators[].address` where `verified === true` (see enrichment). This is the
+ * only reliable gate for issuers that mint EVERY drop under a fresh, unique
+ * collection address with no ME slug and no DAS collection name — so neither
+ * COLLECTION_BLACKLIST (per-drop address would be whack-a-mole), SLUG_BLACKLIST,
+ * NAME_BLACKLIST, nor the "drip" substring rule can catch them (slug + name come
+ * back null). A creator flag is `verified` only when that creator signed the
+ * metadata, so this match is spoof-proof. Only used at the post-enrichment gate
+ * (parser hot path has no creator data).
+ */
+export const CREATOR_BLACKLIST = new Set<string>([
+  // DRiP Haus minter — leaks past every other gate: DRiP issues a distinct
+  // collection address per artwork drop (e.g. DmdAdnD5… / EwzckBuD… / 5oAd1dzP…),
+  // DAS returns no collection_metadata name, and ME doesn't list them (slug null),
+  // so name/slug/substring rules have nothing to match. This verified creator is
+  // present on every DRiP asset and is the stable cross-drop identity.
+  'DRiPPP2LytGjNZ5fVpdZS7Xi1oANSY3Df1gSxvUKpzny',
+]);
+
 export const SLUG_BLACKLIST = new Set<string>([
   'collector_crypt', // CCryptWBYktukHDQ2vHGtVcmtjXxYzvw8XNVY64YN2Yf — fake/wash sales
   'staratlascrew',   // CREWSAACJTKHKhZi96pLRJXsxiGbdZaQHdFW9r7qGJkB
@@ -67,11 +87,32 @@ export function isBlacklistedCollection(opts: {
   collectionAddress: string | null;
   meCollectionSlug:  string | null | undefined;
   collectionName:    string | null;
+  /** DAS-resolved verified creator addresses (post-enrichment only). */
+  verifiedCreators?: readonly string[] | null;
   signature?:        string;
   mintAddress?:      string | null;
 }): boolean {
   if (opts.collectionAddress && COLLECTION_BLACKLIST.has(opts.collectionAddress)) return true;
   if (opts.meCollectionSlug  && SLUG_BLACKLIST.has(opts.meCollectionSlug))         return true;
+  // Verified-creator gate — the only reliable signal for per-drop-collection
+  // issuers (DRiP) whose name/slug come back null. Logged with the matched
+  // creator + the (per-drop, unhelpful) collection address for ground-truth.
+  if (opts.verifiedCreators && opts.verifiedCreators.length > 0) {
+    for (const creator of opts.verifiedCreators) {
+      if (CREATOR_BLACKLIST.has(creator)) {
+        console.log(
+          `[feed/blacklist] reason=verified_creator ` +
+          `creator=${creator} ` +
+          `collection=${opts.collectionName ?? 'null'} ` +
+          `collectionAddr=${opts.collectionAddress ?? 'null'} ` +
+          `slug=${opts.meCollectionSlug ?? 'null'} ` +
+          `mint=${opts.mintAddress ?? '—'} ` +
+          `sig=${opts.signature ?? '—'}`,
+        );
+        return true;
+      }
+    }
+  }
   if (opts.collectionName) {
     const lower = opts.collectionName.toLowerCase();
     if (NAME_BLACKLIST.has(lower)) return true;

@@ -433,6 +433,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         collectionAddress: enriched.collectionAddress,
         meCollectionSlug:  enriched.meCollectionSlug,
         collectionName:    enriched.collectionName,
+        verifiedCreators:  enriched.verifiedCreators,
         signature:         event.signature,
         mintAddress:       event.mintAddress,
       })) {
@@ -551,6 +552,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
           collectionAddress: enriched.collectionAddress,
           meCollectionSlug:  enriched.meCollectionSlug,
           collectionName:    enriched.collectionName,
+          verifiedCreators:  enriched.verifiedCreators,
           signature:         event.signature,
           mintAddress:       event.mintAddress,
         });

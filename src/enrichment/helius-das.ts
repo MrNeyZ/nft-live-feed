@@ -16,6 +16,14 @@ export interface NftMetadata {
    *  (`content.links`/`files` empty) — common for freshly-minted MPL Core
    *  assets. Optional; absent on the empty/error metadata objects. */
   jsonUri?: string | null;
+  /** On-chain VERIFIED creator addresses (DAS `creators[].address` where
+   *  `verified === true`). A creator flag is verified only if that creator
+   *  signed the metadata, so it is a spoof-proof, stable cross-drop identity
+   *  — unlike the per-drop collection address / update authority. Surfaced so
+   *  the blacklist can match issuers (e.g. DRiP) that mint every drop under a
+   *  fresh collection address with no name/slug. Optional; absent on the
+   *  empty/error metadata objects. */
+  verifiedCreators?: string[] | null;
 }
 
 // Minimal shape of the Helius DAS getAsset response we care about.
@@ -35,10 +43,20 @@ interface DasAsset {
     group_value: string;
     collection_metadata?: { name?: string };
   }>;
+  creators?: Array<{ address?: string; verified?: boolean; share?: number }>;
   token_info?: {
     decimals?: number;
     supply?: number;
   };
+}
+
+/** Verified-creator addresses from a DAS asset. Only `verified === true`
+ *  creators are returned — an unverified creator entry can be set to any
+ *  address by the minter, so matching on it would be spoofable. */
+function extractVerifiedCreators(asset: DasAsset | undefined): string[] {
+  return (asset?.creators ?? [])
+    .filter((c) => c.verified === true && typeof c.address === 'string' && c.address.length > 0)
+    .map((c) => c.address as string);
 }
 
 interface DasResponse {
@@ -136,6 +154,7 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
     collectionAddress: collection?.group_value ?? null,
     meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
     jsonUri: asset?.content?.json_uri ?? null,
+    verifiedCreators: extractVerifiedCreators(asset),
   };
 }
 
