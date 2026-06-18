@@ -301,7 +301,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // component scope so the X icon can render in its own fixed-width outer
   // slot (below) rather than inside the collection-name text flow.
   const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
-  const abbr           = (nftName[0] ?? '?').toUpperCase() + (nftName[1] ?? '').toUpperCase();
+  // Placeholder initials. For a deploy card seed from the resolved collection
+  // name (e.g. "SLAB" → "SL") rather than the "NFT"/short-mint stub a mint card
+  // uses — a deploy has no per-NFT asset, so its identity IS the collection.
+  const abbrSeed       = isCollectionCreate ? (deployTitleName ?? 'C') : nftName;
+  const abbr           = (abbrSeed[0] ?? '?').toUpperCase() + (abbrSeed[1] ?? '').toUpperCase();
   // Image priority on the live-feed CARD:
   //   1. `ev.nftImageUrl` — the per-mint asset image surfaced by DAS
   //      via `mint_meta`. We use it even when it's the launchpad's
@@ -456,9 +460,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // Surface 1:1 with /feed `.feed-card`: 0.035 base tint + the same
         // faint top-down sheen gradient (backgroundImage applied after the
         // shorthand so it isn't reset). Was 0.02 / no gradient.
-        // Collection-create gets a faint purple-blue wash instead of the neutral
-        // white tint — subtle but distinct. Same surface footprint (no size change).
-        background: isCollectionCreate ? 'rgba(124,108,230,0.07)' : 'rgba(255,255,255,0.035)',
+        // Collection-create uses the SAME neutral surface as a normal mint card
+        // — the earlier purple background wash was removed so a deploy reads as a
+        // normal card with an accent, not a separate event style. Its signal is
+        // the purple-pinned side stripe (`--mint-accent`) + left border below.
+        background: 'rgba(255,255,255,0.035)',
         backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.022) 0%, rgba(255,255,255,0.007) 50%, rgba(255,255,255,0) 100%)',
         // Hover-scope dim — non-matching mints fade out while a collection row
         // is hovered. Opacity-only (no display/size change) so the card keeps
@@ -504,7 +510,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         color={colorForCollection(
           cardImage
             ? (ev.collectionAddress ?? ev.groupingKey)
-            : (ev.mintAddress ?? ev.signature)
+            // Deploy: seed the placeholder tint by collection (its identity);
+            // mint: by per-asset mint/signature so same-collection mints vary.
+            : isCollectionCreate
+              ? (ev.collectionAddress ?? ev.groupingKey)
+              : (ev.mintAddress ?? ev.signature)
         )}
         abbr={abbr}
         size={56}
@@ -692,10 +702,20 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           rows where the helper returns null render the prior plain
           span. Visual chrome (padding, fontSize, borderRadius,
           letterSpacing) is verbatim — only `<span>` becomes `<a>`. */}
-      {/* Collection-CREATE is not a mint, so it carries no mint-type / source
-          label (CORE / CANDY / cNFT / NFT). The 52px slot above stays reserved
-          so the card footprint and the price/age columns don't shift. */}
-      {!isCollectionCreate && (() => {
+      {/* Collection-CREATE reuses the SAME 52px type-badge slot that holds the
+          CORE/CANDY pill on a normal mint card — so DEPLOY renders 1:1 where a
+          mint's type badge would, not as a separate widget. Same pill geometry
+          (width/padding/radius/line-height) as the type pill below; only the
+          tone differs (subtle purple/blue system-event). Deploy has no mint
+          type/source, so the normal type-pill builder is skipped for it. */}
+      {isCollectionCreate ? (
+        <span title="Collection deployed" style={{
+          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 52,
+          padding: '1.5px 6.5px', fontSize: 9, fontWeight: 700, borderRadius: 3.5,
+          background: 'rgba(124,108,230,0.18)', color: '#b9aef0',
+          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '14px',
+        }}>DEPLOY</span>
+      ) : (() => {
         const tint =
           // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
           // typeLabel is unchanged); raw Core falls through to purple below.
@@ -740,26 +760,12 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       })()}
       </div>
       </div>
-      {isCollectionCreate ? (
-        // Deploy events have no price. Rather than a reserved-but-blank price
-        // column (which read as broken), the DEPLOY badge occupies that area —
-        // right-aligned within the same 56px footprint so the age column stays
-        // aligned with normal mint cards. Styled to match the CORE/CANDY source
-        // pills (same fontSize/padding/radius, no outline) so it reads as a calm
-        // source/type badge rather than a standalone button — subtle purple/blue
-        // system-event tone. Shorter than the price element, so card height holds.
-        <span style={{
-          minWidth: 56, display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-          flexShrink: 0, transform: 'translateX(8px)',
-        }}>
-          <span title="Collection deployed" style={{
-            display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
-            padding: '1px 6px', borderRadius: 3, lineHeight: '13px',
-            background: 'rgba(124,108,230,0.20)',
-            color: '#b9aef0',
-          }}>DEPLOY</span>
-        </span>
-      ) : (
+      {/* Deploy events have no price, and the DEPLOY marker now lives in the
+          type-badge slot above (1:1 with a mint's CORE/CANDY badge), so the
+          price element is simply omitted for them — no blank reserved column.
+          The age span (flexShrink:0, last child) stays pinned to the card's
+          right edge in both cases, so deploy and mint rows align. */}
+      {!isCollectionCreate && (
       <span title={priceTitle} style={{
         minWidth: 56, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
