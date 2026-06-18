@@ -18,6 +18,24 @@ import { sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
+// Approved source-chip primitive — ported 1:1 from the /mints table chip
+// (MintsSourceBadge + `.vl-srcchip` in globals.css, commit b207346). The table
+// files are intentionally not touched here; these two values mirror the table's
+// `SRCCHIP_W` / `CHIP_LABEL` so the feed chip is pixel-identical. The chip
+// material/colours/dot live in the shared `.vl-srcchip` CSS class — reused, not
+// re-implemented; only the per-source accent (`--c`) and the (normalized) label
+// vary per card.
+const SRCCHIP_W = 66;
+/** Display-only label normalization — same map the table chip uses. On the feed
+ *  only CANDY (→CNDY) can actually occur (nftTypeLabel emits CORE/cNFT/CANDY/
+ *  NFT); the rest are kept for parity. Source logic / tooltips unchanged. */
+const CHIP_LABEL: Record<string, string> = {
+  CANDY:   'CNDY',
+  GRAVE:   'GRAV',
+  LEGACY:  'LGCY',
+  UNKNOWN: 'UNK',
+};
+
 /** Trim + treat empty-string as "no value". `??` only catches null /
  *  undefined, so a localStorage payload from an earlier reducer regime
  *  with `nftImageUrl: ""` would pin the chain to a blank URL even when
@@ -685,7 +703,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           CANDY. Slot width tracks the pill's `minWidth: 82` (below) so the pill
           never overflows into the X icon. price / age keep their positions via
           the flex:1 column. */}
-      <div style={{ width: 52, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: SRCCHIP_W, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Compact NFT-type pill (CORE / pNFT / cNFT / NFT).
           Background + foreground tinted by sourceLabel so the eye
           associates the type pill with the launchpad: LMNFT →
@@ -716,29 +734,20 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           letterSpacing: '0.35px', flexShrink: 0, lineHeight: '14px',
         }}>DEPLOY</span>
       ) : (() => {
-        const tint =
-          // Core Candy Machine v3 launchpad mint → CANDY pink (the CORE
-          // typeLabel is unchanged); raw Core falls through to purple below.
-          ev.coreLaunchpad                            ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
-          ev.sourceLabel === 'LaunchMyNFT'            ? { bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' } :
-          ev.sourceLabel === 'VVV'                    ? { bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' } :
-          ev.sourceLabel === 'GRAVE'                  ? { bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' } :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? { bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' } :
-                                                        { bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
-        const pillStyle: React.CSSProperties = {
-          // Practical values tuned to read like the Mint Tracker table source
-          // badge (MintsSourceBadge) while fitting the right-feed layout: same
-          // pill feel, slightly smaller. Same display model as the table
-          // (inline-block + textAlign:center inside the fixed centered slot).
-          // boxSizing:border-box keeps width exactly 54 total. Content area
-          // ≈54−14=40px fits every right-feed label (CORE/cNFT/CANDY/NFT;
-          // CANDY ≈32px). Pill height ~17px < 56px thumb, so card height
-          // unchanged. (LEGACY is a table-only label, never emitted here.)
-          display: 'inline-block', textAlign: 'center', boxSizing: 'border-box', width: 52, padding: '1.5px 6.5px', fontSize: 9, fontWeight: 700, borderRadius: 3.5,
-          background: tint.bg, color: tint.fg,
-          letterSpacing: '0.35px', flexShrink: 0, lineHeight: '14px',
-          textDecoration: 'none',
-        };
+        // Per-source accent (`--c`) for the shared `.vl-srcchip` material —
+        // the original VictoryLabs source fg's, identical to the table chip:
+        // CORE purple / LMNFT gold / CANDY pink / VVV blue / GRAVE gray. Only
+        // the accent varies; the capsule/dot/label material is the shared CSS.
+        const accent =
+          ev.coreLaunchpad                            ? '#e58aa3' :
+          ev.sourceLabel === 'LaunchMyNFT'            ? '#c7b479' :
+          ev.sourceLabel === 'VVV'                    ? '#5fa8e6' :
+          ev.sourceLabel === 'GRAVE'                  ? '#a0a0a8' :
+          ev.sourceLabel === 'Metaplex Candy Machine' ? '#e58aa3' :
+                                                        '#ad92ee';
+        // Normalized label (display only — source/type logic untouched).
+        const label = CHIP_LABEL[nftTypeLabel] ?? nftTypeLabel;
+        const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
         // Derive the link via the same helper the mints table uses.
         // `group` is the per-collection rollup pre-looked-up by the
         // page; absent only for the first event of a brand-new
@@ -750,12 +759,18 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            
-            style={{ ...pillStyle, cursor: 'pointer' }}
+            className="vl-srcchip"
+            style={chipStyle}
             onClick={(e) => e.stopPropagation()}
-          >{nftTypeLabel}</a>
+          >
+            <span className="vl-srcchip-dot" />
+            <span className="vl-srcchip-lbl">{label}</span>
+          </a>
         ) : (
-          <span style={pillStyle}>{nftTypeLabel}</span>
+          <span className="vl-srcchip" style={chipStyle}>
+            <span className="vl-srcchip-dot" />
+            <span className="vl-srcchip-lbl">{label}</span>
+          </span>
         );
       })()}
       </div>
