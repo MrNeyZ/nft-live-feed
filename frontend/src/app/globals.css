@@ -2168,9 +2168,9 @@ body[data-bottombar="1"] .feed-root {
    second colored block. Follows the capsule radius; pointer-events:none and
    absolute so the footprint/padding are unchanged. No glow, no fill change. */
 .vl-srcchip::after{
-  content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:2px;
+  content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:3px;
   border-radius:0 6px 6px 0;
-  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--c) 22%,transparent) 100%);
+  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--c) 34%,transparent) 100%);
 }
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
