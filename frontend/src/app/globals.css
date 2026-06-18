@@ -2171,7 +2171,7 @@ body[data-bottombar="1"] .feed-root {
 .vl-srcchip::after{
   content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:12%;
   border-radius:0 6px 6px 0;
-  background:radial-gradient(130% 130% at 100% 50%,color-mix(in srgb,var(--c) 12%,transparent) 0%,transparent 65%);
+  background:radial-gradient(130% 130% at 100% 50%,color-mix(in srgb,var(--c) 16%,transparent) 0%,transparent 65%);
 }
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
