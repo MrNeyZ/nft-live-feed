@@ -171,11 +171,11 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 
 const WALLET_LINK_STYLE: React.CSSProperties = {
   // Wallet text sits one tier above the seller:/buyer: label and
-  // one tier below the title. Text-clarity pass lifted #7e7e9c →
-  // #9a9ab4 so short wallet addresses stop reading as low-contrast
-  // mush against the bumped card bg. Still clearly below the title
-  // (#f0eef8) — same hierarchy, just a higher readability floor.
-  color: '#9a9ab4', fontWeight: 500,
+  // one tier below the title. Lifted #9a9ab4 → #b9b7cb (and weight
+  // 500 → 600) so the address is the readable value on the row, now
+  // that the label has dropped to a muted #63637a. Still clearly below
+  // the title (#f0eef8) — preserves the title → wallet → label tiers.
+  color: '#b9b7cb', fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
   // No persistent decoration — matches the NFT-name link's behavior.
   // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
@@ -311,11 +311,13 @@ const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 0, marginTop: 2,
 };
 const FC_PARTY_ROW_STYLE: React.CSSProperties = {
-  // Text-clarity pass: label tone lifted #241f3b → #9a9ab4 so
-  // `seller:` / `buyer:` is legible at idle. Wallet text is still
-  // brighter (#9a9ab4), so the three-tier title → wallet → label
-  // hierarchy is preserved — labels just stop dissolving into bg.
-  fontSize: 10.5, color: '#9a9ab4', display: 'flex', alignItems: 'center', gap: 6,
+  // Label-vs-wallet separation pass: the `seller:` / `buyer:` label is
+  // dropped to a muted #63637a so it reads as clearly secondary, while
+  // the wallet keeps a brighter tone (WALLET_LINK_STYLE) as the value
+  // to read. Row gap tightened 6 → 4 so the address sits closer to its
+  // label. (Was #9a9ab4 — identical to the wallet, which made the two
+  // blur together.)
+  fontSize: 10.5, color: '#63637a', display: 'flex', alignItems: 'center', gap: 4,
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every
@@ -323,7 +325,10 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
  *  the wider "seller:" label at 10.5px; flexShrink:0 keeps it from collapsing. */
 const FC_PARTY_LABEL_STYLE: React.CSSProperties = {
   flexShrink: 0,
-  width: 44,
+  // Trimmed 44 → 38: the column held ~7 px of dead space past the
+  // "seller:" glyphs, pushing the wallet away from its label. 38 fits
+  // the wider "seller:" at 10.5 px while pulling the address in close.
+  width: 38,
   whiteSpace: 'nowrap',
 };
 const FC_RIGHT_COL_STYLE: React.CSSProperties = {
