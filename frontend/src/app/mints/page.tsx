@@ -2482,20 +2482,24 @@ export default function MintsPage() {
                   flexible SHOW column instead of sitting unused inside this
                   cell. Name truncation is unaffected (the name is a fixed 100px
                   grid track with ellipsis, independent of this width).
-                  Width is 330 (not 300): the trailing 1fr track holds the
+                  Width is 326 (not 300): the trailing 1fr track holds the
                   icons+source group (up to 3×13 icons + gaps + the 66 px source
                   chip ≈ 117 px). At 300 the 1fr track was only ~69 px, so the
                   chip overflowed the cell's right edge by ~48 px and collided
-                  with the SHOW band. The SHOW band is right-anchored and (for a
-                  sub-196 px SHOW cell) always starts ~32 px in from the cell's
-                  left edge, so the chip can overflow by up to ~32 px and still
-                  clear it. 330 gives a ~99 px 1fr track → ~18 px chip overflow
-                  → a consistent ~14 px gap to the band at every table width,
-                  while leaving SHOW ~20 px wider than 350 did (350 over-narrowed
-                  SHOW). SHOW is the flexible remainder col, so this trade is
+                  with the SHOW band. The SHOW band (MintsTableRow.tsx) is
+                  right-anchored with `width:min(calc(100%-16px),180px)` — so its
+                  VISIBLE width is hard-capped at 180 px, and for a sub-196 px
+                  SHOW cell it always starts ~32 px in from the cell's left edge.
+                  Net geometry at the 942 px table: SHOW = 516 − this width;
+                  band = min(SHOW−16, 180); chip→band gap = this width − 316.
+                  326 is the widest setting that keeps the band near its 180 cap
+                  (≈174 px, vs ≈150 at 350) while still leaving a ≥8 px gap
+                  (≈10 px) at every table width. Going below 320 only collapses
+                  the gap (→4 px) without widening the capped band, so it is not
+                  worth it. SHOW is the flexible remainder col, so this trade is
                   width-for-width — the overall table width (maxWidth 942) is
                   unchanged. */}
-              <col style={{ width: 330 }} /> {/* COLLECTION (content width) */}
+              <col style={{ width: 326 }} /> {/* COLLECTION (content width) */}
               {/* SHOW — flexible spacer / action zone. This is now the auto
                   (remainder) column, so it stretches to consume ALL space
                   between the COLLECTION content and the MINTS metric, giving
