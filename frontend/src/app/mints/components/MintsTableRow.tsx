@@ -566,23 +566,25 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             }}
             style={{
               // Absolutely-positioned fill so the action strip spans the
-              // ENTIRE row content height (td → row stretches all cells
-              // to the tallest sibling's height; abs child with top/bottom
-              // 0 inherits that height exactly). The container is anchored to
-              // the RIGHT of the (wide, flexible) SHOW cell with left:auto +
-              // right:8, and sized to its content (fit-content) so it hugs the
-              // SHOW label and its right edge sits ~8 px before MINTS — instead
-              // of filling the cell and letting the centered label float in the
-              // mid-cell void. All the empty space falls on the COLLECTION side,
-              // independent of how wide the flexible SHOW cell gets.
-              position: 'absolute', top: 0, bottom: 0, left: 'auto', right: -16,
-              // Right-anchored action zone that fills the gap up to a 180px cap.
-              // min(calc(100% - 16px), 180px): on narrow SHOW cells it fills the
-              // gap (minus the L/R insets); on wide desktop cells it stops at
-              // 180px so the centered label stays gap-like instead of floating
-              // mid-cell. right:-16 pushes the zone 16px past the cell edge,
-              // overlapping into the MINTS column. Grows LEFT only.
-              width: 'min(calc(100% - 16px), 180px)',
+              // ENTIRE row content height (td → row stretches all cells to the
+              // tallest sibling's height; abs child with top/bottom 0 inherits
+              // that height exactly).
+              //
+              // CENTERED in the SHOW cell (was right-anchored at right:-16). The
+              // SHOW <td> spans exactly [COLLECTION-right-border ↔
+              // MINTS-left-border]. With left:0 + right:0 + marginInline:auto +
+              // a fixed width, the band is horizontally centered in that span,
+              // so its left inset (source/COLLECTION border → SHOW left border)
+              // and right inset (SHOW right border → MINTS border) are
+              // mathematically identical = (cellWidth − width)/2 at every table
+              // width — 0 px asymmetry by construction, not eyeballed.
+              position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, marginInline: 'auto',
+              // Centered width. min(calc(100% - 40px), 150px) → ≤150 px on the
+              // wide (942) table = ~20 px symmetric inset each side, which also
+              // clears the worst-case 3-icon source chip (its right edge sits
+              // ~14 px into this cell). On a narrower cell the calc floor keeps a
+              // ≥20 px inset; marginInline:auto keeps both insets equal anyway.
+              width: 'min(calc(100% - 40px), 150px)',
               // SHOW label centered inside the action container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
