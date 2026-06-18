@@ -2481,8 +2481,18 @@ export default function MintsPage() {
                   area between the source badges and the metrics belongs to the
                   flexible SHOW column instead of sitting unused inside this
                   cell. Name truncation is unaffected (the name is a fixed 100px
-                  grid track with ellipsis, independent of this width). */}
-              <col style={{ width: 300 }} /> {/* COLLECTION (content width) */}
+                  grid track with ellipsis, independent of this width).
+                  Width is 350 (not 300): the trailing 1fr track must contain
+                  the full icons+source group (up to 3×13 icons + gaps + the
+                  66 px source chip ≈ 117 px). At 300 the 1fr track was only
+                  ~69 px, so the chip overflowed the cell's right edge by ~48 px
+                  into the SHOW band and collided with it on narrow laptop
+                  tables. 350 makes the 1fr track ~119 px so the group fits
+                  inside the cell, and the right-anchored SHOW band then leaves a
+                  consistent gap. SHOW is the flexible remainder col, so the
+                  extra 50 px comes out of SHOW — the overall table width
+                  (maxWidth 942) is unchanged. */}
+              <col style={{ width: 350 }} /> {/* COLLECTION (content width) */}
               {/* SHOW — flexible spacer / action zone. This is now the auto
                   (remainder) column, so it stretches to consume ALL space
                   between the COLLECTION content and the MINTS metric, giving
