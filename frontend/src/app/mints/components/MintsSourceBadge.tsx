@@ -61,7 +61,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
   // LEGACY / cNFT / PRNT / GAY / ME unchanged. No invented shades.
   const accent = sb.fg;
   const label  = CHIP_LABEL[sb.label] ?? sb.label;
-  const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
+  // flexShrink:0 so the anchor keeps its full SRCCHIP_W box as a flex child of
+  // the wrapper / icon group — without it the default flex-shrink:1 lets row
+  // pressure collapse the <a> toward its content width, so only the dot/label
+  // area stayed clickable. boxSizing is border-box via `.vl-srcchip`; the inline
+  // width is the full capsule, so the anchor itself owns the entire 66px hitbox.
+  const chipStyle = { '--c': accent, width: SRCCHIP_W, flexShrink: 0 } as React.CSSProperties;
   const plainTitle = row.sourceLabel === 'LaunchMyNFT'
     ? 'LaunchMyNFT mint page unavailable'
     : row.sourceLabel;
@@ -94,9 +99,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     </span>
   );
   // Placement wrapper — same flex slot/position as before; flexShrink:0 so the
-  // chip never squeezes. Width is the chip's intrinsic (reference) width.
+  // chip never squeezes. Pin the wrapper to the full SRCCHIP_W so it reserves
+  // the exact capsule width (== the anchor) and can never size below the chip
+  // and shrink the <a>'s hitbox. justifyContent:center keeps the (full-width)
+  // anchor flush — no visual change, the chip already filled this width.
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: SRCCHIP_W }}>
       {chip}
     </span>
   );
