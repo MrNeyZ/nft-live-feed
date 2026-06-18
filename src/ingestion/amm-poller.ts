@@ -450,7 +450,14 @@ const BACKOFF_CFG: Record<string, BackoffCfg> = {
   // 300s (5min) aggressive mode after 10 cumulative idle sweeps
   // (~20 min at L2 cadence) — matches the user's 1%/20min guard intent.
   'poll:mmm':   { l1Ms: 30_000, l2Ms: 120_000, l3Ms: 300_000, l1Streak: 1, l2Streak: 4, l3Streak: 10 },
-  'poll:me_v2': { l1Ms: 15_000, l2Ms: 30_000,  l1Streak: 3, l2Streak: 8 },
+  // me_v2 has real fixed-price ME sales whose discovery rides this cadence
+  // (the WS prefilter passes only ~8% of ME sales; the poller recovers the
+  // rest). Softened 2026-06-18 to cut the regular-ME latency tail: stay at
+  // L0 (5s) longer (l1Streak 3→5, l2Streak 8→12) and shrink the backed-off
+  // intervals (l1 15s→10s, l2 30s→20s). Trades a modest increase in cheap
+  // getSignaturesForAddress sweeps during ME lulls — getTransaction count is
+  // unchanged (same sales fetched once) — for a ~15–30s → ~10–20s tail.
+  'poll:me_v2': { l1Ms: 10_000, l2Ms: 20_000,  l1Streak: 5, l2Streak: 12 },
 };
 const BACKOFF_TARGETS: ReadonlySet<string> = new Set(Object.keys(BACKOFF_CFG));
 
