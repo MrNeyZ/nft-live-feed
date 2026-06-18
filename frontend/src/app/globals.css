@@ -2162,15 +2162,16 @@ body[data-bottombar="1"] .feed-root {
     color-mix(in srgb,var(--c) 12%,transparent) 62%,
     transparent 100%);
 }
-/* (1b) right-side source rim — restores two-sided framing. Much weaker/softer
-   than the left accent (≈22% vs 40% peak), only the rightmost ~2px, fading
-   toward the edge so it reads as a material rim catching the source hue, not a
-   second colored block. Follows the capsule radius; pointer-events:none and
-   absolute so the footprint/padding are unchanged. No glow, no fill change. */
+/* (1b) right-side ambient glow — NOT a rim/edge/stripe. Just the last ~12% of
+   the capsule softly catching the source hue so the chip reads as finished, not
+   cut off. A diffuse radial (~12% peak) anchored at the right edge that fades to
+   transparent well before any border — no hard edge, no second colored block.
+   Clipped inside the capsule by the chip's overflow:hidden; never competes with
+   the left accent. pointer-events:none + absolute → footprint/padding unchanged. */
 .vl-srcchip::after{
-  content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:3px;
+  content:''; position:absolute; right:0; top:0; bottom:0; z-index:1; pointer-events:none; width:12%;
   border-radius:0 6px 6px 0;
-  background:linear-gradient(90deg,transparent 0%,color-mix(in srgb,var(--c) 34%,transparent) 100%);
+  background:radial-gradient(130% 130% at 100% 50%,color-mix(in srgb,var(--c) 12%,transparent) 0%,transparent 65%);
 }
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
