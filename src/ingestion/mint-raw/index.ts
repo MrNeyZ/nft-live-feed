@@ -262,6 +262,7 @@ function launchpadSourceLabel(s: LaunchpadSource): MintSourceLabel {
     case 'GRAVE':        return 'GRAVE';
     case 'CandyMachine': return 'Metaplex Candy Machine';
     case 'NftsGay':      return 'nfts.gay';
+    case 'PRNT':         return 'PRNT';
   }
 }
 

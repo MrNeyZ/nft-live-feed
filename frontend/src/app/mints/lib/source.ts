@@ -132,6 +132,9 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     // platform treasury. Distinct fuchsia palette so the row reads
     // separately from generic CANDY without competing visually.
     case 'nfts.gay':               return { label: 'GAY',      bg: 'rgba(232,122,200,0.18)', fg: '#ff7fd0' };
+    // PRNT mint-pass — Core Candy mint with an SPL722 vesting leg. Teal
+    // palette so the pass reads distinctly from generic CORE / CANDY.
+    case 'PRNT':                   return { label: 'PRNT',     bg: 'rgba(74,200,190,0.16)',  fg: '#3fd0c4' };
     default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: '#9a9ab4' };
   }
 }

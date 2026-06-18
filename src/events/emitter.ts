@@ -168,6 +168,7 @@ export type MintSourceLabel =
   | 'Metaplex'
   | 'Bubblegum'
   | 'nfts.gay'
+  | 'PRNT'
   | 'Unknown';
 
 /** Per-mint event, fired once on detection. */

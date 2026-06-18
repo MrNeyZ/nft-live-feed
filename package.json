@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "migrate": "ts-node src/db/migrate.ts",
     "test:mint-analyzer": "ts-node src/mint-analyzer/__tests__/analyze.test.ts",
+    "test:prnt-detector": "ts-node src/ingestion/mint-raw/__tests__/prnt-detector.test.ts",
     "test:mint-accumulator": "MINT_BURST_V60=2 MINT_BURST_V5M=2 MINT_DISPLAY_THRESHOLD=50 MINT_IDLE_COOLDOWN_MS=1 ts-node src/mints/__tests__/accumulator-revival.test.ts",
     "test:mint-price-relayer": "ts-node src/ingestion/mint-raw/mint-price-relayer.test.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",

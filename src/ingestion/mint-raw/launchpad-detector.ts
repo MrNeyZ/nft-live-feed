@@ -177,7 +177,57 @@ export const CANDY_GUARD_PROGRAM         = 'Guard1JwRhJkVH6XZhzoYxeBVQe872VH6Qgg
  *    4KZKMGiHhekCbeoGf4noBmskEHMivrij1PtBdqd9pp3entizNgrkVdR94tTjV1AJYDXmXhpkP9vfM8QRKk5n45JW */
 export const CANDY_MACHINE_V3_PROGRAM    = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefbAnjHG3JR';
 
-export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay';
+/** PRNT mint-pass family.
+ *
+ *  PRNT issues a "mint pass" as a standard MPL **Core** Candy Machine
+ *  asset (Core Candy Guard `CMAGAK…` → Core Candy Machine `CMACYFEN…`
+ *  → mpl-core `Create`), but layers a token-vesting leg on top: the
+ *  same tx invokes the SPL722 vesting program (`SPL722…`) which logs
+ *  `Instruction: InitVesting` followed by `Initialized vesting for
+ *  asset <asset>`, where `<asset>` is the freshly-minted Core asset.
+ *
+ *  That vesting leg is the PRNT fingerprint — a plain CMA Core mint
+ *  carries none of it, and a plain SPL722 vesting tx carries no Core
+ *  Create. The gate requires BOTH programs, the InitVesting log, and
+ *  — critically — that the asset named in the vesting log equals the
+ *  Core Create's asset (accounts[0]) IN THE SAME TX. Without that
+ *  equality check a CMA mint that merely shared a tx with an unrelated
+ *  vesting init could be misattributed.
+ *
+ *  Reference tx:
+ *    2h7fHRPup2eqSJhwB6EQqTPCNKFHdjA1NnE1txSJ3vVzA1P28uDkKbv1Bcyh8g8NHtyxwFrR2Nc49tvT4bWZeSjM
+ *    (asset 4NXCz5sT…, collection 5eY82RX1…, minter 4Y742UF…) */
+export const PRNT_VESTING_PROGRAM        = 'SPL722x7RdCpb2WEDtkHmzfTypqXp92Ft5qkYWfMcBg';
+export const PRNT_CORE_CANDY_GUARD       = 'CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ';
+export const PRNT_CORE_CANDY_MACHINE     = 'CMACYFENjoBMHzapRXyo1JZkVS6EtaDDzkjMrmQLvr4J';
+const PRNT_INIT_VESTING_LOG = 'Instruction: InitVesting';
+/** Captures the base58 asset id from `Initialized vesting for asset
+ *  <asset> with <n> tokens`. Anchored on the program-log phrasing so a
+ *  future copy that drops the trailing `with … tokens` clause still
+ *  matches the asset segment. */
+const PRNT_VESTING_ASSET_REGEX = /Initialized vesting for asset ([1-9A-HJ-NP-Za-km-z]{32,44})/;
+
+/** Returns the vesting-log asset id when `tx` carries the full PRNT
+ *  fingerprint (SPL722 + a Core Candy program + `Instruction:
+ *  InitVesting` + the asset-log line); null otherwise. The caller is
+ *  responsible for the same-tx equality check against the Core Create
+ *  asset — this only proves the PRNT programs + logs are present. */
+function prntVestingAssetIfPresent(shape: ParsedTxShape): string | null {
+  if (!shape.accountKeys.includes(PRNT_VESTING_PROGRAM)) return null;
+  if (!shape.accountKeys.includes(PRNT_CORE_CANDY_GUARD)
+      && !shape.accountKeys.includes(PRNT_CORE_CANDY_MACHINE)) return null;
+  let hasInitVesting = false;
+  let vestingAsset: string | null = null;
+  for (const line of shape.logs) {
+    if (line.includes(PRNT_INIT_VESTING_LOG)) hasInitVesting = true;
+    const m = PRNT_VESTING_ASSET_REGEX.exec(line);
+    if (m) vestingAsset = m[1];
+  }
+  if (!hasInitVesting || !vestingAsset) return null;
+  return vestingAsset;
+}
+
+export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay' | 'PRNT';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
  *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
@@ -847,6 +897,48 @@ function extractCnftFromInner(
 export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
   const shape = readTxShape(tx);
   if (!shape) return null;
+
+  // PRNT mint-pass — checked first. Most specific gate in the file
+  // (SPL722 vesting + Core Candy program + InitVesting log + same-tx
+  // asset equality), so it can never steal a hit from the broader
+  // branches below; conversely it wins over the generic Core Candy
+  // Machine fallback in `ingestMintRaw` (which runs only after this
+  // returns), relabelling these mints PRNT instead of `Metaplex Core`.
+  const prntVestingAsset = prntVestingAssetIfPresent(shape);
+  if (prntVestingAsset) {
+    const core = extractCoreMintFromInner(tx, shape);
+    if (!core) {
+      // PRNT programs + InitVesting log present but no extractable Core
+      // Create asset — treat as a parse miss, never a PRNT accept.
+      console.log(
+        `[mints/prnt-skip] sig=${tx.signature ?? '—'} reason=no_core_create vestingAsset=${prntVestingAsset}`,
+      );
+      return null;
+    }
+    if (core.mintAddress !== prntVestingAsset) {
+      // False-positive guard: the vesting log names a DIFFERENT asset
+      // than the Core Create. Not a PRNT mint-pass — reject outright
+      // rather than mislabel an unrelated CMA mint that merely shared a
+      // tx with a vesting init.
+      console.log(
+        `[mints/prnt-skip] sig=${tx.signature ?? '—'} reason=asset_mismatch ` +
+        `coreAsset=${core.mintAddress} vestingAsset=${prntVestingAsset}`,
+      );
+      return null;
+    }
+    console.log(
+      `[mints/prnt] sig=${tx.signature ?? '—'} mint=${core.mintAddress} ` +
+      `collection=${core.collectionAddress ?? 'null'} minter=${shape.signerKeys[0] ?? 'null'}`,
+    );
+    return {
+      source:            'PRNT',
+      standard:          'core',
+      mintAddress:       core.mintAddress,
+      collectionAddress: core.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     'Instruction: InitVesting',
+    };
+  }
 
   const lmnftCoreNeedle = lmnftCoreNeedleIfPresent(shape);
   if (lmnftCoreNeedle) {
