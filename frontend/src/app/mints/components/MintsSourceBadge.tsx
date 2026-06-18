@@ -32,24 +32,23 @@ const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9, padding 1×6 — minWidth (grows
 // VVV, ME, GAY); a rare UNKNOWN fallback may clip — accepted, not optimized for.
 const SOURCE_PILL_W_LG = 60;
 
+/** Per-source accent (`--c`) for the Stripe-Premium `.vl-srcchip`.
+ *  CORE / LMNFT / CANDY use the exact reference values from
+ *  stripe-premium-final.html (purple / gold / teal). Every other source
+ *  reuses its existing badge accent (`sb.fg`) so no new shades are invented;
+ *  the premium capsule material is identical across all of them. */
+const CHIP_ACCENT: Record<string, string> = {
+  CORE:  '#7C5CF0',
+  LMNFT: '#C7B479',
+  CANDY: '#5BB6A6',
+};
+
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
+  void size; // sizing is fixed by the chip primitive; prop kept for callers
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
-  const lg = size === 'lg';
-  const pillStyle: React.CSSProperties = {
-    display: 'inline-block',
-    padding: lg ? '2px 8px' : '1px 6px',
-    fontSize: lg ? 10 : 9,
-    fontWeight: 700,
-    borderRadius: lg ? 4 : 3,
-    background: sb.bg, color: sb.fg, letterSpacing: '0.4px',
-    textDecoration: 'none', cursor: href ? 'pointer' : 'default',
-    flexShrink: 0, lineHeight: lg ? '16px' : '13px', textTransform: 'uppercase',
-    // lg: hard 60px width + centered text so every table source badge is
-    // identical. sm keeps its intrinsic shrink-to-fit width.
-    width: lg ? SOURCE_PILL_W_LG : undefined,
-    textAlign: lg ? 'center' : undefined,
-  };
+  const accent = CHIP_ACCENT[sb.label] ?? sb.fg;
+  const chipStyle = { '--c': accent } as React.CSSProperties;
   const plainTitle = row.sourceLabel === 'LaunchMyNFT'
     ? 'LaunchMyNFT mint page unavailable'
     : row.sourceLabel;
@@ -62,29 +61,30 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
     : row.sourceLabel === 'GRAVE'
       ? 'Open on gravemint.io'
       : row.sourceLabel;
-  const pill = href ? (
+  const chip = href ? (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      
-      style={pillStyle}
+      className="vl-srcchip"
+      style={chipStyle}
+      title={linkTitle}
       onClick={(e) => e.stopPropagation()}
-    >{sb.label}</a>
+    >
+      <span className="vl-srcchip-dot" />
+      <span className="vl-srcchip-lbl">{sb.label}</span>
+    </a>
   ) : (
-    <span  style={pillStyle}>{sb.label}</span>
+    <span className="vl-srcchip" style={chipStyle} title={plainTitle}>
+      <span className="vl-srcchip-dot" />
+      <span className="vl-srcchip-lbl">{sb.label}</span>
+    </span>
   );
-  // Fixed-width slot — pins horizontal footprint so CORE / VVV occupy the same
-  // physical column as LMNFT / CANDY / GRAVE. lg (collections table) uses a HARD
-  // 60px width matching the pill so every badge is pixel-identical (a rare
-  // UNKNOWN may clip — accepted). sm keeps minWidth so its long labels grow.
+  // Placement wrapper — same flex slot/position as before; flexShrink:0 so the
+  // chip never squeezes. Width is the chip's intrinsic (reference) width.
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0,
-      ...(lg ? { width: SOURCE_PILL_W_LG } : { minWidth: SOURCE_SLOT_W_SM }),
-    }}>
-      {pill}
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+      {chip}
     </span>
   );
 }

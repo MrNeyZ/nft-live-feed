@@ -2132,3 +2132,42 @@ body[data-bottombar="1"] .feed-root {
   .bp-desktop-large-up   { display: revert; }
 }
 /* ===== /breakpoints ===== */
+
+/* ============================================================================
+   VictoryLabs source chip — Stripe Premium "Final Production Candidate"
+   1:1 reproduction of the `.fin` chip from stripe-premium-final.html (the
+   single source of truth). Premium dark capsule material + a soft left
+   source-accent zone that dissolves into the material (no rail), a circular
+   tinted dot, and a source-tinted label, in the hierarchy:
+       accent zone -> dot -> text.
+   The accent colour is supplied per source via the inline `--c` custom
+   property set in MintsSourceBadge (CORE=purple, LMNFT=gold, CANDY=teal).
+   Values copied verbatim from the reference; nothing eyeballed.
+   ========================================================================= */
+.vl-srcchip{
+  position:relative; isolation:isolate; overflow:hidden; box-sizing:border-box;
+  height:22px; padding:0 10px; display:inline-flex; align-items:center; gap:6px; border-radius:7px;
+  font-size:10.5px; font-weight:600; letter-spacing:.03em; line-height:1; text-transform:uppercase;
+  color:#e9e7f3; white-space:nowrap; text-decoration:none; --c:#7C5CF0; transition:filter .15s ease;
+  border:1px solid #38325a; background:linear-gradient(180deg,#211b3a,#1a1531);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.30),0 1px 2px rgba(0,0,0,.4);
+}
+/* (1) left source-accent zone — smooth multi-stop dissolve, no 2px rail */
+.vl-srcchip::before{
+  content:''; position:absolute; left:0; top:0; bottom:0; z-index:1; pointer-events:none; width:46%;
+  border-radius:6px 0 0 6px;
+  background:linear-gradient(90deg,
+    color-mix(in srgb,var(--c) 40%,transparent) 0%,
+    color-mix(in srgb,var(--c) 26%,transparent) 32%,
+    color-mix(in srgb,var(--c) 12%,transparent) 62%,
+    transparent 100%);
+}
+/* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
+.vl-srcchip-dot{
+  position:relative; z-index:2; width:6.6px; height:6.6px; border-radius:50%; flex:none;
+  background:radial-gradient(circle at 34% 30%,color-mix(in srgb,var(--c) 55%,#fff),var(--c) 72%);
+  box-shadow:0 0 0 1.5px color-mix(in srgb,var(--c) 24%,transparent),inset 0 0 1px rgba(255,255,255,.6);
+}
+/* (3) label tint — text stays tertiary under the dot/accent */
+.vl-srcchip-lbl{ position:relative; z-index:2; color:color-mix(in srgb,var(--c) 44%,#eeecf7); }
+.vl-srcchip:hover{ filter:brightness(1.06); }
