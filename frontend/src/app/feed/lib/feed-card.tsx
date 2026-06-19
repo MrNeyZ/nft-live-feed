@@ -18,6 +18,7 @@ import { formatFeedPrice, safeFiniteNumber } from './format';
 import { RarityRankBadge } from './rarity-rank-badge';
 import { shortenNftName } from './nft-name';
 import { KIND_STYLES, saleKind, getNftBorderColor } from './sale-kind';
+import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 import type { FeedCardProps } from './types';
 import { useSharedNow } from './shared-now';
 
@@ -228,14 +229,15 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // Colors are the color-mix() results from the reference, precomputed so
 // the inline style stays dependency-free:
 //   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
-// Over-muted in the prior pass to the point of being unreadable. Pulled
-// back up: brighter (but still sub-action) text, a faint tint + visible
-// border so the signed % reads clearly as metadata without competing
-// with the action tag above it.
+// Floor delta = quiet metadata. Tokenized onto the palette: pos/neg use
+// the brand green/red text-accent (clearly readable but a tier below the
+// action tag's green-strong/red-strong), with a faint tint + border off
+// the same hue. Neutral (0 %) carries no direction, so it reads as a
+// plain white-alpha gray. Drawn from VL.* — no one-off floor shades.
 const FLOOR_TONES = {
-  pos: { fg: '#62c79c', bg: 'rgba(67,185,132,0.07)',  bd: 'rgba(67,185,132,0.18)'  },
-  neg: { fg: '#e2868a', bg: 'rgba(217,104,103,0.07)', bd: 'rgba(217,104,103,0.18)' },
-  neu: { fg: '#a7a0c8', bg: 'rgba(143,134,194,0.07)', bd: 'rgba(143,134,194,0.18)' },
+  pos: { fg: rgb(VL.green), bg: alpha(VL.green, ALPHA.tintWeak), bd: alpha(VL.green, ALPHA.border) },
+  neg: { fg: rgb(VL.red),   bg: alpha(VL.red, ALPHA.tintWeak),   bd: alpha(VL.red, ALPHA.border) },
+  neu: { fg: VLText.muted,  bg: 'rgba(255,255,255,0.04)',        bd: 'rgba(255,255,255,0.12)' },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -793,8 +795,8 @@ export const FeedCard = memo(function FeedCard({
               // borderTone (the KIND_STYLES axis), so Rare Feed's neutral
               // override gets a neutral edge.
               const tagBorder =
-                style.borderTone === 'sell' ? 'rgba(245,88,102,0.34)' :
-                style.borderTone === 'buy'  ? 'rgba(64,212,168,0.34)' :
+                style.borderTone === 'sell' ? alpha(VL.redStrong, ALPHA.borderStrong) :
+                style.borderTone === 'buy'  ? alpha(VL.greenStrong, ALPHA.borderStrong) :
                                               'rgba(255,255,255,0.12)';
               return (
                 <span style={{

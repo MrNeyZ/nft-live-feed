@@ -52,6 +52,25 @@
   --vl-border-subtle:   #241F3B;
   --vl-border-primary:  #38315A;
   --vl-glow-purple:     #7C5CF0;
+  /* ── Hue scale (RGB triplets — mirror of src/lib/palette.ts) ─────────
+     Named by ROLE so new elements compose from the scale instead of
+     introducing one-off shades. Use as: rgb(var(--vl-green-strong) / .13)
+     The legacy single-shade tokens above stay valid (still widely used);
+     migrate call sites onto these triplets over time. */
+  --vl-green:         67 185 132;   /* #43B984 base / text-accent */
+  --vl-green-strong:  64 212 168;   /* #40D4A8 direction (BUY) */
+  --vl-green-glow:    92 224 160;   /* #5CE0A0 halos / flash / hover */
+  --vl-green-muted:  122 154 133;   /* #7A9A85 dim qualifier */
+  --vl-red:          217 104 103;   /* #D96867 base / text-accent */
+  --vl-red-strong:   245  88 102;   /* #F55866 direction (SELL) */
+  --vl-red-glow:     239 120 120;   /* #EF7878 halos / bright floor */
+  --vl-red-muted:    191  95  95;   /* #BF5F5F dim qualifier */
+  --vl-purple:       124  92 240;   /* #7C5CF0 saturated accent */
+  --vl-purple-tint:  168 144 232;   /* #A890E8 main UI lavender tint */
+  --vl-purple-muted: 173 146 238;   /* #AD92EE muted */
+  --vl-purple-deep:  128 104 216;   /* #8068D8 deeper */
+  --vl-gold:         199 180 121;   /* #C7B479 base */
+  --vl-gold-bright:  224 196  92;   /* #E0C45C highlight */
   /* Table tokens — centralize current row sizing across the three
      dense-analytics tables on the site. Values match the live
      hardcoded equivalents exactly (no density change in this pass):

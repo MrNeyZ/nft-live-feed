@@ -5,6 +5,7 @@
 // raw `saleTypeRaw` literal directly, not via these constants).
 
 import type { SaleKind, KindStyle } from './types';
+import { VL, rgb, alpha, ALPHA } from '@/lib/palette';
 
 /** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
  *  Listings is intentionally absent — the backend does not yet emit listing
@@ -51,14 +52,15 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   // instantly-readable label. AMM = same tint + text, with the route
   // shown by the framing triangles (which inherit the text colour).
   //
-  // Colour = the feed's direction edge colours — rgb(64,212,168) /
-  // rgb(245,88,102), the exact hues of the .buy-card/.sell-card left/
-  // right card stripes — so fill, border, text and triangles are all
-  // one site-canonical direction colour. Green buy / red sell.
-  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(245,88,102)', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: 'rgb(245,88,102)', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
+  // Colour = the direction tokens from the palette: green-strong (BUY) /
+  // red-strong (SELL) — the exact hues of the .buy-card/.sell-card card
+  // edge stripes — so fill, border, text and triangles are all one
+  // site-canonical direction colour. Drawn from VL.* (src/lib/palette.ts)
+  // so no one-off shade is introduced. Green buy / red sell.
+  buy:     { label: 'BUY',  fg: rgb(VL.greenStrong), bg: alpha(VL.greenStrong, ALPHA.tint), borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: rgb(VL.greenStrong), bg: alpha(VL.greenStrong, ALPHA.tint), borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
   unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
