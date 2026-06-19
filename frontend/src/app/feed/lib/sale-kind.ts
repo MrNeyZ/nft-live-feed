@@ -22,15 +22,15 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 // Each direction is a vertical gradient fill with dark text, rendered
 // as a solid capsule in the pill render (see feed-card.tsx). `bg` is a
 // `linear-gradient(...)` string and `fg` is the dark on-fill text:
-//   BUY  → green gradient rgb(58,191,151) → rgb(28,129,95), text #04140e.
-//   SELL → red   gradient rgb(221,79,92)  → rgb(160,53,72), text #1c0307.
-// Hues are VictoryLabs' direction colors at ~90 % intensity — the prior
+//   BUY  → green gradient rgb(52,172,136) → rgb(25,116,86), text #04140e.
+//   SELL → red   gradient rgb(199,71,83)  → rgb(144,48,65), text #1c0307.
+// Hues are VictoryLabs' direction colors at ~81 % intensity — the
 // full-strength stops (buy rgb(64,212,168)→rgb(31,143,106), sell
 // rgb(245,88,102)→rgb(178,59,80)) read too loud against the price, so
-// every channel is scaled ×0.9 (hue preserved, intensity dialled back
-// one notch) to keep the capsule subordinate to the price. Trader
-// convention preserved: green buy / red sell, SELL in the
-// Hyperliquid / Binance / TradingView red family.
+// every channel is scaled ×0.9 twice (hue preserved, intensity dialled
+// back so the capsule reads as a calm Bloomberg-style tag, never a CTA
+// button). Trader convention preserved: green buy / red sell, SELL in
+// the Hyperliquid / Binance / TradingView red family.
 //
 // AMM (buyAmm / sellAmm): the SAME capsule as its BUY / SELL sibling —
 // identical solid fill, no transparency, no halo. The pool-route
@@ -41,10 +41,10 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 // The card's left/right edge stripe stays direction-driven via
 // `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(58,191,151),rgb(28,129,95))', borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(221,79,92),rgb(160,53,72))',  borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(58,191,151),rgb(28,129,95))', borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(221,79,92),rgb(160,53,72))',  borderTone: 'sell' },
+  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(52,172,136),rgb(25,116,86))', borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(199,71,83),rgb(144,48,65))',  borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(52,172,136),rgb(25,116,86))', borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(199,71,83),rgb(144,48,65))',  borderTone: 'sell' },
   unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 

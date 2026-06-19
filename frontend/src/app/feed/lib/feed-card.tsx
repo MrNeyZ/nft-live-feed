@@ -229,9 +229,9 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // the inline style stays dependency-free:
 //   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
 const FLOOR_TONES = {
-  pos: { fg: '#7d9e8d', bg: 'rgba(67,185,132,0.05)',  bd: 'rgba(67,185,132,0.11)'  },
-  neg: { fg: '#b78d92', bg: 'rgba(217,104,103,0.05)', bd: 'rgba(217,104,103,0.11)' },
-  neu: { fg: '#9892b0', bg: 'rgba(143,134,194,0.05)', bd: 'rgba(143,134,194,0.11)' },
+  pos: { fg: '#74917f', bg: 'rgba(67,185,132,0.04)',  bd: 'rgba(67,185,132,0.09)'  },
+  neg: { fg: '#a98388', bg: 'rgba(217,104,103,0.04)', bd: 'rgba(217,104,103,0.09)' },
+  neu: { fg: '#8e88a4', bg: 'rgba(143,134,194,0.04)', bd: 'rgba(143,134,194,0.09)' },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -244,11 +244,11 @@ function FloorChip({ delta }: { delta: number }) {
     <span
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        height: 19, padding: '0 6px', borderRadius: 10, flexShrink: 0,
-        fontSize: 9.5, fontWeight: 600, lineHeight: 1, letterSpacing: '0.2px',
+        height: 18, padding: '0 5px', borderRadius: 9, flexShrink: 0,
+        fontSize: 9, fontWeight: 500, lineHeight: 1, letterSpacing: '0.2px',
         color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`,
         fontFamily: "'SF Mono','Fira Code',monospace",
-        fontVariantNumeric: 'tabular-nums', opacity: 0.9,
+        fontVariantNumeric: 'tabular-nums', opacity: 0.85,
       }}
     >
       {txt}
@@ -355,7 +355,7 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
 // (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
 // marker without weakening the solid capsule.
 const FC_AMM_TRI_STYLE: React.CSSProperties = {
-  fontSize: 7, lineHeight: 1, opacity: 0.8,
+  fontSize: 6.5, lineHeight: 1, opacity: 0.75,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -759,19 +759,20 @@ export const FeedCard = memo(function FeedCard({
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
               // Solid action capsule (live-feed-final.html reference),
-              // refined for terminal-grade restraint. BUY / SELL / AMM
-              // share ONE footprint — 60 × 24 (1:2.5 ratio), radius 7,
-              // 11 px / 600 / caps / 0.5 px tracking. Direction is the
-              // gradient fill + dark text from KIND_STYLES (green buy/
-              // buyAmm, red sell/sellAmm), now at ~90 % intensity.
+              // tuned as a LABEL, not a button. BUY / SELL / AMM share
+              // ONE footprint — 52 × 20 (≈ 1:2.5), radius 6, 10 px / 500
+              // / caps, no extra tracking. Direction is the gradient fill
+              // + dark text from KIND_STYLES (green buy/buyAmm, red sell/
+              // sellAmm), now at ~81 % intensity.
               //
-              // Prominence pass: the capsule was competing with the
-              // price. Weight dropped 800 → 600, font 12 → 11, fill
-              // de-intensified 10 %, and the glassy chrome reduced to a
-              // single faint top inset highlight (drop shadow + any glow
-              // removed) so it reads flat like a Bloomberg / TradingView
-              // tag. The pure-white 16 px price is unambiguously #1; the
-              // capsule is the clear, instantly-visible #2.
+              // Prominence pass (3rd): the capsule still competed with
+              // the price. Shrunk 60×24 → 52×20, weight 600 → 500, font
+              // 11 → 10, fill de-intensified another 10 %, and the chrome
+              // reduced to a barely-there top inset highlight (no drop
+              // shadow, no glow) so it reads as a flat Bloomberg-terminal
+              // tag. The pure-white 16 px price is unambiguously #1 — the
+              // eye lands on "0.20 SOL" before BUY/SELL/AMM; the capsule
+              // is a calm, instantly-readable #2.
               //
               // AMM is NOT weaker/transparent: it is the exact same
               // capsule as its direction sibling, differentiated only by
@@ -783,17 +784,16 @@ export const FeedCard = memo(function FeedCard({
               const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
               return (
                 <span style={{
-                  // gap 2 (was 5): triangles sit attached to the label so
-                  // "▼ AMM ▼" reads as one centered wordmark occupying
-                  // ~60-70 % of the capsule, not three spread elements.
-                  // justifyContent:center keeps equal L/R padding, so the
-                  // triangles never approach the capsule borders.
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 2,
-                  width: 60, height: 24, boxSizing: 'border-box', flexShrink: 0,
-                  borderRadius: 7, fontSize: 11, fontWeight: 600, lineHeight: 1,
-                  letterSpacing: '0.5px', textTransform: 'uppercase',
+                  // gap 1: triangles sit hard against the label so
+                  // "▼ AMM ▼" reads as a single centered wordmark, not
+                  // three elements. justifyContent:center keeps equal L/R
+                  // padding so the triangles never reach the borders.
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1,
+                  width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
+                  borderRadius: 6, fontSize: 10, fontWeight: 500, lineHeight: 1,
+                  textTransform: 'uppercase',
                   background: pill.bg, color: pill.fg,
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
                 }}>
                   {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
                   {pill.label}
