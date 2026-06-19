@@ -5,21 +5,33 @@
 
 import { formatSol } from '@/soloist/mock-data';
 
-// Display-only price formatter for the live-feed cards. Diverges from
-// the shared `formatSol` only in the 0.001..0.01 SOL band: that range
-// used to render as 4 decimals ("0.0060"), which made every low-priced
-// row read as dust noise. New rule: max 3 decimals with trailing zeros
-// trimmed (0.006, 0.007). Sub-0.001 SOL keeps the shared formatter's
-// 5/6-decimal path so a 0.00025 SOL sale still renders meaningfully
-// instead of collapsing to "0.000". Larger prices (≥ 0.01) fall
-// through to the shared formatter unchanged so dashboard / collection
-// / tools displays stay in lockstep. Does NOT touch raw priceSol,
-// filters, sorting, or floor%.
+// Trim trailing zeros (and any dangling dot) from a DECIMAL string only —
+// never from integer / "K"-suffixed outputs like "120" or "2.0K", where a
+// blind /0+$/ would corrupt the value ("120" → "12").
+function trimTrailingZeros(s: string): string {
+  if (!s.includes('.')) return s;
+  return s.replace(/0+$/, '').replace(/\.$/, '');
+}
+
+// Display-only price formatter for the live-feed cards. Two rules on top of
+// the shared `formatSol`:
+//   1. Sub-cent prices (0.0005 .. 0.01 SOL) render as max 3 decimals with
+//      trailing zeros trimmed — so 0.0008 → "0.001" and 0.006 → "0.006"
+//      instead of padded forms ("0.00080") that expand the column and read
+//      as dust noise. Values below 0.0005 would round to "0.000" (reads as
+//      free), so they keep the shared formatter's fine-grained 5/6-decimal
+//      path and still render meaningfully (e.g. 0.00025).
+//   2. All other prices pass through `formatSol` but with trailing zeros
+//      trimmed, so 0.080 → "0.08" and 1.20 → "1.2". Integer / K outputs are
+//      left intact.
+// `formatSol` itself is untouched, so dashboard / collection / tools stay in
+// lockstep. Does NOT touch raw priceSol, filters, sorting, or floor%.
 export function formatFeedPrice(n: number): string {
-  if (n >= 0.001 && n < 0.01) {
-    return n.toFixed(3).replace(/\.?0+$/, '');
+  if (!Number.isFinite(n)) return formatSol(n);
+  if (n >= 0.0005 && n < 0.01) {
+    return trimTrailingZeros(n.toFixed(3));
   }
-  return formatSol(n);
+  return trimTrailingZeros(formatSol(n));
 }
 
 /** Composite key for the persisted seller-remaining count map.
