@@ -57,6 +57,16 @@ export const CREATOR_BLACKLIST = new Set<string>([
   // so name/slug/substring rules have nothing to match. This verified creator is
   // present on every DRiP asset and is the stable cross-drop identity.
   'DRiPPP2LytGjNZ5fVpdZS7Xi1oANSY3Df1gSxvUKpzny',
+  // Second DRiP signer — leaked past the DRiPPP gate above (mint
+  // 3kquTrJ4ABwhS6tFbBdxY92P6MXhGQzdQEWEpt6ivY4J "DRiP KING", Tensor cNFT,
+  // null name + null slug). Proven DRiP: it is a verified creator on DRiP
+  // collection 5NQN1niYhq8dDK4uquL7jifAQUNUTbDca5dKdjgsg6U9 ALONGSIDE the
+  // DRiPPP creator above (21 DRiPPP + 29 DqgqDkzx in a 50-asset sample), and a
+  // creator-wide DAS scan shows it signs only that DRiP collection (2,467/5,000
+  // sampled names contain "drip"). DRiP rotates which signer is verified per
+  // asset, so the per-drop unique collection address stays whack-a-mole — the
+  // verified creator is the stable identity, same rationale as DRiPPP.
+  'DqgqDkzxXu5LGNQKt5xSWiUqA97VwHi9fHwCvuVfMiT3',
 ]);
 
 export const SLUG_BLACKLIST = new Set<string>([
