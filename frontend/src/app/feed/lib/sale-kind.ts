@@ -45,16 +45,20 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   // colour block no matter how far we de-saturated it, and opacity/size
   // were exhausted as levers. So the fill is now a QUIET translucent
   // tint of the direction hue (α 0.13) and the *text* carries the
-  // signal — a bright direction colour at heavy weight (set at the
-  // render site). A thin direction-tinted border (added in the render
-  // from `borderTone`) gives the tag its edge. Net: calm container,
-  // bold instantly-readable label. AMM = same tint + bright text, with
-  // the route shown by the framing triangles (which inherit the text
-  // colour). Trader convention preserved: green buy / red sell.
-  buy:     { label: 'BUY',  fg: '#4fdca8', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: '#fb6e7d', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: '#4fdca8', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: '#fb6e7d', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
+  // signal — the direction colour at heavy weight (set at the render
+  // site). A thin direction-tinted border (added in the render from
+  // `borderTone`) gives the tag its edge. Net: calm container, bold
+  // instantly-readable label. AMM = same tint + text, with the route
+  // shown by the framing triangles (which inherit the text colour).
+  //
+  // Colour = the feed's direction edge colours — rgb(64,212,168) /
+  // rgb(245,88,102), the exact hues of the .buy-card/.sell-card left/
+  // right card stripes — so fill, border, text and triangles are all
+  // one site-canonical direction colour. Green buy / red sell.
+  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: 'rgb(245,88,102)', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: 'rgb(245,88,102)', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
   unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
