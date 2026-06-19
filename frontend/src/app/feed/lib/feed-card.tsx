@@ -363,7 +363,10 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // for primary attention, matching trader-terminal hierarchy
   // (price first, then action, then identity).
   minWidth: 80, textAlign: 'right',
-  fontSize: 16, fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px',
+  // Final-polish pass: 16 → 17.5 px (~+10 %) so the price is even more
+  // decisively the #1 read above the now-quiet action capsule. Weight
+  // and color unchanged (already 800 / pure white).
+  fontSize: 17.5, fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px',
   fontFamily: "'SF Mono','Fira Code',monospace",
   fontVariantNumeric: 'tabular-nums',
 };
@@ -372,7 +375,7 @@ const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
   // and opacity 0.7 → 0.85 so the unit reads clearly at scroll
   // speed without crowding the digits (still well below pure-white
   // price text). Digits remain dominant, suffix is now legible.
-  color: '#8585a0', fontWeight: 600, fontSize: 10.5, opacity: 0.85,
+  color: '#8585a0', fontWeight: 600, fontSize: 10.5, opacity: 0.72,
 };
 // Inline seller-remaining badge — sits next to the seller wallet on the
 // FeedCard. Sized to the 11×11 ME-icon metric used in the same row so it
@@ -790,10 +793,14 @@ export const FeedCard = memo(function FeedCard({
                   // padding so the triangles never reach the borders.
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1,
                   width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
-                  borderRadius: 6, fontSize: 10, fontWeight: 500, lineHeight: 1,
+                  borderRadius: 5, fontSize: 10, fontWeight: 500, lineHeight: 1,
                   textTransform: 'uppercase',
                   background: pill.bg, color: pill.fg,
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+                  // Extremely subtle top sheen for a premium material
+                  // feel — an inset hairline highlight only (0.06 → 0.13),
+                  // no outer glow. Radius trimmed 6 → 5 so it reads as a
+                  // crisp terminal tag, not a pill.
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.13)',
                 }}>
                   {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
                   {pill.label}
