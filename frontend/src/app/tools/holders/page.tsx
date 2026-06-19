@@ -1,10 +1,12 @@
 'use client';
 
 // VictoryLabs — Tools › Holders (MVP).
-// Read-only exact NFT collection holder count. Paste a collection address →
-// backend paginates Helius DAS getAssetsByGroup and returns the distinct-owner
-// count (source of truth = on-chain ownership, NOT Magic Eden / Tensor cached
-// stats). NO wallet connect, NO signing, NO tx building.
+// Read-only RAW on-chain NFT holder count. Paste a collection address →
+// backend paginates Helius DAS getAssetsByGroup and returns the distinct
+// ownership.owner count. This is a raw on-chain owner count — it can include
+// marketplace escrow/custody or project-treasury wallets (esp. MPL Core /
+// compressed assets), so it is NOT a guaranteed community-holder count, and
+// NOT a Magic Eden / Tensor cached stat. NO wallet connect, NO signing.
 // Data: GET /api/tools/holders/analyze?collection=<collectionAddress>
 
 import { useEffect, useState } from 'react';
@@ -176,7 +178,7 @@ export default function HoldersPage() {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
           <LiveDot />
-          <span>read-only · exact distinct-owner count from on-chain ownership (Helius DAS) — not marketplace cached stats</span>
+          <span>read-only · raw distinct on-chain owner count (Helius DAS) — may include escrow/custody/treasury wallets, not marketplace cached stats</span>
         </div>
 
         {/* Input */}
@@ -269,7 +271,7 @@ export default function HoldersPage() {
           <div style={{ marginTop: 16 }}>
             {/* Stat cards */}
             <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap', marginBottom: 11 }}>
-              <StatCard label="Unique holders" value={fmtNum(analysis.uniqueHolders)} color="#43b984" />
+              <StatCard label="Raw DAS owners" value={fmtNum(analysis.uniqueHolders)} sub="distinct ownership.owner" color="#43b984" />
               <StatCard label="Total NFTs"     value={fmtNum(analysis.totalAssets)} color="#c4b8e8" />
               <StatCard
                 label="Top holder"

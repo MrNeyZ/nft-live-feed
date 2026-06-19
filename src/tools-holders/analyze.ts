@@ -6,12 +6,21 @@
  * so it can be unit-tested against a mocked DAS result with zero network.
  *
  * Holder count = number of DISTINCT `ownership.owner` wallets across every
- * asset in the verified collection group (Helius DAS). NOT a marketplace stat.
+ * asset in the verified collection group (Helius DAS). This is a RAW on-chain
+ * owner count, NOT a beneficial/community-holder count: `ownership.owner` can
+ * point at marketplace escrow/custody, a project treasury, or a stale index
+ * entry (notably for MPL Core / compressed assets). It is also NOT a
+ * marketplace stat — ME/Tensor cached holder counts are never used.
  */
 import type { CollectionOwnerScan, HoldersAnalysis, HolderEntry, HolderDistribution, HoldersInputType } from './types';
 
 /** Top-N holders surfaced in the table. */
 export const TOP_HOLDERS_LIMIT = 25;
+
+/** Top-holder share above which the count is flagged as suspiciously
+ *  concentrated — a single wallet owning this much is usually escrow / a
+ *  project treasury rather than a real holder. Percent (0–100). */
+export const CONCENTRATION_WARN_PCT = 10;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -73,6 +82,17 @@ export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
   }
   if (dasError) {
     warnings.push(`DAS error during pagination (${dasError}) — results may be incomplete.`);
+  }
+  // Suspicious concentration: one wallet owning a large share is usually escrow
+  // / custody / a project treasury, not a real holder. Flag it and caveat that
+  // the count is a raw on-chain owner count, not a community-holder count.
+  const topPct = topHolders[0]?.percent ?? 0;
+  if (topPct > CONCENTRATION_WARN_PCT) {
+    warnings.push(
+      `Top holder controls ${topPct}% of supply — unusually concentrated. ` +
+      'DAS ownership.owner may include marketplace escrow/custody wallets for ' +
+      'listed or compressed assets. Treat holder count as raw on-chain owner count.',
+    );
   }
 
   return {

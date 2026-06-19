@@ -4,7 +4,8 @@
  *   GET /api/tools/holders/analyze?collection=<collectionAddress>
  *
  * Read-only: paginates Helius DAS getAssetsByGroup over a verified collection
- * group and returns an EXACT distinct-owner holder count plus distribution.
+ * group and returns a RAW distinct-owner holder count plus distribution
+ * (raw on-chain owner count — may include escrow/custody/treasury wallets).
  * Source of truth is on-chain asset ownership — NOT Magic Eden / Tensor cached
  * holder stats. No wallet, no signing, no tx building, no DB writes.
  * Rate-limited so a stuck tab can't burn RPC credits.

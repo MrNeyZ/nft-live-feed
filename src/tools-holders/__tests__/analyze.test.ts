@@ -58,6 +58,7 @@ check('dist buckets sum = uniqueHolders', () => {
   assert.strictEqual(d.holders1 + d.holders2to5 + d.holders6to10 + d.holders11plus, a.uniqueHolders);
 });
 check('warns about 1 ownerless asset', () => assert.ok(a.warnings.some(w => /1 asset\(s\) had no ownership\.owner/.test(w))));
+check('warns suspicious concentration (top 50%)', () => assert.ok(a.warnings.some(w => /unusually concentrated/.test(w) && /escrow\/custody/.test(w))));
 check('no false truncation/error warning', () => assert.ok(!a.warnings.some(w => /lower bound|DAS error/.test(w))));
 
 // ── Case 2: empty collection (wrong address / not a verified group) ──────────
@@ -67,6 +68,7 @@ check('totalAssets = 0',        () => assert.strictEqual(empty.totalAssets, 0));
 check('uniqueHolders = 0',      () => assert.strictEqual(empty.uniqueHolders, 0));
 check('top holders empty',      () => assert.strictEqual(empty.topHolders.length, 0));
 check('warns "No assets found"',() => assert.ok(empty.warnings.some(w => /No assets found/.test(w))));
+check('no concentration warning when empty', () => assert.ok(!empty.warnings.some(w => /unusually concentrated/.test(w))));
 
 // ── Case 3: truncated scan + DAS error surface as warnings ───────────────────
 const trunc = buildHoldersAnalysis({ owners: ['A'.repeat(43)], missingOwnerCount: 0, totalAssets: 1, truncated: true, dasError: 'DAS 429: rate', collectionAddress: 'Trunc111111111111111111111111111111111111111', inputType: 'slug', inputValue: 'somecollection', extraWarnings: ['Slug "somecollection" resolved to collection Trunc111… via a sample Magic Eden listing — verify the address if it looks wrong.'], nowIso: NOW });
