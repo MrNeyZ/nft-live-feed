@@ -228,10 +228,14 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // Colors are the color-mix() results from the reference, precomputed so
 // the inline style stays dependency-free:
 //   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
+// Over-muted in the prior pass to the point of being unreadable. Pulled
+// back up: brighter (but still sub-action) text, a faint tint + visible
+// border so the signed % reads clearly as metadata without competing
+// with the action tag above it.
 const FLOOR_TONES = {
-  pos: { fg: '#74917f', bg: 'rgba(67,185,132,0.03)',  bd: 'rgba(67,185,132,0.06)'  },
-  neg: { fg: '#a98388', bg: 'rgba(217,104,103,0.03)', bd: 'rgba(217,104,103,0.06)' },
-  neu: { fg: '#8e88a4', bg: 'rgba(143,134,194,0.03)', bd: 'rgba(143,134,194,0.06)' },
+  pos: { fg: '#62c79c', bg: 'rgba(67,185,132,0.07)',  bd: 'rgba(67,185,132,0.18)'  },
+  neg: { fg: '#e2868a', bg: 'rgba(217,104,103,0.07)', bd: 'rgba(217,104,103,0.18)' },
+  neu: { fg: '#a7a0c8', bg: 'rgba(143,134,194,0.07)', bd: 'rgba(143,134,194,0.18)' },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -245,10 +249,10 @@ function FloorChip({ delta }: { delta: number }) {
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         height: 18, padding: '0 5px', borderRadius: 9, flexShrink: 0,
-        fontSize: 9, fontWeight: 500, lineHeight: 1, letterSpacing: '0.2px',
+        fontSize: 9.5, fontWeight: 600, lineHeight: 1, letterSpacing: '0.2px',
         color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`,
         fontFamily: "'SF Mono','Fira Code',monospace",
-        fontVariantNumeric: 'tabular-nums', opacity: 0.75,
+        fontVariantNumeric: 'tabular-nums', opacity: 0.95,
       }}
     >
       {txt}
@@ -355,7 +359,7 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
 // (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
 // marker without weakening the solid capsule.
 const FC_AMM_TRI_STYLE: React.CSSProperties = {
-  fontSize: 6, lineHeight: 1, opacity: 0.7,
+  fontSize: 6, lineHeight: 1, opacity: 0.85,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -785,6 +789,13 @@ export const FeedCard = memo(function FeedCard({
               // size.
               const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
               const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
+              // Thin direction-tinted edge for the tag. Driven by
+              // borderTone (the KIND_STYLES axis), so Rare Feed's neutral
+              // override gets a neutral edge.
+              const tagBorder =
+                style.borderTone === 'sell' ? 'rgba(245,88,102,0.34)' :
+                style.borderTone === 'buy'  ? 'rgba(64,212,168,0.34)' :
+                                              'rgba(255,255,255,0.12)';
               return (
                 <span style={{
                   // gap 1: triangles sit hard against the label so
@@ -793,19 +804,18 @@ export const FeedCard = memo(function FeedCard({
                   // padding so the triangles never reach the borders.
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1,
                   width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
-                  // Container stays quiet (flat, de-saturated fill, no
-                  // chrome) but the LABEL is the focus: 10 px / 700 / caps
-                  // so BUY/SELL/AMM read clearly — SELL especially, which
-                  // was getting lost at the lighter weight. The muted fill
-                  // (KIND_STYLES, ~22 % de-saturated) carries the dark
-                  // near-black text at strong contrast without the
-                  // background reading as a button.
-                  borderRadius: 5, fontSize: 10, fontWeight: 700, lineHeight: 1,
-                  textTransform: 'uppercase',
+                  // Quiet tint container + LOUD label. The fill is just a
+                  // faint direction tint (KIND_STYLES, α 0.13) with a thin
+                  // tinted border, so the tag no longer reads as a colour
+                  // block. The text does the work: 10 px / 800 / caps in a
+                  // bright direction colour (pill.fg) — heavy enough that
+                  // BUY/SELL/AMM are instantly legible (SELL included),
+                  // while the container stays the calm #3 behind the price
+                  // and the action text.
+                  borderRadius: 5, fontSize: 10, fontWeight: 800, lineHeight: 1,
+                  letterSpacing: '0.2px', textTransform: 'uppercase',
                   background: pill.bg, color: pill.fg,
-                  // Flat fill, no chrome — the top sheen made it read as a
-                  // button, so it's gone (no inset highlight, no shadow,
-                  // no glow).
+                  border: `1px solid ${tagBorder}`,
                   boxShadow: 'none',
                 }}>
                   {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}

@@ -41,16 +41,20 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 // The card's left/right edge stripe stays direction-driven via
 // `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  // Calm-container pass: every fill de-saturated ~22 % toward its own
-  // equal-luminance gray (hue + luminance preserved, so the dark text
-  // keeps its contrast while the colour reads muted, not button-bright).
-  // AMM siblings stay a touch softer than their direct-trade parent so a
-  // pool route is distinguishable; dark near-black text + 700 weight at
-  // the render site is what carries readability now, not fill intensity.
-  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(66,154,127),rgb(36,103,81))', borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(180,80,89),rgb(130,55,68))',  borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(72,162,135),rgb(40,108,86))', borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(177,81,90),rgb(127,55,69))',  borderTone: 'sell' },
+  // Tint-tag treatment: the solid gradient capsule read as a loud
+  // colour block no matter how far we de-saturated it, and opacity/size
+  // were exhausted as levers. So the fill is now a QUIET translucent
+  // tint of the direction hue (α 0.13) and the *text* carries the
+  // signal — a bright direction colour at heavy weight (set at the
+  // render site). A thin direction-tinted border (added in the render
+  // from `borderTone`) gives the tag its edge. Net: calm container,
+  // bold instantly-readable label. AMM = same tint + bright text, with
+  // the route shown by the framing triangles (which inherit the text
+  // colour). Trader convention preserved: green buy / red sell.
+  buy:     { label: 'BUY',  fg: '#4fdca8', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: '#fb6e7d', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: '#4fdca8', bg: 'rgba(64,212,168,0.13)',  borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: '#fb6e7d', bg: 'rgba(245,88,102,0.13)',  borderTone: 'sell' },
   unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
