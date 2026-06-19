@@ -229,9 +229,9 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // the inline style stays dependency-free:
 //   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
 const FLOOR_TONES = {
-  pos: { fg: '#89c2ae', bg: 'rgba(67,185,132,0.07)',  bd: 'rgba(67,185,132,0.15)'  },
-  neg: { fg: '#d499a0', bg: 'rgba(217,104,103,0.07)', bd: 'rgba(217,104,103,0.15)' },
-  neu: { fg: '#afa8cd', bg: 'rgba(143,134,194,0.07)', bd: 'rgba(143,134,194,0.15)' },
+  pos: { fg: '#7d9e8d', bg: 'rgba(67,185,132,0.05)',  bd: 'rgba(67,185,132,0.11)'  },
+  neg: { fg: '#b78d92', bg: 'rgba(217,104,103,0.05)', bd: 'rgba(217,104,103,0.11)' },
+  neu: { fg: '#9892b0', bg: 'rgba(143,134,194,0.05)', bd: 'rgba(143,134,194,0.11)' },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -244,11 +244,11 @@ function FloorChip({ delta }: { delta: number }) {
     <span
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        height: 20, padding: '0 7px', borderRadius: 10, flexShrink: 0,
-        fontSize: 10, fontWeight: 700, lineHeight: 1, letterSpacing: '0.2px',
+        height: 19, padding: '0 6px', borderRadius: 10, flexShrink: 0,
+        fontSize: 9.5, fontWeight: 600, lineHeight: 1, letterSpacing: '0.2px',
         color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`,
         fontFamily: "'SF Mono','Fira Code',monospace",
-        fontVariantNumeric: 'tabular-nums',
+        fontVariantNumeric: 'tabular-nums', opacity: 0.9,
       }}
     >
       {txt}
@@ -355,7 +355,7 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
 // (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
 // marker without weakening the solid capsule.
 const FC_AMM_TRI_STYLE: React.CSSProperties = {
-  fontSize: 8, lineHeight: 1, opacity: 0.85,
+  fontSize: 7, lineHeight: 1, opacity: 0.8,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -758,31 +758,37 @@ export const FeedCard = memo(function FeedCard({
             )}
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
-              // Solid action capsule (live-feed-final.html reference).
-              // BUY / SELL / AMM share ONE footprint — 62 × 24 (≈ 1:2.5
-              // ratio), radius 7, 12 px / 800 / caps / 0.7 px tracking —
-              // and ONE glassy chrome: a top white highlight plus a soft
-              // drop shadow. Direction is the gradient fill + dark text
-              // from KIND_STYLES (green buy/buyAmm, red sell/sellAmm).
-              // Sized to this card's compact scale so the pure-white
-              // price (16 px) stays the #1 read and the capsule sits
-              // #2; the prior translucent 50×14 pill is gone.
+              // Solid action capsule (live-feed-final.html reference),
+              // refined for terminal-grade restraint. BUY / SELL / AMM
+              // share ONE footprint — 60 × 24 (1:2.5 ratio), radius 7,
+              // 11 px / 600 / caps / 0.5 px tracking. Direction is the
+              // gradient fill + dark text from KIND_STYLES (green buy/
+              // buyAmm, red sell/sellAmm), now at ~90 % intensity.
+              //
+              // Prominence pass: the capsule was competing with the
+              // price. Weight dropped 800 → 600, font 12 → 11, fill
+              // de-intensified 10 %, and the glassy chrome reduced to a
+              // single faint top inset highlight (drop shadow + any glow
+              // removed) so it reads flat like a Bloomberg / TradingView
+              // tag. The pure-white 16 px price is unambiguously #1; the
+              // capsule is the clear, instantly-visible #2.
               //
               // AMM is NOT weaker/transparent: it is the exact same
               // capsule as its direction sibling, differentiated only by
               // symmetric triangles framing the label — ▲ AMM ▲ for a
-              // buy-side pool route, ▼ AMM ▼ for sell-side. The earlier
-              // outer-halo AMM cue is removed in favour of the triangles.
+              // buy-side pool route, ▼ AMM ▼ for sell-side. All four
+              // states (BUY / SELL / AMM BUY / AMM SELL) are identical
+              // size.
               const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
               const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
               return (
                 <span style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  width: 62, height: 24, boxSizing: 'border-box', flexShrink: 0,
-                  borderRadius: 7, fontSize: 12, fontWeight: 800, lineHeight: 1,
-                  letterSpacing: '0.7px', textTransform: 'uppercase',
+                  width: 60, height: 24, boxSizing: 'border-box', flexShrink: 0,
+                  borderRadius: 7, fontSize: 11, fontWeight: 600, lineHeight: 1,
+                  letterSpacing: '0.5px', textTransform: 'uppercase',
                   background: pill.bg, color: pill.fg,
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.26), 0 1px 2px rgba(0,0,0,0.4)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10)',
                 }}>
                   {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
                   {pill.label}
