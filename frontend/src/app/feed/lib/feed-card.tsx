@@ -219,43 +219,39 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 //                    Routine sales near floor blend into the row.
 //   • |Δ| >= 25 %  → BRIGHT (saturated green / red, faint fill).
 //                    Big-mover sales stand out at a glance.
-const FLOOR_BRIGHT_THRESHOLD = 0.25;
+// Floor-delta Soft Pill (live-feed-final.html reference). A quiet,
+// rounded qualifier sitting beside the action capsule — signed percent
+// only, NO ▲/▼/• glyph. Sign drives the hue (pos green / neg red /
+// neutral muted-purple) but the fill/border/text are deliberately faint
+// (~7 % bg, ~15 % border, text mixed 50 % toward #cfcad8) so the chip
+// reads as the price's 3rd-priority qualifier, never a second button.
+// Colors are the color-mix() results from the reference, precomputed so
+// the inline style stays dependency-free:
+//   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
+const FLOOR_TONES = {
+  pos: { fg: '#89c2ae', bg: 'rgba(67,185,132,0.07)',  bd: 'rgba(67,185,132,0.15)'  },
+  neg: { fg: '#d499a0', bg: 'rgba(217,104,103,0.07)', bd: 'rgba(217,104,103,0.15)' },
+  neu: { fg: '#afa8cd', bg: 'rgba(143,134,194,0.07)', bd: 'rgba(143,134,194,0.15)' },
+} as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
-  const above  = delta >= 0;
-  const pct    = delta * 100;
-  const sign   = above ? '+' : '';
-  const bright = Math.abs(delta) >= FLOOR_BRIGHT_THRESHOLD;
-  // Bright tier: original saturated palette.
-  // Muted tier: same hue family but ~40 % the saturation so the chip
-  // still reads as green-or-red (preserves directional cue) without
-  // competing with the price/badge for attention.
-  const fg = bright
-    ? (above ? '#43b984' : '#d96867')
-    : (above ? '#7a9a85' : '#9a7878');
-  const bg = bright
-    ? (above ? 'rgba(92,224,160,0.10)' : 'rgba(239,120,120,0.10)')
-    : 'transparent';
-  const bd = bright
-    ? (above ? 'rgba(92,224,160,0.32)' : 'rgba(239,120,120,0.32)')
-    : (above ? 'rgba(122,154,133,0.22)' : 'rgba(154,120,120,0.22)');
+  // Round first, then derive sign + label off the rounded value so a
+  // sub-0.5 % move reads as a neutral "0%" rather than "+0%".
+  const rounded = Math.round(delta * 100);
+  const tone = rounded > 0 ? FLOOR_TONES.pos : rounded < 0 ? FLOOR_TONES.neg : FLOOR_TONES.neu;
+  const txt  = rounded > 0 ? `+${rounded}%` : rounded < 0 ? `${rounded}%` : '0%';
   return (
     <span
-
       style={{
-        // Trimmed one tier: smaller font, lower border alpha, no bg
-        // tint when not "bright" — the chip is a secondary qualifier
-        // for the price, not a peer of the BUY/SELL badge, so it
-        // shouldn't compete for attention. ~14 % smaller pill area.
-        fontSize: 9.5, fontWeight: bright ? 700 : 600,
-        color: fg, background: bg, border: `1px solid ${bd}`,
-        padding: '0 4px', borderRadius: 3, letterSpacing: '0.2px',
-        lineHeight: 1.25, fontFamily: "'SF Mono','Fira Code',monospace",
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        height: 20, padding: '0 7px', borderRadius: 10, flexShrink: 0,
+        fontSize: 10, fontWeight: 700, lineHeight: 1, letterSpacing: '0.2px',
+        color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`,
+        fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
-        opacity: bright ? 1 : 0.85,
       }}
     >
-      {sign}{pct.toFixed(0)}%
+      {txt}
     </span>
   );
 }
@@ -354,6 +350,12 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
   // two separate widgets. The FloorChip (when present) keeps its
   // gap before the badge — visual order: chip · badge · price.
   display: 'flex', alignItems: 'center', gap: 6,
+};
+// Symmetric AMM triangles framing the label inside the action capsule
+// (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
+// marker without weakening the solid capsule.
+const FC_AMM_TRI_STYLE: React.CSSProperties = {
+  fontSize: 8, lineHeight: 1, opacity: 0.85,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -756,60 +758,36 @@ export const FeedCard = memo(function FeedCard({
             )}
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
-              // Unified BUY/SELL/AMM pill — every variant shares the
-              // same footprint (width 50, padding 1px 0, fontSize 10.5,
-              // weight 700, radius 4, letterSpacing 0.2 px) and the
-              // same glassy inset chrome (top highlight + bottom
-              // shadow). Direction is carried by fg + bg from
-              // KIND_STYLES (green for buy/buyAmm, red for sell/
-              // sellAmm). The earlier asymmetric chrome (SELL's red
-              // inset ring + tighter radius, AMM's violet inset ring)
-              // is removed: it made SELL feel heavier than BUY and
-              // pulled AMM off the direction axis.
+              // Solid action capsule (live-feed-final.html reference).
+              // BUY / SELL / AMM share ONE footprint — 62 × 24 (≈ 1:2.5
+              // ratio), radius 7, 12 px / 800 / caps / 0.7 px tracking —
+              // and ONE glassy chrome: a top white highlight plus a soft
+              // drop shadow. Direction is the gradient fill + dark text
+              // from KIND_STYLES (green buy/buyAmm, red sell/sellAmm).
+              // Sized to this card's compact scale so the pure-white
+              // price (16 px) stays the #1 read and the capsule sits
+              // #2; the prior translucent 50×14 pill is gone.
               //
-              // AMM differentiator: OUTER halo at the direction hue,
-              // built as a two-layer shadow — a brighter inner ring
-              // (defines the chip's "energy") plus a softer outer
-              // falloff (ambient glow that fades into the feed
-              // background). Asymmetric strength by design: sellAmm
-              // halo is harder than buyAmm because sell-side
-              // pressure is the more actionable signal at scroll
-              // speed and was getting lost on the prior single-layer
-              // 5 px / α 0.30 setting.
-              //
-              //   buyAmm   inner 6 px  α 0.40   outer 12 px α 0.20
-              //                      ~+40 % over the prior pass; slightly
-              //                      wider blur so the halo reads as
-              //                      "energy around the chip" rather
-              //                      than a thin outline.
-              //   sellAmm  inner 7 px α 0.55 + 1 px spread
-              //            outer 14 px α 0.28
-              //                      ~+80 % over the prior pass. The
-              //                      +1 px spread on the inner layer is
-              //                      what makes sellAmm pop above
-              //                      adjacent BUY rows in a moving
-              //                      feed; the soft outer layer keeps
-              //                      it from reading as a neon stamp.
-              //
-              // Direct BUY / direct SELL get no halo — only the inset
-              // glassy chrome. Halo is exclusively a routing cue.
+              // AMM is NOT weaker/transparent: it is the exact same
+              // capsule as its direction sibling, differentiated only by
+              // symmetric triangles framing the label — ▲ AMM ▲ for a
+              // buy-side pool route, ▼ AMM ▼ for sell-side. The earlier
+              // outer-halo AMM cue is removed in favour of the triangles.
               const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
-              const insetChrome =
-                'inset 0 1px 0 rgba(255,255,255,0.06),' +
-                ' inset 0 -1px 0 rgba(0,0,0,0.16)';
-              const ammHalo = isAmm
-                ? (kind === 'buyAmm'
-                    ? ', 0 0 6px rgba(64,212,168,0.40), 0 0 12px rgba(64,212,168,0.20)'
-                    : ', 0 0 7px 1px rgba(245,88,102,0.55), 0 0 14px rgba(245,88,102,0.28)')
-                : '';
+              const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
               return (
                 <span style={{
-                  width: 50, boxSizing: 'border-box', textAlign: 'center', flexShrink: 0,
-                  padding: '1px 0', fontSize: 10.5, fontWeight: 700,
-                  borderRadius: 4,
-                  background: pill.bg, color: pill.fg, letterSpacing: '0.2px',
-                  boxShadow: insetChrome + ammHalo,
-                }}>{pill.label}</span>
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  width: 62, height: 24, boxSizing: 'border-box', flexShrink: 0,
+                  borderRadius: 7, fontSize: 12, fontWeight: 800, lineHeight: 1,
+                  letterSpacing: '0.7px', textTransform: 'uppercase',
+                  background: pill.bg, color: pill.fg,
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.26), 0 1px 2px rgba(0,0,0,0.4)',
+                }}>
+                  {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
+                  {pill.label}
+                  {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
+                </span>
               );
             })()}
             <span style={FC_PRICE_TEXT_STYLE}>

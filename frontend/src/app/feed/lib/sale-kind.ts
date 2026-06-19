@@ -17,38 +17,31 @@ export const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settleme
 export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
 
 
-// Direction-first palette with subtle AMM glow.
+// Solid-capsule action palette (live-feed-final.html reference).
 //
-// Direction (BUY / SELL): green / red — trader convention preserved.
-//   BUY  → rgb(64,212,168) bg α 0.18 — calm soft emerald.
-//   SELL → rgb(245,88,102) bg α 0.16 — cool-leaning red matching
-//          Hyperliquid #F6465D / Binance #F84960 / TradingView #F23645.
-//          Bg lightened from the previous near-opaque burgundy
-//          (rgba(36,14,20,0.85)) to a translucent red so SELL pills
-//          share BUY's chip paradigm: matching visual weight, same
-//          glassy inset chrome, only the hue differs.
+// Each direction is a vertical gradient fill with dark text, rendered
+// as a solid capsule in the pill render (see feed-card.tsx). `bg` is a
+// `linear-gradient(...)` string and `fg` is the dark on-fill text:
+//   BUY  → green gradient rgb(64,212,168) → rgb(31,143,106), text #04140e.
+//   SELL → red   gradient rgb(245,88,102) → rgb(178,59,80),  text #1c0307.
+// Light stops keep VictoryLabs' existing direction hues; deep stops
+// give the capsule body. Trader convention preserved: green buy / red
+// sell, SELL matching Hyperliquid / Binance / TradingView reds.
 //
-// AMM (buyAmm / sellAmm): direction-coloured pill identical to its
-// BUY / SELL sibling — visual sidedness comes first. The "pool route"
-// distinction is carried by a soft outer halo at the same hue, added
-// in the pill render (see page.tsx). The prior violet AMM treatment
-// was reverted because it over-separated routing from direction:
-// sellAmm pills no longer read as sell-side pressure at a glance.
-// New convention: hue carries direction, halo carries route.
+// AMM (buyAmm / sellAmm): the SAME capsule as its BUY / SELL sibling —
+// identical solid fill, no transparency, no halo. The pool-route
+// distinction is carried entirely by symmetric triangles framing the
+// label in the pill render (▲ AMM ▲ buy-side / ▼ AMM ▼ sell-side), so
+// AMM reads with the same weight as a direct buy/sell, never weaker.
 //
 // The card's left/right edge stripe stays direction-driven via
 // `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  buy:     { label: 'BUY',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: 'rgb(245,88,102)',  bg: 'rgba(245,88,102,0.16)',  borderTone: 'sell' },
-  // AMM siblings match their direction parent for fg+bg; pill render
-  // appends a faint outer halo at the same hue when kind is buyAmm /
-  // sellAmm so the route distinction is a "lean in to spot" signal,
-  // not a hue swap. Same `borderTone` values keep the card edge
-  // direction-consistent.
-  buyAmm:  { label: 'AMM',  fg: 'rgb(64,212,168)',  bg: 'rgba(64,212,168,0.18)',  borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: 'rgb(245,88,102)',  bg: 'rgba(245,88,102,0.16)',  borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#9a9ab4',          bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(64,212,168),rgb(31,143,106))', borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(245,88,102),rgb(178,59,80))',  borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(64,212,168),rgb(31,143,106))', borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(245,88,102),rgb(178,59,80))',  borderTone: 'sell' },
+  unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 export function saleKind(saleTypeRaw: string | null): SaleKind {
