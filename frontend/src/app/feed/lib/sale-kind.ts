@@ -5,7 +5,7 @@
 // raw `saleTypeRaw` literal directly, not via these constants).
 
 import type { SaleKind, KindStyle } from './types';
-import { VL, rgb, alpha, ALPHA } from '@/lib/palette';
+import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 
 /** Canonical backend `sale_type` values, derived in src/domain/sale-type.ts.
  *  Listings is intentionally absent — the backend does not yet emit listing
@@ -61,7 +61,7 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   sell:    { label: 'SELL', fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
   buyAmm:  { label: 'AMM',  fg: rgb(VL.greenStrong), bg: alpha(VL.greenStrong, ALPHA.tint), borderTone: 'buy'  },
   sellAmm: { label: 'AMM',  fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
-  unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
+  unknown: { label: '—',    fg: VLText.muted, bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
 export function saleKind(saleTypeRaw: string | null): SaleKind {

@@ -15,6 +15,7 @@ import type { Density } from './lib/types';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
 import { useMultiSales } from '@/app/multi-native/lib/multi-sales';
 import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
@@ -77,34 +78,34 @@ export function SalesFeedPanel() {
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
       background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-      border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+      border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
     }}>
       {/* Header — left "Live events" cluster + right [Settings][Pause]. */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 14px', flexShrink: 0,
-        borderBottom: '1px solid rgba(168,144,232,0.12)',
-        background: 'rgba(168,144,232,0.04)',
+        borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`,
+        background: alpha(VL.purpleTint, 0.04),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live events</h1>
+          <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live events</h1>
           <LiveDot />
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
             marginLeft: 4, padding: '1px 5px', borderRadius: 3,
             fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-            border: meStale ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
-            background: meStale ? 'rgba(239,120,120,0.14)' : 'transparent',
-            color: meStale ? '#d96867' : 'rgba(92,224,160,0.65)',
+            border: meStale ? `1px solid ${alpha(VL.red, 0.4)}` : `1px solid ${alpha(VL.greenGlow, 0.22)}`,
+            background: meStale ? alpha(VL.redGlow, 0.14) : 'transparent',
+            color: meStale ? rgb(VL.red) : alpha(VL.greenGlow, 0.65),
           }}>
             <span style={{
               display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: meStale ? '#d96867' : '#43b984',
-              boxShadow: meStale ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
+              background: meStale ? rgb(VL.red) : rgb(VL.green),
+              boxShadow: meStale ? `0 0 6px ${alpha(VL.red, 0.5)}` : `0 0 4px ${alpha(VL.greenGlow, 0.40)}`,
             }} />
             ME {meStale ? 'STALE' : 'OK'}
           </span>
@@ -113,7 +114,7 @@ export function SalesFeedPanel() {
           <SettingsToggle active={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
           <Pill
             active
-            color={paused ? '#c7b479' : '#43b984'}
+            color={paused ? rgb(VL.gold) : rgb(VL.green)}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -128,10 +129,10 @@ export function SalesFeedPanel() {
           <div role="group" aria-label="Card density" style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '6px 14px', flexShrink: 0,
-            borderBottom: '1px solid rgba(168,144,232,0.12)',
-            background: 'rgba(168,144,232,0.04)',
+            borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`,
+            background: alpha(VL.purpleTint, 0.04),
           }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#9a9ab4' }}>Density</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: VLText.muted }}>Density</span>
             <div style={{ display: 'flex', gap: 4 }}>
               {DENSITIES.map(d => {
                 const isActive = density === d;
@@ -139,11 +140,11 @@ export function SalesFeedPanel() {
                   <Pill
                     key={d}
                     active={isActive}
-                    color="#ad92ee"
+                    color={rgb(VL.purpleMuted)}
                     onClick={() => setDensity(d)}
                     label={d.charAt(0).toUpperCase() + d.slice(1)}
                     size="sm"
-                    style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                    style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
                   />
                 );
               })}
@@ -153,7 +154,7 @@ export function SalesFeedPanel() {
 
         <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
           {list.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '48px 0', fontSize: 13 }}>
+            <div style={{ textAlign: 'center', color: VLText.muted, padding: '48px 0', fontSize: 13 }}>
               Waiting for sales…
             </div>
           )}
@@ -179,9 +180,9 @@ export function SalesFeedPanel() {
                     borderRadius: 10,
                     transition: 'opacity 120ms ease, filter 120ms ease',
                     ...(ringed ? {
-                      outline: '2px solid rgba(168,144,232,0.85)',
+                      outline: `2px solid ${alpha(VL.purpleTint, 0.85)}`,
                       outlineOffset: -2,
-                      background: 'rgba(168,144,232,0.10)',
+                      background: alpha(VL.purpleTint, 0.10),
                     } : {}),
                     ...(dimmed ? { opacity: 0.32, filter: 'brightness(0.65)' } : { opacity: 1 }),
                   }}

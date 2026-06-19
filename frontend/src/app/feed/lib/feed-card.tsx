@@ -45,7 +45,7 @@ function TimeAgo({ ts }: { ts: number }) {
   // negative ages already collapse into the `ageMs < 5000` branch
   // below ("just now") since `<` evaluates true for any negative.
   if (!Number.isFinite(ts)) {
-    return <span style={{ fontSize: 11, color: '#9a9ab4', fontWeight: 500 }}>—</span>;
+    return <span style={{ fontSize: 11, color: VLText.muted, fontWeight: 500 }}>—</span>;
   }
   // SSR-safe: getTickServerSnapshot returns 0; first client paint
   // will reconcile to a real `now` on the next tick (≤1 s). Falling back
@@ -59,12 +59,12 @@ function TimeAgo({ ts }: { ts: number }) {
     color  = '#e87ab0'; // bright pink — freshest tier: "just now" (<5s) + 6-15s hot window (pre-migration color, restored)
     weight = 600;
   } else if (ageMs < 180000) {
-    color  = '#c7b479'; // yellow — 16s to 3min
+    color  = rgb(VL.gold); // yellow — 16s to 3min
   } else {
-    // Stale tier — bumped #a094c0 → #9a9ab4 (text-clarity pass).
+    // Stale tier — bumped #a094c0 → muted (text-clarity pass).
     // Fresh pink + yellow tiers stay loud; this lifts the quiet
     // floor so old timestamps still scan instead of dissolving.
-    color  = '#9a9ab4';
+    color  = VLText.muted;
   }
   const text = ageMs < 5000 ? 'just now' : timeAgo(ts);
   // tabular-nums locks digit width so the right-edge timestamp lane
@@ -296,15 +296,15 @@ const FC_NAME_ROW_STYLE: React.CSSProperties = {
 // 15 px sans without changing line-height (the row still fits inside
 // the same 56 px thumb-driven card height).
 const FC_NAME_LINK_STYLE: React.CSSProperties = {
-  fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
+  fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.3px',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   textDecoration: 'none', cursor: 'pointer',
 };
 const FC_NAME_SPAN_STYLE: React.CSSProperties = {
-  fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.3px',
+  fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.3px',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
-const FC_NAME_NUM_STYLE: React.CSSProperties = { color: '#f0eef8' };
+const FC_NAME_NUM_STYLE: React.CSSProperties = { color: VLText.primary };
 const FC_PARTIES_COL_STYLE: React.CSSProperties = {
   // Tighten the seller/buyer stack — gap dropped from 1 → 0 (rows
   // are already 14 px tall via lineHeight) and marginTop trimmed
@@ -319,7 +319,7 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // to read. Row gap set to 2 px between label and wallet address.
   // (Was #9a9ab4 — identical to the wallet, which made the two blur
   // together.)
-  fontSize: 10.5, color: '#63637a', display: 'flex', alignItems: 'center', gap: 2,
+  fontSize: 10.5, color: VLText.faint, display: 'flex', alignItems: 'center', gap: 2,
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every
@@ -407,8 +407,8 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   // the badge reads as ambient context — same visual weight as the
   // time label, not an alert. Background is a very soft same-hue
   // wash for shape definition without the prior neon look.
-  background:     'rgba(199, 180, 121, 0.12)',
-  color:          '#c7b479',
+  background:     alpha(VL.gold, ALPHA.tint),
+  color:          rgb(VL.gold),
   fontSize:       10,
   fontWeight:     700,
   lineHeight:     1,
@@ -757,8 +757,8 @@ export const FeedCard = memo(function FeedCard({
                 aria-label="Unclaimed Metaplex resize rent"
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
-                  color: '#9a9ab4', background: 'transparent',
-                  border: '1px solid rgba(168,144,232,0.32)',
+                  color: VLText.muted, background: 'transparent',
+                  border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
                   padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   textTransform: 'uppercase', flexShrink: 0,

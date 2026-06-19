@@ -14,12 +14,13 @@
 // (Rare Feed); a Live Feed event below EPIC simply renders nothing.
 
 import type { CSSProperties } from 'react';
+import { VL, VLText, rgb } from '@/lib/palette';
 
 /** Per-tier solid pill color + a subtle premium glow (no neon/bloom). */
 const TIER_STYLE: Record<string, { bg: string; glow: string }> = {
   MYTHIC:     { bg: '#ef5b97', glow: '0 0 10px rgba(239, 91, 151, 0.22)' },
   LEGENDARY:  { bg: '#e1a63a', glow: '0 0 8px rgba(225, 166, 58, 0.20)' },
-  EPIC:       { bg: '#7c5cf0', glow: '0 0 6px rgba(124, 92, 240, 0.18)' },
+  EPIC:       { bg: rgb(VL.purple), glow: '0 0 6px rgba(124, 92, 240, 0.18)' },
   ONE_OF_ONE: { bg: '#d7a53a', glow: '0 0 10px rgba(215, 165, 58, 0.22)' },
 };
 /** Near-black icon/text on the filled pill (not pure black). */
@@ -28,10 +29,10 @@ const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSyst
 
 /** Score → fallback rank-chip tint (Rare Feed non-tier rows only). */
 export function scoreColor(score: number): string {
-  if (score >= 80) return '#43b984';
-  if (score >= 60) return '#ad92ee';
-  if (score >= 40) return '#c7b479';
-  return '#9a9ab4';
+  if (score >= 80) return rgb(VL.green);
+  if (score >= 60) return rgb(VL.purpleMuted);
+  if (score >= 40) return rgb(VL.gold);
+  return VLText.muted;
 }
 
 const TIERS = ['MYTHIC', 'LEGENDARY', 'EPIC'] as const;

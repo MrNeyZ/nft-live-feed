@@ -20,6 +20,7 @@ import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
 import { shouldPlayBelowFloorAlert } from './lib/below-floor-alert';
 import type { Density, FilterKey } from './lib/types';
 import { FeedCard } from './lib/feed-card';
+import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
@@ -91,11 +92,11 @@ function isDensity(v: unknown): v is Density {
 // types" (see the `typeSet` gate in `filtered`).
 type TypeKey = Exclude<FilterKey, 'all'>;
 const FILTERS: { key: TypeKey; label: string; color: string }[] = [
-  { key: 'buy',     label: 'Buy',        color: '#43b984' },
-  { key: 'sell',    label: 'Sell',       color: '#d96867' },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: '#43b984' },
-  { key: 'sellAmm', label: 'Sell AMM',   color: '#d96867' },
-  { key: 'listing', label: 'Listings',   color: '#ad92ee' },
+  { key: 'buy',     label: 'Buy',        color: rgb(VL.green) },
+  { key: 'sell',    label: 'Sell',       color: rgb(VL.red) },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: rgb(VL.green) },
+  { key: 'sellAmm', label: 'Sell AMM',   color: rgb(VL.red) },
+  { key: 'listing', label: 'Listings',   color: rgb(VL.purpleMuted) },
 ];
 
 /** Inactive-pill style for Type/Price utility filters inside the
@@ -110,7 +111,7 @@ const FILTERS: { key: TypeKey; label: string; color: string }[] = [
 const FILTER_PILL_INACTIVE_STYLE: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.025)',
   border: '1px solid rgba(255, 255, 255, 0.08)',
-  color: '#9a9ab4',
+  color: VLText.muted,
 };
 
 /** Settings pill styling (SETTINGS_PILL_INACTIVE / settingsPillActive) and the
@@ -135,15 +136,15 @@ const DENSITY_PILL_INACTIVE_STYLE: React.CSSProperties = {
   ...DENSITY_PILL_BASE_STYLE,
   background:    'rgba(255, 255, 255, 0.025)',
   border:        '1px solid rgba(255, 255, 255, 0.08)',
-  color:         '#9a9ab4',
+  color:         VLText.muted,
   fontWeight:    600,
 };
 const DENSITY_PILL_ACTIVE_STYLE: React.CSSProperties = {
   ...DENSITY_PILL_BASE_STYLE,
-  background:    'rgba(168, 144, 232, 0.26)',
-  border:        '1px solid #ad92ee',
-  boxShadow:     '0 0 0 1px rgba(168, 144, 232, 0.36), 0 0 10px rgba(168, 144, 232, 0.42)',
-  color:         '#f0eef8',
+  background:    alpha(VL.purpleTint, 0.26),
+  border:        `1px solid ${rgb(VL.purpleMuted)}`,
+  boxShadow:     `0 0 0 1px ${alpha(VL.purpleTint, 0.36)}, 0 0 10px ${alpha(VL.purpleTint, 0.42)}`,
+  color:         VLText.primary,
   fontWeight:    700,
 };
 
@@ -1032,9 +1033,9 @@ export default function FeedPage() {
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-            border: '1px solid rgba(168,144,232,0.65)',
+            border: `1px solid ${alpha(VL.purpleTint, 0.65)}`,
             borderRadius: 12,
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
             margin: embedded ? 0 : '14px 0 3px',
             minHeight: 0,
           }}>
@@ -1043,17 +1044,17 @@ export default function FeedPage() {
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '10px 14px', flexShrink: 0,
-              borderBottom: '1px solid rgba(168,144,232,0.12)',
-              background: 'rgba(168,144,232,0.04)',
+              borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`,
+              background: alpha(VL.purpleTint, 0.04),
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Live events</h1>
+                <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px' }}>Live events</h1>
                 <LiveDot />
                 {/* Event count — dimmed from #7c5cf0 → #9a9ab4 so the
                     title "Live events" + the LiveDot stay primary; the
                     count is supplementary context (operator usually
                     reads the rows, not the number). */}
-                <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
                   ({filtered.length.toLocaleString()})
                 </span>
                 {/* Source-health indicator. Green = both sources fresh.
@@ -1069,16 +1070,16 @@ export default function FeedPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 3,
                     marginLeft: 4, padding: '1px 5px', borderRadius: 3,
                     fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-                    border: meStale ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
-                    background: meStale ? 'rgba(239,120,120,0.14)' : 'transparent',
-                    color: meStale ? '#d96867' : 'rgba(92,224,160,0.65)',
+                    border: meStale ? `1px solid ${alpha(VL.red, 0.4)}` : `1px solid ${alpha(VL.greenGlow, 0.22)}`,
+                    background: meStale ? alpha(VL.redGlow, 0.14) : 'transparent',
+                    color: meStale ? rgb(VL.red) : alpha(VL.greenGlow, 0.65),
                     cursor: 'help',
                   }}
                 >
                   <span style={{
                     display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                    background: meStale ? '#d96867' : '#43b984',
-                    boxShadow: meStale ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
+                    background: meStale ? rgb(VL.red) : rgb(VL.green),
+                    boxShadow: meStale ? `0 0 6px ${alpha(VL.red, 0.5)}` : `0 0 4px ${alpha(VL.greenGlow, 0.40)}`,
                   }} />
                   ME {meStale ? 'STALE' : 'OK'}
                 </span>
@@ -1087,13 +1088,13 @@ export default function FeedPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                     marginLeft: 6, padding: '2px 8px', fontSize: 10, fontWeight: 600,
                     borderRadius: 4, letterSpacing: '0.2px',
-                    border: '1px solid rgba(168,144,232,0.32)',
-                    background: 'rgba(168,144,232,0.08)',
-                    color: '#ad92ee',
+                    border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
+                    background: alpha(VL.purpleTint, 0.08),
+                    color: rgb(VL.purpleMuted),
                   }}>
                     {typeSet.size > 0 && FILTERS.filter(f => typeSet.has(f.key)).map(f => f.label).join(' / ')}
                     {typeSet.size > 0 && collFilter && (
-                      <span style={{ color: '#9a9ab4' }}>•</span>
+                      <span style={{ color: VLText.muted }}>•</span>
                     )}
                     {collFilter && (
                       <span style={{
@@ -1115,7 +1116,7 @@ export default function FeedPage() {
                     persistence + pause logic unchanged.) */}
                 <Pill
                   active
-                  color={paused ? '#c7b479' : '#43b984'}
+                  color={paused ? rgb(VL.gold) : rgb(VL.green)}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -1173,11 +1174,11 @@ export default function FeedPage() {
                               <Pill
                                 key={p.key}
                                 active={isActive}
-                                color="#ad92ee"
+                                color={rgb(VL.purpleMuted)}
                                 onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1193,12 +1194,12 @@ export default function FeedPage() {
                               <Pill
                                 key={d}
                                 active={isActive}
-                                color="#ad92ee"
+                                color={rgb(VL.purpleMuted)}
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
                                 
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1220,11 +1221,11 @@ export default function FeedPage() {
                               <Pill
                                 key={m.key}
                                 active={isActive}
-                                color="#ad92ee"
+                                color={rgb(VL.purpleMuted)}
                                 onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1279,7 +1280,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#ad92ee"
+                            color={rgb(VL.purpleMuted)}
                             onClick={() => {
                               const v = collInput.trim();
                               if (v) { setCollFilter(v); setCollInput(''); }
@@ -1287,7 +1288,7 @@ export default function FeedPage() {
                             label="+"
                             
                             size="sm"
-                            style={settingsPillActive('#ad92ee')}
+                            style={settingsPillActive(rgb(VL.purpleMuted))}
                           />
                           {collFilter && (
                             <span className="feed-chip feed-chip-watch">
@@ -1318,12 +1319,12 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#d96867"
+                            color={rgb(VL.red)}
                             onClick={() => addBlacklist(blInput)}
                             label="+"
-                            
+
                             size="sm"
-                            style={settingsPillActive('#d96867')}
+                            style={settingsPillActive(rgb(VL.red))}
                           />
                           {blacklistSlugs.map((slug) => (
                             <span key={slug} className="feed-chip feed-chip-bl">
@@ -1360,9 +1361,9 @@ export default function FeedPage() {
                   meStale ? (
                     <div style={{
                       textAlign: 'center', padding: '40px 16px', fontSize: 13,
-                      color: '#d96867',
-                      border: '1px solid rgba(239,120,120,0.28)',
-                      background: 'rgba(239,120,120,0.06)',
+                      color: rgb(VL.red),
+                      border: `1px solid ${alpha(VL.redGlow, 0.28)}`,
+                      background: alpha(VL.redGlow, 0.06),
                       borderRadius: 8, margin: '24px 8px',
                     }}>
                       <div style={{ fontWeight: 700, marginBottom: 4, letterSpacing: '0.3px' }}>
@@ -1373,7 +1374,7 @@ export default function FeedPage() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '48px 0', fontSize: 13 }}>
+                    <div style={{ textAlign: 'center', color: VLText.muted, padding: '48px 0', fontSize: 13 }}>
                       No events match current filters
                     </div>
                   )
