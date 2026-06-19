@@ -229,9 +229,9 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // the inline style stays dependency-free:
 //   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
 const FLOOR_TONES = {
-  pos: { fg: '#74917f', bg: 'rgba(67,185,132,0.04)',  bd: 'rgba(67,185,132,0.09)'  },
-  neg: { fg: '#a98388', bg: 'rgba(217,104,103,0.04)', bd: 'rgba(217,104,103,0.09)' },
-  neu: { fg: '#8e88a4', bg: 'rgba(143,134,194,0.04)', bd: 'rgba(143,134,194,0.09)' },
+  pos: { fg: '#74917f', bg: 'rgba(67,185,132,0.03)',  bd: 'rgba(67,185,132,0.06)'  },
+  neg: { fg: '#a98388', bg: 'rgba(217,104,103,0.03)', bd: 'rgba(217,104,103,0.06)' },
+  neu: { fg: '#8e88a4', bg: 'rgba(143,134,194,0.03)', bd: 'rgba(143,134,194,0.06)' },
 } as const;
 function FloorChip({ delta }: { delta: number }) {
   if (!Number.isFinite(delta)) return null;
@@ -248,7 +248,7 @@ function FloorChip({ delta }: { delta: number }) {
         fontSize: 9, fontWeight: 500, lineHeight: 1, letterSpacing: '0.2px',
         color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`,
         fontFamily: "'SF Mono','Fira Code',monospace",
-        fontVariantNumeric: 'tabular-nums', opacity: 0.85,
+        fontVariantNumeric: 'tabular-nums', opacity: 0.75,
       }}
     >
       {txt}
@@ -355,7 +355,7 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
 // (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
 // marker without weakening the solid capsule.
 const FC_AMM_TRI_STYLE: React.CSSProperties = {
-  fontSize: 6.5, lineHeight: 1, opacity: 0.75,
+  fontSize: 6, lineHeight: 1, opacity: 0.7,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -793,14 +793,20 @@ export const FeedCard = memo(function FeedCard({
                   // padding so the triangles never reach the borders.
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1,
                   width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
-                  borderRadius: 5, fontSize: 10, fontWeight: 500, lineHeight: 1,
+                  // Container stays quiet (flat, de-saturated fill, no
+                  // chrome) but the LABEL is the focus: 10 px / 700 / caps
+                  // so BUY/SELL/AMM read clearly — SELL especially, which
+                  // was getting lost at the lighter weight. The muted fill
+                  // (KIND_STYLES, ~22 % de-saturated) carries the dark
+                  // near-black text at strong contrast without the
+                  // background reading as a button.
+                  borderRadius: 5, fontSize: 10, fontWeight: 700, lineHeight: 1,
                   textTransform: 'uppercase',
                   background: pill.bg, color: pill.fg,
-                  // Extremely subtle top sheen for a premium material
-                  // feel — an inset hairline highlight only (0.06 → 0.13),
-                  // no outer glow. Radius trimmed 6 → 5 so it reads as a
-                  // crisp terminal tag, not a pill.
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.13)',
+                  // Flat fill, no chrome — the top sheen made it read as a
+                  // button, so it's gone (no inset highlight, no shadow,
+                  // no glow).
+                  boxShadow: 'none',
                 }}>
                   {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
                   {pill.label}

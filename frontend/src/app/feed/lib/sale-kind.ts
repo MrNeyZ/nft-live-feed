@@ -41,14 +41,16 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 // The card's left/right edge stripe stays direction-driven via
 // `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
 export const KIND_STYLES: Record<SaleKind, KindStyle> = {
-  // BUY darkened ~6 % (×0.94) for a calmer green; SELL unchanged.
-  // AMM siblings carry their OWN fills now: the buy/sell hue desaturated
-  // ~4 % (blended toward equal-luminance gray) so a pool route reads a
-  // hair softer than a direct trade without changing hue or weight.
-  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(49,162,128),rgb(24,109,81))', borderTone: 'buy'  },
-  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(199,71,83),rgb(144,48,65))',  borderTone: 'sell' },
-  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(55,170,136),rgb(27,115,86))', borderTone: 'buy'  },
-  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(195,73,84),rgb(141,49,66))',  borderTone: 'sell' },
+  // Calm-container pass: every fill de-saturated ~22 % toward its own
+  // equal-luminance gray (hue + luminance preserved, so the dark text
+  // keeps its contrast while the colour reads muted, not button-bright).
+  // AMM siblings stay a touch softer than their direct-trade parent so a
+  // pool route is distinguishable; dark near-black text + 700 weight at
+  // the render site is what carries readability now, not fill intensity.
+  buy:     { label: 'BUY',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(66,154,127),rgb(36,103,81))', borderTone: 'buy'  },
+  sell:    { label: 'SELL', fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(180,80,89),rgb(130,55,68))',  borderTone: 'sell' },
+  buyAmm:  { label: 'AMM',  fg: '#04140e', bg: 'linear-gradient(180deg,rgb(72,162,135),rgb(40,108,86))', borderTone: 'buy'  },
+  sellAmm: { label: 'AMM',  fg: '#1c0307', bg: 'linear-gradient(180deg,rgb(177,81,90),rgb(127,55,69))',  borderTone: 'sell' },
   unknown: { label: '—',    fg: '#9a9ab4', bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
