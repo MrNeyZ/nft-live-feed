@@ -783,7 +783,12 @@ export const FeedCard = memo(function FeedCard({
               const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
               return (
                 <span style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  // gap 2 (was 5): triangles sit attached to the label so
+                  // "▼ AMM ▼" reads as one centered wordmark occupying
+                  // ~60-70 % of the capsule, not three spread elements.
+                  // justifyContent:center keeps equal L/R padding, so the
+                  // triangles never approach the capsule borders.
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 2,
                   width: 60, height: 24, boxSizing: 'border-box', flexShrink: 0,
                   borderRadius: 7, fontSize: 11, fontWeight: 600, lineHeight: 1,
                   letterSpacing: '0.5px', textTransform: 'uppercase',
