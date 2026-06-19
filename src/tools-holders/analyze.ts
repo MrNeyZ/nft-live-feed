@@ -8,7 +8,7 @@
  * Holder count = number of DISTINCT `ownership.owner` wallets across every
  * asset in the verified collection group (Helius DAS). NOT a marketplace stat.
  */
-import type { CollectionOwnerScan, HoldersAnalysis, HolderEntry, HolderDistribution } from './types';
+import type { CollectionOwnerScan, HoldersAnalysis, HolderEntry, HolderDistribution, HoldersInputType } from './types';
 
 /** Top-N holders surfaced in the table. */
 export const TOP_HOLDERS_LIMIT = 25;
@@ -18,13 +18,19 @@ function round2(n: number): number {
 }
 
 export interface BuildArgs extends CollectionOwnerScan {
+  /** On-chain collection address the scan ran against (resolved for slugs). */
   collectionAddress: string;
+  /** How the request arrived + the verbatim value supplied. */
+  inputType:  HoldersInputType;
+  inputValue: string;
+  /** Extra warnings from upstream (e.g. slug resolution notes). Prepended. */
+  extraWarnings?: string[];
   /** Injected so the function stays pure/deterministic for tests. */
   nowIso: string;
 }
 
 export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
-  const { collectionAddress, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
+  const { collectionAddress, inputType, inputValue, extraWarnings, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
 
   // owner → asset count
   const byOwner = new Map<string, number>();
@@ -53,6 +59,7 @@ export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
   }
 
   const warnings: string[] = [];
+  if (extraWarnings) warnings.push(...extraWarnings);
   if (totalAssets === 0) {
     warnings.push('No assets found for this collection address — it may be wrong, or not a verified on-chain collection group.');
   }
@@ -67,6 +74,9 @@ export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
   }
 
   return {
+    inputType,
+    inputValue,
+    resolvedCollectionAddress: collectionAddress,
     collectionAddress,
     totalAssets,
     uniqueHolders,

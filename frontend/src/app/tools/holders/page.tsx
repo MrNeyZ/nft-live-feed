@@ -20,6 +20,9 @@ interface HolderDistribution {
   holders1: number; holders2to5: number; holders6to10: number; holders11plus: number;
 }
 interface HoldersAnalysis {
+  inputType:         'collection' | 'slug';
+  inputValue:        string;
+  resolvedCollectionAddress: string;
   collectionAddress: string;
   totalAssets:       number;
   uniqueHolders:     number;
@@ -28,6 +31,10 @@ interface HoldersAnalysis {
   holderDistribution:HolderDistribution;
   warnings:          string[];
 }
+
+// Solana base58 pubkey shape — mirrors backend isValidCollectionAddress. If the
+// input matches we send it as `collection`; otherwise we treat it as a `slug`.
+const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 const PANEL: React.CSSProperties = {
   background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
@@ -83,12 +90,16 @@ export default function HoldersPage() {
     playUiConfirm();
     setBusy(true);
     setError(null);
+    // Address → `collection`; anything else → `slug`. Existing address flow
+    // is byte-for-byte unchanged; slug is the new branch.
+    const param = ADDR_RE.test(trimmed) ? 'collection' : 'slug';
     try {
-      const r = await fetch(`${API_BASE}/api/tools/holders/analyze?collection=${encodeURIComponent(trimmed)}`, {
+      const r = await fetch(`${API_BASE}/api/tools/holders/analyze?${param}=${encodeURIComponent(trimmed)}`, {
         headers: { ...authHeaders() },
       });
       if (r.status === 429) { setError('Rate limited — wait a moment and try again.'); return; }
-      if (r.status === 400) { setError('Invalid collection address — paste a base58 Solana collection address.'); return; }
+      if (r.status === 400) { setError(param === 'slug' ? 'Invalid slug — use the marketplace collection slug, or paste the collection address.' : 'Invalid collection address — paste a base58 Solana collection address.'); return; }
+      if (r.status === 404) { setError(`Couldn't resolve slug "${trimmed}" to a collection — check the slug, or paste the collection address instead.`); return; }
       if (r.status === 502) { setError('On-chain lookup failed (RPC error) — try again shortly.'); return; }
       if (!r.ok)            { setError(`Analyze failed — HTTP ${r.status}.`); return; }
       const body = await r.json() as { ok: boolean; analysis?: HoldersAnalysis; error?: string };
@@ -132,13 +143,16 @@ export default function HoldersPage() {
         </div>
 
         {/* Input */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
+          Collection address or slug
+        </label>
+        <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <input
             type="text"
             value={collection}
             onChange={(e) => setCollection(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
-            placeholder="Paste collection address…"
+            placeholder="Collection address or marketplace slug…"
             spellCheck={false}
             disabled={busy}
             style={{
@@ -200,6 +214,22 @@ export default function HoldersPage() {
                 color="#c7b479"
               />
               <StatCard label="Updated" value={fmtWhen(analysis.updatedAt)} color="#9aa6c4" />
+            </div>
+
+            {/* Resolved collection — always shown; for slug input it proves
+                which on-chain address the count was computed against. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: '#9a9ab4' }}>
+              <span style={{ fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c7b479' }}>
+                {analysis.inputType === 'slug' ? `slug "${analysis.inputValue}" →` : 'collection'}
+              </span>
+              <a
+                href={`https://solscan.io/token/${analysis.resolvedCollectionAddress}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontFamily: MONO, color: '#c4b8e8', textDecoration: 'none' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+              >{analysis.resolvedCollectionAddress}</a>
             </div>
 
             {/* Copy JSON */}
