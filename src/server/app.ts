@@ -23,6 +23,7 @@ import { createRareFeedRouter } from './tools-rare-feed';
 import { createMintAnalyzerRouter } from './tools-mint-analyzer';
 import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
+import { createHoldersRouter } from './tools-holders';
 import { corsMiddleware } from './cors';
 
 export function createApp() {
@@ -137,6 +138,10 @@ export function createApp() {
   // SNS reverse-resolver — read-only, lazy wallet → .sol domain lookup.
   // GET /api/tools/sns/resolve?wallet=<address>
   app.use('/api', createSnsRouter());
+
+  // Holder Count tool — read-only exact distinct-owner count via Helius DAS.
+  // GET /api/tools/holders/analyze?collection=<collectionAddress>
+  app.use('/api', createHoldersRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is

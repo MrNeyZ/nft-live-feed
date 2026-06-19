@@ -1,0 +1,141 @@
+{
+  "jsonrpc": "2.0",
+  "id": "holders-tool",
+  "result": {
+    "total": 22,
+    "items": [
+      {
+        "id": "asset_WHALE_0",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_1",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_2",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_3",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_4",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_5",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_6",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_7",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_8",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_9",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_WHALE_10",
+        "ownership": {
+          "owner": "WHALEwa11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_0",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_1",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_2",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_3",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_4",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_MIDwa_5",
+        "ownership": {
+          "owner": "MIDwall11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_SMALL_0",
+        "ownership": {
+          "owner": "SMALLsm11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_SMALL_1",
+        "ownership": {
+          "owner": "SMALLsm11111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_Singl_0",
+        "ownership": {
+          "owner": "Single1111111111111111111111111111111111111"
+        }
+      },
+      {
+        "id": "asset_Singl_0",
+        "ownership": {
+          "owner": "Single2222222222222222222222222222222222222"
+        }
+      },
+      {
+        "id": "asset_ownerless",
+        "ownership": {
+          "owner": null
+        }
+      }
+    ]
+  }
+}

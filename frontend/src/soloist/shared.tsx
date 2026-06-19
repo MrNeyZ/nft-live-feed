@@ -692,7 +692,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/trending', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/holders', '/tools/trending', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
@@ -1229,6 +1229,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       }}
                     >
                       MINTX
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      href="/tools/holders"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/holders'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/holders');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      HOLDERS
                     </Link>
                     <Link
                       role="menuitem"

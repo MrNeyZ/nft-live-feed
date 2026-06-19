@@ -1,0 +1,78 @@
+/**
+ * Holder Count Tool — pure analysis.
+ *
+ * Deterministic, network-free: turns a CollectionOwnerScan (owner list + scan
+ * metadata) into the HoldersAnalysis response. Separated from the fetch layer
+ * so it can be unit-tested against a mocked DAS result with zero network.
+ *
+ * Holder count = number of DISTINCT `ownership.owner` wallets across every
+ * asset in the verified collection group (Helius DAS). NOT a marketplace stat.
+ */
+import type { CollectionOwnerScan, HoldersAnalysis, HolderEntry, HolderDistribution } from './types';
+
+/** Top-N holders surfaced in the table. */
+export const TOP_HOLDERS_LIMIT = 25;
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export interface BuildArgs extends CollectionOwnerScan {
+  collectionAddress: string;
+  /** Injected so the function stays pure/deterministic for tests. */
+  nowIso: string;
+}
+
+export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
+  const { collectionAddress, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
+
+  // owner → asset count
+  const byOwner = new Map<string, number>();
+  for (const o of owners) byOwner.set(o, (byOwner.get(o) ?? 0) + 1);
+
+  const uniqueHolders = byOwner.size;
+  const denom = totalAssets > 0 ? totalAssets : 0;
+
+  // Top holders (desc by count, tie-break by wallet for deterministic output).
+  const topHolders: HolderEntry[] = [...byOwner.entries()]
+    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .slice(0, TOP_HOLDERS_LIMIT)
+    .map(([wallet, count]) => ({
+      wallet,
+      count,
+      percent: denom > 0 ? round2((count / denom) * 100) : 0,
+    }));
+
+  // Distribution buckets — count of DISTINCT holders per ownership size.
+  const holderDistribution: HolderDistribution = { holders1: 0, holders2to5: 0, holders6to10: 0, holders11plus: 0 };
+  for (const count of byOwner.values()) {
+    if (count >= 11)     holderDistribution.holders11plus++;
+    else if (count >= 6) holderDistribution.holders6to10++;
+    else if (count >= 2) holderDistribution.holders2to5++;
+    else                 holderDistribution.holders1++;
+  }
+
+  const warnings: string[] = [];
+  if (totalAssets === 0) {
+    warnings.push('No assets found for this collection address — it may be wrong, or not a verified on-chain collection group.');
+  }
+  if (missingOwnerCount > 0) {
+    warnings.push(`${missingOwnerCount} asset(s) had no ownership.owner and were excluded from the holder count.`);
+  }
+  if (truncated) {
+    warnings.push('Asset scan hit the safety cap — totals are a lower bound (collection larger than the MVP page limit).');
+  }
+  if (dasError) {
+    warnings.push(`DAS error during pagination (${dasError}) — results may be incomplete.`);
+  }
+
+  return {
+    collectionAddress,
+    totalAssets,
+    uniqueHolders,
+    updatedAt: nowIso,
+    topHolders,
+    holderDistribution,
+    warnings,
+  };
+}
