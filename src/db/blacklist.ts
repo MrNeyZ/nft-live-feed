@@ -99,6 +99,9 @@ export function isBlacklistedCollection(opts: {
   collectionName:    string | null;
   /** DAS-resolved verified creator addresses (post-enrichment only). */
   verifiedCreators?: readonly string[] | null;
+  /** Per-asset NFT name. Secondary substring fallback only — most DRiP names
+   *  do NOT contain "drip", so this catches a minority the other gates miss. */
+  nftName?:          string | null;
   signature?:        string;
   mintAddress?:      string | null;
 }): boolean {
@@ -145,6 +148,25 @@ export function isBlacklistedCollection(opts: {
           `[feed/blacklist] reason=${needle}_collection ` +
           `collection=${opts.collectionName ?? 'null'} ` +
           `slug=${opts.meCollectionSlug ?? 'null'} ` +
+          `mint=${opts.mintAddress ?? '—'} ` +
+          `sig=${opts.signature ?? '—'}`,
+        );
+        return true;
+      }
+    }
+  }
+  // Secondary fallback: same substring terms over the per-asset NFT name.
+  // Collection name + slug come back null for per-drop DRiP collections, but a
+  // minority of those assets carry "drip" in the NFT name itself (e.g.
+  // "DRiP KING"). Only ~10% of DRiP matches here, so this is an extra safety
+  // net behind the creator gate — not a complete DRiP solution.
+  if (opts.nftName) {
+    const hay = opts.nftName.toLowerCase();
+    for (const needle of NAME_SUBSTRING_BLACKLIST) {
+      if (hay.includes(needle)) {
+        console.log(
+          `[feed/blacklist] reason=name_substring field=nft_name ` +
+          `term=${needle} ` +
           `mint=${opts.mintAddress ?? '—'} ` +
           `sig=${opts.signature ?? '—'}`,
         );
