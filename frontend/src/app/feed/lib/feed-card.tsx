@@ -824,10 +824,21 @@ export const FeedCard = memo(function FeedCard({
                 </span>
               );
             })()}
-            <span style={FC_PRICE_TEXT_STYLE}>
-              {safePrice == null ? '—' : formatFeedPrice(safePrice)}{' '}
-              <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
-            </span>
+            {(() => {
+              // Length-adaptive price size: short prices ("2.3", "0.55"
+              // — ≤4 chars) keep the full 17.5 px; longer strings
+              // ("0.014" = 5, "0.0014" = 6+) step down so a long price
+              // doesn't blow out the right column. Suffix " SOL" is not
+              // counted — only the number itself drives the step.
+              const priceStr = safePrice == null ? '—' : formatFeedPrice(safePrice);
+              const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
+              return (
+                <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+                  {priceStr}{' '}
+                  <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
+                </span>
+              );
+            })()}
           </div>
         </div>
       </div>
