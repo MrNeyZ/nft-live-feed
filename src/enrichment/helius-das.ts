@@ -24,6 +24,11 @@ export interface NftMetadata {
    *  fresh collection address with no name/slug. Optional; absent on the
    *  empty/error metadata objects. */
   verifiedCreators?: string[] | null;
+  /** True when DAS metadata carries an attribute whose `trait_type`/`key` is
+   *  exactly "Artist". Narrow DRiP signal: DRiP per-drop cNFTs tag every asset
+   *  with an "Artist" trait. Value is intentionally ignored. Optional; absent
+   *  on the empty/error metadata objects. */
+  hasArtistAttribute?: boolean;
 }
 
 // Minimal shape of the Helius DAS getAsset response we care about.
@@ -33,7 +38,11 @@ export interface NftMetadata {
 interface DasAsset {
   interface?: string;
   content?: {
-    metadata?: { name?: string; token_standard?: string };
+    metadata?: {
+      name?: string;
+      token_standard?: string;
+      attributes?: Array<{ trait_type?: string; key?: string; value?: unknown }>;
+    };
     links?: { image?: string; animation_url?: string };
     files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>;
     json_uri?: string;
@@ -57,6 +66,13 @@ function extractVerifiedCreators(asset: DasAsset | undefined): string[] {
   return (asset?.creators ?? [])
     .filter((c) => c.verified === true && typeof c.address === 'string' && c.address.length > 0)
     .map((c) => c.address as string);
+}
+
+/** True iff DAS metadata has an attribute whose `trait_type` or `key` is
+ *  exactly "Artist" (case-sensitive). Value is not inspected. */
+function extractHasArtistAttribute(asset: DasAsset | undefined): boolean {
+  return (asset?.content?.metadata?.attributes ?? [])
+    .some((a) => a?.trait_type === 'Artist' || a?.key === 'Artist');
 }
 
 interface DasResponse {
@@ -155,6 +171,7 @@ export async function getAsset(mintAddress: string): Promise<NftMetadata> {
     meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
     jsonUri: asset?.content?.json_uri ?? null,
     verifiedCreators: extractVerifiedCreators(asset),
+    hasArtistAttribute: extractHasArtistAttribute(asset),
   };
 }
 

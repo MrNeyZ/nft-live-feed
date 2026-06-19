@@ -435,6 +435,9 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         collectionName:    enriched.collectionName,
         verifiedCreators:  enriched.verifiedCreators,
         nftName:           enriched.nftName,
+        nftType:           enriched.nftType,
+        saleCollectionAddress: event.collectionAddress,
+        hasArtistAttribute: enriched.hasArtistAttribute,
         signature:         event.signature,
         mintAddress:       event.mintAddress,
       })) {
@@ -555,6 +558,9 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
           collectionName:    enriched.collectionName,
           verifiedCreators:  enriched.verifiedCreators,
           nftName:           enriched.nftName,
+          nftType:           enriched.nftType,
+          saleCollectionAddress: event.collectionAddress,
+          hasArtistAttribute: enriched.hasArtistAttribute,
           signature:         event.signature,
           mintAddress:       event.mintAddress,
         });

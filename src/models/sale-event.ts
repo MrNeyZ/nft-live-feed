@@ -62,6 +62,9 @@ export interface SaleEvent {
    *  fresh per-drop collection address with no name/slug. Null/absent when
    *  enrichment was skipped or DAS returned no verified creators. */
   verifiedCreators?: string[] | null;
+  /** True when DAS metadata carried an "Artist" trait_type/key. Transient
+   *  (NOT persisted) — feeds only the narrow DRiP cNFT-null-collection gate. */
+  hasArtistAttribute?: boolean;
   /**
    * Floor-price delta: (salePrice − floorPrice) / floorPrice.
    * e.g. −0.12 = 12% below floor. Null when floor is unavailable.

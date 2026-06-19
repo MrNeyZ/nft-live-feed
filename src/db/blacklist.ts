@@ -102,6 +102,16 @@ export function isBlacklistedCollection(opts: {
   /** Per-asset NFT name. Secondary substring fallback only — most DRiP names
    *  do NOT contain "drip", so this catches a minority the other gates miss. */
   nftName?:          string | null;
+  /** NFT type (cnft / core / legacy / …). Used only by the narrow DRiP
+   *  cNFT-with-null-collection-and-Artist-trait gate. */
+  nftType?:          string | null;
+  /** The SALE's own collection address as the parser produced it (NOT the
+   *  DAS-resolved `collectionAddress` above). Tensor cNFT sales arrive with
+   *  this null; DAS later resolves a per-drop group, so the narrow DRiP gate
+   *  keys off this sale-level null, not the enriched value. */
+  saleCollectionAddress?: string | null;
+  /** True when DAS metadata had an "Artist" trait_type/key. Narrow DRiP gate. */
+  hasArtistAttribute?: boolean;
   signature?:        string;
   mintAddress?:      string | null;
 }): boolean {
@@ -173,6 +183,20 @@ export function isBlacklistedCollection(opts: {
         return true;
       }
     }
+  }
+  // Narrow DRiP fallback: a compressed NFT (cnft) whose SALE carries NO
+  // collection address AND whose DAS metadata tags an "Artist" trait. DRiP
+  // per-drop cNFTs match all three; LMNFT/Core (nftType !== 'cnft') and any
+  // sale that arrived WITH a collection address are untouched. Value of the
+  // Artist trait is intentionally not checked. Keys off the sale-level
+  // collection address (parser), not the DAS-resolved per-drop group.
+  if (opts.nftType === 'cnft' && !opts.saleCollectionAddress && opts.hasArtistAttribute === true) {
+    console.log(
+      `[feed/blacklist] reason=cnft_null_collection_artist_attribute ` +
+      `mint=${opts.mintAddress ?? '—'} ` +
+      `sig=${opts.signature ?? '—'}`,
+    );
+    return true;
   }
   return false;
 }

@@ -344,6 +344,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
           meCollectionSlug:  metadata?.meCollectionSlug  ?? null,
           jsonUri:           metadata?.jsonUri ?? null,
           verifiedCreators:  metadata?.verifiedCreators ?? null,
+          hasArtistAttribute: metadata?.hasArtistAttribute ?? false,
         };
       }
     }
@@ -402,6 +403,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
           collectionAddress: metadata?.collectionAddress ?? null,
           meCollectionSlug:  meCollectionSlug,
           verifiedCreators:  metadata?.verifiedCreators ?? null,
+          hasArtistAttribute: metadata?.hasArtistAttribute ?? false,
         };
       }
     }
@@ -525,6 +527,7 @@ function applyMetadata(event: SaleEvent, metadata: NftMetadata | null): SaleEven
     magicEdenUrl:      `https://magiceden.io/item-details/${event.mintAddress}`,
     meCollectionSlug:  metadata?.meCollectionSlug   ?? null,
     verifiedCreators:  metadata?.verifiedCreators   ?? null,
+    hasArtistAttribute: metadata?.hasArtistAttribute ?? false,
   };
 }
 
