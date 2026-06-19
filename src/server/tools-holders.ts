@@ -14,6 +14,7 @@ import { rateLimit } from './rate-limit';
 import { buildHoldersAnalysis } from '../tools-holders/analyze';
 import { fetchCollectionOwners, isValidCollectionAddress } from '../tools-holders/fetch-assets';
 import { resolveSlugToCollection, isValidSlug } from '../tools-holders/resolve-slug';
+import { resolveNameToCollection, isValidName } from '../tools-holders/resolve-name';
 import type { HoldersInputType } from '../tools-holders/types';
 
 export function createHoldersRouter(): Router {
@@ -24,13 +25,17 @@ export function createHoldersRouter(): Router {
   router.get('/tools/holders/analyze', limit, async (req: Request, res: Response) => {
     const collection = String(req.query.collection ?? '').trim();
     const slug       = String(req.query.slug ?? '').trim();
+    const name       = String(req.query.name ?? '').trim();
 
-    // Resolve the request to (inputType, inputValue, on-chain address). The
-    // address flow is unchanged; the slug flow resolves via marketplace →
-    // sample mint → DAS group BEFORE any holder counting (counts stay DAS-only).
+    // Resolve the request to (inputType, inputValue, on-chain address). Priority
+    // is address → slug → name. The address flow is unchanged; slug and name
+    // resolve to an on-chain collection BEFORE any holder counting (counts stay
+    // DAS-only). Name resolves name → catalog slug → address, and refuses to
+    // guess: an ambiguous name returns candidates instead of a silent pick.
     let inputType: HoldersInputType;
     let inputValue: string;
     let address: string;
+    let resolvedName: string | undefined;
     const extraWarnings: string[] = [];
 
     if (collection) {
@@ -58,8 +63,36 @@ export function createHoldersRouter(): Router {
       inputValue = slug;
       address = resolution.collectionAddress;
       extraWarnings.push(`Slug "${slug}" resolved to collection ${address} via a sample Magic Eden listing — verify the address if it looks wrong.`);
+    } else if (name) {
+      if (!isValidName(name)) {
+        return res.status(400).json({ ok: false, error: 'invalid_name' });
+      }
+      let resolution;
+      try {
+        resolution = await resolveNameToCollection(name);
+      } catch (err) {
+        console.error('[tools/holders] name resolve error', err);
+        return res.status(502).json({ ok: false, error: 'rpc_error' });
+      }
+      // Never silently pick one of several — hand the candidates back so the
+      // caller can disambiguate.
+      if (resolution.ambiguous) {
+        return res.status(409).json({ ok: false, error: 'ambiguous_name', candidates: resolution.ambiguous });
+      }
+      if (!resolution.collectionAddress) {
+        return res.status(404).json({ ok: false, error: `name_unresolved:${resolution.error ?? 'unknown'}` });
+      }
+      inputType = 'name';
+      inputValue = name;
+      address = resolution.collectionAddress;
+      resolvedName = resolution.name ?? undefined;
+      extraWarnings.push(
+        resolution.approximate
+          ? `No exact match for "${name}" — using closest verified collection "${resolution.name}" (${resolution.slug}) → ${address}. Verify the address, or paste the exact slug/address if wrong.`
+          : `Name "${name}" matched verified collection "${resolution.name}" (${resolution.slug}) → ${address}.`,
+      );
     } else {
-      return res.status(400).json({ ok: false, error: 'missing_collection_or_slug' });
+      return res.status(400).json({ ok: false, error: 'missing_collection_slug_or_name' });
     }
 
     try {
@@ -69,6 +102,7 @@ export function createHoldersRouter(): Router {
         collectionAddress: address,
         inputType,
         inputValue,
+        resolvedName,
         extraWarnings,
         nowIso: new Date().toISOString(),
       });

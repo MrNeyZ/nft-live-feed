@@ -20,9 +20,10 @@ interface HolderDistribution {
   holders1: number; holders2to5: number; holders6to10: number; holders11plus: number;
 }
 interface HoldersAnalysis {
-  inputType:         'collection' | 'slug';
+  inputType:         'collection' | 'slug' | 'name';
   inputValue:        string;
   resolvedCollectionAddress: string;
+  resolvedName?:     string;
   collectionAddress: string;
   totalAssets:       number;
   uniqueHolders:     number;
@@ -32,9 +33,18 @@ interface HoldersAnalysis {
   warnings:          string[];
 }
 
-// Solana base58 pubkey shape — mirrors backend isValidCollectionAddress. If the
-// input matches we send it as `collection`; otherwise we treat it as a `slug`.
+interface NameCandidate { slug: string; name: string; }
+
+// Input classification, in priority order (mirrors the backend): a base58
+// pubkey → `collection`; a slug-shaped token (alnum + _- , no spaces) → `slug`;
+// anything else (spaces / punctuation, i.e. a plain name) → `name`.
 const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const SLUG_RE = /^[a-z0-9_-]+$/i;
+function classifyInput(v: string): 'collection' | 'slug' | 'name' {
+  if (ADDR_RE.test(v)) return 'collection';
+  if (SLUG_RE.test(v)) return 'slug';
+  return 'name';
+}
 
 const PANEL: React.CSSProperties = {
   background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
@@ -81,25 +91,45 @@ export default function HoldersPage() {
   const [busy, setBusy]             = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [analysis, setAnalysis]     = useState<HoldersAnalysis | null>(null);
+  const [candidates, setCandidates] = useState<NameCandidate[] | null>(null);
   const [raw, setRaw]               = useState<unknown>(null);
   const [copied, setCopied]         = useState(false);
 
-  const run = async () => {
-    const trimmed = collection.trim();
-    if (busy || trimmed.length === 0) return;
+  // Run with an explicit param/value. Factored out so an ambiguous-name
+  // candidate can re-run directly as a slug with one click.
+  const analyze = async (param: 'collection' | 'slug' | 'name', value: string) => {
+    if (busy || value.length === 0) return;
     playUiConfirm();
     setBusy(true);
     setError(null);
-    // Address → `collection`; anything else → `slug`. Existing address flow
-    // is byte-for-byte unchanged; slug is the new branch.
-    const param = ADDR_RE.test(trimmed) ? 'collection' : 'slug';
+    setCandidates(null);
     try {
-      const r = await fetch(`${API_BASE}/api/tools/holders/analyze?${param}=${encodeURIComponent(trimmed)}`, {
+      const r = await fetch(`${API_BASE}/api/tools/holders/analyze?${param}=${encodeURIComponent(value)}`, {
         headers: { ...authHeaders() },
       });
       if (r.status === 429) { setError('Rate limited — wait a moment and try again.'); return; }
-      if (r.status === 400) { setError(param === 'slug' ? 'Invalid slug — use the marketplace collection slug, or paste the collection address.' : 'Invalid collection address — paste a base58 Solana collection address.'); return; }
-      if (r.status === 404) { setError(`Couldn't resolve slug "${trimmed}" to a collection — check the slug, or paste the collection address instead.`); return; }
+      if (r.status === 400) {
+        setError(
+          param === 'name' ? 'Invalid name — type at least 2 characters, or paste the slug/address.'
+          : param === 'slug' ? 'Invalid slug — use the marketplace collection slug, or paste the collection address.'
+          : 'Invalid collection address — paste a base58 Solana collection address.',
+        );
+        return;
+      }
+      if (r.status === 409) {
+        // Ambiguous name — surface the candidates instead of guessing.
+        const body = await r.json() as { candidates?: NameCandidate[] };
+        setCandidates(body.candidates ?? []);
+        setError(`"${value}" matches multiple verified collections — pick one below.`);
+        return;
+      }
+      if (r.status === 404) {
+        setError(
+          param === 'name' ? `No verified collection found for "${value}" — check the name, or paste the slug/address.`
+          : `Couldn't resolve slug "${value}" to a collection — check the slug, or paste the collection address instead.`,
+        );
+        return;
+      }
       if (r.status === 502) { setError('On-chain lookup failed (RPC error) — try again shortly.'); return; }
       if (!r.ok)            { setError(`Analyze failed — HTTP ${r.status}.`); return; }
       const body = await r.json() as { ok: boolean; analysis?: HoldersAnalysis; error?: string };
@@ -111,6 +141,13 @@ export default function HoldersPage() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const run = () => {
+    const trimmed = collection.trim();
+    if (trimmed.length === 0) return;
+    // address → collection (unchanged) · slug-shaped → slug · else → name.
+    void analyze(classifyInput(trimmed), trimmed);
   };
 
   const copyJson = async () => {
@@ -144,7 +181,7 @@ export default function HoldersPage() {
 
         {/* Input */}
         <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
-          Collection address or slug
+          Collection address, slug, or name
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <input
@@ -152,7 +189,7 @@ export default function HoldersPage() {
             value={collection}
             onChange={(e) => setCollection(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
-            placeholder="Collection address or marketplace slug…"
+            placeholder="Collection address, marketplace slug, or name…"
             spellCheck={false}
             disabled={busy}
             style={{
@@ -193,6 +230,33 @@ export default function HoldersPage() {
           </div>
         )}
 
+        {/* Ambiguous-name candidates — never auto-pick; let the user choose.
+            Each resolves directly by its unambiguous slug. */}
+        {candidates && candidates.length > 0 && !busy && (
+          <div style={{ ...PANEL, marginTop: 12, padding: 12, border: '1px solid rgba(232,193,74,0.34)', background: 'rgba(232,193,74,0.06)' }}>
+            <div style={{ ...SECTION_LABEL, color: '#c7b479' }}>Multiple matches — pick one</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {candidates.map((c) => (
+                <button
+                  key={c.slug}
+                  type="button"
+                  onClick={() => { setCollection(c.slug); void analyze('slug', c.slug); }}
+                  data-uisnd="skip"
+                  style={{
+                    display: 'flex', alignItems: 'baseline', gap: 8, textAlign: 'left',
+                    padding: '7px 10px', borderRadius: 5, cursor: 'pointer',
+                    border: '1px solid rgba(168,144,232,0.30)', background: 'rgba(168,144,232,0.08)',
+                    color: '#f0eef8',
+                  }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{c.name}</span>
+                  <span style={{ fontSize: 11, fontFamily: MONO, color: '#9a9ab4' }}>{c.slug}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Loading hint */}
         {busy && !error && (
           <div style={{ marginTop: 12, fontSize: 12, color: '#9a9ab4' }}>
@@ -220,7 +284,11 @@ export default function HoldersPage() {
                 which on-chain address the count was computed against. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: '#9a9ab4' }}>
               <span style={{ fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c7b479' }}>
-                {analysis.inputType === 'slug' ? `slug "${analysis.inputValue}" →` : 'collection'}
+                {analysis.resolvedName
+                  ? `${analysis.resolvedName} →`
+                  : analysis.inputType === 'slug' ? `slug "${analysis.inputValue}" →`
+                  : analysis.inputType === 'name' ? `"${analysis.inputValue}" →`
+                  : 'collection'}
               </span>
               <a
                 href={`https://solscan.io/token/${analysis.resolvedCollectionAddress}`}

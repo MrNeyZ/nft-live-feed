@@ -22,9 +22,10 @@ export interface HolderDistribution {
   holders11plus:number;  // hold 11+
 }
 
-/** What the caller supplied: a raw on-chain collection address, or a
- *  marketplace slug that we resolved to an address before the DAS scan. */
-export type HoldersInputType = 'collection' | 'slug';
+/** What the caller supplied: a raw on-chain collection address, a marketplace
+ *  slug, or a plain collection name — each resolved to an on-chain collection
+ *  address before the DAS scan (counts stay DAS-only either way). */
+export type HoldersInputType = 'collection' | 'slug' | 'name';
 
 /** Final analysis returned by the API ( `{ ok: true, analysis }` ). */
 export interface HoldersAnalysis {
@@ -35,6 +36,9 @@ export interface HoldersAnalysis {
   /** The on-chain collection address the holder count was computed against.
    *  Equals `inputValue` for address input; the resolved address for slugs. */
   resolvedCollectionAddress: string;
+  /** Human-readable collection name when known (resolved from a name/slug
+   *  match). Omitted for raw address input where no name was looked up. */
+  resolvedName?:     string;
   /** Back-compat alias of resolvedCollectionAddress (kept for the existing
    *  address-flow frontend that read `collectionAddress`). */
   collectionAddress: string;

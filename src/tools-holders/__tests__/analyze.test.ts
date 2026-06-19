@@ -77,5 +77,13 @@ check('slug-resolve note first',() => assert.ok(/resolved to collection/.test(tr
 check('warns lower bound',  () => assert.ok(trunc.warnings.some(w => /lower bound/.test(w))));
 check('warns DAS error',    () => assert.ok(trunc.warnings.some(w => /DAS error/.test(w))));
 
+// ── Case 4: name input carries resolvedName + a name-resolution note ─────────
+const named = buildHoldersAnalysis({ owners: ['B'.repeat(43), 'C'.repeat(43)], missingOwnerCount: 0, totalAssets: 2, truncated: false, dasError: null, collectionAddress: 'Named11111111111111111111111111111111111111', inputType: 'name', inputValue: 'Mad Lads', resolvedName: 'Mad Lads', extraWarnings: ['Name "Mad Lads" matched verified collection "Mad Lads" (mad_lads) → Named11….'], nowIso: NOW });
+console.log('\nCase 4 — name input');
+check('inputType = name',        () => assert.strictEqual(named.inputType, 'name'));
+check('resolvedName passthrough',() => assert.strictEqual(named.resolvedName, 'Mad Lads'));
+check('name-resolve note first', () => assert.ok(/matched verified collection/.test(named.warnings[0])));
+check('address-input omits resolvedName', () => assert.strictEqual(a.resolvedName, undefined));
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : failures + ' FAILURE(S)'}`);
 process.exit(failures === 0 ? 0 : 1);

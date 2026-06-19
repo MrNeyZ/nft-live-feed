@@ -23,6 +23,8 @@ export interface BuildArgs extends CollectionOwnerScan {
   /** How the request arrived + the verbatim value supplied. */
   inputType:  HoldersInputType;
   inputValue: string;
+  /** Resolved human-readable collection name (slug/name input), if known. */
+  resolvedName?: string;
   /** Extra warnings from upstream (e.g. slug resolution notes). Prepended. */
   extraWarnings?: string[];
   /** Injected so the function stays pure/deterministic for tests. */
@@ -30,7 +32,7 @@ export interface BuildArgs extends CollectionOwnerScan {
 }
 
 export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
-  const { collectionAddress, inputType, inputValue, extraWarnings, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
+  const { collectionAddress, inputType, inputValue, resolvedName, extraWarnings, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
 
   // owner → asset count
   const byOwner = new Map<string, number>();
@@ -77,6 +79,7 @@ export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
     inputType,
     inputValue,
     resolvedCollectionAddress: collectionAddress,
+    ...(resolvedName ? { resolvedName } : {}),
     collectionAddress,
     totalAssets,
     uniqueHolders,
