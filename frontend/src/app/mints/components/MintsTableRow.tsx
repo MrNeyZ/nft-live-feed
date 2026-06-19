@@ -14,6 +14,7 @@ import { playUiSelect } from '@/soloist/use-ui-sound';
 import type { MintStatus, MintTimeframe, MintsTimeframeStats, PaymentTokenInfo } from '../lib/types';
 import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 import { fmtAgeShort, fmtMintPrice, shortKey, thumb64, isNewCollection } from '../lib/format';
 import { MintsSourceBadge } from './MintsSourceBadge';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -30,12 +31,12 @@ const POPOVER_PANEL_STYLE: React.CSSProperties = {
   pointerEvents:          'none',
   minWidth:               160,
   background:             'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
-  border:                 '1px solid rgba(168,144,232,0.46)',
+  border:                 `1px solid ${alpha(VL.purpleTint,0.46)}`,
   borderRadius:           9,
   padding:                '9px 12px 10px',
   textAlign:              'left',
   color:                  '#ece7f8',
-  boxShadow:              '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px rgba(128,104,216,0.15)',
+  boxShadow:              `0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px ${alpha(VL.purpleDeep,0.15)}`,
   backdropFilter:         'blur(11px)',
   WebkitBackdropFilter:   'blur(11px)',
 };
@@ -47,7 +48,7 @@ const POPOVER_HEADER_STYLE: React.CSSProperties = {
   color:          '#8a81b0',
   marginBottom:   7,
   paddingBottom:  6,
-  borderBottom:   '1px solid rgba(168,144,232,0.15)',
+  borderBottom:   `1px solid ${alpha(VL.purpleTint,0.15)}`,
 };
 /** A single label-left / value-right row inside a popover panel. The value
  *  dominates (large, bright, monospace + tabular); the label is small and
@@ -97,9 +98,9 @@ const STATUS_BADGE_BASE: React.CSSProperties = {
 };
 const STATUS_BADGE_ACTIVE: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#43b984',
-  background: 'rgba(92,224,160,0.14)',
-  border:     '1px solid rgba(92,224,160,0.42)',
+  color:      rgb(VL.green),
+  background: alpha(VL.greenGlow,0.14),
+  border:     `1px solid ${alpha(VL.greenGlow,0.42)}`,
 };
 const STATUS_BADGE_WATCH: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
@@ -112,9 +113,9 @@ const STATUS_BADGE_WATCH: React.CSSProperties = {
 // max supply visually clusters with sell-side cues elsewhere.
 const STATUS_BADGE_SOLD: React.CSSProperties = {
   ...STATUS_BADGE_BASE,
-  color:      '#d96867',
-  background: 'rgba(239,120,120,0.12)',
-  border:     '1px solid rgba(239,120,120,0.45)',
+  color:      rgb(VL.red),
+  background: alpha(VL.redGlow,0.12),
+  border:     `1px solid ${alpha(VL.redGlow,0.45)}`,
 };
 
 interface Props {
@@ -356,7 +357,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             detached bar. ~150px wide, fully faded before mid-row. Behind content. */}
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 150, background: `linear-gradient(90deg, ${accentColor}08 0%, transparent 100%)`, pointerEvents: 'none' }} />
         {/* Base rail (in-cell, faint constant track under the colored marker). */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'rgba(168,144,232,0.045)', pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: alpha(VL.purpleTint,0.045), pointerEvents: 'none' }} />
         {/* Left status marker — PRIMARY row indicator. Strong 3px full-height
             per-state collection color (opaque / `cc` on watch). */}
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accentBorderColor, boxShadow: `0 0 5px ${accentColor}59`, pointerEvents: 'none' }} />
@@ -369,7 +370,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             fixed pixel width (not `auto`). Other tracks and columnGap are
             untouched. */}
         <div style={{ display: 'grid', gridTemplateColumns: '22px 46px 22px 100px 1fr', alignItems: 'center', columnGap: 6 }}>
-          <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9a9ab4', fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
+          <span style={{ width: 22, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>{i + 1}</span>
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
           {isNewCollection(r.collectionCreatedAt, r.firstSeenAt) && <NewCollectionBadge />}
@@ -435,7 +436,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 display: 'inline-block', width: 'fit-content', maxWidth: '100%',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0,
                 fontSize: 16, fontWeight: 600, letterSpacing: '-0.2px',
-                color: '#f0eef8', textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
+                color: VLText.primary, textDecoration: 'none', cursor: titleHref ? 'pointer' : 'default',
               };
               return titleHref ? (
                 <a
@@ -561,7 +562,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 const b = e.currentTarget;
                 b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)';
                 b.style.boxShadow  = 'none';
-                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#9a9ab4'; t.style.textShadow = 'none'; }
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = VLText.muted; t.style.textShadow = 'none'; }
               }
             }}
             style={{
@@ -650,7 +651,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // MINTS in the same family visually while leaving RATE
               // the brightest value. fontWeight 800 stays unchanged so
               // the column still reads heavy / structural.
-              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: '#43b984', letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: rgb(VL.green), letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {tfCount.toLocaleString()}
             </td>
@@ -714,7 +715,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         // cap-known cases use the same secondary-tier gray;
         // unverified drops another step so the "still resolving"
         // state reads as in-flight without being unreadable.
-        let color = '#9a9ab4';
+        let color: string = VLText.muted;
         if (minted !== null && cap !== null) {
           // Both known — visible cell shows ONLY the current minted
           // count; "minted / cap (pct)" lives in the hover popover.
@@ -777,7 +778,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           </>
         );
       })()}
-      <td style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#f0eef8', fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <td style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: VLText.primary, fontWeight: 600, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
         {fmtAgeShort(r.lastMintAt)}
       </td>
       {/* PRICE — latest observed mint price for this collection.
@@ -808,7 +809,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const display = (payment && showInToken && tokenAmount != null)
           ? `${tokenAmount} ${tokenLabel}`
           : solDisplay;
-        const cellColor = isFree     ? '#43b984'
+        const cellColor = isFree     ? rgb(VL.green)
                         : isUnknown  ? '#241f3b'
                         :              '#ffffff';
         const tip = isUnknown
@@ -855,8 +856,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                     // height stable regardless of toggle state. transform:
                     // scale on hover is paint-only.
                     width: 14, height: 14, padding: 0,
-                    border: showInToken ? '1px solid rgba(168,144,232,0.65)' : '1px solid rgba(168,144,232,0.32)',
-                    borderRadius: '50%', background: 'rgba(168,144,232,0.10)',
+                    border: showInToken ? `1px solid ${alpha(VL.purpleTint,0.65)}` : `1px solid ${alpha(VL.purpleTint,0.32)}`,
+                    borderRadius: '50%', background: alpha(VL.purpleTint,0.10),
                     cursor: 'pointer', display: 'inline-flex',
                     alignItems: 'center', justifyContent: 'center',
                     overflow: 'hidden', flexShrink: 0,
@@ -870,7 +871,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                     <img src={tokenInfo.image} alt="" width={12} height={12}
                       style={{ width: 12, height: 12, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
                   ) : (
-                    <span style={{ fontSize: 7, fontWeight: 800, color: '#ad92ee', letterSpacing: 0, lineHeight: 1 }}>
+                    <span style={{ fontSize: 7, fontWeight: 800, color: rgb(VL.purpleMuted), letterSpacing: 0, lineHeight: 1 }}>
                       {tokenLabel.slice(0, 1).toUpperCase()}
                     </span>
                   )}
@@ -888,7 +889,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           SUPPLY / PRICE tone; same right-side padding the prior RATE
           column used so the value doesn't hug the table edge. */}
       <td
-        style={{ padding: '11px 18px 11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: '#9a9ab4', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+        style={{ padding: '11px 18px 11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 12.5, color: VLText.muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
       >
         {fmtAgeShort(r.collectionCreatedAt ?? r.firstSeenAt)}
       </td>

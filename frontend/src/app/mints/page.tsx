@@ -681,14 +681,15 @@ type MintTab = 'active' | 'recent';
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
-    case 'free':    return { label: 'FREE',    bg: 'rgba(92,224,160,0.15)',  fg: '#43b984' };
-    case 'paid':    return { label: 'PAID',    bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
-    case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' };
-    default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: '#9a9ab4' };
+    case 'free':    return { label: 'FREE',    bg: alpha(VL.greenGlow,0.15),  fg: rgb(VL.green) };
+    case 'paid':    return { label: 'PAID',    bg: alpha(VL.purpleTint,0.15), fg: rgb(VL.purpleMuted) };
+    case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
+    default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }
 
 import { colorForCollection, isSolPubkey } from './lib/palette';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 // Filter keys + predicates are shared with the table via ./lib/filters
 // (FeedTypeKey / SourceKey / StatusKey, matchesType / matchesSource / …) so the
@@ -777,10 +778,10 @@ function FeedFiltersPopover({
             //   • card border (rgba(168,144,232,0.32)) + card box-shadow.
             background:
               'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-            border: '1px solid rgba(168,144,232,0.32)',
+            border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
             borderRadius: 12,
             boxShadow:
-              'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+              `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
             padding: '8px 14px 9px', zIndex: 100,
             // ~one feed-card width so the Type / Source rows fit on a single
             // line at the left panel's 72px label spacing. Capped to viewport.
@@ -852,14 +853,14 @@ function PausedChip() {
         // chip reads as a status indicator in the existing palette, not
         // a warning. Lower contrast than the pinned variant on purpose.
         color: 'rgba(201,189,240,0.78)',
-        background: 'rgba(168,144,232,0.06)',
-        border: '1px solid rgba(168,144,232,0.22)',
+        background: alpha(VL.purpleTint,0.06),
+        border: `1px solid ${alpha(VL.purpleTint,0.22)}`,
         whiteSpace: 'nowrap',
       }}
     >
       <span style={{
         width: 4, height: 4, borderRadius: '50%',
-        background: 'rgba(168,144,232,0.65)',
+        background: alpha(VL.purpleTint,0.65),
       }} />
       PAUSED
     </span>
@@ -2183,12 +2184,12 @@ export default function MintsPage() {
         <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--mints-max, 1400px)', margin: '0 auto', alignSelf: 'center', transform: embedded ? undefined : 'translateX(10px)', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>
                 Live mint tracker
               </h1>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                 <LiveDot />
-                <span style={{ fontSize: 11, color: '#43b984' }}>
+                <span style={{ fontSize: 11, color: rgb(VL.green) }}>
                   {(() => {
                     if (displaySorted.length === 0) return 'No active mints';
                     const active = displaySorted.filter(r => r.displayState === 'shown').length;
@@ -2252,9 +2253,9 @@ export default function MintsPage() {
         // the same purple terminal panel /feed and /dashboard ship,
         // just with less neon ring around it.
         background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.32)',
+        border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
         overflow: 'hidden',
       }}>
         {/* Header line — dense operator strip: ACTIVE/RECENT tabs + collection
@@ -2268,10 +2269,10 @@ export default function MintsPage() {
           // back to purple but quieter than original (bg 0.04 → 0.025,
           // border 0.12 → 0.08) so the panel surface still reads
           // matte rather than glassy.
-          borderBottom: '1px solid rgba(168,144,232,0.08)',
+          borderBottom: `1px solid ${alpha(VL.purpleTint,0.08)}`,
           flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: 'rgba(168,144,232,0.025)', flexWrap: 'wrap', gap: '6px 8px',
+          background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {(['active', 'recent'] as const).map(t => (
@@ -2282,9 +2283,9 @@ export default function MintsPage() {
                 label={t}
                 style={{ padding: '3px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
                          textTransform: 'uppercase',
-                         border: mintTab === t ? '1px solid rgba(168,144,232,0.44)' : '1px solid transparent',
-                         background: mintTab === t ? 'rgba(168,144,232,0.20)' : 'transparent',
-                         color: mintTab === t ? '#f0eef8' : '#9a9ab4', boxShadow: 'none' }}
+                         border: mintTab === t ? `1px solid ${alpha(VL.purpleTint,0.44)}` : '1px solid transparent',
+                         background: mintTab === t ? alpha(VL.purpleTint,0.20) : 'transparent',
+                         color: mintTab === t ? VLText.primary : VLText.muted, boxShadow: 'none' }}
               />
             ))}
             <span style={{ marginLeft: 6 }}><LiveDot /></span>
@@ -2312,8 +2313,8 @@ export default function MintsPage() {
                   label={t}
                   size="sm"
                   
-                  style={{ border: mintTf === t ? '1px solid rgba(168,144,232,0.55)' : '1px solid transparent',
-                           background: mintTf === t ? 'rgba(168,144,232,0.22)' : 'transparent' }}
+                  style={{ border: mintTf === t ? `1px solid ${alpha(VL.purpleTint,0.55)}` : '1px solid transparent',
+                           background: mintTf === t ? alpha(VL.purpleTint,0.22) : 'transparent' }}
                 />
               ))}
             </div>
@@ -2380,12 +2381,12 @@ export default function MintsPage() {
                     />
                     <Pill
                       active
-                      color="#d96867"
+                      color={rgb(VL.red)}
                       onClick={() => addBlacklist(blInput)}
                       label="+"
                       
                       size="sm"
-                      style={settingsPillActive('#d96867')}
+                      style={settingsPillActive(rgb(VL.red))}
                     />
                     {blacklistSlugs.map((slug) => (
                       <span key={slug} className="feed-chip feed-chip-bl">
@@ -2433,9 +2434,9 @@ export default function MintsPage() {
             case). Subtle text only — no pill/glow. */}
         {!settingsOpen && (selectedSources.size > 0 || selectedStatuses.size > 0) && (
           <div style={{
-            padding: '6px 18px', fontSize: 10, color: '#9a9ab4',
+            padding: '6px 18px', fontSize: 10, color: VLText.muted,
             letterSpacing: '0.3px', flexShrink: 0,
-            borderBottom: '1px solid rgba(168,144,232,0.08)',
+            borderBottom: `1px solid ${alpha(VL.purpleTint,0.08)}`,
           }}>
             Source: {selectedSources.size === 0 ? 'Any' : [...selectedSources].join(', ')}
             {' · '}Status: {selectedStatuses.size === 0 ? 'Any' : [...selectedStatuses].map(s => s === 'active' ? 'Active' : s === 'watch' ? 'Watch' : 'Sold').join(', ')}
@@ -2466,7 +2467,7 @@ export default function MintsPage() {
             // and explains that the gutter is OUTSIDE the table content.
             // Border absorbed by collapse + tableLayout:fixed; no row
             // width / column width / CREATED gutter regression.
-            borderRight: '1px solid rgba(168,144,232,0.08)',
+            borderRight: `1px solid ${alpha(VL.purpleTint,0.08)}`,
           }}>
             {/* Explicit column widths so the COLLECTION cell stays
                 wide and the right-hand metrics columns stay tight —
@@ -2527,7 +2528,7 @@ export default function MintsPage() {
                     pushes its content right by 3 px and isn't on the
                     th). Without this comp the COLLECTION label sat 3 px
                     to the left of the row content beneath it. */}
-                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: '1px solid rgba(168,144,232,0.08)' }} onClick={() => handleSortClick('collection')}>
+                <th style={{ ...thStyle, textAlign: 'left', paddingLeft: 9, cursor: 'pointer', borderLeft: `1px solid ${alpha(VL.purpleTint,0.08)}` }} onClick={() => handleSortClick('collection')}>
                   COLLECTION {sortArrow(effectiveSortKey, effectiveSortDir, 'collection')}
                 </th>
                 {/* SHOW — empty header (action column, no label). aria-label
@@ -2567,7 +2568,7 @@ export default function MintsPage() {
                   // so inter-column gaps read evenly; paddingRight 18 keeps the
                   // terminal gutter and matches the CREATED cell's right pad so
                   // header + value stay vertically aligned.
-                  style={{ ...thStyle, paddingRight: 18, cursor: 'pointer', borderRight: '1px solid rgba(168,144,232,0.08)' }}
+                  style={{ ...thStyle, paddingRight: 18, cursor: 'pointer', borderRight: `1px solid ${alpha(VL.purpleTint,0.08)}` }}
                   onClick={() => handleSortClick('created')}
                 >
                   CREATED {sortArrow(effectiveSortKey, effectiveSortDir, 'created')}
@@ -2640,23 +2641,23 @@ export default function MintsPage() {
       {(
         <div style={{
           background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-          border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+          border: `1px solid ${alpha(VL.purpleTint,0.65)}`, borderRadius: 12,
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.15)}`,
           // Pane fills its grid cell vertically — minHeight: 0 lets the
           // inner scroll-area shrink to fit; overflow: hidden + the
           // inner overflowY: 'auto' keep all scrolling internal so the
           // page itself never grows with feed content.
           overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0,
         }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(168,144,232,0.12)', background: 'rgba(168,144,232,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${alpha(VL.purpleTint,0.12)}`, background: alpha(VL.purpleTint,0.04), display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
               {/* Header rebuilt to share the Live Feed Sales header pattern
                   (title · live dot · count · status pill) so the LEFT and
                   RIGHT /multi columns read as one component family. Only
                   the naming is mint-specific. */}
-              <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
+              <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
               <LiveDot />
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
                 ({visibleEvents.length.toLocaleString()})
               </span>
               {/* MINT OK pill — same chrome as /feed's "ME OK" health pill
@@ -2665,13 +2666,13 @@ export default function MintsPage() {
                 display: 'inline-flex', alignItems: 'center', gap: 3,
                 marginLeft: 4, padding: '1px 5px', borderRadius: 3,
                 fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-                border: '1px solid rgba(92,224,160,0.22)',
+                border: `1px solid ${alpha(VL.greenGlow,0.22)}`,
                 background: 'transparent',
-                color: 'rgba(92,224,160,0.65)',
+                color: alpha(VL.greenGlow,0.65),
               }}>
                 <span style={{
                   display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                  background: '#43b984', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+                  background: rgb(VL.green), boxShadow: `0 0 4px ${alpha(VL.greenGlow,0.40)}`,
                 }} />
                 MINT OK
               </span>
@@ -2696,13 +2697,13 @@ export default function MintsPage() {
                       display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                       maxWidth: 160, padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
                       fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
-                      color: '#e6def8', background: 'rgba(128,104,216,0.34)',
-                      border: '1px solid rgba(168,144,232,0.75)', whiteSpace: 'nowrap',
+                      color: '#e6def8', background: alpha(VL.purpleDeep,0.34),
+                      border: `1px solid ${alpha(VL.purpleTint,0.75)}`, whiteSpace: 'nowrap',
                     }}
                   >
-                    <span style={{ color: '#ad92ee', textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
+                    <span style={{ color: rgb(VL.purpleMuted), textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nm}</span>
-                    <span style={{ color: '#ad92ee', fontWeight: 800 }}>×</span>
+                    <span style={{ color: rgb(VL.purpleMuted), fontWeight: 800 }}>×</span>
                   </span>
                 );
               })}
@@ -2717,10 +2718,10 @@ export default function MintsPage() {
                     display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0,
                     maxWidth: 160, padding: '2px 8px', borderRadius: 4,
                     fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-                    color: '#9a9ab4', background: 'rgba(128,104,216,0.16)',
-                    border: '1px solid rgba(168,144,232,0.4)', whiteSpace: 'nowrap',
+                    color: VLText.muted, background: alpha(VL.purpleDeep,0.16),
+                    border: `1px solid ${alpha(VL.purpleTint,0.4)}`, whiteSpace: 'nowrap',
                   }}>
-                    <span style={{ color: '#9a9ab4', textTransform: 'uppercase', fontSize: 9 }}>hover</span>
+                    <span style={{ color: VLText.muted, textTransform: 'uppercase', fontSize: 9 }}>hover</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nm}</span>
                   </span>
                 );
@@ -2810,7 +2811,7 @@ export default function MintsPage() {
  *  unselected headers don't render an empty `<span>`. */
 function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
   if (active !== key) return null;
-  return <span style={{ color: '#ad92ee' }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+  return <span style={{ color: rgb(VL.purpleMuted) }}>{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
 // Comfortable density baseline shared with /dashboard (mirrors the
@@ -2823,7 +2824,7 @@ const thStyle: React.CSSProperties = {
   padding: '12px 10px',
   fontSize: 11,
   fontWeight: 700,
-  color: '#9a9ab4',
+  color: VLText.muted,
   letterSpacing: '0.6px',
   // Numeric columns are centered over their fixed-width cells (COLLECTION
   // overrides back to left below). Centered header + centered value keeps
@@ -2837,7 +2838,7 @@ const thStyle: React.CSSProperties = {
   // stop at its column boundary). Separator stays as a th-level
   // hairline so the header → body boundary is consistent.
   background: 'transparent',
-  borderBottom: '1px solid rgba(168,144,232,0.08)',
+  borderBottom: `1px solid ${alpha(VL.purpleTint,0.08)}`,
   textTransform: 'uppercase',
   userSelect: 'none',
 };

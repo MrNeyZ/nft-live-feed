@@ -5,6 +5,7 @@
 // (see mock-data.ts) so generated identity colors stay in the 8-hue set.
 
 import { CATEGORY_LAYER } from '@/soloist/mock-data';
+import { VLText } from '@/lib/palette';
 
 /** Deterministic accent color per collection. Same address → same
  *  color across reloads, across collection-row + live-feed-card
@@ -57,7 +58,7 @@ export const WALLET_PALETTE: readonly string[] = [
 export function colorForWallet(addr: string | null | undefined): string {
   // Existing muted-metadata grey is the sentinel when no minter is on
   // the wire — keeps the cell visually neutral until a hash lands.
-  if (!addr) return '#9a9ab4';
+  if (!addr) return VLText.muted;
   let h = 2166136261 >>> 0;
   for (let i = 0; i < addr.length; i++) {
     h ^= addr.charCodeAt(i);

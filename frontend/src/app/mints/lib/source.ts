@@ -9,6 +9,7 @@
 import type { MintStatus, SourceLabel } from './types';
 import { vvvSlugify } from './format';
 import { isSolPubkey } from './palette';
+import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 
 // LMNFT URL pattern:
 //   https://www.launchmynft.io/collections/{lmntfOwner}/{lmntfCollectionId}
@@ -109,18 +110,18 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
   }
   switch (s) {
-    case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: '#c7b479' };
+    case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
     case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
     case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
-    case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: '#9a9ab4' };
+    case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: VLText.muted };
     case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
     // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
     // and a brighter fg (#ad92ee → #ad92ee) so the badge reads as a
     // legible launchpad pill rather than disabled. Border via the
     // pill's existing bg-tint frame (no glow added).
-    case 'Metaplex Core':          return { label: 'CORE',     bg: 'rgba(168,144,232,0.20)', fg: '#ad92ee' };
-    case 'Metaplex':               return { label: 'LEGACY',   bg: 'rgba(168,144,232,0.15)', fg: '#ad92ee' };
-    case 'Bubblegum':              return { label: 'cNFT',     bg: 'rgba(92,224,160,0.15)',  fg: '#43b984' };
+    case 'Metaplex Core':          return { label: 'CORE',     bg: alpha(VL.purpleTint, ALPHA.border), fg: rgb(VL.purpleMuted) };
+    case 'Metaplex':               return { label: 'LEGACY',   bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleMuted) };
+    case 'Bubblegum':              return { label: 'cNFT',     bg: alpha(VL.greenGlow, 0.15),  fg: rgb(VL.green) };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the
     // platform treasury. Distinct fuchsia palette so the row reads
     // separately from generic CANDY without competing visually.
@@ -128,6 +129,6 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     // PRNT mint-pass — Core Candy mint with an SPL722 vesting leg. Teal
     // palette so the pass reads distinctly from generic CORE / CANDY.
     case 'PRNT':                   return { label: 'PRNT',     bg: 'rgba(74,200,190,0.16)',  fg: '#3fd0c4' };
-    default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: '#9a9ab4' };
+    default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }

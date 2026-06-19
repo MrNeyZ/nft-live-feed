@@ -16,6 +16,7 @@ import { useSaleStream } from '@/app/multi-native/lib/sale-event-stream';
 import type { MintEvent } from './lib/types';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 import { useMintFeed } from './lib/use-mint-feed';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const RENDER_CAP = 40;
 
@@ -27,10 +28,10 @@ function PausedChip() {
       display: 'inline-flex', alignItems: 'center', gap: 3,
       padding: '1px 5px', borderRadius: 3,
       fontSize: 9, fontWeight: 600, letterSpacing: '0.5px',
-      color: 'rgba(201,189,240,0.78)', background: 'rgba(168,144,232,0.06)',
-      border: '1px solid rgba(168,144,232,0.22)', whiteSpace: 'nowrap',
+      color: 'rgba(201,189,240,0.78)', background: alpha(VL.purpleTint,0.06),
+      border: `1px solid ${alpha(VL.purpleTint,0.22)}`, whiteSpace: 'nowrap',
     }}>
-      <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'rgba(168,144,232,0.65)' }} />
+      <span style={{ width: 4, height: 4, borderRadius: '50%', background: alpha(VL.purpleTint,0.65) }} />
       PAUSED
     </span>
   );
@@ -59,31 +60,31 @@ export function MintFeedPanel() {
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
       background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-      border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+      border: `1px solid ${alpha(VL.purpleTint,0.65)}`, borderRadius: 12,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.15)}`,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '10px 14px', flexShrink: 0,
-        borderBottom: '1px solid rgba(168,144,232,0.12)',
-        background: 'rgba(168,144,232,0.04)', gap: 10,
+        borderBottom: `1px solid ${alpha(VL.purpleTint,0.12)}`,
+        background: alpha(VL.purpleTint,0.04), gap: 10,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
-          <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
+          <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
           <LiveDot />
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 3,
             marginLeft: 4, padding: '1px 5px', borderRadius: 3,
             fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-            border: '1px solid rgba(92,224,160,0.22)', background: 'transparent',
-            color: 'rgba(92,224,160,0.65)',
+            border: `1px solid ${alpha(VL.greenGlow,0.22)}`, background: 'transparent',
+            color: alpha(VL.greenGlow,0.65),
           }}>
             <span style={{
               display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: '#43b984', boxShadow: '0 0 4px rgba(92,224,160,0.40)',
+              background: rgb(VL.green), boxShadow: `0 0 4px ${alpha(VL.greenGlow,0.40)}`,
             }} />
             MINT OK
           </span>
@@ -92,7 +93,7 @@ export function MintFeedPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
           <Pill
             active
-            color={paused ? '#c7b479' : '#43b984'}
+            color={paused ? rgb(VL.gold) : rgb(VL.green)}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />

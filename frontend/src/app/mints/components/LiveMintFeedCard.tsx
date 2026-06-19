@@ -17,6 +17,7 @@ import { fmtAge, fmtMintPrice, shortMint, thumb200, isNewCollection } from '../l
 import { sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
+import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 // Approved source-chip primitive — ported 1:1 from the /mints table chip
 // (MintsSourceBadge + `.vl-srcchip` in globals.css, commit b207346). The table
@@ -173,9 +174,9 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
             top: hover.y, left: hover.x,
             transform: hover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
             background: 'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
-            border: '1px solid rgba(168,144,232,0.40)', borderRadius: 7, padding: '6px 8px',
+            border: `1px solid ${alpha(VL.purpleTint,0.40)}`, borderRadius: 7, padding: '6px 8px',
             color: '#ece7f8', textAlign: 'left', fontFamily: "'SF Mono','Fira Code',monospace",
-            boxShadow: '0 8px 22px rgba(0,0,0,0.55), 0 0 12px rgba(128,104,216,0.12)',
+            boxShadow: `0 8px 22px rgba(0,0,0,0.55), 0 0 12px ${alpha(VL.purpleDeep,0.12)}`,
             backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
           }}
         >
@@ -192,11 +193,11 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
             <span style={{ color: '#e7e1f6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
           </div>
           {data && data !== 'loading' && data.topTokens.length > 0 && (
-            <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(168,144,232,0.14)' }}>
+            <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px solid ${alpha(VL.purpleTint,0.14)}` }}>
               {data.topTokens.map((t) => (
                 <div key={t.mint} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 10, lineHeight: 1.5 }}>
                   <span style={{ color: '#b9b2d6' }}>{t.symbol ?? shortMint(t.mint)}</span>
-                  <span style={{ color: '#9a9ab4', fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.usd)}</span>
+                  <span style={{ color: VLText.muted, fontVariantNumeric: 'tabular-nums' }}>{fmtUsd(t.usd)}</span>
                 </div>
               ))}
             </div>
@@ -413,8 +414,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     ? `${priceText} ◎ each · ${totalText} ◎ total · ${ev.nftCount} NFTs`
     : undefined;
   const priceColor     = perNftLamports == null
-    ? '#9a9ab4'
-    : perNftLamports <= 0 ? '#43b984' : (embedded ? '#ffffff' : '#f0eef8');
+    ? VLText.muted
+    : perNftLamports <= 0 ? rgb(VL.green) : (embedded ? '#ffffff' : VLText.primary);
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows
@@ -545,7 +546,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           {/* Title: char-shortened via shortenNftName (titleText); full name
               kept in the `title` tooltip. CSS ellipsis retained as a safety
               fallback for any name the char cap doesn't fully tame. */}
-          <div title={cardTitleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+          <div title={cardTitleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {isSolPubkey(ev.mintAddress) ? (
               <a
                 href={`https://solscan.io/token/${ev.mintAddress}`}
@@ -573,8 +574,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
               style={{
                 flexShrink: 0, fontSize: 9.5, fontWeight: 600,
                 padding: '1px 5px', borderRadius: 4, lineHeight: 1.3,
-                background: 'rgba(168,144,232,0.10)',
-                border: '1px solid rgba(168,144,232,0.12)',
+                background: alpha(VL.purpleTint,0.10),
+                border: `1px solid ${alpha(VL.purpleTint,0.12)}`,
                 color: '#a59ec0', letterSpacing: '0.2px',
                 fontVariantNumeric: 'tabular-nums',
               }}
@@ -614,7 +615,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
             fontSize: 11,
             // Normal text → flat neutral TEXT_MUTED; collection identity
             // colors (CATEGORY_LAYER) are reserved for the bar/marker/avatar.
-            color: '#9a9ab4',
+            color: VLText.muted,
             fontWeight: 500,
             // Hierarchy kept but not washed-out: pulled back from the
             // v2 0.62 to 0.78 so the line still reads as secondary
@@ -734,7 +735,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         <span
           className="vl-srcchip"
           title="Collection deployed"
-          style={{ '--c': '#9a9ab4', width: SRCCHIP_W } as React.CSSProperties}
+          style={{ '--c': VLText.muted, width: SRCCHIP_W } as React.CSSProperties}
         >
           <span className="vl-srcchip-dot" />
           <span className="vl-srcchip-lbl">DPLY</span>
@@ -746,11 +747,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // the accent varies; the capsule/dot/label material is the shared CSS.
         const accent =
           ev.coreLaunchpad                            ? '#e58aa3' :
-          ev.sourceLabel === 'LaunchMyNFT'            ? '#c7b479' :
+          ev.sourceLabel === 'LaunchMyNFT'            ? rgb(VL.gold) :
           ev.sourceLabel === 'VVV'                    ? '#5fa8e6' :
           ev.sourceLabel === 'GRAVE'                  ? '#a0a0a8' :
           ev.sourceLabel === 'Metaplex Candy Machine' ? '#e58aa3' :
-                                                        '#ad92ee';
+                                                        rgb(VL.purpleMuted);
         // Normalized label (display only — source/type logic untouched).
         const label = CHIP_LABEL[nftTypeLabel] ?? nftTypeLabel;
         const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
@@ -811,7 +812,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // page-level 5 s force tick; boundary precision is fine for
         // this surface (avoids a per-card 1 s timer on 150 cards).
         const ageMs = now - ev.receivedAt;
-        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? '#c7b479' : (embedded ? '#9a9ab4' : '#877496');
+        const ageColor:  string = ageMs < 15000 ? '#e87ab0' : ageMs < 180000 ? rgb(VL.gold) : (embedded ? VLText.muted : '#877496');
         const ageWeight: 500 | 600 = ageMs < 15000 ? 600 : 500;
         return (
           <span style={{ minWidth: 50, textAlign: 'right', fontSize: 11, color: ageColor, fontWeight: ageWeight, flexShrink: 0 }}>
