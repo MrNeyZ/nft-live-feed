@@ -33,11 +33,13 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 // button). Trader convention preserved: green buy / red sell, SELL in
 // the Hyperliquid / Binance / TradingView red family.
 //
-// AMM (buyAmm / sellAmm): the SAME capsule as its BUY / SELL sibling —
-// identical solid fill, no transparency, no halo. The pool-route
-// distinction is carried entirely by symmetric triangles framing the
-// label in the pill render (▲ AMM ▲ buy-side / ▼ AMM ▼ sell-side), so
-// AMM reads with the same weight as a direct buy/sell, never weaker.
+// AMM (buyAmm / sellAmm): a normal BUY / SELL that happens to route
+// through a pool — NOT a special event type. The SAME capsule as its
+// direction sibling: identical size, typography, fill opacity, radius,
+// colours AND border (solid). The ONLY differentiator is a subtle wave
+// glyph prefixing the label (∿ AMM), set in the pill render. No
+// triangles, glow, or decorations; AMM must never read heavier than a
+// direct buy/sell.
 //
 // The card's left/right edge stripe stays direction-driven via
 // `borderTone` (.buy-card / .sell-card CSS classes) — unchanged.
@@ -49,12 +51,12 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   // signal — the direction colour at heavy weight (set at the render
   // site). A thin direction-tinted border (added in the render from
   // `borderTone`) gives the tag its edge. Net: calm container, bold
-  // instantly-readable label. AMM = same tint + text, with the route
-  // shown by the framing triangles (which inherit the text colour).
+  // instantly-readable label. AMM = same tint + text + border; its pool
+  // route is shown only by a subtle wave glyph (∿) before the label.
   //
   // Colour = the direction tokens from the palette: green-strong (BUY) /
   // red-strong (SELL) — the exact hues of the .buy-card/.sell-card card
-  // edge stripes — so fill, border, text and triangles are all one
+  // edge stripes — so fill, border and text are all one
   // site-canonical direction colour. Drawn from VL.* (src/lib/palette.ts)
   // so no one-off shade is introduced. Green buy / red sell.
   buy:     { label: 'BUY',  fg: rgb(VL.greenStrong), bg: alpha(VL.greenStrong, ALPHA.tint), borderTone: 'buy'  },

@@ -22,6 +22,13 @@ import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 import type { FeedCardProps } from './types';
 import { useSharedNow } from './shared-now';
 
+// AMM badge glyph — a subtle wave (pool/flow) mark shown BEFORE the "AMM"
+// label (∿ AMM) to restore at-a-glance identity without making AMM louder
+// than a direct BUY/SELL. Same colour as the label, a touch smaller. The
+// glyph is the ONLY differentiator now — AMM's capsule (including its solid
+// border) is otherwise identical to BUY/SELL. Fallback candidate: '⊚'.
+const AMM_SYMBOL = '∿';
+
 // ── Time-ago leaf ────────────────────────────────────────────────────────────
 // Reads from the shared ticker. 1 s cadence gives smooth seconds in the
 // 5–15 s pink window (per UX spec). React.memo on FeedCard remains
@@ -356,12 +363,6 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
   // two separate widgets. The FloorChip (when present) keeps its
   // gap before the badge — visual order: chip · badge · price.
   display: 'flex', alignItems: 'center', gap: 6,
-};
-// Symmetric AMM triangles framing the label inside the action capsule
-// (▲ AMM ▲ / ▼ AMM ▼). Small + slightly dimmed so they read as a route
-// marker without weakening the solid capsule.
-const FC_AMM_TRI_STYLE: React.CSSProperties = {
-  fontSize: 6, lineHeight: 1, opacity: 0.85,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Bumped to pure white (was #f0eef8) so the price has the highest
@@ -783,14 +784,13 @@ export const FeedCard = memo(function FeedCard({
               // eye lands on "0.20 SOL" before BUY/SELL/AMM; the capsule
               // is a calm, instantly-readable #2.
               //
-              // AMM is NOT weaker/transparent: it is the exact same
-              // capsule as its direction sibling, differentiated only by
-              // symmetric triangles framing the label — ▲ AMM ▲ for a
-              // buy-side pool route, ▼ AMM ▼ for sell-side. All four
-              // states (BUY / SELL / AMM BUY / AMM SELL) are identical
-              // size.
+              // AMM is a normal BUY/SELL, just routed through a pool — NOT
+              // a special event type, never visually heavier. It is the
+              // exact same capsule as its direction sibling (same size,
+              // typography, fill, radius, colors); the ONLY differentiator
+              // is its border: AMM is dashed, person-to-person BUY/SELL is
+              // solid. No triangles, icons, glyphs, glow, or decorations.
               const isAmm = kind === 'buyAmm' || kind === 'sellAmm';
-              const tri = kind === 'buyAmm' ? '▲' : kind === 'sellAmm' ? '▼' : '';
               // Thin direction-tinted edge for the tag. Driven by
               // borderTone (the KIND_STYLES axis), so Rare Feed's neutral
               // override gets a neutral edge.
@@ -800,11 +800,7 @@ export const FeedCard = memo(function FeedCard({
                                               'rgba(255,255,255,0.12)';
               return (
                 <span style={{
-                  // gap 1: triangles sit hard against the label so
-                  // "▼ AMM ▼" reads as a single centered wordmark, not
-                  // three elements. justifyContent:center keeps equal L/R
-                  // padding so the triangles never reach the borders.
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 1,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: isAmm ? 2.75 : 0,
                   width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
                   // Quiet tint container + LOUD label. The fill is just a
                   // faint direction tint (KIND_STYLES, α 0.13) with a thin
@@ -820,9 +816,10 @@ export const FeedCard = memo(function FeedCard({
                   border: `1px solid ${tagBorder}`,
                   boxShadow: 'none',
                 }}>
-                  {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
+                  {/* AMM = subtle wave glyph + "AMM" label (∿ AMM); BUY/SELL
+                      keep just their word label. */}
+                  {isAmm && <span aria-hidden="true" style={{ fontSize: 9, lineHeight: 1, transform: 'translateY(-1px)' }}>{AMM_SYMBOL}</span>}
                   {pill.label}
-                  {isAmm && <span style={FC_AMM_TRI_STYLE}>{tri}</span>}
                 </span>
               );
             })()}
