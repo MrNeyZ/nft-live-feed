@@ -60,7 +60,10 @@ export interface CollectionOwnerScan {
   owners:            string[];
   /** Count of assets whose ownership.owner was missing/empty (excluded above). */
   missingOwnerCount: number;
-  /** Total assets seen across all walked pages (owners + ownerless). */
+  /** Count of assets DAS flagged `burnt` (closed on-chain). Excluded from
+   *  totals/owners — DAS reports a stale pre-burn owner for them. */
+  burntCount:        number;
+  /** Total LIVE assets seen across all walked pages (burnt excluded). */
   totalAssets:       number;
   /** True when the scan stopped at the page/asset safety cap with more to go. */
   truncated:         boolean;

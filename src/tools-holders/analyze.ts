@@ -41,7 +41,7 @@ export interface BuildArgs extends CollectionOwnerScan {
 }
 
 export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
-  const { collectionAddress, inputType, inputValue, resolvedName, extraWarnings, owners, missingOwnerCount, totalAssets, truncated, dasError, nowIso } = args;
+  const { collectionAddress, inputType, inputValue, resolvedName, extraWarnings, owners, missingOwnerCount, burntCount, totalAssets, truncated, dasError, nowIso } = args;
 
   // owner → asset count
   const byOwner = new Map<string, number>();
@@ -76,6 +76,9 @@ export function buildHoldersAnalysis(args: BuildArgs): HoldersAnalysis {
   }
   if (missingOwnerCount > 0) {
     warnings.push(`${missingOwnerCount} asset(s) had no ownership.owner and were excluded from the holder count.`);
+  }
+  if (burntCount > 0) {
+    warnings.push(`Excluded ${burntCount} burned/closed asset(s) — DAS still reports a stale pre-burn owner for these (verified closed on-chain).`);
   }
   if (truncated) {
     warnings.push('Asset scan hit the safety cap — totals are a lower bound (collection larger than the MVP page limit).');

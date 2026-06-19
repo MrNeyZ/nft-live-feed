@@ -28,6 +28,11 @@ const PAGE_TIMEOUT_MS = 10_000;
 
 interface DasGroupItem {
   ownership?: { owner?: string | null };
+  /** DAS marks closed/burned assets `burnt:true`. Verified against chain: a
+   *  `burnt` asset's account is a 1-byte closed stub, and DAS still reports a
+   *  STALE pre-burn owner (e.g. the mint/treasury wallet) for it — which
+   *  otherwise inflates that wallet into a phantom top holder. Excluded. */
+  burnt?: boolean;
 }
 interface DasGroupResponse {
   result?: { total?: number; items?: DasGroupItem[] };
@@ -51,6 +56,7 @@ function rpcUrl(): string {
 export async function fetchCollectionOwners(collection: string): Promise<CollectionOwnerScan> {
   const owners: string[] = [];
   let missingOwnerCount = 0;
+  let burntCount         = 0;
   let totalAssets        = 0;
   let truncated          = false;
   let dasError: string | null = null;
@@ -90,6 +96,9 @@ export async function fetchCollectionOwners(collection: string): Promise<Collect
     if (items.length === 0) break;  // no more pages
 
     for (const it of items) {
+      // Burned/closed on-chain — DAS keeps a stale pre-burn owner. Drop it so
+      // it neither counts toward supply nor inflates a phantom holder.
+      if (it.burnt === true) { burntCount++; continue; }
       totalAssets++;
       const owner = it.ownership?.owner;
       if (typeof owner === 'string' && owner.length > 0) owners.push(owner);
@@ -102,5 +111,5 @@ export async function fetchCollectionOwners(collection: string): Promise<Collect
     if (page === MAX_PAGES) truncated = true;
   }
 
-  return { owners, missingOwnerCount, totalAssets, truncated, dasError };
+  return { owners, missingOwnerCount, burntCount, totalAssets, truncated, dasError };
 }
