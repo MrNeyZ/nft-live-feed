@@ -881,16 +881,18 @@ export function tensorFetch(url: string): Promise<Response> {
  *  both directions of separator mismatch (NOT hardcoded per collection):
  *    1. as-is                        (`mad_lads`)
  *    2. lowercased                   (`mad_lads`)
- *    3. underscores removed          (`madlads`  ← Tensor's slugDisplay)
- *    4. hyphens removed              (`madlads`)
- *    5. underscores → hyphens        (`mad-lads`)
- *    6. hyphens → underscores        (`mad_lads`)
+ *    3. trailing separators stripped (`pepe_cards` ← ME slug `pepe_cards_`)
+ *    4. underscores removed          (`madlads`  ← Tensor's slugDisplay)
+ *    5. hyphens removed              (`madlads`)
+ *    6. underscores → hyphens        (`mad-lads`)
+ *    7. hyphens → underscores        (`mad_lads`)
  *  Deduped (order-preserving) and capped at 4 attempts to respect 1 req/sec
  *  and avoid request fan-out. */
 function tensorSlugCandidates(appSlug: string): string[] {
   const variants = [
     appSlug,
     appSlug.toLowerCase(),
+    appSlug.replace(/[_-]+$/, ''),
     appSlug.replace(/_/g, ''),
     appSlug.replace(/-/g, ''),
     appSlug.replace(/_/g, '-'),

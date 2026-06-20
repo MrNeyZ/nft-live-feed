@@ -133,13 +133,11 @@ export function toOrbisSlug(nameOrSlug: string): string {
  */
 export function marketplaceUrl(event: FeedEvent): string | null {
   if (event.marketplace === 'tensor') {
-    // Prefer the per-NFT page (`/item/<mint>`) — it lands on the exact
-    // token the user clicked. Fall back to the collection page
-    // (`/trade/<slug>`) when we don't have a mint, then to bare
-    // tensor.trade as a last resort so the badge always links somewhere
-    // on the same marketplace.
-    if (event.mintAddress)      return `https://www.tensor.trade/item/${event.mintAddress}`;
+    // Prefer the collection page (`/trade/<slug>`) so the badge lands on the
+    // tradeable collection view. Fall back to the per-NFT page (`/item/<mint>`)
+    // when no slug is available, then to bare tensor.trade as a last resort.
     if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
+    if (event.mintAddress)      return `https://www.tensor.trade/item/${event.mintAddress}`;
     return 'https://www.tensor.trade';
   }
   // Orbis: its slug is name-derived ("Mutants On Sol Crew" →
