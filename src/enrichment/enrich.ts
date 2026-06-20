@@ -48,6 +48,17 @@ const COLL_SLUG_MISS_TTL_MS = 2 * 60 * 1000;  // 2 min — don't re-hit the DB f
 const collSlugCache     = new TtlCache<string, { slug: string; collectionName: string | null }>(COLL_SLUG_TTL_MS, 5 * 60_000);
 const collSlugMissCache = new TtlCache<string, true>(COLL_SLUG_MISS_TTL_MS, 60_000);
 
+// ── mint_address → ME slug recovery (third tier) ─────────────────────────────
+// Last-resort recovery for the case both prior tiers miss AND collection_address
+// is empty (e.g. a legacy mint whose DAS grouping is absent): a transient
+// getMeTokenData miss then has nothing to fall back on. Recover the slug from a
+// prior sale_events row for the EXACT same mint. Same shapes/TTLs as the
+// collection tier. Exact mint match only — never by name or collection.
+const MINT_SLUG_TTL_MS      = 30 * 60 * 1000; // 30 min — a mint's slug is stable
+const MINT_SLUG_MISS_TTL_MS = 2 * 60 * 1000;  // 2 min — don't re-hit the DB for slug-less mints
+const mintSlugCache     = new TtlCache<string, { slug: string; collectionName: string | null }>(MINT_SLUG_TTL_MS, 5 * 60_000);
+const mintSlugMissCache = new TtlCache<string, true>(MINT_SLUG_MISS_TTL_MS, 60_000);
+
 interface MeTokenData {
   slug:           string | null;
   collectionName: string | null;
@@ -160,6 +171,47 @@ async function recoverSlugByCollection(
     return null;
   }
   collSlugMissCache.set(collectionAddress, true);
+  return null;
+}
+
+/**
+ * Third-tier recovery: a mint's ME slug from a prior sale_events row for the
+ * EXACT same mint_address. Used only when getMeTokenData returned null AND the
+ * collection_address tier couldn't help (typically because collection_address
+ * is empty). Source order: in-memory positive cache → most-recent sale_events
+ * row with a non-empty me_collection_slug for the SAME mint. Exact-mint match
+ * only — never by name or collection. Returns null when nothing is known.
+ * Never throws.
+ */
+async function recoverSlugByMint(
+  mint: string,
+): Promise<{ slug: string; collectionName: string | null } | null> {
+  const cached = mintSlugCache.get(mint);
+  if (cached) return cached;
+  if (mintSlugMissCache.has(mint)) return null;
+  try {
+    const { rows } = await getPool().query<{ me_collection_slug: string; collection_name: string | null }>(
+      `select me_collection_slug, collection_name
+         from sale_events
+        where mint_address = $1
+          and me_collection_slug is not null
+          and me_collection_slug <> ''
+        order by block_time desc
+        limit 1`,
+      [mint],
+    );
+    const row = rows[0];
+    if (row?.me_collection_slug) {
+      const resolved = { slug: row.me_collection_slug, collectionName: row.collection_name ?? null };
+      mintSlugCache.set(mint, resolved);
+      return resolved;
+    }
+  } catch (err) {
+    // DB error → do NOT negative-cache; allow a later event to retry.
+    console.warn(`[enrich] mint-slug DB recovery failed mint=${mint.slice(0, 8)}: ${(err as Error).message}`);
+    return null;
+  }
+  mintSlugMissCache.set(mint, true);
   return null;
 }
 
@@ -467,6 +519,18 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
           meCollectionName = meCollectionName ?? recovered.collectionName;
           console.log(`[enrich] recovered ME slug from collection cache collection=${collAddr.slice(0, 8)} slug=${recovered.slug} mint=${mint.slice(0, 8)}`);
         }
+      }
+    }
+    // ── Third tier: mint_address fallback ────────────────────────────────────
+    // Runs only when getMeTokenData AND the collection_address tier both failed
+    // (typically because collection_address is empty). Recover the slug from a
+    // prior sale_events row for the EXACT same mint. Exact-mint match only.
+    if (!meCollectionSlug && mint) {
+      const recovered = await recoverSlugByMint(mint);
+      if (recovered) {
+        meCollectionSlug = recovered.slug;
+        meCollectionName = meCollectionName ?? recovered.collectionName;
+        console.log(`[enrich] recovered ME slug from mint cache mint=${mint.slice(0, 8)} slug=${recovered.slug}`);
       }
     }
     if (metadata) {
