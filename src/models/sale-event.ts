@@ -85,5 +85,11 @@ export interface SaleEvent {
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
-/** cNFT sales below this threshold (in lamports) are discarded. */
-export const CNFT_MIN_PRICE_LAMPORTS = 2_000_000n; // 0.002 SOL
+/**
+ * cNFT sales below this threshold (in lamports) are discarded.
+ * Lowered from 2_000_000 (0.002 SOL) to 100_000 (0.0001 SOL) after the
+ * Tensor cNFT price fix: prices are now the seller-principal transfer
+ * (not the inflated max-negative-delta), so legitimate low-value cNFT
+ * sales were being filtered by the old, over-aggressive floor.
+ */
+export const CNFT_MIN_PRICE_LAMPORTS = 100_000n; // 0.0001 SOL

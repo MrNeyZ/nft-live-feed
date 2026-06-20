@@ -25,6 +25,7 @@ import {
 } from './decoder';
 import {
   extractPaymentInfo,
+  extractCnftPaymentInfo,
   extractNftMint,
   extractPartiesFromTokenFlow,
   extractCnftAssetId,
@@ -118,7 +119,12 @@ function parseTcompSale(
 
   // ── Price ──────────────────────────────────────────────────────────────────
 
-  const payment = extractPaymentInfo(tx);
+  // For cNFT, unrelated SOL transfers (escrow closures, rent) make the
+  // unbounded max-negative-delta heuristic return the wrong price.
+  // Use the maxAmount-bounded inner-transfer scan instead.
+  const payment = nftType === 'cnft'
+    ? extractCnftPaymentInfo(tx, match.ix)
+    : extractPaymentInfo(tx);
   if (!payment || payment.priceLamports <= 0n) {
     return { ok: false, reason: `tcomp(${match.instructionName}): could not determine price` };
   }

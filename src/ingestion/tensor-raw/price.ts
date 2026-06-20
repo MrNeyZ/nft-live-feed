@@ -16,7 +16,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { createHash } from 'crypto';
 import bs58 from 'bs58';
-import { RawSolanaTx, resolveAccountKey } from './types';
+import { RawSolanaTx, RawInstruction, resolveAccountKey } from './types';
 import { TENSOR_FEE_ACCOUNT, BUBBLEGUM_PROGRAM } from './programs';
 
 // ─── SOL balance delta ────────────────────────────────────────────────────────
@@ -150,6 +150,87 @@ export function extractPartiesFromTokenFlow(
   }
 
   return { seller, buyer };
+}
+
+// ─── cNFT price extraction ───────────────────────────────────────────────────
+
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+/** System program Transfer instruction type (u32 LE = 2). */
+const SYSTEM_TRANSFER_TYPE = 2;
+/**
+ * Byte offset of `maxAmount` (u64 LE) within a TComp `buy` instruction for
+ * compressed NFTs (discriminator `66063d1201daebea`, data_len=107).
+ *
+ * Layout confirmed from on-chain tx
+ * 3xZAvr4oW2TAZ6VCMYK8k7So9Pw6tjoXkJprabdUKUkDSwN4A4QLMEkzuVCbdGK1iV3bFMffTYiStnQpz3eG31WF:
+ *   0   disc     (8)
+ *   8   nonce    (u64, 8)
+ *   16  index    (u32, 4)
+ *   20  root     ([u8;32], 32)
+ *   52  dataHash ([u8;32], 32)
+ *   84  [12 bytes: version / optional fields]
+ *   96  maxAmount (u64, 8)  ← this constant
+ */
+const TCOMP_BUY_MAX_AMOUNT_OFFSET = 96;
+
+/**
+ * For a TComp compressed-NFT (cNFT) buy, the transaction often contains
+ * unrelated SOL transfers (listing-escrow closures, rent, etc.) that make
+ * the standard "largest negative SOL delta" heuristic return the wrong price.
+ *
+ * Strategy:
+ *   1. Decode maxAmount from the TComp `buy` instruction — it is the hard
+ *      ceiling on what the buyer can pay for the sale (principal + fees).
+ *   2. Walk all inner System Program Transfer instructions.
+ *   3. Discard any transfer to the Tensor fee account (protocol fee).
+ *   4. Discard any transfer whose amount exceeds maxAmount.
+ *   5. The largest remaining transfer is the seller principal.
+ *
+ * Returns null when the instruction data is too short, no valid transfers
+ * exist, or the derived price is zero.
+ */
+export function extractCnftPaymentInfo(
+  tx: RawSolanaTx,
+  tcompIx: RawInstruction,
+): PaymentInfo | null {
+  // 1. Read maxAmount from instruction data.
+  let ixData: Buffer;
+  try { ixData = Buffer.from(bs58.decode(tcompIx.data)); } catch { return null; }
+  if (ixData.length < TCOMP_BUY_MAX_AMOUNT_OFFSET + 8) return null;
+  const maxAmount = ixData.readBigUInt64LE(TCOMP_BUY_MAX_AMOUNT_OFFSET);
+  if (maxAmount <= 0n) return null;
+
+  // 2. Scan inner System Program Transfers.
+  let bestAmount = 0n;
+  let seller: string | null = null;
+  // Buyer = fee payer = first account in the transaction.
+  const buyer = resolveAccountKey(tx, 0);
+
+  for (const group of tx.meta?.innerInstructions ?? []) {
+    for (const ix of group.instructions) {
+      if (resolveAccountKey(tx, ix.programIdIndex) !== SYSTEM_PROGRAM) continue;
+      let data: Buffer;
+      try { data = Buffer.from(bs58.decode(ix.data)); } catch { continue; }
+      if (data.length < 12) continue;
+      if (data.readUInt32LE(0) !== SYSTEM_TRANSFER_TYPE) continue;
+
+      const amount = data.readBigUInt64LE(4);
+      // 3. Reject Tensor protocol fee transfers.
+      const recipient = resolveAccountKey(tx, ix.accounts[1]);
+      if (recipient === TENSOR_FEE_ACCOUNT) continue;
+      // 4. Reject amounts that exceed the sale ceiling.
+      if (amount > maxAmount) continue;
+
+      // 5. Track the largest qualifying transfer (= seller principal).
+      if (amount > bestAmount) {
+        bestAmount = amount;
+        seller = recipient ?? null;
+      }
+    }
+  }
+
+  if (bestAmount <= 0n) return null;
+  return { priceLamports: bestAmount, buyer, seller };
 }
 
 // ─── cNFT asset ID extraction ─────────────────────────────────────────────────
