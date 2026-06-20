@@ -6,6 +6,7 @@ import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
 import { getDerivedFloorLamports } from '../server/listings-store';
 import { getMeStats } from './me-stats';
+import { getPool } from '../db/client';
 
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
@@ -34,6 +35,18 @@ const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS, 60_000);
 const floorRefreshInFlight = new Set<string>();
 /** Keyed by ME collection slug → top offer price in lamports. */
 const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS, 60_000);
+
+// ── collection_address → ME slug recovery ────────────────────────────────────
+// A burst of same-collection sales can transiently null ONE NFT's per-mint
+// getMeTokenData lookup (ME rate-limit / timeout) while its siblings resolved
+// fine. Since floorDelta is slug-only, that one row loses its floor chip even
+// though the collection's slug is already known. This recovers the slug from
+// the EXACT collection_address (positive cache → most-recent sale_events row).
+// Never guesses by name or mint.
+const COLL_SLUG_TTL_MS      = 30 * 60 * 1000; // 30 min — a collection's slug is stable
+const COLL_SLUG_MISS_TTL_MS = 2 * 60 * 1000;  // 2 min — don't re-hit the DB for slug-less collections
+const collSlugCache     = new TtlCache<string, { slug: string; collectionName: string | null }>(COLL_SLUG_TTL_MS, 5 * 60_000);
+const collSlugMissCache = new TtlCache<string, true>(COLL_SLUG_MISS_TTL_MS, 60_000);
 
 interface MeTokenData {
   slug:           string | null;
@@ -108,6 +121,46 @@ export async function getMeTokenData(mint: string): Promise<MeTokenData> {
     await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 500)));
   }
   return EMPTY; // unreachable (loop always returns by attempt 2) — satisfies tsc
+}
+
+/**
+ * Recovers a collection's ME slug from a known collection_address, used only
+ * when the per-mint getMeTokenData lookup returned null (transient burst miss).
+ * Source order: in-memory positive cache → most-recent sale_events row with a
+ * non-empty me_collection_slug for the SAME collection_address. Exact-address
+ * match only — never by name or mint. Returns null when nothing is known.
+ * Never throws.
+ */
+async function recoverSlugByCollection(
+  collectionAddress: string,
+): Promise<{ slug: string; collectionName: string | null } | null> {
+  const cached = collSlugCache.get(collectionAddress);
+  if (cached) return cached;
+  if (collSlugMissCache.has(collectionAddress)) return null;
+  try {
+    const { rows } = await getPool().query<{ me_collection_slug: string; collection_name: string | null }>(
+      `select me_collection_slug, collection_name
+         from sale_events
+        where collection_address = $1
+          and me_collection_slug is not null
+          and me_collection_slug <> ''
+        order by block_time desc
+        limit 1`,
+      [collectionAddress],
+    );
+    const row = rows[0];
+    if (row?.me_collection_slug) {
+      const resolved = { slug: row.me_collection_slug, collectionName: row.collection_name ?? null };
+      collSlugCache.set(collectionAddress, resolved);
+      return resolved;
+    }
+  } catch (err) {
+    // DB error → do NOT negative-cache; allow a later event to retry.
+    console.warn(`[enrich] collection-slug DB recovery failed collection=${collectionAddress.slice(0, 8)}: ${(err as Error).message}`);
+    return null;
+  }
+  collSlugMissCache.set(collectionAddress, true);
+  return null;
 }
 
 /**
@@ -398,7 +451,24 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
 
     // ── Magic Eden token data (slug + optional name/image + collectionName) ─
     const meData = await getMeTokenData(mint);
-    const meCollectionSlug = meData.slug;
+    let meCollectionSlug = meData.slug;
+    let meCollectionName = meData.collectionName;
+    // ── collection_address fallback when the per-mint ME lookup came up null ──
+    // floorDelta is slug-only, so a transient burst miss on one NFT would drop
+    // its floor chip. Recover the slug from the EXACT collection_address (cache
+    // → most-recent DB row); never guesses by name or mint. No-op when the
+    // collection_address is unknown.
+    if (!meCollectionSlug) {
+      const collAddr = metadata?.collectionAddress ?? event.collectionAddress ?? null;
+      if (collAddr) {
+        const recovered = await recoverSlugByCollection(collAddr);
+        if (recovered) {
+          meCollectionSlug = recovered.slug;
+          meCollectionName = meCollectionName ?? recovered.collectionName;
+          console.log(`[enrich] recovered ME slug from collection cache collection=${collAddr.slice(0, 8)} slug=${recovered.slug} mint=${mint.slice(0, 8)}`);
+        }
+      }
+    }
     if (metadata) {
       // ME's top-level `collectionName` is the human-readable collection name
       // (DAS almost always omits this for Core / pNFT). Backfill when DAS's
@@ -406,7 +476,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
       metadata = {
         ...metadata,
         meCollectionSlug,
-        collectionName: metadata.collectionName ?? meData.collectionName ?? null,
+        collectionName: metadata.collectionName ?? meCollectionName ?? null,
       };
     }
 
@@ -435,7 +505,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
         metadata = {
           nftName:           mergedName,
           imageUrl:          mergedImage,
-          collectionName:    metadata?.collectionName    ?? meData.collectionName ?? null,
+          collectionName:    metadata?.collectionName    ?? meCollectionName ?? null,
           collectionAddress: metadata?.collectionAddress ?? null,
           meCollectionSlug:  meCollectionSlug,
           verifiedCreators:  metadata?.verifiedCreators ?? null,
