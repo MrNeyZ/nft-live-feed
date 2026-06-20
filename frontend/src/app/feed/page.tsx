@@ -802,6 +802,8 @@ export default function FeedPage() {
   const FLOOR_BY_SLUG_MAX = 500;
   /** How long a fetched floor is considered fresh enough to skip a refresh. */
   const FLOOR_REQUEST_TTL_MS = 5 * 60_000;
+  /** Retry TTL when floor fetch returns null (ME 429 / miss) — much shorter. */
+  const FLOOR_MISS_TTL_MS = 60_000;
 
   useEffect(() => {
     const now = Date.now();
@@ -816,20 +818,36 @@ export default function FeedPage() {
       floorFetchTimerRef.current = null;
       const batch = Array.from(pendingFloorRef.current).slice(0, 80);
       pendingFloorRef.current.clear();
-      const fetchedAt = Date.now();
-      for (const s of batch) requestedFloorRef.current.set(s, fetchedAt);
       try {
         const res = await fetch(
           `${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(batch.join(','))}`,
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          // HTTP error (e.g. 429) — short retry so a transient ME rate-limit
+          // doesn't create a 5-minute badge blackout.
+          const t = Date.now() - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS);
+          for (const s of batch) requestedFloorRef.current.set(s, t);
+          return;
+        }
         const data = await res.json() as {
           bids?: Record<string, { floorLamports: number | null }>;
         };
         if (!data.bids) return;
+        const bids = data.bids;
+        const now = Date.now();
+        // Set throttle per-slug AFTER knowing the result:
+        // success (non-null floor) → 5 min; null (ME miss/429) → 60 s retry.
+        for (const s of batch) {
+          const v = bids[s];
+          const hasFloor = v != null && typeof v.floorLamports === 'number';
+          requestedFloorRef.current.set(
+            s,
+            hasFloor ? now : now - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS),
+          );
+        }
         setFloorBySlug(prev => {
           const next = { ...prev };
-          for (const [slug, v] of Object.entries(data.bids!)) {
+          for (const [slug, v] of Object.entries(bids)) {
             next[slug] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
           }
           // Bound the map. Object iteration is insertion-order in modern
@@ -842,7 +860,11 @@ export default function FeedPage() {
           }
           return next;
         });
-      } catch { /* transient — retry path is the next unseen cNFT slug */ }
+      } catch {
+        // Network error — short retry TTL, same logic as HTTP error path.
+        const t = Date.now() - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS);
+        for (const s of batch) requestedFloorRef.current.set(s, t);
+      }
     }, 500);
   }, [events]);
   useEffect(() => () => {
