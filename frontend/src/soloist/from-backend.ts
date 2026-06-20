@@ -58,10 +58,18 @@ function numFromName(nftName: string | null): number {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+function displayNftName(nftName: string | null | undefined, collectionName: string | null | undefined): string {
+  const name = nftName?.trim();
+  if (name && /^\d+$/.test(name) && collectionName?.trim()) {
+    return `${collectionName.trim()} #${name}`;
+  }
+  return nftName ?? `${collectionName ?? 'Unknown'} #?`;
+}
+
 export function fromBackend(b: BackendEvent): FeedEvent {
   const meta = collectionMeta(b.collectionName);
   const side = mapSide(b.saleType);
-  const nftName = b.nftName ?? `${b.collectionName ?? 'Unknown'} #?`;
+  const nftName = displayNftName(b.nftName, b.collectionName);
   return {
     id: b.signature,
     signature: b.signature,
