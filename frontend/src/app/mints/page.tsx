@@ -2660,22 +2660,6 @@ export default function MintsPage() {
               <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
                 ({visibleEvents.length.toLocaleString()})
               </span>
-              {/* MINT OK pill — same chrome as /feed's "ME OK" health pill
-                  (green, low-saturation resting state). */}
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3,
-                marginLeft: 4, padding: '1px 5px', borderRadius: 3,
-                fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-                border: `1px solid ${alpha(VL.greenGlow,0.22)}`,
-                background: 'transparent',
-                color: alpha(VL.greenGlow,0.65),
-              }}>
-                <span style={{
-                  display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                  background: rgb(VL.green), boxShadow: `0 0 4px ${alpha(VL.greenGlow,0.40)}`,
-                }} />
-                MINT OK
-              </span>
               {/* PAUSED chip — shared with the LEFT Mint Tracker header
                   (single PausedChip component, single hoverPaused state).
                   Same chip shape/height as the pinned chips so the header

@@ -75,19 +75,6 @@ export function MintFeedPanel() {
           <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            marginLeft: 4, padding: '1px 5px', borderRadius: 3,
-            fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-            border: `1px solid ${alpha(VL.greenGlow,0.22)}`, background: 'transparent',
-            color: alpha(VL.greenGlow,0.65),
-          }}>
-            <span style={{
-              display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: rgb(VL.green), boxShadow: `0 0 4px ${alpha(VL.greenGlow,0.40)}`,
-            }} />
-            MINT OK
-          </span>
           {paused && <PausedChip />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>

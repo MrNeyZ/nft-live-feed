@@ -21,7 +21,7 @@ const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
 
 export function SalesFeedPanel() {
-  const { events, meStale } = useMultiSales();
+  const { events } = useMultiSales();
   const [inclusiveFees] = useInclusiveFees();
 
   const [paused, setPaused] = useState(false);
@@ -93,21 +93,6 @@ export function SalesFeedPanel() {
           <LiveDot />
           <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
-          </span>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3,
-            marginLeft: 4, padding: '1px 5px', borderRadius: 3,
-            fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-            border: meStale ? `1px solid ${alpha(VL.red, 0.4)}` : `1px solid ${alpha(VL.greenGlow, 0.22)}`,
-            background: meStale ? alpha(VL.redGlow, 0.14) : 'transparent',
-            color: meStale ? rgb(VL.red) : alpha(VL.greenGlow, 0.65),
-          }}>
-            <span style={{
-              display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-              background: meStale ? rgb(VL.red) : rgb(VL.green),
-              boxShadow: meStale ? `0 0 6px ${alpha(VL.red, 0.5)}` : `0 0 4px ${alpha(VL.greenGlow, 0.40)}`,
-            }} />
-            ME {meStale ? 'STALE' : 'OK'}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
