@@ -16,6 +16,7 @@
 import { RawSolanaTx } from './types';
 import { SaleEvent, NftType, CNFT_MIN_PRICE_LAMPORTS } from '../../models/sale-event';
 import { computeSellerNetLamports } from '../seller-net';
+import { TAMM_PROGRAM } from './programs';
 import {
   isTensorTransaction,
   findTcompSaleIx,
@@ -218,6 +219,15 @@ function parseTammSale(
 
   if (match.buyerAcctIdx  !== null) buyer  = accs[match.buyerAcctIdx]  ?? null;
   if (match.sellerAcctIdx !== null) seller = accs[match.sellerAcctIdx] ?? null;
+
+  // TAMM sell: pool owner (buyer) was historically at instruction slot 7.
+  // Newer pool layouts dropped the TSwap singleton from the front of the
+  // account list, shifting the pool owner to slot 0 and leaving slot 7
+  // occupied by the TAMM program itself. Detect that degenerate case and
+  // use slot 0 instead.
+  if (match.direction === 'sell' && buyer === TAMM_PROGRAM) {
+    buyer = accs[0] ?? null;
+  }
 
   // For user-buys-from-pool with NO verified seller index, token-flow
   // and payment-flow both resolve to the POOL VAULT PDA — not the human

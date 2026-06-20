@@ -1,0 +1,241 @@
+{
+  "slot": 427780471,
+  "transaction": {
+    "signatures": [
+      "48JScBH31jYft9PXpG4mghXdbJAXQaUqZkG6fBXgNC13XQ3U5vAGFMyw2Y4WqUtemseVZdw8z7Z6AaWFj7oa6arx"
+    ],
+    "message": {
+      "header": {
+        "numRequiredSignatures": 1,
+        "numReadonlySignedAccounts": 0,
+        "numReadonlyUnsignedAccounts": 6
+      },
+      "accountKeys": [
+        {
+          "pubkey": "HEBDdJt5KfWg5F446FXDXhJoeF35uJ1TzqMeiwHmx6jr",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "FsLwGq9ivo3F3WDvaiRSineeZqky5i7U5hfEKD153yuN",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "6zNW48SzpnpSyMgKpmQkL58GfFJ2a5r39rKEs1dQgkFG",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "73qXcxDbZRk58rY9DJPDhsRJj3n3REPHouViebXhzQdD",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "DrFkK9QyDPDHHAgRi5jkAFkqeNDf4wkcyDtAv2CeL9tk",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "88x6JHDoEcSUHwoyYPiHFSQCggjQFAEqNWMkiU9Z17j9",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "EdwVN27Xr8W7DF9BceEcSW1Gv96o86tKbJUdjXvh6M7w",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "3pNTGWbcEgYdSF4kMgBGRYS7bw5LrEgbeLKy4dwdeoWd",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "ComputeBudget111111111111111111111111111111",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "9MS4GxWvjt1q3ZnhFt3DcgqRyDb8vTmwuHphjUPDXfXc",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "11111111111111111111111111111111",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "inAeYNgmM5yuseW7JL5SeWFH5d7fSicuauZo2cBN81p",
+          "signer": false,
+          "writable": false
+        },
+        {
+          "pubkey": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d",
+          "signer": false,
+          "writable": false
+        }
+      ],
+      "recentBlockhash": "682VviFUUKcw95S2CHc6YTHxhR7EQCD7CsH4URuCfWg5",
+      "instructions": [
+        {
+          "programIdIndex": 8,
+          "accounts": [],
+          "data": "3gJqkocMWaMm",
+          "stackHeight": 1
+        },
+        {
+          "programIdIndex": 8,
+          "accounts": [],
+          "data": "JzwPro",
+          "stackHeight": 1
+        },
+        {
+          "programIdIndex": 9,
+          "accounts": [
+            1,
+            0,
+            1,
+            2,
+            3,
+            10,
+            9,
+            9,
+            4,
+            4,
+            9,
+            9,
+            9,
+            11,
+            5,
+            12,
+            13,
+            6,
+            11,
+            7
+          ],
+          "data": "5fkP2LgAyzMSnNcu335ib9",
+          "stackHeight": 1
+        }
+      ]
+    }
+  },
+  "meta": {
+    "err": null,
+    "status": {
+      "Ok": null
+    },
+    "fee": 65000,
+    "preBalances": [
+      50393401,
+      1473724877,
+      1982380,
+      85352046,
+      136240290543,
+      3671520,
+      0,
+      807980399,
+      1,
+      1141440,
+      2115840,
+      1,
+      3180720,
+      1141441
+    ],
+    "postBalances": [
+      57810941,
+      1473724877,
+      2077880,
+      75802046,
+      136240386043,
+      3671520,
+      1398960,
+      808457899,
+      1,
+      1141440,
+      2115840,
+      1,
+      3180720,
+      1141441
+    ],
+    "innerInstructions": [
+      {
+        "index": 2,
+        "instructions": [
+          {
+            "programIdIndex": 11,
+            "accounts": [
+              0,
+              6
+            ],
+            "data": "11117UBqfUwy1sU75uovhuEs14P7qsyVS5VxEXxdRyF6vqTJAGnNYMUs44gCCvpTVroZva",
+            "stackHeight": 2
+          },
+          {
+            "programIdIndex": 9,
+            "accounts": [
+              3
+            ],
+            "data": "7wQzNtjq7SXC4yt3EP8z3TA3yrKbe7uDFwCgHC19aJE5UhBEK92q3SCF",
+            "stackHeight": 2
+          },
+          {
+            "programIdIndex": 13,
+            "accounts": [
+              5,
+              12,
+              0,
+              0,
+              3,
+              13,
+              13
+            ],
+            "data": "24o",
+            "stackHeight": 2
+          }
+        ]
+      }
+    ],
+    "logMessages": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg invoke [1]",
+      "Program log: Instruction: SellNftTradePoolCore",
+      "Program 11111111111111111111111111111111 invoke [2]",
+      "Program 11111111111111111111111111111111 success",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg invoke [2]",
+      "Program log: Instruction: TammNoop",
+      "Program log: Logging event",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg consumed 3611 of 549996 compute units",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg success",
+      "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d invoke [2]",
+      "Program log: Instruction: Transfer",
+      "Program log: programs/mpl-core/src/state/asset.rs:293:Approve",
+      "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d consumed 7623 of 542264 compute units",
+      "Program CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d success",
+      "Program log: Compounding MM fees",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg consumed 103038 of 599700 compute units",
+      "Program TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg success"
+    ],
+    "preTokenBalances": [],
+    "postTokenBalances": [],
+    "rewards": [],
+    "loadedAddresses": {
+      "writable": [],
+      "readonly": []
+    },
+    "computeUnitsConsumed": 103338,
+    "costUnits": 107225
+  },
+  "version": "legacy",
+  "blockTime": 1781981073,
+  "signature": "48JScBH31jYft9PXpG4mghXdbJAXQaUqZkG6fBXgNC13XQ3U5vAGFMyw2Y4WqUtemseVZdw8z7Z6AaWFj7oa6arx"
+}
