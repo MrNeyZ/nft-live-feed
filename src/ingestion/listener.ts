@@ -188,7 +188,7 @@ const MPL_CORE_POLL_ENABLED     = process.env.MINT_MPL_CORE_POLL_ENABLED !== '0'
 // cut idle credit drain. The WS path stays primary; this fallback
 // catches Helius dropouts and the 3-min hard-refresh window — both
 // of which tolerate 15s catch-up easily. Tunable via env.
-const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '15000', 10) || 15000;
+const MPL_CORE_POLL_INTERVAL_MS = parseInt(process.env.MINT_MPL_CORE_POLL_INTERVAL_MS ?? '25000', 10) || 25000;
 // CoREEN (the whole MPL Core program) emits ~20 sigs/15s — measured. With the
 // old limit=15 the cursor poll was permanently SATURATED: it grabbed only the
 // 15 newest sigs each 15s and the `until=lastSig` cursor jumped past the
@@ -1228,7 +1228,7 @@ const POLL_LIMIT        = 100;     // sigs per fetch — generous to avoid missi
 // Any staleness on a high-volume target instantly flips the cadence back
 // to fast. amm-poller still runs at 30 s as a secondary safety net.
 const POLL_FAST_MS          = 1_500;
-const POLL_HEALTHY_MS       = 10_000;
+const POLL_HEALTHY_MS       = 20_000;  // WS-healthy cadence (was 10s) — RPC-credit trim; degraded stays POLL_FAST_MS
 const WS_HEALTHY_MAX_AGE_MS = 60_000;
 const WS_HEALTH_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm']);
 const MAX_BLOCK_AGE_S   = 600;     // 10-minute recency window
@@ -1784,7 +1784,7 @@ export function startListener(): void {
   // the periodic getSignaturesForAddress/getTransaction catch-up burst, and
   // the per-target restarts are STAGGERED with jitter so all subscriptions no
   // longer tear down + reconnect (+ fire catch-up sweeps) in the same instant.
-  const HARD_REFRESH_INTERVAL_MS = 15 * 60_000; // 15 minutes (was 3 min)
+  const HARD_REFRESH_INTERVAL_MS = 30 * 60_000; // 30 minutes (was 15m; RPC-credit trim — WS + pollers cover the gap)
   const HARD_REFRESH_STAGGER_MS  = 1_500;       // base gap between per-target restarts
 
   const hardRefresh = setInterval(() => {
