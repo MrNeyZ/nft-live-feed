@@ -303,6 +303,25 @@ async function fetchTensorFloorLamports(slug: string): Promise<number | null> {
  *  NEXT event for this slug carries floorDelta. Logs `[floor-miss]` on
  *  total failure so coverage gaps are visible. Deduped via in-flight Set
  *  + miss TTL so we never fan out per-event. */
+/**
+ * Awaitable floor warm — same source order + caches/dedup as kickFloorRefresh,
+ * but resolves once the floorCache is populated (or confirmed missing). Used by
+ * the /latest snapshot so a reload can stamp floor_delta on first render instead
+ * of waiting for live sales to warm the cache. Reuses getMeStats' own 12s cache
+ * + in-flight dedup, so concurrent callers for one slug do one ME request.
+ */
+export async function warmFloorCache(slug: string | null | undefined): Promise<void> {
+  if (!slug) return;
+  if (getDerivedFloorLamports(slug) != null) return;  // listings-store covers it
+  if (floorCache.has(slug)) return;
+  if (floorMissCache.has(slug)) return;
+  const me = await fetchMeFloorLamports(slug);
+  if (me != null) { floorCache.set(slug, me); return; }
+  const tnsr = await fetchTensorFloorLamports(slug);
+  if (tnsr != null) { floorCache.set(slug, tnsr); return; }
+  floorMissCache.set(slug, true);
+}
+
 function kickFloorRefresh(slug: string): void {
   if (floorCache.has(slug)) return;
   if (floorMissCache.has(slug)) return;

@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import { getLatestEvents, getEventsByCollection } from '../db/queries';
 import { getPool } from '../db/client';
-import { peekCachedFloorLamports } from '../enrichment/enrich';
+import { peekCachedFloorLamports, warmFloorCache } from '../enrichment/enrich';
 import { getCachedResizeStatus } from '../mints/resize-status-resolver';
 import { rarityForMints } from './rarity-lookup';
 import { rateLimit, isValidSlug } from './rate-limit';
@@ -141,6 +141,32 @@ function stampFromCache<T extends {
   });
 }
 
+// Warm the floor cache for a snapshot's DISTINCT slugs whose floor isn't already
+// cached, so /latest can stamp floor_delta on first render instead of waiting
+// for live sales (~5–10s). Per-distinct-slug only (never per-row), capped, and
+// timeout-bounded so /latest never blocks; failures leave floor_delta:null as
+// before. Reuses warmFloorCache → getMeStats (12s cache + in-flight dedup).
+const SNAPSHOT_FLOOR_WARM_CAP = 20;
+const SNAPSHOT_FLOOR_WARM_TIMEOUT_MS = 2_500;
+async function warmSnapshotFloors(rows: ReadonlyArray<{ me_collection_slug: string | null }>): Promise<void> {
+  const slugs: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const s = r.me_collection_slug;
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    if (peekCachedFloorLamports(s) != null) continue;   // already warm / derived
+    slugs.push(s);
+    if (slugs.length >= SNAPSHOT_FLOOR_WARM_CAP) break;
+  }
+  if (slugs.length === 0) return;
+  const work = Promise.allSettled(slugs.map((s) => warmFloorCache(s)));
+  await Promise.race([
+    work,
+    new Promise<void>((resolve) => setTimeout(resolve, SNAPSHOT_FLOOR_WARM_TIMEOUT_MS)),
+  ]);
+}
+
 export function createEventsRouter(): Router {
   const router = Router();
 
@@ -160,7 +186,12 @@ export function createEventsRouter(): Router {
       // Re-stamp floor_delta + resize_status from the in-process caches (these
       // are SSE-only / not persisted) so a refresh keeps the FloorChip/RESIZE
       // badge. Shared with /by-collection via stampFromCache().
-      const enriched = await stampRarity(stampFromCache(await getLatestEvents(limit)));
+      const rows = await getLatestEvents(limit);
+      // On reload the floor cache is often cold → every floor_delta would be
+      // null until live sales warm it (~5–10s). Warm the snapshot's distinct
+      // slugs first (bounded + timeout-capped) so the FIRST render has badges.
+      await warmSnapshotFloors(rows);
+      const enriched = await stampRarity(stampFromCache(rows));
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {
       console.error('[events] query error', err);
