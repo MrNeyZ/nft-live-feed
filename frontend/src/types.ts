@@ -38,6 +38,8 @@ export interface FeedEvent {
   totalSupply?: number | null;
   rarityPercentile?: number | null;
   raritySource?: string | null;
+  /** True only when the mint carries a stored "1/1"-style trait (renders 1/1). */
+  oneOfOne?: boolean;
   /** Verified ME collection slug, e.g. "froganas". Null until meta patch arrives. */
   meCollectionSlug: string | null;
   /** Server-persisted seller-remaining-count (DB column seller_remaining_count,
@@ -84,6 +86,7 @@ export interface RestRow {
   total_supply?: number | null;
   rarity_percentile?: number | null;
   rarity_source?: string | null;
+  one_of_one?: boolean;
   /** Optional. Backend's /latest handler retro-attaches this from the
    *  in-process floor cache when the slug has been seen in the last
    *  2 minutes. Absent on stale snapshots — frontend hides the chip. */
@@ -122,6 +125,7 @@ export function fromRow(row: RestRow): FeedEvent {
     totalSupply:      row.total_supply ?? null,
     rarityPercentile: row.rarity_percentile ?? null,
     raritySource:     row.rarity_source ?? null,
+    oneOfOne:         row.one_of_one ?? false,
     resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
   };
 }

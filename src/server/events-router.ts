@@ -110,12 +110,12 @@ function maybeAutoBackfill(slug: string): void {
  *  unchanged (no badge). */
 async function stampRarity<T extends { mint_address: string | null }>(
   rows: T[],
-): Promise<Array<T & { rarity_rank?: number; total_supply?: number; rarity_percentile?: number; rarity_source?: string | null }>> {
+): Promise<Array<T & { rarity_rank?: number; total_supply?: number; rarity_percentile?: number; rarity_source?: string | null; one_of_one?: boolean }>> {
   const map = await rarityForMints(rows.map((r) => r.mint_address));
   return rows.map((r) => {
     const v = r.mint_address ? map.get(r.mint_address) : null;
     if (!v) return r;
-    return { ...r, rarity_rank: v.rarityRank, total_supply: v.totalSupply, rarity_percentile: v.rarityPercentile, rarity_source: v.raritySource };
+    return { ...r, rarity_rank: v.rarityRank, total_supply: v.totalSupply, rarity_percentile: v.rarityPercentile, rarity_source: v.raritySource, one_of_one: v.oneOfOne };
   });
 }
 

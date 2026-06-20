@@ -111,6 +111,7 @@ export interface RarityPatch {
   rarityRank:   number;
   totalSupply:  number;
   raritySource: string | null;
+  oneOfOne?:    boolean;
 }
 
 export type FeedAction =
@@ -325,6 +326,7 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
             totalSupply:      patch.totalSupply,
             rarityPercentile: patch.rarityRank / patch.totalSupply,
             raritySource:     patch.raritySource,
+            oneOfOne:         patch.oneOfOne ?? ev.oneOfOne ?? false,
           };
         },
       );

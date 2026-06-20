@@ -62,6 +62,7 @@ export interface FeedEvent {
   totalSupply?: number | null;
   rarityPercentile?: number | null;
   raritySource?: string | null;
+  oneOfOne?: boolean;
   /** Display price — prefers seller-net (actual proceeds after fees +
    *  royalties) when the backend extracted it; falls back to `grossPrice`. */
   price: number;

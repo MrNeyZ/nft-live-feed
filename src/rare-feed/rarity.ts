@@ -20,6 +20,8 @@
  * error yields a NEGATIVE result so the evaluator never blocks.
  */
 import { getPool } from '../db/client';
+import { saleEventBus } from '../events/emitter';
+import { cacheRarity, detectOneOfOne } from '../server/rarity-lookup';
 import { tensorProvider } from './providers/tensor';
 import { howRareProvider } from './providers/howrare';
 import { magicEdenProvider } from './providers/magiceden';
@@ -118,6 +120,27 @@ async function writeCache(mint: string, r: Rarity): Promise<void> {
         r.raw != null ? JSON.stringify(r.raw) : null,
       ],
     );
+    // Push-on-write: the live `sale` frame may have shipped before this row
+    // existed (resolver runs async). For a real rank, prime the Live Feed's
+    // in-process cache and emit a rarity patch so connected clients light up
+    // the badge without waiting on the poll path / negative-cache TTL.
+    if (r.rarityRank != null && r.totalSupply != null && r.totalSupply > 0 && r.rarityRank > 0) {
+      const oneOfOne = detectOneOfOne(r.traits);
+      cacheRarity(mint, {
+        rarityRank:       r.rarityRank,
+        totalSupply:      r.totalSupply,
+        rarityPercentile: r.rarityPercentile ?? r.rarityRank / r.totalSupply,
+        raritySource:     r.source === 'none' ? null : r.source,
+        oneOfOne,
+      });
+      saleEventBus.emitRarityPatch({
+        mintAddress:  mint,
+        rarityRank:   r.rarityRank,
+        totalSupply:  r.totalSupply,
+        raritySource: r.source === 'none' ? null : r.source,
+        oneOfOne,
+      });
+    }
   } catch (err) {
     console.warn(`[rare/rarity] cache write failed mint=${mint.slice(0, 8)}…: ${(err as Error).message}`);
   }

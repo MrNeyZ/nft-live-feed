@@ -77,6 +77,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     totalSupply:      b.totalSupply ?? null,
     rarityPercentile: b.rarityPercentile ?? null,
     raritySource:     b.raritySource ?? null,
+    oneOfOne:         b.oneOfOne ?? false,
     // Display price prefers seller-net (actual proceeds) when available,
     // gross priceSol as fallback. `grossPrice` always carries the raw
     // sale figure for consumers (chart, summaries) that need it.

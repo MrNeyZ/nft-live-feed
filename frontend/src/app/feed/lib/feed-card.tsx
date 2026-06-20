@@ -656,7 +656,7 @@ export const FeedCard = memo(function FeedCard({
                 null otherwise. Rare Feed sets no rarityRank field, so this
                 never double-renders alongside nameChip. */}
             {!nameChip && (
-              <RarityRankBadge rarityRank={event.rarityRank} totalSupply={event.totalSupply} />
+              <RarityRankBadge rarityRank={event.rarityRank} totalSupply={event.totalSupply} reasonTags={event.oneOfOne ? ['ONE_OF_ONE'] : undefined} />
             )}
           </div>
 

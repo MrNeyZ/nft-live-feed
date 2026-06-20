@@ -22,6 +22,8 @@ export interface RarityPatch {
   rarityRank:   number;
   totalSupply:  number;
   raritySource: string | null;
+  /** True only when the mint carries a stored "1/1"-style trait. */
+  oneOfOne?:    boolean;
 }
 
 export interface RawPatch {

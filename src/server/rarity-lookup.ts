@@ -21,9 +21,16 @@ export interface RarityLite {
   totalSupply:      number;
   rarityPercentile: number;
   raritySource:     string | null;
+  /** True only when the mint carries a stored "1/1"-style trait (never from rank). */
+  oneOfOne:         boolean;
 }
 
-const TTL_MS   = 10 * 60_000;   // 10 min — rarity is stable; misses re-checked after
+// Split TTLs: a resolved rarity is stable (10 min), but a MISS must expire fast
+// so a sale whose mint_rarity_cache row lands seconds later (the resolver writes
+// asynchronously) isn't stranded badge-less. The resolver also pushes a patch on
+// write (rarity.ts), so this short negative TTL is just a safety re-check.
+const POS_TTL_MS = 10 * 60_000;   // 10 min — resolved rarity is stable
+const NEG_TTL_MS = 25 * 1_000;    // 25 s — re-check misses quickly
 const MAX_SIZE = 20_000;
 
 interface Entry { value: RarityLite | null; expiresAt: number }
@@ -35,7 +42,7 @@ function cacheSet(mint: string, value: RarityLite | null): void {
     let drop = MAX_SIZE / 10;
     for (const k of cache.keys()) { cache.delete(k); if (--drop <= 0) break; }
   }
-  cache.set(mint, { value, expiresAt: Date.now() + TTL_MS });
+  cache.set(mint, { value, expiresAt: Date.now() + (value ? POS_TTL_MS : NEG_TTL_MS) });
 }
 /** Fresh cached value, `null` (cached miss), or `undefined` (not cached/stale). */
 function cacheGet(mint: string): RarityLite | null | undefined {
@@ -45,13 +52,33 @@ function cacheGet(mint: string): RarityLite | null | undefined {
   return e.value;
 }
 
+/** Prime the in-process cache from the resolver write path so the next sale
+ *  frame for this mint is warm and any stale negative entry is replaced. */
+export function cacheRarity(mint: string, value: RarityLite): void {
+  if (!mint) return;
+  cacheSet(mint, value);
+}
+
+// "1/1" detection — strictly from a STORED trait value, never inferred from
+// rank. Matches the values collections actually store (e.g. {value:"1/1"}).
+const ONE_OF_ONE_VALUES = new Set(['1/1', '1of1', 'oneofone', '1:1']);
+export function detectOneOfOne(traits: unknown): boolean {
+  if (!Array.isArray(traits)) return false;
+  for (const t of traits) {
+    const v = (t && typeof t === 'object' && 'value' in t) ? (t as { value?: unknown }).value : undefined;
+    if (typeof v !== 'string') continue;
+    if (ONE_OF_ONE_VALUES.has(v.toLowerCase().replace(/\s+/g, ''))) return true;
+  }
+  return false;
+}
+
 /** Validate a raw mint_rarity_cache row → RarityLite or null. */
-function toLite(r: { rarity_rank: number | null; total_supply: number | null; rarity_source: string | null } | undefined): RarityLite | null {
+function toLite(r: { rarity_rank: number | null; total_supply: number | null; rarity_source: string | null; traits?: unknown } | undefined): RarityLite | null {
   if (!r || r.rarity_rank == null || r.total_supply == null) return null;
   const rank = Number(r.rarity_rank);
   const supply = Number(r.total_supply);
   if (!Number.isFinite(rank) || !Number.isFinite(supply) || supply <= 0 || rank <= 0) return null;
-  return { rarityRank: rank, totalSupply: supply, rarityPercentile: rank / supply, raritySource: r.rarity_source ?? null };
+  return { rarityRank: rank, totalSupply: supply, rarityPercentile: rank / supply, raritySource: r.rarity_source ?? null, oneOfOne: detectOneOfOne(r.traits) };
 }
 
 /** Async single-mint lookup (cached + in-flight-deduped). */
@@ -63,7 +90,7 @@ export async function primeRarity(mint: string): Promise<RarityLite | null> {
   const p = (async () => {
     try {
       const { rows } = await getPool().query(
-        'SELECT rarity_rank, total_supply, rarity_source FROM mint_rarity_cache WHERE mint_address = $1', [mint],
+        'SELECT rarity_rank, total_supply, rarity_source, traits FROM mint_rarity_cache WHERE mint_address = $1', [mint],
       );
       const v = toLite(rows[0]);
       cacheSet(mint, v);
@@ -78,6 +105,7 @@ export async function primeRarity(mint: string): Promise<RarityLite | null> {
           rarityRank:   v.rarityRank,
           totalSupply:  v.totalSupply,
           raritySource: v.raritySource,
+          oneOfOne:     v.oneOfOne,
         });
         lateRarityPatchCount++;
         if (lateRarityPatchCount === 1 || lateRarityPatchCount % 50 === 0) {
@@ -121,7 +149,7 @@ export async function rarityForMints(mints: Array<string | null | undefined>): P
   if (misses.length > 0) {
     try {
       const { rows } = await getPool().query(
-        'SELECT mint_address, rarity_rank, total_supply, rarity_source FROM mint_rarity_cache WHERE mint_address = ANY($1)',
+        'SELECT mint_address, rarity_rank, total_supply, rarity_source, traits FROM mint_rarity_cache WHERE mint_address = ANY($1)',
         [misses],
       );
       const byMint = new Map(rows.map((r: { mint_address: string }) => [r.mint_address, r]));

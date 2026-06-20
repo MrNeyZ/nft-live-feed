@@ -267,6 +267,7 @@ function buildSaleFrame(event: SaleEvent): string {
     totalSupply:       rar?.totalSupply       ?? null,
     rarityPercentile:  rar?.rarityPercentile  ?? null,
     raritySource:      rar?.raritySource      ?? null,
+    oneOfOne:          rar?.oneOfOne          ?? false,
     source,
   });
   return `event: sale\ndata: ${payload}\n\n`;
