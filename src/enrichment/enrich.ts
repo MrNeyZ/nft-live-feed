@@ -4,7 +4,7 @@ import { getMetaplexOnchainMetadata, fetchMetaFromJsonUri } from './metaplex-onc
 import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
 import { SLUG_BLACKLIST } from '../db/blacklist';
-import { getDerivedFloorLamports } from '../server/listings-store';
+import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/listings-store';
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
 
@@ -501,38 +501,60 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
       if (offImg) metadata = { ...metadata, imageUrl: offImg };
     }
 
-    // ── Magic Eden token data (slug + optional name/image + collectionName) ─
-    const meData = await getMeTokenData(mint);
-    let meCollectionSlug = meData.slug;
-    let meCollectionName = meData.collectionName;
-    // ── collection_address fallback when the per-mint ME lookup came up null ──
-    // floorDelta is slug-only, so a transient burst miss on one NFT would drop
-    // its floor chip. Recover the slug from the EXACT collection_address (cache
-    // → most-recent DB row); never guesses by name or mint. No-op when the
-    // collection_address is unknown.
-    if (!meCollectionSlug) {
-      const collAddr = metadata?.collectionAddress ?? event.collectionAddress ?? null;
-      if (collAddr) {
-        const recovered = await recoverSlugByCollection(collAddr);
-        if (recovered) {
-          meCollectionSlug = recovered.slug;
-          meCollectionName = meCollectionName ?? recovered.collectionName;
-          console.log(`[enrich] recovered ME slug from collection cache collection=${collAddr.slice(0, 8)} slug=${recovered.slug} mint=${mint.slice(0, 8)}`);
-        }
+    // ── Slug resolution: LOCAL-FIRST, Magic Eden only on miss ────────────────
+    // getMeTokenData(/v2/tokens/{mint}) was the dominant ME 429 source: ~1 call
+    // per sale, mint-keyed so same-collection bursts never coalesce. Resolve the
+    // slug from in-process / DB sources first and hit ME only when those miss
+    // (or when DAS still left name/image null — ME is also the name/image
+    // backstop). Exact mint / exact collection_address only; never by name,
+    // never fuzzy, never an unrelated slug.
+    let meCollectionSlug: string | null = null;
+    let meCollectionName: string | null = null;
+    const collAddr = metadata?.collectionAddress ?? event.collectionAddress ?? null;
+
+    // 1) exact mint — listings-store in-memory reverse index (preloaded at boot
+    //    + kept live via onMetaUpdate), else a prior sale_events row (cache→DB).
+    const lsSlug = slugForMint(mint);
+    if (lsSlug) {
+      meCollectionSlug = lsSlug;
+      meCollectionName = nameForMint(mint);
+      if (Math.random() < 0.02) console.log(`[enrich] local slug hit source=mint-index mint=${mint.slice(0, 8)} slug=${lsSlug}`);
+    } else {
+      const byMint = await recoverSlugByMint(mint);
+      if (byMint) {
+        meCollectionSlug = byMint.slug;
+        meCollectionName = byMint.collectionName;
+        console.log(`[enrich] local slug hit source=mint mint=${mint.slice(0, 8)} slug=${byMint.slug}`);
       }
     }
-    // ── Third tier: mint_address fallback ────────────────────────────────────
-    // Runs only when getMeTokenData AND the collection_address tier both failed
-    // (typically because collection_address is empty). Recover the slug from a
-    // prior sale_events row for the EXACT same mint. Exact-mint match only.
-    if (!meCollectionSlug && mint) {
-      const recovered = await recoverSlugByMint(mint);
-      if (recovered) {
-        meCollectionSlug = recovered.slug;
-        meCollectionName = meCollectionName ?? recovered.collectionName;
-        console.log(`[enrich] recovered ME slug from mint cache mint=${mint.slice(0, 8)} slug=${recovered.slug}`);
+
+    // 2) exact collection_address — in-memory cache → DB.
+    if (!meCollectionSlug && collAddr) {
+      const byColl = await recoverSlugByCollection(collAddr);
+      if (byColl) {
+        meCollectionSlug = byColl.slug;
+        meCollectionName = byColl.collectionName;
+        console.log(`[enrich] local slug hit source=collection collection=${collAddr.slice(0, 8)} slug=${byColl.slug} mint=${mint.slice(0, 8)}`);
       }
     }
+
+    // 3) Magic Eden token endpoint — only when the slug is still unknown OR DAS
+    //    left name/image null (ME is also our name/image backstop). Keeps the
+    //    existing 2-attempt retry inside getMeTokenData.
+    let meData: MeTokenData = { slug: null, collectionName: null, nftName: null, imageUrl: null };
+    const needMeForMeta = !metadata?.nftName || !metadata?.imageUrl;
+    if (!meCollectionSlug || needMeForMeta) {
+      meData = await getMeTokenData(mint);
+      if (!meCollectionSlug && meData.slug) {
+        meCollectionSlug = meData.slug;
+        // 4) Seed local caches so the rest of a same-collection burst skips ME.
+        mintSlugCache.set(mint, { slug: meData.slug, collectionName: meData.collectionName });
+        if (collAddr) collSlugCache.set(collAddr, { slug: meData.slug, collectionName: meData.collectionName });
+        if (Math.random() < 0.05) console.log(`[enrich] ME token fetch used mint=${mint.slice(0, 8)} slug=${meData.slug}`);
+      }
+    }
+    // collectionName backstop — ME top-level name when DAS/local had none.
+    meCollectionName = meCollectionName ?? meData.collectionName;
     if (metadata) {
       // ME's top-level `collectionName` is the human-readable collection name
       // (DAS almost always omits this for Core / pNFT). Backfill when DAS's
