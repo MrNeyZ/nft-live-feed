@@ -2381,12 +2381,12 @@ export default function MintsPage() {
                     />
                     <Pill
                       active
-                      color={rgb(VL.red)}
+                      color="#d96867"
                       onClick={() => addBlacklist(blInput)}
                       label="+"
                       
                       size="sm"
-                      style={settingsPillActive(rgb(VL.red))}
+                      style={settingsPillActive('#d96867')}
                     />
                     {blacklistSlugs.map((slug) => (
                       <span key={slug} className="feed-chip feed-chip-bl">

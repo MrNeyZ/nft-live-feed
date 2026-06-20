@@ -92,11 +92,11 @@ function isDensity(v: unknown): v is Density {
 // types" (see the `typeSet` gate in `filtered`).
 type TypeKey = Exclude<FilterKey, 'all'>;
 const FILTERS: { key: TypeKey; label: string; color: string }[] = [
-  { key: 'buy',     label: 'Buy',        color: rgb(VL.green) },
-  { key: 'sell',    label: 'Sell',       color: rgb(VL.red) },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: rgb(VL.green) },
-  { key: 'sellAmm', label: 'Sell AMM',   color: rgb(VL.red) },
-  { key: 'listing', label: 'Listings',   color: rgb(VL.purpleMuted) },
+  { key: 'buy',     label: 'Buy',        color: '#43b984' },
+  { key: 'sell',    label: 'Sell',       color: '#d96867' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: '#43b984' },
+  { key: 'sellAmm', label: 'Sell AMM',   color: '#d96867' },
+  { key: 'listing', label: 'Listings',   color: '#ad92ee' },
 ];
 
 /** Inactive-pill style for Type/Price utility filters inside the
@@ -1116,7 +1116,7 @@ export default function FeedPage() {
                     persistence + pause logic unchanged.) */}
                 <Pill
                   active
-                  color={paused ? rgb(VL.gold) : rgb(VL.green)}
+                  color={paused ? '#c7b479' : '#43b984'}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -1174,11 +1174,11 @@ export default function FeedPage() {
                               <Pill
                                 key={p.key}
                                 active={isActive}
-                                color={rgb(VL.purpleMuted)}
+                                color="#ad92ee"
                                 onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1194,12 +1194,12 @@ export default function FeedPage() {
                               <Pill
                                 key={d}
                                 active={isActive}
-                                color={rgb(VL.purpleMuted)}
+                                color="#ad92ee"
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
                                 
                                 size="sm"
-                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1221,11 +1221,11 @@ export default function FeedPage() {
                               <Pill
                                 key={m.key}
                                 active={isActive}
-                                color={rgb(VL.purpleMuted)}
+                                color="#ad92ee"
                                 onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1280,7 +1280,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color={rgb(VL.purpleMuted)}
+                            color="#ad92ee"
                             onClick={() => {
                               const v = collInput.trim();
                               if (v) { setCollFilter(v); setCollInput(''); }
@@ -1288,7 +1288,7 @@ export default function FeedPage() {
                             label="+"
                             
                             size="sm"
-                            style={settingsPillActive(rgb(VL.purpleMuted))}
+                            style={settingsPillActive('#ad92ee')}
                           />
                           {collFilter && (
                             <span className="feed-chip feed-chip-watch">
@@ -1319,12 +1319,12 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color={rgb(VL.red)}
+                            color="#d96867"
                             onClick={() => addBlacklist(blInput)}
                             label="+"
 
                             size="sm"
-                            style={settingsPillActive(rgb(VL.red))}
+                            style={settingsPillActive('#d96867')}
                           />
                           {blacklistSlugs.map((slug) => (
                             <span key={slug} className="feed-chip feed-chip-bl">

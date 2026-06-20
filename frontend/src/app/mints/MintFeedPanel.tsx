@@ -93,7 +93,7 @@ export function MintFeedPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
           <Pill
             active
-            color={paused ? rgb(VL.gold) : rgb(VL.green)}
+            color={paused ? '#c7b479' : '#43b984'}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />

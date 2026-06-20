@@ -114,7 +114,7 @@ export function SalesFeedPanel() {
           <SettingsToggle active={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
           <Pill
             active
-            color={paused ? rgb(VL.gold) : rgb(VL.green)}
+            color={paused ? '#c7b479' : '#43b984'}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -140,11 +140,11 @@ export function SalesFeedPanel() {
                   <Pill
                     key={d}
                     active={isActive}
-                    color={rgb(VL.purpleMuted)}
+                    color="#ad92ee"
                     onClick={() => setDensity(d)}
                     label={d.charAt(0).toUpperCase() + d.slice(1)}
                     size="sm"
-                    style={isActive ? settingsPillActive(rgb(VL.purpleMuted)) : SETTINGS_PILL_INACTIVE}
+                    style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
                   />
                 );
               })}
