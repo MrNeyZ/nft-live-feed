@@ -622,8 +622,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       </td>
       {/* ── numeric columns (centered over fixed-width cells) ── */}
       {/* MINTS — count of mints for this collection seen inside the
-          currently-selected timeframe window (5M / 10M / 15M / 30M /
-          1H / 4H / 1D). Matches the LIVE MINT FEED scope; was
+          currently-selected timeframe window (5M / 15M / 30M /
+          1H / 4H / 24H). Matches the LIVE MINT FEED scope; was
           previously the cumulative session count which made the
           timeframe pill feel non-functional. Tooltip spells out the
           timeframe + falls back to the cumulative number for context. */}

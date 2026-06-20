@@ -471,7 +471,7 @@ function savePersistedFeed(events: MintEvent[]): void {
  *      hasn't yet arrived for that group.
  *  Without this, the LIVE MINT FEED panel shows old events but the
  *  COLLECTIONS table on the left is empty for those groups even when
- *  the user picks 4H / 1D timeframe — the row simply doesn't exist.
+ *  the user picks 4H / 24H timeframe — the row simply doesn't exist.
  *
  *  Synthesized rows are always `displayState: 'incubating'` so they
  *  appear in both ACTIVE (WATCH tier) and RECENT tabs once a real
@@ -1042,7 +1042,7 @@ export default function MintsPage() {
   });
   // Backend-truthed per-collection mint counts for the active timeframe.
   // The live SSE buffer is capped at LIVE_FEED_MAX (150) so for older
-  // windows (1H / 4H / 1D) the local count silently undercounts. The
+  // windows (1H / 4H / 24H) the local count silently undercounts. The
   // /api/mints/tf-stats endpoint groups mint_events by grouping_key over
   // the requested windowMs — bounded indexed query, 5 s server cache.
   // tfStatsByKey below seeds counts from this map and only adds local
@@ -1342,7 +1342,7 @@ export default function MintsPage() {
     // events. Runs ONCE on mount, before any SSE traffic can arrive
     // (the SSE useEffect opens the connection in the same tick but
     // the network round-trip lands later). Result: when the user
-    // expands the timeframe to 4H / 1D, collections that exist only
+    // expands the timeframe to 4H / 24H, collections that exist only
     // in the persisted feed (no surviving collection cache row, no
     // backend snapshot replay yet) still appear in the table. The
     // SSE handler's sticky-merge later overwrites these scaffolds
@@ -1838,7 +1838,7 @@ export default function MintsPage() {
    *  while surfacing pre-burst activity at the bottom of the table. */
   // Per-collection stats inside the currently selected timeframe window.
   // Drives the MINTS column (count) and the RATE column (mintPerMin) so
-  // the table metrics react to 5M / 10M / … / 1D pills instead of showing
+  // the table metrics react to 5M / … / 24H pills instead of showing
   // the cumulative session-lifetime number. Counted from the live events
   // buffer, which is bounded at LIVE_FEED_MAX (150 newest); for very hot
   // collections + long timeframes the count can be understated when older

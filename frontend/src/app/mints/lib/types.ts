@@ -10,16 +10,16 @@
  *  / COEF cells. Externalised so the row component, the page, and
  *  any future intelligence-overlay code can share a single canonical
  *  list — the literal `as const` tuple keeps the type narrow. */
-export const MINT_TIMEFRAMES = ['5M', '10M', '15M', '30M', '1H', '4H', '1D'] as const;
+export const MINT_TIMEFRAMES = ['5M', '15M', '30M', '1H', '4H', '12H', '24H'] as const;
 export type MintTimeframe = typeof MINT_TIMEFRAMES[number];
 export const MINT_TF_MS: Record<MintTimeframe, number> = {
   '5M':   5 * 60_000,
-  '10M': 10 * 60_000,
   '15M': 15 * 60_000,
   '30M': 30 * 60_000,
   '1H':  60 * 60_000,
   '4H':  4  * 60 * 60_000,
-  '1D':  24 * 60 * 60_000,
+  '12H': 12 * 60 * 60_000,
+  '24H': 24 * 60 * 60_000,
 };
 /** Per-timeframe tooltips for the pills in the tracker header. Same
  *  phrasing across pills so users learn the rule once and don't have
@@ -27,12 +27,12 @@ export const MINT_TF_MS: Record<MintTimeframe, number> = {
  *  the active-window math behind RATE / COEF. */
 export const MINT_TF_DESC: Record<MintTimeframe, string> = {
   '5M':  'Show collections active in the last 5 minutes',
-  '10M': 'Show collections active in the last 10 minutes',
   '15M': 'Show collections active in the last 15 minutes',
   '30M': 'Show collections active in the last 30 minutes',
   '1H':  'Show collections active in the last hour',
   '4H':  'Show collections active in the last 4 hours',
-  '1D':  'Show collections active in the last 24 hours',
+  '12H': 'Show collections active in the last 12 hours',
+  '24H': 'Show collections active in the last 24 hours',
 };
 
 export type ProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
