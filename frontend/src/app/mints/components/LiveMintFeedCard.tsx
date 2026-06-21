@@ -300,11 +300,6 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const strippedCollection = collectionName
     ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim()
     : null;
-  // A stripped result that is a bare number is a per-asset name that leaked
-  // into group.name — treat as unresolved and fall back to address/dash.
-  const strippedCollectionUsable = strippedCollection && !/^\d+$/.test(strippedCollection)
-    ? strippedCollection
-    : null;
   // Final collection line. Order:
   //   1. stripped backend name whenever it resolves to a real
   //      string (preferred — even when it duplicates `nftName`;
@@ -315,8 +310,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   //      yet.
   //   3. literal "—" when neither is available.
   const collectionLine =
-    (strippedCollectionUsable && strippedCollectionUsable.length > 0)
-      ? strippedCollectionUsable
+    (strippedCollection && strippedCollection.length > 0)
+      ? strippedCollection
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
   // Char-cap the collection line to the SAME limit as the NFT title
   // (laptop/default 13 · PC 17). `shortenNftName` is deliberately NOT reused
@@ -333,7 +328,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // (`strippedCollection`), never the base58 address fallback. Hoisted to
   // component scope so the X icon can render in its own fixed-width outer
   // slot (below) rather than inside the collection-name text flow.
-  const xName = (strippedCollectionUsable && strippedCollectionUsable.length > 0) ? strippedCollectionUsable : null;
+  const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
   // Placeholder initials. For a deploy card seed from the resolved collection
   // name (e.g. "SLAB" → "SL") rather than the "NFT"/short-mint stub a mint card
   // uses — a deploy has no per-NFT asset, so its identity IS the collection.
