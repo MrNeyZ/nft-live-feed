@@ -21,6 +21,7 @@ import { noteOrbisUncoveredFromLogs } from './orbis-raw/uncovered-watch';
 import {
   ingestMintRaw,
   hasMintInstructionLog,
+  isCandyGuardMintLog,
   MPL_CORE_PROGRAM,
   TOKEN_METADATA_PROGRAM,
   CANDY_GUARD_PROGRAM,
@@ -329,6 +330,32 @@ function noteMintPrefilterPass(targetName: string): void {
     console.log(`[mints/prefilter] target=${targetName} pass=${n}`);
   }
 }
+
+/** Per-target rolling pass/drop counters. Reset every 60 s and printed as a
+ *  single [mint-prefilter] line per active target so we can measure the
+ *  WS prefilter's rejection rate in production without flooding the log. */
+interface PrefilterBucket { pass: number; drop: number; }
+const mintPrefilterBuckets = new Map<string, PrefilterBucket>();
+function prefilterBucketPass(targetName: string): void {
+  const b = mintPrefilterBuckets.get(targetName) ?? { pass: 0, drop: 0 };
+  b.pass++;
+  mintPrefilterBuckets.set(targetName, b);
+}
+function prefilterBucketDrop(targetName: string): void {
+  const b = mintPrefilterBuckets.get(targetName) ?? { pass: 0, drop: 0 };
+  b.drop++;
+  mintPrefilterBuckets.set(targetName, b);
+}
+setInterval(() => {
+  for (const [name, b] of mintPrefilterBuckets) {
+    if (b.pass === 0 && b.drop === 0) continue;
+    const total   = b.pass + b.drop;
+    const dropPct = total > 0 ? Math.round((b.drop / total) * 100) : 0;
+    console.log(`[mint-prefilter] target=${name} pass=${b.pass} drop=${b.drop} dropRate=${dropPct}%`);
+    b.pass = 0;
+    b.drop = 0;
+  }
+}, 60_000).unref();
 
 // ─── Concurrency limiters ─────────────────────────────────────────────────────
 //
@@ -1017,11 +1044,26 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       if (!hasMintInstructionLog(value.logs)) {
         stats.filtered++;
         incPrefilterSkip();
+        prefilterBucketDrop(target.name);
         return;
       }
       // Sampled debug: log first hit per target then every 50th hit so
       // we can see the prefilter is wired but don't spam under volume.
       noteMintPrefilterPass(target.name);
+      prefilterBucketPass(target.name);
+    } else if (target.name === 'candy_guard') {
+      // CG is not in MINT_PREFILTER_TARGETS because its `MintV2` log line
+      // wasn't safe to put in the shared MINT_LOG_NEEDLES (TM-2022 conflict).
+      // Now that we know this is the CG subscription, require an actual mint
+      // instruction to reject admin ops (initialize / update / withdraw / route).
+      if (!isCandyGuardMintLog(value.logs)) {
+        stats.filtered++;
+        incPrefilterSkip();
+        prefilterBucketDrop(target.name);
+        return;
+      }
+      noteMintPrefilterPass(target.name);
+      prefilterBucketPass(target.name);
     }
 
     stats.fired++;

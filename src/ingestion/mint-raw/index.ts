@@ -434,6 +434,27 @@ export function hasMintInstructionLog(logs: unknown): boolean {
   return false;
 }
 
+/** WS-only prefilter for the candy_guard target. Returns true only when the
+ *  log lines include a CG mint instruction (`MintV2` or `MintFromCache`).
+ *  This rejects admin operations (initialize, update, withdraw, freeze, route)
+ *  without touching the per-tx parser path used by pollers / reconcilers.
+ *
+ *  `MintV2` is intentionally NOT in MINT_LOG_NEEDLES (it would match SPL
+ *  Token-2022's `MintV2` for the TM/Core path), but it is safe here because
+ *  this function is only called when the CG program subscription fires — the
+ *  CG program ID already scopes the notification uniquely. */
+const CG_MINT_NEEDLES = ['Instruction: MintV2', 'Instruction: MintFromCache'] as const;
+export function isCandyGuardMintLog(logs: unknown): boolean {
+  if (!Array.isArray(logs)) return false;
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    for (const needle of CG_MINT_NEEDLES) {
+      if (line.includes(needle)) return true;
+    }
+  }
+  return false;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const MIN_PAID_LAMPORTS = 1_000_000;
