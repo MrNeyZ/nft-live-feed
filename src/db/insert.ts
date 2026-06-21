@@ -214,7 +214,8 @@ const INSERT_SQL = `
 
 const UPDATE_META_SQL = `
   UPDATE sale_events
-  SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5, mint_address = $6, me_collection_slug = $7
+  SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5,
+      mint_address = $6, me_collection_slug = $7, floor_delta = $8
   WHERE signature = $1
 `;
 
@@ -464,6 +465,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         enriched.collectionAddress,
         enriched.mintAddress,        // backfills cNFT asset id when tensor-raw emitted ''
         enriched.meCollectionSlug,   // persisted so REST snapshot rows can render collection-page links
+        enriched.floorDelta ?? null, // persisted so FloorChip badge survives page reloads
       ]);
       checkPricingAlerts(enriched);
       logFrameDebugOnMeta({

@@ -123,14 +123,21 @@ function stampFromCache<T extends {
   me_collection_slug: string | null;
   price_lamports: number | string | bigint;
   mint_address: string | null;
-}>(rows: T[]): Array<T & { floor_delta?: number; resize_status?: string | null }> {
+  floor_delta?: number | null;
+}>(rows: T[]): Array<T & { floor_delta?: number | null; resize_status?: string | null }> {
   return rows.map((r) => {
-    let row: T & { floor_delta?: number; resize_status?: string | null } = r;
-    const floor = peekCachedFloorLamports(r.me_collection_slug);
-    if (floor != null) {
-      const priceLam = Number(r.price_lamports);
-      if (Number.isFinite(priceLam) && floor > 0) {
-        row = { ...row, floor_delta: (priceLam - floor) / floor };
+    let row: T & { floor_delta?: number | null; resize_status?: string | null } = r;
+    // Prefer the value persisted at enrichment time (migration 017).
+    // Only fall back to the live floor cache when the DB has no value —
+    // this keeps badges consistent across reloads even when the floor cache
+    // is cold after a backend restart.
+    if (r.floor_delta == null) {
+      const floor = peekCachedFloorLamports(r.me_collection_slug);
+      if (floor != null) {
+        const priceLam = Number(r.price_lamports);
+        if (Number.isFinite(priceLam) && floor > 0) {
+          row = { ...row, floor_delta: (priceLam - floor) / floor };
+        }
       }
     }
     if (r.mint_address) {
