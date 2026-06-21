@@ -428,10 +428,14 @@ export function createRuntimeRouter(): Router {
         const n = Number(row.count);
         if (Number.isFinite(n) && n > 0) inFeed[row.grouping_key] = n;
       }
-      // detected = unsampled counts from in-process minute buckets (every recordMint call)
+      // detected = unsampled counts from in-process minute buckets (every recordMint call).
+      // After a backend restart the buckets are empty, so we take max(detected, inFeed)
+      // — the DB acts as a floor until live mints repopulate the in-process counters.
       const detectedMap = getTfCounts(windowMs);
-      const detected: Record<string, number> = {};
-      for (const [key, n] of detectedMap) detected[key] = n;
+      const detected: Record<string, number> = { ...inFeed };
+      for (const [key, n] of detectedMap) {
+        detected[key] = Math.max(detected[key] ?? 0, n);
+      }
       // stats = detected for backwards-compat (cell value = accurate total)
       const stats = detected;
       tfStatsCache.set(cacheKey, { asOf: now, stats });
