@@ -59,6 +59,9 @@ function nameLooksWeak(name: string | null | undefined): boolean {
   if (!name || name.length === 0) return true;
   if (SHORT_ADDR_NAME_RE.test(name)) return true;
   if (nameLooksPerAsset(name))      return true;
+  // A bare number ("2452", "1658") is a per-asset ID that leaked into
+  // group.name — treat as weak so ME/DAS can overwrite with the real name.
+  if (/^\d+$/.test(name))           return true;
   return false;
 }
 
