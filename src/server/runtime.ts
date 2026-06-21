@@ -24,7 +24,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { getMode, setMode, isRuntimeMode, isMintTrackerEnabled, setMintTrackerEnabled } from '../runtime/mode';
-import { lastObservedMintAt, currentRecentMints } from '../mints/accumulator';
+import { lastObservedMintAt, currentRecentMints, getTfCounts } from '../mints/accumulator';
 import { getPool } from '../db/client';
 import { recentMintMetaSnapshot } from '../events/emitter';
 import { getMintListenerStatus } from '../ingestion/listener';
@@ -414,6 +414,7 @@ export function createRuntimeRouter(): Router {
     }
     try {
       const since = new Date(now - windowMs);
+      // inFeed = sampled feed cards stored in mint_events (velocity-sampled, may undercount bursts)
       const result = await getPool().query<{ grouping_key: string; count: string }>(
         `SELECT grouping_key, COUNT(*) AS count
            FROM mint_events
@@ -422,13 +423,19 @@ export function createRuntimeRouter(): Router {
           GROUP BY grouping_key`,
         [since],
       );
-      const stats: Record<string, number> = {};
+      const inFeed: Record<string, number> = {};
       for (const row of result.rows) {
         const n = Number(row.count);
-        if (Number.isFinite(n) && n > 0) stats[row.grouping_key] = n;
+        if (Number.isFinite(n) && n > 0) inFeed[row.grouping_key] = n;
       }
+      // detected = unsampled counts from in-process minute buckets (every recordMint call)
+      const detectedMap = getTfCounts(windowMs);
+      const detected: Record<string, number> = {};
+      for (const [key, n] of detectedMap) detected[key] = n;
+      // stats = detected for backwards-compat (cell value = accurate total)
+      const stats = detected;
       tfStatsCache.set(cacheKey, { asOf: now, stats });
-      res.json({ stats, windowMs, asOf: now });
+      res.json({ stats, detected, inFeed, windowMs, asOf: now });
     } catch (e) {
       console.log(`[mints/tf-stats] query failed: ${(e as Error).message}`);
       res.status(500).json({ error: 'query_failed' });

@@ -138,6 +138,9 @@ export interface MintStatus {
  *  the IIFE that read it). */
 export interface MintsTimeframeStats {
   count:      number;
+  /** Feed cards emitted to the live feed in TF (velocity-sampled, may undercount bursts).
+   *  count = unsampled detected total; inFeed = sampled subset shown in the feed. */
+  inFeed:     number;
   firstTs:    number;
   lastTs:     number;
   /** Mints that landed in the last quarter of the timeframe window.

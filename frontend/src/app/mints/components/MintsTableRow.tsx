@@ -152,11 +152,6 @@ interface Props {
   /** Toggle this collection's pin (SHOW button). Pin persists after the mouse
    *  leaves; clicking again unpins; pinning another row replaces the pin. */
   onTogglePin?: () => void;
-  /** Aggregate Mint Stats for the active timeframe.
-   *  observedCount = collections with lastMintAt within the TF window (no UI filters).
-   *  displayedCount = collections currently shown in the table (all filters applied). */
-  observedCount?:  number;
-  displayedCount?: number;
 }
 
 /** Display-only collection-name truncation. Caps the visible label at ~12
@@ -183,7 +178,7 @@ function formatTokenAmount(raw: string, decimals: number): string | null {
   return fracTrunc.length > 0 ? `${intPart}.${fracTrunc}` : intPart;
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin, observedCount, displayedCount }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin }: Props) {
   // Per-row toggle: SOL price (default) ↔ custom-token amount. Persists
   // for the lifetime of the mounted row only — short-lived UI state, no
   // localStorage. Independent across rows.
@@ -633,17 +628,15 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           timeframe pill feel non-functional. Tooltip spells out the
           timeframe + falls back to the cumulative number for context. */}
       {(() => {
-        const tfCount = tfStatsByKey.get(r.groupingKey)?.count ?? 0;
-        // Tooltip content. Aggregate collection counts for the active
-        // timeframe: Observed = all collections with a recent mint
-        // (TF gate only); Displayed = those passing all UI filters.
-        const observed   = observedCount  ?? 0;
-        const emitted    = displayedCount ?? null;
-        const sampledOut = emitted !== null ? Math.max(0, observed - emitted) : null;
-        const ratioPct   = (emitted !== null && observed > 0)
-          ? (emitted / observed) * 100
-          : null;
-        const ratioText  = ratioPct === null ? null
+        const tfStats  = tfStatsByKey.get(r.groupingKey);
+        const tfCount  = tfStats?.count  ?? 0;
+        const inFeed   = tfStats?.inFeed ?? null;
+        // Tooltip: per-collection breakdown for this TF.
+        // Detected = unsampled total (every mint, from accumulator minute buckets).
+        // In feed  = sampled feed cards stored in mint_events (may undercount bursts).
+        const showRatio = inFeed !== null && tfCount > 0;
+        const ratioPct  = showRatio ? (inFeed! / tfCount) * 100 : null;
+        const ratioText = ratioPct === null ? null
           : ratioPct >= 10 ? `${Math.round(ratioPct)}%`
           : `${ratioPct.toFixed(1)}%`;
         return (
@@ -652,10 +645,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               ref={mintsCellRef}
               onMouseEnter={openMintsPopover}
               onMouseLeave={closeMintsPopover}
-              // Same green family as RATE (#43b984) but softer — keeps
-              // MINTS in the same family visually while leaving RATE
-              // the brightest value. fontWeight 800 stays unchanged so
-              // the column still reads heavy / structural.
               style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: rgb(VL.green), letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {tfCount.toLocaleString()}
@@ -671,10 +660,9 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 }}
               >
                 <div style={POPOVER_HEADER_STYLE}>Mint stats</div>
-                <PopRow label="Observed" value={observed.toLocaleString()} />
-                {emitted    !== null && <PopRow label="Displayed" value={emitted.toLocaleString()} />}
-                {sampledOut !== null && <PopRow label="Sampled" value={sampledOut.toLocaleString()} />}
-                {ratioText  !== null && <PopRow label="Ratio" value={ratioText} highlight />}
+                <PopRow label="Detected" value={tfCount.toLocaleString()} />
+                {inFeed   !== null && <PopRow label="In feed"  value={inFeed.toLocaleString()} />}
+                {ratioText !== null && <PopRow label="Feed ratio" value={ratioText} highlight />}
               </div>,
               document.body
             )}

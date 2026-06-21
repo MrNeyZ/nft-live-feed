@@ -1051,6 +1051,7 @@ export default function MintsPage() {
   // local-buffer fallback covers it.
   const [tfStatsBackend, setTfStatsBackend] = useState<{
     stats:    Map<string, number>;
+    inFeed:   Map<string, number>;
     asOf:     number;
     windowMs: number;
   } | null>(null);
@@ -1064,11 +1065,12 @@ export default function MintsPage() {
       try {
         const res = await fetch(`${API_BASE}/api/mints/tf-stats?windowMs=${windowMs}`, { cache: 'no-store' });
         if (!res.ok) return;
-        const body = await res.json() as { stats?: Record<string, number>; asOf?: number; windowMs?: number };
+        const body = await res.json() as { stats?: Record<string, number>; inFeed?: Record<string, number>; asOf?: number; windowMs?: number };
         if (cancelled) return;
         if (!body.stats || typeof body.asOf !== 'number' || typeof body.windowMs !== 'number') return;
         setTfStatsBackend({
           stats:    new Map(Object.entries(body.stats)),
+          inFeed:   new Map(Object.entries(body.inFeed ?? {})),
           asOf:     body.asOf,
           windowMs: body.windowMs,
         });
@@ -1888,6 +1890,7 @@ export default function MintsPage() {
     const tfMin          = tfMs / 60_000;
     type Stats           = {
       count:    number;
+      inFeed:   number;   // sampled feed cards in TF (from mint_events, may undercount bursts)
       firstTs:  number;
       lastTs:   number;
       recentQ:  number;   // mints in the last 25 % of the timeframe
@@ -1903,8 +1906,9 @@ export default function MintsPage() {
     const backendCutoff = hasBackend ? tfStatsBackend!.asOf + 3_000 : 0; // 3 s clock-skew grace
     if (hasBackend) {
       for (const [key, count] of tfStatsBackend!.stats) {
+        const inFeed = tfStatsBackend!.inFeed.get(key) ?? 0;
         m.set(key, {
-          count, firstTs: 0, lastTs: 0,
+          count, inFeed, firstTs: 0, lastTs: 0,
           recentQ: 0, mintPerMin: 0,
         });
       }
@@ -1916,11 +1920,12 @@ export default function MintsPage() {
       const cur = m.get(ev.groupingKey);
       if (!cur) {
         m.set(ev.groupingKey, {
-          count: inBackend ? 0 : 1, firstTs: ev.receivedAt, lastTs: ev.receivedAt,
+          count: inBackend ? 0 : 1, inFeed: inBackend ? 0 : 1,
+          firstTs: ev.receivedAt, lastTs: ev.receivedAt,
           recentQ: isRecent, mintPerMin: 0,
         });
       } else {
-        if (!inBackend) cur.count += 1;
+        if (!inBackend) { cur.count += 1; cur.inFeed += 1; }
         cur.recentQ += isRecent;
         if (cur.firstTs === 0 || ev.receivedAt < cur.firstTs) cur.firstTs = ev.receivedAt;
         if (ev.receivedAt > cur.lastTs)  cur.lastTs  = ev.receivedAt;
@@ -2130,16 +2135,6 @@ export default function MintsPage() {
 
   // Aggregate Mint Stats — collection counts for the active timeframe.
   // Observed = any collection whose lastMintAt is within the TF window
-  // (no UI filters applied). Displayed = sorted.length (all filters).
-  // Recomputes on the same deps that change TF membership.
-  const observedCount = useMemo(() => {
-    const cutoff = Date.now() - MINT_TF_MS[mintTf];
-    let n = 0;
-    for (const r of rows.values()) {
-      if (r.lastMintAt >= cutoff) n++;
-    }
-    return n;
-  }, [rows, mintTf, tick]);
 
   // ── LEFT-table pause snapshot ─────────────────────────────────────
   // Mirrors the RIGHT feed's hover-pause: while hoverPaused is true,
@@ -2622,8 +2617,6 @@ export default function MintsPage() {
                   lastPriceByKey={displayLastPriceByKey}
                   lastPaymentByKey={displayLastPaymentByKey}
                   paymentTokens={paymentTokens}
-                  observedCount={observedCount}
-                  displayedCount={displaySorted.length}
                   // Transient hover only takes effect when nothing is pinned —
                   // a pin holds the scope regardless of mouse movement.
                   onHoverEnter={() => setHoveredKey(r.groupingKey)}

@@ -90,6 +90,10 @@ interface Accum {
   coreLaunchpad?:    boolean;
 
   observedMints: number;
+  /** Per-minute unsampled mint counts for the past 24 h (key = Math.floor(ts/60_000)).
+   *  Incremented for EVERY recordMint call, before the feed-sampler decision.
+   *  Used by getTfCounts() so REST tf-stats reflects real mints, not sampled cards. */
+  mintMinutes:   Map<number, number>;
   events60s:     RingItem[];
   events5m:      RingItem[];
 
@@ -622,6 +626,7 @@ export function recordMint(ev: MintEventWire): boolean {
       sourceLabel:       ev.sourceLabel,
       coreLaunchpad:     ev.coreLaunchpad === true,
       observedMints:     0,
+      mintMinutes:       new Map(),
       events60s:         [],
       events5m:          [],
       firstObservedAt:   now,
@@ -666,6 +671,8 @@ export function recordMint(ev: MintEventWire): boolean {
   a.observedMints++;
   a.supplyMintedLocal++;
   a.lastMintAt = now;
+  const mk = Math.floor(now / 60_000);
+  a.mintMinutes.set(mk, (a.mintMinutes.get(mk) ?? 0) + 1);
   const item: RingItem = { ts: now, priceLamports: ev.priceLamports };
   a.events60s.push(item);
   a.events5m.push(item);
@@ -760,6 +767,11 @@ function sweep(): void {
     // Trim windows even if no new events arrived.
     a.events60s = trimWindow(a.events60s, now - WINDOW_60S);
     a.events5m  = trimWindow(a.events5m,  now - WINDOW_5M);
+    // Prune minute buckets older than 25 h (1 h grace over the 24 h max TF).
+    const pruneBefore = Math.floor((now - 25 * 3600_000) / 60_000);
+    for (const mk of a.mintMinutes.keys()) {
+      if (mk < pruneBefore) a.mintMinutes.delete(mk);
+    }
 
     // Demote burst/launchpad-shown collections that went quiet without
     // hitting the 50-mint floor. Threshold-shown collections stay shown
@@ -1168,6 +1180,23 @@ export function setMintMaxSupply(groupingKey: string, maxSupply: number | null):
  *    3. Adds the groupingKey to `evictedNonNft` so any further
  *       `recordMint` calls for the same key are dropped before they
  *       can re-promote the row. */
+/** Returns unsampled mint counts per groupingKey for the requested window.
+ *  Counts come from mintMinutes buckets — incremented for every recordMint
+ *  call, before the feed-sampler decision — so the result is not affected
+ *  by velocity-based card dropping. */
+export function getTfCounts(windowMs: number): Map<string, number> {
+  const cutoffMin = Math.floor((Date.now() - windowMs) / 60_000);
+  const result    = new Map<string, number>();
+  for (const [key, a] of map) {
+    let n = 0;
+    for (const [mk, cnt] of a.mintMinutes) {
+      if (mk >= cutoffMin) n += cnt;
+    }
+    if (n > 0) result.set(key, n);
+  }
+  return result;
+}
+
 export function evictMintGroup(groupingKey: string): void {
   rememberNonNft(groupingKey);
   const a = map.get(groupingKey);
@@ -1232,6 +1261,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       sourceLabel:       r.sourceLabel,
       coreLaunchpad:     r.coreLaunchpad === true,
       observedMints:     r.observedMints,
+      mintMinutes:       new Map(),
       events60s:         [],
       events5m:          [],
       firstObservedAt:   typeof r.firstSeenAt === 'number' && r.firstSeenAt > 0 ? r.firstSeenAt : r.lastMintAt,
