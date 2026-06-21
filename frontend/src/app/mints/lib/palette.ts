@@ -31,28 +31,19 @@ export function colorForCollection(addr: string | null | undefined): string {
 // hue-tint helper was retired with that decision.
 
 /** Per-wallet muted-tint palette for the minter line on the Live Mint
- *  Feed. Deliberately separate from `COLLECTION_PALETTE` so a wallet
- *  hash never visually pairs with a collection hash by coincidence.
- *  14 entries spaced ~26° apart across the full hue wheel at S≈42–65%,
- *  L≈62–72% — visibly distinct, premium, never neon, never muddy.
- *  Previous 10-entry version clustered at S≈20–26% which made all
- *  entries read as the same grey-green. Same FNV-1a hash family as
- *  `colorForCollection`. */
+ *  Feed. Derived directly from CATEGORY_LAYER — same 7 hues used for
+ *  collection border/bar/avatar accents, but S reduced ~25pp and L
+ *  raised to ~63–73% so wallet text reads as softer metadata and never
+ *  visually competes with a collection's full-saturation accent.
+ *  Same FNV-1a hash family as `colorForCollection`. */
 export const WALLET_PALETTE: readonly string[] = [
-  '#d47777',  // muted red       H≈5
-  '#d38a68',  // muted orange    H≈19
-  '#c9b46a',  // muted gold      H≈47
-  '#c5d175',  // muted chartreuse H≈68
-  '#9ac879',  // muted lime      H≈95
-  '#79c883',  // muted green     H≈128
-  '#77c8a5',  // muted mint      H≈154
-  '#74c8d8',  // muted cyan      H≈190
-  '#6da4e8',  // muted blue      H≈213
-  '#8188da',  // muted indigo    H≈235
-  '#b88ce5',  // muted purple    H≈270
-  '#d586d5',  // muted magenta   H≈300
-  '#d889b7',  // muted pink      H≈325
-  '#d77f95',  // muted rose      H≈345
+  '#ce8a87',  // muted red     ← #DD6A66 (CAT_RED)    S 64→42%, L 63→67%
+  '#d19f7b',  // muted orange  ← #E08A4B (CAT_ORANGE) S 71→48%, L 59→65%
+  '#d8c783',  // muted yellow  ← #E6C84F (CAT_YELLOW) S 75→52%, L 61→68%
+  '#80c2a4',  // muted green   ← #46C08A (CAT_GREEN)  S 49→35%, L 51→63%
+  '#7bb0d1',  // muted blue    ← #4AA6E0 (CAT_BLUE)   S 71→48%, L 58→65%
+  '#a898dd',  // muted purple  ← #8C6CF2 (CAT_PURPLE) S 84→50%, L 69→73%
+  '#d095b7',  // muted pink    ← #D77AB0 (CAT_PINK)   S 54→38%, L 66→70%
 ];
 export function colorForWallet(addr: string | null | undefined): string {
   // Existing muted-metadata grey is the sentinel when no minter is on
