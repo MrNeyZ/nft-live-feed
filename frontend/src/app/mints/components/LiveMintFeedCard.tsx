@@ -180,17 +180,19 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
             backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
-            <span style={{ color: '#7e7799' }}>SOL</span>
-            <span style={{ color: '#cdc2f2', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
+          {/* SOL — primary metric: larger, brighter, heavier */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 18, marginBottom: 6 }}>
+            <span style={{ fontSize: 10.5, color: '#7e7799' }}>SOL</span>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: '#f0ecff', fontVariantNumeric: 'tabular-nums' }}>{sol}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
-            <span style={{ color: '#7e7799' }}>TXS</span>
-            <span style={{ color: '#e7e1f6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{txs}</span>
+          {/* TXS / TOKENS — secondary: muted weight and opacity */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 18, marginBottom: 3, opacity: 0.7 }}>
+            <span style={{ fontSize: 10.5, color: '#7e7799' }}>TXS</span>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: '#cdc2f2', fontVariantNumeric: 'tabular-nums' }}>{txs}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 10.5, lineHeight: 1.5 }}>
-            <span style={{ color: '#7e7799' }}>TOKENS</span>
-            <span style={{ color: '#e7e1f6', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 18, opacity: 0.7 }}>
+            <span style={{ fontSize: 10.5, color: '#7e7799' }}>TOKENS</span>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: '#cdc2f2', fontVariantNumeric: 'tabular-nums' }}>{tokens}</span>
           </div>
           {data && data !== 'loading' && data.topTokens.length > 0 && (
             <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px solid ${alpha(VL.purpleTint,0.14)}` }}>
@@ -244,8 +246,15 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
     && ev.nftName.length > 0
     && ev.nftName !== collectionName
     && ev.nftName !== collNameStripped;
+  // When nftName is a bare number (e.g. "1658") and a real (non-numeric)
+  // collection name exists, compose "CollectionName #N" — mirrors the sales
+  // feed's displayNftName logic so numeric-named collections show correctly.
+  const nftNameIsNumeric = hasRealNftName && /^\d+$/.test(ev.nftName as string);
+  const collNameIsReal   = !!collectionName && !/^\d+$/.test(collectionName);
   const displayName = hasRealNftName
-    ? (ev.nftName as string)
+    ? (nftNameIsNumeric && collNameIsReal
+        ? `${collectionName} #${ev.nftName}`
+        : (ev.nftName as string))
     : (isSolPubkey(ev.mintAddress) ? shortMint(ev.mintAddress) : 'NFT');
   // Char-based title shortening — reuses the Sales feed's `shortenNftName`
   // (single source of truth). The old Live Mint Feed had NO char limit (pure
@@ -291,6 +300,11 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const strippedCollection = collectionName
     ? collectionName.replace(/\s*#\s*\d+\s*$/, '').trim()
     : null;
+  // A stripped result that is a bare number is a per-asset name that leaked
+  // into group.name — treat as unresolved and fall back to address/dash.
+  const strippedCollectionUsable = strippedCollection && !/^\d+$/.test(strippedCollection)
+    ? strippedCollection
+    : null;
   // Final collection line. Order:
   //   1. stripped backend name whenever it resolves to a real
   //      string (preferred — even when it duplicates `nftName`;
@@ -301,8 +315,8 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   //      yet.
   //   3. literal "—" when neither is available.
   const collectionLine =
-    (strippedCollection && strippedCollection.length > 0)
-      ? strippedCollection
+    (strippedCollectionUsable && strippedCollectionUsable.length > 0)
+      ? strippedCollectionUsable
       : (ev.collectionAddress ? shortMint(ev.collectionAddress) : '—');
   // Char-cap the collection line to the SAME limit as the NFT title
   // (laptop/default 13 · PC 17). `shortenNftName` is deliberately NOT reused
@@ -319,7 +333,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // (`strippedCollection`), never the base58 address fallback. Hoisted to
   // component scope so the X icon can render in its own fixed-width outer
   // slot (below) rather than inside the collection-name text flow.
-  const xName = (strippedCollection && strippedCollection.length > 0) ? strippedCollection : null;
+  const xName = (strippedCollectionUsable && strippedCollectionUsable.length > 0) ? strippedCollectionUsable : null;
   // Placeholder initials. For a deploy card seed from the resolved collection
   // name (e.g. "SLAB" → "SL") rather than the "NFT"/short-mint stub a mint card
   // uses — a deploy has no per-NFT asset, so its identity IS the collection.

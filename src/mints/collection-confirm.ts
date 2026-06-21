@@ -373,9 +373,14 @@ async function runAttempt(entry: Pending): Promise<void> {
     // row title.
     const stripped = nftName ? nftName.replace(/\s*#\s*\d+\s*$/, '').trim() : null;
     const isStrong = !!collectionName || !!meCollectionName;
+    // A stripped result that is itself a bare number (e.g. nftName="2454" → stripped="2454")
+    // is a per-asset ID, not a collection name. Reject it so we don't write "2454" as group.name.
+    const strippedUsable = stripped && stripped.length > 0 && !/^\d+$/.test(stripped)
+      ? stripped
+      : null;
     const finalName = collectionName
       ?? meCollectionName
-      ?? (stripped && stripped.length > 0 ? stripped : null)
+      ?? strippedUsable
       ?? undefined;
     // Sticky guard against stripped-name overwrites. Per-NFT stripped
     // names from successive retries on the same collection used to
