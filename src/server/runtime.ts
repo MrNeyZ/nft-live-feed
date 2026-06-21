@@ -391,7 +391,7 @@ export function createRuntimeRouter(): Router {
   // enough history. Query is a single indexed GROUP BY on the
   // mint_events.created_at index; cached in-process for 5 s so a burst
   // of clients flipping timeframes doesn't hammer the DB.
-  type TfStatsCacheEntry = { asOf: number; stats: Record<string, number> };
+  type TfStatsCacheEntry = { asOf: number; stats: Record<string, number>; inFeed: Record<string, number>; detected: Record<string, number> };
   const tfStatsCache = new Map<number, TfStatsCacheEntry>();
   const TF_STATS_TTL_MS = 5_000;
 
@@ -409,7 +409,7 @@ export function createRuntimeRouter(): Router {
     const now = Date.now();
     const cached = tfStatsCache.get(cacheKey);
     if (cached && now - cached.asOf < TF_STATS_TTL_MS) {
-      res.json({ stats: cached.stats, windowMs, asOf: cached.asOf });
+      res.json({ stats: cached.stats, inFeed: cached.inFeed, detected: cached.detected, windowMs, asOf: cached.asOf });
       return;
     }
     try {
@@ -439,7 +439,7 @@ export function createRuntimeRouter(): Router {
       for (const [key, n] of detectedMap) {
         stats[key] = Math.max(stats[key] ?? 0, n);
       }
-      tfStatsCache.set(cacheKey, { asOf: now, stats });
+      tfStatsCache.set(cacheKey, { asOf: now, stats, inFeed, detected });
       res.json({ stats, detected, inFeed, windowMs, asOf: now });
     } catch (e) {
       console.log(`[mints/tf-stats] query failed: ${(e as Error).message}`);
