@@ -243,8 +243,36 @@ function ensureCtx(): AudioContext | null {
   try { audioCtx = new AC(); } catch { audioCtx = null; }
   return audioCtx;
 }
+// Silent oscillator that keeps Bluetooth audio devices from entering sleep
+// mode between notification sounds. Inaudible (gain 0.00001) but sufficient
+// to hold the codec open. Started once, after the AudioContext is running.
+let keepaliveStarted = false;
+function startKeepAlive(): void {
+  if (keepaliveStarted || !audioCtx) return;
+  keepaliveStarted = true;
+  try {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.00001;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    console.debug('[audio] keepalive enabled');
+  } catch { /* Web Audio unavailable — skip */ }
+}
+
 function resumeCtx(): void {
-  if (audioCtx && audioCtx.state === 'suspended') { void audioCtx.resume().catch(() => undefined); }
+  if (!audioCtx) return;
+  if (audioCtx.state === 'running') {
+    startKeepAlive();
+    return;
+  }
+  if (audioCtx.state === 'suspended') {
+    void audioCtx.resume().then(() => {
+      console.debug('[audio] context resumed');
+      startKeepAlive();
+    }).catch(() => undefined);
+  }
 }
 
 interface PoolItem { el: HTMLAudioElement; envGain?: GainNode; attackMs?: number; }
@@ -291,6 +319,10 @@ function primeAudio(): void {
   if (primed || typeof window === 'undefined') return;
   primed = true;
   try {
+    // Always ensure an AudioContext exists so the keepalive oscillator can
+    // run regardless of which sound pack is active (candy doesn't route
+    // through Web Audio for its elements, but still benefits from the ctx).
+    ensureCtx();
     hoverPool = buildPool(pack().hover, HOVER_GAIN * pack().gain.hover, 'hover');
     clickPool = buildPool(pack().click, CLICK_GAIN * pack().gain.click, 'click');
     resumeCtx();
@@ -380,12 +412,14 @@ function installFirstGestureInit(): void {
   gestureInstalled = true;
   const init = () => {
     primeAudio();
-    resumeCtx();  // unlock the AudioContext on the first gesture (clean/alt)
+    resumeCtx();  // unlock the AudioContext + start keepalive on first gesture
+    window.removeEventListener('click',      init);
+    window.removeEventListener('keydown',    init);
     window.removeEventListener('pointerdown', init);
-    window.removeEventListener('keydown',     init);
   };
-  window.addEventListener('pointerdown', init, { once: true });
+  window.addEventListener('click',       init, { once: true });
   window.addEventListener('keydown',     init, { once: true });
+  window.addEventListener('pointerdown', init, { once: true });
 }
 if (typeof window !== 'undefined') installFirstGestureInit();
 
