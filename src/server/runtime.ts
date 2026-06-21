@@ -393,7 +393,7 @@ export function createRuntimeRouter(): Router {
   // of clients flipping timeframes doesn't hammer the DB.
   type TfStatsCacheEntry = { asOf: number; stats: Record<string, number>; inFeed: Record<string, number>; detected: Record<string, number> };
   const tfStatsCache = new Map<number, TfStatsCacheEntry>();
-  const TF_STATS_TTL_MS = 5_000;
+  const TF_STATS_TTL_MS = 2_000;
 
   router.get('/mints/tf-stats', async (req: Request, res: Response) => {
     const rawMs = parseInt(String(req.query.windowMs ?? ''), 10);

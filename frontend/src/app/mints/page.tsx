@@ -1079,9 +1079,8 @@ export default function MintsPage() {
       }
     };
     fetchTfStats();
-    // 15 s refresh keeps the count fresh between user actions without
-    // hammering the DB; server cache (5 s) absorbs burst flips.
-    const id = setInterval(fetchTfStats, 15_000);
+    // 5 s refresh keeps counts fresh; server cache (2 s) absorbs bursts.
+    const id = setInterval(fetchTfStats, 5_000);
     return () => { cancelled = true; clearInterval(id); };
   }, [mintTf]);
   // Collapsible embedded filter section (Source/Status). Closed by default so
