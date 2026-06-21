@@ -632,10 +632,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const tfCount  = tfStats?.count  ?? 0;
         const inFeed   = tfStats?.inFeed ?? null;
         // Tooltip: per-collection breakdown for this TF.
-        // Detected = unsampled total (every mint, from accumulator minute buckets).
+        // Detected = unsampled total (accumulator minute buckets, 0 right after restart).
         // In feed  = sampled feed cards stored in mint_events (may undercount bursts).
-        const showRatio = inFeed !== null && tfCount > 0;
-        const ratioPct  = showRatio ? (inFeed! / tfCount) * 100 : null;
+        // Ratio only shown when tfCount > inFeed — means memory buckets have real data
+        // beyond what the DB recorded (burst mints were sampled out). When equal, either
+        // cold-start or no sampling occurred — ratio would be 100% which is misleading.
+        const showRatio = inFeed !== null && tfCount > inFeed;
+        const ratioPct  = showRatio ? (inFeed / tfCount) * 100 : null;
         const ratioText = ratioPct === null ? null
           : ratioPct >= 10 ? `${Math.round(ratioPct)}%`
           : `${ratioPct.toFixed(1)}%`;
