@@ -152,6 +152,11 @@ interface Props {
   /** Toggle this collection's pin (SHOW button). Pin persists after the mouse
    *  leaves; clicking again unpins; pinning another row replaces the pin. */
   onTogglePin?: () => void;
+  /** Aggregate Mint Stats for the active timeframe.
+   *  observedCount = collections with lastMintAt within the TF window (no UI filters).
+   *  displayedCount = collections currently shown in the table (all filters applied). */
+  observedCount?:  number;
+  displayedCount?: number;
 }
 
 /** Display-only collection-name truncation. Caps the visible label at ~12
@@ -178,7 +183,7 @@ function formatTokenAmount(raw: string, decimals: number): string | null {
   return fracTrunc.length > 0 ? `${intPart}.${fracTrunc}` : intPart;
 }
 
-export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin }: Props) {
+export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin, observedCount, displayedCount }: Props) {
   // Per-row toggle: SOL price (default) ↔ custom-token amount. Persists
   // for the lifetime of the mounted row only — short-lived UI state, no
   // localStorage. Independent across rows.
@@ -629,11 +634,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           timeframe + falls back to the cumulative number for context. */}
       {(() => {
         const tfCount = tfStatsByKey.get(r.groupingKey)?.count ?? 0;
-        // Tooltip content. observedMints + emittedCards are session-cumulative
-        // (apples-to-apples); the cell itself shows the timeframe-windowed
-        // count. emittedCards is optional → back-compat: show only Observed.
-        const observed   = r.observedMints;
-        const emitted    = (typeof r.emittedCards === 'number' && r.emittedCards >= 0) ? r.emittedCards : null;
+        // Tooltip content. Aggregate collection counts for the active
+        // timeframe: Observed = all collections with a recent mint
+        // (TF gate only); Displayed = those passing all UI filters.
+        const observed   = observedCount  ?? 0;
+        const emitted    = displayedCount ?? null;
         const sampledOut = emitted !== null ? Math.max(0, observed - emitted) : null;
         const ratioPct   = (emitted !== null && observed > 0)
           ? (emitted / observed) * 100

@@ -2128,6 +2128,19 @@ export default function MintsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick, blacklistSet]);
 
+  // Aggregate Mint Stats — collection counts for the active timeframe.
+  // Observed = any collection whose lastMintAt is within the TF window
+  // (no UI filters applied). Displayed = sorted.length (all filters).
+  // Recomputes on the same deps that change TF membership.
+  const observedCount = useMemo(() => {
+    const cutoff = Date.now() - MINT_TF_MS[mintTf];
+    let n = 0;
+    for (const r of rows.values()) {
+      if (r.lastMintAt >= cutoff) n++;
+    }
+    return n;
+  }, [rows, mintTf, tick]);
+
   // ── LEFT-table pause snapshot ─────────────────────────────────────
   // Mirrors the RIGHT feed's hover-pause: while hoverPaused is true,
   // the visible table reads from a frozen snapshot of `sorted` +
@@ -2609,6 +2622,8 @@ export default function MintsPage() {
                   lastPriceByKey={displayLastPriceByKey}
                   lastPaymentByKey={displayLastPaymentByKey}
                   paymentTokens={paymentTokens}
+                  observedCount={observedCount}
+                  displayedCount={displaySorted.length}
                   // Transient hover only takes effect when nothing is pinned —
                   // a pin holds the scope regardless of mouse movement.
                   onHoverEnter={() => setHoveredKey(r.groupingKey)}
