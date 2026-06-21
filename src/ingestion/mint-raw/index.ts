@@ -28,6 +28,7 @@
  */
 
 import bs58 from 'bs58';
+import { incMplCoreParsedMint } from '../telemetry';
 import { fetchRawTx } from '../me-raw/ingest';
 import type { RawSolanaTx } from '../me-raw/types';
 import { resolveAccountKey } from '../me-raw/types';
@@ -1067,6 +1068,7 @@ export async function ingestMintRaw(
         `[mints/launchpad] accept source=${lp.source} type=COLLECTION_CREATE ix=${lp.matchedNeedle ?? '—'} ` +
         `collection=${lp.collectionAddress} deployer=${lp.minter ?? 'null'} sig=${sig}`,
       );
+      incMplCoreParsedMint();
       recordMint({
         signature:         sig,
         blockTime,
@@ -1486,6 +1488,7 @@ export async function ingestMintRaw(
       `[mints/launchpad] accept source=${lp.source} type=${standardLabel} mint=${lp.mintAddress} ` +
       `collection=${collectionAddress} confirmedBy=${confirmedBy} sig=${sig}`,
     );
+    if (programSource === 'mpl_core') incMplCoreParsedMint();
     console.log(
       `[mints/launchpad-debug] sig=${sig.slice(0,12)}… ix=${lp.matchedNeedle ?? '—'} ` +
       `parserCollection=${parserCollection ?? 'null'} ` +

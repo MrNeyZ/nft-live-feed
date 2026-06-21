@@ -27,7 +27,7 @@ import {
   CANDY_GUARD_PROGRAM,
 } from './mint-raw';
 import { Limiter, Priority } from './concurrency';
-import { incPrefilterSkip, incSigListFetch } from './telemetry';
+import { incPrefilterSkip, incSigListFetch, getMplCoreParsedMints } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred, markMmmNoiseShed } from './mmm-prefilter';
 import { recordDispatch as auditRecordDispatch, startSalesPrefilterAudit } from './sales-prefilter-audit';
@@ -226,7 +226,9 @@ const MPL_CORE_IDLE_L1_CYCLES = 3;
 const MPL_CORE_IDLE_L2_CYCLES = 8;
 const MPL_CORE_IDLE_L1_MS     = 30_000;
 const MPL_CORE_IDLE_L2_MS     = 60_000;
-const liveMplCore = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0, level: 0 };
+// acceptedSnap = snapshot of getMplCoreParsedMints() (real parser accepts, not dispatches)
+// dispatchSnap = snapshot of mplCorePollAccepted (dispatches, for log only)
+const liveMplCore = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0, dispatchSnap: 0, level: 0 };
 
 // ─── candy_guard cursor-poll fallback ───────────────────────────────────────
 // Same backstop pattern as the mpl_core poller above, applied to the
@@ -1664,24 +1666,38 @@ export function startListener(): void {
           return;
         }
         // LIVE adaptive idle backoff. The 15s tick gates the actual sweep:
-        // skip until nextDueTs, which stretches with the zero-accepted streak.
+        // skip until nextDueTs, which stretches when no real mints are seen.
+        // FIX: idleStreak is now driven by getMplCoreParsedMints() (real parser
+        // accepts from the mint-raw pipeline) rather than mplCorePollAccepted
+        // (sig dispatches). Previously, every non-mint Core op (transfer, update,
+        // plugin change) incremented mplCorePollAccepted, so idleStreak never grew
+        // and the backoff never activated — poller ran at 25s 24/7 regardless.
         if (now < liveMplCore.nextDueTs) return;
-        const accepted = mplCorePollAccepted;
+        const realMints  = getMplCoreParsedMints();  // real Core mints accepted by parser
+        const dispatched = mplCorePollAccepted;       // sig dispatches (logging only)
         if (liveMplCore.nextDueTs !== 0) {
-          if (accepted - liveMplCore.acceptedSnap > 0) liveMplCore.idleStreak = 0;
-          else                                          liveMplCore.idleStreak += 1;
+          const mintDelta     = realMints  - liveMplCore.acceptedSnap;
+          const dispatchDelta = dispatched - liveMplCore.dispatchSnap;
+          if (mintDelta > 0) liveMplCore.idleStreak = 0;
+          else               liveMplCore.idleStreak += 1;
+          const lvl = liveMplCore.idleStreak >= MPL_CORE_IDLE_L2_CYCLES ? 2
+                    : liveMplCore.idleStreak >= MPL_CORE_IDLE_L1_CYCLES ? 1 : 0;
+          const intervalMs = lvl === 2 ? MPL_CORE_IDLE_L2_MS
+                           : lvl === 1 ? MPL_CORE_IDLE_L1_MS : MPL_CORE_POLL_INTERVAL_MS;
+          if (lvl !== liveMplCore.level) {
+            console.log(
+              `[mints/backoff] target=mpl_core interval=${intervalMs}ms` +
+              ` idleStreak=${liveMplCore.idleStreak}` +
+              ` acceptedDelta=${mintDelta} dispatchedDelta=${dispatchDelta}`,
+            );
+            liveMplCore.level = lvl;
+          }
+          liveMplCore.nextDueTs = now + intervalMs;
+        } else {
+          liveMplCore.nextDueTs = now + MPL_CORE_POLL_INTERVAL_MS;
         }
-        liveMplCore.acceptedSnap = accepted;
-        const lvl = liveMplCore.idleStreak >= MPL_CORE_IDLE_L2_CYCLES ? 2
-                  : liveMplCore.idleStreak >= MPL_CORE_IDLE_L1_CYCLES ? 1 : 0;
-        const intervalMs = lvl === 2 ? MPL_CORE_IDLE_L2_MS
-                         : lvl === 1 ? MPL_CORE_IDLE_L1_MS : MPL_CORE_POLL_INTERVAL_MS;
-        if (lvl !== liveMplCore.level) {
-          if (lvl > liveMplCore.level) console.log(`[mints/backoff] target=mpl_core idleLevel=${lvl} interval=${intervalMs}`);
-          else                         console.log(`[mints/backoff] target=mpl_core recovered interval=${intervalMs} accepted=${accepted}`);
-          liveMplCore.level = lvl;
-        }
-        liveMplCore.nextDueTs = now + intervalMs;
+        liveMplCore.acceptedSnap = realMints;
+        liveMplCore.dispatchSnap = dispatched;
         mplCorePollSweeps++;
         mplCorePollLastTs = now;
         pollTarget(mplCoreTarget, { force: true, limitOverride: MPL_CORE_POLL_LIMIT })

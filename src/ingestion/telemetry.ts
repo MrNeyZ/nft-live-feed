@@ -42,6 +42,14 @@ export function incTxRetry(scope: Scope = 'sale'): void { retryByScope[scope]++;
 export function incSigListFetch():   void { sigListFetches++;  }
 export function incPrefilterSkip():  void { prefilterSkips++;  }
 
+// Real parser-accepted MPL Core mints (any ingestion source). Never reset —
+// the poller idle-backoff reads deltas between consecutive snapshots so the
+// absolute value is irrelevant. Kept here (not in listener.ts) to avoid the
+// circular-import that would arise if mint-raw/index.ts imported listener.ts.
+let mplCoreParsedMints = 0;
+export function incMplCoreParsedMint(): void { mplCoreParsedMints++; }
+export function getMplCoreParsedMints(): number { return mplCoreParsedMints; }
+
 const INTERVAL_MS = 60_000;
 
 export function startTelemetry(rpcLimiter: Limiter): void {
