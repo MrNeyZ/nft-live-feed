@@ -2532,17 +2532,14 @@ export default function MintsPage() {
                 {/* Mass Mints — hides bulk-deployer wallets from BOTH the
                     collections table and the Live Mint Feed. Default OFF. */}
                 <div className="feed-srow">
-                  <span className="feed-srow-lbl" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    Mass
-                    {bulkGroupKeys.size > 0 && !showBulkMints && (
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0 }} />
+                  <span className="feed-srow-lbl">
+                    Mass{bulkGroupKeys.size > 0 && !showBulkMints && (
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0, marginLeft: 3, verticalAlign: 'middle' }} />
                     )}
                   </span>
-                  <div className="feed-srow-ctl" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <div className="feed-seg" style={{ flexWrap: 'nowrap', display: 'flex' }}>
-                      <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive('#43b984') : SETTINGS_PILL_INACTIVE} />
-                      <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive('#d96867') : SETTINGS_PILL_INACTIVE} />
-                    </div>
+                  <div className="feed-srow-ctl feed-seg">
+                    <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive('#43b984') : SETTINGS_PILL_INACTIVE} />
+                    <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive('#d96867') : SETTINGS_PILL_INACTIVE} />
                     {blockedDeployers.length > 0 && (
                       <button
                         type="button"
