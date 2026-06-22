@@ -708,6 +708,7 @@ import { VL, VLText, rgb, alpha } from '@/lib/palette';
 function FeedFiltersPopover({
   selectedTypes, selectedSources, toggleType, toggleSource, activeCount,
   showCnftMints, setShowCnftMints,
+  showBulkMints, setShowBulkMints, hasBulkDeployers,
 }: {
   selectedTypes:   ReadonlySet<FeedTypeKey>;
   selectedSources: ReadonlySet<SourceKey>;
@@ -718,6 +719,10 @@ function FeedFiltersPopover({
   // "Show cNFT Mints" — Live Mint Feed only, default ON.
   showCnftMints:    boolean;
   setShowCnftMints: (v: boolean) => void;
+  // "Show Mass Mints" — hides bulk-deployer floods, default OFF.
+  showBulkMints:    boolean;
+  setShowBulkMints: (v: boolean) => void;
+  hasBulkDeployers: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -819,6 +824,20 @@ function FeedFiltersPopover({
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 <Pill active={!showCnftMints} onClick={() => setShowCnftMints(false)} label="Hide" size="sm" style={!showCnftMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+              </div>
+            </div>
+            {/* Mass Mints — bulk deployer flooding the feed across many
+                collections. Default OFF (hidden). Red dot badge when active. */}
+            <div className="feed-srow">
+              <span className="feed-srow-lbl" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Mass
+                {hasBulkDeployers && !showBulkMints && (
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0 }} />
+                )}
+              </span>
+              <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
+                <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
           </div>
@@ -1163,6 +1182,33 @@ export default function MintsPage() {
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.feed.showCnft', showCnftMints ? '1' : '0'); } catch { /* quota */ }
   }, [showCnftMints]);
+
+  // "Show Mass Mints" — hides feed events from a deployer wallet that has
+  // flooded the feed with many mints across multiple different collections.
+  // Threshold: >5 events from the same deployer in the current time window.
+  // Default OFF (hidden) so a flood doesn't fill the feed on first load.
+  const [showBulkMints, setShowBulkMints] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem('vl.mints.feed.showBulkMints') === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.feed.showBulkMints', showBulkMints ? '1' : '0'); } catch { /* quota */ }
+  }, [showBulkMints]);
+
+  // Compute which deployer wallets are "bulk" in the current event window.
+  const bulkDeployers = useMemo<Set<string>>(() => {
+    const counts = new Map<string, number>();
+    for (const ev of events) {
+      if (!ev.deployer) continue;
+      counts.set(ev.deployer, (counts.get(ev.deployer) ?? 0) + 1);
+    }
+    const bulk = new Set<string>();
+    for (const [deployer, count] of counts) {
+      if (count > 5) bulk.add(deployer);
+    }
+    return bulk;
+  }, [events]);
   // Toggle a specific key; passing null = "Any" clears the whole group. ANY
   // and specific keys are mutually exclusive (ANY = empty set), and disabling
   // the last specific key leaves the set empty → ANY automatically.
@@ -1279,6 +1325,8 @@ export default function MintsPage() {
       && !isBlacklistedEvent(ev)
       // "Show cNFT Mints" OFF → drop compressed mints from the feed only.
       && (showCnftMints || !isCnftLike(ev))
+      // "Show Mass Mints" OFF → drop events from bulk-deployer wallets.
+      && (showBulkMints || !ev.deployer || !bulkDeployers.has(ev.deployer))
       && matchesType(selectedTypes, ev.programSource, ev.sourceLabel)
       && matchesSource(selectedSources, ev.sourceLabel)
       && matchesStatusEvent(selectedStatuses, statusByKey, ev.groupingKey),
@@ -1286,7 +1334,7 @@ export default function MintsPage() {
     // isBlacklistedEvent closes over blacklistSet — listing it in deps
     // is enough to refilter on add/remove.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, showCnftMints, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick, blacklistSet]);
+  }, [events, showCnftMints, showBulkMints, bulkDeployers, selectedTypes, selectedSources, selectedStatuses, statusByKey, mintTf, tick, blacklistSet]);
 
   // Hover-scoped feed VIEW. Hover no longer hides non-matching mints — instead
   // matching mints cluster to the top at full opacity and the rest fade to
@@ -1315,7 +1363,7 @@ export default function MintsPage() {
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
   // 0 (both groups = Any) hides the badge.
-  const activeFeedFilterCount = selectedTypes.size + selectedSources.size + (showCnftMints ? 0 : 1);
+  const activeFeedFilterCount = selectedTypes.size + selectedSources.size + (showCnftMints ? 0 : 1) + (!showBulkMints && bulkDeployers.size > 0 ? 1 : 0);
 
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
@@ -2734,6 +2782,9 @@ export default function MintsPage() {
                 activeCount={activeFeedFilterCount}
                 showCnftMints={showCnftMints}
                 setShowCnftMints={setShowCnftMints}
+                showBulkMints={showBulkMints}
+                setShowBulkMints={setShowBulkMints}
+                hasBulkDeployers={bulkDeployers.size > 0}
               />
             </div>
           </div>

@@ -211,6 +211,10 @@ export interface MintEvent {
   /** Number of NFTs minted by this tx. >1 → bulk mint (card appends
    *  " (N)" after the name). Absent/1 → single mint, no suffix. */
   nftCount?:         number;
+  /** Fee payer / deployer wallet (accountKeys[0]). Present when the backend
+   *  parser detected it (all mpl_core paths). Used to detect mass-mint
+   *  deployments where one wallet floods the feed across many collections. */
+  deployer?:         string | null;
 }
 
 /** Resolved metadata for a custom-token mint payment. Streamed once per

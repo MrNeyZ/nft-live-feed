@@ -256,6 +256,10 @@ export interface MintEventWire {
    *  mint; >1 for bulk-mint txs (counted from per-NFT mint instructions
    *  in the tx logs). Absent on hydrated legacy rows → treated as 1. */
   nftCount?:         number;
+  /** Fee payer / deployer wallet (accountKeys[0]). Set on all mint paths.
+   *  Used by the frontend to detect mass-mint deployments where one wallet
+   *  floods the feed across many different collection addresses. */
+  deployer?:         string | null;
 }
 
 /** Per-collection rollup snapshot, fired every time the accumulator

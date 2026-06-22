@@ -1030,8 +1030,10 @@ export async function ingestMintRaw(
 
   // Per-tx NFT count, injected into every accepted mint below via `rec`
   // (avoids editing each recordMint literal — all paths build the same wire).
-  const nftCount = countNftMints(tx);
-  const rec = (e: Omit<MintEventWire, 'nftCount'>): boolean => recordMint({ ...e, nftCount });
+  const nftCount  = countNftMints(tx);
+  const deployer  = resolveAccountKey(tx, 0) ?? null;
+  const rec = (e: Omit<MintEventWire, 'nftCount' | 'deployer'>): boolean =>
+    recordMint({ ...e, nftCount, deployer });
 
   // Targeted mode (default): run the narrow launchpad detector and
   // skip the broader TM/Core classifier entirely. Anything that
