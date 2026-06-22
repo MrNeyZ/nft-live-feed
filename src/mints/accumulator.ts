@@ -22,7 +22,7 @@ import {
 import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
-import { isCollectionBlacklisted, noteBlacklistDrop, isDeployerBlacklisted } from './blacklist';
+import { isCollectionBlacklisted, noteBlacklistDrop, isDeployerBlacklisted, trackDeployerMint } from './blacklist';
 import { shouldEmitFeedCard, forgetFeedSampling, getFeedSampling } from './feed-sampler';
 import { appendCountedLedger } from './counted-ledger';
 
@@ -570,6 +570,9 @@ export function recordMint(ev: MintEventWire): boolean {
   if (isDeployerBlacklisted(ev.deployer)) {
     return false;
   }
+  // Auto bulk-deployer detection: track distinct collections per deployer
+  // in a sliding window; auto-blocks and persists when threshold exceeded.
+  trackDeployerMint(ev.deployer, ev.collectionAddress ?? ev.groupingKey);
   // Sticky non-NFT skip — once the enricher's DAS check rejected this
   // group, every subsequent mint for the same key is dropped before it
   // hits the accumulator / SSE bus. Without this, a fungible's

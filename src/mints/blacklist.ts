@@ -21,23 +21,28 @@
  * any external dependency.
  */
 
-/** Deployer wallets (fee payer, accountKeys[0]) whose mints are suppressed
- *  entirely — same chokepoints as BLACKLISTED_COLLECTIONS. Loaded from
- *  `data/blocked-deployers.txt` at process start (one base58 address per
- *  line; # comments and blank lines ignored). Add a new wallet by appending
- *  its address to that file and restarting the backend. */
 import * as fs from 'fs';
 import * as path from 'path';
 
+// ── Deployer blacklist ────────────────────────────────────────────────────────
+// Blocks all mints whose fee payer (accountKeys[0]) is in this set.
+// Populated from data/blocked-deployers.txt at startup; auto-updated at
+// runtime by trackDeployerMint() when a single wallet mints across
+// more than BULK_COLLECTION_THRESHOLD distinct collections within
+// BULK_WINDOW_MS. Persisted back to the file so restarts retain it.
+
+const DEPLOYERS_FILE = path.join(process.cwd(), 'data', 'blocked-deployers.txt');
+const BULK_WINDOW_MS              = 10 * 60_000; // 10 minutes
+const BULK_COLLECTION_THRESHOLD   = 3;           // >3 distinct collections → bulk
+
 function loadBlockedDeployers(): Set<string> {
-  const filePath = path.join(process.cwd(), 'data', 'blocked-deployers.txt');
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
+    const raw = fs.readFileSync(DEPLOYERS_FILE, 'utf8');
     const addrs = raw.split('\n')
       .map(l => l.replace(/#.*$/, '').trim())
       .filter(l => l.length > 0);
     if (addrs.length > 0) {
-      console.log(`[mints/blacklist] loaded ${addrs.length} blocked deployer(s) from ${filePath}`);
+      console.log(`[mints/blacklist] loaded ${addrs.length} blocked deployer(s)`);
     }
     return new Set(addrs);
   } catch {
@@ -45,12 +50,65 @@ function loadBlockedDeployers(): Set<string> {
   }
 }
 
-export const BLACKLISTED_DEPLOYERS: ReadonlySet<string> = loadBlockedDeployers();
+// Mutable at runtime — new auto-detected deployers are added here.
+const _blockedDeployers: Set<string> = loadBlockedDeployers();
 
 export function isDeployerBlacklisted(deployer: string | null | undefined): boolean {
   if (!deployer) return false;
-  return BLACKLISTED_DEPLOYERS.has(deployer);
+  return _blockedDeployers.has(deployer);
 }
+
+function persistDeployer(deployer: string): void {
+  try {
+    fs.appendFileSync(DEPLOYERS_FILE, `${deployer}\n`);
+  } catch (err) {
+    console.warn(`[mints/blacklist] failed to persist deployer ${deployer}: ${(err as Error).message}`);
+  }
+}
+
+// ── Sliding-window bulk-deployer detector ────────────────────────────────────
+// Per deployer: ring of (collectionKey, timestamp) pairs pruned to BULK_WINDOW_MS.
+
+interface CollectionStamp { key: string; ts: number }
+const _deployerWindow = new Map<string, CollectionStamp[]>();
+
+/** Called from recordMint for every accepted (non-blacklisted) mint.
+ *  Returns true if the deployer was newly auto-blocked. */
+export function trackDeployerMint(
+  deployer: string | null | undefined,
+  collectionKey: string | null | undefined,
+): boolean {
+  if (!deployer || !collectionKey || _blockedDeployers.has(deployer)) return false;
+
+  const now = Date.now();
+  let stamps = _deployerWindow.get(deployer);
+  if (!stamps) { stamps = []; _deployerWindow.set(deployer, stamps); }
+
+  // Prune expired entries.
+  const cutoff = now - BULK_WINDOW_MS;
+  let i = 0;
+  while (i < stamps.length && stamps[i].ts < cutoff) i++;
+  if (i > 0) stamps.splice(0, i);
+
+  // Add current collection if not already present in the window.
+  if (!stamps.some(s => s.key === collectionKey)) {
+    stamps.push({ key: collectionKey, ts: now });
+  }
+
+  if (stamps.length > BULK_COLLECTION_THRESHOLD) {
+    _blockedDeployers.add(deployer);
+    _deployerWindow.delete(deployer);
+    console.log(
+      `[mints/blacklist] auto-blocked deployer=${deployer} ` +
+      `reason=bulk collections=${stamps.length} window=${BULK_WINDOW_MS / 60_000}min`,
+    );
+    persistDeployer(deployer);
+    return true;
+  }
+  return false;
+}
+
+// ── Collection blacklist ──────────────────────────────────────────────────────
 
 /** Collections whose mints are dropped before they reach SSE. */
 export const BLACKLISTED_COLLECTIONS: ReadonlySet<string> = new Set([
