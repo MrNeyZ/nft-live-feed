@@ -1177,6 +1177,18 @@ export default function MintsPage() {
     try { window.localStorage.setItem('vl.mints.feed.showBulkMints', showBulkMints ? '1' : '0'); } catch { /* quota */ }
   }, [showBulkMints]);
 
+  // Blocked-deployer list fetched from the backend (for the settings UI).
+  interface BlockedDeployerEntry { address: string; source: 'manual'|'auto'; blockedAt?: number; collectionCount?: number }
+  const [blockedDeployers, setBlockedDeployers] = useState<BlockedDeployerEntry[]>([]);
+  const [blockedListOpen,  setBlockedListOpen]  = useState(false);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    fetch('/api/mints/blocked-deployers')
+      .then(r => r.json())
+      .then((d: { deployers: BlockedDeployerEntry[] }) => setBlockedDeployers(d.deployers ?? []))
+      .catch(() => {});
+  }, [settingsOpen]);
+
   // Compute which deployer wallets are "bulk": one wallet minting across
   // many DISTINCT collection addresses. A single large collection with many
   // mints is NOT bulk — only a deployer spamming multiple different collections.
@@ -2429,11 +2441,64 @@ export default function MintsPage() {
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0 }} />
                     )}
                   </span>
-                  <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                    <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                    <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  <div className="feed-srow-ctl" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div className="feed-seg" style={{ flexWrap: 'nowrap', display: 'flex' }}>
+                      <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                      <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    </div>
+                    {blockedDeployers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setBlockedListOpen(o => !o)}
+                        style={{
+                          fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                          padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                          background: alpha(VL.purpleDeep, 0.25),
+                          border: `1px solid ${alpha(VL.purpleTint, 0.35)}`,
+                          color: VLText.muted,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Blocked ({blockedDeployers.length}) {blockedListOpen ? '▴' : '▾'}
+                      </button>
+                    )}
                   </div>
                 </div>
+                {blockedListOpen && blockedDeployers.length > 0 && (
+                  <div style={{
+                    marginTop: 4, marginLeft: 72,
+                    display: 'flex', flexDirection: 'column', gap: 3,
+                  }}>
+                    {blockedDeployers.map(d => (
+                      <div key={d.address} style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        fontSize: 10, color: VLText.muted,
+                      }}>
+                        <span style={{
+                          fontFamily: 'monospace', letterSpacing: '0.3px',
+                          background: alpha(VL.purpleDeep, 0.3),
+                          border: `1px solid ${alpha(VL.purpleTint, 0.2)}`,
+                          borderRadius: 3, padding: '1px 5px',
+                        }}>
+                          {d.address.slice(0, 6)}…{d.address.slice(-4)}
+                        </span>
+                        <span style={{
+                          padding: '1px 4px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                          background: d.source === 'auto' ? 'rgba(224,92,92,0.18)' : alpha(VL.purpleTint, 0.12),
+                          color: d.source === 'auto' ? '#e08080' : VLText.muted,
+                          border: `1px solid ${d.source === 'auto' ? 'rgba(224,92,92,0.3)' : alpha(VL.purpleTint, 0.2)}`,
+                        }}>
+                          {d.source === 'auto' ? `auto · ${d.collectionCount ?? '?'} colls` : 'manual'}
+                        </span>
+                        {d.blockedAt && (
+                          <span style={{ color: VLText.muted, fontSize: 9, opacity: 0.6 }}>
+                            {new Date(d.blockedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {/* GROUP — LISTS (Blacklist). Single blacklistSet filters
                   BOTH the LEFT tracker rows AND the RIGHT Live Mint Feed. */}

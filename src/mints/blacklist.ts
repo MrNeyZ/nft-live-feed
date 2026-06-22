@@ -50,8 +50,25 @@ function loadBlockedDeployers(): Set<string> {
   }
 }
 
+export interface BlockedDeployerEntry {
+  address:        string;
+  source:         'manual' | 'auto';
+  blockedAt?:     number;   // ms epoch, only for auto-blocked
+  collectionCount?: number; // distinct collections at time of block
+}
+
 // Mutable at runtime — new auto-detected deployers are added here.
 const _blockedDeployers: Set<string> = loadBlockedDeployers();
+
+// In-memory log of auto-blocked entries (metadata for the UI).
+const _autoLog: BlockedDeployerEntry[] = [];
+
+export function getBlockedDeployersList(): BlockedDeployerEntry[] {
+  return [..._blockedDeployers].map(address => {
+    const auto = _autoLog.find(e => e.address === address);
+    return auto ?? { address, source: 'manual' };
+  });
+}
 
 export function isDeployerBlacklisted(deployer: string | null | undefined): boolean {
   if (!deployer) return false;
@@ -98,6 +115,11 @@ export function trackDeployerMint(
   if (stamps.length > BULK_COLLECTION_THRESHOLD) {
     _blockedDeployers.add(deployer);
     _deployerWindow.delete(deployer);
+    const entry: BlockedDeployerEntry = {
+      address: deployer, source: 'auto',
+      blockedAt: Date.now(), collectionCount: stamps.length,
+    };
+    _autoLog.push(entry);
     console.log(
       `[mints/blacklist] auto-blocked deployer=${deployer} ` +
       `reason=bulk collections=${stamps.length} window=${BULK_WINDOW_MS / 60_000}min`,

@@ -25,6 +25,7 @@ import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
 import { corsMiddleware } from './cors';
+import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
 
 export function createApp() {
   const app = express();
@@ -118,6 +119,10 @@ export function createApp() {
   // as every other /api/* route.
   const runtimeRouter = createRuntimeRouter();
   app.use('/api', runtimeRouter);
+
+  const mintsBlockedRouter = createMintsBlockedDeployersRouter();
+  app.use('/mints',     mintsBlockedRouter);
+  app.use('/api/mints', mintsBlockedRouter);
 
   // Manual on-demand tools — Retardio personal-offer scanner.
   // POST /api/tools/retardio-me-offer-scan
