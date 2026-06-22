@@ -675,22 +675,23 @@ import {
  *  loadFeedSet(..., SOURCE_KEYS_UI). */
 const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== 'CORE');
 
-// Per-item characteristic colors for filter pills — same pattern as /feed.
+// Pill colors taken directly from sourceBadge fg values (source.ts) so they
+// match the card badges exactly.
 const TYPE_COLORS: Record<string, string> = {
-  cnft:  '#43b984', // green  — compressed NFT
-  core:  '#ad92ee', // purple — MPL Core
-  candy: '#79b8ff', // blue   — Candy Machine / Token Metadata NFT
+  cnft:  '#43b984', // rgb(VL.green)       — Bubblegum / cNFT
+  core:  '#ad92ee', // rgb(VL.purpleMuted) — MPL Core
+  candy: '#e58aa3', // #e58aa3             — Candy Machine (CANDY badge pink)
 };
 const SOURCE_COLORS: Record<SourceKey, string> = {
-  LMNFT: '#f0a04e', // orange — LaunchMyNFT
-  VVV:   '#c77dff', // violet — VVV.so
-  GRAVE: '#a8dadc', // teal   — GraveMint
-  CANDY: '#79b8ff', // blue   — Candy Guard
-  CORE:  '#ad92ee', // purple — Core (hidden from UI, included for completeness)
+  LMNFT: '#c7b479', // rgb(VL.gold)        — LaunchMyNFT
+  VVV:   '#5fa8e6', // #5fa8e6             — VVV.so (card badge light blue)
+  GRAVE: '#a0a0a8', // #a0a0a8             — GraveMint (card badge gray)
+  CANDY: '#e58aa3', // #e58aa3             — Candy Guard (same as candy type)
+  CORE:  '#ad92ee', // rgb(VL.purpleMuted) — Core (hidden from UI)
 };
 const STATUS_COLORS: Record<string, string> = {
   active: '#43b984', // green
-  watch:  '#c7b479', // amber
+  watch:  '#c7b479', // gold/amber
   sold:   '#d96867', // red
 };
 
