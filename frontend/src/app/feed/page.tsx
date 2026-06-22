@@ -1170,11 +1170,11 @@ export default function FeedPage() {
                               <Pill
                                 key={p.key}
                                 active={isActive}
-                                color="#ad92ee"
+                                color="#c7b479"
                                 onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive('#c7b479') : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1186,16 +1186,16 @@ export default function FeedPage() {
                         <div className="feed-srow-ctl feed-seg">
                           {DENSITIES.map(d => {
                             const isActive = density === d;
+                            const dc = d === 'comfy' ? '#43b984' : d === 'tape' ? '#5fa8e6' : '#ad92ee';
                             return (
                               <Pill
                                 key={d}
                                 active={isActive}
-                                color="#ad92ee"
+                                color={dc}
                                 onClick={() => setDensity(d)}
                                 label={d.charAt(0).toUpperCase() + d.slice(1)}
-                                
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(dc) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
@@ -1208,20 +1208,20 @@ export default function FeedPage() {
                         <span className="feed-srow-lbl">Market</span>
                         <div className="feed-srow-ctl feed-seg">
                           {([
-                            { key: 'me',     label: 'MagicEden'  },
-                            { key: 'tensor', label: 'Tensor'     },
-                            { key: 'orbis',  label: 'Orbis'      },
+                            { key: 'me',     label: 'MagicEden', color: '#e58aa3' },
+                            { key: 'tensor', label: 'Tensor',    color: '#5fa8e6' },
+                            { key: 'orbis',  label: 'Orbis',     color: '#a0a0a8' },
                           ] as const).map(m => {
                             const isActive = marketSet.has(m.key);
                             return (
                               <Pill
                                 key={m.key}
                                 active={isActive}
-                                color="#ad92ee"
+                                color={m.color}
                                 onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(m.color) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}

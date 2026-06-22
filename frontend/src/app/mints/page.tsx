@@ -2545,7 +2545,7 @@ export default function MintsPage() {
                         type="button"
                         onClick={() => setBlockedListOpen(o => !o)}
                         style={{
-                          fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
+                          fontFamily: 'inherit', fontSize: 10, fontWeight: 500, letterSpacing: '0.3px',
                           padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
                           background: alpha(VL.purpleDeep, 0.25),
                           border: `1px solid ${alpha(VL.purpleTint, 0.35)}`,
