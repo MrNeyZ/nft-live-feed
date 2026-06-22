@@ -1177,16 +1177,22 @@ export default function MintsPage() {
     try { window.localStorage.setItem('vl.mints.feed.showBulkMints', showBulkMints ? '1' : '0'); } catch { /* quota */ }
   }, [showBulkMints]);
 
-  // Compute which deployer wallets are "bulk" in the current event window.
+  // Compute which deployer wallets are "bulk": one wallet minting across
+  // many DISTINCT collection addresses. A single large collection with many
+  // mints is NOT bulk — only a deployer spamming multiple different collections.
   const bulkDeployers = useMemo<Set<string>>(() => {
-    const counts = new Map<string, number>();
+    const collsByDeployer = new Map<string, Set<string>>();
     for (const ev of events) {
       if (!ev.deployer) continue;
-      counts.set(ev.deployer, (counts.get(ev.deployer) ?? 0) + 1);
+      const collKey = ev.collectionAddress ?? ev.groupingKey;
+      if (!collKey) continue;
+      let colls = collsByDeployer.get(ev.deployer);
+      if (!colls) { colls = new Set(); collsByDeployer.set(ev.deployer, colls); }
+      colls.add(collKey);
     }
     const bulk = new Set<string>();
-    for (const [deployer, count] of counts) {
-      if (count > 5) bulk.add(deployer);
+    for (const [deployer, colls] of collsByDeployer) {
+      if (colls.size > 3) bulk.add(deployer);
     }
     return bulk;
   }, [events]);
