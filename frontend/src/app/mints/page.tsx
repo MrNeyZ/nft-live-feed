@@ -675,6 +675,25 @@ import {
  *  loadFeedSet(..., SOURCE_KEYS_UI). */
 const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== 'CORE');
 
+// Per-item characteristic colors for filter pills — same pattern as /feed.
+const TYPE_COLORS: Record<string, string> = {
+  cnft:  '#43b984', // green  — compressed NFT
+  core:  '#ad92ee', // purple — MPL Core
+  candy: '#79b8ff', // blue   — Candy Machine / Token Metadata NFT
+};
+const SOURCE_COLORS: Record<SourceKey, string> = {
+  LMNFT: '#f0a04e', // orange — LaunchMyNFT
+  VVV:   '#c77dff', // violet — VVV.so
+  GRAVE: '#a8dadc', // teal   — GraveMint
+  CANDY: '#79b8ff', // blue   — Candy Guard
+  CORE:  '#ad92ee', // purple — Core (hidden from UI, included for completeness)
+};
+const STATUS_COLORS: Record<string, string> = {
+  active: '#43b984', // green
+  watch:  '#c7b479', // amber
+  sold:   '#d96867', // red
+};
+
 type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
 type SortDir = 'asc' | 'desc';
 type MintTab = 'active' | 'recent';
@@ -797,18 +816,18 @@ function FeedFiltersPopover({
             <div className="feed-srow">
               <span className="feed-srow-lbl">Type</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                <Pill active={selectedTypes.has('cnft')} onClick={() => toggleType('cnft')} label="cNFT" size="sm" style={selectedTypes.has('cnft') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                <Pill active={selectedTypes.has('core')} onClick={() => toggleType('core')} label="CORE" size="sm" style={selectedTypes.has('core') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedTypes.has('cnft')}  onClick={() => toggleType('cnft')}  label="cNFT" size="sm" color={TYPE_COLORS.cnft}  style={selectedTypes.has('cnft')  ? settingsPillActive(TYPE_COLORS.cnft)  : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedTypes.has('core')}  onClick={() => toggleType('core')}  label="CORE" size="sm" color={TYPE_COLORS.core}  style={selectedTypes.has('core')  ? settingsPillActive(TYPE_COLORS.core)  : SETTINGS_PILL_INACTIVE} />
                 {/* "NFT" maps to the 'candy' key (Candy Machine / Candy Guard).
                     UI-only label; key, persistence, and predicate unchanged. */}
-                <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT" size="sm" style={selectedTypes.has('candy') ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={selectedTypes.has('candy')} onClick={() => toggleType('candy')} label="NFT"  size="sm" color={TYPE_COLORS.candy} style={selectedTypes.has('candy') ? settingsPillActive(TYPE_COLORS.candy) : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
             <div className="feed-srow">
               <span className="feed-srow-lbl">Source</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 {SOURCE_KEYS_UI.map(s => (
-                  <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)} label={s} size="sm" style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                  <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)} label={s} size="sm" color={SOURCE_COLORS[s]} style={selectedSources.has(s) ? settingsPillActive(SOURCE_COLORS[s]) : SETTINGS_PILL_INACTIVE} />
                 ))}
               </div>
             </div>
@@ -817,8 +836,8 @@ function FeedFiltersPopover({
             <div className="feed-srow">
               <span className="feed-srow-lbl">cNFT</span>
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                <Pill active={!showCnftMints} onClick={() => setShowCnftMints(false)} label="Hide" size="sm" style={!showCnftMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive(TYPE_COLORS.cnft) : SETTINGS_PILL_INACTIVE} />
+                <Pill active={!showCnftMints} onClick={() => setShowCnftMints(false)} label="Hide" size="sm" style={!showCnftMints ? settingsPillActive('#d96867')         : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
           </div>
@@ -2365,13 +2384,31 @@ export default function MintsPage() {
             {hoverPaused && <span style={{ marginLeft: 6 }}><PausedChip /></span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* Active filter summary chip — mirrors /feed pattern. Shows
+                abbreviated active filter labels when settings are closed. */}
+            {(selectedTypes.size > 0 || selectedSources.size > 0 || selectedStatuses.size > 0) && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                letterSpacing: '0.2px', whiteSpace: 'nowrap',
+                border: `1px solid ${alpha(VL.purpleTint, 0.35)}`,
+                background: alpha(VL.purpleTint, 0.08),
+                color: alpha(VL.purpleTint, 0.9) as unknown as string,
+              }}>
+                {[
+                  ...[...selectedTypes].map(k => k === 'candy' ? 'NFT' : k.toUpperCase()),
+                  ...[...selectedSources],
+                  ...[...selectedStatuses].map(k => k.charAt(0).toUpperCase() + k.slice(1)),
+                ].join(' · ')}
+              </span>
+            )}
             {/* Canonical shared Settings toggle — same control as Live Feed and
                 the Live Mint Feed popover. Toggles the embedded filter section
                 inline (collapsed by default; not a floating popover). */}
             <SettingsToggle
               active={settingsOpen}
               onClick={() => setSettingsOpen(o => !o)}
-              
+
             />
             {/* Old dense segmented styling (tight pills in a dark shell). */}
             <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
@@ -2417,8 +2454,8 @@ export default function MintsPage() {
                   <div className="feed-srow-ctl feed-seg">
                     {SOURCE_KEYS_UI.map(s => (
                       <Pill key={s} active={selectedSources.has(s)} onClick={() => toggleSource(s)}
-                        label={s} size="sm"
-                        style={selectedSources.has(s) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                        label={s} size="sm" color={SOURCE_COLORS[s]}
+                        style={selectedSources.has(s) ? settingsPillActive(SOURCE_COLORS[s]) : SETTINGS_PILL_INACTIVE} />
                     ))}
                   </div>
                 </div>
@@ -2427,8 +2464,8 @@ export default function MintsPage() {
                   <div className="feed-srow-ctl feed-seg">
                     {([['active','Active'],['watch','Watch'],['sold','Sold']] as const).map(([k,lbl]) => (
                       <Pill key={k} active={selectedStatuses.has(k)} onClick={() => toggleStatus(k)}
-                        label={lbl} size="sm"
-                        style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                        label={lbl} size="sm" color={STATUS_COLORS[k]}
+                        style={selectedStatuses.has(k) ? settingsPillActive(STATUS_COLORS[k]) : SETTINGS_PILL_INACTIVE} />
                     ))}
                   </div>
                 </div>
