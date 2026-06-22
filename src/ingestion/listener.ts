@@ -1044,11 +1044,29 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // sale would silently fail to ingest. Cursor polling for these
     // targets is already disabled (MINT_NO_POLL_TARGETS), so there is
     // no other path to suppress.
+    //
+    // mpl_core EXCEPTION: markSeen IS safe for mpl_core rejects.
+    // mpl_core emits ~80 txs/min (transfers, updates, plugin ops, mints).
+    // The cursor poll has no log access and blindly dispatches ALL new
+    // sigs to fetchRawTx — ~86k wasted getTransaction/day. The WS fires
+    // in real-time for every mpl_core tx; marking prefilter-rejected sigs
+    // here means the cursor poll (running up to 25s later) finds them in
+    // seenSigs and skips without fetching. Safe because:
+    //   a) seenSigs is only checked in pollTarget (cursor poll), not in
+    //      any sales WS handler or amm-poller (which has its own cursor)
+    //   b) mpl_core cursor poll exclusively dispatches to ingestMintRaw —
+    //      no sales path is affected
+    //   c) Core NFT sales (ME BuyCore / Tensor BuyCore) are handled by
+    //      me_v2 / tcomp subscriptions, not the mpl_core subscription
+    // Risk: hasMintInstructionLog false negative → mint lost from cursor
+    // fallback. Accepted: the WS itself also misses it; fixing the
+    // prefilter is the right response, not relying on cursor recovery.
     if (MINT_PREFILTER_TARGETS.has(target.name)) {
       if (!hasMintInstructionLog(value.logs)) {
         stats.filtered++;
         incPrefilterSkip();
         prefilterBucketDrop(target.name);
+        if (target.name === 'mpl_core') markSeen(sig);
         return;
       }
       // Sampled debug: log first hit per target then every 50th hit so
