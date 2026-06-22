@@ -225,7 +225,9 @@ let   mplCorePollLastTs   = 0;
 const MPL_CORE_IDLE_L1_CYCLES = 3;
 const MPL_CORE_IDLE_L2_CYCLES = 8;
 const MPL_CORE_IDLE_L1_MS     = 30_000;
-const MPL_CORE_IDLE_L2_MS     = 60_000;
+// Lowered 60s → 30s: L2 backoff was causing ~60s display delay when WS missed
+// a mint during a quiet window (idleStreak≥8 → 60s interval → full minute gap).
+const MPL_CORE_IDLE_L2_MS     = 30_000;
 // acceptedSnap = snapshot of getMplCoreParsedMints() (real parser accepts, not dispatches)
 // dispatchSnap = snapshot of mplCorePollAccepted (dispatches, for log only)
 const liveMplCore = { nextDueTs: 0, idleStreak: 0, acceptedSnap: 0, dispatchSnap: 0, level: 0 };
