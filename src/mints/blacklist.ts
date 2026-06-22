@@ -51,10 +51,11 @@ function loadBlockedDeployers(): Set<string> {
 }
 
 export interface BlockedDeployerEntry {
-  address:        string;
-  source:         'manual' | 'auto';
-  blockedAt?:     number;   // ms epoch, only for auto-blocked
-  collectionCount?: number; // distinct collections at time of block
+  address:          string;
+  source:           'manual' | 'auto';
+  blockedAt?:       number;    // ms epoch, only for auto-blocked
+  collectionCount?: number;    // distinct collections at time of block
+  collectionKeys?:  string[];  // groupingKey values that triggered the block
 }
 
 // Mutable at runtime — new auto-detected deployers are added here.
@@ -118,6 +119,7 @@ export function trackDeployerMint(
     const entry: BlockedDeployerEntry = {
       address: deployer, source: 'auto',
       blockedAt: Date.now(), collectionCount: stamps.length,
+      collectionKeys: stamps.map(s => s.key),
     };
     _autoLog.push(entry);
     console.log(

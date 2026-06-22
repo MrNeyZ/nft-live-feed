@@ -1178,7 +1178,7 @@ export default function MintsPage() {
   }, [showBulkMints]);
 
   // Blocked-deployer list fetched from the backend (for the settings UI).
-  interface BlockedDeployerEntry { address: string; source: 'manual'|'auto'; blockedAt?: number; collectionCount?: number }
+  interface BlockedDeployerEntry { address: string; source: 'manual'|'auto'; blockedAt?: number; collectionCount?: number; collectionKeys?: string[] }
   const [blockedDeployers, setBlockedDeployers] = useState<BlockedDeployerEntry[]>([]);
   const [blockedListOpen,  setBlockedListOpen]  = useState(false);
   useEffect(() => {
@@ -2465,38 +2465,55 @@ export default function MintsPage() {
                   </div>
                 </div>
                 {blockedListOpen && blockedDeployers.length > 0 && (
-                  <div style={{
-                    marginTop: 4, marginLeft: 72,
-                    display: 'flex', flexDirection: 'column', gap: 3,
-                  }}>
-                    {blockedDeployers.map(d => (
-                      <div key={d.address} style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        fontSize: 10, color: VLText.muted,
-                      }}>
-                        <span style={{
-                          fontFamily: 'monospace', letterSpacing: '0.3px',
-                          background: alpha(VL.purpleDeep, 0.3),
-                          border: `1px solid ${alpha(VL.purpleTint, 0.2)}`,
-                          borderRadius: 3, padding: '1px 5px',
-                        }}>
-                          {d.address.slice(0, 6)}…{d.address.slice(-4)}
-                        </span>
-                        <span style={{
-                          padding: '1px 4px', borderRadius: 3, fontSize: 9, fontWeight: 700,
-                          background: d.source === 'auto' ? 'rgba(224,92,92,0.18)' : alpha(VL.purpleTint, 0.12),
-                          color: d.source === 'auto' ? '#e08080' : VLText.muted,
-                          border: `1px solid ${d.source === 'auto' ? 'rgba(224,92,92,0.3)' : alpha(VL.purpleTint, 0.2)}`,
-                        }}>
-                          {d.source === 'auto' ? `auto · ${d.collectionCount ?? '?'} colls` : 'manual'}
-                        </span>
-                        {d.blockedAt && (
-                          <span style={{ color: VLText.muted, fontSize: 9, opacity: 0.6 }}>
-                            {new Date(d.blockedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                  <div style={{ marginTop: 4, marginLeft: 72, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {blockedDeployers.map(d => {
+                      const collNames = (d.collectionKeys ?? []).map(k => rows.get(k)?.name ?? null);
+                      const hasNames  = collNames.some(n => n !== null);
+                      return (
+                        <div key={d.address} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                            {hasNames ? (
+                              collNames.filter(Boolean).map((name, i) => (
+                                <span key={i} style={{
+                                  fontSize: 10, color: VLText.muted,
+                                  background: alpha(VL.purpleDeep, 0.3),
+                                  border: `1px solid ${alpha(VL.purpleTint, 0.2)}`,
+                                  borderRadius: 3, padding: '1px 6px', maxWidth: 160,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }}>{name}</span>
+                              ))
+                            ) : (
+                              <span style={{
+                                fontFamily: 'monospace', fontSize: 10, color: VLText.muted,
+                                background: alpha(VL.purpleDeep, 0.3),
+                                border: `1px solid ${alpha(VL.purpleTint, 0.2)}`,
+                                borderRadius: 3, padding: '1px 5px',
+                              }}>
+                                {d.address.slice(0, 6)}…{d.address.slice(-4)}
+                              </span>
+                            )}
+                            <span style={{
+                              padding: '1px 4px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                              background: d.source === 'auto' ? 'rgba(224,92,92,0.18)' : alpha(VL.purpleTint, 0.12),
+                              color: d.source === 'auto' ? '#e08080' : VLText.muted,
+                              border: `1px solid ${d.source === 'auto' ? 'rgba(224,92,92,0.3)' : alpha(VL.purpleTint, 0.2)}`,
+                            }}>
+                              {d.source === 'auto' ? `auto · ${d.collectionCount ?? '?'} colls` : 'manual'}
+                            </span>
+                            {d.blockedAt && (
+                              <span style={{ color: VLText.muted, fontSize: 9, opacity: 0.6 }}>
+                                {new Date(d.blockedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                          {hasNames && (
+                            <span style={{ fontSize: 9, color: VLText.muted, opacity: 0.45, fontFamily: 'monospace' }}>
+                              {d.address.slice(0, 6)}…{d.address.slice(-4)}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
