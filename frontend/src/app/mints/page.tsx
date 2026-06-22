@@ -2470,6 +2470,65 @@ export default function MintsPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+              {/* GROUP — LISTS (Blacklist). Single blacklistSet filters
+                  BOTH the LEFT tracker rows AND the RIGHT Live Mint Feed. */}
+              <div className="feed-set-group feed-set-group--lists">
+                <div className="feed-set-group-hd">Lists</div>
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl">Blacklist</span>
+                  <div className="feed-srow-ctl">
+                    <input
+                      className="feed-coll-input"
+                      value={blInput}
+                      onChange={(e) => setBlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
+                      placeholder="slug, address, or name…"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <Pill
+                      active
+                      color="#d96867"
+                      onClick={() => addBlacklist(blInput)}
+                      label="+"
+                      
+                      size="sm"
+                      style={settingsPillActive('#d96867')}
+                    />
+                    {blacklistSlugs.map((slug) => (
+                      <span key={slug} className="feed-chip feed-chip-bl">
+                        <span className="feed-chip-txt">{slug}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeBlacklist(slug)}
+                          
+                          className="feed-chip-x"
+                        >✕</button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {/* GROUP — DISPLAY (Hover toggle + Mass filter; spans both
+                  rows on the right, divider painted by --display border-left). */}
+              <div className="feed-set-group feed-set-group--display">
+                <div className="feed-set-group-hd">Display</div>
+                <div className="feed-srow" role="group" aria-label="Hover pause">
+                  <span className="feed-srow-lbl">Hover</span>
+                  <div className="feed-srow-ctl">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={hoverPauseEnabled}
+                      onClick={() => setHoverPauseEnabled(v => !v)}
+                      className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
+                    >
+                      <span className="vl-switch-thumb" />
+                    </button>
+                    <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
+                  </div>
+                </div>
                 {/* Mass Mints — hides bulk-deployer wallets from BOTH the
                     collections table and the Live Mint Feed. Default OFF. */}
                 <div className="feed-srow">
@@ -2481,8 +2540,8 @@ export default function MintsPage() {
                   </span>
                   <div className="feed-srow-ctl" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <div className="feed-seg" style={{ flexWrap: 'nowrap', display: 'flex' }}>
-                      <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                      <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                      <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive('#43b984') : SETTINGS_PILL_INACTIVE} />
+                      <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive('#d96867') : SETTINGS_PILL_INACTIVE} />
                     </div>
                     {blockedDeployers.length > 0 && (
                       <button
@@ -2554,66 +2613,6 @@ export default function MintsPage() {
                     })}
                   </div>
                 )}
-              </div>
-              {/* GROUP — LISTS (Blacklist). Single blacklistSet filters
-                  BOTH the LEFT tracker rows AND the RIGHT Live Mint Feed. */}
-              <div className="feed-set-group feed-set-group--lists">
-                <div className="feed-set-group-hd">Lists</div>
-                <div className="feed-srow">
-                  <span className="feed-srow-lbl">Blacklist</span>
-                  <div className="feed-srow-ctl">
-                    <input
-                      className="feed-coll-input"
-                      value={blInput}
-                      onChange={(e) => setBlInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') addBlacklist(blInput); }}
-                      placeholder="slug, address, or name…"
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    <Pill
-                      active
-                      color="#d96867"
-                      onClick={() => addBlacklist(blInput)}
-                      label="+"
-                      
-                      size="sm"
-                      style={settingsPillActive('#d96867')}
-                    />
-                    {blacklistSlugs.map((slug) => (
-                      <span key={slug} className="feed-chip feed-chip-bl">
-                        <span className="feed-chip-txt">{slug}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeBlacklist(slug)}
-                          
-                          className="feed-chip-x"
-                        >✕</button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {/* GROUP — DISPLAY (Hover toggle; spans both rows on the
-                  right, divider painted by --display border-left). */}
-              <div className="feed-set-group feed-set-group--display">
-                <div className="feed-set-group-hd">Display</div>
-                <div className="feed-srow" role="group" aria-label="Hover pause">
-                  <span className="feed-srow-lbl">Hover</span>
-                  <div className="feed-srow-ctl">
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={hoverPauseEnabled}
-                      
-                      onClick={() => setHoverPauseEnabled(v => !v)}
-                      className={`vl-switch${hoverPauseEnabled ? ' vl-switch-on' : ''}`}
-                    >
-                      <span className="vl-switch-thumb" />
-                    </button>
-                    <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
