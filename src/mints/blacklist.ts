@@ -21,6 +21,37 @@
  * any external dependency.
  */
 
+/** Deployer wallets (fee payer, accountKeys[0]) whose mints are suppressed
+ *  entirely — same chokepoints as BLACKLISTED_COLLECTIONS. Loaded from
+ *  `data/blocked-deployers.txt` at process start (one base58 address per
+ *  line; # comments and blank lines ignored). Add a new wallet by appending
+ *  its address to that file and restarting the backend. */
+import * as fs from 'fs';
+import * as path from 'path';
+
+function loadBlockedDeployers(): Set<string> {
+  const filePath = path.join(process.cwd(), 'data', 'blocked-deployers.txt');
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const addrs = raw.split('\n')
+      .map(l => l.replace(/#.*$/, '').trim())
+      .filter(l => l.length > 0);
+    if (addrs.length > 0) {
+      console.log(`[mints/blacklist] loaded ${addrs.length} blocked deployer(s) from ${filePath}`);
+    }
+    return new Set(addrs);
+  } catch {
+    return new Set();
+  }
+}
+
+export const BLACKLISTED_DEPLOYERS: ReadonlySet<string> = loadBlockedDeployers();
+
+export function isDeployerBlacklisted(deployer: string | null | undefined): boolean {
+  if (!deployer) return false;
+  return BLACKLISTED_DEPLOYERS.has(deployer);
+}
+
 /** Collections whose mints are dropped before they reach SSE. */
 export const BLACKLISTED_COLLECTIONS: ReadonlySet<string> = new Set([
   // phygitals___ (Magic Eden slug) — operator request.

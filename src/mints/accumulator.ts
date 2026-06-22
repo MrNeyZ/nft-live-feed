@@ -22,7 +22,7 @@ import {
 import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
-import { isCollectionBlacklisted, noteBlacklistDrop } from './blacklist';
+import { isCollectionBlacklisted, noteBlacklistDrop, isDeployerBlacklisted } from './blacklist';
 import { shouldEmitFeedCard, forgetFeedSampling, getFeedSampling } from './feed-sampler';
 import { appendCountedLedger } from './counted-ledger';
 
@@ -565,6 +565,9 @@ export function recordMint(ev: MintEventWire): boolean {
   // launch in the muted collection can't flood the log.
   if (isCollectionBlacklisted(ev.collectionAddress)) {
     noteBlacklistDrop(ev.collectionAddress as string);
+    return false;
+  }
+  if (isDeployerBlacklisted(ev.deployer)) {
     return false;
   }
   // Sticky non-NFT skip — once the enricher's DAS check rejected this

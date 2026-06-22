@@ -10,3 +10,4 @@ dist
 .runtime/
 *.tsbuildinfo
 data/
+!data/blocked-deployers.txt

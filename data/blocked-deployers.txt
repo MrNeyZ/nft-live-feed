@@ -1,0 +1,7 @@
+# Blocked deployer wallets (fee payer / accountKeys[0]).
+# One base58 address per line. Lines starting with # are comments.
+# Add a new wallet here and restart nft-backend to apply.
+
+# 2023 Team Series ICONs spam deployer — floods feed with many small
+# collections under one wallet (BhA2...). Confirmed 2026-06-22.
+BhA2Bfd8t2F2jDiUNdioGRJQt7MiaWo3Ro5H2Yt7APe2
