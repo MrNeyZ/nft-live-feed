@@ -708,7 +708,6 @@ import { VL, VLText, rgb, alpha } from '@/lib/palette';
 function FeedFiltersPopover({
   selectedTypes, selectedSources, toggleType, toggleSource, activeCount,
   showCnftMints, setShowCnftMints,
-  showBulkMints, setShowBulkMints, hasBulkDeployers,
 }: {
   selectedTypes:   ReadonlySet<FeedTypeKey>;
   selectedSources: ReadonlySet<SourceKey>;
@@ -719,10 +718,6 @@ function FeedFiltersPopover({
   // "Show cNFT Mints" — Live Mint Feed only, default ON.
   showCnftMints:    boolean;
   setShowCnftMints: (v: boolean) => void;
-  // "Show Mass Mints" — hides bulk-deployer floods, default OFF.
-  showBulkMints:    boolean;
-  setShowBulkMints: (v: boolean) => void;
-  hasBulkDeployers: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -824,20 +819,6 @@ function FeedFiltersPopover({
               <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
                 <Pill active={showCnftMints}  onClick={() => setShowCnftMints(true)}  label="Show" size="sm" style={showCnftMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                 <Pill active={!showCnftMints} onClick={() => setShowCnftMints(false)} label="Hide" size="sm" style={!showCnftMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-              </div>
-            </div>
-            {/* Mass Mints — bulk deployer flooding the feed across many
-                collections. Default OFF (hidden). Red dot badge when active. */}
-            <div className="feed-srow">
-              <span className="feed-srow-lbl" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                Mass
-                {hasBulkDeployers && !showBulkMints && (
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0 }} />
-                )}
-              </span>
-              <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
-                <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
-                <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
               </div>
             </div>
           </div>
@@ -1209,6 +1190,20 @@ export default function MintsPage() {
     }
     return bulk;
   }, [events]);
+
+  // Set of groupingKeys that belong to bulk deployers — used to filter
+  // the collections TABLE (which has no deployer field of its own).
+  const bulkGroupKeys = useMemo<Set<string>>(() => {
+    if (bulkDeployers.size === 0) return new Set();
+    const keys = new Set<string>();
+    for (const ev of events) {
+      if (ev.deployer && bulkDeployers.has(ev.deployer) && ev.groupingKey) {
+        keys.add(ev.groupingKey);
+      }
+    }
+    return keys;
+  }, [events, bulkDeployers]);
+
   // Toggle a specific key; passing null = "Any" clears the whole group. ANY
   // and specific keys are mutually exclusive (ANY = empty set), and disabling
   // the last specific key leaves the set empty → ANY automatically.
@@ -1363,7 +1358,7 @@ export default function MintsPage() {
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.
   // 0 (both groups = Any) hides the badge.
-  const activeFeedFilterCount = selectedTypes.size + selectedSources.size + (showCnftMints ? 0 : 1) + (!showBulkMints && bulkDeployers.size > 0 ? 1 : 0);
+  const activeFeedFilterCount = selectedTypes.size + selectedSources.size + (showCnftMints ? 0 : 1);
 
   // Self-tick so velocity / lastMint columns refresh smoothly between
   // backend status frames (every 5s here vs. 30s sweep on backend).
@@ -2097,6 +2092,8 @@ export default function MintsPage() {
       .filter(r => matchesType(selectedTypes, r.programSource, r.sourceLabel))
       .filter(r => matchesSource(selectedSources, r.sourceLabel))
       .filter(r => matchesStatusRow(selectedStatuses, r))
+      // Mass-mint filter — same deployer Set that drives the RIGHT feed.
+      .filter(r => showBulkMints || !bulkGroupKeys.has(r.groupingKey))
       // Timeframe gate — applies to BOTH tabs. A row whose lastMintAt
       // is older than the selected window is hidden, so 30M never
       // shows a "56m ago" row regardless of tab.
@@ -2192,7 +2189,7 @@ export default function MintsPage() {
   // the snapshot immediately (filterSortKey diff), so the freeze never
   // hides a UX action. Cleared the moment pause ends.
   const filterSortKey =
-    `${effectiveSortKey}|${effectiveSortDir}|${mintTab}|${mintTf}|${showCnft}|` +
+    `${effectiveSortKey}|${effectiveSortDir}|${mintTab}|${mintTf}|${showCnft}|${showBulkMints}|` +
     `${[...selectedTypes].sort().join(',')}|${[...selectedSources].sort().join(',')}|${[...selectedStatuses].sort().join(',')}|` +
     `${[...blacklistSet].sort().join(',')}`;
   interface MintsDisplaySnap {
@@ -2415,6 +2412,20 @@ export default function MintsPage() {
                         label={lbl} size="sm"
                         style={selectedStatuses.has(k) ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                     ))}
+                  </div>
+                </div>
+                {/* Mass Mints — hides bulk-deployer wallets from BOTH the
+                    collections table and the Live Mint Feed. Default OFF. */}
+                <div className="feed-srow">
+                  <span className="feed-srow-lbl" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    Mass
+                    {bulkGroupKeys.size > 0 && !showBulkMints && (
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#e05c5c', display: 'inline-block', flexShrink: 0 }} />
+                    )}
+                  </span>
+                  <div className="feed-srow-ctl feed-seg" style={{ flexWrap: 'nowrap' }}>
+                    <Pill active={showBulkMints}  onClick={() => setShowBulkMints(true)}  label="Show" size="sm" style={showBulkMints  ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+                    <Pill active={!showBulkMints} onClick={() => setShowBulkMints(false)} label="Hide" size="sm" style={!showBulkMints ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
                   </div>
                 </div>
               </div>
@@ -2782,9 +2793,6 @@ export default function MintsPage() {
                 activeCount={activeFeedFilterCount}
                 showCnftMints={showCnftMints}
                 setShowCnftMints={setShowCnftMints}
-                showBulkMints={showBulkMints}
-                setShowBulkMints={setShowBulkMints}
-                hasBulkDeployers={bulkDeployers.size > 0}
               />
             </div>
           </div>
