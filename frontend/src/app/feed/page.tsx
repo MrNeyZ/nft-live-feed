@@ -83,6 +83,17 @@ function isDensity(v: unknown): v is Density {
   return v === 'comfy' || v === 'compact' || v === 'tape';
 }
 
+const DENSITY_COLORS: Record<Density, string> = {
+  comfy:   '#43b984', // green  — relaxed mode
+  compact: '#ad92ee', // purple — default
+  tape:    '#5fa8e6', // blue   — dense/fast
+};
+const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
+  me:     '#e58aa3', // pink — MagicEden
+  tensor: '#5fa8e6', // blue — Tensor
+  orbis:  '#a0a0a8', // gray — Orbis
+};
+
 
 
 // ── Feed App ─────────────────────────────────────────────────────────────────
@@ -1186,7 +1197,7 @@ export default function FeedPage() {
                         <div className="feed-srow-ctl feed-seg">
                           {DENSITIES.map(d => {
                             const isActive = density === d;
-                            const dc = d === 'comfy' ? '#43b984' : d === 'tape' ? '#5fa8e6' : '#ad92ee';
+                            const dc = DENSITY_COLORS[d];
                             return (
                               <Pill
                                 key={d}
@@ -1208,20 +1219,21 @@ export default function FeedPage() {
                         <span className="feed-srow-lbl">Market</span>
                         <div className="feed-srow-ctl feed-seg">
                           {([
-                            { key: 'me',     label: 'MagicEden', color: '#e58aa3' },
-                            { key: 'tensor', label: 'Tensor',    color: '#5fa8e6' },
-                            { key: 'orbis',  label: 'Orbis',     color: '#a0a0a8' },
+                            { key: 'me',     label: 'MagicEden'  },
+                            { key: 'tensor', label: 'Tensor'     },
+                            { key: 'orbis',  label: 'Orbis'      },
                           ] as const).map(m => {
                             const isActive = marketSet.has(m.key);
+                            const mc = MARKET_COLORS[m.key];
                             return (
                               <Pill
                                 key={m.key}
                                 active={isActive}
-                                color={m.color}
+                                color={mc}
                                 onClick={() => toggleInSet(setMarketSet, m.key)}
                                 label={m.label}
                                 size="sm"
-                                style={isActive ? settingsPillActive(m.color) : SETTINGS_PILL_INACTIVE}
+                                style={isActive ? settingsPillActive(mc) : SETTINGS_PILL_INACTIVE}
                               />
                             );
                           })}
