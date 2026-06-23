@@ -1263,6 +1263,33 @@ export default function MintsPage() {
   // (matching mints cluster to the top at full opacity, the rest fade — see
   // feedView). Pure UI state, never persisted, cleared on mouse leave.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  // Historical events fetched from the DB for the currently hovered collection.
+  // Cleared when hover ends. Supplies older events that fell out of the in-memory
+  // ring (LIVE_FEED_MAX=150) so soldout collections still show their mint history.
+  const [hoverFetchedEvents, setHoverFetchedEvents] = useState<MintEvent[]>([]);
+  useEffect(() => {
+    if (!hoveredKey) { setHoverFetchedEvents([]); return; }
+    const key = hoveredKey;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/mints/collection-events?groupingKey=${encodeURIComponent(key)}&limit=50`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok || hoveredKey !== key) return;
+        const data = (await res.json()) as { events: Array<Record<string, unknown>> };
+        const fetched: MintEvent[] = data.events.map(ev => ({
+          ...(ev as unknown as MintEvent),
+          receivedAt: typeof ev.blockTime === 'string' && ev.blockTime
+            ? Date.parse(ev.blockTime as string)
+            : Date.now(),
+        }));
+        setHoverFetchedEvents(fetched);
+      } catch { /* silent — hover is best-effort */ }
+    }, 300);
+    return () => { clearTimeout(timer); };
+  }, [hoveredKey]);
+
   // Pinned (locked) collections — persists the live-feed scope after the
   // mouse leaves. Multiple pins are additive: clicking SHOW on another
   // row adds it to the set rather than replacing the prior pin. Pure UI
@@ -1387,11 +1414,20 @@ export default function MintsPage() {
         || (ev.collectionAddress != null && scopeAddrs.has(ev.collectionAddress));
       (isMatch ? match : rest).push(ev);
     }
+    // Append historical events fetched from the DB for the hovered/pinned
+    // collection — these are older than the in-memory ring and therefore not
+    // in visibleEvents. Deduped by signature so a recent event can't appear twice.
+    const liveSignatures = new Set(visibleEvents.map(e => e.signature));
+    const historical = hoverFetchedEvents.filter(e =>
+      (scopeKeys.has(e.groupingKey) || (e.collectionAddress != null && scopeAddrs.has(e.collectionAddress)))
+      && !liveSignatures.has(e.signature),
+    );
     return [
       ...match.map(ev => ({ ev, dimmed: false })),
+      ...historical.map(ev => ({ ev, dimmed: false })),
       ...rest.map(ev  => ({ ev, dimmed: true  })),
     ];
-  }, [visibleEvents, scopeKeys, scopeAddrs]);
+  }, [visibleEvents, scopeKeys, scopeAddrs, hoverFetchedEvents]);
 
   // Total number of active specific filters across both groups — drives the
   // "Settings · N" badge so the active state shows without opening the popup.

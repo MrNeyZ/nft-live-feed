@@ -385,6 +385,59 @@ export function createRuntimeRouter(): Router {
       });
     res.json({ events });
   });
+  // Per-collection historical mint events — powers the hover drill-down on
+  // /mints when the in-memory buffer no longer covers that collection.
+  // Queries the DB directly by grouping_key (indexed), returns newest-first.
+  router.get('/mints/collection-events', async (req: Request, res: Response) => {
+    const groupingKey = String(req.query.groupingKey ?? '').trim();
+    if (!groupingKey) { res.status(400).json({ error: 'groupingKey required' }); return; }
+    const rawLimit = parseInt(String(req.query.limit ?? '50'), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+    try {
+      const { rows } = await getPool().query<{
+        signature: string; mint_address: string; collection_address: string | null;
+        grouping_key: string; grouping_kind: string; source_label: string;
+        program_source: string; mint_type: string; price_lamports: string | null;
+        minter: string | null; block_time: Date | null; nft_name: string | null;
+        nft_image_url: string | null; core_launchpad: boolean;
+        payment_mint: string | null; payment_amount: string | null;
+        payment_decimals: number | null; collection_create: boolean;
+      }>(`
+        SELECT signature, mint_address, collection_address, grouping_key, grouping_kind,
+               source_label, program_source, mint_type, price_lamports, minter, block_time,
+               nft_name, nft_image_url, core_launchpad,
+               payment_mint, payment_amount, payment_decimals, collection_create
+          FROM mint_events
+         WHERE grouping_key = $1
+         ORDER BY block_time DESC NULLS LAST, id DESC
+         LIMIT $2
+      `, [groupingKey, limit]);
+      const events = rows.map(r => ({
+        signature:         r.signature,
+        blockTime:         r.block_time ? new Date(r.block_time).toISOString() : '',
+        programSource:     r.program_source,
+        mintAddress:       r.mint_address === '' ? null : r.mint_address,
+        collectionAddress: r.collection_address ?? null,
+        groupingKey:       r.grouping_key,
+        groupingKind:      r.grouping_kind,
+        mintType:          r.mint_type,
+        priceLamports:     r.price_lamports != null ? Number(r.price_lamports) : null,
+        minter:            r.minter ?? null,
+        sourceLabel:       r.source_label,
+        coreLaunchpad:     r.core_launchpad === true,
+        collectionCreate:  r.collection_create === true,
+        paymentMint:       r.payment_mint ?? null,
+        paymentAmount:     r.payment_amount ?? null,
+        paymentDecimals:   r.payment_decimals != null ? Number(r.payment_decimals) : null,
+        nftName:           r.nft_name ?? null,
+        nftImageUrl:       r.nft_image_url ?? null,
+      }));
+      res.json({ events });
+    } catch (err) {
+      res.status(500).json({ error: 'db error' });
+    }
+  });
+
   // Per-collection mint counts over the requested rolling window. Source
   // of truth for the MINTS column on older timeframes where the
   // frontend's capped live-feed buffer (LIVE_FEED_MAX = 150) can't hold
