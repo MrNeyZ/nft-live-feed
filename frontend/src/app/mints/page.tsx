@@ -1263,33 +1263,6 @@ export default function MintsPage() {
   // (matching mints cluster to the top at full opacity, the rest fade — see
   // feedView). Pure UI state, never persisted, cleared on mouse leave.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  // Historical events fetched from the DB for the currently hovered collection.
-  // Cleared when hover ends. Supplies older events that fell out of the in-memory
-  // ring (LIVE_FEED_MAX=150) so soldout collections still show their mint history.
-  const [hoverFetchedEvents, setHoverFetchedEvents] = useState<MintEvent[]>([]);
-  useEffect(() => {
-    if (!hoveredKey) { setHoverFetchedEvents([]); return; }
-    const key = hoveredKey;
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(
-          `${API_BASE}/api/mints/collection-events?groupingKey=${encodeURIComponent(key)}&limit=50`,
-          { cache: 'no-store' },
-        );
-        if (!res.ok || hoveredKey !== key) return;
-        const data = (await res.json()) as { events: Array<Record<string, unknown>> };
-        const fetched: MintEvent[] = data.events.map(ev => ({
-          ...(ev as unknown as MintEvent),
-          receivedAt: typeof ev.blockTime === 'string' && ev.blockTime
-            ? Date.parse(ev.blockTime as string)
-            : Date.now(),
-        }));
-        setHoverFetchedEvents(fetched);
-      } catch { /* silent — hover is best-effort */ }
-    }, 300);
-    return () => { clearTimeout(timer); };
-  }, [hoveredKey]);
-
   // Pinned (locked) collections — persists the live-feed scope after the
   // mouse leaves. Multiple pins are additive: clicking SHOW on another
   // row adds it to the set rather than replacing the prior pin. Pure UI
@@ -1312,6 +1285,38 @@ export default function MintsPage() {
     }
     return out;
   }, [scopeKeys, rows]);
+  // Historical events fetched from the DB for the active scope (pinned + hovered).
+  // Supplies older events that fell out of the in-memory ring so soldout collections
+  // still show their mint history. Re-fetches whenever the effective scope changes.
+  const [hoverFetchedEvents, setHoverFetchedEvents] = useState<MintEvent[]>([]);
+  // Stable string dep for useEffect — Set identity changes every render.
+  const scopeKeysStr = useMemo(() => [...scopeKeys].sort().join('\0'), [scopeKeys]);
+  useEffect(() => {
+    const keys = [...scopeKeys];
+    if (keys.length === 0) { setHoverFetchedEvents([]); return; }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await Promise.all(keys.map(k =>
+          fetch(`${API_BASE}/api/mints/collection-events?groupingKey=${encodeURIComponent(k)}&limit=50`, { cache: 'no-store' })
+            .then(r => r.ok ? r.json() as Promise<{ events: Array<Record<string, unknown>> }> : { events: [] })
+            .catch(() => ({ events: [] as Array<Record<string, unknown>> })),
+        ));
+        const fetched: MintEvent[] = results.flatMap(data =>
+          data.events.map(ev => ({
+            ...(ev as unknown as MintEvent),
+            receivedAt: typeof ev.blockTime === 'string' && ev.blockTime
+              ? Date.parse(ev.blockTime as string)
+              : Date.now(),
+          })),
+        );
+        fetched.sort((a, b) => b.receivedAt - a.receivedAt);
+        setHoverFetchedEvents(fetched);
+      } catch { /* silent — best-effort */ }
+    }, 300);
+    return () => { clearTimeout(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKeysStr]);
+
   // Toggle pin membership. Click SHOW on an unpinned row → add. Click
   // SHOW on a pinned row → remove. Duplicates impossible (Set semantics).
   const togglePin = (key: string) => {
