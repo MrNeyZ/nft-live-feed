@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
-<defs>
-<linearGradient id="bg" x1="0" y1="0" x2="0.42" y2="1"><stop offset="0" stop-color="#140d26"></stop><stop offset="0.55" stop-color="#0a0715"></stop><stop offset="1" stop-color="#070510"></stop></linearGradient></defs>
-<rect width="100" height="100" rx="20" fill="url(#bg)"></rect>
-<g transform="translate(50,50) scale(1.0182) translate(-37.35,32.52)">
-<text font-family="Spectral" font-style="italic" font-weight="800" font-size="100" fill="#a890e8" stroke="#a890e8" stroke-width="2.60" stroke-linejoin="round" paint-order="stroke fill">V</text></g>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0.42" y2="1">
+<stop offset="0" stop-color="#140d26"></stop><stop offset="0.55" stop-color="#0a0715"></stop><stop offset="1" stop-color="#070510"></stop></linearGradient>
+<clipPath id="rc"><rect width="100" height="100" rx="20"></rect></clipPath></defs>
+<g clip-path="url(#rc)"><rect width="100" height="100" fill="url(#bg)"></rect>
+<path d="M 15.50 15.00 L 49.20 15.00 L 49.20 17.12 L 48.94 17.39 L 44.16 17.65 L 42.04 18.18 L 40.71 19.51 L 40.45 22.69 L 55.57 59.55 L 56.37 58.48 L 56.63 57.16 L 60.08 48.94 L 64.33 37.27 L 66.45 32.50 L 69.64 23.22 L 69.64 20.83 L 69.11 19.51 L 68.04 18.45 L 65.39 17.65 L 61.14 17.39 L 60.88 17.12 L 60.88 15.00 L 84.23 15.00 L 84.23 17.12 L 81.05 17.92 L 78.92 19.24 L 77.07 21.63 L 75.47 24.81 L 52.39 84.73 L 49.73 84.73 L 49.20 83.67 L 24.26 25.08 L 22.40 21.36 L 19.75 18.45 L 18.16 17.65 L 15.77 17.39 L 15.50 17.12 L 15.50 15.27 Z" fill="#a890e8"></path></g>
 <rect x="0.6" y="0.6" width="98.8" height="98.8" rx="19.4" fill="none" stroke="rgba(150,120,235,0.18)" stroke-width="1.2"></rect></svg>
