@@ -21,22 +21,16 @@ const playfairDisplay = Playfair_Display({
 export const metadata: Metadata = {
   title: 'Live Feed | VictoryLabs',
   description: 'Solana-wide NFT sales in real time',
-  // Favicon = the new V-mark: a dark rounded square + the purple "V" from
-  // the typography wordmark (squared-up / upright, chunkier than the slanted
-  // Playfair italic so it survives 16px). Three artefacts live under
-  // `app/`: icon.svg (crisp, primary), icon.png 64×64 (raster fallback),
-  // apple-icon.png 180×180. Listed explicitly here SVG-first so browsers
-  // that support SVG favicons use it and the rest fall back to the PNG.
-  // (Next emits a single set of <link>s from this; the file conventions
-  // just serve the routes.) The header brand mark stays the full wordmark
-  // lockup (`.vl-logo`, rendered by TopNav); the old `/brand/V-logo.png`
-  // is no longer referenced.
+  // Favicon = Soloist brand mark (spectral-ink). Assets under `app/`:
+  // favicon.ico (multi-size, desktop), icon.svg (SVG, modern browsers),
+  // icon.png 32×32 (raster fallback), apple-icon.png 180×180 (iOS).
   icons: {
     icon: [
+      { url: '/favicon.ico' },
       { url: '/icon.svg', type: 'image/svg+xml' },
-      { url: '/icon.png', type: 'image/png', sizes: '64x64' },
+      { url: '/icon.png', type: 'image/png', sizes: '32x32' },
     ],
-    apple: { url: '/apple-icon.png', type: 'image/png', sizes: '180x180' },
+    apple: [{ url: '/apple-icon.png', type: 'image/png', sizes: '180x180' }],
   },
 };
 

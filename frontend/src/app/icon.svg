@@ -1,27 +1,16 @@
-<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- VictoryLabs app icon. Dark rounded square (close to the topbar dark-
-       purple glass) + the REAL "V" from the "Victory" wordmark: the Playfair
-       Display ExtraBold (weight 800) Italic glyph for U+0056, pulled from
-       the font. The path "d" is the font outline, UNCHANGED — its thick-vs-
-       hairline asymmetry and ~14° italic slant are kept (no de-slant, no
-       stroke-fattening; it must read as the wordmark V, not a checkmark).
-       The matrix applies the same scaleX(0.97) as .vl-logo .v, then a
-       uniform fit-to-icon and a Y-flip (font Y-up → SVG Y-down). fill
-       #ae92ee matches .vl-logo .v; subtle purple bloom, no neon. To
-       regenerate: /tmp/iconbuild/build-icon.js (fontkit + the Google-Fonts
-       Playfair Display ExtraBold Italic woff2). -->
-  <defs>
-    <linearGradient id="vl-icon-bg" x1="32" y1="0" x2="32" y2="64" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#16112a"/>
-      <stop offset="1" stop-color="#0c0a16"/>
-    </linearGradient>
-    <filter id="vl-icon-glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#ae92ee" flood-opacity="0.45"/>
-    </filter>
-  </defs>
-  <rect x="1" y="1" width="62" height="62" rx="13" fill="url(#vl-icon-bg)"
-        stroke="#a890e8" stroke-opacity="0.2" stroke-width="1.5"/>
-  <g filter="url(#vl-icon-glow)">
-    <path d="M637 571Q665 614 663.5 638.5Q662 663 639 674Q616 685 577 688L582 708Q593 707 618.5 706.5Q644 706 672 705.5Q700 705 718 705Q740 705 758.5 706Q777 707 793 708L788 688Q766 682 747.5 671Q729 660 708.5 637.5Q688 615 662 575L285 -5Q269 -3 253.5 -3Q238 -3 222 -5L143 624Q139 660 122 673.5Q105 687 91 688L96 708Q123 707 166.5 706Q210 705 252 705Q303 705 345.5 706Q388 707 415 708L410 688Q379 687 359.5 680.5Q340 674 333.5 656.5Q327 639 330 604L380 153L343 120Z" transform="matrix(0.0707 0 0 -0.0729 0.7314 57.6353)" fill="#ae92ee"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+<defs>
+
+<linearGradient id="bg" x1="0" y1="0" x2="0.42" y2="1">
+<stop offset="0" stop-color="#140d26"></stop><stop offset="0.55" stop-color="#0a0715"></stop><stop offset="1" stop-color="#070510"></stop>
+</linearGradient>
+<linearGradient id="v" x1="0.15" y1="0" x2="0.8" y2="1">
+<stop offset="0" stop-color="#f3ecff"></stop><stop offset="0.55" stop-color="#c9b4fa"></stop><stop offset="1" stop-color="#a98ff0"></stop>
+</linearGradient>
+</defs>
+<rect width="100" height="100" rx="22" fill="url(#bg)"></rect>
+<g transform="translate(50,50) scale(0.8436) translate(-37.35,32.52)">
+<text font-family="Spectral" font-style="italic" font-weight="800" font-size="100" fill="url(#v)">V</text>
+</g>
+<rect x="0.6" y="0.6" width="98.8" height="98.8" rx="21.4" fill="none" stroke="rgba(150,120,235,0.18)" stroke-width="1.2"></rect>
 </svg>
