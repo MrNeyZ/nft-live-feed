@@ -12,7 +12,7 @@ import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
-const FLOOR_MISS_TTL_MS = 5 * 60 * 1000; // 5 min — backoff after a total floor lookup miss
+const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
 const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster than floor
 
 // Active sweep on every cache so write-once-never-reread entries
@@ -358,11 +358,13 @@ function kickFloorRefresh(slug: string): void {
  */
 async function getCollectionTopOfferLamports(slug: string): Promise<number | null> {
   if (offerCache.has(slug)) return offerCache.get(slug)!;
+  if (meCooldownActive()) return null;
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/offers?limit=20`,
       { signal: AbortSignal.timeout(4000) },
     );
+    if (res.status === 429) { setMeCooldown(60_000); return null; }
     if (!res.ok) return null;
     const json = await res.json() as Array<{ price?: number }>;
     if (!Array.isArray(json) || json.length === 0) return null;

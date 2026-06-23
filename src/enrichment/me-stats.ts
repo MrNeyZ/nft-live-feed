@@ -11,6 +11,8 @@
  * a try/catch around this helper.
  */
 
+import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+
 const ME_STATS_TTL_MS = 12_000;
 const ME_STATS_TIMEOUT_MS = 4_000;
 
@@ -36,11 +38,20 @@ export async function getMeStats(slug: string): Promise<MeStatsRaw | null> {
   if (pending) return pending;
 
   const task = (async (): Promise<MeStatsRaw | null> => {
+    if (meCooldownActive()) {
+      inFlight.delete(slug);
+      return null;
+    }
     try {
       const res = await fetch(
         `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
         { signal: AbortSignal.timeout(ME_STATS_TIMEOUT_MS) },
       );
+      if (res.status === 429) {
+        setMeCooldown(60_000);
+        cache.set(slug, { stats: null, fetchedAt: Date.now() });
+        return null;
+      }
       if (!res.ok) {
         cache.set(slug, { stats: null, fetchedAt: Date.now() });
         return null;
