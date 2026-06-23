@@ -7,6 +7,8 @@
  * own public HTTP APIs.
  */
 
+import { meCooldownActive, setMeCooldown } from '../../me-api-cooldown';
+
 export type RaritySource = 'tensor' | 'howrare' | 'magiceden';
 
 /** A successful rank resolution from one provider. `null` from a provider's
@@ -74,6 +76,9 @@ export interface GetJsonOpts {
  */
 export async function getJson<T = unknown>(url: string, opts: GetJsonOpts): Promise<T | null> {
   if (inCooldown(opts.label)) return null;
+  // Also bail if the process-wide ME cooldown is active (set by enrichment or
+  // the retardio scanner hitting 429 on a different ME endpoint).
+  if (opts.label === 'magiceden' && meCooldownActive()) return null;
   await acquire();
   try {
     const res = await fetch(url, {
@@ -81,7 +86,9 @@ export async function getJson<T = unknown>(url: string, opts: GetJsonOpts): Prom
       signal:  AbortSignal.timeout(opts.timeoutMs),
     });
     if (res.status === 429) {
-      setCooldown(opts.label, opts.cooldownMs ?? 60_000);
+      const ms = opts.cooldownMs ?? 60_000;
+      setCooldown(opts.label, ms);
+      if (opts.label === 'magiceden') setMeCooldown(ms);
       console.warn(`[rare/rarity] ${opts.label} 429 — cooling down`);
       return null;
     }

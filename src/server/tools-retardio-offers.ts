@@ -33,6 +33,7 @@ import {
   lamportsToSol,
   type FundingStatus,
 } from './me-bid-escrow';
+import { meCooldownActive, setMeCooldown, meCooldownRemainMs } from '../me-api-cooldown';
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const DEFAULT_SLUG     = process.env.RETARDIO_ME_SLUG ?? 'retardio_cousins';
@@ -413,15 +414,6 @@ class MeRateLimitError extends Error {
   }
 }
 
-/** Process-wide ME cooldown timestamp (epoch ms). Updated whenever ANY
- *  ME fetch sees a 429 — the limit is per-IP, so a 429 on one slug means
- *  every other slug is also blocked from ME's perspective for the same
- *  window. `meGet` short-circuits with `MeRateLimitError` while the
- *  cooldown is active so we don't burn requests we already know will fail
- *  and stack up additional 429s. Reset implicitly by the elapsed time —
- *  no setTimeout required. */
-let meCooldownUntilMs = 0;
-
 /** Hard ceiling on Retry-After (or our own default backoff). ME's
  *  observed retry windows are 30-60 s; we cap at 5 min so a hostile /
  *  malformed header can't pin the scanner offline. */
@@ -449,8 +441,7 @@ function parseRetryAfter(v: string | null): number | null {
  *  with `ME_RATE_LIMITED` before runScan starts (and burns at least one
  *  ME listings request). Returns 0 when no cooldown is active. */
 function getMeCooldownRemainingSec(): number {
-  const ms = meCooldownUntilMs - Date.now();
-  return ms > 0 ? Math.ceil(ms / 1000) : 0;
+  return Math.ceil(meCooldownRemainMs() / 1000);
 }
 
 interface MeGetOpts {
@@ -466,9 +457,8 @@ interface MeGetOpts {
  *  fetch call sites). Timeouts and network errors map to a synthetic
  *  upstream error so the caller's existing 5xx branch handles them. */
 async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
-  const cooldownLeft = getMeCooldownRemainingSec();
-  if (cooldownLeft > 0) {
-    throw new MeRateLimitError(opts.endpoint, cooldownLeft);
+  if (meCooldownActive()) {
+    throw new MeRateLimitError(opts.endpoint, getMeCooldownRemainingSec());
   }
   let r: FetchResponse;
   try {
@@ -483,7 +473,7 @@ async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
   if (r.status === 429) {
     const ra = parseRetryAfter(r.headers.get('Retry-After'));
     const retryAfter = ra ?? ME_COOLDOWN_DEFAULT_SEC;
-    meCooldownUntilMs = Math.max(meCooldownUntilMs, Date.now() + retryAfter * 1000);
+    setMeCooldown(retryAfter * 1000);
     throw new MeRateLimitError(opts.endpoint, retryAfter);
   }
   return r;

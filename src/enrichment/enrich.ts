@@ -7,6 +7,7 @@ import { SLUG_BLACKLIST } from '../db/blacklist';
 import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/listings-store';
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
+import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 
 const SUCCESS_TTL_MS = 7 * 60 * 1000;  // 7 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
@@ -83,6 +84,9 @@ const ME_TOKEN_HEADERS: Record<string, string> = ME_API_KEY
 
 export async function getMeTokenData(mint: string): Promise<MeTokenData> {
   const EMPTY: MeTokenData = { slug: null, collectionName: null, nftName: null, imageUrl: null };
+  // Skip immediately if the process-wide ME cooldown is active (set by any ME
+  // caller — rare feed, retardio scanner — hitting 429 on the shared IP quota).
+  if (meCooldownActive()) return EMPTY;
   // Two attempts max: a single short-backoff retry recovers the slug after a
   // transient rate-limit (429 / CF 1015 / 403) or timeout under feed load.
   // Terminal client errors (404 unknown mint, 400/401) are NOT retried.
@@ -112,8 +116,13 @@ export async function getMeTokenData(mint: string): Promise<MeTokenData> {
         };
       }
       reason = `http_${status}`;
+      if (status === 429) {
+        setMeCooldown(60_000);
+        console.warn(`[enrich] ME 429 — process-wide cooldown set (60s)`);
+        return EMPTY;
+      }
       // Terminal client errors (404 unknown mint, 400/401) are not retried.
-      const retryable = status === 429 || status === 403 || status === 408 || status >= 500;
+      const retryable = status === 403 || status === 408 || status >= 500;
       if (!retryable) {
         console.warn(`[enrich] ME slug resolve failed mint=${mint.slice(0, 8)} status=${status} reason=${reason} attempts=${attempt}`);
         return EMPTY;
