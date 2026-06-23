@@ -867,7 +867,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                     <img src={tokenInfo.image} alt="" width={12} height={12}
                       style={{ width: 12, height: 12, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
                   ) : (
-                    <span style={{ fontSize: 7, fontWeight: 800, color: rgb(VL.purpleMuted), letterSpacing: 0, lineHeight: 1 }}>
+                    <span style={{ fontSize: 7, fontWeight: 800, color: rgb(VL.purpleTint), letterSpacing: 0, lineHeight: 1 }}>
                       {tokenLabel.slice(0, 1).toUpperCase()}
                     </span>
                   )}

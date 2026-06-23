@@ -176,7 +176,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
       }}
     >
       {label}
-      <span style={{ marginLeft: 6, color: active ? '#ad92ee' : '#241f3b', fontWeight: 800 }}>
+      <span style={{ marginLeft: 6, color: active ? '#a890e8' : '#241f3b', fontWeight: 800 }}>
         {active ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
       </span>
     </th>
@@ -219,7 +219,7 @@ function sortRows(rows: TrendingCollection[], key: SortKey, dir: SortDir): Trend
 // down. The row carries the tint for 3 s, then clears.
 type HighlightKind = 'new' | 'up' | 'down';
 const HIGHLIGHT_STYLE: Record<HighlightKind, { bg: string; bar: string }> = {
-  new:  { bg: 'rgba(168,144,232,0.13)', bar: '#ad92ee' },
+  new:  { bg: 'rgba(168,144,232,0.13)', bar: '#a890e8' },
   up:   { bg: 'rgba(126,217,168,0.12)', bar: '#43b984' },
   down: { bg: 'rgba(217,124,124,0.11)', bar: '#d96867' },
 };
@@ -469,7 +469,7 @@ export default function TrendingCollectionsPage() {
                 </>
               )}
               <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
-              <span>Source: <span style={{ color: '#ad92ee' }}>Magic Eden</span></span>
+              <span>Source: <span style={{ color: '#a890e8' }}>Magic Eden</span></span>
             </div>
           </div>
           <button
@@ -620,7 +620,7 @@ export default function TrendingCollectionsPage() {
                               <span title="Compressed NFT (cNFT)" style={{
                                 flexShrink: 0, padding: '1px 5px', fontSize: 8.5, fontWeight: 800,
                                 letterSpacing: '0.3px', borderRadius: 3, lineHeight: 1.2,
-                                color: '#ad92ee', background: 'rgba(168,144,232,0.12)',
+                                color: '#a890e8', background: 'rgba(168,144,232,0.12)',
                                 border: '1px solid rgba(168,144,232,0.40)',
                               }}>cNFT</span>
                             )}
@@ -697,7 +697,7 @@ export default function TrendingCollectionsPage() {
               {preview.name}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: '#9a9ab4' }}>
-              <span style={{ color: '#ad92ee', fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
+              <span style={{ color: '#a890e8', fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
               <span style={{ color: '#241f3b' }}>·</span>
               <span>showing {preview.sales.length} / {preview.salesCount ?? '—'}</span>
             </div>

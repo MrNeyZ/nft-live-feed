@@ -1128,9 +1128,9 @@ export default function Dashboard() {
                   <span className="feed-srow-lbl">Source</span>
                   <div className="feed-srow-ctl feed-seg">
                     {([
-                      { k: 'all',    l: 'All',        c: rgb(VL.purpleMuted) },
+                      { k: 'all',    l: 'All',        c: rgb(VL.purpleTint) },
                       { k: 'me',     l: 'Magic Eden', c: VLText.muted },
-                      { k: 'tensor', l: 'Tensor',     c: rgb(VL.purpleMuted) },
+                      { k: 'tensor', l: 'Tensor',     c: rgb(VL.purpleTint) },
                     ] as const).map(f => (
                       <Pill
                         key={f.k}

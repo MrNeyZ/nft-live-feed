@@ -85,13 +85,13 @@ function isDensity(v: unknown): v is Density {
 
 const DENSITY_COLORS: Record<Density, string> = {
   comfy:   '#43b984', // green  — relaxed mode
-  compact: '#ad92ee', // purple — default
+  compact: '#a890e8', // purple — default
   tape:    '#5fa8e6', // blue   — dense/fast
 };
 const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
   me:     '#e58aa3', // pink — MagicEden
-  tensor: '#5fa8e6', // blue — Tensor
-  orbis:  '#a0a0a8', // gray — Orbis
+  tensor: '#a0a0a8', // gray — Tensor
+  orbis:  '#5fa8e6', // blue — Orbis
 };
 
 
@@ -107,7 +107,7 @@ const FILTERS: { key: TypeKey; label: string; color: string }[] = [
   { key: 'sell',    label: 'Sell',       color: '#d96867' },
   { key: 'buyAmm',  label: 'Buy AMM',    color: '#43b984' },
   { key: 'sellAmm', label: 'Sell AMM',   color: '#d96867' },
-  { key: 'listing', label: 'Listings',   color: '#ad92ee' },
+  { key: 'listing', label: 'Listings',   color: '#a890e8' },
 ];
 
 /** Inactive-pill style for Type/Price utility filters inside the
@@ -153,7 +153,7 @@ const DENSITY_PILL_INACTIVE_STYLE: React.CSSProperties = {
 const DENSITY_PILL_ACTIVE_STYLE: React.CSSProperties = {
   ...DENSITY_PILL_BASE_STYLE,
   background:    alpha(VL.purpleTint, 0.26),
-  border:        `1px solid ${rgb(VL.purpleMuted)}`,
+  border:        `1px solid ${rgb(VL.purpleTint)}`,
   boxShadow:     `0 0 0 1px ${alpha(VL.purpleTint, 0.36)}, 0 0 10px ${alpha(VL.purpleTint, 0.42)}`,
   color:         VLText.primary,
   fontWeight:    700,
@@ -1097,7 +1097,7 @@ export default function FeedPage() {
                     borderRadius: 4, letterSpacing: '0.2px',
                     border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
                     background: alpha(VL.purpleTint, 0.08),
-                    color: rgb(VL.purpleMuted),
+                    color: rgb(VL.purpleTint),
                   }}>
                     {typeSet.size > 0 && FILTERS.filter(f => typeSet.has(f.key)).map(f => f.label).join(' / ')}
                     {typeSet.size > 0 && collFilter && (
@@ -1288,7 +1288,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#ad92ee"
+                            color="#a890e8"
                             onClick={() => {
                               const v = collInput.trim();
                               if (v) { setCollFilter(v); setCollInput(''); }
@@ -1296,7 +1296,7 @@ export default function FeedPage() {
                             label="+"
                             
                             size="sm"
-                            style={settingsPillActive('#ad92ee')}
+                            style={settingsPillActive('#a890e8')}
                           />
                           {collFilter && (
                             <span className="feed-chip feed-chip-watch">

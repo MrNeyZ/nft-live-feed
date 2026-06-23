@@ -37,7 +37,6 @@ export const VL = {
   // 🟣 purple — purpleTint is the dominant (previously untokenized) UI lavender
   purple:      [124, 92, 240] as RGB,   // #7C5CF0 saturated accent
   purpleTint:  [168, 144, 232] as RGB,  // #A890E8 main UI lavender tint
-  purpleMuted: [173, 146, 238] as RGB,  // #AD92EE muted
   purpleDeep:  [128, 104, 216] as RGB,  // #8068D8 deeper
 
   // 🟡 gold — LMNFT / rarity / special only

@@ -30,7 +30,7 @@ const BADGE_FONT = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSyst
 /** Score → fallback rank-chip tint (Rare Feed non-tier rows only). */
 export function scoreColor(score: number): string {
   if (score >= 80) return rgb(VL.green);
-  if (score >= 60) return rgb(VL.purpleMuted);
+  if (score >= 60) return rgb(VL.purpleTint);
   if (score >= 40) return rgb(VL.gold);
   return VLText.muted;
 }

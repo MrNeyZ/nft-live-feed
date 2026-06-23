@@ -164,7 +164,7 @@ export function ScatterChart({ trades, span, interval }: Props) {
       const isSell = t.type === 'sell';
       const age = now - t.ts;
       const isFresh = age < 1800;
-      const color = isSell ? '#f87171' : '#ad92ee';
+      const color = isSell ? '#f87171' : '#a890e8';
 
       if (isFresh) {
         const k = age / 1800;

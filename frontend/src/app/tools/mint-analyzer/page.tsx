@@ -107,7 +107,7 @@ const GATE_COLOR: Partial<Record<FlowGateType, string>> = {
 function gateColor(t: FlowGateType): string {
   if (GATE_COLOR[t]) return GATE_COLOR[t]!;
   if (t.endsWith('_burn_gate') || t.endsWith('_transfer_gate')) return '#c7b479';
-  if (t === 'unknown_custom_gate') return '#ad92ee';
+  if (t === 'unknown_custom_gate') return '#a890e8';
   return '#43b984';
 }
 
@@ -115,7 +115,7 @@ const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; 
   direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: '#43b984', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
   possible_requires_extra_inputs:     { label: 'Possible — requires extra inputs',     color: '#c7b479', bg: 'rgba(232,193,74,0.10)',  border: 'rgba(232,193,74,0.40)' },
   blocked_server_captcha_signature:   { label: 'Blocked — server/captcha/signature',   color: '#d96867', bg: 'rgba(217,124,124,0.10)', border: 'rgba(217,124,124,0.40)' },
-  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#ad92ee', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
+  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#a890e8', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
 };
 
 // Large reconstructable status badge derived from the verdict (display-only;
@@ -124,7 +124,7 @@ const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg:
   direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: '#43b984', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
   possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#c7b479', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
   blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d96867', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
-  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#ad92ee', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
+  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#a890e8', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
 };
 
 // Access type — WHO was allowed to mint (orthogonal to the verdict). Colours
@@ -133,7 +133,7 @@ const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg:
 const ACCESS_META: Record<AccessType, { label: string; color: string }> = {
   public:                    { label: 'Public Mint',        color: '#43b984' },
   nft_holder_gate:           { label: 'NFT Holder Gate',     color: '#7ea8d9' },
-  treasury_manual_allowlist: { label: 'Treasury Allowlist',  color: '#ad92ee' },
+  treasury_manual_allowlist: { label: 'Treasury Allowlist',  color: '#a890e8' },
   backend_gated:             { label: 'Backend Gated',       color: '#d96867' },
   unknown:                   { label: 'Unknown',             color: '#9a9ab4' },
 };
@@ -172,7 +172,7 @@ const SECTION_LABEL: React.CSSProperties = {
 };
 const MONO = "'SF Mono','Fira Code',monospace";
 
-function Chip({ children, color = '#ad92ee' }: { children: React.ReactNode; color?: string }) {
+function Chip({ children, color = '#a890e8' }: { children: React.ReactNode; color?: string }) {
   return (
     <span style={{
       display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
@@ -402,7 +402,7 @@ export default function MintAnalyzerPage() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span title={wrapper.programId} style={{
                   display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 600,
-                  borderRadius: 5, fontFamily: MONO, color: '#ad92ee',
+                  borderRadius: 5, fontFamily: MONO, color: '#a890e8',
                   background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.35)',
                 }}>{wrapper.programId.slice(0, 12)}…</span>
                 {wrapper.name && <span style={{ fontSize: 11, color: '#9a9ab4', fontFamily: MONO }}>· {wrapper.name}</span>}
@@ -580,7 +580,7 @@ export default function MintAnalyzerPage() {
                       <td style={{ padding: '6px 10px', color: ix.instructionName ? '#43b984' : '#9a9ab4' }}>
                         {ix.instructionName ?? '—'}
                       </td>
-                      <td style={{ padding: '6px 10px', color: '#ad92ee' }}>{ix.discriminatorHex || '—'}</td>
+                      <td style={{ padding: '6px 10px', color: '#a890e8' }}>{ix.discriminatorHex || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

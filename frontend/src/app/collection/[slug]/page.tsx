@@ -1529,7 +1529,7 @@ export default function CollectionPage() {
             <div style={{ padding:'6px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'rgba(255,255,255,0.015)' }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #d63d7c48', background:'#d63d7c20', fontSize:9, fontWeight:700, color:'#9a9ab4', cursor:'pointer' }}>ME</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #7c5cf048', background:'#7c5cf020', fontSize:9, fontWeight:700, color:'#ad92ee', cursor:'pointer' }}>T</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #7c5cf048', background:'#7c5cf020', fontSize:9, fontWeight:700, color:'#a890e8', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
                 <FilterBtn label="Max rank" />
@@ -1645,7 +1645,7 @@ export default function CollectionPage() {
             <div style={{ padding:'6px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0, background:'rgba(255,255,255,0.015)' }}>
               <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginBottom:4 }}>
                 <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #d63d7c48', background:'#d63d7c20', fontSize:9, fontWeight:700, color:'#9a9ab4', cursor:'pointer' }}>ME</span>
-                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #7c5cf048', background:'#7c5cf020', fontSize:9, fontWeight:700, color:'#ad92ee', cursor:'pointer' }}>T</span>
+                <span style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:20, borderRadius:3, border:'1px solid #7c5cf048', background:'#7c5cf020', fontSize:9, fontWeight:700, color:'#a890e8', cursor:'pointer' }}>T</span>
                 <FilterBtn label="Min price" />
                 <FilterBtn label="Max price" />
                 <FilterBtn label="Max rank" />

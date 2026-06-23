@@ -116,11 +116,11 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: VLText.muted };
     case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
     // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
-    // and a brighter fg (#ad92ee → #ad92ee) so the badge reads as a
+    // and a brighter fg (#a890e8 → #a890e8) so the badge reads as a
     // legible launchpad pill rather than disabled. Border via the
     // pill's existing bg-tint frame (no glow added).
-    case 'Metaplex Core':          return { label: 'CORE',     bg: alpha(VL.purpleTint, ALPHA.border), fg: rgb(VL.purpleMuted) };
-    case 'Metaplex':               return { label: 'LEGACY',   bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleMuted) };
+    case 'Metaplex Core':          return { label: 'CORE',     bg: alpha(VL.purpleTint, ALPHA.border), fg: rgb(VL.purpleTint) };
+    case 'Metaplex':               return { label: 'LEGACY',   bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
     case 'Bubblegum':              return { label: 'cNFT',     bg: alpha(VL.greenGlow, 0.15),  fg: rgb(VL.green) };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the
     // platform treasury. Distinct fuchsia palette so the row reads

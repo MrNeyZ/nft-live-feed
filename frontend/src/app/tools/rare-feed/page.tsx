@@ -115,7 +115,7 @@ export default function RareFeedPage() {
         )}
         {!error && (
           <div style={{ marginTop: 12, fontSize: 11, color: '#9a9ab4' }}>
-            <span>showing <span style={{ color: '#ad92ee', fontWeight: 700 }}>{rows.length}</span> rare {rows.length === 1 ? 'sale' : 'sales'}</span>
+            <span>showing <span style={{ color: '#a890e8', fontWeight: 700 }}>{rows.length}</span> rare {rows.length === 1 ? 'sale' : 'sales'}</span>
             <span style={{ color: '#241f3b', margin: '0 10px' }}>·</span>
             <span>score ≥ {minScore}</span>
           </div>

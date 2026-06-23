@@ -679,7 +679,7 @@ const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== '
 // match the card badges exactly.
 const TYPE_COLORS: Record<string, string> = {
   cnft:  '#43b984', // rgb(VL.green)       — Bubblegum / cNFT
-  core:  '#ad92ee', // rgb(VL.purpleMuted) — MPL Core
+  core:  '#a890e8', // rgb(VL.purpleTint) — MPL Core
   candy: '#e58aa3', // #e58aa3             — Candy Machine (CANDY badge pink)
 };
 const SOURCE_COLORS: Record<SourceKey, string> = {
@@ -687,7 +687,7 @@ const SOURCE_COLORS: Record<SourceKey, string> = {
   VVV:   '#5fa8e6', // #5fa8e6             — VVV.so (card badge light blue)
   GRAVE: '#a0a0a8', // #a0a0a8             — GraveMint (card badge gray)
   CANDY: '#e58aa3', // #e58aa3             — Candy Guard (same as candy type)
-  CORE:  '#ad92ee', // rgb(VL.purpleMuted) — Core (hidden from UI)
+  CORE:  '#a890e8', // rgb(VL.purpleTint) — Core (hidden from UI)
 };
 const STATUS_COLORS: Record<string, string> = {
   active: '#43b984', // green
@@ -702,7 +702,7 @@ type MintTab = 'active' | 'recent';
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
     case 'free':    return { label: 'FREE',    bg: alpha(VL.greenGlow,0.15),  fg: rgb(VL.green) };
-    case 'paid':    return { label: 'PAID',    bg: alpha(VL.purpleTint,0.15), fg: rgb(VL.purpleMuted) };
+    case 'paid':    return { label: 'PAID',    bg: alpha(VL.purpleTint,0.15), fg: rgb(VL.purpleTint) };
     case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
     default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
@@ -2873,9 +2873,9 @@ export default function MintsPage() {
                       border: `1px solid ${alpha(VL.purpleTint,0.75)}`, whiteSpace: 'nowrap',
                     }}
                   >
-                    <span style={{ color: rgb(VL.purpleMuted), textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
+                    <span style={{ color: rgb(VL.purpleTint), textTransform: 'uppercase', fontSize: 9 }}>pinned</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{nm}</span>
-                    <span style={{ color: rgb(VL.purpleMuted), fontWeight: 800 }}>×</span>
+                    <span style={{ color: rgb(VL.purpleTint), fontWeight: 800 }}>×</span>
                   </span>
                 );
               })}
@@ -2983,7 +2983,7 @@ export default function MintsPage() {
  *  unselected headers don't render an empty `<span>`. */
 function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
   if (active !== key) return null;
-  return <span style={{ color: rgb(VL.purpleMuted) }}>{dir === 'asc' ? '↑' : '↓'}</span>;
+  return <span style={{ color: rgb(VL.purpleTint) }}>{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
 // Comfortable density baseline shared with /dashboard (mirrors the

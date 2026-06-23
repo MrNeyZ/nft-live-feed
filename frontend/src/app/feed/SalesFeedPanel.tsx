@@ -125,11 +125,11 @@ export function SalesFeedPanel() {
                   <Pill
                     key={d}
                     active={isActive}
-                    color="#ad92ee"
+                    color="#a890e8"
                     onClick={() => setDensity(d)}
                     label={d.charAt(0).toUpperCase() + d.slice(1)}
                     size="sm"
-                    style={isActive ? settingsPillActive('#ad92ee') : SETTINGS_PILL_INACTIVE}
+                    style={isActive ? settingsPillActive('#a890e8') : SETTINGS_PILL_INACTIVE}
                   />
                 );
               })}

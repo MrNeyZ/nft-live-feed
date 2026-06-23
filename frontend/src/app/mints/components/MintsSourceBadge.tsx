@@ -57,7 +57,7 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
   // Restore the original per-source VictoryLabs accent (sb.fg): CORE purple
-  // (#ad92ee), LMNFT gold (#c7b479), CANDY pink (#e58aa3), and GRAVE / VVV /
+  // (#a890e8), LMNFT gold (#c7b479), CANDY pink (#e58aa3), and GRAVE / VVV /
   // LEGACY / cNFT / PRNT / GAY / ME unchanged. No invented shades.
   const accent = sb.fg;
   const label  = CHIP_LABEL[sb.label] ?? sb.label;

@@ -520,7 +520,7 @@ const GATE_CSS = `
   letter-spacing: 2.5px;
   text-transform: uppercase;
   color: #08060c;
-  background: linear-gradient(180deg, #ad92ee 0%, #7c5cf0 100%);
+  background: linear-gradient(180deg, #a890e8 0%, #7c5cf0 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   cursor: pointer;
@@ -533,7 +533,7 @@ const GATE_CSS = `
 }
 .vl-cta:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #ad92ee 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #a890e8 0%, #9f84e8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset,
@@ -638,7 +638,7 @@ const GATE_CSS = `
   width: 6px; height: 6px;
   margin-left: 14px;
   border-radius: 50%;
-  background: #ad92ee;
+  background: #a890e8;
   box-shadow: 0 0 10px rgba(168, 144, 232, 0.8);
 }
 .vl-wallet-field .vl-wallet-text {
@@ -647,7 +647,7 @@ const GATE_CSS = `
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 12.5px;
   font-weight: 500;
-  color: #ad92ee;
+  color: #a890e8;
   letter-spacing: 0.2px;
   flex-shrink: 0;
   min-width: 0;
@@ -665,7 +665,7 @@ const GATE_CSS = `
   font-family: inherit;
   font-size: 13.5px;
   color: #f0eef8;
-  caret-color: #ad92ee;
+  caret-color: #a890e8;
   letter-spacing: 0.2px;
 }
 .vl-wallet-field input.vl-passphrase::placeholder {
@@ -688,7 +688,7 @@ const GATE_CSS = `
   font-size: 16px;
   font-weight: 600;
   color: #08060c;
-  background: linear-gradient(180deg, #ad92ee 0%, #7c5cf0 100%);
+  background: linear-gradient(180deg, #a890e8 0%, #7c5cf0 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   cursor: pointer;
@@ -701,7 +701,7 @@ const GATE_CSS = `
 }
 .vl-arrow:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #ad92ee 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #a890e8 0%, #9f84e8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
     0 -1px 0 rgba(0, 0, 0, 0.22) inset,
@@ -735,7 +735,7 @@ const GATE_CSS = `
   transition: color 0.12s;
   align-self: flex-end;
 }
-.vl-change:hover { color: #ad92ee; }
+.vl-change:hover { color: #a890e8; }
 
 .vl-error {
   display: flex; align-items: center; gap: 8px;

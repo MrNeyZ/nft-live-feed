@@ -126,7 +126,7 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
  *  the listing-state dimension still reads at a glance even though
  *  there's no second border to carry it. */
 function listingLineColor(s: ListingState): string {
-  return s === 'UNLISTED' ? '#ad92ee' : '#9a9ab4';
+  return s === 'UNLISTED' ? '#a890e8' : '#9a9ab4';
 }
 
 /** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
@@ -535,7 +535,7 @@ export default function ToolsPage() {
               <LiveDot />
               {/* Single metadata line: slug + scan stats inline, separated
                   by the same muted '·' used in the prior stats row. */}
-              <span style={{ color: '#ad92ee', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+              <span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
                 {selectedSlug}
               </span>
               {result && !error && (() => {
@@ -552,7 +552,7 @@ export default function ToolsPage() {
                       <>
                         {sep}
                         {result.addedCount > 0 ? (
-                          <span style={{ color: '#ad92ee', fontWeight: 700 }}>+{result.addedCount} new</span>
+                          <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
                         ) : (
                           <span>+0 new</span>
                         )}
@@ -692,7 +692,7 @@ export default function ToolsPage() {
             <tbody>
               {!result && !busy && (
                 <tr><td colSpan={7} style={emptyCell}>
-                  Click <span style={{ color: '#ad92ee', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
+                  Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
                 </td></tr>
               )}
               {busy && !result && (

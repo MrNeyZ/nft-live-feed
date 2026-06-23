@@ -349,7 +349,7 @@ export function CollectionCircle({ color, abbr, size = 40 }: { color: string; ab
  * row/button coherent with its semantic accent.
  */
 export function Pill({
-  label, active = false, color = '#ad92ee',
+  label, active = false, color = '#a890e8',
   onClick, icon, title, disabled = false, size = 'md', style,
 }: {
   label:    React.ReactNode;
@@ -412,7 +412,7 @@ export const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
 
 /** Active settings pill — purple-tinted (or accent-colored), brighter text,
  *  NO glow. `color` defaults to the brand purple so callers can omit it. */
-export const settingsPillActive = (color = '#ad92ee'): React.CSSProperties => ({
+export const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
   padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
   background: `${color}24`,
   border: `1px solid ${color}44`,
@@ -547,7 +547,7 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
   const tStyle = {
     display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
     padding: '1px 6px', borderRadius: 3, border: '1px solid #7c5cf048',
-    background: '#7c5cf020', color: '#ad92ee', letterSpacing: '0.2px',
+    background: '#7c5cf020', color: '#a890e8', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
   // Orbis — teal, distinct from ME (pink) and Tensor (purple). Same chrome.
@@ -1451,7 +1451,7 @@ export function BarIconButton({ on, onClick, children }: {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 24, height: 22, padding: 0, borderRadius: 5,
         background: 'transparent', border: 'none', cursor: 'pointer',
-        color: on ? '#ad92ee' : '#7878a0',
+        color: on ? '#a890e8' : '#7878a0',
         transition: 'background 0.12s, color 0.12s',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
@@ -1658,7 +1658,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   height: 22, padding: '0 6px', borderRadius: 5,
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: uiSoundVolume === 1.0 ? '#7878a0' : '#ad92ee',
+                  color: uiSoundVolume === 1.0 ? '#7878a0' : '#a890e8',
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
                   transition: 'background 0.12s, color 0.12s',

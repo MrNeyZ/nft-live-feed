@@ -760,7 +760,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
           ev.sourceLabel === 'VVV'                    ? '#5fa8e6' :
           ev.sourceLabel === 'GRAVE'                  ? '#a0a0a8' :
           ev.sourceLabel === 'Metaplex Candy Machine' ? '#e58aa3' :
-                                                        rgb(VL.purpleMuted);
+                                                        rgb(VL.purpleTint);
         // Normalized label (display only — source/type logic untouched).
         const label = CHIP_LABEL[nftTypeLabel] ?? nftTypeLabel;
         const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
