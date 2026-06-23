@@ -246,9 +246,13 @@ const CANDY_GUARD_POLL_ENABLED     = process.env.MINT_CANDY_GUARD_POLL_ENABLED !
 // mints/min at peak) and the WS subscription is the primary path;
 // the prior 6s cadence was over-provisioned by ~5×. Tunable via env.
 const CANDY_GUARD_POLL_INTERVAL_MS = parseInt(process.env.MINT_CANDY_GUARD_POLL_INTERVAL_MS ?? '30000', 10) || 30000;
-// 2026-05-29: lowered default 10 → 5. CG live volume is single-digit
-// sigs/min at peak; limit=10 over-fetched by ~2×. Env override kept.
-const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '5',    10) || 5;
+// 2026-06-23: raised default 5 → 25. With limit=5 a popular mint burst
+// (e.g. 20 mints/5min from one wallet) could saturate the per-sweep
+// window when the idle backoff was at L2 (180s sleep), causing the
+// cursor to jump past un-fetched sigs — same bug that hit mpl_core
+// (see the L195-199 comment) and produced ~35% capture rate on Flork.
+// 25 covers ~8 min of peak global CG volume at L2 cadence with margin.
+const CANDY_GUARD_POLL_LIMIT       = parseInt(process.env.MINT_CANDY_GUARD_POLL_LIMIT       ?? '25',   10) || 25;
 // 2026-05-29: adaptive idle backoff for the LIVE candy_guard cursor poll —
 // mirrors the mpl_core L1/L2 template above. Base 30s; L1 after 3 empty
 // cycles → 90s (3×); L2 after 8 empty cycles → 180s (6×). CG is so quiet
