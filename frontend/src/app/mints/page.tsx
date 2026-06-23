@@ -1424,6 +1424,7 @@ export default function MintsPage() {
     );
     return [
       ...match.map(ev => ({ ev, dimmed: false })),
+      ...(historical.length > 0 ? [{ separator: true as const }] : []),
       ...historical.map(ev => ({ ev, dimmed: false })),
       ...rest.map(ev  => ({ ev, dimmed: true  })),
     ];
@@ -2993,18 +2994,31 @@ export default function MintsPage() {
                 (from LIVE_FEED_MAX 150) to cut paint cost when three feeds
                 run side-by-side. State is untouched; non-embed /mints renders
                 the full feedView. */}
-            {(() => { const now = Date.now(); return (embedded ? feedView.slice(0, 60) : feedView).map(({ ev, dimmed }) => (
-              <LiveMintFeedCard
-                key={ev.signature}
-                event={ev}
-                group={rows.get(ev.groupingKey)}
-                now={now}
-                dimmed={dimmed}
-                embedded={embedded}
-                onPauseEnter={enterPauseZone}
-                onPauseLeave={leavePauseZone}
-              />
-            )); })()}
+            {(() => { const now = Date.now(); return (embedded ? feedView.slice(0, 60) : feedView).map((item, i) => {
+              if ('separator' in item) return (
+                <div key="__hist_sep" style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 12px', opacity: 0.45,
+                }}>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(160,130,255,0.25)' }} />
+                  <span style={{ fontSize: 9, letterSpacing: '0.08em', color: 'rgba(160,130,255,0.7)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>older · from db</span>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(160,130,255,0.25)' }} />
+                </div>
+              );
+              const { ev, dimmed } = item;
+              return (
+                <LiveMintFeedCard
+                  key={ev.signature}
+                  event={ev}
+                  group={rows.get(ev.groupingKey)}
+                  now={now}
+                  dimmed={dimmed}
+                  embedded={embedded}
+                  onPauseEnter={enterPauseZone}
+                  onPauseLeave={leavePauseZone}
+                />
+              );
+            }); })()}
           </div>
         </div>
       )}
