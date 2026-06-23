@@ -21,16 +21,14 @@ const playfairDisplay = Playfair_Display({
 export const metadata: Metadata = {
   title: 'Live Feed | VictoryLabs',
   description: 'Solana-wide NFT sales in real time',
-  // Favicon = Soloist brand mark (spectral-ink). Assets under `app/`:
-  // favicon.ico (multi-size, desktop), icon.svg (SVG, modern browsers),
-  // icon.png 32×32 (raster fallback), apple-icon.png 180×180 (iOS).
+  // Favicon = VictoryLabs brand mark. favicon.ico in app/ (served at
+  // /favicon.ico); SVG + PNG sizes + apple-touch in public/ (exact paths).
   icons: {
     icon: [
       { url: '/favicon.ico' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
-      { url: '/icon.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
     ],
-    apple: [{ url: '/apple-icon.png', type: 'image/png', sizes: '180x180' }],
+    apple: [{ url: '/apple-touch-icon.png' }],
   },
 };
 
