@@ -13,7 +13,8 @@
 // Functional handlers (login, setMode, wallet detect, state resolve) are
 // the pre-existing ones — this file does not change auth / runtime logic.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { getWallets } from '@wallet-standard/app';
 import { isAuthed, loginWithSiws, clearAuth } from './auth';
 import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
 import { setMintTrackerEnabled } from './mint-tracker';
@@ -191,42 +192,50 @@ function GateShell({ children }: { children: ReactNode }) {
   );
 }
 
-// ── Wallet detection ────────────────────────────────────────────────────────
+// ── Wallet detection (wallet-standard) ────────────────────────────────────
+// All modern Solana wallets (Phantom ≥ v22, Solflare ≥ v3, Backpack, etc.)
+// self-register in the global wallet-standard registry. getWallets() enumerates
+// them; no per-wallet window.* checks needed. Future wallets appear automatically.
 
-interface InjectedSolana {
-  isPhantom?: boolean;
-  connect?: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: { toString(): string } }>;
-  publicKey?: { toString(): string } | null;
-  signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array | string }>;
+interface StdAccount {
+  address: string;       // base58 pubkey
+  publicKey: Uint8Array; // raw 32-byte key
+  chains: readonly string[];
+  features: readonly string[];
 }
 
-interface InjectedSolflare {
-  isSolflare?: boolean;
-  connect: () => Promise<void>;
-  disconnect?: () => Promise<void>;
-  publicKey?: { toString(): string } | null;
-  signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array | string }>;
+interface StdWallet {
+  name: string;
+  icon: string;          // data: URI (svg or png)
+  chains: readonly string[];
+  features: Record<string, unknown>;
 }
 
-declare global {
-  interface Window { solflare?: InjectedSolflare }
+interface ConnectedWallet { wallet: StdWallet; account: StdAccount }
+
+type ConnectFeature = {
+  connect(opts?: { silent?: boolean }): Promise<{ accounts: ReadonlyArray<StdAccount> }>;
+};
+type SignFeature = {
+  signMessage(i: { message: Uint8Array; account: StdAccount }): Promise<ReadonlyArray<{ signature: Uint8Array }>>;
+};
+
+function isSolanaWallet(w: StdWallet): boolean {
+  return 'standard:connect' in w.features &&
+         'solana:signMessage' in w.features &&
+         w.chains.some(c => c.startsWith('solana:'));
 }
 
-type WalletProvider = 'phantom' | 'solflare';
-
-function getPhantomProvider(): InjectedSolana | null {
-  if (typeof window === 'undefined') return null;
-  const w = window as unknown as {
-    phantom?: { solana?: InjectedSolana };
-    solana?:  InjectedSolana;
+function walletToSignCapable(
+  { wallet, account }: ConnectedWallet,
+): { signMessage: (msg: Uint8Array, enc?: string) => Promise<{ signature: Uint8Array | string }> } {
+  return {
+    signMessage: async (message: Uint8Array) => {
+      const feat = wallet.features['solana:signMessage'] as SignFeature;
+      const [res] = await feat.signMessage({ message, account });
+      return { signature: res.signature };
+    },
   };
-  const p = w.phantom?.solana ?? w.solana ?? null;
-  return p?.isPhantom ? p : null;
-}
-
-function getSolflareProvider(): InjectedSolflare | null {
-  if (typeof window === 'undefined') return null;
-  return window.solflare?.isSolflare ? window.solflare : null;
 }
 
 /** Display-only: first5…last5 with the Unicode horizontal ellipsis. */
@@ -258,70 +267,103 @@ function Wordmark() {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 
-function WalletBtn({ label, prov, busy, onConnect }: {
-  label: string; prov: WalletProvider; busy: boolean;
-  onConnect: (p: WalletProvider) => void;
+function WalletModal({ onSelect, onClose }: {
+  onSelect: (cw: ConnectedWallet) => void;
+  onClose: () => void;
 }) {
-  const available = prov === 'phantom' ? !!getPhantomProvider() : !!getSolflareProvider();
+  const [wallets,  setWallets]  = useState<StdWallet[]>([]);
+  const [busyName, setBusyName] = useState<string | null>(null);
+  const [err,      setErr]      = useState<string | null>(null);
+  const onCloseRef              = useRef(onClose);
+  onCloseRef.current            = onClose;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const registry = getWallets() as unknown as {
+      get(): unknown[];
+      on(event: string, listener: () => void): () => void;
+    };
+    const refresh = () => {
+      setWallets((registry.get() as StdWallet[]).filter(isSolanaWallet));
+    };
+    refresh();
+    return registry.on('register', refresh);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const select = async (w: StdWallet) => {
+    setBusyName(w.name); setErr(null);
+    try {
+      const feat = w.features['standard:connect'] as ConnectFeature;
+      const { accounts } = await feat.connect();
+      if (!accounts[0]) { setErr('No accounts returned'); setBusyName(null); return; }
+      onSelect({ wallet: w, account: accounts[0] });
+    } catch {
+      setErr('Connection rejected');
+      setBusyName(null);
+    }
+  };
+
   return (
-    <button
-      type="button"
-      className="vl-cta vl-cta--block"
-      onClick={available && !busy ? () => onConnect(prov) : undefined}
-      disabled={busy || !available}
-    >
-      <span className="vl-cta-num" />
-      <span className="vl-cta-body">
-        <span className="vl-cta-label">{label}</span>
-        {!available && <span className="vl-cta-desc">not installed</span>}
-      </span>
-      <span className="vl-cta-chev">{busy ? <Dots /> : '›'}</span>
-    </button>
+    <div className="vl-modal-overlay" onClick={onClose}>
+      <div className="vl-modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="vl-modal-header">
+          <span className="vl-modal-title">Connect Wallet</span>
+          <button className="vl-modal-close" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        {wallets.length === 0 ? (
+          <p className="vl-modal-empty">No wallets detected.<br />Install Phantom, Solflare, or Backpack.</p>
+        ) : (
+          <ul className="vl-modal-list">
+            {wallets.map(w => (
+              <li key={w.name}>
+                <button
+                  type="button"
+                  className="vl-modal-wallet"
+                  onClick={() => select(w)}
+                  disabled={busyName != null}
+                >
+                  <img src={w.icon} alt="" className="vl-modal-wallet-icon" />
+                  <span className="vl-modal-wallet-name">{w.name}</span>
+                  <span className="vl-modal-wallet-badge">Detected</span>
+                  {busyName === w.name && <Dots />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {err && (
+          <div className="vl-modal-err">
+            <span className="vl-err-dot" />{err.toLowerCase()}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [wallet,      setWallet]      = useState<string | null>(null);
-  const [providerKey, setProviderKey] = useState<WalletProvider | null>(null);
-  const [pw,          setPw]          = useState('');
-  const [busy,        setBusy]        = useState(false);
-  const [err,         setErr]         = useState<string | null>(null);
+  const [connWallet, setConnWallet] = useState<ConnectedWallet | null>(null);
+  const [modalOpen,  setModalOpen]  = useState(false);
+  const [pw,         setPw]         = useState('');
+  const [busy,       setBusy]       = useState(false);
+  const [err,        setErr]        = useState<string | null>(null);
 
-  const connect = async (prov: WalletProvider) => {
-    setErr(null);
-    setBusy(true);
-    try {
-      let pk: string | null = null;
-      if (prov === 'phantom') {
-        const sol = getPhantomProvider();
-        if (!sol?.connect) { setErr('Phantom not detected'); return; }
-        const resp = await sol.connect();
-        pk = resp?.publicKey?.toString() ?? sol.publicKey?.toString() ?? null;
-      } else {
-        const sf = getSolflareProvider();
-        if (!sf?.connect) { setErr('Solflare not detected'); return; }
-        await sf.connect();
-        pk = sf.publicKey?.toString() ?? null;
-      }
-      if (!pk) { setErr('Wallet returned no public key'); return; }
-      setProviderKey(prov);
-      setWallet(pk);
-    } catch {
-      setErr('Wallet connection rejected');
-    } finally {
-      setBusy(false);
-    }
+  const onWalletSelected = (cw: ConnectedWallet) => {
+    setConnWallet(cw); setModalOpen(false); setErr(null);
   };
 
   const submit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!wallet || !pw || busy) return;
+    if (!connWallet || !pw || busy) return;
     setBusy(true); setErr(null);
-    const provider = providerKey === 'phantom' ? getPhantomProvider()
-                   : providerKey === 'solflare' ? getSolflareProvider()
-                   : null;
-    if (!provider) { setBusy(false); setErr('Wallet not detected'); return; }
-    const result = await loginWithSiws(provider, wallet, pw);
+    const provider = walletToSignCapable(connWallet);
+    const result = await loginWithSiws(provider, connWallet.account.address, pw);
     setBusy(false);
     if (!result.ok) {
       const msg =
@@ -339,11 +381,11 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   };
 
   const reset = () => {
-    setWallet(null); setPw(''); setErr(null); setProviderKey(null);
+    setConnWallet(null); setPw(''); setErr(null);
     clearAuth();
   };
 
-  const connected = wallet != null;
+  const isConnected = connWallet != null;
 
   return (
     <div className="gate-stage gate-reveal">
@@ -351,24 +393,28 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       <div className="gate-hero-stack">
         <h1 className="gate-headline">Access Required</h1>
         <p className="gate-sub">
-          {connected
+          {isConnected
             ? 'Sign in with your passphrase to enter the control plane.'
             : 'Connect a Solana wallet to continue.'}
         </p>
       </div>
 
-      {!connected && (
-        <div className="gate-mode-stack">
-          <WalletBtn label="Phantom"  prov="phantom"  busy={busy} onConnect={connect} />
-          <WalletBtn label="Solflare" prov="solflare" busy={busy} onConnect={connect} />
-        </div>
+      {!isConnected && (
+        <>
+          <button type="button" className="vl-cta" onClick={() => setModalOpen(true)}>
+            Connect Wallet
+          </button>
+          {modalOpen && (
+            <WalletModal onSelect={onWalletSelected} onClose={() => setModalOpen(false)} />
+          )}
+        </>
       )}
 
-      {connected && (
+      {isConnected && (
         <form className="gate-form" onSubmit={submit}>
           <div className="vl-wallet-field">
             <span className="vl-dot" />
-            <span className="vl-wallet-text" >{shortenAddress(wallet)}</span>
+            <span className="vl-wallet-text">{shortenAddress(connWallet.account.address)}</span>
             <input
               autoFocus
               type="text"
@@ -854,5 +900,74 @@ const GATE_CSS = `
   gap: 12px;
   width: 100%;
   max-width: 420px;
+}
+
+/* Wallet selector modal */
+.vl-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(5, 3, 8, 0.82);
+  backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  animation: gateReveal 0.14s ease-out both;
+}
+.vl-modal {
+  width: 100%; max-width: 360px; margin: 0 16px;
+  background: linear-gradient(180deg, #130f20 0%, #0d0a1a 100%);
+  border: 1px solid rgba(168, 144, 232, 0.18);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow:
+    0 0 0 1px rgba(168, 144, 232, 0.06),
+    0 24px 64px -12px rgba(0, 0, 0, 0.85);
+}
+.vl-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.vl-modal-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 2px;
+  text-transform: uppercase; color: #c4b8f0;
+}
+.vl-modal-close {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: #5a5880; font-size: 13px; line-height: 1;
+  padding: 4px 6px; border-radius: 4px;
+  transition: color 0.14s, background 0.14s;
+}
+.vl-modal-close:hover { color: #9a9ab4; background: rgba(255, 255, 255, 0.05); }
+.vl-modal-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.vl-modal-wallet {
+  width: 100%; display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  background: rgba(168, 144, 232, 0.05);
+  border: 1px solid rgba(168, 144, 232, 0.10);
+  border-radius: 10px;
+  cursor: pointer; font-family: inherit;
+  transition: background 0.14s, border-color 0.14s;
+}
+.vl-modal-wallet:hover:not([disabled]) {
+  background: rgba(168, 144, 232, 0.12);
+  border-color: rgba(168, 144, 232, 0.25);
+}
+.vl-modal-wallet[disabled] { opacity: 0.5; cursor: not-allowed; }
+.vl-modal-wallet-icon { width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; }
+.vl-modal-wallet-name {
+  font-size: 13px; font-weight: 600; color: #d4ccf0;
+  flex: 1; text-align: left; letter-spacing: 0.2px;
+}
+.vl-modal-wallet-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: #43B984;
+  background: rgba(67, 185, 132, 0.10);
+  border: 1px solid rgba(67, 185, 132, 0.22);
+  border-radius: 4px; padding: 2px 7px;
+}
+.vl-modal-empty {
+  font-size: 12px; color: #5a5880; text-align: center;
+  padding: 20px 0; margin: 0; line-height: 1.6;
+}
+.vl-modal-err {
+  margin-top: 14px; display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #e05a6a;
 }
 `;
