@@ -973,16 +973,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
             layout shell stays mounted and only the route segment swaps. */}
         <Link href="/dashboard" className="topnav-logo" aria-label="VictoryLabs — home" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
-          // Typography-only wordmark — no image, no box, fully transparent
-          // (see `.vl-logo` in globals.css). Ported from the WC v2 handoff
-          // prototype + the requested overrides (Victory 24px / scaleX 0.95
-          // / transform-origin). The lockup itself is aria-hidden; this link
-          // carries the accessible name.
           marginLeft: 6,
         }}>
-          <div className="vl-logo" aria-hidden="true">
-            <span className="v">Victory</span><span className="l">Labs</span>
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/victorylabs-wordmark.png"
+            srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
+            alt="VictoryLabs"
+            height={32}
+            style={{ width: 'auto', display: 'block', userSelect: 'none' }}
+            draggable={false}
+          />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.
