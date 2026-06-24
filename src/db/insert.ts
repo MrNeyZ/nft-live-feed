@@ -215,7 +215,8 @@ const INSERT_SQL = `
 const UPDATE_META_SQL = `
   UPDATE sale_events
   SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5,
-      mint_address = $6, me_collection_slug = $7, floor_delta = $8
+      mint_address = $6, me_collection_slug = $7, floor_delta = $8,
+      tensor_collection_slug = $9
   WHERE signature = $1
 `;
 
@@ -463,9 +464,10 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         enriched.imageUrl,
         enriched.collectionName,
         enriched.collectionAddress,
-        enriched.mintAddress,        // backfills cNFT asset id when tensor-raw emitted ''
-        enriched.meCollectionSlug,   // persisted so REST snapshot rows can render collection-page links
-        enriched.floorDelta ?? null, // persisted so FloorChip badge survives page reloads
+        enriched.mintAddress,                 // backfills cNFT asset id when tensor-raw emitted ''
+        enriched.meCollectionSlug,            // persisted so REST snapshot rows can render collection-page links
+        enriched.floorDelta ?? null,          // persisted so FloorChip badge survives page reloads
+        enriched.tensorCollectionSlug ?? null,
       ]);
       checkPricingAlerts(enriched);
       logFrameDebugOnMeta({
@@ -477,15 +479,16 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         collectionAddress: enriched.collectionAddress,
       });
       saleEventBus.emitMetaUpdate({
-        mintAddress:       enriched.mintAddress,
-        signature:         enriched.signature,
-        nftName:           enriched.nftName,
-        imageUrl:          enriched.imageUrl,
-        collectionName:    enriched.collectionName,
-        collectionAddress: enriched.collectionAddress,
-        meCollectionSlug:  enriched.meCollectionSlug ?? null,
-        floorDelta:        enriched.floorDelta        ?? null,
-        offerDelta:        enriched.offerDelta        ?? null,
+        mintAddress:           enriched.mintAddress,
+        signature:             enriched.signature,
+        nftName:               enriched.nftName,
+        imageUrl:              enriched.imageUrl,
+        collectionName:        enriched.collectionName,
+        collectionAddress:     enriched.collectionAddress,
+        meCollectionSlug:      enriched.meCollectionSlug      ?? null,
+        tensorCollectionSlug:  enriched.tensorCollectionSlug  ?? null,
+        floorDelta:            enriched.floorDelta             ?? null,
+        offerDelta:            enriched.offerDelta             ?? null,
       });
       // Late image-resolution path. enrich can leave imageUrl null when DAS
       // hasn't indexed a freshly-minted asset; retries at 15/60/180 s patch

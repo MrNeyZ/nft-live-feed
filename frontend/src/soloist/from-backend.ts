@@ -74,7 +74,8 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     id: b.signature,
     signature: b.signature,
     mintAddress: b.mintAddress ?? '',
-    meCollectionSlug: b.meCollectionSlug ?? null,
+    meCollectionSlug:     b.meCollectionSlug     ?? null,
+    tensorCollectionSlug: b.tensorCollectionSlug ?? null,
     collectionName: b.collectionName ?? 'Unknown',
     abbr: meta.abbr,
     color: meta.color,
@@ -141,11 +142,10 @@ export function toOrbisSlug(nameOrSlug: string): string {
  */
 export function marketplaceUrl(event: FeedEvent): string | null {
   if (event.marketplace === 'tensor') {
-    // Prefer the collection page (`/trade/<slug>`) so the badge lands on the
-    // tradeable collection view. Fall back to the per-NFT page (`/item/<mint>`)
-    // when no slug is available, then to bare tensor.trade as a last resort.
-    if (event.meCollectionSlug) return `https://www.tensor.trade/trade/${event.meCollectionSlug}`;
-    if (event.mintAddress)      return `https://www.tensor.trade/item/${event.mintAddress}`;
+    // Prefer the Tensor-native collection page when we have the slugDisplay.
+    // Fall back to the per-NFT item page; bare tensor.trade as last resort.
+    if (event.tensorCollectionSlug) return `https://www.tensor.trade/trade/${event.tensorCollectionSlug}`;
+    if (event.mintAddress)          return `https://www.tensor.trade/item/${event.mintAddress}`;
     return 'https://www.tensor.trade';
   }
   // Orbis: its slug is name-derived ("Mutants On Sol Crew" →

@@ -37,6 +37,52 @@ const floorRefreshInFlight = new Set<string>();
 /** Keyed by ME collection slug → top offer price in lamports. */
 const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS, 60_000);
 
+// ── Tensor collection slug cache ─────────────────────────────────────────────
+// Keyed by ME collection slug (the filter input) → Tensor slugDisplay.
+// Tensor collection slugs are stable so a long TTL is fine.
+const TENSOR_SLUG_TTL_MS = 60 * 60 * 1000; // 1 hour
+const tensorSlugCache     = new TtlCache<string, string>(TENSOR_SLUG_TTL_MS, 5 * 60_000);
+const tensorSlugMissCache = new TtlCache<string, true>(10 * 60_000, 60_000);
+
+/** Resolve the Tensor-native collection slug (slugDisplay) via find_collection.
+ *  Uses ME slug or collection address as the filter key. Requires TENSOR_API_KEY.
+ *  Returns null when the key is absent, the collection isn't on Tensor, or on
+ *  any network error. Never throws. */
+async function resolveTensorCollectionSlug(
+  meSlug: string | null | undefined,
+  collectionAddress: string | null | undefined,
+): Promise<string | null> {
+  const key = process.env.TENSOR_API_KEY;
+  if (!key) return null;
+  const filter = meSlug || collectionAddress;
+  if (!filter) return null;
+
+  const cached = tensorSlugCache.get(filter);
+  if (cached !== undefined) return cached;
+  if (tensorSlugMissCache.get(filter)) return null;
+
+  try {
+    const res = await fetch(
+      `https://api.mainnet.tensordev.io/api/v1/collections/find_collection?filter=${encodeURIComponent(filter)}`,
+      { headers: { 'x-tensor-api-key': key }, signal: AbortSignal.timeout(4_000) },
+    );
+    if (!res.ok) { tensorSlugMissCache.set(filter, true); return null; }
+    const j = await res.json() as { slugDisplay?: string };
+    const slug = typeof j.slugDisplay === 'string' && j.slugDisplay ? j.slugDisplay : null;
+    if (slug) {
+      tensorSlugCache.set(filter, slug);
+      // Also cache under the tensor slug itself for potential future lookups.
+      tensorSlugCache.set(slug, slug);
+    } else {
+      tensorSlugMissCache.set(filter, true);
+    }
+    return slug;
+  } catch {
+    tensorSlugMissCache.set(filter, true);
+    return null;
+  }
+}
+
 // ── collection_address → ME slug recovery ────────────────────────────────────
 // A burst of same-collection sales can transiently null ONE NFT's per-mint
 // getMeTokenData lookup (ME rate-limit / timeout) while its siblings resolved
@@ -662,12 +708,14 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     return { ...enriched, floorDelta: null, offerDelta: null };
   }
 
-  const [floorDelta, offerDelta] = await Promise.all([
+  const isTensor = enriched.marketplace === 'tensor' || enriched.marketplace === 'tensor_amm';
+  const [floorDelta, offerDelta, tensorCollectionSlug] = await Promise.all([
     computeFloorDelta(slug, event.priceLamports),
     computeOfferDelta(slug, event.priceLamports),
+    isTensor ? resolveTensorCollectionSlug(slug, enriched.collectionAddress) : Promise.resolve(null),
   ]);
 
-  return { ...enriched, floorDelta, offerDelta };
+  return { ...enriched, floorDelta, offerDelta, tensorCollectionSlug };
 }
 
 /**

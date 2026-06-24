@@ -50,6 +50,8 @@ export interface FeedEvent {
   mintAddress: string;
   /** ME collection slug when known; used to build marketplace link. Null until `meta` patch arrives. */
   meCollectionSlug: string | null;
+  /** Tensor-native collection slug (slugDisplay). Null for non-Tensor sales or until meta patch. */
+  tensorCollectionSlug?: string | null;
   collectionName: string;
   abbr: string;
   color: string;

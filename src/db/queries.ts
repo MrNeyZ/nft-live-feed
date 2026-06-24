@@ -31,6 +31,7 @@ export interface SaleEventRow {
   collection_name: string | null;
   magic_eden_url: string | null;
   me_collection_slug: string | null;
+  tensor_collection_slug: string | null;
   ingested_at: string;
   /** '_parser' field from raw_data JSON; null means Helius-parsed. */
   parser_source: string | null;
@@ -96,7 +97,8 @@ function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
 const LATEST_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
-         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug,
+         tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
@@ -114,7 +116,8 @@ export async function getLatestEvents(limit: number): Promise<SaleEventRow[]> {
 const BY_COLLECTION_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
-         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug,
+         tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
@@ -130,7 +133,8 @@ const BY_COLLECTION_SQL = `
 const BY_COLLECTION_NO_WINDOW_SQL = `
   SELECT id, signature, block_time, marketplace, nft_type, mint_address,
          collection_address, seller, buyer, price_lamports, price_sol, currency,
-         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug, ingested_at,
+         nft_name, image_url, collection_name, magic_eden_url, me_collection_slug,
+         tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}

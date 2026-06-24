@@ -50,7 +50,8 @@ export interface MetaPatch {
   nftName:          string | null;
   imageUrl:         string | null;
   collectionName:   string | null;
-  meCollectionSlug: string | null;
+  meCollectionSlug:      string | null;
+  tensorCollectionSlug?: string | null;
   /** Backend computes these post-enrichment (when slug + floor lookup
    *  resolve), so they're typically null on the first `sale` frame and
    *  arrive on the follow-up `meta` frame. Reducer below applies them
@@ -196,7 +197,8 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           nftName:          patch.nftName         ?? ev.nftName,
           imageUrl:         patch.imageUrl        ?? ev.imageUrl,
           collectionName:   nextName,
-          meCollectionSlug: patch.meCollectionSlug ?? ev.meCollectionSlug,
+          meCollectionSlug:     patch.meCollectionSlug     ?? ev.meCollectionSlug,
+          tensorCollectionSlug: patch.tensorCollectionSlug ?? ev.tensorCollectionSlug,
           abbr:             patch.collectionName ? vis.abbr  : ev.abbr,
           color:            patch.collectionName ? vis.color : ev.color,
           // Floor / offer deltas are computed by the backend during

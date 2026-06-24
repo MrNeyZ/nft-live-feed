@@ -56,6 +56,9 @@ export interface SaleEvent {
   magicEdenUrl: string | null;
   /** Magic Eden verified collection slug, e.g. "froganas". Used to build /marketplace/{slug} URL. */
   meCollectionSlug?: string | null;
+  /** Tensor-native collection slug (slugDisplay from find_collection API). Used to build
+   *  /trade/{slug} links. Only set for tensor/tensor_amm sales when TENSOR_API_KEY is set. */
+  tensorCollectionSlug?: string | null;
   /** On-chain VERIFIED creator addresses resolved by enrichment (DAS). NOT
    *  persisted to sale_events — it exists only so the post-enrichment
    *  blacklist gate can match issuers (e.g. DRiP) that mint each drop under a

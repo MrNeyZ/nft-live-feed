@@ -43,11 +43,12 @@ export interface MetaUpdate {
   imageUrl:          string | null;
   collectionName:    string | null;
   collectionAddress: string | null;
-  meCollectionSlug:  string | null;
+  meCollectionSlug:      string | null;
+  tensorCollectionSlug?: string | null;
   /** (salePrice − floor) / floor. Null when floor unavailable. */
-  floorDelta:        number | null;
+  floorDelta:            number | null;
   /** salePrice (SOL) − topOffer (SOL). Null when no active offer. */
-  offerDelta:        number | null;
+  offerDelta:            number | null;
 }
 
 // ─── Listings deltas ─────────────────────────────────────────────────────────
@@ -276,6 +277,11 @@ export interface MintStatusWire {
    *  update authority, or merkle tree (not a viewable NFT). May be null
    *  for cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress:   string | null;
+  /** A mint address that is at least ~3 minutes old — used for ME/Tensor
+   *  marketplace links instead of lastMintAddress so metadata has time to
+   *  load on the marketplace side before the user lands on the page.
+   *  Null until the collection has been minting for >= 3 minutes. */
+  stableMintAddress?: string | null;
   /** Max planned supply for the launchpad collection (e.g. LMNFT
    *  `max_items`, MPL Core master-edition `maxSupply`). Distinct from
    *  `observedMints`, which is "how many of these we've seen ingested".

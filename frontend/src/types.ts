@@ -42,6 +42,8 @@ export interface FeedEvent {
   oneOfOne?: boolean;
   /** Verified ME collection slug, e.g. "froganas". Null until meta patch arrives. */
   meCollectionSlug: string | null;
+  /** Tensor-native collection slug (slugDisplay). Null for non-Tensor sales or until meta patch. */
+  tensorCollectionSlug?: string | null;
   /** Server-persisted seller-remaining-count (DB column seller_remaining_count,
    *  migration 015). Populated on the REST snapshot path via fromRow; absent on
    *  live SSE sale frames (resolved async, then delivered over `seller_count`).
@@ -79,6 +81,7 @@ export interface RestRow {
   collection_name: string | null;
   magic_eden_url: string | null;
   me_collection_slug: string | null;
+  tensor_collection_slug?: string | null;
   parser_source: string | null;
   /** Best-effort rarity stamped by /latest + /by-collection from
    *  mint_rarity_cache (no provider call). Absent when the mint isn't cached. */
@@ -118,7 +121,8 @@ export function fromRow(row: RestRow): FeedEvent {
     collectionName: row.collection_name,
     magicEdenUrl: row.magic_eden_url,
     source: row.parser_source ? 'me_raw' : 'helius',
-    meCollectionSlug: row.me_collection_slug,
+    meCollectionSlug:     row.me_collection_slug,
+    tensorCollectionSlug: row.tensor_collection_slug ?? null,
     sellerRemainingCount: row.seller_remaining_count ?? null,
     floorDelta: row.floor_delta ?? null,
     rarityRank:       row.rarity_rank ?? null,
