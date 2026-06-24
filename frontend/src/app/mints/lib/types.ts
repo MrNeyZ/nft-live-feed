@@ -51,6 +51,11 @@ export interface MintStatus {
    *  link target. May be null until the first event arrives or for
    *  cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress?:  string | null;
+  /** A mint address that is at least ~3 minutes old — used for ME/Tensor
+   *  marketplace badge links so metadata is already indexed by the time
+   *  the user lands on the page. Falls back to lastMintAddress when null
+   *  (collection too new or backend hasn't promoted yet). */
+  stableMintAddress?: string | null;
   /** Max planned supply for the collection (e.g. LMNFT `max_items`,
    *  MPL Core master-edition `maxSupply`). Distinct from
    *  `observedMints` — this is "how big the drop will be", not "how

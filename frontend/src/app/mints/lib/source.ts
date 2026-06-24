@@ -86,16 +86,12 @@ export function sourceHref(row: MintStatus): string | null {
       return `https://gravemint.io/mint/${c}`;
     }
     case 'Metaplex Core': {
-      // Magic Eden item-details using the row's `lastMintAddress` — the
-      // most-recent accepted on-chain mint for the group. Same URL
-      // shape the small ME icon-anchor in the title row already uses,
-      // so the CORE source pill and the ME icon resolve to the same
-      // destination. Skipped when no real mint address is on the wire
-      // yet (e.g. cNFT placeholder rows whose first sample didn't
-      // carry a leaf address) — the badge falls back to a plain pill
-      // rather than emitting a dead link.
-      if (!isSolPubkey(row.lastMintAddress)) return null;
-      return `https://magiceden.io/item-details/${row.lastMintAddress}`;
+      // Magic Eden item-details. Prefer stableMintAddress (>= 3 min old,
+      // metadata already indexed) so the user lands on a loaded page.
+      // Falls back to lastMintAddress when stable isn't populated yet.
+      const addr = row.stableMintAddress ?? row.lastMintAddress;
+      if (!isSolPubkey(addr)) return null;
+      return `https://magiceden.io/item-details/${addr}`;
     }
     default:
       return null;

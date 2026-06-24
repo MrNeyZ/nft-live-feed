@@ -467,16 +467,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 (/feed wallet rows, /tools). */}
             {/* ME `/item-details/{X}` only renders a real page when
                 X is a SPECIFIC NFT mint, not a collection address.
-                We use `lastMintAddress` (the most recent accepted
-                mint for this row) — that lands on a viewable NFT
-                page from which the user can navigate up to the
-                collection. Falls back to nothing when no real mint
-                address is on the wire (e.g. cNFTs without a leaf
-                address) — better than a dead link to a collection
-                page. */}
-            {isSolPubkey(r.lastMintAddress) && (
+                Prefer stableMintAddress (>= 3 min old, metadata already
+                indexed) over lastMintAddress (brand-new, may show as
+                "unknown" on ME). Falls back to lastMintAddress when
+                stable isn't populated yet (collection too new). */}
+            {isSolPubkey(r.stableMintAddress ?? r.lastMintAddress) && (
               <a
-                href={`https://magiceden.io/item-details/${r.lastMintAddress}`}
+                href={`https://magiceden.io/item-details/${r.stableMintAddress ?? r.lastMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 
@@ -487,15 +484,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
-            {/* Tensor badge — pairs with the ME icon and uses the
-                same lastMintAddress anchor. `/trade/{collectionAddress}`
-                was producing dead pages for unverified collections
-                (Tensor only indexes verified ones in that route);
+            {/* Tensor badge — same stable-address logic as ME above.
                 `/item/{mint}` always loads an item page from which
                 the user can navigate up to the collection. */}
-            {isSolPubkey(r.lastMintAddress) && (
+            {isSolPubkey(r.stableMintAddress ?? r.lastMintAddress) && (
               <a
-                href={`https://www.tensor.trade/item/${r.lastMintAddress}`}
+                href={`https://www.tensor.trade/item/${r.stableMintAddress ?? r.lastMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 

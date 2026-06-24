@@ -57,6 +57,9 @@ const BURST_V60           = envInt('MINT_BURST_V60', 8);
 const BURST_V5M           = envInt('MINT_BURST_V5M', 25);
 /** Demote burst-shown collections that go quiet for this long. */
 const COOLDOWN_MS         = envInt('MINT_IDLE_COOLDOWN_MS', 30 * 60_000);
+/** Minimum age (ms) before a lastMintAddress is promoted to stableMintAddress.
+ *  3 minutes gives marketplaces time to index the NFT metadata. */
+const STABLE_MINT_DELAY_MS = 3 * 60_000;
 
 console.log(
   `[mints/config] thresholds: BURST_V60=${BURST_V60} BURST_V5M=${BURST_V5M}` +
@@ -84,6 +87,10 @@ interface Accum {
    *  link target that points at an actual NFT (never the collection
    *  / authority / merkle-tree pubkey used as the groupingKey). */
   lastMintAddress:   string | null;
+  /** A mint address that is at least STABLE_MINT_DELAY_MS old. Promoted
+   *  from lastMintAddress once enough time has passed so marketplace
+   *  metadata is loaded by the time the user follows the link. */
+  stableMintAddress?: string | null;
   sourceLabel:       MintSourceLabel;
   /** Visual subtype: sticky-true once any Core Candy Machine v3 mint is seen
    *  for this collection. Surfaced in MintStatusWire for the pink CORE badge. */
@@ -438,6 +445,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     programSource:     a.programSource,
     collectionAddress: a.collectionAddress,
     lastMintAddress:   a.lastMintAddress,
+    stableMintAddress: a.stableMintAddress ?? null,
     displayState:      a.displayState,
     shownReason:       a.shownReason,
     observedMints:     a.observedMints,
@@ -629,6 +637,7 @@ export function recordMint(ev: MintEventWire): boolean {
       programSource:     ev.programSource,
       collectionAddress: ev.collectionAddress,
       lastMintAddress:   ev.mintAddress,
+      stableMintAddress: null,
       sourceLabel:       ev.sourceLabel,
       coreLaunchpad:     ev.coreLaunchpad === true,
       observedMints:     0,
@@ -651,8 +660,16 @@ export function recordMint(ev: MintEventWire): boolean {
   }
   // Track the most-recent valid mintAddress so the frontend has
   // something safe to link to (collectionAddress / groupingKey can
-  // be a non-NFT pubkey).
-  if (ev.mintAddress) a.lastMintAddress = ev.mintAddress;
+  // be a non-NFT pubkey). Also maintain stableMintAddress: promote
+  // the current lastMintAddress to stable once it is old enough
+  // (STABLE_MINT_DELAY_MS) so marketplace links land on an NFT
+  // whose metadata is already indexed, not a brand-new mint.
+  if (ev.mintAddress) {
+    if (a.lastMintAddress && (now - a.lastMintAt) >= STABLE_MINT_DELAY_MS) {
+      a.stableMintAddress = a.lastMintAddress;
+    }
+    a.lastMintAddress = ev.mintAddress;
+  }
   // Sticky-true: once any Core Candy Machine v3 mint is seen for this
   // collection, the row stays marked as a Core launchpad (pink CORE badge).
   if (ev.coreLaunchpad === true) a.coreLaunchpad = true;
@@ -1264,6 +1281,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       programSource:     r.programSource,
       collectionAddress: r.collectionAddress,
       lastMintAddress:   r.lastMintAddress ?? null,
+      stableMintAddress: r.stableMintAddress ?? null,
       sourceLabel:       r.sourceLabel,
       coreLaunchpad:     r.coreLaunchpad === true,
       observedMints:     r.observedMints,
