@@ -13,6 +13,7 @@
  */
 
 import { verifyAndFetchAsset } from '../enrichment/helius-das';
+import { incGetAsset } from '../helius-credit-metrics';
 import { patchAccumulatorMeta, evictMintGroup } from './accumulator';
 import { isMintTrackerEnabled } from '../runtime/mode';
 
@@ -101,6 +102,7 @@ async function runWorker(): Promise<void> {
       // infrastructure failures (rate limit, JSON-RPC error, DAS
       // not-yet-indexed) leave the row in place — the parse-time
       // filter in ingestMintRaw is the primary NFT gate.
+      incGetAsset('mint_enricher_verify');
       const { verdict, meta } = await verifyAndFetchAsset(next.mintAddress);
       if (!verdict.ok) {
         if (isConfirmedFungibleVerdict(verdict.reason)) {

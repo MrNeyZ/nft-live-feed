@@ -1849,6 +1849,19 @@ export function startListener(): void {
         // mpl_core zombie detection: use lastRealNotifTs so a global
         // restartListeners() mass-reset cannot mask a zombie subscription —
         // only a real WS message (or explicit restartTarget) updates this.
+        //
+        // TODO(partial-ws-degradation): lastRealNotifTs is updated on EVERY
+        // delivered WS message, even if the subscription is silently dropping
+        // most on-chain events. A partially degraded mpl_core WS (e.g. Helius
+        // delivering only 20 % of notifications) keeps lastRealNotifTs fresh
+        // enough to suppress this watchdog, while the cursor poll absorbs the
+        // missed sigs at full getTransaction credit cost. There is currently no
+        // counter that compares WS notification rate vs. cursor-poll new-sig
+        // discovery rate within the same time window. Future signal: if
+        // cursor-poll consistently surfaces new mpl_core sigs while wsEverReal
+        // for mpl_core is true and lastRealNotifTs is recent, the WS is likely
+        // partially degraded. Fixing this requires a per-window WS notif count
+        // for mpl_core tracked separately from the simple timestamp here.
         const last = (target.name === 'mpl_core')
           ? (lastRealNotifTs.get(target.name) ?? now)
           : (lastNotificationTs.get(target.name) ?? now);

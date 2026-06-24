@@ -29,6 +29,7 @@ import { ME_V2_PROGRAM, ME_AMM_PROGRAM, ME_CNFT_PROGRAM } from './programs';
 import bs58 from 'bs58';
 import { Limiter, Priority } from '../concurrency';
 import { incTxFetch, incTxNull, incTxRetry, startTelemetry } from '../telemetry';
+import { incGetTx, incNullGetTx, type GetTxSource } from '../../helius-credit-metrics';
 import { saleEventBus } from '../../events/emitter';
 import { getMode, isAnyIngestActive } from '../../runtime/mode';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
@@ -314,6 +315,17 @@ function onFetchSuccess(): void {
  * bestEffort = false → primary path: no sale emitted yet; this fetch IS the
  *                       ingestion. Never skipped due to cooldown.
  */
+function deriveTxSource(scope: FetchScope, priority: Priority, bestEffort: boolean): GetTxSource {
+  if (bestEffort) return scope === 'mint' ? 'mint_reconcile' : 'sale_poller';
+  if (scope === 'mint') {
+    if (priority === 'high')   return 'mint_ws';
+    if (priority === 'medium') return 'mint_poller';
+    return 'mint_reconcile';
+  }
+  if (priority === 'high') return 'sale_ws';
+  return 'sale_poller';
+}
+
 export async function fetchRawTx(
   sig: string,
   bestEffort = false,
@@ -369,6 +381,7 @@ export async function fetchRawTx(
     // scope to arrive enqueues the rpcLimiter task; later scopes (any)
     // share the resolved tx body. Each scope still records its own
     // recent-mark on success so per-scope dedupe stays accurate.
+    const txSource = deriveTxSource(scope, priority, bestEffort);
     let pending = sharedRpcInFlight.get(sig);
     let firedNew = false;
     if (!pending) {
@@ -380,7 +393,7 @@ export async function fetchRawTx(
           if (!isAnyIngestActive()) return null;
           if (bestEffort && Date.now() < cooldownUntil) return null;
           const maxRetries = bestEffort ? RAWPATCH_RETRY_ATTEMPTS : PRIMARY_RETRY_ATTEMPTS;
-          return _fetchRawTxRpc(sig, maxRetries, scope);
+          return _fetchRawTxRpc(sig, maxRetries, scope, txSource);
         }, priority);
         if (result) cacheTx(sig, result);
         return result;
@@ -427,7 +440,7 @@ export async function fetchRawTx(
   }
 }
 
-async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope = 'sale'): Promise<RawSolanaTx | null> {
+async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope = 'sale', txSource: GetTxSource = 'unknown'): Promise<RawSolanaTx | null> {
   const body = JSON.stringify({
     jsonrpc: '2.0', id: 1,
     method: 'getTransaction',
@@ -450,6 +463,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope
       let res: Response;
       try {
         incTxFetch(scope);
+        incGetTx(txSource);
         res = await fetch(rpcUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -499,7 +513,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope
       }
 
       if (json.error) throw new Error(`RPC: ${json.error.message}`);
-      if (!json.result) { incTxNull(scope); return null; }
+      if (!json.result) { incTxNull(scope); incNullGetTx(txSource); return null; }
 
       onFetchSuccess();
       const tx = json.result;

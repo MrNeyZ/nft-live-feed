@@ -19,6 +19,7 @@ import {
   getOwnerCollectionCountVerbose,
   type OwnerCollectionCountMethod,
 } from './helius-das';
+import { incGetAsset } from '../helius-credit-metrics';
 
 // Cache lifetimes — bumped from the original short windows to keep
 // the seller-count badge a best-effort signal that doesn't pummel
@@ -81,6 +82,7 @@ export async function resolveCollectionForMint(mintAddress: string): Promise<str
   if (live) return live;
   const p = (async () => {
     try {
+      incGetAsset('seller_collection_count');
       const meta = await getAsset(mintAddress);
       const addr = meta.collectionAddress ?? null;
       collectionCache.set(mintAddress, addr);
