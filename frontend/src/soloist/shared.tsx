@@ -980,7 +980,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             src="/brand/victorylabs-wordmark.png"
             srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
             alt="VictoryLabs"
-            height={32}
+            height={48}
             style={{ width: 'auto', display: 'block', userSelect: 'none' }}
             draggable={false}
           />
