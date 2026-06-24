@@ -1270,6 +1270,9 @@ function restartTarget(target: Target, reason: string): void {
 
   // Grant a fresh grace window so the watchdog doesn't fire again immediately.
   lastNotificationTs.set(target.name, Date.now());
+  // Also reset lastRealNotifTs so the mpl_core zombie watchdog doesn't
+  // immediately re-fire after an explicit single-target restart.
+  lastRealNotifTs.set(target.name, Date.now());
 
   console.warn(`[listener/${target.name}] restart → ${reason}`);
   openSubscription(target, BACKOFF_MIN_MS, true);
@@ -1843,9 +1846,17 @@ export function startListener(): void {
       // Quiet targets use a longer threshold so their natural silence doesn't
       // trigger pointless restarts (see staleThresholdMs / QUIET_TARGETS).
       for (const target of TARGETS) {
-        const last = lastNotificationTs.get(target.name) ?? now;
+        // mpl_core zombie detection: use lastRealNotifTs so a global
+        // restartListeners() mass-reset cannot mask a zombie subscription —
+        // only a real WS message (or explicit restartTarget) updates this.
+        const last = (target.name === 'mpl_core')
+          ? (lastRealNotifTs.get(target.name) ?? now)
+          : (lastNotificationTs.get(target.name) ?? now);
         const threshold = staleThresholdMs(target.name);
         if (now - last > threshold) {
+          if (target.name === 'mpl_core') {
+            console.warn(`[listener/mpl_core] stale restart no_notifications_ms=${now - last}`);
+          }
           restartTarget(target, `stale (no notifications for ${threshold / 1000}s)`);
         }
       }
