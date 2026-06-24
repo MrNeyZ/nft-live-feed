@@ -759,7 +759,13 @@ function extractCoreCreateDepositLamports(tx: RawSolanaTx): number | null {
  *     MPL Core Create/CreateV2 still costs the create payer the asset's rent
  *     (sponsored / gasless mints), so show that deposit rather than FREE.
  *     Gated to Core asset creates; every paid path returns above it, so
- *     existing paid-mint behaviour is untouched. */
+ *     existing paid-mint behaviour is untouched.
+ *
+ *  Sub-threshold clamp: any extracted price in the range (0, MIN_PAID_LAMPORTS)
+ *  is returned as 0 (FREE). These micro-amounts are not real mint prices — they
+ *  arise from burn+mint fusion txes (e.g. burn 4 NFTs → mint 1) where the
+ *  signer's net SOL outflow is just the rent slippage between burned and created
+ *  accounts. Surfacing them as a price (e.g. "0.000019 SOL") is misleading. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromEscrow = extractEscrowSettlementPrice(tx);
   if (fromEscrow != null && fromEscrow > 0) return fromEscrow;
@@ -768,7 +774,14 @@ export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromRelayer = extractRelayerSingleMintPrice(tx);
   if (fromRelayer != null && fromRelayer > 0) return fromRelayer;
   const fromSigner = extractSignerLamportsPaid(tx);
-  if (fromSigner != null && fromSigner > 0) return fromSigner;
+  // Sub-threshold clamp: a positive signer delta below MIN_PAID_LAMPORTS is
+  // rent slippage, not a real price — e.g. burn-N-mint-1 fusion txes where the
+  // burned assets' reclaimed rent almost covers the new asset's rent, leaving a
+  // tiny positive residual. Surfacing that as a price produces misleading values
+  // like "0.000019 SOL". Return 0 (FREE) so the UI shows FREE, not a micro-SOL.
+  if (fromSigner != null && fromSigner > 0) {
+    return fromSigner >= MIN_PAID_LAMPORTS ? fromSigner : 0;
+  }
   const fromCoreDeposit = extractCoreCreateDepositLamports(tx);
   if (fromCoreDeposit != null && fromCoreDeposit > 0) return fromCoreDeposit;
   return fromSigner;
