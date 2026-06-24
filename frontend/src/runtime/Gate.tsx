@@ -191,27 +191,42 @@ function GateShell({ children }: { children: ReactNode }) {
   );
 }
 
-// ── Wallet detection (unchanged) ───────────────────────────────────────────
+// ── Wallet detection ────────────────────────────────────────────────────────
 
 interface InjectedSolana {
   isPhantom?: boolean;
   connect?: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: { toString(): string } }>;
   publicKey?: { toString(): string } | null;
-  // signMessage is the SIWS primitive — Phantom shows a "Sign Message"
-  // prompt (not "Approve Transaction"), there's no SOL fee, and no
-  // on-chain side effect. Optional in the type because legacy wallets
-  // may not expose it; the SIWS flow falls back to a clear error in
-  // that case.
   signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array | string }>;
 }
 
-function getInjectedSolana(): InjectedSolana | null {
+interface InjectedSolflare {
+  isSolflare?: boolean;
+  connect: () => Promise<void>;
+  disconnect?: () => Promise<void>;
+  publicKey?: { toString(): string } | null;
+  signMessage?: (message: Uint8Array, encoding?: string) => Promise<{ signature: Uint8Array | string }>;
+}
+
+declare global {
+  interface Window { solflare?: InjectedSolflare }
+}
+
+type WalletProvider = 'phantom' | 'solflare';
+
+function getPhantomProvider(): InjectedSolana | null {
   if (typeof window === 'undefined') return null;
   const w = window as unknown as {
     phantom?: { solana?: InjectedSolana };
     solana?:  InjectedSolana;
   };
-  return w.phantom?.solana ?? w.solana ?? null;
+  const p = w.phantom?.solana ?? w.solana ?? null;
+  return p?.isPhantom ? p : null;
+}
+
+function getSolflareProvider(): InjectedSolflare | null {
+  if (typeof window === 'undefined') return null;
+  return window.solflare?.isSolflare ? window.solflare : null;
 }
 
 /** Display-only: first5…last5 with the Unicode horizontal ellipsis. */
@@ -233,8 +248,8 @@ function Wordmark() {
       src="/brand/victorylabs-wordmark.png"
       srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
       alt="VictoryLabs"
-      width={270}
-      height={79}
+      width={300}
+      height={88}
       className="vl-wordmark"
       draggable={false}
     />
@@ -243,21 +258,53 @@ function Wordmark() {
 
 // ── Login ──────────────────────────────────────────────────────────────────
 
-function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
-  const [wallet, setWallet] = useState<string | null>(null);
-  const [pw,     setPw]     = useState('');
-  const [busy,   setBusy]   = useState(false);
-  const [err,    setErr]    = useState<string | null>(null);
+function WalletBtn({ label, prov, busy, onConnect }: {
+  label: string; prov: WalletProvider; busy: boolean;
+  onConnect: (p: WalletProvider) => void;
+}) {
+  const available = prov === 'phantom' ? !!getPhantomProvider() : !!getSolflareProvider();
+  return (
+    <button
+      type="button"
+      className="vl-cta vl-cta--block"
+      onClick={available && !busy ? () => onConnect(prov) : undefined}
+      disabled={busy || !available}
+    >
+      <span className="vl-cta-num" />
+      <span className="vl-cta-body">
+        <span className="vl-cta-label">{label}</span>
+        {!available && <span className="vl-cta-desc">not installed</span>}
+      </span>
+      <span className="vl-cta-chev">{busy ? <Dots /> : '›'}</span>
+    </button>
+  );
+}
 
-  const connect = async () => {
+function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
+  const [wallet,      setWallet]      = useState<string | null>(null);
+  const [providerKey, setProviderKey] = useState<WalletProvider | null>(null);
+  const [pw,          setPw]          = useState('');
+  const [busy,        setBusy]        = useState(false);
+  const [err,         setErr]         = useState<string | null>(null);
+
+  const connect = async (prov: WalletProvider) => {
     setErr(null);
-    const sol = getInjectedSolana();
-    if (!sol?.connect) { setErr('Phantom wallet not detected'); return; }
     setBusy(true);
     try {
-      const resp = await sol.connect();
-      const pk = resp?.publicKey?.toString() ?? sol.publicKey?.toString() ?? null;
+      let pk: string | null = null;
+      if (prov === 'phantom') {
+        const sol = getPhantomProvider();
+        if (!sol?.connect) { setErr('Phantom not detected'); return; }
+        const resp = await sol.connect();
+        pk = resp?.publicKey?.toString() ?? sol.publicKey?.toString() ?? null;
+      } else {
+        const sf = getSolflareProvider();
+        if (!sf?.connect) { setErr('Solflare not detected'); return; }
+        await sf.connect();
+        pk = sf.publicKey?.toString() ?? null;
+      }
       if (!pk) { setErr('Wallet returned no public key'); return; }
+      setProviderKey(prov);
       setWallet(pk);
     } catch {
       setErr('Wallet connection rejected');
@@ -270,13 +317,11 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
     if (e) e.preventDefault();
     if (!wallet || !pw || busy) return;
     setBusy(true); setErr(null);
-    // SIWS flow: nonce → wallet.signMessage → verify. The provider object
-    // here is the same injected solana we used to connect; its
-    // signMessage is what Phantom shows as "Sign Message" (no SOL fee,
-    // no on-chain side effect).
-    const sol = getInjectedSolana();
-    if (!sol) { setBusy(false); setErr('Phantom wallet not detected'); return; }
-    const result = await loginWithSiws(sol, wallet, pw);
+    const provider = providerKey === 'phantom' ? getPhantomProvider()
+                   : providerKey === 'solflare' ? getSolflareProvider()
+                   : null;
+    if (!provider) { setBusy(false); setErr('Wallet not detected'); return; }
+    const result = await loginWithSiws(provider, wallet, pw);
     setBusy(false);
     if (!result.ok) {
       const msg =
@@ -294,7 +339,7 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   };
 
   const reset = () => {
-    setWallet(null); setPw(''); setErr(null);
+    setWallet(null); setPw(''); setErr(null); setProviderKey(null);
     clearAuth();
   };
 
@@ -313,9 +358,10 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
       </div>
 
       {!connected && (
-        <button type="button" className="vl-cta" onClick={connect} disabled={busy}>
-          {busy ? <Dots /> : 'Connect Wallet'}
-        </button>
+        <div className="gate-mode-stack">
+          <WalletBtn label="Phantom"  prov="phantom"  busy={busy} onConnect={connect} />
+          <WalletBtn label="Solflare" prov="solflare" busy={busy} onConnect={connect} />
+        </div>
       )}
 
       {connected && (
@@ -505,6 +551,7 @@ const GATE_CSS = `
 .vl-wordmark {
   display: block;
   user-select: none;
+  margin-bottom: -8px;
 }
 
 /* Primary CTA — subtle purple gradient with 3D edge. No halo. */
@@ -765,7 +812,7 @@ const GATE_CSS = `
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 0;
 }
 .gate-headline {
   font-family: 'Playfair Display', 'Georgia', serif;
