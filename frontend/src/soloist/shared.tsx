@@ -965,7 +965,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           tab's text baseline — fixes the "floating" offset that `center`
           alignment produced because the serif/cursive logo has more ascender
           headroom than the sans nav tabs. */}
-      <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+      <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {/* Logo + tabs use next/link for client-side routing. Plain
             <a href> would do a full document navigation, tearing down
             the layout shell and showing a brief empty frame between
@@ -973,15 +973,15 @@ export function TopNav({ active }: { active?: Page } = {}) {
             layout shell stays mounted and only the route segment swaps. */}
         <Link href="/dashboard" className="topnav-logo" aria-label="VictoryLabs — home" style={{
           display: 'flex', alignItems: 'center', textDecoration: 'none',
-          marginLeft: 6,
+          marginLeft: 6, width: 210, flexShrink: 0,
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/brand/victorylabs-wordmark.png"
             srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
             alt="VictoryLabs"
-            height={48}
-            style={{ width: 'auto', display: 'block', userSelect: 'none' }}
+            height={60}
+            style={{ width: 'auto', display: 'block', userSelect: 'none', filter: 'brightness(1.13) contrast(1.08)' }}
             draggable={false}
           />
         </Link>
