@@ -100,75 +100,63 @@ function TimeAgo({ ts }: { ts: number }) {
 const MY_WALLET = 'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE';
 
 /** Inline wallet link: address (or "YOU" badge) → Solscan, plus a tiny
- *  ME icon → magiceden.io/u/<wallet>. The 11×11 icon matches the seller/
- *  buyer text height (11 px line) so the row's vertical metric is
- *  unchanged — no layout shift when the icon image arrives.
- *  `flexShrink: 0` on the icon keeps it inline-aligned even when the
- *  parent row gets squeezed on narrow viewports. */
-function WalletLink({ wallet }: { wallet: string | null }) {
-  // Lazy SNS resolution — fires only for this (visible) card's wallet; cached
-  // module-wide so repeats don't re-hit the backend. Hook is always called
-  // (Rules of Hooks); it no-ops on a null wallet.
+ *  ME icon → magiceden.io/u/<wallet>, plus SNS badge when a .sol domain
+ *  resolves. `snsDomainAuto` makes the domain replace the address text
+ *  automatically; when false, clicking the SNS badge toggles it. The
+ *  Solscan link always targets the raw wallet address regardless. */
+function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomainAuto: boolean }) {
   const snsDomain = useSnsDomain(wallet);
+  // When auto is OFF: badge click toggles domain display. When auto is ON:
+  // domain is always shown and the state is irrelevant (never shown otherwise).
+  const [domainClicked, setDomainClicked] = useState(false);
+  // Sync local click-state when the global setting flips so that turning ON
+  // doesn't require a click, and turning OFF immediately hides any opened domain.
+  useEffect(() => { setDomainClicked(false); }, [snsDomainAuto]);
+
   if (!wallet) {
     return <span style={{ color: '#9494b0', fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace" }}>N/A</span>;
   }
-  const isMe = wallet === MY_WALLET;
-  const solscanUrl = `https://solscan.io/account/${wallet}`;
-  const meUrl      = `https://magiceden.io/u/${wallet}`;
+  const isMe        = wallet === MY_WALLET;
+  const solscanUrl  = `https://solscan.io/account/${wallet}`;
+  const meUrl       = `https://magiceden.io/u/${wallet}`;
+  const showDomain  = !!snsDomain && (snsDomainAuto || domainClicked);
+
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <a
         href={solscanUrl}
         target="_blank"
         rel="noopener noreferrer"
-
-        style={isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
-        // Match the NFT-name link's hover treatment: no underline by
-        // default, solid underline on hover. Skip the YOU badge — that
-        // pill already has its own visual affordance and an underline
-        // would clash with the rounded background.
-        onMouseEnter={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-        onMouseLeave={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+        style={showDomain ? SNS_DOMAIN_LINK_STYLE : isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
+        onMouseEnter={(e) => { if (!isMe && !showDomain) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+        onMouseLeave={(e) => { if (!isMe && !showDomain) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
       >
-        {isMe ? 'YOU' : shortWallet(wallet)}
+        {isMe ? 'YOU' : showDomain ? snsDomain : shortWallet(wallet)}
       </a>
-      {/* Wallet action-icon cluster. Tight inner gap (2px) groups ME + SNS as
-          one unit; it's a single child of the outer span so the wallet-text→
-          cluster spacing stays at the outer gap (4px) — wallet text spacing
-          unchanged. Both icons render at the same 11×11 box (no layout shift). */}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        <a
-          href={meUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-
-          style={ME_ICON_LINK_STYLE}
-        >
+        <a href={meUrl} target="_blank" rel="noopener noreferrer" style={ME_ICON_LINK_STYLE}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
         </a>
-        {/* SNS logo — renders ONLY once a .sol domain resolves; sits immediately
-            next to the ME icon at the same 11×11 box (asset padding trimmed so it
-            fills the box like ME), so its appearance causes no layout shift.
-            Native title is the hover tooltip ("name.sol"); click opens the SNS
-            profile. */}
+        {/* SNS badge — appears once a .sol domain resolves.
+            Auto ON:  decorative / links to sns.id profile.
+            Auto OFF: click toggles domain text on/off (preventDefault). */}
         {snsDomain && (
           <a
             href={`https://www.sns.id/domain?domain=${encodeURIComponent(snsDomain.replace(/\.sol$/, ''))}`}
             target="_blank"
             rel="noopener noreferrer"
             title={snsDomain}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!snsDomainAuto) {
+                e.preventDefault();
+                setDomainClicked(v => !v);
+              }
+            }}
             style={ME_ICON_LINK_STYLE}
           >
-            {/* Original uploaded SNS logo, rendered at the ME icon's 11×11 box.
-                Spaced 6px from ME (cluster gap) so the two read as separate
-                action icons rather than one merged badge. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {/* CSS-only ~1px hairline outline (darker green) to crisp the logo
-                edge on bright/high-DPI screens. Single 0.5px drop-shadow, no
-                offset/glow — asset untouched. Remove this filter line to revert. */}
             <img src="/brand/sns.png?v=3" alt="SNS" width={10} height={10} draggable={false} style={{ display: 'block', borderRadius: 2, filter: 'drop-shadow(0 0 0.65px #2f6b3d)' }} />
           </a>
         )}
@@ -178,15 +166,15 @@ function WalletLink({ wallet }: { wallet: string | null }) {
 }
 
 const WALLET_LINK_STYLE: React.CSSProperties = {
-  // Wallet text sits one tier above the seller:/buyer: label and
-  // one tier below the title. Lifted #9a9ab4 → #b9b7cb (and weight
-  // 500 → 600) so the address is the readable value on the row, now
-  // that the label has dropped to a muted #63637a. Still clearly below
-  // the title (#f0eef8) — preserves the title → wallet → label tiers.
   color: '#b9b7cb', fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
-  // No persistent decoration — matches the NFT-name link's behavior.
-  // Hover handlers on the anchor toggle `textDecoration: 'underline'`.
+  textDecoration: 'none',
+};
+/** Wallet link style when showing a resolved SNS domain. VL.green (#43B984)
+ *  matches the SNS logo's brand green within the VL palette. */
+const SNS_DOMAIN_LINK_STYLE: React.CSSProperties = {
+  color: '#43B984', fontWeight: 600,
+  fontFamily: "'SF Mono','Fira Code',monospace",
   textDecoration: 'none',
 };
 /** "YOU" pill — cyan/blue, distinct from the buy/sell badge palette so
@@ -452,6 +440,7 @@ export const FeedCard = memo(function FeedCard({
   density,
   pillOverride,
   nameChip,
+  snsDomainAuto = false,
 }: FeedCardProps) {
   // Thumb size is the only density-driven inline value — every other
   // delta lives in CSS via the `.feed-density-X` parent class. TAPE
@@ -669,7 +658,7 @@ export const FeedCard = memo(function FeedCard({
           <div style={FC_PARTIES_COL_STYLE}>
             <div style={FC_PARTY_ROW_STYLE}>
               <span style={FC_PARTY_LABEL_STYLE}>seller:</span>
-              <WalletLink wallet={event.seller} />
+              <WalletLink wallet={event.seller} snsDomainAuto={snsDomainAuto} />
               {/* Seller-remaining badge — small, inline next to the
                   seller wallet. Renders only on sell-type events when
                   backend has resolved a finite count (0 is a valid
@@ -708,7 +697,7 @@ export const FeedCard = memo(function FeedCard({
             </div>
             <div style={FC_PARTY_ROW_STYLE}>
               <span style={FC_PARTY_LABEL_STYLE}>buyer:</span>
-              <WalletLink wallet={event.buyer} />
+              <WalletLink wallet={event.buyer} snsDomainAuto={snsDomainAuto} />
             </div>
           </div>
         </div>

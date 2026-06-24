@@ -77,4 +77,8 @@ export interface FeedCardProps {
    *  Feed to surface a compact rarity rank/score chip; /feed never passes
    *  it, so the name row is byte-identical there. */
   nameChip?: ReactNode;
+  /** When true, .sol domain is shown automatically instead of the truncated
+   *  wallet address. When false (default), domain only shows after the user
+   *  clicks the SNS badge. */
+  snsDomainAuto?: boolean;
 }

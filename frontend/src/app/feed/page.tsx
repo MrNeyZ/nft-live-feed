@@ -78,7 +78,8 @@ const AT_TOP_THRESHOLD = 4;
  *  trading-tape look. CSS rules under `.feed-density-{comfy,
  *  compact,tape}` carry the layout deltas (globals.css). */
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
-const DENSITY_LS_KEY = 'vl.feed.density';
+const DENSITY_LS_KEY     = 'vl.feed.density';
+const SNS_DOMAIN_LS_KEY  = 'vl.feed.snsDomain';
 function isDensity(v: unknown): v is Density {
   return v === 'comfy' || v === 'compact' || v === 'tape';
 }
@@ -242,6 +243,10 @@ export default function FeedPage() {
   // manual button — effective pause is the OR of the two. Auto-resume on
   // mouse-leave only clears the hover pause, never the manual one.
   const [hoverPauseEnabled, setHoverPauseEnabled] = useState(true);
+  const [snsDomainAuto, setSnsDomainAuto] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(SNS_DOMAIN_LS_KEY) === 'true';
+  });
   const [hoverPaused, setHoverPaused] = useState(false);
   const isPaused = paused || hoverPaused;
   // Per-source data health (defaults to 'ok' before the backend's first
@@ -310,6 +315,9 @@ export default function FeedPage() {
   useEffect(() => {
     try { window.localStorage.setItem(DENSITY_LS_KEY, density); } catch { /* noop */ }
   }, [density]);
+  useEffect(() => {
+    try { window.localStorage.setItem(SNS_DOMAIN_LS_KEY, String(snsDomainAuto)); } catch { /* noop */ }
+  }, [snsDomainAuto]);
 
   // Normalized feed state: dedup + ordering + patching live inside the reducer,
   // so every SSE/REST path below just dispatches a typed action instead of
@@ -1263,7 +1271,23 @@ export default function FeedPage() {
                           <span className="feed-srow-hint">{hoverPauseEnabled ? 'On' : 'Off'}</span>
                         </div>
                       </div>
-                    </div>
+                      {/* SNS DOMAIN — auto-show .sol domains for buyer/seller wallets. */}
+                      <div className="feed-srow" role="group" aria-label="SNS Domain">
+                        <span className="feed-srow-lbl">SNS Domain</span>
+                        <div className="feed-srow-ctl">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={snsDomainAuto}
+                            onClick={() => setSnsDomainAuto(prev => !prev)}
+                            className={`vl-switch${snsDomainAuto ? ' vl-switch-on' : ''}`}
+                          >
+                            <span className="vl-switch-thumb" />
+                          </button>
+                          <span className="feed-srow-hint">{snsDomainAuto ? 'Show' : 'Hide'}</span>
+                        </div>
+                      </div>
+                    </div>{/* /feed-set-group--display */}
 
                     {/* GROUP 3 — LISTS (watch · blacklist) */}
                     <div className="feed-set-group feed-set-group--lists">
@@ -1407,6 +1431,7 @@ export default function FeedPage() {
                       sellerSellCountInFeed={sellerSellCountInFeed}
                       isNewestSellForSellerColl={isNewestSellForSellerColl}
                       density={density}
+                      snsDomainAuto={snsDomainAuto}
                     />
                   );
                 })}
