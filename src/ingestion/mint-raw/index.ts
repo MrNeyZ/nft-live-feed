@@ -34,6 +34,7 @@ import type { RawSolanaTx } from '../me-raw/types';
 import { resolveAccountKey } from '../me-raw/types';
 import { SYSTEM_PROGRAM } from '../me-raw/programs';
 import type { Priority } from '../concurrency';
+import type { GetTxSource } from '../../helius-credit-metrics';
 import { recordMint } from '../../mints/accumulator';
 import { enqueueMintEnrichment } from '../../mints/enricher';
 import { resolvePaymentToken } from '../../mints/payment-token-enricher';
@@ -1021,7 +1022,7 @@ export function countNftMints(tx: RawSolanaTx): number {
 export async function ingestMintRaw(
   sig: string,
   _heliusTx?: unknown,                // unused; we always fetch raw
-  _priority: Priority = 'medium',     // intentionally ignored — see above
+  priority: Priority = 'medium',
 ): Promise<void> {
   // scope='mint' isolates this fetch from the sale-pipeline dedupe layer.
   // Previously the shared dedupe poisoned MMM Core sales: the mints poller
@@ -1033,7 +1034,15 @@ export async function ingestMintRaw(
   // independent processing while a short-lived txCache (CACHE_TTL_MS)
   // still avoids duplicate getTransaction credits when both scopes
   // discover the same sig within the cache window.
-  const tx = await fetchRawTx(sig, false, 'low', 'mint');
+  //
+  // Queue priority stays 'low' for all mint fetches (no change to retry
+  // or limiter behavior). txSource is derived from the caller's priority
+  // so [helius/credits] correctly labels ws / poller / reconcile paths.
+  const txSource: GetTxSource =
+    priority === 'high'   ? 'mint_ws' :
+    priority === 'medium' ? 'mint_poller' :
+                            'mint_reconcile';
+  const tx = await fetchRawTx(sig, false, 'low', 'mint', txSource);
   if (!tx) {
     // One-shot debug breadcrumb for the missing-event investigation.
     if (sig === '2bh9gtx3ZfG7bBjCkSjCTnH4JD8wShCorLNX4G93JP61az1XCFRNV7aTQcjJPo8posWYQWW9c9mD7W4YruLpLLK1') {

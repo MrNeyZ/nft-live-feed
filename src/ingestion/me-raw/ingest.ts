@@ -331,6 +331,7 @@ export async function fetchRawTx(
   bestEffort = false,
   priority: Priority = 'medium',
   scope: FetchScope = 'sale',
+  txSourceOverride?: GetTxSource,
 ): Promise<RawSolanaTx | null> {
   // Hard kill switch — only refuse work when BOTH trade ingest and the
   // mint tracker are paused. The mint tracker is independent of trade
@@ -381,7 +382,7 @@ export async function fetchRawTx(
     // scope to arrive enqueues the rpcLimiter task; later scopes (any)
     // share the resolved tx body. Each scope still records its own
     // recent-mark on success so per-scope dedupe stays accurate.
-    const txSource = deriveTxSource(scope, priority, bestEffort);
+    const txSource = txSourceOverride ?? deriveTxSource(scope, priority, bestEffort);
     let pending = sharedRpcInFlight.get(sig);
     let firedNew = false;
     if (!pending) {
