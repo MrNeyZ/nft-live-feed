@@ -230,9 +230,10 @@ const Dots = () => (
 function Wordmark() {
   return (
     <img
-      src="/brand/victorylabs.png"
+      src="/brand/victorylabs-wordmark.png"
+      srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
       alt="VictoryLabs"
-      width={264}
+      width={197}
       height={79}
       className="vl-wordmark"
       draggable={false}
