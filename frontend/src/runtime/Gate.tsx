@@ -233,7 +233,7 @@ function Wordmark() {
       src="/brand/victorylabs-wordmark.png"
       srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
       alt="VictoryLabs"
-      width={298}
+      width={270}
       height={79}
       className="vl-wordmark"
       draggable={false}
