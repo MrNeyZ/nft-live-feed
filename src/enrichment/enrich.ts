@@ -9,6 +9,7 @@ import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/lis
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { primeCollectionCache } from './seller-collection-count';
 
 const SUCCESS_TTL_MS = 30 * 60 * 1000;  // 30 minutes — stable NFT metadata rarely changes
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
@@ -545,6 +546,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     try {
       incGetAsset('sale_enrich');
       metadata = await getAsset(mint);
+      if (metadata) primeCollectionCache(mint, metadata.collectionAddress ?? null);
     } catch (err) {
       console.warn(`[enrich] DAS failed for ${mint.slice(0, 8)}...: ${(err as Error).message}`);
     }

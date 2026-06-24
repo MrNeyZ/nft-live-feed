@@ -71,6 +71,12 @@ function key(owner: string, collection: string): string {
   return `${owner}|${collection}`;
 }
 
+/** Pre-populate the mint→collection cache from an already-resolved DAS
+ *  result, avoiding a duplicate getAsset call in resolveCollectionForMint. */
+export function primeCollectionCache(mintAddress: string, collectionAddress: string | null): void {
+  collectionCache.set(mintAddress, collectionAddress);
+}
+
 /** Resolve `mintAddress` → on-chain collection group address via DAS.
  *  Cached + single-flight. Returns null when DAS doesn't carry a
  *  collection grouping (cNFT without verified collection, partial
