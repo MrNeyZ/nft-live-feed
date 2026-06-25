@@ -11,6 +11,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { VictoryLabsLogo } from './VictoryLabsLogo';
 import {
   CATEGORY_LAYER, Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -975,15 +976,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6, height: 'var(--shell-height, 48px)',
         }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/victorylabs-wordmark.png"
-            srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
-            alt="VictoryLabs"
-            height={42}
-            style={{ width: 'auto', display: 'block', userSelect: 'none' }}
-            draggable={false}
-          />
+          <VictoryLabsLogo size="26px" />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.

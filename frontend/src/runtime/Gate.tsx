@@ -18,6 +18,7 @@ import { getWallets } from '@wallet-standard/app';
 import { isAuthed, loginWithSiws, clearAuth } from './auth';
 import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
 import { setMintTrackerEnabled } from './mint-tracker';
+import { VictoryLabsLogo } from '@/soloist/VictoryLabsLogo';
 import { FloatingLayoutModeSwitcher, BottomStatusBar, TopNav } from '@/soloist/shared';
 import { usePathname } from 'next/navigation';
 
@@ -252,17 +253,7 @@ const Dots = () => (
 );
 
 function Wordmark() {
-  return (
-    <img
-      src="/brand/victorylabs-wordmark.png"
-      srcSet="/brand/victorylabs-wordmark.png 1x, /brand/victorylabs-wordmark-2x.png 2x, /brand/victorylabs-wordmark-3x.png 3x"
-      alt="VictoryLabs"
-      width={300}
-      height={88}
-      className="vl-wordmark"
-      draggable={false}
-    />
-  );
+  return <VictoryLabsLogo size="52px" style={{ marginBottom: '-8px' }} />;
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -592,13 +583,6 @@ const GATE_CSS = `
   to   { opacity: 1; transform: none; }
 }
 .gate-reveal { animation: gateReveal 0.22s ease-out both; }
-
-/* Wordmark — PNG asset, proportions preserved. */
-.vl-wordmark {
-  display: block;
-  user-select: none;
-  margin-bottom: -8px;
-}
 
 /* Primary CTA — subtle purple gradient with 3D edge. No halo. */
 .vl-cta {

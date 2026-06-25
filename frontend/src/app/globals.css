@@ -340,51 +340,68 @@ html[data-layout="phone"] .feed-thumb img {
   }
 }
 
-/* VictoryLabs wordmark lockup — typography only (no image, no box, fully
-   transparent). Ported from the WC v2 handoff prototype
-   (wallet-checker/_design_ref/wc-v2/tokens.css) plus the requested
-   overrides; values NOT from the prototype are marked. (The local
-   "finalized" version wasn't available on the VPS — verify against it.)
-   Lives inside `.topnav-logo`, so the existing phone trim that hides
-   `.topnav-logo` hides this too. */
+/* ── VictoryLabs Wordmark — Soloist logo system ─────────────────────────
+   Primary:  .vl-logo > .vl-logo__victory + .vl-logo__labs
+   Hero:     .vl-hero > (.vl-logo + .vl-divider)
+   Scale from one CSS variable: --vl-size (override per-instance via style).
+   Fonts: Victory = Bookman Old Style (system/fallback); Labs = Parisienne (Google).
+   Per-letter kerning is applied via marginLeft in VictoryLabsLogo.tsx. */
 .vl-logo {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 1px;                                  /* prototype */
+  line-height: 1;
+  white-space: nowrap;
+  font-size: var(--vl-size, 104px);
   user-select: none;
-  /* Optical correction — nudge the whole lockup up ~1px so it reads as
-     vertically centered in the topbar like the old PNG (italic-serif
-     ascenders make baseline-aligned text sit a touch low). */
+  /* Optical nudge: serif ascenders baseline-align a touch low in the topbar. */
   transform: translateY(-1px);
 }
-.vl-logo .v {
-  font-family: var(--vl-font-serif);
-  font-style: italic;
-  font-weight: 800;                          /* override (matches prototype) */
-  font-size: 24px;                           /* override (prototype: 22px) */
-  letter-spacing: -0.5px;                    /* prototype */
-  color: #a890e8;                            /* slightly desaturated from #b794f4 — calmer */
-  /* A soft purple bloom (~prototype level) + a tight dark drop for a
-     little of the old PNG's weight — dialled back so the wordmark sits
-     inside the topbar's chrome rather than grabbing attention. No neon.
-     (Judgment fill — verify.) */
-  text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.40),
-    0 0 16px rgba(158, 134, 216, 0.33);
-  transform: scaleX(0.97);                   /* override (was 0.95 — too compressed) */
-  transform-origin: 100% 50%;                /* override */
+.vl-logo__victory {
+  font-family: 'Bookman Old Style', 'URW Bookman', 'TeX Gyre Bonum', 'Georgia', serif;
+  font-weight: 600;
+  color: #a890e8;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
 }
-.vl-logo .l {
-  font-family: var(--vl-font-serif);
-  /* Upright (was italic) — drops the double-slant so "Labs" reads as a calm
-     secondary against the italic "Victory", reducing wordmark noise. Serif
-     face / weight / size kept so the VictoryLabs identity stays intact. */
-  font-style: normal;
-  font-weight: 600;                          /* prototype (kept) */
-  font-size: 18px;                           /* prototype (kept) */
-  color: #f0eef8;                            /* prototype used var(--vl-fg) = #f0eef8; literal here since nft-live-feed has no --vl-fg */
-  margin-left: 2px;                          /* +1px breathing room for the upright cut */
-  letter-spacing: -0.1px;                    /* slightly looser than the italic setting */
+.vl-logo__labs {
+  font-family: 'Parisienne', cursive;
+  color: #f2eef9;
+  font-size: calc(1em * 0.76);
+  margin-left: 0.05em;
+  transform: translateY(-0.05em);
+}
+
+/* Hero variant — wordmark + star divider stacked */
+.vl-hero {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+.vl-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 114%;
+  margin-top: 0.62em;
+  color: #a890e8;
+}
+.vl-divider .vl-ln {
+  flex: 1;
+  height: 1.5px;
+  border: 0;
+  border-radius: 2px;
+}
+.vl-divider .vl-ln--l {
+  background: linear-gradient(90deg, rgba(168,144,232,0.14), rgba(168,144,232,0.55) 22%, rgba(168,144,232,0.55));
+}
+.vl-divider .vl-ln--r {
+  background: linear-gradient(90deg, rgba(168,144,232,0.55), rgba(168,144,232,0.55) 78%, rgba(168,144,232,0.14));
+}
+.vl-divider .vl-star {
+  width: 19px;
+  height: 19px;
+  flex: none;
 }
 
 /* Phone TopNav — drop the logo, the MULTI-TAB tab, and the TPS / SOL /
