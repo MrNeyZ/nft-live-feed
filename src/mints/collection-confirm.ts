@@ -109,7 +109,7 @@ const ADAPTIVE_RETRY_START_IDX         = 1;   // skips retry-1 (15s) only
 // Window-decayed (`recentResolveCount` already resets the counter when
 // RESOLVED_WINDOW_MS passes), so a re-launch after a cooldown gets the
 // full 4-retry treatment again.
-const FINAL_RESOLVE_THRESHOLD          = 3;
+const FINAL_RESOLVE_THRESHOLD          = 1;
 const loggedFinalKeys = new Set<string>();
 
 const enqueueTimesByKey:    Map<string, number[]> = new Map();
