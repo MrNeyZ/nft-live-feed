@@ -432,8 +432,11 @@ function logStats() {
       `[listener/${name}] seen=${s.seen} fired=${s.fired}` +
       ` filtered=${s.filtered} errors=${s.errors}`
     );
-    // Reset window counts after logging
-    statsMap.set(name, newStats());
+    // Reset window counts in place — do NOT replace the map entry.
+    // openSubscription() captures the Stats reference by closure; replacing
+    // the entry here decouples the closure from logStats, making all
+    // subsequent windows read zero regardless of actual WS activity.
+    s.seen = 0; s.fired = 0; s.filtered = 0; s.errors = 0;
   }
 }
 
