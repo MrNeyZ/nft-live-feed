@@ -516,11 +516,11 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope
       if (json.error) throw new Error(`RPC: ${json.error.message}`);
       if (!json.result) {
         // Helius logsSubscribe fires ~500–700ms before getTransaction indexes
-        // the same tx. One 1s retry converts 100% of mint_ws nulls to hits
-        // (probe: 354/354 resolved within 1s, p90=589ms). Eliminates the
-        // redundant cursor-poll re-fetch that otherwise costs 1 extra credit
-        // per sig. One retry only; if still null the poller remains the fallback.
-        if (txSource === 'mint_ws' && attempt === 0) {
+        // the same tx. One 1s retry converts ~100% of WS nulls to hits
+        // (mint_ws probe: 354/354 resolved within 1s, p90=589ms; sale_ws: 93%
+        // null rate observed in prod). Eliminates the redundant poller re-fetch.
+        // One retry only; if still null the poller remains the fallback.
+        if ((txSource === 'mint_ws' || txSource === 'sale_ws') && attempt === 0) {
           await sleep(1_000);
           continue;
         }
