@@ -1272,8 +1272,8 @@ export default function FeedPage() {
                         </div>
                       </div>
                       {/* SNS DOMAIN — auto-show .sol domains for buyer/seller wallets. */}
-                      <div className="feed-srow" role="group" aria-label="SNS Domain">
-                        <span className="feed-srow-lbl">SNS Domain</span>
+                      <div className="feed-srow" role="group" aria-label="SNS">
+                        <span className="feed-srow-lbl">SNS</span>
                         <div className="feed-srow-ctl">
                           <button
                             type="button"

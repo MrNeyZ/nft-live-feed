@@ -128,8 +128,8 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
         target="_blank"
         rel="noopener noreferrer"
         style={showDomain ? SNS_DOMAIN_LINK_STYLE : isMe ? YOU_BADGE_STYLE : WALLET_LINK_STYLE}
-        onMouseEnter={(e) => { if (!isMe && !showDomain) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-        onMouseLeave={(e) => { if (!isMe && !showDomain) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+        onMouseEnter={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+        onMouseLeave={(e) => { if (!isMe) (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
       >
         {isMe ? 'YOU' : showDomain ? snsDomain : shortWallet(wallet)}
       </a>
