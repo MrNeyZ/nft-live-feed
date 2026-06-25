@@ -926,13 +926,27 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
 
     lastEventTs = Date.now();
     lastNotificationTs.set(target.name, Date.now());
-    lastRealNotifTs.set(target.name, Date.now()); // real traffic only — never set by restarts
     if (!wsEverReal.get(target.name)) wsEverReal.set(target.name, true);
     stats.seen++;
 
     if (value.err !== null && value.err !== undefined) {
       stats.filtered++;
       return;
+    }
+
+    // Advance zombie-check clock only for events that confirm the subscription
+    // is delivering genuine on-chain activity.
+    //
+    // mpl_core exception: also require a recognisable mint instruction in the
+    // logs. Reconnect bursts include many non-mint events (NFT updates,
+    // transfers, plugin ops) that are non-errored but get dropped by the mint
+    // prefilter. Without this guard they reset the zombie timer on every
+    // reconnect, permanently suppressing the watchdog.
+    //
+    // For all other targets lastRealNotifTs drives isSalesWsDead(); any
+    // non-errored event is sufficient to declare the sales WS alive.
+    if (target.name !== 'mpl_core' || hasMintInstructionLog(value.logs)) {
+      lastRealNotifTs.set(target.name, Date.now()); // real traffic only — never set by restarts
     }
 
     // Pre-filter removed for me_v2 / mmm: the listener forwards every
