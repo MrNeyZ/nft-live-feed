@@ -71,8 +71,9 @@ function extractVerifiedCreators(asset: DasAsset | undefined): string[] {
 /** True iff DAS metadata has an attribute whose `trait_type` or `key` is
  *  exactly "Artist" (case-sensitive). Value is not inspected. */
 function extractHasArtistAttribute(asset: DasAsset | undefined): boolean {
-  return (asset?.content?.metadata?.attributes ?? [])
-    .some((a) => a?.trait_type === 'Artist' || a?.key === 'Artist');
+  const attrs = asset?.content?.metadata?.attributes;
+  if (!Array.isArray(attrs)) return false;
+  return attrs.some((a) => a?.trait_type === 'Artist' || a?.key === 'Artist');
 }
 
 interface DasResponse {

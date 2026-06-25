@@ -11,7 +11,7 @@ import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 import { primeCollectionCache } from './seller-collection-count';
 
-const SUCCESS_TTL_MS = 30 * 60 * 1000;  // 30 minutes — stable NFT metadata rarely changes
+const SUCCESS_TTL_MS = 4 * 60 * 60 * 1000;  // 4 hours — NFT metadata is immutable after mint
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
 const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
