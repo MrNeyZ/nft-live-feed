@@ -11,7 +11,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { VictoryLabsLogo } from './VictoryLabsLogo';
+// import { VictoryLabsLogo } from './VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
 import {
   CATEGORY_LAYER, Marketplace, rndFloat, rndInt,
 } from './mock-data';
@@ -976,7 +976,8 @@ export function TopNav({ active }: { active?: Page } = {}) {
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6, height: 'var(--shell-height, 48px)',
         }}>
-          <VictoryLabsLogo />
+          {/* SVG export — text version preserved in VictoryLabsLogo.tsx */}
+          <img src="/logo-navbar.svg" alt="VictoryLabs" style={{ display: 'block' }} />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.

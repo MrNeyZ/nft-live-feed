@@ -18,7 +18,7 @@ import { getWallets } from '@wallet-standard/app';
 import { isAuthed, loginWithSiws, clearAuth } from './auth';
 import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
 import { setMintTrackerEnabled } from './mint-tracker';
-import { VictoryLabsLogo } from '@/soloist/VictoryLabsLogo';
+// import { VictoryLabsLogo } from '@/soloist/VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
 import { FloatingLayoutModeSwitcher, BottomStatusBar, TopNav } from '@/soloist/shared';
 import { usePathname } from 'next/navigation';
 
@@ -253,7 +253,8 @@ const Dots = () => (
 );
 
 function Wordmark() {
-  return <VictoryLabsLogo variant="hero" size="72px" />;
+  // SVG export — text version preserved in VictoryLabsLogo.tsx
+  return <img src="/logo-gate.svg" alt="VictoryLabs" style={{ display: 'block' }} />;
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────

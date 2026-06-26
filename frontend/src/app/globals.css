@@ -361,8 +361,8 @@ html[data-layout="phone"] .feed-thumb img {
    Scale from one CSS variable: --vl-size (override per-instance via style).
    Fonts: Victory = Bookman Old Style (system/fallback); Labs = Parisienne (Google).
    Per-letter kerning is applied via marginLeft in VictoryLabsLogo.tsx. */
-.topnav-logo { --vl-size: 24px; }
-html[data-layout="pc"] .topnav-logo { --vl-size: 26px; }
+.topnav-logo img { height: 34px; width: auto; }
+html[data-layout="pc"] .topnav-logo img { height: 37px; }
 
 .vl-logo {
   display: inline-flex;
