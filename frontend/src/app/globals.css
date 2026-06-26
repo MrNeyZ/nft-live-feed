@@ -42,7 +42,7 @@
   /* Shell */
   --shell-x:           24px;
   --shell-height:      48px;
-  --shell-search-max:  480px;
+  --shell-search-max:  380px;
   /* Page */
   --page-x:            16px;
   /* Content (per route) */
@@ -190,6 +190,9 @@ html[data-layout="pc"] {
      spacing preserved. Laptop / phone tokens unchanged. */
   --mints-show-w:        100%;
   --mints-show-col-w:    144px;
+  /* SHOW action zone cap — wider on PC so the band fills more of the
+     wide SHOW remainder column (PC SHOW td ≈ 259px; zone = 210px). */
+  --mints-show-zone-max: 240px;
   /* Accent bumps — see :root for rationale. */
   /* Sharpness pass: see :root rationale. PC stays one tier above
      laptop on row/card alpha + ring alpha so the dense-monitor read

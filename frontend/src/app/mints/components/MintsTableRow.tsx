@@ -577,7 +577,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // 180px so the centered label stays gap-like instead of floating
               // mid-cell. right:-16 pushes the zone 16px past the cell edge,
               // overlapping into the MINTS column. Grows LEFT only.
-              width: 'min(calc(100% - 16px), 180px)',
+              width: 'min(calc(100% - 16px), var(--mints-show-zone-max, 180px))',
               // SHOW label centered inside the action container.
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', userSelect: 'none',
