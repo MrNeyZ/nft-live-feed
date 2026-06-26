@@ -966,7 +966,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           tab's text baseline — fixes the "floating" offset that `center`
           alignment produced because the serif/cursive logo has more ascender
           headroom than the sans nav tabs. */}
-      <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="topnav-left" style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
         {/* Logo + tabs use next/link for client-side routing. Plain
             <a href> would do a full document navigation, tearing down
             the layout shell and showing a brief empty frame between
@@ -976,7 +976,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6, height: 'var(--shell-height, 48px)',
         }}>
-          <VictoryLabsLogo size="26px" />
+          <VictoryLabsLogo size="28px" />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.

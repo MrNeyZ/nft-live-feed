@@ -2,31 +2,41 @@
 
 import React from 'react';
 
-// Per-letter left-margin offsets (em) applied before each character.
-// Negative = tighter. Based on optical balance for Bookman Old Style (Victory)
-// and Parisienne (Labs) at display sizes.
-const VICTORY: [string, string?][] = [
-  ['V'],
-  ['i', '-0.025em'],   // V's open diagonal creates excess gap before narrow i
-  ['c', '-0.015em'],   // i→c: slight tighten into the bowl
-  ['t', '-0.010em'],   // c→t: mild
-  ['o'],               // t→o: normal
-  ['r', '-0.015em'],   // o→r: o closes right, r shoulder needs to meet it
-  ['y', '-0.038em'],   // r→y: noticeably tighter — r arm + y fork has too much air
+// Per-letter kerning for Victory — same pairs for both contexts, letter-spacing differs via CSS.
+// Tuple: [char, marginLeft?] — no vertical offset for Victory
+const VICTORY: [string, string?, string?][] = [
+  ['V', '0.03em'],
+  ['i', '-0.01em'],
+  ['c', '0.01em'],
+  ['t', '-0.01em'],
+  ['o', '0.02em'],
+  ['r', '0.01em'],
+  ['y', '0.07em'],
 ];
 
-const LABS: [string, string?][] = [
+// Per-letter kerning for Labs — kerning shared, vertical offsets differ per context.
+// Tuple: [char, marginLeft?, top?]
+const LABS_GATE: [string, string?, string?][] = [
   ['L'],
-  ['a', '-0.045em'],   // script L flourish → a needs to tuck in
-  ['b', '-0.025em'],
-  ['s', '-0.018em'],
+  ['a', '-0.086em', '2px'],
+  ['b', '-0.035em', '2px'],
+  ['s', '-0.062em', '2px'],
+];
+const LABS_NAV: [string, string?, string?][] = [
+  ['L'],
+  ['a', '-0.086em', '1px'],
+  ['b', '-0.035em', '1px'],
+  ['s', '-0.062em', '1px'],
 ];
 
-function KernedSpan({ letters, className }: { letters: [string, string?][]; className: string }) {
+function KernedSpan({ letters, className }: { letters: [string, string?, string?][]; className: string }) {
   return (
     <span className={className} aria-hidden>
-      {letters.map(([ch, ml], i) => (
-        <span key={i} style={ml ? { marginLeft: ml } : undefined}>{ch}</span>
+      {letters.map(([ch, ml, dy], i) => (
+        <span key={i} style={{
+          ...(ml ? { marginLeft: ml } : {}),
+          ...(dy ? { position: 'relative', top: dy } : {}),
+        }}>{ch}</span>
       ))}
     </span>
   );
@@ -70,7 +80,7 @@ export function VictoryLabsLogo({
       >
         <span className="vl-logo" aria-hidden>
           <KernedSpan letters={VICTORY} className="vl-logo__victory" />
-          <KernedSpan letters={LABS} className="vl-logo__labs" />
+          <KernedSpan letters={LABS_GATE} className="vl-logo__labs" />
         </span>
         <span className="vl-divider">
           <hr className="vl-ln vl-ln--l" />
@@ -88,7 +98,7 @@ export function VictoryLabsLogo({
       aria-label="VictoryLabs"
     >
       <KernedSpan letters={VICTORY} className="vl-logo__victory" />
-      <KernedSpan letters={LABS} className="vl-logo__labs" />
+      <KernedSpan letters={LABS_NAV} className="vl-logo__labs" />
     </span>
   );
 }

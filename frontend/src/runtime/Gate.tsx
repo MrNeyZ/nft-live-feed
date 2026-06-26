@@ -253,7 +253,7 @@ const Dots = () => (
 );
 
 function Wordmark() {
-  return <VictoryLabsLogo size="52px" style={{ marginBottom: '-8px' }} />;
+  return <VictoryLabsLogo variant="hero" size="67px" />;
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -492,43 +492,25 @@ function ModeSelectScreen() {
         {/* 01 FULL — temporarily disabled. Visible but inactive (dimmed, no
             hover glow, not clickable via the shared vl-cta[disabled] styles). */}
         <button className="vl-cta vl-cta--block" disabled aria-disabled="true">
-          <span className="vl-cta-num">01</span>
-          <span className="vl-cta-body">
-            <span className="vl-cta-label">FULL</span>
-            <span className="vl-cta-desc">All sources, all filters.</span>
-            <span className="vl-cta-desc" style={{ opacity: 0.75 }}>Temporarily disabled</span>
-          </span>
-          <span className="vl-cta-chev">›</span>
+          <span className="vl-cta-label">FULL</span>
         </button>
 
-        {/* 02 MINT TRACKER */}
         <button
           className="vl-cta vl-cta--block"
           onClick={pickMintTracker}
           disabled={busy != null}
           data-busy={busy === 'mints' ? 'true' : undefined}
         >
-          <span className="vl-cta-num">02</span>
-          <span className="vl-cta-body">
-            <span className="vl-cta-label">MINT TRACKER</span>
-            <span className="vl-cta-desc">Mints only, sales off.</span>
-          </span>
-          <span className="vl-cta-chev">{busy === 'mints' ? <Dots /> : '›'}</span>
+          <span className="vl-cta-label">{busy === 'mints' ? <Dots /> : 'MINT TRACKER'}</span>
         </button>
 
-        {/* 03 SALES ONLY */}
         <button
           className="vl-cta vl-cta--block"
           onClick={pickSalesOnly}
           disabled={busy != null}
           data-busy={busy === 'sales' ? 'true' : undefined}
         >
-          <span className="vl-cta-num">03</span>
-          <span className="vl-cta-body">
-            <span className="vl-cta-label">SALES ONLY</span>
-            <span className="vl-cta-desc">No listings, no stats pipeline.</span>
-          </span>
-          <span className="vl-cta-chev">{busy === 'sales' ? <Dots /> : '›'}</span>
+          <span className="vl-cta-label">{busy === 'sales' ? <Dots /> : 'SALES ONLY'}</span>
         </button>
       </div>
       {err && (
@@ -584,7 +566,7 @@ const GATE_CSS = `
 }
 .gate-reveal { animation: gateReveal 0.22s ease-out both; }
 
-/* Primary CTA — subtle purple gradient with 3D edge. No halo. */
+/* Primary CTA — soft illuminated glass. */
 .vl-cta {
   display: inline-flex;
   align-items: center;
@@ -598,32 +580,27 @@ const GATE_CSS = `
   letter-spacing: 2.5px;
   text-transform: uppercase;
   color: #08060c;
-  background: linear-gradient(180deg, #a890e8 0%, #7c5cf0 100%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #bbaaf2 0%, #9576e8 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   cursor: pointer;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.22) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    0 2px 0 rgba(22, 14, 42, 0.75),
-    0 6px 14px -4px rgba(128, 104, 216, 0.45);
+    0 6px 18px -4px rgba(148, 118, 232, 0.4);
   transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
 }
 .vl-cta:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #a890e8 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #c8b8f6 0%, #a487ee 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    0 3px 0 rgba(22, 14, 42, 0.75),
-    0 8px 16px -4px rgba(128, 104, 216, 0.55);
+    0 8px 22px -4px rgba(160, 130, 240, 0.5);
 }
 .vl-cta:active:not([disabled]) {
   transform: translateY(1px);
-  background: linear-gradient(180deg, #7c5cf0 0%, #7a63c4 100%);
+  background: linear-gradient(180deg, #9878ea 0%, #8468d8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 0 0 rgba(22, 14, 42, 0.75),
     0 3px 8px -3px rgba(128, 104, 216, 0.3);
 }
 .vl-cta[disabled] {
@@ -635,53 +612,23 @@ const GATE_CSS = `
   transform: none;
 }
 
-/* Block variant — mode rows.
- * 3-column grid: [fixed-width index] [flexible centered content] [fixed-width chev].
- * Replaces the previous flex+space-between layout, where the centre block's
- * position drifted with label width ("FULL" vs "SALES ONLY"). With the grid
- * the index always anchors left, the chev anchors right, and the middle
- * column is identical width across all rows — so the label/description
- * column is visually balanced regardless of label text length. */
+/* Block variant — mode rows. */
 .vl-cta.vl-cta--block {
-  display: grid;
-  grid-template-columns: 32px 1fr 32px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   width: 100%;
   min-width: 0;
-  height: 64px;
-  padding: 0 20px;
-  letter-spacing: 1.8px;
-  font-size: 12px;
-  text-align: left;
-}
-.vl-cta.vl-cta--block .vl-cta-body {
-  /* Centre the label+desc stack within the middle column so all rows
-   * share the same horizontal anchor regardless of label length. */
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  text-transform: none; letter-spacing: 0;
-}
-.vl-cta.vl-cta--block .vl-cta-num {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 10px; font-weight: 700; color: rgba(12, 10, 26, 0.55);
-  letter-spacing: 1px;
-  text-align: left;
+  height: 56px;
+  padding: 0 28px;
+  letter-spacing: 2px;
+  font-size: 12.5px;
 }
 .vl-cta.vl-cta--block .vl-cta-label {
-  font-size: 13px; font-weight: 700; letter-spacing: 1.8px; color: #08060c;
+  font-size: 12.5px; font-weight: 700; letter-spacing: 2px; color: #08060c;
   text-transform: uppercase;
 }
-.vl-cta.vl-cta--block .vl-cta-desc {
-  font-size: 10.5px; font-weight: 500; color: rgba(12, 10, 26, 0.6);
-  letter-spacing: 0.1px;
-}
-.vl-cta.vl-cta--block .vl-cta-chev {
-  font-size: 20px; font-weight: 400; color: rgba(12, 10, 26, 0.7);
-  margin-left: 0; text-align: right; transition: transform 0.16s ease;
-}
-.vl-cta.vl-cta--block:hover:not([disabled]) .vl-cta-chev { transform: translateX(3px); }
-.vl-cta.vl-cta--block[disabled] .vl-cta-num,
-.vl-cta.vl-cta--block[disabled] .vl-cta-label,
-.vl-cta.vl-cta--block[disabled] .vl-cta-desc,
-.vl-cta.vl-cta--block[disabled] .vl-cta-chev {
+.vl-cta.vl-cta--block[disabled] .vl-cta-label {
   color: #241f3b;
 }
 
@@ -766,33 +713,28 @@ const GATE_CSS = `
   font-size: 16px;
   font-weight: 600;
   color: #08060c;
-  background: linear-gradient(180deg, #a890e8 0%, #7c5cf0 100%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #bbaaf2 0%, #9576e8 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   cursor: pointer;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.22) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    0 2px 0 rgba(22, 14, 42, 0.75),
-    0 6px 14px -4px rgba(128, 104, 216, 0.45);
+    0 6px 18px -4px rgba(148, 118, 232, 0.4);
   transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
 }
 .vl-arrow:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #a890e8 0%, #9f84e8 100%);
+  background: linear-gradient(180deg, #c8b8f6 0%, #a487ee 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.22) inset,
-    0 3px 0 rgba(22, 14, 42, 0.75),
-    0 8px 16px -4px rgba(128, 104, 216, 0.55);
+    0 8px 22px -4px rgba(160, 130, 240, 0.5);
 }
 .vl-arrow:active:not([disabled]) {
   transform: translateY(1px);
+  background: linear-gradient(180deg, #9878ea 0%, #8468d8 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 0 0 rgba(22, 14, 42, 0.75),
     0 3px 8px -3px rgba(128, 104, 216, 0.3);
-  background: linear-gradient(180deg, #7c5cf0 0%, #7a63c4 100%);
 }
 .vl-arrow[disabled] {
   cursor: not-allowed;
@@ -832,23 +774,28 @@ const GATE_CSS = `
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 44px;
+  gap: 0;
   width: 100%;
   max-width: 460px;
   position: relative;
   z-index: 1;
 }
+.gate-stage .vl-hero,
+.gate-stage > .vl-logo {
+  margin-bottom: 64px;
+}
 .gate-hero-stack {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 10px;
+  margin-bottom: 60px;
 }
 .gate-headline {
   font-family: 'Playfair Display', 'Georgia', serif;
-  font-size: 44px;
+  font-size: 36px;
   font-weight: 700;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
   line-height: 1.05;
   color: #f4f2fa;
   text-align: center;
@@ -856,12 +803,12 @@ const GATE_CSS = `
   margin: 0;
 }
 .gate-sub {
-  font-size: 13px;
+  font-size: 15px;
   color: #8888a8;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
   text-align: center;
   max-width: 340px;
-  line-height: 1.55;
+  line-height: 1.65;
   margin: 0;
 }
 .gate-form {

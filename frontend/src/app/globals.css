@@ -1,3 +1,18 @@
+@font-face {
+  font-family: 'TeX Gyre Bonum';
+  src: url('/fonts/texgyrebonum-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'TeX Gyre Bonum';
+  src: url('/fonts/texgyrebonum-bold.woff2') format('woff2');
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── Layout-mode tokens ─────────────────────────────────────────────────────
@@ -357,33 +372,40 @@ html[data-layout="phone"] .feed-thumb img {
   transform: translateY(-1px);
 }
 .vl-logo__victory {
-  font-family: 'Bookman Old Style', 'URW Bookman', 'TeX Gyre Bonum', 'Georgia', serif;
-  font-weight: 600;
+  font-family: 'TeX Gyre Bonum', 'Bookman Old Style', 'URW Bookman', 'Georgia', serif;
+  font-weight: 400;
   color: #a890e8;
+  -webkit-text-stroke: 0.7px #a890e8;
+  letter-spacing: 0.025em;
   font-kerning: normal;
   text-rendering: optimizeLegibility;
 }
+.vl-hero .vl-logo__victory {
+  letter-spacing: 0.005em;
+  -webkit-text-stroke: 1.68px #a890e8;
+}
 .vl-logo__labs {
   font-family: 'Parisienne', cursive;
-  color: #f2eef9;
-  font-size: calc(1em * 0.76);
-  margin-left: 0.05em;
-  transform: translateY(-0.05em);
+  color: #F0EEF8;
+  font-size: calc(1em * 0.785);
+  margin-left: 0.10em;
+  transform: translateY(-0.01em);
 }
-
 /* Hero variant — wordmark + star divider stacked */
 .vl-hero {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
+  /* Propagate --vl-size as the em base so .vl-divider width/margin scale with the logo */
+  font-size: var(--vl-size, 104px);
 }
 .vl-divider {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  width: 114%;
-  margin-top: 0.62em;
+  gap: 14px;
+  width: 5.8em;
+  margin-top: 0.14em;
   color: #a890e8;
 }
 .vl-divider .vl-ln {
@@ -393,14 +415,14 @@ html[data-layout="phone"] .feed-thumb img {
   border-radius: 2px;
 }
 .vl-divider .vl-ln--l {
-  background: linear-gradient(90deg, rgba(168,144,232,0.14), rgba(168,144,232,0.55) 22%, rgba(168,144,232,0.55));
+  background: linear-gradient(90deg, transparent, rgba(168,144,232,0.45) 18%);
 }
 .vl-divider .vl-ln--r {
-  background: linear-gradient(90deg, rgba(168,144,232,0.55), rgba(168,144,232,0.55) 78%, rgba(168,144,232,0.14));
+  background: linear-gradient(90deg, rgba(168,144,232,0.45) 82%, transparent);
 }
 .vl-divider .vl-star {
-  width: 19px;
-  height: 19px;
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 
