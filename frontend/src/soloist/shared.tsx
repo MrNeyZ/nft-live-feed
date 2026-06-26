@@ -976,7 +976,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           display: 'flex', alignItems: 'center', textDecoration: 'none',
           marginLeft: 6, height: 'var(--shell-height, 48px)',
         }}>
-          <VictoryLabsLogo size="28px" />
+          <VictoryLabsLogo />
         </Link>
         <div className="topnav-tabs" style={{ display: 'flex', gap: 2, position: 'relative' }}>
           {/* Sliding pill — replaces the per-tab background/box-shadow.

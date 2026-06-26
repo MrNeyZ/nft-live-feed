@@ -253,7 +253,7 @@ const Dots = () => (
 );
 
 function Wordmark() {
-  return <VictoryLabsLogo variant="hero" size="67px" />;
+  return <VictoryLabsLogo variant="hero" size="72px" />;
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────

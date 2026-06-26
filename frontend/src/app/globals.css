@@ -361,6 +361,9 @@ html[data-layout="phone"] .feed-thumb img {
    Scale from one CSS variable: --vl-size (override per-instance via style).
    Fonts: Victory = Bookman Old Style (system/fallback); Labs = Parisienne (Google).
    Per-letter kerning is applied via marginLeft in VictoryLabsLogo.tsx. */
+.topnav-logo { --vl-size: 24px; }
+html[data-layout="pc"] .topnav-logo { --vl-size: 26px; }
+
 .vl-logo {
   display: inline-flex;
   align-items: baseline;
@@ -375,14 +378,13 @@ html[data-layout="phone"] .feed-thumb img {
   font-family: 'TeX Gyre Bonum', 'Bookman Old Style', 'URW Bookman', 'Georgia', serif;
   font-weight: 400;
   color: #a890e8;
-  -webkit-text-stroke: 0.7px #a890e8;
+  -webkit-text-stroke: 0.014em #a890e8;
   letter-spacing: 0.025em;
   font-kerning: normal;
   text-rendering: optimizeLegibility;
 }
 .vl-hero .vl-logo__victory {
   letter-spacing: 0.005em;
-  -webkit-text-stroke: 1.68px #a890e8;
 }
 .vl-logo__labs {
   font-family: 'Parisienne', cursive;
@@ -390,6 +392,11 @@ html[data-layout="phone"] .feed-thumb img {
   font-size: calc(1em * 0.785);
   margin-left: 0.10em;
   transform: translateY(-0.01em);
+}
+.topnav-logo .vl-logo__labs {
+  font-size: calc(1em * 0.840);
+  transform: translateY(-0.02em);
+  margin-left: 0.12em;
 }
 /* Hero variant — wordmark + star divider stacked */
 .vl-hero {
