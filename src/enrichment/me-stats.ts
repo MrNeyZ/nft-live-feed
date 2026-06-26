@@ -34,14 +34,17 @@ export async function getMeStats(slug: string): Promise<MeStatsRaw | null> {
   const hit = cache.get(slug);
   if (hit && now - hit.fetchedAt < ME_STATS_TTL_MS) return hit.stats;
 
+  // Guard before touching inFlight: a cooldown early-return inside the IIFE
+  // (the old shape) left an already-resolved Promise<null> in inFlight because
+  // inFlight.set runs after the IIFE and the try/finally never executed, so
+  // inFlight.delete was never called. Future callers then hit the stale entry
+  // and returned null permanently. Checking here keeps inFlight untouched.
+  if (meCooldownActive()) return null;
+
   const pending = inFlight.get(slug);
   if (pending) return pending;
 
   const task = (async (): Promise<MeStatsRaw | null> => {
-    if (meCooldownActive()) {
-      inFlight.delete(slug);
-      return null;
-    }
     try {
       const res = await fetch(
         `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
