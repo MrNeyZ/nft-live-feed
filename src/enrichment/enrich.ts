@@ -376,7 +376,7 @@ export async function warmFloorCache(slug: string | null | undefined): Promise<v
   if (me != null) { floorCache.set(slug, me); return; }
   const tnsr = await fetchTensorFloorLamports(slug);
   if (tnsr != null) { floorCache.set(slug, tnsr); return; }
-  floorMissCache.set(slug, true);
+  if (!meCooldownActive()) floorMissCache.set(slug, true);
 }
 
 function kickFloorRefresh(slug: string): void {
@@ -390,8 +390,13 @@ function kickFloorRefresh(slug: string): void {
       if (me != null) { floorCache.set(slug, me); return; }
       const tnsr = await fetchTensorFloorLamports(slug);
       if (tnsr != null) { floorCache.set(slug, tnsr); return; }
-      floorMissCache.set(slug, true);
-      console.log(`[floor-miss] collection=${slug} source=ME/Tensor`);
+      // Only record a genuine miss. When ME cooldown was active the null is a
+      // rate-limit artefact, not a "no floor" signal — caching it blocks the
+      // next retry for 90 s even after the cooldown lifts.
+      if (!meCooldownActive()) {
+        floorMissCache.set(slug, true);
+        console.log(`[floor-miss] collection=${slug} source=ME/Tensor`);
+      }
     } finally {
       floorRefreshInFlight.delete(slug);
     }
