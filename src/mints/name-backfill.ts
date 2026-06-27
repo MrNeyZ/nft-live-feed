@@ -18,6 +18,7 @@
 
 import { getPool } from '../db/client';
 import { getAsset } from '../enrichment/helius-das';
+import { incGetAsset } from '../helius-credit-metrics';
 import { saleEventBus } from '../events/emitter';
 import { isMintTrackerEnabled } from '../runtime/mode';
 
@@ -72,6 +73,7 @@ async function runSweep(): Promise<void> {
       if ((attempts.get(sig) ?? 0) >= MAX_ATTEMPTS) continue;
       scanned++;
       try {
+        incGetAsset('name_backfill');
         const meta = await getAsset(mint);
         const name = typeof meta.nftName === 'string' ? meta.nftName.trim() : '';
         if (name.length > 0) {

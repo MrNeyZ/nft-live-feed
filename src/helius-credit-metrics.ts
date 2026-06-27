@@ -17,6 +17,8 @@ export type GetAssetSource =
   | 'seller_collection_count'
   | 'launchpad_collection_meta'
   | 'collection_owner'
+  | 'name_backfill'
+  | 'payment_token_enrich'
   | 'manual_tools'
   | 'unknown';
 
@@ -47,6 +49,8 @@ const GET_ASSET_SOURCES: readonly GetAssetSource[] = [
   'seller_collection_count',
   'launchpad_collection_meta',
   'collection_owner',
+  'name_backfill',
+  'payment_token_enrich',
   'manual_tools',
   'unknown',
 ];
@@ -81,6 +85,15 @@ const getTxCounts: Record<GetTxSource, number> = Object.fromEntries(
 const nullTxCounts: Record<NullTxSource, number> = Object.fromEntries(
   NULL_TX_SOURCES.map(s => [s, 0]),
 ) as Record<NullTxSource, number>;
+
+// Hourly and daily accumulators — NOT reset on each 60 s tick.
+// Hourly resets every 60 min; daily resets every 24 h.
+const getAssetHour: Record<GetAssetSource, number> = Object.fromEntries(
+  GET_ASSET_SOURCES.map(s => [s, 0]),
+) as Record<GetAssetSource, number>;
+const getAssetDay: Record<GetAssetSource, number> = Object.fromEntries(
+  GET_ASSET_SOURCES.map(s => [s, 0]),
+) as Record<GetAssetSource, number>;
 
 export function incGetAsset(source: GetAssetSource): void {
   getAssetCounts[source]++;
@@ -126,9 +139,39 @@ const _timer = setInterval(() => {
     ` getTransactionCredits=${getTransactionCredits} total=${total}`,
   );
 
+  // Accumulate into hourly/daily before resetting the minute window.
+  for (const s of GET_ASSET_SOURCES) {
+    getAssetHour[s] += getAssetCounts[s];
+    getAssetDay[s]  += getAssetCounts[s];
+  }
+
   // Reset for the next window.
   for (const s of GET_ASSET_SOURCES) getAssetCounts[s] = 0;
   for (const s of GET_TX_SOURCES)    getTxCounts[s]    = 0;
   for (const s of NULL_TX_SOURCES)   nullTxCounts[s]   = 0;
 }, EMIT_INTERVAL_MS);
 if (typeof _timer.unref === 'function') _timer.unref();
+
+// ── Hourly rollup ───────────────────────────────────────────────────────────
+const HOUR_MS = 60 * 60_000;
+const _hourTimer = setInterval(() => {
+  const hourParts = GET_ASSET_SOURCES
+    .map(s => `getAsset.${s}=${getAssetHour[s]}`)
+    .join(' ');
+  const hourTotal = GET_ASSET_SOURCES.reduce((n, s) => n + getAssetHour[s], 0);
+  console.log(`[helius/credits-hour] total=${hourTotal} ${hourParts}`);
+  for (const s of GET_ASSET_SOURCES) getAssetHour[s] = 0;
+}, HOUR_MS);
+if (typeof _hourTimer.unref === 'function') _hourTimer.unref();
+
+// ── Daily rollup ────────────────────────────────────────────────────────────
+const DAY_MS = 24 * 60 * 60_000;
+const _dayTimer = setInterval(() => {
+  const dayParts = GET_ASSET_SOURCES
+    .map(s => `getAsset.${s}=${getAssetDay[s]}`)
+    .join(' ');
+  const dayTotal = GET_ASSET_SOURCES.reduce((n, s) => n + getAssetDay[s], 0);
+  console.log(`[helius/credits-day] total=${dayTotal} ${dayParts}`);
+  for (const s of GET_ASSET_SOURCES) getAssetDay[s] = 0;
+}, DAY_MS);
+if (typeof _dayTimer.unref === 'function') _dayTimer.unref();

@@ -17,6 +17,7 @@ import {
   hasPaymentTokenMeta,
   type PaymentTokenMeta,
 } from '../events/emitter';
+import { incGetAsset } from '../helius-credit-metrics';
 
 // Pending lookups (in-flight) — second sight of the same mint inside the
 // DAS round-trip window must not double-fire the request.
@@ -46,6 +47,7 @@ export function resolvePaymentToken(mint: string): void {
   inflight.add(mint);
   void (async () => {
     try {
+      incGetAsset('payment_token_enrich');
       const res = await fetch(
         `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
         {
