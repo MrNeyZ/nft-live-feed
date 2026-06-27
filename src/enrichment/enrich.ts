@@ -11,7 +11,6 @@ import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 import { primeCollectionCache } from './seller-collection-count';
 
-const SUCCESS_TTL_MS = 4 * 60 * 60 * 1000;  // 4 hours — NFT metadata is immutable after mint
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
 const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
@@ -23,7 +22,6 @@ const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster t
 // Lazy expiry inside `get()` still applies for fast reads; the sweep
 // only deletes already-expired keys, so behaviour is unchanged except
 // the map shrinks on schedule instead of growing without bound.
-const successCache = new TtlCache<string, NftMetadata>(SUCCESS_TTL_MS, 60_000);
 const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS, 60_000);
 /** Keyed by ME collection slug → floor price in lamports. Active sweep
  *  on a 60 s cadence — slugs we've populated but never re-read should
@@ -544,9 +542,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
   if (!mint) {
     return applyMetadata(event, null);
   }
-  if (successCache.has(mint)) {
-    metadata = successCache.get(mint)!;
-  } else if (!failureCache.has(mint)) {
+  if (!failureCache.has(mint)) {
     // ── Primary: Helius DAS ──────────────────────────────────────────────────
     try {
       incGetAsset('sale_enrich');
@@ -698,12 +694,9 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     // fallback chain. failureCache (60 s) handles total misses; partials
     // simply re-enrich on the next sale until one source surfaces an
     // image, after which the result becomes cacheable.
-    if (metadata && metadata.nftName && metadata.imageUrl) {
-      successCache.set(mint, metadata);
-    } else if (metadata === null) {
+    if (metadata === null) {
       failureCache.set(mint, true);     // total failure — retry in 60s
     }
-    // else: partial — fall through, neither cache populated.
   }
 
   const enriched = applyMetadata(event, metadata);
