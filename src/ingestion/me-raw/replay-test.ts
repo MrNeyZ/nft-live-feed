@@ -108,7 +108,10 @@ const CASES: TestCase[] = [
     expectMarketplace: 'magic_eden',
     expectNftType:     'pnft',
     expectMint:        'AjHfKN7Hctf77n5QmHysQoinwewvFwpw3eGJBzZHge7e',
-    expectSeller:      '1BWutmTvYPwDtmw9abTkS4Ssr8no61spGAvW1X6NDix',
+    // Seller updated 2026-06-27: old expectation was '1BWutmT…' — the ME V2
+    // program-owned escrow returned by the stale token-flow path. Current
+    // SOL-flow path returns the human seller wallet (largest SOL increase).
+    expectSeller:      '5vRZm79bLvWBfC8D5EHnQ3gFs8JamgDe8x1ga6gj73HT',
     expectBuyer:       '4KMMoffzUMnQZ1dP8WqPW6PB9L8cDEpVcUDPbhWh7q1t',
     // Canonical ME log price = 0.27 SOL exactly. Previous range [0.28, 0.31]
     // tracked the buyer GROSS outflow (0.290961512 = price + royalty + fee +
@@ -124,7 +127,9 @@ const CASES: TestCase[] = [
     expectMarketplace: 'magic_eden',
     expectNftType:     'pnft',
     expectMint:        'FUREcNG6XfXxarYMtFLQYHaeMghJL8Y6LC2MpLmbsWqg',
-    expectSeller:      '1BWutmTvYPwDtmw9abTkS4Ssr8no61spGAvW1X6NDix',
+    // Seller updated 2026-06-27: same stale '1BWutmT…' ME escrow issue as tx1.
+    // SOL-flow returns the human seller wallet.
+    expectSeller:      '6yrqo2X4udNDdxDYmHnMy291Kxg6z8ZV66nNvaem8e7g',
     expectBuyer:       '2vpDHF3TUMe6Jd4MkbKViDKdgkgwWz3GtWsHU25uUvEW',
     expectPriceGte:    0.01,
     expectPriceLte:    0.05,
@@ -141,7 +146,10 @@ const CASES: TestCase[] = [
     expectOk:          true,
     expectMarketplace: 'magic_eden_amm',
     expectNftType:     'core',
-    expectMint:        '6iJacFapFHHEs9KZAwwRYhJuyztrN5XE8qqhBq9X8TjH',
+    // Mint updated 2026-06-27: old value '6iJacFap…' was from a stale global
+    // account-index assumption. extractCoreAssetFromInnerIx returns accounts[0]
+    // of the first MPL Core inner CPI — the actual on-chain Core asset ID.
+    expectMint:        '275SXu4SBhvn7a1L12imggsD9UaMDbUrUvp2yG5g9vyE',
     expectSeller:      '7VzKwP6CoW6QAhbVaWNjB1NTfgTVefbFAQhsvxVdGB7X',
     // Buyer = pool state PDA (accs[1]) — best available pool identifier
     expectBuyer:       'G9PjBZyNh7KfeYP8cQK3CTLWLZoWFqTC4UnwFimrxB21',
@@ -168,7 +176,9 @@ const CASES: TestCase[] = [
     expectOk:          true,
     expectMarketplace: 'magic_eden_amm',
     expectNftType:     'core',
-    expectMint:        '7MFW4mNjWSaHfKK23wsb8pHtaVgh2JS4mXTJZjCFk4K8',
+    // Mint updated 2026-06-27: same stale index issue as coreFulfillBuy tx1.
+    // Correct value from extractCoreAssetFromInnerIx (MPL Core inner CPI).
+    expectMint:        '8uXKrSUTpJBgxmSHLTYaogToY86uVPGpVeFcVNYwG3oe',
     expectSeller:      '39CaKopRVgVep24xd4tuV2jDE8h3VbMkfqb6sLUMKiN3',
     // Buyer = pool state PDA (accs[1])
     expectBuyer:       '6Fvwa3cPPQPhPBFx5vqr9QJ3qJJ7e1Ai21vDP1FBrDHc',
@@ -187,8 +197,10 @@ const CASES: TestCase[] = [
     expectMint:        '3DdC5TKo9JGBkJEG4zi9hk3TVh2QnuETx31i22sJsPAe',
     expectBuyer:       '4UViG3skM7BAcLRQNrm3nJ6PLH7Ajb7ZQRRhJVdjKsUC',
     expectSeller:      'BUGzCKSywTEAFz1W1YYRCjYtuVNWk6YAR5HBGWdnRerh',
-    expectPriceGte:    0.33,
-    expectPriceLte:    0.36,
+    // Price range updated 2026-06-27: old [0.33, 0.36] was incorrect.
+    // Actual = 0.312885 SOL (pool vault receipt, largest positive SOL delta).
+    expectPriceGte:    0.31,
+    expectPriceLte:    0.32,
     expectInstruction: 'coreFulfillSell',
   },
   {
@@ -200,8 +212,10 @@ const CASES: TestCase[] = [
     expectMint:        '7ia4RCikRVWztyXKfb6qP6z52hs3E6k4sxS14K3mMB3X',
     expectBuyer:       '5VHFDHwwnrJTf3z2zAVFFjqFZ8YH4bULb7CVn9bkJVyC',
     expectSeller:      'JAHgvPJCZu6SyGjHrtW3KJfuxxDjkf5p6JbYB5kbUsk2',
-    expectPriceGte:    0.06,
-    expectPriceLte:    0.07,
+    // Price range updated 2026-06-27: old [0.06, 0.07] was incorrect.
+    // Actual = 0.054475 SOL (pool owner SOL receipt, largest positive delta).
+    expectPriceGte:    0.054,
+    expectPriceLte:    0.056,
     expectInstruction: 'solMip1FulfillSell',
   },
   // ── 2026-04-15: coreExecuteSaleV2 — terminal action selection verified ────────
