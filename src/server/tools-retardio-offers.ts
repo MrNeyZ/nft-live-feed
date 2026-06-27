@@ -33,7 +33,11 @@ import {
   lamportsToSol,
   type FundingStatus,
 } from './me-bid-escrow';
-import { meCooldownActive, setMeCooldown, meCooldownRemainMs } from '../me-api-cooldown';
+// Scanner-local cooldown: only blocked by its own 429s, not by floor/rare-feed.
+let scannerCooldownUntil = 0;
+function scannerCooldownActive(): boolean { return Date.now() < scannerCooldownUntil; }
+function setScannerCooldown(ms: number): void { scannerCooldownUntil = Math.max(scannerCooldownUntil, Date.now() + ms); }
+function scannerCooldownRemainMs(): number { return Math.max(0, scannerCooldownUntil - Date.now()); }
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const DEFAULT_SLUG     = process.env.RETARDIO_ME_SLUG ?? 'retardio_cousins';
@@ -441,7 +445,7 @@ function parseRetryAfter(v: string | null): number | null {
  *  with `ME_RATE_LIMITED` before runScan starts (and burns at least one
  *  ME listings request). Returns 0 when no cooldown is active. */
 function getMeCooldownRemainingSec(): number {
-  return Math.ceil(meCooldownRemainMs() / 1000);
+  return Math.ceil(scannerCooldownRemainMs() / 1000);
 }
 
 interface MeGetOpts {
@@ -457,7 +461,7 @@ interface MeGetOpts {
  *  fetch call sites). Timeouts and network errors map to a synthetic
  *  upstream error so the caller's existing 5xx branch handles them. */
 async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
-  if (meCooldownActive()) {
+  if (scannerCooldownActive()) {
     throw new MeRateLimitError(opts.endpoint, getMeCooldownRemainingSec());
   }
   let r: FetchResponse;
@@ -473,7 +477,7 @@ async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
   if (r.status === 429) {
     const ra = parseRetryAfter(r.headers.get('Retry-After'));
     const retryAfter = ra ?? ME_COOLDOWN_DEFAULT_SEC;
-    setMeCooldown(retryAfter * 1000);
+    setScannerCooldown(retryAfter * 1000);
     throw new MeRateLimitError(opts.endpoint, retryAfter);
   }
   return r;
