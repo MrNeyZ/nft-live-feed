@@ -3,6 +3,9 @@
  * Docs: https://docs.helius.dev/compression-and-das-api/digital-asset-standard-das-api
  */
 
+import { TtlCache } from './cache';
+import { incGetAsset } from '../helius-credit-metrics';
+
 export interface NftMetadata {
   nftName: string | null;
   imageUrl: string | null;
@@ -57,6 +60,9 @@ interface DasAsset {
     decimals?: number;
     supply?: number;
   };
+  ownership?: {
+    owner?: string;
+  };
 }
 
 /** Verified-creator addresses from a DAS asset. Only `verified === true`
@@ -79,6 +85,77 @@ function extractHasArtistAttribute(asset: DasAsset | undefined): boolean {
 interface DasResponse {
   result?: DasAsset;
   error?: { code: number; message: string };
+}
+
+// ── Shared DAS asset cache ──────────────────────────────────────────────────
+//
+// All getAsset wrappers in this file route through fetchAsset so that:
+//   1. Concurrent callers for the same address share a single in-flight request.
+//   2. Repeat callers within 4h (sale_enrich + seller_collection_count race,
+//      mint_enricher_verify + collection_confirm retries, etc.) get a cache hit.
+//
+// Two TTLs: successful DAS responses are immutable-ish NFT metadata (4h);
+// null/failures are retried sooner in case the asset indexes (60s).
+
+const ASSET_HIT_TTL_MS  = 4 * 60 * 60 * 1_000; // 4h
+const ASSET_MISS_TTL_MS = 60_000;               // 60s
+
+const assetHitCache  = new TtlCache<string, DasAsset>(ASSET_HIT_TTL_MS,  60_000);
+const assetMissCache = new TtlCache<string, true>(ASSET_MISS_TTL_MS, 60_000);
+const assetInflight  = new Map<string, Promise<DasAsset | null>>();
+
+/**
+ * Canonical shared DAS asset fetcher: cache → inflight dedup → network.
+ * Returns the raw DasAsset on success, null on any failure.
+ * Exported so callers outside this file can share the cache in future;
+ * for now only internal wrappers use it.
+ *
+ * Does NOT call incGetAsset — callers retain their own tracking to avoid
+ * double-counting during the transition period. getCollectionOwner is the
+ * exception (previously untracked) and increments inside its wrapper.
+ */
+export async function fetchAsset(address: string): Promise<DasAsset | null> {
+  const hit = assetHitCache.get(address);
+  if (hit !== undefined) return hit;
+  if (assetMissCache.has(address)) return null;
+
+  const inflight = assetInflight.get(address);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<DasAsset | null> => {
+    try {
+      const apiKey = process.env.HELIUS_API_KEY;
+      if (!apiKey) { assetMissCache.set(address, true); return null; }
+
+      const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          jsonrpc: '2.0',
+          id:      'fetch-asset',
+          method:  'getAsset',
+          params:  { id: address },
+        }),
+        signal: AbortSignal.timeout(8_000),
+      });
+
+      if (!res.ok) { assetMissCache.set(address, true); return null; }
+
+      const json = (await res.json()) as DasResponse;
+      if (json.error || !json.result) { assetMissCache.set(address, true); return null; }
+
+      assetHitCache.set(address, json.result);
+      return json.result;
+    } catch {
+      assetMissCache.set(address, true);
+      return null;
+    } finally {
+      assetInflight.delete(address);
+    }
+  })();
+
+  assetInflight.set(address, promise);
+  return promise;
 }
 
 // Resolve the NFT's still-image URL from a DAS getAsset result.
@@ -134,44 +211,20 @@ function extractImageUrl(asset: DasAsset | undefined): string | null {
 }
 
 export async function getAsset(mintAddress: string): Promise<NftMetadata> {
-  const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) throw new Error('HELIUS_API_KEY not set');
+  if (!process.env.HELIUS_API_KEY) throw new Error('HELIUS_API_KEY not set');
 
-  const res = await fetch(
-    `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 'enrich',
-        method: 'getAsset',
-        params: { id: mintAddress },
-      }),
-      signal: AbortSignal.timeout(8_000),
-    }
-  );
+  const asset = await fetchAsset(mintAddress);
+  if (!asset) throw new Error('DAS getAsset failed');
 
-  if (!res.ok) {
-    throw new Error(`DAS getAsset HTTP ${res.status}`);
-  }
-
-  const json = (await res.json()) as DasResponse;
-  if (json.error) {
-    throw new Error(`DAS getAsset error ${json.error.code}: ${json.error.message}`);
-  }
-
-  const asset = json.result;
-  const collection = asset?.grouping?.find((g) => g.group_key === 'collection');
-
+  const collection = asset.grouping?.find((g) => g.group_key === 'collection');
   return {
-    nftName: asset?.content?.metadata?.name ?? null,
-    imageUrl: extractImageUrl(asset),
-    collectionName: collection?.collection_metadata?.name ?? null,
-    collectionAddress: collection?.group_value ?? null,
-    meCollectionSlug: null,  // populated separately in enrich.ts via ME public API
-    jsonUri: asset?.content?.json_uri ?? null,
-    verifiedCreators: extractVerifiedCreators(asset),
+    nftName:           asset.content?.metadata?.name         ?? null,
+    imageUrl:          extractImageUrl(asset),
+    collectionName:    collection?.collection_metadata?.name  ?? null,
+    collectionAddress: collection?.group_value                ?? null,
+    meCollectionSlug:  null,
+    jsonUri:           asset.content?.json_uri                ?? null,
+    verifiedCreators:  extractVerifiedCreators(asset),
     hasArtistAttribute: extractHasArtistAttribute(asset),
   };
 }
@@ -235,58 +288,27 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
 }
 
 export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVerifyResult> {
-  const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) {
-    return {
-      verdict: { ok: false, reason: 'no_api_key' },
-      meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
-    };
+  const EMPTY_META: NftMetadata = {
+    nftName: null, imageUrl: null, collectionName: null,
+    collectionAddress: null, meCollectionSlug: null,
+  };
+  if (!process.env.HELIUS_API_KEY) {
+    return { verdict: { ok: false, reason: 'no_api_key' }, meta: EMPTY_META };
   }
-  try {
-    const res = await fetch(
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'mint-verify',
-          method: 'getAsset',
-          params: { id: mintAddress },
-        }),
-        signal: AbortSignal.timeout(8_000),
-      }
-    );
-    if (!res.ok) {
-      return {
-        verdict: { ok: false, reason: `http_${res.status}` },
-        meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
-      };
-    }
-    const json = (await res.json()) as DasResponse;
-    if (json.error) {
-      return {
-        verdict: { ok: false, reason: `das_${json.error.code}` },
-        meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
-      };
-    }
-    const asset      = json.result;
-    const collection = asset?.grouping?.find((g) => g.group_key === 'collection');
-    const meta: NftMetadata = {
-      nftName:           asset?.content?.metadata?.name        ?? null,
-      imageUrl:          extractImageUrl(asset),
-      collectionName:    collection?.collection_metadata?.name  ?? null,
-      collectionAddress: collection?.group_value                ?? null,
-      meCollectionSlug:  null,
-      jsonUri:           asset?.content?.json_uri               ?? null,
-    };
-    return { verdict: classifyDasAsset(asset), meta };
-  } catch {
-    return {
-      verdict: { ok: false, reason: 'fetch_error' },
-      meta: { nftName: null, imageUrl: null, collectionName: null, collectionAddress: null, meCollectionSlug: null },
-    };
+  const asset = await fetchAsset(mintAddress);
+  if (!asset) {
+    return { verdict: { ok: false, reason: 'fetch_error' }, meta: EMPTY_META };
   }
+  const collection = asset.grouping?.find((g) => g.group_key === 'collection');
+  const meta: NftMetadata = {
+    nftName:           asset.content?.metadata?.name        ?? null,
+    imageUrl:          extractImageUrl(asset),
+    collectionName:    collection?.collection_metadata?.name ?? null,
+    collectionAddress: collection?.group_value               ?? null,
+    meCollectionSlug:  null,
+    jsonUri:           asset.content?.json_uri               ?? null,
+  };
+  return { verdict: classifyDasAsset(asset), meta };
 }
 
 // ── Wallet-collection holdings count (for /feed seller badge) ─────────────
@@ -466,56 +488,20 @@ export async function getOwnerCollectionCount(
  *  than the abbr/color placeholder. Returns null on any failure /
  *  missing field. Cheap single RPC; callers should throttle. */
 export async function getCollectionImage(collectionAddress: string): Promise<string | null> {
-  const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        jsonrpc: '2.0', id: 'collection-image',
-        method:  'getAsset',
-        params:  { id: collectionAddress },
-      }),
-      signal:  AbortSignal.timeout(6_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      result?: { content?: { links?: { image?: string }; files?: Array<{ uri?: string; cdn_uri?: string }> } };
-    };
-    const link  = json.result?.content?.links?.image;
-    const file  = json.result?.content?.files?.[0]?.cdn_uri ?? json.result?.content?.files?.[0]?.uri;
-    const image = link || file || null;
-    return typeof image === 'string' && image.length > 0 ? image : null;
-  } catch {
-    return null;
-  }
+  const asset = await fetchAsset(collectionAddress);
+  if (!asset) return null;
+  const link  = asset.content?.links?.image;
+  const file  = asset.content?.files?.[0]?.cdn_uri ?? asset.content?.files?.[0]?.uri;
+  const image = link || file || null;
+  return typeof image === 'string' && image.length > 0 ? image : null;
 }
 
 export async function getCollectionOwner(collectionAddress: string): Promise<string | null> {
-  // Previously prefixed with a `getAsset(collectionAddress)` whose
-  // result was discarded (the curated wrapper doesn't expose ownership).
-  // Removed — it doubled the RPC cost of every owner lookup for no gain.
-  const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        jsonrpc: '2.0', id: 'collection-owner',
-        method:  'getAsset',
-        params:  { id: collectionAddress },
-      }),
-      signal:  AbortSignal.timeout(6_000),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { result?: { ownership?: { owner?: string } } };
-    const owner = json.result?.ownership?.owner;
-    return typeof owner === 'string' && owner.length > 0 ? owner : null;
-  } catch {
-    return null;
-  }
+  incGetAsset('collection_owner');
+  const asset = await fetchAsset(collectionAddress);
+  if (!asset) return null;
+  const owner = asset.ownership?.owner;
+  return typeof owner === 'string' && owner.length > 0 ? owner : null;
 }
 
 /** Collection-wide minted count — `searchAssets` filtered by
