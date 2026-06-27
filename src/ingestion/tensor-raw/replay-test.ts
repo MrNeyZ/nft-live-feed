@@ -105,6 +105,23 @@ interface TestCase {
 // },
 
 const CASES: TestCase[] = [
+  // ── TComp: bid accept (cNFT) — takeBidFullMeta ──────────────────────────────
+  // Verified 2026-06-27. Seller accepts open bid on a cNFT.
+  // Buyer (bidder at ix[15]) pays 0.887 SOL directly from their wallet.
+  // extractCnftPaymentInfo wrongly returned null (no inner System Transfer CPIs
+  // in bid settlement) → fixed by routing takeBid* through extractPaymentInfo.
+  {
+    sig:               'Fd9Zr1Ah86L9fTSxBskWq864ZhxSrKoo42ge9HbihoZtYHCCTkmCnav8omLLT4QrLAoGEHs2uhqxwfLKdwNgVqA',
+    label:             'TComp bid accept (cNFT) — takeBidFullMeta',
+    expectOk:          true,
+    expectMarketplace: 'tensor',
+    expectNftType:     'cnft',
+    expectSeller:      '4JdzLtiv96HEnpmpyN7ZdkupvZpZfSFRV6im7HUnsEXT',
+    expectBuyer:       'bc13nZZqVJN1XnwzzM5FGpdgo8M1d4htruAovvT1Td2',
+    expectPriceGte:    0.886,
+    expectPriceLte:    0.888,
+    expectInstruction: 'takeBidFullMeta',
+  },
   // ── TComp: listing buy (Metaplex Core) ──────────────────────────────────────
   // Verified 2026-04-14. Buyer purchases a Core NFT from a fixed-price listing.
   // disc=a9e357ff4c56ff19  buyer=accounts[4]  seller=accounts[6]  asset=accounts[2]

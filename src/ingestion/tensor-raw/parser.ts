@@ -120,10 +120,14 @@ function parseTcompSale(
 
   // ── Price ──────────────────────────────────────────────────────────────────
 
-  // For cNFT, unrelated SOL transfers (escrow closures, rent) make the
-  // unbounded max-negative-delta heuristic return the wrong price.
-  // Use the maxAmount-bounded inner-transfer scan instead.
-  const payment = nftType === 'cnft'
+  // For cNFT listing purchases, unrelated SOL transfers (escrow closures, rent)
+  // inflate the SOL-delta heuristic. Use the maxAmount-bounded inner-transfer
+  // scan instead. For bid acceptances (takeBid*), TComp settles the payment via
+  // direct lamport manipulation (no inner System Transfer CPIs), so the cNFT
+  // inner-transfer scan finds nothing and returns null. Use SOL-delta for those:
+  // the bidder's wallet carries the largest decrease and gives the correct price.
+  const isBidAcceptance = match.instructionName.startsWith('takeBid');
+  const payment = (nftType === 'cnft' && !isBidAcceptance)
     ? extractCnftPaymentInfo(tx, match.ix)
     : extractPaymentInfo(tx);
   if (!payment || payment.priceLamports <= 0n) {
