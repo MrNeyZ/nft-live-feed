@@ -85,12 +85,21 @@ export const TCOMP_SALE_INSTRUCTIONS: TcompIxDef[] = [
   {
     // ✅ VERIFIED — confirmed from sig 2 (bid accept, Core NFT).
     // IDL name: takeBidCore. Discriminator: fa 29 f8 14 3d a1 1b 8d
-    // Seller = accounts[1], Core asset = accounts[8]; buyer from SOL flow.
+    // Seller = accounts[1], Core asset = accounts[8], Buyer = accounts[3].
+    //
+    // accounts[3] is the TComp `owner` / bidder wallet — the human who placed
+    // the bid. accounts[2] is the bidState PDA (holds escrowed SOL); it drains
+    // on accept and would be mistakenly picked as "buyer" by the SOL-delta
+    // heuristic (largest negative delta). Set buyerAcctIdx=3 so the parser
+    // reads the bidder directly and never falls through to the delta fallback.
+    // Verified from two live txs (different collections, same account layout):
+    //   P7w6yhS… (0.002 SOL, buyer=FbWci5Aj…)
+    //   3vPjmnh… (0.048 SOL, buyer=9QoTY9uz…, was wrongly CF35yA75… before fix)
     name:          'takeBidCore',
     disc:          Buffer.from('fa29f8143da11b8d', 'hex'),
     verified:      true,
     direction:     'takeBid',
-    buyerAcctIdx:  null,
+    buyerAcctIdx:  3,
     sellerAcctIdx: 1,
     coreAssetIdx:  8,
   },

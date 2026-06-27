@@ -119,22 +119,41 @@ const CASES: TestCase[] = [
     expectSeller:      'AEv2yiEGLmmzrgXJJ5P85iN6eW9GeDcWUwwDxwqQRHNt',
     expectPriceGte:    3.20,
     expectPriceLte:    3.22,
-    expectInstruction: 'buy',
+    expectInstruction: 'buyCore',
   },
   // ── TComp: bid accept (Metaplex Core) ───────────────────────────────────────
   // Verified 2026-04-14. Seller accepts an open bid on a Core NFT.
-  // disc=fa29f8143da11b8d  seller=accounts[1]  buyer=SOL-delta fallback  asset=accounts[8]
+  // disc=fa29f8143da11b8d  seller=accounts[1]  buyer=accounts[3]  asset=accounts[8]
   {
     sig:               'P7w6yhSsAfLatJtCK8YWNWXXoxnpgsRP52vUS5uZ4Hx8gLVuLxUtj7NKqeQNNFVFpd4bs1XQNbDz25pGwnCyx8Y',
-    label:             'TComp bid accept (Core)',
+    label:             'TComp bid accept (Core) — original verified case',
     expectOk:          true,
     expectMarketplace: 'tensor',
     expectNftType:     'core',
     expectMint:        '5jDzkZ4bAi7cSXD77DFH5EyEatDEhFJ6Dtjn9dVGwJkS',
     expectSeller:      'sCeb9SPntztuJhWdgS2EV1zQ4yPzSV2MREoV42CQ1pq',
+    expectBuyer:       'FbWci5AjRYAnfDxQ4LLrxyMohMkhqKDeaTN2XGHcZxkG',
     expectPriceGte:    0.001,
     expectPriceLte:    0.003,
-    expectInstruction: 'takeBid',
+    expectInstruction: 'takeBidCore',
+  },
+  // ── TComp: bid accept (Metaplex Core) — buyer attribution regression ────────
+  // Bug sig reported 2026-06-27: UI displayed CF35yA75… (bid state PDA) as
+  // buyer instead of 9QoTY9uz… (human bidder at accounts[3]).
+  // Root cause: buyerAcctIdx was null → SOL-delta fallback → bid-state PDA wins
+  // because it drains the largest SOL chunk. Fixed by setting buyerAcctIdx=3.
+  {
+    sig:               '3vPjmnhQeDvLeoNKZp1Vf3CnbWWRyar8BDXV7VYDAPhZT8iyxTT5hd9c4kaunSprtr4cnf4S9dhYs6tcsUE7Cvf5',
+    label:             'TComp bid accept (Core) — buyer attribution regression',
+    expectOk:          true,
+    expectMarketplace: 'tensor',
+    expectNftType:     'core',
+    expectMint:        '21kiYZGcPw8Yvp2N1zmZ3TW4XJ5mQz1pgcrXrDtmNFiJ',
+    expectSeller:      '8eL17LMY4XkxcLia8f7hk1Hq2gxsgS7UbzddoCCPwmD4',
+    expectBuyer:       '9QoTY9uzSp6GfQUbgsFEW9ykRRNV8YqL4vRKjxLtD5Z4',
+    expectPriceGte:    0.047,
+    expectPriceLte:    0.049,
+    expectInstruction: 'takeBidCore',
   },
   // ── TAMM: sell into pool (Metaplex Core) ────────────────────────────────────
   // Verified 2026-04-14. Seller deposits Core NFT into AMM pool, receives SOL.
@@ -163,7 +182,9 @@ const CASES: TestCase[] = [
     expectNftType:     'core',
     expectMint:        'E4frUvx8yik5mVELp7Zes5QoZdhNzCFHRkYPRLD6cVNz',
     expectBuyer:       '9RnYWodYKYEX8V3y9xSMvRNgwYH7akjdF5skVdLt7QgL',
-    expectSeller:      'J8XPtqi8i2tkQePe1p7zQsewS9BmkHPkrxPP4Jnwp2E7',
+    // Pool owner at accounts[0] — updated from stale accounts[7] value when
+    // sellerAcctIdx was corrected from 7→0 on 2026-05-28.
+    expectSeller:      'FQ7Rut6csuvCAMa2y8omHtpmUw7D8KVJJcMTdoNHWEiD',
     expectPriceGte:    0.26,
     expectPriceLte:    0.28,
     expectInstruction: 'buy',
