@@ -19,7 +19,6 @@
  * mint_status frame tells every client to drop it.
  */
 import { getAsset } from '../enrichment/helius-das';
-import { incGetAsset } from '../helius-credit-metrics';
 import { isMintTrackerEnabled } from '../runtime/mode';
 import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
@@ -302,8 +301,7 @@ async function runAttempt(entry: Pending): Promise<void> {
   let rawNftName:     string | null = null;
   try {
     metricGetAsset++;
-    incGetAsset('collection_confirm');
-    const meta = await getAsset(entry.mintAddress);
+    const meta = await getAsset(entry.mintAddress, 'collection_confirm');
     dasCollection  = meta.collectionAddress ?? null;
     // Trim DAS-surfaced names — fixed-width Metaplex / MPL Core name
     // buffers ship with trailing spaces, and we don't want

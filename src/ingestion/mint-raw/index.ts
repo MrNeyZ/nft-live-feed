@@ -58,7 +58,6 @@ import { resolveCollectionForMint } from '../../enrichment/seller-collection-cou
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
 import { getCollectionOwner, getAsset } from '../../enrichment/helius-das';
-import { incGetAsset } from '../../helius-credit-metrics';
 import { getLmnftStateForCollection } from '../../enrichment/lmnft-state';
 import { patchAccumulatorLmnft, patchAccumulatorMeta, setMintMaxSupply, patchAccumulatorCoreSupply } from '../../mints/accumulator';
 
@@ -119,8 +118,7 @@ async function enrichLaunchpadCollectionMeta(
     // For a collection asset, `nftName` IS the collection name (the
     // asset itself is the collection NFT); `collectionName` only
     // surfaces when the asset is a child of a higher-order collection.
-    incGetAsset('launchpad_collection_meta');
-    const meta = await getAsset(collectionAddress);
+    const meta = await getAsset(collectionAddress, 'launchpad_collection_meta');
     const entry = { name: meta.nftName, imageUrl: meta.imageUrl };
     launchpadCollectionMetaCache.set(collectionAddress, entry);
     if (entry.imageUrl || (patchName && entry.name)) {
@@ -1604,8 +1602,7 @@ export async function ingestMintRaw(
         // `query=` argument for the LMNFT `/explore` URL, so the
         // pill becomes clickable for non-featured launches without
         // waiting on the LMNFT scraper.
-        incGetAsset('collection_owner');
-        const dasOwner = await getCollectionOwner(collectionAddress);
+        const dasOwner = await getCollectionOwner(collectionAddress, 'collection_owner');
         if (dasOwner) {
           console.log(
             `[mints/lmnft-das-owner] collection=${collectionAddress} owner=${dasOwner} ` +

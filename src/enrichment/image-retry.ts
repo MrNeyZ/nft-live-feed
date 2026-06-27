@@ -30,7 +30,6 @@
 
 import { TtlCache } from './cache';
 import { getAsset, getCollectionImage } from './helius-das';
-import { incGetAsset } from '../helius-credit-metrics';
 import { getMetaplexOnchainMetadata } from './metaplex-onchain';
 import { getMeTokenData, getTensorMetadata } from './enrich';
 import { saleEventBus } from '../events/emitter';
@@ -177,8 +176,7 @@ async function resolveImage(
 ): Promise<ResolvedImage | null> {
   // 1. DAS getAsset(mint) — most authoritative when indexed.
   try {
-    incGetAsset('image_retry');
-    const meta = await getAsset(mint);
+    const meta = await getAsset(mint, 'image_retry');
     if (meta?.imageUrl) {
       return {
         imageUrl:       meta.imageUrl,
@@ -237,8 +235,7 @@ async function resolveImage(
   //    launches whose individual assets aren't indexed by Tensor/ME).
   if (includeCollection && collectionAddress) {
     try {
-      incGetAsset('image_retry');
-      const collImage = await getCollectionImage(collectionAddress);
+      const collImage = await getCollectionImage(collectionAddress, 'image_retry');
       if (collImage) {
         return { imageUrl: collImage, source: 'collection_das' };
       }

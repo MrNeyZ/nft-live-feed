@@ -4,7 +4,7 @@
  */
 
 import { TtlCache } from './cache';
-import { incGetAsset } from '../helius-credit-metrics';
+import { incGetAsset, type GetAssetSource } from '../helius-credit-metrics';
 
 export interface NftMetadata {
   nftName: string | null;
@@ -104,23 +104,22 @@ const assetHitCache  = new TtlCache<string, DasAsset>(ASSET_HIT_TTL_MS,  60_000)
 const assetMissCache = new TtlCache<string, true>(ASSET_MISS_TTL_MS, 60_000);
 const assetInflight  = new Map<string, Promise<DasAsset | null>>();
 
-/**
- * Canonical shared DAS asset fetcher: cache → inflight dedup → network.
- * Returns the raw DasAsset on success, null on any failure.
- * Exported so callers outside this file can share the cache in future;
- * for now only internal wrappers use it.
- *
- * Does NOT call incGetAsset — callers retain their own tracking to avoid
- * double-counting during the transition period. getCollectionOwner is the
- * exception (previously untracked) and increments inside its wrapper.
- */
-export async function fetchAsset(address: string): Promise<DasAsset | null> {
-  const hit = assetHitCache.get(address);
-  if (hit !== undefined) return hit;
-  if (assetMissCache.has(address)) return null;
+type FetchSource = 'network' | 'hit_cache' | 'miss_cache' | 'inflight';
 
-  const inflight = assetInflight.get(address);
-  if (inflight) return inflight;
+/** Internal: cache → inflight dedup → network. Returns the raw asset plus
+ *  the source so callers can increment credit metrics only on real RPCs. */
+async function fetchAssetWithSource(
+  address: string,
+): Promise<{ asset: DasAsset | null; source: FetchSource }> {
+  const hit = assetHitCache.get(address);
+  if (hit !== undefined) return { asset: hit, source: 'hit_cache' };
+  if (assetMissCache.has(address)) return { asset: null, source: 'miss_cache' };
+
+  const existing = assetInflight.get(address);
+  if (existing) {
+    const asset = await existing;
+    return { asset, source: 'inflight' };
+  }
 
   const promise = (async (): Promise<DasAsset | null> => {
     try {
@@ -155,7 +154,14 @@ export async function fetchAsset(address: string): Promise<DasAsset | null> {
   })();
 
   assetInflight.set(address, promise);
-  return promise;
+  const asset = await promise;
+  return { asset, source: 'network' };
+}
+
+/** Backward-compatible wrapper — returns asset only. */
+export async function fetchAsset(address: string): Promise<DasAsset | null> {
+  const { asset } = await fetchAssetWithSource(address);
+  return asset;
 }
 
 // Resolve the NFT's still-image URL from a DAS getAsset result.
@@ -210,10 +216,11 @@ function extractImageUrl(asset: DasAsset | undefined): string | null {
   return stillImage;
 }
 
-export async function getAsset(mintAddress: string): Promise<NftMetadata> {
+export async function getAsset(mintAddress: string, reason?: GetAssetSource): Promise<NftMetadata> {
   if (!process.env.HELIUS_API_KEY) throw new Error('HELIUS_API_KEY not set');
 
-  const asset = await fetchAsset(mintAddress);
+  const { asset, source } = await fetchAssetWithSource(mintAddress);
+  if (reason && source === 'network') incGetAsset(reason);
   if (!asset) throw new Error('DAS getAsset failed');
 
   const collection = asset.grouping?.find((g) => g.group_key === 'collection');
@@ -287,7 +294,7 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
   return { ok: false, reason: `unknown_interface=${iface || '—'}` };
 }
 
-export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVerifyResult> {
+export async function verifyAndFetchAsset(mintAddress: string, reason?: GetAssetSource): Promise<AssetVerifyResult> {
   const EMPTY_META: NftMetadata = {
     nftName: null, imageUrl: null, collectionName: null,
     collectionAddress: null, meCollectionSlug: null,
@@ -295,7 +302,8 @@ export async function verifyAndFetchAsset(mintAddress: string): Promise<AssetVer
   if (!process.env.HELIUS_API_KEY) {
     return { verdict: { ok: false, reason: 'no_api_key' }, meta: EMPTY_META };
   }
-  const asset = await fetchAsset(mintAddress);
+  const { asset, source } = await fetchAssetWithSource(mintAddress);
+  if (reason && source === 'network') incGetAsset(reason);
   if (!asset) {
     return { verdict: { ok: false, reason: 'fetch_error' }, meta: EMPTY_META };
   }
@@ -487,8 +495,9 @@ export async function getOwnerCollectionCount(
  *  ME all empty). The collection image is a strictly-better signal
  *  than the abbr/color placeholder. Returns null on any failure /
  *  missing field. Cheap single RPC; callers should throttle. */
-export async function getCollectionImage(collectionAddress: string): Promise<string | null> {
-  const asset = await fetchAsset(collectionAddress);
+export async function getCollectionImage(collectionAddress: string, reason?: GetAssetSource): Promise<string | null> {
+  const { asset, source } = await fetchAssetWithSource(collectionAddress);
+  if (reason && source === 'network') incGetAsset(reason);
   if (!asset) return null;
   const link  = asset.content?.links?.image;
   const file  = asset.content?.files?.[0]?.cdn_uri ?? asset.content?.files?.[0]?.uri;
@@ -496,9 +505,9 @@ export async function getCollectionImage(collectionAddress: string): Promise<str
   return typeof image === 'string' && image.length > 0 ? image : null;
 }
 
-export async function getCollectionOwner(collectionAddress: string): Promise<string | null> {
-  incGetAsset('collection_owner');
-  const asset = await fetchAsset(collectionAddress);
+export async function getCollectionOwner(collectionAddress: string, reason?: GetAssetSource): Promise<string | null> {
+  const { asset, source } = await fetchAssetWithSource(collectionAddress);
+  if (reason && source === 'network') incGetAsset(reason);
   if (!asset) return null;
   const owner = asset.ownership?.owner;
   return typeof owner === 'string' && owner.length > 0 ? owner : null;

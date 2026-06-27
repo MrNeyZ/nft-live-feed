@@ -1,6 +1,5 @@
 import { SaleEvent } from '../models/sale-event';
 import { getAsset, NftMetadata } from './helius-das';
-import { incGetAsset } from '../helius-credit-metrics';
 import { getMetaplexOnchainMetadata, fetchMetaFromJsonUri } from './metaplex-onchain';
 import { fetchFallbackMetadata } from './fallback-metadata';
 import { TtlCache } from './cache';
@@ -543,8 +542,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
   if (!failureCache.has(mint)) {
     // ── Primary: Helius DAS ──────────────────────────────────────────────────
     try {
-      incGetAsset('sale_enrich');
-      metadata = await getAsset(mint);
+      metadata = await getAsset(mint, 'sale_enrich');
     } catch (err) {
       console.warn(`[enrich] DAS failed for ${mint.slice(0, 8)}...: ${(err as Error).message}`);
     }
