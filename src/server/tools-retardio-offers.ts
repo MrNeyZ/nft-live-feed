@@ -41,18 +41,16 @@ function scannerCooldownRemainMs(): number { return Math.max(0, scannerCooldownU
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const DEFAULT_SLUG     = process.env.RETARDIO_ME_SLUG ?? 'retardio_cousins';
-const REQUEST_GAP_MS   = 120;
+const REQUEST_GAP_MS   = 600;
 const SCAN_LIMIT_MAX   = 100;
-const SCAN_LIMIT_DFLT  = 60;
-const CACHE_TTL_MS     = 45_000;
+const SCAN_LIMIT_DFLT  = 20;
+const CACHE_TTL_MS     = 300_000;
 /** Largest single ME listings page; v2 endpoint accepts up to 100. */
 const LISTINGS_PAGE    = 100;
-/** Bounded parallelism for per-listing offer fetches. K=2 gives ~2×
- *  speedup vs. the prior fully-sequential loop while keeping the
- *  per-worker 120 ms gap; effective rate ≈ 3 req/s, comfortably under
- *  ME's public-API tolerance for 5–15 s scan windows. Raise only after
- *  observing 429 logs over a longer baseline. */
-const SCAN_CONCURRENCY = 2;
+/** Sequential offer fetches (K=1) to stay within ME's public-API rate
+ *  limit when floor enrichment / rare-feed share the same IP quota.
+ *  Raise back to 2 only after a ME dev API key is in place. */
+const SCAN_CONCURRENCY = 1;
 
 // ─── Recent-activity candidate enumeration (replaces holder/DAS scan) ──────
 // The original scanner walked /collections/{slug}/listings and pulled
@@ -98,13 +96,11 @@ const RECENT_ACTIVITY_DAYS_DFLT = Math.max(0, Math.floor(
 const RECENT_ACTIVITY_DAYS_MAX = 90;
 /** ME activities page size — public endpoint accepts up to 100. */
 const ACTIVITY_PAGE_LIMIT      = 100;
-/** Default cap on activity pages per scan (= ACTIVITY_PAGE_LIMIT events
- *  × N pages). 20 pages × 100 = 2 000 events. On a hot AMM-heavy
- *  collection that's ~hours of coverage, not 30 days — when we hit the
- *  cap before reaching the time horizon, a `coverage_truncated` warning
- *  is emitted so the operator knows the horizon wasn't fully covered. */
+/** Default cap on activity pages per scan. Reduced from 20→3 (300 events)
+ *  to cut ME requests while the scanner shares an IP with floor enrichment.
+ *  Override via env RECENT_ACTIVITY_MAX_PAGES once a dev API key is active. */
 const ACTIVITY_MAX_PAGES_DFLT  = Math.max(1, Math.floor(
-  Number(process.env.RECENT_ACTIVITY_MAX_PAGES ?? 20),
+  Number(process.env.RECENT_ACTIVITY_MAX_PAGES ?? 3),
 ));
 /** Hard ceiling on activity pages — protects against an env typo or a
  *  fat-fingered request asking for 1 000 pages. */
