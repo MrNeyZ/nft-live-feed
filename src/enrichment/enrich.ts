@@ -16,12 +16,11 @@ const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change freq
 const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
 const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster than floor
 
-// Active sweep on every cache so write-once-never-reread entries
-// (the long-tail of one-shot mint metadata + slugs whose floor / offer
-// lookup happens once per session) can't pin memory indefinitely.
-// Lazy expiry inside `get()` still applies for fast reads; the sweep
-// only deletes already-expired keys, so behaviour is unchanged except
-// the map shrinks on schedule instead of growing without bound.
+// 60s backoff after a complete enrichment failure (DAS + all fallbacks exhausted).
+// Prevents re-running the full fallback chain (Metaplex onchain, Tensor, ME) within
+// the retry window. The shared fetchAsset cache in helius-das.ts already handles DAS
+// success caching, failure caching, and inflight dedup — this covers only the case
+// where the fallback chain itself found nothing.
 const failureCache = new TtlCache<string, true>(FAILURE_TTL_MS, 60_000);
 /** Keyed by ME collection slug → floor price in lamports. Active sweep
  *  on a 60 s cadence — slugs we've populated but never re-read should
