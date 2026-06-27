@@ -855,6 +855,7 @@ function sweep(): void {
     // Evict idle entries entirely.
     if (now - a.lastMintAt > ACC_IDLE_EVICT_MS) {
       map.delete(key);
+      mintedCountStaleStrikes.delete(key);
       forgetFeedSampling(key);
       continue;
     }
@@ -1263,6 +1264,7 @@ export function evictMintGroup(groupingKey: string): void {
   a.displayState = 'cooled';
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
   map.delete(groupingKey);
+  mintedCountStaleStrikes.delete(groupingKey);
   forgetFeedSampling(groupingKey);
 }
 
