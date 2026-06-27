@@ -34,6 +34,14 @@ import { appendCountedLedger } from './counted-ledger';
  *  number changes by ~the same percentage either way. 60 s halves the
  *  searchAssets traffic for hot collections at no perceptible UX cost. */
 const MINTED_REFRESH_MIN_MS = 60_000;
+/** Extended refresh interval for collections whose DAS `searchAssets`
+ *  total is consistently lower than the authoritative count (observed
+ *  mints or LMNFT on-chain state). After MINTED_STALE_STRIKES consecutive
+ *  stale-low returns the next refresh is deferred by this amount instead
+ *  of MINTED_REFRESH_MIN_MS — saving credits on groupings that never
+ *  catch up. Resets to normal cadence if DAS recovers. */
+const MINTED_BACKOFF_MS    = 5 * 60_000;
+const MINTED_STALE_STRIKES = 3;
 
 const WINDOW_60S            = 60_000;
 const WINDOW_5M             = 5 * 60_000;
@@ -180,6 +188,11 @@ interface Accum {
 }
 
 const map = new Map<string, Accum>();
+// Consecutive stale-low DAS minted-count responses per groupingKey.
+// Capped at MINTED_STALE_STRIKES so the map never grows past the
+// number of active collections, and entries are removed on DAS recovery
+// or accumulator eviction.
+const mintedCountStaleStrikes = new Map<string, number>();
 
 /** Ring buffer of recent accepted mint events, replayed to every fresh
  *  SSE client on connect so /mints' Live Mint Feed isn't always empty
@@ -387,7 +400,10 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
     // meantime; re-resolve via the live map so we never patch a stale
     // local reference.
     const live = map.get(a.groupingKey);
-    if (!live) return;
+    if (!live) {
+      mintedCountStaleStrikes.delete(a.groupingKey);
+      return;
+    }
     // Floor invariant: total minted on chain must be >= what we've
     // observed in this session. Helius DAS occasionally returns a
     // stale low count (e.g. 1) for a collection that our session has
@@ -410,11 +426,31 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
     const lmnftMinted = typeof live.mintedCount === 'number' ? live.mintedCount : 0;
     const count = Math.max(dasCount, live.observedMints, lmnftMinted);
     if (count !== dasCount) {
+      // DAS is behind authoritative sources. Track consecutive misses so
+      // we can slow down the refresh once the pattern is stable.
+      const strikes = Math.min(
+        (mintedCountStaleStrikes.get(live.groupingKey) ?? 0) + 1,
+        MINTED_STALE_STRIKES,
+      );
+      mintedCountStaleStrikes.set(live.groupingKey, strikes);
       console.log(
         `[mints/minted-count] collection=${collection} ` +
         `dasTotal=${dasCount} observed=${live.observedMints} ` +
         `lmnft=${lmnftMinted || 'null'} corrected=${count} reason=das_lower_than_authoritative`,
       );
+      if (strikes >= MINTED_STALE_STRIKES) {
+        // DAS has been consistently low for this collection. Extend the
+        // throttle clock so the next refresh fires ~5 min from now
+        // rather than 60 s — stops burning credits on a stale grouping.
+        live.mintedFetchedAt = Date.now() + (MINTED_BACKOFF_MS - MINTED_REFRESH_MIN_MS);
+        console.log(
+          `[mints/minted-count] stale-das-backoff collection=${collection} ` +
+          `das=${dasCount} authoritative=${count} next=${MINTED_BACKOFF_MS / 1000}s strikes=${strikes}`,
+        );
+      }
+    } else {
+      // DAS caught up — restore normal 60 s cadence.
+      mintedCountStaleStrikes.delete(live.groupingKey);
     }
     if (live.mintedCount === count) return;
     live.mintedCount = count;
