@@ -4,7 +4,7 @@
  */
 
 import { TtlCache } from './cache';
-import { incGetAsset, type GetAssetSource } from '../helius-credit-metrics';
+import { incGetAsset, incSearchAssets, incGetAssetsByOwner, type GetAssetSource } from '../helius-credit-metrics';
 
 export interface NftMetadata {
   nftName: string | null;
@@ -379,6 +379,7 @@ async function searchAssetsTotal(owner: string, collection: string): Promise<num
     if (!res.ok) return null;
     const json = (await res.json()) as DasSearchResponse;
     if (json.error) return null;
+    incSearchAssets('seller_count_fast');
     const total = json.result?.total;
     return typeof total === 'number' && total >= 0 ? total : null;
   } catch {
@@ -426,6 +427,7 @@ async function ownerScanForCollectionCount(
       if (!res.ok) return { count: null, scanned };
       const json = (await res.json()) as DasOwnerScanResponse;
       if (json.error) return { count: null, scanned };
+      incGetAssetsByOwner('seller_count_deep');
       const items = json.result?.items ?? [];
       if (items.length === 0) break;
       for (const it of items) {
@@ -561,6 +563,7 @@ export async function getCollectionMintedCount(collectionAddress: string): Promi
       console.log(`[mints/minted-count] collection=${collectionAddress} dasErr=${json.error.code}:${json.error.message} result=null`);
       return null;
     }
+    incSearchAssets('minted_count');
     const total = json.result?.total;
     const out = typeof total === 'number' && total >= 0 ? total : null;
     console.log(`[mints/minted-count] collection=${collectionAddress} total=${total} result=${out}`);
