@@ -159,7 +159,9 @@ async function enrichLaunchpadCollectionMeta(
  *
  *  Account layout (with the 8-byte Anchor discriminator prefix):
  *    offset   0  Anchor discriminator   (8 bytes)
- *    offset   8  features               (u64, 8 bytes)
+ *    offset   8  version                (u8, 1 byte)
+ *    offset   9  token_standard         (u8, 1 byte)
+ *    offset  10  features               ([u8; 6], 6 bytes)
  *    offset  16  authority              (Pubkey, 32 bytes)
  *    offset  48  mint_authority         (Pubkey, 32 bytes)
  *    offset  80  collection_mint        (Pubkey, 32 bytes)
