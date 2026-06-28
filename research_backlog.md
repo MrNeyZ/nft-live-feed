@@ -22,6 +22,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 |---|---|---|---|
 | 1 | Metaplex Token Metadata | Complete | 2026-06-28 |
 | 2 | Metaplex Core | Complete | 2026-06-28 |
+| 3 | Bubblegum / cNFT | Complete | 2026-06-28 |
 
 ---
 
@@ -281,15 +282,146 @@ After:  /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateC
 
 ---
 
+## Audit #3 — Bubblegum / cNFT
+
+**Sources:** `metaplex-foundation/mpl-bubblegum` GitHub (IDL, Rust source, account layouts), Solana mainnet pattern analysis (June 2026)
+
+**VL files audited:**
+- `src/ingestion/mint-raw/index.ts`
+- `src/ingestion/mint-raw/launchpad-detector.ts`
+
+**Architecture facts confirmed:**
+- Current LMNFT cNFT path uses `mintToCollectionV1` and works.
+- No tracked launchpad currently uses Bubblegum V2 `mintV2`.
+- Bubblegum V2 changes both account layout (merkleTree moves from `accounts[3]` to `accounts[6]`) and noop program (SPL Noop → MPL Noop).
+- For `mintToCollectionV1`, the real TM collection is available at `accounts[8]`; currently unused in favor of Merkle tree grouping.
+
+**Audit #3 finding status:**
+
+| Finding | Status | Notes |
+|---|---|---|
+| B1 | Backlog / high when Bubblegum V2 adopted | Wrong tree index for mintV2 |
+| B2 | Backlog / high when Bubblegum V2 adopted | MPL Noop not recognised |
+| B3 | Backlog / medium | DAS reduction + better grouping via real collection address |
+| B4 | Backlog / medium when transferV2 appears | Wrong account layout for Tensor cNFT transferV2 |
+| B5 | Backlog / low | Collectionless mintV1 not tracked; high-volume risk |
+| B6 | Tracked by B1+B2 | BubblegumV2/Core cross-protocol gap resolves with B1+B2 |
+| B7 | Cleanup with B1+B2 | Stale mintV2 comment contradicted by official layout |
+| B8 | Informational | 90k lamport mint fee; no current price extraction impact |
+| B9 | Informational | Post-mint instructions out of scope for live feed |
+
+---
+
+### Finding B1 — mintV2 Merkle tree index
+
+**Status: Backlog**
+
+**Audit finding:**
+- Current extraction assumes `merkleTree` at `accounts[3]`.
+- Official Bubblegum V2 `mintV2` layout has `merkleTree` at `accounts[6]`.
+- No current production impact because tracked launchpads are not using Bubblegum V2 `mintV2` yet.
+
+---
+
+### Finding B2 — MPL Noop missing
+
+**Status: Backlog**
+
+**Audit finding:**
+- Current code only recognises SPL Noop: `noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV`
+- Bubblegum V2 trees emit to MPL Noop: `mnoopTCrg4p8ry25e4bcWA9XZjbNjMTfgYVGGEdRsf3`
+- Fix together with B1 as a single Bubblegum V2 compatibility pass.
+
+---
+
+### Finding B3 — cNFT grouping by Merkle tree instead of real collection
+
+**Status: Backlog — Medium priority**
+
+**Audit finding:**
+- Current cNFT rows use the Merkle tree address as `collectionAddress` / grouping key.
+- For `mintToCollectionV1`, the real TM collection is available at `accounts[8]`.
+- For `mintV2`, the Core collection is available at `accounts[7]`.
+- Extracting the real collection would reduce DAS dependency and improve grouping latency — analogous to the Borsh-decode opportunity in Audit #1 Finding 4.
+
+---
+
+### Finding B4 — Tensor cNFT transferV2 extraction
+
+**Status: Backlog**
+
+**Audit finding:**
+- Current `extractCnftAssetId` assumes V1 transfer layout: `merkleTree` at `accounts[4]`, nonce at data offset 104.
+- `transferV2` uses `merkleTree` at `accounts[5]`.
+- No current production impact. Fix when `transferV2` appears in Tensor cNFT sales.
+
+---
+
+### Finding B5 — No standalone Bubblegum subscription
+
+**Status: Backlog — Low priority**
+
+**Audit finding:**
+- `mintV1` collectionless cNFT mints do not include Token Metadata or MPL Core, so they never reach current subscriptions.
+- No tracked launchpad currently uses this path.
+- Adding a Bubblegum-program `logsSubscribe` may be high-volume and should not be done casually; evaluate against credit budget before adding.
+
+---
+
+### Finding B6 — Core + BubblegumV2 cross-protocol gap
+
+**Status: Tracked by B1+B2**
+
+**Audit finding:**
+- A Core `CollectionV1` with the `BubblegumV2` plugin accepts compressed NFTs minted via Bubblegum V2.
+- Current extraction would use the wrong Merkle tree index (B1) and miss MPL Noop (B2).
+- Resolves fully with the Bubblegum V2 compatibility pass (B1+B2).
+
+*(Originally deferred from Audit #2 Finding C9.)*
+
+---
+
+### Finding B7 — Stale mintV2 comment
+
+**Status: Cleanup with B1+B2**
+
+**Audit finding:**
+- Current code comment states that `mintV2` shares `accounts[3]=merkleTree` prefix with V1.
+- Official Bubblegum V2 layout disproves this (`merkleTree` at `accounts[6]`).
+- Clean up comment when B1+B2 are fixed.
+
+---
+
+### Finding B8 — Bubblegum V2 90k lamport mint fee
+
+**Status: Informational**
+
+**Audit finding:**
+- Bubblegum V2 charges a ~90,000 lamport protocol fee per mint.
+- Could inflate signer-delta price if cNFT price extraction ever uses signer SOL delta as the pricing method.
+- No current impact on VL price extraction paths.
+
+---
+
+### Finding B9 — Post-mint Bubblegum instructions not watched
+
+**Status: Informational**
+
+**Audit finding:**
+- `updateMetadata`, `verifyCollection`, `setAndVerifyCollection`, `unverifyCollection` are post-mint Bubblegum operations.
+- Out of scope for the current live mint / sale feed.
+- No action needed.
+
+---
+
 ## Next Research Targets
 
 Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Bubblegum / cNFT | cNFT mints are high volume; check Bubblegum v2 vs v1 instruction differences, concurrent Merkle tree handling. BubblegumV2/Core cross-protocol gap (C9 above). |
-| 2 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
-| 3 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
-| 4 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
-| 5 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
-| 6 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 1 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
+| 2 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
+| 3 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
+| 4 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
+| 5 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
