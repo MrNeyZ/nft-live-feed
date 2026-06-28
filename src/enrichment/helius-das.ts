@@ -271,7 +271,7 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
     // Accept NFT-like SFTs (supply=1, decimals=0) — e.g. 1/1 edition tokens
     // that DAS classifies as FungibleAsset but are functionally equivalent to
     // a NonFungible. Reject anything with decimals > 0 or supply > 1.
-    if (decimals === 0 && (fSupply == null || fSupply <= 1)) {
+    if (decimals === 0 && fSupply === 1) {
       return { ok: true, kind: 'sft' };
     }
     return { ok: false, reason: `interface=${iface}` };
