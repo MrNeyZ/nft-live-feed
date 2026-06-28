@@ -164,6 +164,20 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 - Groups system (CreateGroupV1 disc 39) creates `GroupV1` accounts — a separate taxonomy hierarchy orthogonal to CollectionV1; does not affect Create instruction account layout
 - `UpdateCollectionInfoV1` (disc 32) is gated exclusively to Bubblegum PDA signer — used by Bubblegum V2 to update collection counters
 
+**Audit #2 finding status:**
+
+| Finding | Status | Notes |
+|---|---|---|
+| C1 | ✅ Fixed — commit `2a0d617` | `CORE_COLLECTION_CREATE_LOG_REGEX` now matches `CreateCollectionV2` |
+| C2 | Backlog / low priority | Optional collection account not discriminant-validated; mitigated by `hasRealCollection` + DAS safety net |
+| C3 | Backlog / low priority | `parseCreateV2Args` only decodes disc 20; disc 0 (CreateV1) unsupported in V2 scorer (out of scope by design) |
+| C4 | Backlog / low priority | `extractCoreCollectionCreate` not discriminant-filtered; safe via caller ordering |
+| C5 | Informational / by design | V2 scorer gated behind `MINT_TRACKER_CORE_V2_SCORER`; intended conservative default |
+| C6 | Informational / no action | Compression (disc 17/18) disabled on mainnet; revisit if activated |
+| C7 | Informational / by design | Burn gate in `countNftMints` correct for all known patterns |
+| C8 | Informational / no mint detection impact | Group system (disc 39+) orthogonal to collection attribution |
+| C9 | Deferred to Audit #3 (Bubblegum / cNFT) | BubblegumV2 plugin on Core collections is a cross-protocol gap |
+
 ---
 
 ### Finding C1 — `CORE_COLLECTION_CREATE_LOG_REGEX` missing `CreateCollectionV2` ✅
@@ -194,6 +208,16 @@ After:  /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateC
 **Audit finding:** `detectCoreCandyMachineMint`, `detectMagicEdenCoreMint`, and `detectGenericCoreLaunchpadMint` all read `accounts[1]` as the collection address without checking the Create instruction discriminant. When collection is absent (optional, Umi convention substitutes the Core program ID as sentinel), `hasRealCollection` filters it via `collection !== MPL_CORE_PROGRAM`. A custom client omitting the collection account entirely would shift accounts, possibly putting payer/authority at `accounts[1]` — which would pass `hasRealCollection` but be caught by `scheduleCollectionConfirmation`.
 
 **Decision:** Backlog. Current mitigation (Umi sentinel filter + DAS safety net) is robust for all real-world paths. If ordering guard is ever relaxed, add discriminant validation in the callers.
+
+---
+
+### Finding C3 — `parseCreateV2Args` only handles disc 20, not disc 0 (CreateV1)
+
+**Status: Backlog — Low priority**
+
+**Audit finding:** `parseCreateV2Args` in `core-v2-detector.ts` hard-rejects any instruction whose first byte is not `20` (CreateV2), so it cannot decode CreateV1 (disc 0) instruction data. This only affects `detectCoreCreateV2NftCandidate` (the feature-flagged V2 scorer). The CM, ME, and generic fallback detectors cover disc 0 mints without needing to parse instruction data.
+
+**Decision:** Backlog / out of scope by design. The scorer is intentionally scoped to CreateV2 only. If the scorer is extended to cover disc 0 drops, update the discriminant guard and rename the function.
 
 ---
 
@@ -265,7 +289,7 @@ Ordered by expected parser coverage gap / protocol complexity.
 |---|---|---|
 | 1 | Bubblegum / cNFT | cNFT mints are high volume; check Bubblegum v2 vs v1 instruction differences, concurrent Merkle tree handling. BubblegumV2/Core cross-protocol gap (C9 above). |
 | 2 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
-| 4 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
-| 5 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
-| 6 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
-| 7 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 3 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
+| 4 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
+| 5 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
+| 6 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
