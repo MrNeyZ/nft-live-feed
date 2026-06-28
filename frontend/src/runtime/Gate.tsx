@@ -241,7 +241,7 @@ function walletToSignCapable(
 
 /** Display-only: first5…last5 with the Unicode horizontal ellipsis. */
 function shortenAddress(addr: string): string {
-  return addr.length <= 10 ? addr : `${addr.slice(0, 5)}\u2026${addr.slice(-5)}`;
+  return addr.length <= 10 ? addr : `${addr.slice(0, 5)}…${addr.slice(-5)}`;
 }
 
 const Dots = () => (
@@ -255,6 +255,24 @@ const Dots = () => (
 function Wordmark() {
   // SVG export — text version preserved in VictoryLabsLogo.tsx
   return <img src="/logo-gate.svg" alt="VictoryLabs" style={{ display: 'block' }} />;
+}
+
+// ── Social icons ───────────────────────────────────────────────────────────
+
+function IconX() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" width="17" height="17" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.747l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
+function IconDiscord() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.08.111 18.1.128 18.115c2.053 1.508 4.041 2.423 5.993 3.029a.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.029.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+    </svg>
+  );
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -381,14 +399,16 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <div className="gate-stage gate-reveal">
-      <Wordmark />
-      <div className="gate-hero-stack">
-        <h1 className="gate-headline">Access Required</h1>
-        <p className="gate-sub">
-          {isConnected
-            ? 'Sign in with your passphrase to enter the control plane.'
-            : 'Connect a Solana wallet to continue.'}
-        </p>
+      <div className="gate-top-group">
+        <Wordmark />
+        <div className="gate-hero-stack">
+          <h1 className="gate-headline">Access Required</h1>
+          <p className="gate-sub">
+            {isConnected
+              ? 'Sign in with your passphrase to enter the control plane.'
+              : 'Connect a Solana wallet to continue.'}
+          </p>
+        </div>
       </div>
 
       {!isConnected && (
@@ -396,6 +416,17 @@ function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
           <button type="button" className="vl-cta" onClick={() => setModalOpen(true)}>
             Connect Wallet
           </button>
+          <div className="gate-helper-block">
+            <p className="gate-helper-text">Don&apos;t have access? Request an invite.</p>
+            <div className="gate-social-row">
+              <a href="#" className="gate-social-icon" aria-label="Follow on X" target="_blank" rel="noopener noreferrer">
+                <IconX />
+              </a>
+              <a href="#" className="gate-social-icon" aria-label="Join Discord" target="_blank" rel="noopener noreferrer">
+                <IconDiscord />
+              </a>
+            </div>
+          </div>
           {modalOpen && (
             <WalletModal onSelect={onWalletSelected} onClose={() => setModalOpen(false)} />
           )}
@@ -484,10 +515,12 @@ function ModeSelectScreen() {
 
   return (
     <div className="gate-stage gate-reveal">
-      <Wordmark />
-      <div className="gate-hero-stack">
-        <h1 className="gate-headline">Select Runtime</h1>
-        <p className="gate-sub">Choose how the pipeline should run. Switch any time from the top nav.</p>
+      <div className="gate-top-group">
+        <Wordmark />
+        <div className="gate-hero-stack">
+          <h1 className="gate-headline">Select Runtime</h1>
+          <p className="gate-sub">Choose how the pipeline should run. Switch any time from the top nav.</p>
+        </div>
       </div>
       <div className="gate-mode-stack">
         {/* 01 FULL — temporarily disabled. Visible but inactive (dimmed, no
@@ -524,7 +557,7 @@ function ModeSelectScreen() {
   );
 }
 
-// ── Handoff CSS (verbatim port from gate-preview.html) ─────────────────────
+// ── Handoff CSS ─────────────────────────────────────────────────────────────
 
 const GATE_CSS = `
 .gate-root, .gate-root *, .gate-root *::before, .gate-root *::after {
@@ -533,7 +566,9 @@ const GATE_CSS = `
 .gate-root {
   position: fixed; inset: 0;
   min-height: 100vh;
-  padding: 60px 24px;
+  /* Extra bottom padding biases the flex centering upward — stage lands
+     in the upper third/half of the viewport rather than dead center. */
+  padding: 60px 24px 200px;
   display: flex; align-items: center; justify-content: center;
   color: #9a9ab4;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -545,11 +580,14 @@ const GATE_CSS = `
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* Depth glows: primary behind content block (upper third), secondary at
+   bottom edge beneath the helper/social row. Brand palette + opacity only. */
 .gate-root::before {
   content: "";
   position: absolute; inset: 0; pointer-events: none;
   background:
-    radial-gradient(ellipse 50% 40% at 50% 65%, rgba(128, 104, 216, 0.08) 0%, transparent 70%);
+    radial-gradient(ellipse 55% 42% at 50% 36%, rgba(168, 144, 232, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 45% 22% at 50% 92%, rgba(124, 95, 208, 0.05) 0%, transparent 70%);
 }
 
 /* Animations */
@@ -567,7 +605,10 @@ const GATE_CSS = `
 }
 .gate-reveal { animation: gateReveal 0.22s ease-out both; }
 
-/* Primary CTA — soft illuminated glass. */
+/* ── Primary CTA ────────────────────────────────────────────────────────────
+   Diagonal gradient fill (135 °, brand → deep), gradient border via
+   padding-box / border-box technique, ambient glow. No vertical gradient,
+   no inset white highlights. */
 .vl-cta {
   display: inline-flex;
   align-items: center;
@@ -580,36 +621,36 @@ const GATE_CSS = `
   font-weight: 700;
   letter-spacing: 2.5px;
   text-transform: uppercase;
-  color: #08060c;
-  background: linear-gradient(180deg, #bbaaf2 0%, #9576e8 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #1a1226;
+  background:
+    linear-gradient(135deg, #a890e8, #7c5fd0) padding-box,
+    linear-gradient(135deg, #a890e8, #7c5fd0) border-box;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.22) inset,
-    0 6px 18px -4px rgba(148, 118, 232, 0.4);
+  box-shadow: 0 8px 30px -6px rgba(168, 144, 232, 0.55);
   transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
 }
 .vl-cta:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #c8b8f6 0%, #a487ee 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 8px 22px -4px rgba(160, 130, 240, 0.5);
+  background:
+    linear-gradient(135deg, #b8a2ed, #8d70d8) padding-box,
+    linear-gradient(135deg, #b8a2ed, #8d70d8) border-box;
+  box-shadow: 0 12px 36px -6px rgba(168, 144, 232, 0.70);
 }
 .vl-cta:active:not([disabled]) {
   transform: translateY(1px);
-  background: linear-gradient(180deg, #9878ea 0%, #8468d8 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 3px 8px -3px rgba(128, 104, 216, 0.3);
+  background:
+    linear-gradient(135deg, #9272cc, #6a4fb8) padding-box,
+    linear-gradient(135deg, #9272cc, #6a4fb8) border-box;
+  box-shadow: 0 4px 14px -4px rgba(124, 95, 208, 0.45);
 }
 .vl-cta[disabled] {
   cursor: not-allowed;
   color: #241f3b;
   background: linear-gradient(180deg, #332a4d 0%, #241e39 100%);
   border-color: rgba(255, 255, 255, 0.05);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 0 rgba(10, 6, 20, 0.5);
+  box-shadow: 0 2px 0 rgba(10, 6, 20, 0.5);
   transform: none;
 }
 
@@ -626,7 +667,7 @@ const GATE_CSS = `
   font-size: 12.5px;
 }
 .vl-cta.vl-cta--block .vl-cta-label {
-  font-size: 12.5px; font-weight: 700; letter-spacing: 2px; color: #08060c;
+  font-size: 12.5px; font-weight: 700; letter-spacing: 2px; color: #1a1226;
   text-transform: uppercase;
 }
 .vl-cta.vl-cta--block[disabled] .vl-cta-label {
@@ -713,35 +754,35 @@ const GATE_CSS = `
   font-family: inherit;
   font-size: 16px;
   font-weight: 600;
-  color: #08060c;
-  background: linear-gradient(180deg, #bbaaf2 0%, #9576e8 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #1a1226;
+  background:
+    linear-gradient(135deg, #a890e8, #7c5fd0) padding-box,
+    linear-gradient(135deg, #a890e8, #7c5fd0) border-box;
+  border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.22) inset,
-    0 6px 18px -4px rgba(148, 118, 232, 0.4);
+  box-shadow: 0 4px 14px -4px rgba(168, 144, 232, 0.50);
   transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
 }
 .vl-arrow:hover:not([disabled]) {
   transform: translateY(-1px);
-  background: linear-gradient(180deg, #c8b8f6 0%, #a487ee 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 8px 22px -4px rgba(160, 130, 240, 0.5);
+  background:
+    linear-gradient(135deg, #b8a2ed, #8d70d8) padding-box,
+    linear-gradient(135deg, #b8a2ed, #8d70d8) border-box;
+  box-shadow: 0 6px 20px -4px rgba(168, 144, 232, 0.65);
 }
 .vl-arrow:active:not([disabled]) {
   transform: translateY(1px);
-  background: linear-gradient(180deg, #9878ea 0%, #8468d8 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.08) inset,
-    0 3px 8px -3px rgba(128, 104, 216, 0.3);
+  background:
+    linear-gradient(135deg, #9272cc, #6a4fb8) padding-box,
+    linear-gradient(135deg, #9272cc, #6a4fb8) border-box;
+  box-shadow: 0 2px 8px -2px rgba(124, 95, 208, 0.40);
 }
 .vl-arrow[disabled] {
   cursor: not-allowed;
   color: #241f3b;
   background: linear-gradient(180deg, #332a4d 0%, #241e39 100%);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 0 rgba(10, 6, 20, 0.5);
+  box-shadow: 0 2px 0 rgba(10, 6, 20, 0.5);
   transform: none;
 }
 
@@ -770,7 +811,10 @@ const GATE_CSS = `
   background: #d96867; box-shadow: 0 0 8px rgba(216, 117, 117, 0.5);
 }
 
-/* Stage + supporting layout (matches preview's v2 column) */
+/* ── Stage layout ───────────────────────────────────────────────────────────
+   gate-top-group = logo + hero-stack as one tight semantic unit.
+   Then ONE visible gap (40 px) before the CTA button.
+   Then the helper block sits close beneath the button. */
 .gate-stage {
   display: flex;
   flex-direction: column;
@@ -781,26 +825,33 @@ const GATE_CSS = `
   position: relative;
   z-index: 1;
 }
-.gate-stage .vl-hero,
-.gate-stage > .vl-logo {
-  margin-bottom: 64px;
+.gate-top-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;        /* logo → hero-stack */
+  margin-bottom: 40px; /* hero-stack → CTA */
 }
 .gate-hero-stack {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 60px;
+  gap: 10px;        /* headline → sub */
+  margin-bottom: 0; /* spacing owned by gate-top-group */
 }
+
+/* ── Headline — UI label treatment (not a display headline) ─────────────────
+   Same sans-serif as the subheadline; reads as a UI section tag, not a
+   second logo. No serif, no large display size. */
 .gate-headline {
-  font-family: 'Playfair Display', 'Georgia', serif;
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
-  line-height: 1.05;
-  color: #f4f2fa;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: #f3f1fb;
   text-align: center;
-  text-shadow: 0 0 24px rgba(168, 144, 232, 0.14);
   margin: 0;
 }
 .gate-sub {
@@ -812,6 +863,7 @@ const GATE_CSS = `
   line-height: 1.65;
   margin: 0;
 }
+
 .gate-form {
   display: flex;
   flex-direction: column;
@@ -833,6 +885,37 @@ const GATE_CSS = `
   width: 100%;
   max-width: 420px;
 }
+
+/* ── Helper block (below CTA on login screen) ───────────────────────────────
+   Tight cluster: muted invite text + monochrome social icons. */
+.gate-helper-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+.gate-helper-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 0.2px;
+  text-align: center;
+  margin: 0;
+}
+.gate-social-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.gate-social-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(168, 144, 232, 0.55);
+  transition: color 0.15s;
+  text-decoration: none;
+}
+.gate-social-icon:hover { color: #a890e8; }
 
 /* Wallet selector modal */
 .vl-modal-overlay {
