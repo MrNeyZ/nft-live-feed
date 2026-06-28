@@ -179,18 +179,9 @@ function PersistentBottomStatusBar() {
 // ── Shell — full-screen dark-purple washes from handoff body styles ────────
 
 function GateShell({ children }: { children: ReactNode }) {
-  return (
-    <>
-      {/* Inject the CSS verbatim. Passing GATE_CSS as a text child made React
-          entity-escape it on the server (content: "" → content: &quot;&quot;;)
-          while <style> is a raw-text element the browser leaves un-decoded —
-          so the server text never matched the client's, triggering a
-          document-level hydration bail (blank loading shell in prod).
-          dangerouslySetInnerHTML emits identical raw CSS on both sides. */}
-      <style dangerouslySetInnerHTML={{ __html: GATE_CSS }} />
-      <div className="gate-root">{children}</div>
-    </>
-  );
+  // CSS is injected in the server-rendered <head> via layout.tsx (gate-css.ts)
+  // so it is always present regardless of JS chunk cache state.
+  return <div className="gate-root">{children}</div>;
 }
 
 // ── Wallet detection (wallet-standard) ────────────────────────────────────
@@ -557,9 +548,9 @@ function ModeSelectScreen() {
   );
 }
 
-// ── Handoff CSS ─────────────────────────────────────────────────────────────
+// ── (CSS lives in src/runtime/gate-css.ts, injected via layout.tsx <head>) ──
 
-const GATE_CSS = `
+const _UNUSED = `
 .gate-root, .gate-root *, .gate-root *::before, .gate-root *::after {
   box-sizing: border-box;
 }

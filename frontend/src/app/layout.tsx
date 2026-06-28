@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Playfair_Display } from 'next/font/google';
 import './globals.css';
 import { Gate } from '@/runtime/Gate';
+import { GATE_CSS } from '@/runtime/gate-css';
 import { ViewportDebugBadge } from '@/lib/ViewportDebugBadge';
 
 // Playfair Display — italic 600 + italic 800 ONLY. Used by the topbar
@@ -44,6 +45,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `try{var m=localStorage.getItem('vl.layoutMode');if(m==='pc'||m==='laptop'||m==='phone')document.documentElement.dataset.layout=m;}catch(e){}`,
           }}
         />
+        {/* Gate screen CSS — injected here (SSR HTML) so changes are live
+            on every deploy regardless of browser chunk cache. */}
+        <style dangerouslySetInnerHTML={{ __html: GATE_CSS }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link
