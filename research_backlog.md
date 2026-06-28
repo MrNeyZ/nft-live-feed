@@ -23,6 +23,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 1 | Metaplex Token Metadata | Complete | 2026-06-28 |
 | 2 | Metaplex Core | Complete | 2026-06-28 |
 | 3 | Bubblegum / cNFT | Complete | 2026-06-28 |
+| 4 | Candy Guard / Candy Machine V3 | Complete | 2026-06-28 |
 
 ---
 
@@ -414,14 +415,125 @@ After:  /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateC
 
 ---
 
+## Audit #4 — Candy Guard / Candy Machine V3
+
+**Sources:** `metaplex-foundation/mpl-candy-guard` and `mpl-candy-machine` GitHub (IDL, Rust source, account layouts), Solana mainnet pattern analysis + offline fixtures (June 2026)
+
+**VL files audited:**
+- `src/ingestion/mint-raw/index.ts` (hasMintInstructionLog, isCandyGuardMintLog, enrichCgSupply)
+- `src/ingestion/mint-raw/launchpad-detector.ts` (CANDY_GUARD_PROGRAM, PRNT_CORE_CANDY_GUARD)
+- `src/ingestion/listener.ts` (subscription targets, MINT_PREFILTER_TARGETS)
+
+**Architecture facts confirmed:**
+- TM Candy Guard (`Guard1Jw…`) is subscribed directly; every tx is a mint candidate (no WS prefilter).
+- Core Candy Guard (`CMAGAKJ…`) has no dedicated subscription; its mints arrive via the `mpl_core` subscription but must pass `hasMintInstructionLog` prefilter.
+- Core CG emits `Instruction: MintV1` (outer, Guard) + `Instruction: MintAsset` (CM) + `Instruction: Create` (bare Core) — none of which matched any MINT_LOG_NEEDLES.
+- TM CG legacy path emits `Instruction: Mint` (bare); `isCandyGuardMintLog` only checked `MintV2` and the dead `MintFromCache` needle.
+
+**Audit #4 finding status:**
+
+| Finding | Status | Notes |
+|---|---|---|
+| G1 | ✅ Fixed — comment only — commit `2232744` | Candy Machine state layout comment collapsed version/token_standard/features into fake u64 |
+| G2 | ✅ Cleaned up — commit `3be3083` | `MintFromCache` needle was dead (never existed on-chain); removed |
+| G3 | ✅ Fixed — commit `3be3083` | Legacy CG v1 `Instruction: Mint` missing from `CG_MINT_NEEDLES` |
+| G4 | ✅ Fixed — commit `3745a7b` | Core CG mints dropped by `mpl_core` WS prefilter; PRNT_CORE_CANDY_GUARD shortcut added |
+| G5 | Informational | `enrichCgSupply` binary offsets verified correct; only comment was wrong (G1) |
+| G6 | Backlog — medium | Core CM supply enrichment not wired for Core CG mints specifically; see below |
+| G7 | Backlog / comment — low | `disc=52` delegate_record assumption in `extractTmMintFromInner`; see below |
+
+---
+
+### Finding G1 — Candy Machine state layout comment incorrect ✅
+
+**Status: Fixed — comment only — commit `2232744`**
+
+**Audit finding:** The layout comment above `enrichCgSupply` (offset table at lines ~160–170) listed `offset 8  features  (u64, 8 bytes)`, collapsing `version` (u8), `token_standard` (u8), and `features` ([u8; 6]) into a single fake u64. The binary read offsets (`readBigUInt64LE(112)` and `readBigUInt64LE(120)`) were already correct — only the comment was wrong.
+
+**Fix:** Corrected comment to:
+```
+offset  8  version                (u8, 1 byte)
+offset  9  token_standard         (u8, 1 byte)
+offset 10  features               ([u8; 6], 6 bytes)
+offset 16  authority              (Pubkey, 32 bytes)
+```
+
+---
+
+### Finding G2 — `MintFromCache` dead needle ✅
+
+**Status: Cleaned up — commit `3be3083`**
+
+**Audit finding:** `CG_MINT_NEEDLES` contained `'Instruction: MintFromCache'` which has never existed as a Candy Guard log line. Removed in the G3 fix.
+
+---
+
+### Finding G3 — Legacy Candy Guard `Instruction: Mint` missing from `CG_MINT_NEEDLES` ✅
+
+**Status: Fixed — commit `3be3083`**
+
+**Audit finding:** Legacy Candy Guard v1 emits `Instruction: Mint` (bare). `isCandyGuardMintLog` (the WS prefilter for the `candy_guard` subscription) only checked `MintV2` — so any admin operation (initialize, update, withdraw) with a log matching `Instruction: Mint` would be rejected correctly, but a real legacy mint would be passed through only if it also emitted `MintV2`. In practice the poller recovers these, but the WS path missed them.
+
+**Fix:** Replaced `'Instruction: MintFromCache'` with `'Instruction: Mint'` in `CG_MINT_NEEDLES`.
+
+---
+
+### Finding G4 — Core Candy Guard mints dropped by `mpl_core` WS prefilter ✅
+
+**Status: Fixed — commit `3745a7b`**
+
+**Audit finding:** Core Candy Guard mints (`CMAGAKJ…`) arrive via the `mpl_core` subscription (because they invoke `CoREEN…`). The `mpl_core` target is in `MINT_PREFILTER_TARGETS`, so every notification is passed through `hasMintInstructionLog` before `fetchRawTx`. Core CG mints emit:
+- `Instruction: MintV1` (outer Core CG, not a MINT_LOG_NEEDLES item)
+- `Instruction: MintAsset` (Core CM, not a MINT_LOG_NEEDLES item)
+- `Instruction: Create` (bare Core, intentionally excluded from MINT_LOG_NEEDLES)
+
+`hasMintInstructionLog` returned `false` for both `tx_burn_gate.json` and `tx_mintx_no.json` fixtures, confirmed by diagnostic script.
+
+**Fix:** Added `PRNT_CORE_CANDY_GUARD` (`CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ`) to the shortcut block in `hasMintInstructionLog`, mirroring the existing TM CG (`CANDY_GUARD_PROGRAM`) shortcut. Single program-presence → admit, per-tx detector resolves downstream.
+
+**Diagnostic confirmation:**
+```
+tx_burn_gate.json:  BEFORE=false  AFTER=true  ✓ G4 CONFIRMED
+tx_mintx_no.json:   BEFORE=false  AFTER=true  ✓ G4 CONFIRMED
+```
+
+---
+
+### Finding G5 — `enrichCgSupply` binary offsets verified correct
+
+**Status: Informational**
+
+**Audit finding:** `enrichCgSupply` reads `items_redeemed` at offset 112 and `items_available` at offset 120. Both are correct per the official `CandyMachine` Anchor struct layout: after the 8-byte discriminator, the field sequence is `version(1) + token_standard(1) + features(6) + authority(32) + mint_authority(32) + collection_mint(32)` = 112 bytes, then `items_redeemed(u64)` at 112, then `data.items_available(u64)` at 120. No code change needed.
+
+---
+
+### Finding G6 — Core CM supply enrichment not wired for Core CG mints
+
+**Status: Backlog — Medium priority**
+
+**Audit finding:** `enrichCgSupply` is called when a detected mint has `lp.candyMachineState` set. The Core CG detector (`detectCoreCandyMachineMint` in `core-v2-detector.ts`) does populate `candyMachineState` from the CM account. However, there is no supply-refresh path specifically validated for Core CG's account schema differences from the TM CM V3 schema. The offsets were verified above (G5) to be byte-identical, so supply enrichment should work if `candyMachineState` is populated correctly. Investigation item: confirm that `detectCoreCandyMachineMint` correctly sets `candyMachineState` from a Core CG tx and that the offset reads produce reasonable numbers on a real Core CM account.
+
+**Decision:** Backlog. Do not implement until confirmed on real Core CG mainnet data. Low risk of data corruption (enrichment is additive); risk is silent wrong supply counts.
+
+---
+
+### Finding G7 — `disc=52` delegate_record assumption in `extractTmMintFromInner`
+
+**Status: Backlog / comment — Low priority**
+
+**Audit finding:** The disc 52 (`Verify`) handler in `extractTmMintFromInner` includes a comment noting that the `delegate_record` field at `accounts[6]` is an assumption (not confirmed from the IDL). Per Audit #1 Finding 3, disc 52 is the only verify path currently firing on mainnet. The account layout for the unified Verify instruction places metadata at `accounts[2]` and collection_mint at `accounts[3]` — confirmed correct. The delegate_record field is not read for collection extraction, so even if the index is wrong, there's no functional impact.
+
+**Decision:** Low priority. If touching `extractTmMintFromInner` for another reason, add a layout comment referencing the official TM unified-metaplex-program IDL entry for disc 52.
+
+---
+
 ## Next Research Targets
 
 Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
-| 2 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
-| 3 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
-| 4 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
-| 5 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 1 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
+| 2 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
+| 3 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
+| 4 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
