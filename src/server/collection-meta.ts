@@ -20,6 +20,7 @@ import { Router, Request, Response } from 'express';
 import { getCatalogEntry } from './collection-catalog';
 import { getPool } from '../db/client';
 import { rateLimit, isValidSlug } from './rate-limit';
+import { meCooldownActive } from '../me-api-cooldown';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const HIT_TTL_MS       = 60 * 60_000;     // 1 h for real data
@@ -115,6 +116,7 @@ async function fetchNameFromDb(slug: string): Promise<string | null> {
 }
 
 async function fetchMeFallback(slug: string): Promise<Meta> {
+  if (meCooldownActive()) return emptyMeta();
   try {
     const res = await fetch(
       `${ME_API}/collections/${encodeURIComponent(slug)}`,

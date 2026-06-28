@@ -33,6 +33,7 @@ import {
   lamportsToSol,
   type FundingStatus,
 } from './me-bid-escrow';
+import { meCooldownActive, meCooldownRemainMs } from '../me-api-cooldown';
 // Scanner-local cooldown: only blocked by its own 429s, not by floor/rare-feed.
 let scannerCooldownUntil = 0;
 function scannerCooldownActive(): boolean { return Date.now() < scannerCooldownUntil; }
@@ -457,6 +458,11 @@ interface MeGetOpts {
  *  fetch call sites). Timeouts and network errors map to a synthetic
  *  upstream error so the caller's existing 5xx branch handles them. */
 async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
+  // Block if another ME caller (enrichment, rare-feed) already got a 429 —
+  // same IP, so the scanner would get one too.
+  if (meCooldownActive()) {
+    throw new MeRateLimitError(opts.endpoint, Math.ceil(meCooldownRemainMs() / 1000));
+  }
   if (scannerCooldownActive()) {
     throw new MeRateLimitError(opts.endpoint, getMeCooldownRemainingSec());
   }
