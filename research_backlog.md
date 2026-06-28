@@ -24,6 +24,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 2 | Metaplex Core | Complete | 2026-06-28 |
 | 3 | Bubblegum / cNFT | Complete | 2026-06-28 |
 | 4 | Candy Guard / Candy Machine V3 | Complete | 2026-06-28 |
+| 5 | Token-2022 / SPL Token | Complete | 2026-06-28 |
 
 ---
 
@@ -527,13 +528,192 @@ tx_mintx_no.json:   BEFORE=false  AFTER=true  ✓ G4 CONFIRMED
 
 ---
 
+## Audit #5 — Token-2022 / SPL Token
+
+**Sources:** Solana RPC docs (`getTransaction` `meta.pre/postTokenBalances[*].programId`); Helius DAS API (`getAsset`, `interface` field); `spl-token-2022` crate canonical program ID; VL source files (9 files audited, June 2026)
+
+**VL files audited:**
+- `src/ingestion/mint-raw/index.ts`
+- `src/ingestion/mint-raw/launchpad-detector.ts`
+- `src/ingestion/mint-raw/core-v2-detector.ts`
+- `src/ingestion/me-raw/parser.ts`
+- `src/ingestion/me-raw/price.ts`
+- `src/ingestion/me-raw/programs.ts`
+- `src/ingestion/tensor-raw/parser.ts`
+- `src/ingestion/tensor-raw/programs.ts`
+- `src/ingestion/tensor-raw/decoder.ts`
+- `src/enrichment/helius-das.ts`
+- `src/mints/detector.ts`
+
+**Main verdict:** Mint pipeline correctly and completely rejects Token-2022. No Token-2022 WS subscription is intentional. No confirmed production bug. Remaining risk is sale-path hardening if Token-2022 NFTs ever match supported sale parsers and DAS admits them.
+
+---
+
+**Audit #5 status:**
+
+| Finding | Status | Notes |
+|---|---|---|
+| T1 | Informational | Current mint-shape hard reject works |
+| T2 | Informational | MINT_ADDRESS_BLACKLIST defense works |
+| T3 | Backlog / low | Sale path `programId` guard missing in `extractNftMint` |
+| T4 | Backlog / blocked on live DAS validation | `FungibleAsset` path could admit T22 NFT-shaped tokens |
+| T5 | Backlog / low | Tensor T22 discriminators unverified; null buyer/seller |
+| T6 | Backlog / low | MMM T22 discriminators unverified; null buyer/seller |
+| T7 | Informational | Benign scoped substring match in `CG_MINT_NEEDLES` |
+| T8 | Informational | No Token-2022 WS subscription — by design |
+| T9 | Backlog with T4 | Permissive DAS fallback hardening |
+
+---
+
+### Finding T1 — Token-2022 hard reject in mint shape check
+
+**Status: Informational**
+
+**Audit finding:** `checkTokenMetadataNftShape` (`mint-raw/index.ts:2048`) iterates `postTokenBalances` for the extracted mint address. Returns `{ ok: false, reason: 'token_2022' }` if any entry has `programId === TOKEN_2022_PROGRAM`. This runs for every non-Core mint path. `RawTokenBalance.programId?: string` is typed in `me-raw/types.ts:45` with the explicit comment "Used by the mint parser to distinguish standard SPL Token NFTs (Tokenkeg…) from Token-2022 mints (Tokenz…)".
+
+**Production impact:** Zero. No Token-2022 token can pass the mint shape check.
+
+---
+
+### Finding T2 — Token-2022 program in `MINT_ADDRESS_BLACKLIST`
+
+**Status: Informational**
+
+**Audit finding:** `MINT_ADDRESS_BLACKLIST` at `mint-raw/index.ts:316` contains both `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` (SPL Token) and `TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy` (Token-2022). Prevents either program address from ever being emitted as a mint address if instruction account extraction glitches.
+
+**Production impact:** Zero. Defense-in-depth layer only.
+
+---
+
+### Finding T3 — Sale path `extractNftMint` lacks `programId` guard
+
+**Status: Backlog / low**
+
+**Audit finding:** `extractNftMint` in `me-raw/price.ts:133` filters `postTokenBalances` by `amount='1', decimals=0` but does not check `postBal.programId`. Token-2022 token balances appear in `pre/postTokenBalances` with the same format as SPL Token. A Token-2022 mint with supply=1, decimals=0 (e.g. WNS NFT sold via a supported ME or Tensor instruction discriminator) would pass the filter and return the T22 mint address.
+
+The `programId` field exists in the type (`me-raw/types.ts:45`). The mint pipeline uses it (`mint-raw/index.ts:2048`). The sale parser does not.
+
+**Current mitigation:** DAS `verifyAndFetchAsset` — if DAS returns a non-NFT verdict for the T22 mint, the event is rejected. DAS is the sole backstop.
+
+**Possible future fix:**
+```typescript
+// me-raw/price.ts — inside extractNftMint postBal loop:
+if (postBal.programId === TOKEN_2022_PROGRAM) continue;
+```
+Requires exporting `TOKEN_2022_PROGRAM` from `me-raw/programs.ts` first.
+
+**Decision:** Backlog. No T22 sale txs observed in production. DAS backstop sufficient today.
+
+---
+
+### Finding T4 — DAS `FungibleAsset` path admits Token-2022 NFT-shaped tokens
+
+**Status: Backlog / blocked on live DAS validation**
+
+**Audit finding:** `classifyDasAsset` in `helius-das.ts:270`:
+```typescript
+if (iface === 'FungibleAsset') {
+  if (decimals === 0 && fSupply === 1) return { ok: true, kind: 'sft' };
+  return { ok: false, reason: `interface=${iface}` };
+}
+```
+WNS (Wen New Standard) Token-2022 NFTs have decimals=0 and supply=1. If Helius DAS returns `interface=FungibleAsset` for them, `classifyDasAsset` accepts them as kind='sft' and they enter the sale feed. The `DasAsset` type in VL does not currently model `token_info.token_program`, so there is no access path to filter by T22 program inside `classifyDasAsset` without first confirming that field exists in the live DAS response.
+
+**Production impact:** If WNS NFTs are sold on Tensor (`buyT22`) and DAS returns the vulnerable combination, they could appear in the sale feed as nftType='legacy' (incorrect). Unconfirmed in VL production.
+
+**Current mitigation:** None if DAS returns FungibleAsset + decimals=0 + supply=1.
+
+**Possible future fix:** (1) Query Helius DAS `getAsset` for a known WNS mint address and inspect raw response. (2) If `token_info.token_program` is present: extend `DasAsset` type, add early-exit in `classifyDasAsset` when `tokenProgram === TOKEN_2022_PROGRAM`. Single-line change if field is confirmed.
+
+**Decision:** Backlog. Blocked on live DAS query to confirm field presence. See Validation needed below.
+
+---
+
+### Finding T5 — Tensor `buyT22`/`takeBidT22` discriminators unverified
+
+**Status: Backlog / low**
+
+**Audit finding:** `tensor-raw/programs.ts` includes `buyT22` and `takeBidT22` in `TCOMP_SALE_INSTRUCTIONS` with all account indices null and marked unverified. `classifyNftType` in `tensor-raw/decoder.ts` has no Token-2022 branch — returns 'legacy' for anything that's not Bubblegum/Core. If these discriminators fire:
+1. `findTcompSaleIx` matches → instruction returned
+2. `classifyNftType` returns 'legacy'
+3. `extractNftMint` reads T22 token balances → correct T22 mint address
+4. Buyer/seller null (account indices unset)
+5. DAS backstop validates
+
+**Production impact:** Currently zero — discriminators never observed in VL logs. If T22 Tensor sales become significant: buyer/seller would be null, nftType 'legacy'.
+
+**Decision:** Backlog. Verify Tensor TComp IDL and fill account indices, or remove entries until confirmed real.
+
+---
+
+### Finding T6 — MMM extended-token sale discriminators unverified
+
+**Status: Backlog / low**
+
+**Audit finding:** `me-raw/programs.ts` contains `solExtFulfillBuy`/`solExtFulfillSell` in `MMM_SALE_INSTRUCTIONS` with null account indices. Comment says "ext = extended token standard (e.g. Token-2022)". Same classification gap as T5: nftType='legacy', buyer/seller null, DAS backstop.
+
+**Production impact:** Currently zero. Unconfirmed in production.
+
+**Decision:** Backlog. Verify from ME/MMM IDL changelog or real tx before implementing.
+
+---
+
+### Finding T7 — `CG_MINT_NEEDLES` substring matches `MintTo`
+
+**Status: Informational**
+
+**Audit finding:** After the G3 fix, `CG_MINT_NEEDLES = ['Instruction: MintV2', 'Instruction: Mint']`. `line.includes('Instruction: Mint')` is a substring match and therefore also matches `Instruction: MintTo`. In a Candy Guard mint tx, SPL Token's `MintTo` fires as a CPI. So `isCandyGuardMintLog` could return true due to the `MintTo` line rather than the targeted `Mint` line.
+
+**Production impact:** None. `isCandyGuardMintLog` is only called for the `Guard1Jw...` WS subscription. SPL Token `MintTo` txs do not fire the Guard1Jw subscription. The only time `MintTo` appears in logs processed by `isCandyGuardMintLog` is during real CG mint txs — which is the correct positive case.
+
+**Optional future fix:** Replace `'Instruction: Mint'` entry with a regex like `TM_MINT_INSTRUCTION_REGEX = /Instruction: Mint(?:\s|$)/` to make the match precise. Not urgent.
+
+---
+
+### Finding T8 — No Token-2022 WS subscription (by design)
+
+**Status: Informational / by design**
+
+**Audit finding:** `MINT_PREFILTER_TARGETS` contains only `'mpl_core'` and `'token_metadata'`. No subscription for `TokenzQdBNbLqP5VEUNnHNEoA1YtbRuVvYr7fXMxHEy`. Token-2022 NFTs without TM metadata (WNS, embedded MetadataPointer extension) cannot enter the mint pipeline. Token-2022 NFTs WITH TM metadata fire the `token_metadata` subscription but are rejected by `checkTokenMetadataNftShape` (T1). Both paths are correct. Documented in `core-v2-detector.ts`: "Out of scope for /mints (Core / pNFT / legacy all run on the original SPL Token program)."
+
+**Production impact:** Zero. Correct behavior.
+
+---
+
+### Finding T9 — Permissive DAS fallback accepts unknown interface
+
+**Status: Backlog with T4**
+
+**Audit finding:** `classifyDasAsset` at `helius-das.ts:297`:
+```typescript
+// Unknown interface but NFT-shaped (decimals 0, supply ≤ 1)
+if ((decimals === 0 || decimals === undefined)
+    && (fSupply == null || fSupply <= 1)) {
+  return { ok: true, kind: 'legacy' };
+}
+```
+If DAS returns a Token-2022 token with an unrecognized or empty `interface` string, `decimals=0`, and `supply=1`, it passes here as kind='legacy'. Affects T22 tokens that DAS has not fully indexed or whose interface string VL hasn't seen before.
+
+**Production impact:** Low. Requires a T22 token to both (a) reach DAS verification via a sale parser discriminator match (T3/T5/T6) and (b) DAS return the right numeric shape with an unknown interface string. Improbable in current production.
+
+**Decision:** Backlog with T4. If `token_info.token_program` is confirmed in the DAS response, add early-exit before the permissive fallback for T22 program.
+
+---
+
+### Validation needed before fixing T4/T9
+
+- Run Helius DAS `getAsset` against a known WNS / Token-2022 NFT mint address.
+- Inspect raw response: confirm presence and name of `token_info.token_program` field and value of `interface`.
+- Search VL backend logs for any `buyT22`, `takeBidT22`, `solExtFulfillBuy`, `solExtFulfillSell` matches before implementing T5/T6 changes.
+
+---
+
 ## Next Research Targets
 
 Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
-| 2 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
-| 3 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
-| 4 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 1 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
+| 2 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. Also unblocks T4/T9 DAS validation. |
+| 3 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
