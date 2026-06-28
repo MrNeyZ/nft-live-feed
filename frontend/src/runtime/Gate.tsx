@@ -830,7 +830,7 @@ const GATE_CSS = `
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;        /* logo → hero-stack */
+  gap: 12px;        /* logo → hero-stack */
   margin-bottom: 40px; /* hero-stack → CTA */
 }
 .gate-hero-stack {
