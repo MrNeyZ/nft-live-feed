@@ -336,12 +336,14 @@ function lmnftCoreNeedleIfPresent(shape: ParsedTxShape): string | null {
   return null;
 }
 
-/** LMNFT Core collection-DEPLOY needle. A CreateCollection / CreateCollectionV1
- *  builds the collection master (no asset minted) — deliberately EXCLUDED from
- *  `CORE_CREATE_LOG_REGEX` (the mint needle) so a deploy never parses as a mint.
- *  This separate needle surfaces the deploy as its own COLLECTION_CREATE event.
- *  Same dual fingerprint as the mint needle (LMNFT outer + MPL Core present). */
-const CORE_COLLECTION_CREATE_LOG_REGEX = /^Program log: Instruction: (CreateCollection|CreateCollectionV1)$/;
+/** LMNFT Core collection-DEPLOY needle. A CreateCollection / CreateCollectionV1 /
+ *  CreateCollectionV2 builds the collection master (no asset minted) — deliberately
+ *  EXCLUDED from `CORE_CREATE_LOG_REGEX` (the mint needle) so a deploy never parses
+ *  as a mint. This separate needle surfaces the deploy as its own COLLECTION_CREATE
+ *  event. Same dual fingerprint as the mint needle (LMNFT outer + MPL Core present).
+ *  CreateCollectionV2 (disc 21) added: identical account layout to V1, so
+ *  `extractCoreCollectionCreate` handles it without changes. */
+const CORE_COLLECTION_CREATE_LOG_REGEX = /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateCollectionV2)$/;
 function lmnftCoreCollectionCreateNeedle(shape: ParsedTxShape): string | null {
   if (!shape.accountKeys.includes(LAUNCHMYNFT_PROGRAM)) return null;
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM))    return null;
