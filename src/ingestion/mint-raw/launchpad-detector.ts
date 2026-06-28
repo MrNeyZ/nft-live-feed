@@ -595,28 +595,30 @@ function extractTmMintFromInner(
 
   // Pass 2: locate the Verify CPI by discriminator + metadataPDA anchor.
   //
-  // Both Verify and Mint have `metadata` at accs[2] in their account
-  // layouts, so anchoring on metadataPDA alone isn't enough — the
-  // previous `accs[3] !== mintAddress` guard relied on accs[3] being
-  // the master_edition in the Mint ix and matching the (incorrectly-
-  // extracted) `mintAddress` to filter out that case. With the disc-
-  // aware Pass 1 above mintAddress is now the actual mint, so the
-  // Mint ix would otherwise sneak through and surface its
-  // master_edition pubkey as the "collection". Decode the candidate
-  // ix's discriminator and accept ONLY the Verify family:
+  // Both Verify and Mint have `metadata` in their account layouts, so
+  // discriminator filtering is required to avoid reading the wrong slot.
+  // Accept ONLY the verify-collection family; the account slot holding
+  // the asset's metadata PDA (anchor) and the collection mint differ
+  // per instruction:
   //
-  //    disc 14  VerifyCollection                (legacy)
-  //    disc 17  VerifySizedCollectionItem       (legacy sized)
-  //    disc 21  SetAndVerifyCollection          (legacy)
-  //    disc 22  SetAndVerifySizedCollectionItem (legacy sized)
-  //    disc 52  Verify(VerifyArgs)              (pNFT / TM v1 generic)
+  //   disc 18  VerifyCollection              accs: [meta, auth, payer, collMint, …]
+  //   disc 30  VerifySizedCollectionItem     accs: [meta, auth, payer, collMint, …]
+  //   disc 25  SetAndVerifyCollection        accs: [meta, auth, payer, updAuth, collMint, …]
+  //   disc 32  SetAndVerifySizedCollectionItem  accs: [meta, auth, payer, updAuth, collMint, …]
+  //   disc 52  Verify (unified / CollectionV1)  accs: [auth, delegate?, meta, collMint, …]
   //
-  // The Verify (disc 52) collection mint is at accs[3] — confirmed
-  // against both Candy Guard MintV2 inner CPIs and LMNFT MintTm
-  // inner CPIs. Mint ixs (disc 43, 44, etc.) and Update / metadata
-  // ixs are skipped outright.
-  const VERIFY_DISCS = new Set([14, 17, 21, 22, 52]);
+  // Each entry: [metadataPdaIdx, collMintIdx, minAccountsLen].
+  // metadataPdaIdx anchors to THIS mint's metadata so a concurrent
+  // verify for a different NFT in the same tx is not misread.
+  const VERIFY_COLLECTION_IDX = new Map<number, readonly [number, number, number]>([
+    [18, [0, 3, 4]],
+    [30, [0, 3, 4]],
+    [25, [0, 4, 5]],
+    [32, [0, 4, 5]],
+    [52, [2, 3, 4]],
+  ]);
   if (metadataPDA) {
+    outer2:
     for (const grp of inner) {
       if (!Array.isArray(grp.instructions)) continue;
       for (const ix of grp.instructions) {
@@ -633,19 +635,20 @@ function extractTmMintFromInner(
           const data = Buffer.from(bs58.decode(ixAny.data));
           if (data.length > 0) disc = data[0];
         } catch { /* leave disc=null → skip */ }
-        if (disc === null || !VERIFY_DISCS.has(disc)) continue;
+        const layout = disc !== null ? VERIFY_COLLECTION_IDX.get(disc) : undefined;
+        if (!layout) continue;
+        const [metaIdx, collIdx, minLen] = layout;
         const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
           typeof a === 'string' ? a : shape.accountKeys[a],
         );
-        if (accs.length >= 4
-            && accs[2] === metadataPDA
-            && typeof accs[3] === 'string'
-            && accs[3] !== mintAddress) {
-          collectionAddress = accs[3];
-          break;
+        if (accs.length >= minLen
+            && accs[metaIdx] === metadataPDA
+            && typeof accs[collIdx] === 'string'
+            && accs[collIdx] !== mintAddress) {
+          collectionAddress = accs[collIdx];
+          break outer2;
         }
       }
-      if (collectionAddress) break;
     }
   }
 
