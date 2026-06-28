@@ -50,6 +50,7 @@ import {
   getMintTrackerCoreV2ScorerEnabled,
   LAUNCHMYNFT_PROGRAM,
   CANDY_GUARD_PROGRAM,
+  PRNT_CORE_CANDY_GUARD,
   CANDY_MACHINE_V3_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
@@ -414,6 +415,12 @@ export function hasMintInstructionLog(logs: unknown): boolean {
     // alone lets the per-tx detector resolve accept/reject downstream;
     // CG is unspoofable (only Metaplex holds upgrade authority).
     if (line.includes(CANDY_GUARD_PROGRAM)) {
+      return true;
+    }
+    // Core Candy Guard (CMAGAKJ…) emits `Instruction: MintV1` + inner
+    // `Instruction: Create` (bare) — neither matches MINT_LOG_NEEDLES.
+    // Same single-program-presence shortcut as TM CG above.
+    if (line.includes(PRNT_CORE_CANDY_GUARD)) {
       return true;
     }
   }
