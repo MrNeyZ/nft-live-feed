@@ -566,9 +566,7 @@ const GATE_CSS = `
 .gate-root {
   position: fixed; inset: 0;
   min-height: 100vh;
-  /* Extra bottom padding biases the flex centering upward — stage lands
-     in the upper third/half of the viewport rather than dead center. */
-  padding: 60px 24px 200px;
+  padding: 60px 24px;
   display: flex; align-items: center; justify-content: center;
   color: #9a9ab4;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -824,6 +822,9 @@ const GATE_CSS = `
   max-width: 460px;
   position: relative;
   z-index: 1;
+  /* Subtle optical lift — moves the group ~4% of vh above dead centre so
+     top and bottom air feel balanced (bottom may be marginally larger). */
+  transform: translateY(-4vh);
 }
 .gate-top-group {
   display: flex;
