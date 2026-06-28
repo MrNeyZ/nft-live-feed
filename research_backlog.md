@@ -21,6 +21,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | # | Protocol | Status | Date |
 |---|---|---|---|
 | 1 | Metaplex Token Metadata | Complete | 2026-06-28 |
+| 2 | Metaplex Core | Complete | 2026-06-28 |
 
 ---
 
@@ -146,15 +147,124 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 
 ---
 
+## Audit #2 — Metaplex Core
+
+**Sources:** `metaplex-foundation/mpl-core` GitHub (IDL, Rust source, JS types), Solana mainnet pattern analysis (June 2026)
+
+**VL files audited:**
+- `src/ingestion/mint-raw/core-v2-detector.ts`
+- `src/ingestion/mint-raw/launchpad-detector.ts`
+- `src/ingestion/mint-raw/index.ts`
+
+**Architecture facts confirmed:**
+- 42 instructions (disc 0–41), u8 Shank discriminant (not Anchor 8-byte)
+- CreateV1 (disc 0) and CreateV2 (disc 20) have identical account layouts: `[0]=asset, [1]=collection(optional), [2]=authority(optional), [3]=payer, [4]=owner(optional), [5]=updateAuthority(optional), [6]=systemProgram`
+- Collection address on an asset is stored as `UpdateAuthority::Collection(pubkey)` at byte offset 33 of the asset account — not a direct struct field
+- Compression (CompressV1 disc 17, DecompressV1 disc 18) is disabled on mainnet (`MplCoreError::NotAvailable`)
+- Groups system (CreateGroupV1 disc 39) creates `GroupV1` accounts — a separate taxonomy hierarchy orthogonal to CollectionV1; does not affect Create instruction account layout
+- `UpdateCollectionInfoV1` (disc 32) is gated exclusively to Bubblegum PDA signer — used by Bubblegum V2 to update collection counters
+
+---
+
+### Finding C1 — `CORE_COLLECTION_CREATE_LOG_REGEX` missing `CreateCollectionV2` ✅
+
+**Status: Fixed — commit `2a0d617`**
+
+**Audit finding:** `CORE_COLLECTION_CREATE_LOG_REGEX` matched only `CreateCollection` and `CreateCollectionV1`. MPL Core disc 21 (`CreateCollectionV2`) logs `Instruction: CreateCollectionV2`, which the regex rejected — silently dropping `COLLECTION_CREATE` events for any launchpad adopting V2 collection creation.
+
+`extractCoreCollectionCreate` is discriminant-agnostic and reads `accounts[0]=collection`, `accounts[1]=updateAuthority` — identical layout between V1 and V2, so it handles V2 without changes.
+
+**Note:** The `hasMintInstructionLog` pre-screen needle `'Instruction: CreateCollection'` already matched V2 as a substring — so the tx entered the pipeline, but the exact-match regex blocked it from being classified as a collection-deploy.
+
+**Fix:** Added `CreateCollectionV2` as a third alternative in the regex.
+
+```
+Before: /^Program log: Instruction: (CreateCollection|CreateCollectionV1)$/
+After:  /^Program log: Instruction: (CreateCollection|CreateCollectionV1|CreateCollectionV2)$/
+```
+
+**Mainnet validation:** `CreateCollectionV2` not yet observed from tracked launchpads. Fix is future-proofing for a plausible launchpad upgrade path.
+
+---
+
+### Finding C2 — Collection at `accounts[1]` not discriminant-validated in fallback detectors
+
+**Status: Backlog — Low priority**
+
+**Audit finding:** `detectCoreCandyMachineMint`, `detectMagicEdenCoreMint`, and `detectGenericCoreLaunchpadMint` all read `accounts[1]` as the collection address without checking the Create instruction discriminant. When collection is absent (optional, Umi convention substitutes the Core program ID as sentinel), `hasRealCollection` filters it via `collection !== MPL_CORE_PROGRAM`. A custom client omitting the collection account entirely would shift accounts, possibly putting payer/authority at `accounts[1]` — which would pass `hasRealCollection` but be caught by `scheduleCollectionConfirmation`.
+
+**Decision:** Backlog. Current mitigation (Umi sentinel filter + DAS safety net) is robust for all real-world paths. If ordering guard is ever relaxed, add discriminant validation in the callers.
+
+---
+
+### Finding C4 — `extractCoreCollectionCreate` not discriminant-filtered
+
+**Status: Backlog — Low priority**
+
+**Audit finding:** `extractCoreCollectionCreate` scans all MPL Core instructions (not just CreateCollection variants) and returns the first match. Safe today because the function is only reached when no asset-mint log is present in the tx (the mint-needle branch runs first), meaning the only Core ix in a collection-deploy tx is the CreateCollection one.
+
+**Decision:** Backlog. Safe via caller ordering. If that ordering ever changes, add a discriminant filter (`buf[0] ∈ {1, 21}`).
+
+---
+
+### Finding C5 — `detectCoreCreateV2NftCandidate` disabled by feature flag
+
+**Status: Info — by design**
+
+**Audit finding:** The V2 scorer is disabled by default (`MINT_TRACKER_CORE_V2_SCORER` env var required). Direct CreateV2 mints from unknown custom launchpads (not CM, ME Launchpad, or `detectGenericCoreLaunchpadMint`-eligible) fall through to `unknown_launchpad`. This is the intended conservative default.
+
+**Decision:** Info. This is the coverage extension point if new launchpad patterns appear that don't use a non-primitive wrapper.
+
+---
+
+### Finding C6 — Compression disabled on mainnet
+
+**Status: Info — no action**
+
+**Audit finding:** `CompressV1` (disc 17) and `DecompressV1` (disc 18) both return `MplCoreError::NotAvailable` on every call. No valid compressed Core asset can be created today. VL has no handling for `HashedAssetV1` (compressed account type) — would need a decompression path or DAS fallback if compression is activated in a future upgrade.
+
+**Decision:** Note for future. No action until compression is activated.
+
+---
+
+### Finding C7 — Burn gate in `countNftMints` can undercount in exotic patterns
+
+**Status: Info — by design**
+
+**Audit finding:** Any Core Burn in a tx suppresses the Core Create count in `countNftMints`. This was intentional to handle forge/merge patterns (burn 2 + create 1 = 1 NFT). Edge case: a 12-asset bulk mint tx that also contains an unrelated Core burn would report ×1 instead of ×12. No known tx type produces this combination.
+
+**Decision:** Info. The gate is correct for all known patterns.
+
+---
+
+### Finding C8 — Group system (CreateGroupV1 disc 39+) not modeled
+
+**Status: Info — mint detection unaffected**
+
+**Audit finding:** MPL Core's `GroupV1` account type is a new hierarchical taxonomy system (collections of collections, up to 8 nesting levels). Individual asset Create instructions still use `accounts[1]=CollectionV1`. The `Groups` plugin is metadata on the asset/collection — it doesn't change the Create instruction layout. VL's collection attribution from `accounts[1]` remains correct regardless of whether the collection is also in a Group.
+
+**Decision:** Info. No mint detection gap. Note for future if VL adds taxonomy views.
+
+---
+
+### Finding C9 — BubblegumV2 on Core collections: cross-protocol gap
+
+**Status: Deferred to Bubblegum audit**
+
+**Audit finding:** A Core `CollectionV1` with the `BubblegumV2` plugin accepts compressed NFTs minted via the Bubblegum V2 program. VL's Core pipeline (subscribed to MPL Core) doesn't see these mints; VL's Bubblegum pipeline may emit them under a Merkle tree groupingKey rather than the Core collection address.
+
+**Decision:** Out of scope for Core audit. Flag for Bubblegum / cNFT audit (Research Target #1 below).
+
+---
+
 ## Next Research Targets
 
 Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Metaplex Core | Dominant current standard; `core-v2-detector.ts` is the primary parser. Check Create/Transfer/Burn/Update instruction coverage. |
-| 2 | Bubblegum / cNFT | cNFT mints are high volume; check Bubblegum v2 vs v1 instruction differences, concurrent Merkle tree handling. |
-| 3 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
+| 1 | Bubblegum / cNFT | cNFT mints are high volume; check Bubblegum v2 vs v1 instruction differences, concurrent Merkle tree handling. BubblegumV2/Core cross-protocol gap (C9 above). |
+| 2 | Candy Guard / Candy Machine V3 | CG is the dominant minting infrastructure; audit `Guard1Jw…` vs `CMAGYFEN…` (Core CG) path completeness. |
 | 4 | Token-2022 / SPL Token | Check whether Token-2022 NFTs (decimals=0, supply=1) are correctly rejected; any edge cases with `MintTo` vs `MintToChecked`. |
 | 5 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
 | 6 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. |
