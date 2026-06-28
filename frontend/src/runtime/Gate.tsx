@@ -822,9 +822,6 @@ const GATE_CSS = `
   max-width: 460px;
   position: relative;
   z-index: 1;
-  /* Subtle optical lift — moves the group ~4% of vh above dead centre so
-     top and bottom air feel balanced (bottom may be marginally larger). */
-  transform: translateY(-4vh);
 }
 .gate-top-group {
   display: flex;
