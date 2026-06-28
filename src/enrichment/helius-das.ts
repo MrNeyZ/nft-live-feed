@@ -245,7 +245,7 @@ export async function getAsset(mintAddress: string, reason?: GetAssetSource): Pr
 // group. Returns both the verdict (`ok / reason / kind`) and the
 // metadata so the enricher can use them in a single round-trip.
 
-export type NftKind = 'core' | 'pnft' | 'legacy';
+export type NftKind = 'core' | 'pnft' | 'legacy' | 'sft';
 export interface NftVerdict {
   ok:      boolean;
   kind?:   NftKind;
@@ -264,7 +264,16 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
   const fSupply       = asset.token_info?.supply;
 
   // ── Hard rejects ──
-  if (iface === 'FungibleToken' || iface === 'FungibleAsset') {
+  if (iface === 'FungibleToken') {
+    return { ok: false, reason: `interface=${iface}` };
+  }
+  if (iface === 'FungibleAsset') {
+    // Accept NFT-like SFTs (supply=1, decimals=0) — e.g. 1/1 edition tokens
+    // that DAS classifies as FungibleAsset but are functionally equivalent to
+    // a NonFungible. Reject anything with decimals > 0 or supply > 1.
+    if (decimals === 0 && (fSupply == null || fSupply <= 1)) {
+      return { ok: true, kind: 'sft' };
+    }
     return { ok: false, reason: `interface=${iface}` };
   }
   if (tokenStandard === 'Fungible' || tokenStandard === 'FungibleAsset') {

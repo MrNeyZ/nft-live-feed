@@ -1017,6 +1017,16 @@ export function patchAccumulatorMeta(
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
+/** Patch the sourceLabel for a group — used by the enricher when DAS
+ *  confirms an NFT-like SFT (FungibleAsset, supply=1, decimals=0) so
+ *  the frontend badge updates from the ingest-time fallback to 'SFT'. */
+export function patchAccumulatorSourceLabel(groupingKey: string, label: MintSourceLabel): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  a.sourceLabel = label;
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 /** Sticky write of the first valid per-NFT image observed for this
  *  collection. Called by `collection-confirm.ts` whenever a DAS
  *  resolve of a specific mintAddress returns a usable image. Once

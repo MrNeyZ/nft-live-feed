@@ -117,6 +117,7 @@ export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: s
     // pill's existing bg-tint frame (no glow added).
     case 'Metaplex Core':          return { label: 'CORE',     bg: alpha(VL.purpleTint, ALPHA.border), fg: rgb(VL.purpleTint) };
     case 'Metaplex':               return { label: 'LEGACY',   bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
+    case 'SFT':                    return { label: 'SFT',      bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
     case 'Bubblegum':              return { label: 'cNFT',     bg: alpha(VL.greenGlow, 0.15),  fg: rgb(VL.green) };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the
     // platform treasury. Distinct fuchsia palette so the row reads

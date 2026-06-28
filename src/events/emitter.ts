@@ -172,6 +172,7 @@ export type MintSourceLabel =
   | 'Bubblegum'
   | 'nfts.gay'
   | 'PRNT'
+  | 'SFT'
   | 'Unknown';
 
 /** Per-mint event, fired once on detection. */

@@ -13,7 +13,7 @@
  */
 
 import { verifyAndFetchAsset } from '../enrichment/helius-das';
-import { patchAccumulatorMeta, evictMintGroup } from './accumulator';
+import { patchAccumulatorMeta, patchAccumulatorSourceLabel, evictMintGroup } from './accumulator';
 import { isMintTrackerEnabled } from '../runtime/mode';
 
 const REQUEST_GAP_MS    = 500;
@@ -151,6 +151,11 @@ async function runWorker(): Promise<void> {
         patchAccumulatorMeta(next.groupingKey, {
           imageUrl: meta.imageUrl,
         });
+      }
+      // SFT: patch the source label so the frontend shows the SFT badge
+      // instead of the ingest-time 'Metaplex' fallback.
+      if (verdict.kind === 'sft') {
+        patchAccumulatorSourceLabel(next.groupingKey, 'SFT');
       }
     } catch {
       // Best-effort; on transient failure (rate-limit, network) we don't
