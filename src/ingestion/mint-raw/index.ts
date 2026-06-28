@@ -451,8 +451,10 @@ export function hasMintInstructionLog(logs: unknown): boolean {
  *  `MintV2` is intentionally NOT in MINT_LOG_NEEDLES (it would match SPL
  *  Token-2022's `MintV2` for the TM/Core path), but it is safe here because
  *  this function is only called when the CG program subscription fires — the
- *  CG program ID already scopes the notification uniquely. */
-const CG_MINT_NEEDLES = ['Instruction: MintV2', 'Instruction: MintFromCache'] as const;
+ *  CG program ID already scopes the notification uniquely.
+ *  `Instruction: Mint` covers the legacy Candy Guard v1 path (pre-MintV2).
+ *  `MintFromCache` was a speculative needle that never existed on-chain. */
+const CG_MINT_NEEDLES = ['Instruction: MintV2', 'Instruction: Mint'] as const;
 export function isCandyGuardMintLog(logs: unknown): boolean {
   if (!Array.isArray(logs)) return false;
   for (const line of logs) {
