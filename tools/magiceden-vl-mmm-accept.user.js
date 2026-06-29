@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.1.0
-// @description  Exposes window.vlMmmFulfillBuy() on magiceden.io so VictoryLabs can call the ME instruction endpoint from the correct CORS origin.
+// @version      0.2.0
+// @description  Runs on magiceden.io so ME CORS whitelist passes. Exposes window.vlMmmFulfillBuy() for console use and responds to postMessage requests from vl.nikki.gg.
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -13,36 +13,17 @@
 (function () {
   'use strict';
 
-  const ME_IXS = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
+  const ME_IXS    = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
+  const VL_ORIGIN = 'https://vl.nikki.gg';
 
-  /**
-   * window.vlMmmFulfillBuy(params) → Promise<result>
-   *
-   * params:
-   *   pool            string  — pool public key
-   *   seller          string  — seller wallet public key
-   *   assetMint       string  — NFT mint address
-   *   assetAmount     number  — always 1
-   *   minPaymentAmount number — floor(spotPrice * 9800 / 10000) in lamports
-   *
-   * result:
-   *   {
-   *     ok:         boolean,
-   *     status:     number,
-   *     elapsedMs:  number,
-   *     url:        string,
-   *     data:       any,       // parsed JSON if Content-Type is JSON
-   *     rawBody:    string,    // raw response text
-   *     error:      string | null,
-   *   }
-   */
+  // ── Core fetch ──────────────────────────────────────────────────────────────
   async function vlMmmFulfillBuy(params) {
     const { pool, seller, assetMint, assetAmount = 1, minPaymentAmount } = params ?? {};
 
     if (!pool || !seller || !assetMint || minPaymentAmount == null) {
       return {
-        ok: false, status: null, elapsedMs: 0,
-        url: null, data: null, rawBody: null,
+        ok: false, status: null, elapsedMs: 0, url: null,
+        data: null, rawBody: null,
         error: 'Missing required param(s): pool, seller, assetMint, minPaymentAmount',
       };
     }
@@ -70,34 +51,73 @@
       try { data = JSON.parse(rawBody); } catch (_) { /* not JSON */ }
 
       const result = {
-        ok:        resp.ok,
-        status:    resp.status,
-        elapsedMs,
-        url,
-        data,
-        rawBody,
+        ok: resp.ok, status: resp.status, elapsedMs, url, data, rawBody,
         error: resp.ok ? null : (data?.message ?? data?.error ?? `HTTP ${resp.status}`),
       };
 
-      if (resp.ok) {
-        console.log('[VL] vlMmmFulfillBuy OK', result);
-      } else {
-        console.warn('[VL] vlMmmFulfillBuy non-OK', result);
-      }
+      if (resp.ok) console.log('[VL] vlMmmFulfillBuy OK', result);
+      else         console.warn('[VL] vlMmmFulfillBuy non-OK', result);
       return result;
 
     } catch (err) {
       const elapsedMs = Math.round(performance.now() - t0);
       const result = {
         ok: false, status: null, elapsedMs, url,
-        data: null, rawBody: null,
-        error: err.message ?? String(err),
+        data: null, rawBody: null, error: err.message ?? String(err),
       };
       console.error('[VL] vlMmmFulfillBuy network error', result);
       return result;
     }
   }
 
+  // ── postMessage bridge ──────────────────────────────────────────────────────
+  // Protocol:
+  //   VL → ME  { type: 'VL_MMM_PING' }
+  //   ME → VL  { type: 'VL_MMM_READY' }
+  //
+  //   VL → ME  { type: 'VL_MMM_REQUEST', id, payload: { pool, seller, assetMint, assetAmount, minPaymentAmount } }
+  //   ME → VL  { type: 'VL_MMM_RESPONSE', id, ok, status, body, rawBody, error }
+
+  function postToVl(target, msg) {
+    try { target.postMessage(msg, VL_ORIGIN); } catch (e) {
+      console.warn('[VL] postToVl failed', e);
+    }
+  }
+
+  window.addEventListener('message', async (event) => {
+    if (event.origin !== VL_ORIGIN) return;
+
+    const { type, id, payload } = event.data ?? {};
+
+    if (type === 'VL_MMM_PING') {
+      console.log('[VL] PING received → sending READY');
+      postToVl(event.source, { type: 'VL_MMM_READY' });
+      return;
+    }
+
+    if (type === 'VL_MMM_REQUEST') {
+      console.log('[VL] REQUEST received', id, payload);
+      const result = await vlMmmFulfillBuy(payload);
+      postToVl(event.source, {
+        type:    'VL_MMM_RESPONSE',
+        id,
+        ok:      result.ok,
+        status:  result.status,
+        body:    result.data,
+        rawBody: result.rawBody,
+        error:   result.error,
+      });
+    }
+  });
+
+  // Announce ready to opener (VL page that called window.open)
+  if (window.opener) {
+    try {
+      window.opener.postMessage({ type: 'VL_MMM_READY' }, VL_ORIGIN);
+      console.log('[VL] sent VL_MMM_READY to opener');
+    } catch (_) {}
+  }
+
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log('[VL] MMM bridge ready — window.vlMmmFulfillBuy() available');
+  console.log('[VL] MMM bridge v0.2 ready — window.vlMmmFulfillBuy() + postMessage listener active');
 })();

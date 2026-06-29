@@ -10,11 +10,11 @@ import { Connection }                                     from '@solana/web3.js'
 import { LiveDot }                                        from '@/soloist/shared';
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
+import { requestMmmInstruction } from '@/lib/mmm-bridge';
 
 const API_BASE  = process.env.NEXT_PUBLIC_API_URL ?? '';
 const RPC_URL   = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const ADDR_RE   = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const ME_IXS    = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
 const ME_TOKEN_KEY = 'vl.meToken';
 const MONO: React.CSSProperties = { fontFamily: "'SF Mono','Fira Code',monospace" };
 const PANEL: React.CSSProperties = {
@@ -148,13 +148,12 @@ export default function MmmPoolLookupPage() {
   const [meToken, setMeToken]         = useState('');
   const [showToken, setShowToken]     = useState(false);
 
-  interface MeAttempt {
-    url: string;
-    status: number | 'cors' | 'network';
+  interface BridgeAttempt {
+    status: number | null;
     rawBody: string | null;
     elapsedMs: number;
-    usedToken: boolean;
-    jsError: string | null;
+    windowOpened: boolean;
+    error: string | null;
   }
   interface BackendAttempt {
     url: string;
@@ -167,9 +166,9 @@ export default function MmmPoolLookupPage() {
     mint: string;
     seller: string;
     minPayment: number;
-    meAttempt: MeAttempt | null;
+    bridgeAttempt: BridgeAttempt | null;
     backendAttempt: BackendAttempt | null;
-    finalErrorSource: 'Browser ME API' | 'Backend builder' | 'Frontend validation' | null;
+    finalErrorSource: 'Bridge (ME origin)' | 'Backend builder' | 'Frontend validation' | null;
     finalError: string | null;
   }
   type TxSource = 'me_browser' | 'backend' | null;
@@ -244,12 +243,6 @@ export default function MmmPoolLookupPage() {
     setTxPhase('building');
 
     const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
-    const meUrl = ME_IXS
-      + `?pool=${encodeURIComponent(pool.poolKey)}`
-      + `&seller=${encodeURIComponent(wallet)}`
-      + `&assetMint=${encodeURIComponent(selectedNft.mint)}`
-      + `&assetAmount=1`
-      + `&minPaymentAmount=${minPayment}`;
     const backendUrl = `${API_BASE}/api/tools/mmm-pools/bid-accept-tx`
       + `?pool=${encodeURIComponent(pool.poolKey)}`
       + `&seller=${encodeURIComponent(wallet)}`
@@ -257,7 +250,7 @@ export default function MmmPoolLookupPage() {
 
     const log: DiagLog = {
       poolKey: pool.poolKey, mint: selectedNft.mint, seller: wallet,
-      minPayment, meAttempt: null, backendAttempt: null,
+      minPayment, bridgeAttempt: null, backendAttempt: null,
       finalErrorSource: null, finalError: null,
     };
     setDiag({ ...log });
@@ -266,22 +259,20 @@ export default function MmmPoolLookupPage() {
       let txBase64: string | null = null;
       let txSource: TxSource = null;
 
-      // ── Path 1: Browser ME API ─────────────────────────────────────────────
-      const meHeaders: Record<string, string> = { accept: 'application/json' };
-      if (meToken) meHeaders['Authorization'] = `Bearer ${meToken}`;
-      const meT0 = performance.now();
+      // ── Path 1: Tampermonkey bridge (magiceden.io origin) ─────────────────
       try {
-        const meResp = await fetch(meUrl, { credentials: 'include', headers: meHeaders });
-        const elapsedMs = Math.round(performance.now() - meT0);
-        const rawBody = await meResp.text().catch(() => null);
-        log.meAttempt = {
-          url: meUrl, status: meResp.status, rawBody,
-          elapsedMs, usedToken: !!meToken, jsError: null,
+        const br = await requestMmmInstruction({
+          pool: pool.poolKey, seller: wallet,
+          assetMint: selectedNft.mint, assetAmount: 1, minPaymentAmount: minPayment,
+        });
+        log.bridgeAttempt = {
+          status: br.status, rawBody: br.rawBody,
+          elapsedMs: br.elapsedMs, windowOpened: br.windowOpened,
+          error: br.error,
         };
-        if (meResp.status === 401) setShowToken(true);
-        if (meResp.ok && rawBody) {
-          const meData = JSON.parse(rawBody) as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
-          const src = meData.txSigned ?? meData.tx;
+        if (br.ok && br.body) {
+          const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
+          const src = body.txSigned ?? body.tx;
           if (src?.data && Array.isArray(src.data)) {
             const bytes = new Uint8Array(src.data);
             let bin = '';
@@ -290,11 +281,11 @@ export default function MmmPoolLookupPage() {
             txSource = 'me_browser';
           }
         }
-      } catch (meErr) {
-        const elapsedMs = Math.round(performance.now() - meT0);
-        const jsError = (meErr as Error).message;
-        const status = jsError.toLowerCase().includes('cors') ? 'cors' as const : 'network' as const;
-        log.meAttempt = { url: meUrl, status, rawBody: null, elapsedMs, usedToken: !!meToken, jsError };
+      } catch (bridgeErr) {
+        log.bridgeAttempt = {
+          status: null, rawBody: null, elapsedMs: 0,
+          windowOpened: false, error: (bridgeErr as Error).message,
+        };
       }
       setDiag({ ...log });
 
@@ -348,7 +339,8 @@ export default function MmmPoolLookupPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="feed-root page-transition" data-page="tools-mmm-pool-lookup">
-      <div style={{ padding:'20px 4px 14px', flexShrink:0, width:'100%',
+      <div style={{ flex:1, minHeight:0, overflowY:'auto', width:'100%' }}>
+      <div style={{ padding:'20px 4px 72px', flexShrink:0, width:'100%',
         maxWidth:'var(--tools-max,1100px)', margin:'0 auto', boxSizing:'border-box' }}>
         <h1 style={{ fontSize:22, fontWeight:700, color:'#f0eef8', letterSpacing:'-0.5px' }}>
           MMM Bid Accept
@@ -517,7 +509,7 @@ export default function MmmPoolLookupPage() {
               <div style={{ padding:'0 4px 12px' }}>
                 <div style={{ fontSize:10, color:'#c7b479', marginBottom:6, fontWeight:600 }}>
                   Advanced — ME auth token
-                  {diag?.meAttempt?.status === 401 && ' (browser session returned 401, token required)'}
+                  {diag?.bridgeAttempt?.status === 401 && ' (ME returned 401, token required)'}
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                   <input
@@ -627,31 +619,30 @@ export default function MmmPoolLookupPage() {
                     <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports ({(diag.minPayment/1e9).toFixed(6)} SOL)
                   </div>
 
-                  {/* Browser ME attempt */}
+                  {/* Bridge attempt */}
                   <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
                     textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
-                    Path 1 — Browser ME API
+                    Path 1 — Bridge (magiceden.io origin)
                   </div>
-                  {diag.meAttempt ? (() => {
-                    const m = diag.meAttempt;
-                    const ok = m.status === 200;
-                    const statusColor = ok ? '#43b984' : '#d96867';
+                  {diag.bridgeAttempt ? (() => {
+                    const m = diag.bridgeAttempt;
+                    const ok = m.status !== null && m.status >= 200 && m.status < 300;
                     return (
                       <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                        <div><span style={{ color:'#9a9ab4' }}>url:     </span>
-                          <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{m.url}</span></div>
-                        <div><span style={{ color:'#9a9ab4' }}>status:  </span>
-                          <span style={{ color: statusColor, fontWeight:700 }}>
-                            {m.status === 'cors' ? 'CORS — browser blocked cross-origin read'
-                              : m.status === 'network' ? 'NETWORK ERROR'
-                              : `HTTP ${m.status}`}
-                          </span>
-                          <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>
-                          {m.usedToken && <span style={{ color:'#c7b479', marginLeft:8 }}>· token sent</span>}
+                        <div>
+                          <span style={{ color:'#9a9ab4' }}>window:  </span>
+                          <span style={{ color:'#c4c2d4' }}>{m.windowOpened ? 'opened new tab' : 'reused existing tab'}</span>
                         </div>
-                        {m.jsError && (
-                          <div><span style={{ color:'#9a9ab4' }}>js err:  </span>
-                            <span style={{ color:'#d96867' }}>{m.jsError}</span></div>
+                        <div>
+                          <span style={{ color:'#9a9ab4' }}>status:  </span>
+                          <span style={{ color: m.error && !ok ? '#d96867' : ok ? '#43b984' : '#c7b479', fontWeight:700 }}>
+                            {m.status !== null ? `HTTP ${m.status}` : m.error ? 'ERROR (no HTTP status)' : 'pending'}
+                          </span>
+                          {m.elapsedMs > 0 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>}
+                        </div>
+                        {m.error && (
+                          <div><span style={{ color:'#9a9ab4' }}>error:   </span>
+                            <span style={{ color:'#d96867' }}>{m.error}</span></div>
                         )}
                         {m.rawBody !== null && (
                           <div style={{ marginTop:2 }}>
@@ -694,7 +685,7 @@ export default function MmmPoolLookupPage() {
                     );
                   })() : (
                     <div style={{ color:'#9a9ab4' }}>
-                      {diag.meAttempt && diag.meAttempt.status === 200 ? 'skipped (ME succeeded)' : 'not attempted yet'}
+                      {diag.bridgeAttempt?.status === 200 ? 'skipped (bridge succeeded)' : 'not attempted yet'}
                     </div>
                   )}
 
@@ -732,6 +723,7 @@ export default function MmmPoolLookupPage() {
             <br />Connect Phantom to accept the bid directly — bypasses ME UI.
           </div>
         )}
+      </div>
       </div>
     </div>
   );
