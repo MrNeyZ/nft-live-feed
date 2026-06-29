@@ -55,20 +55,26 @@ export interface SignSendResult {
   txType:    'versioned' | 'legacy';
 }
 
-/**
- * Submit a base64-encoded transaction (legacy or versioned). Phantom signs
- * and submits via its own RPC; we then poll our chosen `Connection` for
- * confirmation so the result reflects the cluster the rest of the app reads.
- *
- * Throws on user rejection, send failure, or confirmation timeout.
- * Returns `{ signature, txType }` so callers can include the deserialized
- * shape in their post-buy logs.
- */
 const TAG = '[VL-phantom]';
 
+/**
+ * Submit a base64-encoded transaction (legacy or versioned).
+ *
+ * signAndSendTransaction signs AND submits via Phantom's own RPC, returning
+ * a signature as soon as the node accepts the tx (not awaiting confirmation).
+ * We return immediately — the tx is already on its way. Callers surface the
+ * Solscan link so the user can verify the result.
+ *
+ * We intentionally skip getLatestBlockhash + confirmTransaction here:
+ *   - The ME tx has its own embedded blockhash; a freshly-fetched one is wrong
+ *   - confirmTransaction uses a WebSocket subscription; the public RPC WSS is
+ *     unreliable and hangs indefinitely with no error, causing the UI to freeze
+ *
+ * Throws on user rejection or send failure.
+ */
 export async function signSendAndConfirm(
   txBase64: string,
-  connection: Connection,
+  connection?: Connection,
 ): Promise<SignSendResult> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
@@ -96,31 +102,21 @@ export async function signSendAndConfirm(
     throw err;
   }
 
-  console.log(TAG, 'calling getLatestBlockhash...');
-  let latest: { blockhash: string; lastValidBlockHeight: number };
-  try {
-    latest = await connection.getLatestBlockhash('confirmed');
-    console.log(TAG, 'getLatestBlockhash resolved — blockhash=' + latest.blockhash + ' lastValidBlockHeight=' + latest.lastValidBlockHeight);
-  } catch (err) {
-    console.error(TAG, 'getLatestBlockhash THREW:', (err as Error).message, err);
-    throw err;
-  }
-
-  console.log(TAG, 'calling confirmTransaction — signature=' + signature);
-  try {
+  // Optional confirmation via WebSocket — only when a Connection is supplied.
+  // Omit for MMM/bridge flows: signAndSendTransaction already submitted the tx
+  // via Phantom's own RPC; the public RPC WSS hangs indefinitely under rate
+  // limits and freezes the UI with no error.
+  if (connection) {
+    const latest = await connection.getLatestBlockhash('confirmed');
     const conf = await connection.confirmTransaction({
       signature,
       blockhash: latest.blockhash,
       lastValidBlockHeight: latest.lastValidBlockHeight,
     }, 'confirmed');
-    console.log(TAG, 'confirmTransaction resolved — value=', conf.value);
     if (conf.value.err) {
-      console.error(TAG, 'confirmTransaction: on-chain error:', conf.value.err);
       throw new Error('Transaction failed on-chain: ' + JSON.stringify(conf.value.err));
     }
-  } catch (err) {
-    console.error(TAG, 'confirmTransaction THREW:', (err as Error).message, err);
-    throw err;
+    console.log(TAG, 'confirmTransaction resolved OK');
   }
 
   console.log(TAG, 'signSendAndConfirm complete — signature=' + signature);

@@ -6,7 +6,7 @@
 // the backend only builds and proxies transactions, never holds keys.
 
 import { useEffect, useRef, useState }                    from 'react';
-import { Connection, PublicKey }                          from '@solana/web3.js';
+import { PublicKey }                                      from '@solana/web3.js';
 import { getAssociatedTokenAddressSync }                  from '@solana/spl-token';
 import { LiveDot }                                        from '@/soloist/shared';
 import { authHeaders }                                    from '@/runtime/auth';
@@ -14,7 +14,6 @@ import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } f
 import { requestMmmInstruction } from '@/lib/mmm-bridge';
 
 const API_BASE  = process.env.NEXT_PUBLIC_API_URL ?? '';
-const RPC_URL   = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const ADDR_RE   = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const ME_TOKEN_KEY = 'vl.meToken';
 const MONO: React.CSSProperties = { fontFamily: "'SF Mono','Fira Code',monospace" };
@@ -332,8 +331,7 @@ export default function MmmPoolLookupPage() {
 
       setTxPhase('signing');
       console.log('[VL-page] calling signSendAndConfirm — txBase64 length=' + txBase64.length + ' source=' + txSource);
-      const conn = new Connection(RPC_URL, 'confirmed');
-      const { signature } = await signSendAndConfirm(txBase64, conn);
+      const { signature } = await signSendAndConfirm(txBase64);
       console.log('[VL-page] signSendAndConfirm returned — signature=' + signature);
       setTxPhase({ sig: signature, source: txSource });
     } catch (e) {
