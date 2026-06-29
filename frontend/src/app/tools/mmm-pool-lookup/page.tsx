@@ -244,7 +244,12 @@ export default function MmmPoolLookupPage() {
     if (!pool || !wallet || !selectedNft) return;
     setTxPhase('building');
 
-    const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+    // minPaymentAmount = 0: seller accepts whatever the pool pays after fees.
+    // We have no royalty data at quote time; ME's frontend uses their own
+    // effectivePrice (spot - taker_fee - royalties - lp_fee). Setting our floor
+    // to 98% of spot caused Custom 6009 (InvalidRequestedPrice) for any NFT
+    // with royalties, since actual net payment < 98% of spot after fees.
+    const minPayment = 0;
     const assetTokenAccount = getAssociatedTokenAddressSync(
       new PublicKey(selectedNft.mint),
       new PublicKey(wallet),
