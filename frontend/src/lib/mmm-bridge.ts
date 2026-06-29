@@ -57,11 +57,24 @@ async function pingUntilReady(w: Window, totalTimeoutMs: number): Promise<void> 
 
   // Keep pinging until READY arrives (userscript may still be loading)
   let pings = 0;
+  let lastPingError = '';
   const interval = setInterval(() => {
     if (w.closed) { clearInterval(interval); return; }
     pings++;
     console.log(TAG, `sending PING #${pings} to ME window`);
-    try { w.postMessage({ type: 'VL_MMM_PING' }, ME_ORIGIN); } catch (_) {}
+    try {
+      w.postMessage({ type: 'VL_MMM_PING' }, ME_ORIGIN);
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      if (msg !== lastPingError) {
+        lastPingError = msg;
+        if (msg.includes('victorylabs') || msg.includes('vl.nikki.gg')) {
+          console.error(TAG, 'ME popup is still on VL origin / wrong window reference —', msg);
+        } else {
+          console.error(TAG, `PING #${pings} postMessage failed:`, msg);
+        }
+      }
+    }
   }, PING_INTERVAL_MS);
 
   try {
@@ -83,7 +96,7 @@ async function ensureReady(): Promise<Window> {
   }
 
   console.log(TAG, 'no existing window — opening magiceden.io popup');
-  const w = window.open(ME_URL, 'vl-me-bridge', 'width=960,height=680');
+  const w = window.open(ME_URL, '_blank', 'width=960,height=680');
   if (!w) throw new Error('Popup blocked — allow popups for this site and retry');
   _meWindow = w;
   console.log(TAG, 'popup opened, pinging until userscript is ready');
