@@ -148,11 +148,34 @@ export default function MmmPoolLookupPage() {
   const [meToken, setMeToken]         = useState('');
   const [showToken, setShowToken]     = useState(false);
 
-  type MeDebug = { status: number | 'cors' | 'network'; usedToken: boolean } | null;
+  interface MeAttempt {
+    url: string;
+    status: number | 'cors' | 'network';
+    rawBody: string | null;
+    elapsedMs: number;
+    usedToken: boolean;
+    jsError: string | null;
+  }
+  interface BackendAttempt {
+    url: string;
+    status: number;
+    rawBody: string | null;
+    elapsedMs: number;
+  }
+  interface DiagLog {
+    poolKey: string;
+    mint: string;
+    seller: string;
+    minPayment: number;
+    meAttempt: MeAttempt | null;
+    backendAttempt: BackendAttempt | null;
+    finalErrorSource: 'Browser ME API' | 'Backend builder' | 'Frontend validation' | null;
+    finalError: string | null;
+  }
   type TxSource = 'me_browser' | 'backend' | null;
   type TxPhase = null | 'building' | 'signing' | 'confirming' | { sig: string; source: TxSource } | { error: string };
   const [txPhase, setTxPhase]   = useState<TxPhase>(null);
-  const [meDebug, setMeDebug]   = useState<MeDebug>(null);
+  const [diag, setDiag]         = useState<DiagLog | null>(null);
 
   const pool = lookupResult?.type === 'pool' ? lookupResult.pool : null;
 
@@ -219,27 +242,45 @@ export default function MmmPoolLookupPage() {
   const acceptBid = async () => {
     if (!pool || !wallet || !selectedNft) return;
     setTxPhase('building');
-    setMeDebug(null);
+
+    const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+    const meUrl = ME_IXS
+      + `?pool=${encodeURIComponent(pool.poolKey)}`
+      + `&seller=${encodeURIComponent(wallet)}`
+      + `&assetMint=${encodeURIComponent(selectedNft.mint)}`
+      + `&assetAmount=1`
+      + `&minPaymentAmount=${minPayment}`;
+    const backendUrl = `${API_BASE}/api/tools/mmm-pools/bid-accept-tx`
+      + `?pool=${encodeURIComponent(pool.poolKey)}`
+      + `&seller=${encodeURIComponent(wallet)}`
+      + `&mint=${encodeURIComponent(selectedNft.mint)}`;
+
+    const log: DiagLog = {
+      poolKey: pool.poolKey, mint: selectedNft.mint, seller: wallet,
+      minPayment, meAttempt: null, backendAttempt: null,
+      finalErrorSource: null, finalError: null,
+    };
+    setDiag({ ...log });
+
     try {
       let txBase64: string | null = null;
       let txSource: TxSource = null;
 
-      // 1. ME API directly from browser — pure session mode, no Authorization header
-      //    Browser sends existing ME cookies (cf_clearance, DYNAMIC_JWT_TOKEN) via credentials:include
-      const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
-      const meUrl = ME_IXS
-        + `?pool=${encodeURIComponent(pool.poolKey)}`
-        + `&seller=${encodeURIComponent(wallet)}`
-        + `&assetMint=${encodeURIComponent(selectedNft.mint)}`
-        + `&assetAmount=1`
-        + `&minPaymentAmount=${minPayment}`;
+      // ── Path 1: Browser ME API ─────────────────────────────────────────────
+      const meHeaders: Record<string, string> = { accept: 'application/json' };
+      if (meToken) meHeaders['Authorization'] = `Bearer ${meToken}`;
+      const meT0 = performance.now();
       try {
-        const meHeaders: Record<string, string> = { accept: 'application/json' };
-        if (meToken) meHeaders['Authorization'] = `Bearer ${meToken}`;
         const meResp = await fetch(meUrl, { credentials: 'include', headers: meHeaders });
-        setMeDebug({ status: meResp.status, usedToken: !!meToken });
-        if (meResp.ok) {
-          const meData = await meResp.json() as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
+        const elapsedMs = Math.round(performance.now() - meT0);
+        const rawBody = await meResp.text().catch(() => null);
+        log.meAttempt = {
+          url: meUrl, status: meResp.status, rawBody,
+          elapsedMs, usedToken: !!meToken, jsError: null,
+        };
+        if (meResp.status === 401) setShowToken(true);
+        if (meResp.ok && rawBody) {
+          const meData = JSON.parse(rawBody) as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
           const src = meData.txSigned ?? meData.tx;
           if (src?.data && Array.isArray(src.data)) {
             const bytes = new Uint8Array(src.data);
@@ -249,40 +290,56 @@ export default function MmmPoolLookupPage() {
             txSource = 'me_browser';
           }
         }
-        // 401 → expose token field so user can provide advanced auth
-        if (meResp.status === 401) setShowToken(true);
       } catch (meErr) {
-        const isCors = (meErr as Error).message.toLowerCase().includes('cors')
-          || (meErr as Error).message.toLowerCase().includes('network');
-        setMeDebug({ status: isCors ? 'cors' : 'network', usedToken: !!meToken });
+        const elapsedMs = Math.round(performance.now() - meT0);
+        const jsError = (meErr as Error).message;
+        const status = jsError.toLowerCase().includes('cors') ? 'cors' as const : 'network' as const;
+        log.meAttempt = { url: meUrl, status, rawBody: null, elapsedMs, usedToken: !!meToken, jsError };
       }
+      setDiag({ ...log });
 
-      // 2. Backend on-chain builder fallback (only works for non-ME-cosigner pools)
+      // ── Path 2: Backend on-chain builder ───────────────────────────────────
       if (!txBase64) {
         txSource = 'backend';
-        const r = await fetch(
-          `${API_BASE}/api/tools/mmm-pools/bid-accept-tx` +
-          `?pool=${encodeURIComponent(pool.poolKey)}` +
-          `&seller=${encodeURIComponent(wallet)}` +
-          `&mint=${encodeURIComponent(selectedNft.mint)}`,
-          { headers: { ...authHeaders() } },
-        );
+        const beT0 = performance.now();
+        const r = await fetch(backendUrl, { headers: { ...authHeaders() } });
+        const elapsedMs = Math.round(performance.now() - beT0);
+        const rawBody = await r.text().catch(() => null);
+        log.backendAttempt = { url: backendUrl, status: r.status, rawBody, elapsedMs };
+        setDiag({ ...log });
         if (!r.ok) {
-          const b = await r.json().catch(() => null) as { message?: string; error?: string } | null;
-          throw new Error(b?.message ?? b?.error ?? `HTTP ${r.status}`);
+          const b = rawBody ? JSON.parse(rawBody) as { message?: string; error?: string } : null;
+          const msg = b?.message ?? b?.error ?? `HTTP ${r.status}`;
+          log.finalErrorSource = 'Backend builder';
+          log.finalError = msg;
+          setDiag({ ...log });
+          throw new Error(msg);
         }
-        ({ txBase64 } = await r.json() as { ok: true; txBase64: string });
+        const parsed = rawBody ? JSON.parse(rawBody) as { ok: true; txBase64: string } : null;
+        txBase64 = parsed?.txBase64 ?? null;
+      }
+
+      if (!txBase64) {
+        log.finalErrorSource = 'Backend builder';
+        log.finalError = 'No transaction bytes returned';
+        setDiag({ ...log });
+        throw new Error('No transaction bytes returned');
       }
 
       setTxPhase('signing');
       const conn = new Connection(RPC_URL, 'confirmed');
-      const { signature } = await signSendAndConfirm(txBase64!, conn);
+      const { signature } = await signSendAndConfirm(txBase64, conn);
       setTxPhase({ sig: signature, source: txSource });
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.toLowerCase().includes('rejected') || msg.toLowerCase().includes('cancelled')) {
         setTxPhase(null);
       } else {
+        if (!log.finalErrorSource) {
+          log.finalErrorSource = 'Frontend validation';
+          log.finalError = msg;
+          setDiag({ ...log });
+        }
         setTxPhase({ error: msg });
       }
     }
@@ -446,7 +503,7 @@ export default function MmmPoolLookupPage() {
                         {nfts.map(n => (
                           <NftThumb key={n.mint} nft={n}
                             selected={selectedNft?.mint === n.mint}
-                            onClick={() => { setSelectedNft(n); setTxPhase(null); }} />
+                            onClick={() => { setSelectedNft(n); setTxPhase(null); setDiag(null); }} />
                         ))}
                       </div>
                     </>
@@ -460,7 +517,7 @@ export default function MmmPoolLookupPage() {
               <div style={{ padding:'0 4px 12px' }}>
                 <div style={{ fontSize:10, color:'#c7b479', marginBottom:6, fontWeight:600 }}>
                   Advanced — ME auth token
-                  {meDebug?.status === 401 && ' (browser session returned 401, token required)'}
+                  {diag?.meAttempt?.status === 401 && ' (browser session returned 401, token required)'}
                 </div>
                 <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
                   <input
@@ -551,31 +608,111 @@ export default function MmmPoolLookupPage() {
               </div>
             )}
 
-            {/* ME direct fetch debug output */}
-            {meDebug !== null && (
-              <div style={{ padding:'0 4px 12px' }}>
-                <div style={{
-                  padding:'8px 12px', fontSize:11, borderRadius:5,
-                  ...MONO,
-                  background: meDebug.status === 200 || meDebug.status === 'cors' ? 'rgba(92,224,160,0.06)' : 'rgba(239,120,120,0.06)',
-                  border: `1px solid ${meDebug.status === 200 || meDebug.status === 'cors' ? 'rgba(92,224,160,0.22)' : 'rgba(239,120,120,0.22)'}`,
-                  color: '#c4c2d4',
-                }}>
-                  <span style={{ fontWeight:700, color:'#9a9ab4' }}>ME direct: </span>
-                  {meDebug.status === 'cors'
-                    ? <span style={{ color:'#d96867' }}>CORS blocked (browser rejected cross-origin read)</span>
-                    : meDebug.status === 'network'
-                    ? <span style={{ color:'#d96867' }}>network error</span>
-                    : meDebug.status === 401
-                    ? <span style={{ color:'#d96867' }}>401 unauthorized — provide token above</span>
-                    : meDebug.status === 403
-                    ? <span style={{ color:'#d96867' }}>403 forbidden (Cloudflare or session expired)</span>
-                    : meDebug.status === 200
-                    ? <span style={{ color:'#43b984' }}>200 OK</span>
-                    : <span style={{ color:'#c7b479' }}>HTTP {meDebug.status}</span>
-                  }
-                  {meDebug.usedToken && <span style={{ color:'#9a9ab4', marginLeft:8 }}>· token sent</span>}
-                  {meDebug.status !== 200 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>· falling back to on-chain builder</span>}
+            {/* ── Diagnostics panel ─────────────────────────────────────── */}
+            {diag && (
+              <div style={{ padding:'0 4px 16px' }}>
+                <div style={{ ...MONO, fontSize:11, padding:'12px 14px', borderRadius:6,
+                  background:'rgba(15,10,30,0.85)', border:'1px solid rgba(168,144,232,0.18)',
+                  display:'flex', flexDirection:'column', gap:8 }}>
+
+                  {/* Request params */}
+                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6 }}>
+                    Attempt params
+                  </div>
+                  <div style={{ color:'#c4c2d4', fontSize:11, lineHeight:1.7 }}>
+                    <span style={{ color:'#9a9ab4' }}>pool:    </span>{diag.poolKey}<br/>
+                    <span style={{ color:'#9a9ab4' }}>mint:    </span>{diag.mint}<br/>
+                    <span style={{ color:'#9a9ab4' }}>seller:  </span>{diag.seller}<br/>
+                    <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports ({(diag.minPayment/1e9).toFixed(6)} SOL)
+                  </div>
+
+                  {/* Browser ME attempt */}
+                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                    Path 1 — Browser ME API
+                  </div>
+                  {diag.meAttempt ? (() => {
+                    const m = diag.meAttempt;
+                    const ok = m.status === 200;
+                    const statusColor = ok ? '#43b984' : '#d96867';
+                    return (
+                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                        <div><span style={{ color:'#9a9ab4' }}>url:     </span>
+                          <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{m.url}</span></div>
+                        <div><span style={{ color:'#9a9ab4' }}>status:  </span>
+                          <span style={{ color: statusColor, fontWeight:700 }}>
+                            {m.status === 'cors' ? 'CORS — browser blocked cross-origin read'
+                              : m.status === 'network' ? 'NETWORK ERROR'
+                              : `HTTP ${m.status}`}
+                          </span>
+                          <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>
+                          {m.usedToken && <span style={{ color:'#c7b479', marginLeft:8 }}>· token sent</span>}
+                        </div>
+                        {m.jsError && (
+                          <div><span style={{ color:'#9a9ab4' }}>js err:  </span>
+                            <span style={{ color:'#d96867' }}>{m.jsError}</span></div>
+                        )}
+                        {m.rawBody !== null && (
+                          <div style={{ marginTop:2 }}>
+                            <span style={{ color:'#9a9ab4' }}>body:    </span>
+                            <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                              {m.rawBody.length > 300 ? m.rawBody.slice(0,300) + '…' : m.rawBody || '(empty)'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })() : (
+                    <div style={{ color:'#9a9ab4' }}>not attempted yet</div>
+                  )}
+
+                  {/* Backend attempt */}
+                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                    Path 2 — Backend builder
+                  </div>
+                  {diag.backendAttempt ? (() => {
+                    const b = diag.backendAttempt;
+                    const ok = b.status >= 200 && b.status < 300;
+                    return (
+                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                        <div><span style={{ color:'#9a9ab4' }}>url:     </span>
+                          <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{b.url}</span></div>
+                        <div><span style={{ color:'#9a9ab4' }}>status:  </span>
+                          <span style={{ color: ok ? '#43b984' : '#d96867', fontWeight:700 }}>HTTP {b.status}</span>
+                          <span style={{ color:'#9a9ab4', marginLeft:8 }}>{b.elapsedMs}ms</span>
+                        </div>
+                        {b.rawBody !== null && (
+                          <div><span style={{ color:'#9a9ab4' }}>body:    </span>
+                            <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                              {b.rawBody.length > 400 ? b.rawBody.slice(0,400) + '…' : b.rawBody || '(empty)'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })() : (
+                    <div style={{ color:'#9a9ab4' }}>
+                      {diag.meAttempt && diag.meAttempt.status === 200 ? 'skipped (ME succeeded)' : 'not attempted yet'}
+                    </div>
+                  )}
+
+                  {/* Final error */}
+                  {diag.finalErrorSource && (
+                    <>
+                      <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                        textTransform:'uppercase', borderBottom:'1px solid rgba(239,120,120,0.20)', paddingBottom:6, marginTop:4 }}>
+                        Error source
+                      </div>
+                      <div>
+                        <span style={{ color:'#d96867', fontWeight:700 }}>Error source: {diag.finalErrorSource}</span>
+                        <br/>
+                        <span style={{ color:'#d96867' }}>{diag.finalError}</span>
+                      </div>
+                    </>
+                  )}
+
                 </div>
               </div>
             )}
