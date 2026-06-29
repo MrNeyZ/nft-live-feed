@@ -1,6 +1,8 @@
-const ME_ORIGIN         = 'https://magiceden.io';
-const READY_TIMEOUT_MS  = 20_000;
+const ME_ORIGIN          = 'https://magiceden.io';
+const ME_URL             = 'https://magiceden.io';
+const READY_TIMEOUT_MS   = 25_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+const PING_INTERVAL_MS   = 500;   // re-ping while waiting for page to load
 const TAG = '[VL-bridge]';
 
 let _meWindow: Window | null = null;
@@ -25,7 +27,7 @@ function waitForMessage(
     function handler(e: MessageEvent) {
       console.log(TAG, `message received — origin=${e.origin} type=${(e.data as {type?:string})?.type} label=${label}`);
       if (!predicate(e)) {
-        console.log(TAG, `  predicate rejected — expected origin=${ME_ORIGIN}, got origin=${e.origin}, type=${(e.data as {type?:string})?.type}`);
+        console.log(TAG, `  predicate rejected (${label}) — origin=${e.origin} type=${(e.data as {type?:string})?.type}`);
         return;
       }
       console.log(TAG, `  predicate accepted → resolving (${label})`);
@@ -42,35 +44,51 @@ function fromMe(w: Window) {
   return (e: MessageEvent) => e.source === w && e.origin === ME_ORIGIN;
 }
 
+// Send PING repeatedly until we get READY back.
+// Works whether the tab was opened by us or by the user directly — opener is irrelevant.
+async function pingUntilReady(w: Window, totalTimeoutMs: number): Promise<void> {
+  console.log(TAG, `pingUntilReady — will ping every ${PING_INTERVAL_MS}ms for up to ${totalTimeoutMs}ms`);
+
+  const readyP = waitForMessage(
+    e => fromMe(w)(e) && e.data?.type === 'VL_MMM_READY',
+    totalTimeoutMs,
+    'open',
+  );
+
+  // Keep pinging until READY arrives (userscript may still be loading)
+  let pings = 0;
+  const interval = setInterval(() => {
+    if (w.closed) { clearInterval(interval); return; }
+    pings++;
+    console.log(TAG, `sending PING #${pings} to ME window`);
+    try { w.postMessage({ type: 'VL_MMM_PING' }, ME_ORIGIN); } catch (_) {}
+  }, PING_INTERVAL_MS);
+
+  try {
+    await readyP;
+  } finally {
+    clearInterval(interval);
+  }
+
+  console.log(TAG, `READY received after ${pings} ping(s)`);
+}
+
 async function ensureReady(): Promise<Window> {
   const existing = activeWindow();
 
   if (existing) {
-    console.log(TAG, 'existing ME window found — sending PING');
-    const readyP = waitForMessage(
-      e => fromMe(existing)(e) && e.data?.type === 'VL_MMM_READY',
-      5_000,
-      'ping',
-    );
-    existing.postMessage({ type: 'VL_MMM_PING' }, ME_ORIGIN);
-    console.log(TAG, 'PING sent to existing window');
-    await readyP;
-    console.log(TAG, 'READY received from existing window');
+    console.log(TAG, 'reusing existing ME window — pinging');
+    await pingUntilReady(existing, 5_000);
     return existing;
   }
 
   console.log(TAG, 'no existing window — opening magiceden.io popup');
-  const w = window.open('https://magiceden.io', 'vl-me-bridge', 'width=960,height=680');
+  const w = window.open(ME_URL, 'vl-me-bridge', 'width=960,height=680');
   if (!w) throw new Error('Popup blocked — allow popups for this site and retry');
   _meWindow = w;
-  console.log(TAG, 'popup opened, waiting for VL_MMM_READY from userscript');
+  console.log(TAG, 'popup opened, pinging until userscript is ready');
 
-  await waitForMessage(
-    e => fromMe(w)(e) && e.data?.type === 'VL_MMM_READY',
-    READY_TIMEOUT_MS,
-    'open',
-  );
-  console.log(TAG, 'READY received from new popup');
+  await pingUntilReady(w, READY_TIMEOUT_MS);
   return w;
 }
 

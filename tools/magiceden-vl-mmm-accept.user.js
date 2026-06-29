@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.2.1
+// @version      0.3.0
 // @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
@@ -131,5 +131,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.2.1 ready — postMessage listener active');
+  console.log(TAG, 'MMM bridge v0.3.0 ready — postMessage listener active (ping-based handshake)');
 })();
