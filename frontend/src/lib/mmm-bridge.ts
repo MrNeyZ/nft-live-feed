@@ -147,6 +147,7 @@ export interface BridgeParams {
   pool: string;
   seller: string;
   assetMint: string;
+  assetTokenAccount: string;
   assetAmount: number;
   minPaymentAmount: number;
 }

@@ -6,7 +6,8 @@
 // the backend only builds and proxies transactions, never holds keys.
 
 import { useEffect, useRef, useState }                    from 'react';
-import { Connection }                                     from '@solana/web3.js';
+import { Connection, PublicKey }                          from '@solana/web3.js';
+import { getAssociatedTokenAddressSync }                  from '@solana/spl-token';
 import { LiveDot }                                        from '@/soloist/shared';
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
@@ -166,6 +167,7 @@ export default function MmmPoolLookupPage() {
     poolKey: string;
     mint: string;
     seller: string;
+    assetTokenAccount: string;
     minPayment: number;
     bridgeAttempt: BridgeAttempt | null;
     backendAttempt: BackendAttempt | null;
@@ -244,6 +246,10 @@ export default function MmmPoolLookupPage() {
     setTxPhase('building');
 
     const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+    const assetTokenAccount = getAssociatedTokenAddressSync(
+      new PublicKey(selectedNft.mint),
+      new PublicKey(wallet),
+    ).toBase58();
     const backendUrl = `${API_BASE}/api/tools/mmm-pools/bid-accept-tx`
       + `?pool=${encodeURIComponent(pool.poolKey)}`
       + `&seller=${encodeURIComponent(wallet)}`
@@ -251,7 +257,8 @@ export default function MmmPoolLookupPage() {
 
     const log: DiagLog = {
       poolKey: pool.poolKey, mint: selectedNft.mint, seller: wallet,
-      minPayment, bridgeAttempt: null, backendAttempt: null,
+      assetTokenAccount, minPayment,
+      bridgeAttempt: null, backendAttempt: null,
       finalErrorSource: null, finalError: null,
     };
     setDiag({ ...log });
@@ -264,7 +271,8 @@ export default function MmmPoolLookupPage() {
       try {
         const br = await requestMmmInstruction({
           pool: pool.poolKey, seller: wallet,
-          assetMint: selectedNft.mint, assetAmount: 1, minPaymentAmount: minPayment,
+          assetMint: selectedNft.mint, assetTokenAccount, assetAmount: 1,
+          minPaymentAmount: minPayment,
         });
         let txFound = false;
         if (br.ok && br.body) {
@@ -621,6 +629,7 @@ export default function MmmPoolLookupPage() {
                     <span style={{ color:'#9a9ab4' }}>pool:    </span>{diag.poolKey}<br/>
                     <span style={{ color:'#9a9ab4' }}>mint:    </span>{diag.mint}<br/>
                     <span style={{ color:'#9a9ab4' }}>seller:  </span>{diag.seller}<br/>
+                    <span style={{ color:'#9a9ab4' }}>ata:     </span>{diag.assetTokenAccount}<br/>
                     <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports ({(diag.minPayment/1e9).toFixed(6)} SOL)
                   </div>
 

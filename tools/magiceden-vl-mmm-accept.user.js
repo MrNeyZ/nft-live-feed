@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.3.3
+// @version      0.3.4
 // @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
@@ -23,27 +23,28 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.3.3 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.3.4 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
   async function vlMmmFulfillBuy(params) {
-    const { pool, seller, assetMint, assetAmount = 1, minPaymentAmount } = params ?? {};
+    const { pool, seller, assetMint, assetTokenAccount, assetAmount = 1, minPaymentAmount } = params ?? {};
 
-    if (!pool || !seller || !assetMint || minPaymentAmount == null) {
+    if (!pool || !seller || !assetMint || !assetTokenAccount || minPaymentAmount == null) {
       return {
         ok: false, status: null, elapsedMs: 0, url: null,
         data: null, rawBody: null,
-        error: 'Missing required param(s): pool, seller, assetMint, minPaymentAmount',
+        error: 'Missing required param(s): pool, seller, assetMint, assetTokenAccount, minPaymentAmount',
       };
     }
 
     const url = ME_IXS
-      + '?pool='             + encodeURIComponent(pool)
-      + '&seller='           + encodeURIComponent(seller)
-      + '&assetMint='        + encodeURIComponent(assetMint)
-      + '&assetAmount='      + encodeURIComponent(assetAmount)
-      + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
+      + '?pool='                + encodeURIComponent(pool)
+      + '&seller='              + encodeURIComponent(seller)
+      + '&assetMint='           + encodeURIComponent(assetMint)
+      + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
+      + '&assetAmount='         + encodeURIComponent(assetAmount)
+      + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount);
 
     console.log(TAG, 'calling fetch() ->', url);
     const t0 = performance.now();
@@ -142,5 +143,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.3.3 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.3.4 ready - postMessage listener active - waiting for PING from VL');
 })();
