@@ -4,11 +4,11 @@
 // signAndSendTransaction methods. We type just what we use — no adapter SDK.
 
 import {
-  Connection,
   PublicKey,
   Transaction,
   VersionedTransaction,
 } from '@solana/web3.js';
+import { authHeaders } from '@/runtime/auth';
 
 export interface PhantomProvider {
   isPhantom?: boolean;
@@ -17,7 +17,20 @@ export interface PhantomProvider {
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey }>;
   disconnect: () => Promise<void>;
   signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T>;
-  signAndSendTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<{ signature: string }>;
+  signAndSendTransaction<T extends Transaction | VersionedTransaction>(tx: T, opts?: { skipPreflight?: boolean; preflightCommitment?: string; maxRetries?: number }): Promise<{ signature: string }>;
+}
+
+/** Send a serialized transaction via our backend proxy (avoids browser→public RPC 403). */
+async function backendSendRaw(serialized: Uint8Array): Promise<string> {
+  const txBase64 = Buffer.from(serialized).toString('base64');
+  const r = await fetch('/api/tools/mmm-pools/send-tx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ tx: txBase64 }),
+  });
+  const j = await r.json() as { ok: boolean; signature?: string; message?: string };
+  if (!j.ok || !j.signature) throw new Error(j.message ?? `send-tx HTTP ${r.status}`);
+  return j.signature;
 }
 
 declare global {
@@ -74,7 +87,6 @@ const TAG = '[VL-phantom]';
  */
 export async function signSendAndConfirm(
   txBase64: string,
-  connection?: Connection,
 ): Promise<SignSendResult> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
@@ -91,32 +103,50 @@ export async function signSendAndConfirm(
   }
   console.log(TAG, `deserialized tx type=${txType} byteLen=${raw.length}`);
 
-  console.log(TAG, 'calling signAndSendTransaction...');
-  let signature: string;
-  try {
-    const result = await sol.signAndSendTransaction(tx);
-    signature = result.signature;
-    console.log(TAG, 'signAndSendTransaction resolved — signature=' + signature);
-  } catch (err) {
-    console.error(TAG, 'signAndSendTransaction THREW:', (err as Error).message, err);
-    throw err;
+  // For versioned transactions (e.g. SolMip1FulfillBuy with ME cosigner pre-signed),
+  // signAndSendTransaction rejects partially-signed txs with "Unexpected error".
+  // Use signTransaction + sendRawTransaction(skipPreflight) instead — same flow ME UI uses.
+  // Diagnostic: log signer info for versioned txs
+  if (txType === 'versioned') {
+    const vtx = tx as VersionedTransaction;
+    const myKey = sol.publicKey?.toBase58() ?? '(no key)';
+    const staticKeys = vtx.message.staticAccountKeys.map(k => k.toBase58());
+    const numReqSig = vtx.message.header.numRequiredSignatures;
+    const signerKeys = staticKeys.slice(0, numReqSig);
+    const sigs = vtx.signatures.map(s => s.every(b => b === 0) ? 'EMPTY' : 'FILLED');
+    console.log(TAG, 'versioned tx diagnostics', {
+      myWallet: myKey,
+      numRequiredSignatures: numReqSig,
+      signerKeys,
+      mySlot: signerKeys.indexOf(myKey),
+      signatureSlots: sigs,
+      allFilled: vtx.signatures.every(s => s.some(b => b !== 0)),
+    });
   }
 
-  // Optional confirmation via WebSocket — only when a Connection is supplied.
-  // Omit for MMM/bridge flows: signAndSendTransaction already submitted the tx
-  // via Phantom's own RPC; the public RPC WSS hangs indefinitely under rate
-  // limits and freezes the UI with no error.
-  if (connection) {
-    const latest = await connection.getLatestBlockhash('confirmed');
-    const conf = await connection.confirmTransaction({
-      signature,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    }, 'confirmed');
-    if (conf.value.err) {
-      throw new Error('Transaction failed on-chain: ' + JSON.stringify(conf.value.err));
+  console.log(TAG, txType === 'versioned' ? 'calling signTransaction (versioned)...' : 'calling signAndSendTransaction...');
+  let signature: string;
+  try {
+    if (txType === 'versioned') {
+      const vtx = tx as VersionedTransaction;
+      const allFilled = vtx.signatures.every(s => s.some(b => b !== 0));
+      if (allFilled) {
+        console.log(TAG, 'tx fully pre-signed — sending raw via backend proxy');
+        signature = await backendSendRaw(vtx.serialize());
+      } else {
+        const signed = await sol.signTransaction(vtx);
+        const serialized = (signed as VersionedTransaction).serialize();
+        console.log(TAG, 'signTransaction resolved — sending raw tx via backend proxy...');
+        signature = await backendSendRaw(serialized);
+      }
+    } else {
+      const result = await sol.signAndSendTransaction(tx, { skipPreflight: true });
+      signature = result.signature;
     }
-    console.log(TAG, 'confirmTransaction resolved OK');
+    console.log(TAG, 'send resolved — signature=' + signature);
+  } catch (err) {
+    console.error(TAG, 'sign/send THREW:', (err as Error).message, err);
+    throw err;
   }
 
   console.log(TAG, 'signSendAndConfirm complete — signature=' + signature);

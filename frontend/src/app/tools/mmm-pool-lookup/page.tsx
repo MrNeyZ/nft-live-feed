@@ -280,7 +280,37 @@ export default function MmmPoolLookupPage() {
         });
         let txFound = false;
         if (br.ok && br.body) {
-          const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
+          const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] }; presigned?: boolean; signature?: string };
+          // v0.4.0: userscript signed+sent in ME popup context, returns signature directly
+          if (body.presigned && body.signature) {
+            console.log('[VL-page] bridge presigned — skipping Phantom, sig=' + body.signature);
+            txFound = true;
+            log.bridgeAttempt = {
+              status: br.status, rawBody: br.rawBody,
+              elapsedMs: br.elapsedMs, windowOpened: br.windowOpened,
+              error: null, txFound: true,
+            };
+            setDiag({ ...log });
+            setTxPhase({ sig: body.signature, source: 'me_browser' });
+            void (async () => {
+              const signature = body.signature!;
+              for (let attempt = 0; attempt < 5; attempt++) {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+                try {
+                  const r = await fetch(
+                    `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
+                    { headers: { ...authHeaders() } },
+                  );
+                  if (!r.ok) continue;
+                  const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
+                  if (!d.ok || !d.found) continue;
+                  if (d.err) { setTxPhase({ error: 'Transaction failed on-chain: ' + JSON.stringify(d.err) }); return; }
+                  if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') return;
+                } catch (_) {}
+              }
+            })();
+            return;
+          }
           const src = body.txSigned ?? body.tx;
           if (src?.data && Array.isArray(src.data)) {
             const bytes = new Uint8Array(src.data);

@@ -16,7 +16,6 @@
 
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Connection } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
 import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
 import {
@@ -43,9 +42,6 @@ import {
 } from '@/wallet/phantom';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-// Set NEXT_PUBLIC_RPC_URL in frontend/.env.local to a private RPC (e.g. Helius)
-// — public mainnet-beta is rate-limited and may time out before the tx confirms.
-const RPC_URL  = process.env.NEXT_PUBLIC_RPC_URL  ?? 'https://api.mainnet-beta.solana.com';
 
 // Sized to match the backend's `BY_COLLECTION_HARD_LIMIT` so a full history
 // fetch is never silently clipped by frontend eviction. Live appends add on
@@ -1297,14 +1293,13 @@ export default function CollectionPage() {
         listing: { priceSol: number; seller: string; auctionHouse: string; tokenAta: string };
       };
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'signing' } }));
-      const conn = new Connection(RPC_URL, 'confirmed');
-      const { signature, txType } = await signSendAndConfirm(txBase64, conn);
+      const { signature, txType } = await signSendAndConfirm(txBase64);
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
       // eslint-disable-next-line no-console
       console.log('[buy/me] confirmed', {
         mint: listing.mint, seller: serverListing.seller, auctionHouse: serverListing.auctionHouse,
         priceSol: serverListing.priceSol, tokenAta: serverListing.tokenAta,
-        txType, signature, rpc: RPC_URL,
+        txType, signature,
       });
     } catch (err) {
       const message = (err as Error).message ?? String(err);
