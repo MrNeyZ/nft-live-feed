@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.3.2
+// @version      0.3.3
 // @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
@@ -22,7 +22,9 @@
     'https://victorylabs.app',
   ]);
 
-  console.log(TAG, 'userscript loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  // Version + allowlist confirmation -- check this in the ME console first
+  console.log(TAG, 'VERSION=0.3.3 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
   async function vlMmmFulfillBuy(params) {
@@ -93,12 +95,14 @@
   }
 
   window.addEventListener('message', async (event) => {
-    console.log(TAG, 'message event received - origin=' + event.origin + ' type=' + (event.data?.type ?? 'none'));
+    // Log EVERY message before any filtering
+    console.log(TAG, '[RAW] message received - origin=' + event.origin + ' type=' + (event.data?.type ?? 'none') + ' inAllowlist=' + VL_ORIGINS.has(event.origin), event.data);
 
     if (!VL_ORIGINS.has(event.origin)) {
-      console.log(TAG, '  ignored - origin not in allowlist (' + event.origin + ')');
+      console.warn(TAG, 'REJECTED - origin not in allowlist:', event.origin, '(allowlist=' + Array.from(VL_ORIGINS).join(',') + ')');
       return;
     }
+    console.log(TAG, 'ACCEPTED - origin=' + event.origin);
 
     const { type, id, payload } = event.data ?? {};
 
@@ -138,5 +142,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.3.2 ready - postMessage listener active');
+  console.log(TAG, 'MMM bridge v0.3.3 ready - postMessage listener active - waiting for PING from VL');
 })();
