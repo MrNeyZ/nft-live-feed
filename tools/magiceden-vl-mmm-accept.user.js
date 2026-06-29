@@ -2,7 +2,7 @@
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
 // @version      0.2.0
-// @description  Runs on magiceden.io so ME CORS whitelist passes. Exposes window.vlMmmFulfillBuy() for console use and responds to postMessage requests from vl.nikki.gg.
+// @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
