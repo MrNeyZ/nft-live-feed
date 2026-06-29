@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.2.0
+// @version      0.2.1
 // @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
@@ -15,6 +15,9 @@
 
   const ME_IXS    = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
   const VL_ORIGIN = 'https://vl.nikki.gg';
+  const TAG       = '[VL-userscript]';
+
+  console.log(TAG, 'userscript loaded — origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
 
   // ── Core fetch ──────────────────────────────────────────────────────────────
   async function vlMmmFulfillBuy(params) {
@@ -35,7 +38,7 @@
       + '&assetAmount='      + encodeURIComponent(assetAmount)
       + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
 
-    console.log('[VL] vlMmmFulfillBuy → GET', url);
+    console.log(TAG, 'calling fetch() →', url);
     const t0 = performance.now();
 
     try {
@@ -46,7 +49,9 @@
       });
 
       const elapsedMs = Math.round(performance.now() - t0);
-      const rawBody   = await resp.text();
+      console.log(TAG, 'fetch finished — status=' + resp.status + ' elapsed=' + elapsedMs + 'ms');
+
+      const rawBody = await resp.text();
       let data = null;
       try { data = JSON.parse(rawBody); } catch (_) { /* not JSON */ }
 
@@ -55,49 +60,51 @@
         error: resp.ok ? null : (data?.message ?? data?.error ?? `HTTP ${resp.status}`),
       };
 
-      if (resp.ok) console.log('[VL] vlMmmFulfillBuy OK', result);
-      else         console.warn('[VL] vlMmmFulfillBuy non-OK', result);
+      if (resp.ok) console.log(TAG, 'fetch OK', result);
+      else         console.warn(TAG, 'fetch non-OK', result);
       return result;
 
     } catch (err) {
       const elapsedMs = Math.round(performance.now() - t0);
-      const result = {
+      console.error(TAG, 'fetch threw', err.message, 'elapsed=' + elapsedMs + 'ms');
+      return {
         ok: false, status: null, elapsedMs, url,
         data: null, rawBody: null, error: err.message ?? String(err),
       };
-      console.error('[VL] vlMmmFulfillBuy network error', result);
-      return result;
     }
   }
 
   // ── postMessage bridge ──────────────────────────────────────────────────────
-  // Protocol:
-  //   VL → ME  { type: 'VL_MMM_PING' }
-  //   ME → VL  { type: 'VL_MMM_READY' }
-  //
-  //   VL → ME  { type: 'VL_MMM_REQUEST', id, payload: { pool, seller, assetMint, assetAmount, minPaymentAmount } }
-  //   ME → VL  { type: 'VL_MMM_RESPONSE', id, ok, status, body, rawBody, error }
-
   function postToVl(target, msg) {
-    try { target.postMessage(msg, VL_ORIGIN); } catch (e) {
-      console.warn('[VL] postToVl failed', e);
+    console.log(TAG, 'postToVl → type=' + msg.type + ' id=' + (msg.id ?? '-'));
+    try {
+      target.postMessage(msg, VL_ORIGIN);
+      console.log(TAG, 'postToVl sent OK');
+    } catch (e) {
+      console.warn(TAG, 'postToVl failed', e);
     }
   }
 
   window.addEventListener('message', async (event) => {
-    if (event.origin !== VL_ORIGIN) return;
+    console.log(TAG, 'message event received — origin=' + event.origin + ' type=' + (event.data?.type ?? 'none'));
+
+    if (event.origin !== VL_ORIGIN) {
+      console.log(TAG, '  ignored — origin mismatch (expected ' + VL_ORIGIN + ')');
+      return;
+    }
 
     const { type, id, payload } = event.data ?? {};
 
     if (type === 'VL_MMM_PING') {
-      console.log('[VL] PING received → sending READY');
+      console.log(TAG, 'PING received — sending READY');
       postToVl(event.source, { type: 'VL_MMM_READY' });
       return;
     }
 
     if (type === 'VL_MMM_REQUEST') {
-      console.log('[VL] REQUEST received', id, payload);
+      console.log(TAG, 'REQUEST received id=' + id, payload);
       const result = await vlMmmFulfillBuy(payload);
+      console.log(TAG, 'sending RESPONSE id=' + id + ' ok=' + result.ok + ' status=' + result.status);
       postToVl(event.source, {
         type:    'VL_MMM_RESPONSE',
         id,
@@ -112,12 +119,17 @@
 
   // Announce ready to opener (VL page that called window.open)
   if (window.opener) {
+    console.log(TAG, 'window.opener present — sending VL_MMM_READY to opener');
     try {
       window.opener.postMessage({ type: 'VL_MMM_READY' }, VL_ORIGIN);
-      console.log('[VL] sent VL_MMM_READY to opener');
-    } catch (_) {}
+      console.log(TAG, 'VL_MMM_READY sent to opener');
+    } catch (e) {
+      console.warn(TAG, 'failed to post to opener', e);
+    }
+  } else {
+    console.log(TAG, 'window.opener is null — tab was opened directly, not via window.open() from VL');
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log('[VL] MMM bridge v0.2 ready — window.vlMmmFulfillBuy() + postMessage listener active');
+  console.log(TAG, 'MMM bridge v0.2.1 ready — postMessage listener active');
 })();
