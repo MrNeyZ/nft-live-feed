@@ -27,6 +27,7 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 }                                                    from '@solana/spl-token';
+import bs58                                          from 'bs58';
 import { rateLimit }                                 from './rate-limit';
 
 const MMM_PROGRAM_ID = new PublicKey('mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc');
@@ -654,6 +655,26 @@ export function createMmmPoolsRouter(): Router {
   const router = Router();
   const limit  = rateLimit({ limit: 10, windowMs: 60_000, label: 'tools/mmm-pools' });
 
+  // Proxy sendRawTransaction through Helius so the browser doesn't hit the public RPC
+  // (which returns 403 for sendTransaction from browser origins).
+  router.post('/tools/mmm-pools/send-tx', limit, async (req: Request, res: Response) => {
+    const { tx } = req.body as { tx?: string };
+    if (!tx || typeof tx !== 'string') {
+      return res.status(400).json({ ok: false, error: 'missing_tx' });
+    }
+    try {
+      const result = await rpcPost('sendTransaction', [
+        tx,
+        { encoding: 'base64', skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed' },
+      ]) as string;
+      return res.json({ ok: true, signature: result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/mmm-pools] send-tx error', msg);
+      return res.status(502).json({ ok: false, error: 'rpc_error', message: msg });
+    }
+  });
+
   // Verify a submitted transaction landed on-chain.
   // Returns immediately with the current status (caller should poll if not_found).
   router.get('/tools/mmm-pools/tx-status', limit, async (req: Request, res: Response) => {
@@ -740,6 +761,138 @@ export function createMmmPoolsRouter(): Router {
       }
       console.error('[tools/mmm-pools] lookup error', err);
       return res.status(502).json({ ok: false, error: 'rpc_error', message: msg });
+    }
+  });
+
+  // ── Collection underfunded pool scan ──────────────────────────────────────
+  // GET /api/tools/mmm-pools/collection-scan?fvca=<pubkey>[&mcc=<pubkey>]
+  // Returns active (non-expired) pools for a collection where
+  // 0 < realEscrow < spotPrice — the "ghost bids" that can execute on-chain
+  // if topped up but are invisible in the ME UI.
+  router.get('/tools/mmm-pools/collection-scan', rateLimit({ limit: 6, windowMs: 60_000, label: 'tools/mmm-collection-scan' }), async (req: Request, res: Response) => {
+    const fvca = String(req.query.fvca ?? '').trim();
+    const mcc  = String(req.query.mcc  ?? '').trim();
+    if (!fvca && !mcc) {
+      return res.status(400).json({ ok: false, error: 'missing_params', message: 'fvca or mcc required' });
+    }
+    if (fvca && !ADDR_RE.test(fvca)) return res.status(400).json({ ok: false, error: 'invalid_fvca' });
+    if (mcc  && !ADDR_RE.test(mcc))  return res.status(400).json({ ok: false, error: 'invalid_mcc' });
+
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const seen = new Map<string, { pubkey: string; account: { data: [string, string] } }>();
+
+      // Search FVCA (type=1) and MCC (type=3) across all 6 allowlist slots
+      const queries: Array<{ type: 1 | 3; pubkey: string }> = [];
+      if (fvca) queries.push({ type: 1, pubkey: fvca });
+      if (mcc)  queries.push({ type: 3, pubkey: mcc });
+
+      for (const q of queries) {
+        const creatorBuf = new PublicKey(q.pubkey).toBuffer();
+        // 33-byte prefix: 1 type byte + 32 pubkey bytes, base58-encoded for memcmp
+        const matchBuf = Buffer.concat([Buffer.from([q.type]), creatorBuf]);
+        const matchB58 = bs58.encode(matchBuf);
+
+        for (let slot = 0; slot < 6; slot++) {
+          const offset = OFF_AL + slot * 33;
+          const result = await rpcPost('getProgramAccounts', [
+            MMM_PROGRAM_ID.toBase58(),
+            {
+              encoding:   'base64',
+              commitment: 'confirmed',
+              filters: [
+                { dataSize: POOL_SIZE },
+                { memcmp: { offset, bytes: matchB58 } },
+              ],
+            },
+          ]) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+          for (const acct of result) seen.set(acct.pubkey, acct);
+        }
+      }
+
+      const accounts = Array.from(seen.values());
+      const allPools: MmmPool[] = [];
+      for (const acct of accounts) {
+        const p = parsePool(acct.pubkey, acct.account.data[0]);
+        if (p) allPools.push(p);
+      }
+
+      // Fetch real escrow balances
+      const balances = await fetchMultipleBalances(allPools.map(p => p.escrowPda));
+      const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+
+      // Classify
+      const isActive      = (p: MmmPool) => p.expiry === 0 || p.expiry > now;
+      const active        = hydrated.filter(isActive);
+      const expired       = hydrated.length - active.length;
+      const executable    = active.filter(p => p.executable);
+      const underfunded   = active.filter(p => !p.executable && p.realEscrow > 0);
+      const emptyEscrow   = active.filter(p => p.realEscrow === 0);
+
+      // Sort underfunded by missing ASC (closest to executable first)
+      underfunded.sort((a, b) => a.missing - b.missing);
+
+      return res.json({
+        ok:            true,
+        fvca:          fvca || null,
+        mcc:           mcc  || null,
+        totalFound:    hydrated.length,
+        expired,
+        activeTotal:   active.length,
+        executable:    executable.length,
+        underfunded:   underfunded.length,
+        emptyEscrow:   emptyEscrow.length,
+        pools:         underfunded,
+        scannedAt:     new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[tools/mmm-pools] collection-scan error', err);
+      return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });
+    }
+  });
+
+  // Resolve a ME collection slug → first verified creator (FVCA) via ME listings + Helius DAS.
+  router.get('/tools/mmm-pools/resolve-slug', limit, async (req: Request, res: Response) => {
+    const slug = String(req.query.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (!slug) return res.status(400).json({ ok: false, error: 'missing_slug' });
+    try {
+      let mint = '';
+      for (let attempt = 0; attempt < 3 && !mint; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 600 * attempt));
+        const meRes = await fetch(
+          `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/listings?offset=0&limit=5`,
+          { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8_000) },
+        );
+        if (meRes.status === 404) return res.status(404).json({ ok: false, error: 'collection_not_found' });
+        if (!meRes.ok) {
+          if (attempt === 2) return res.status(502).json({ ok: false, error: `me_api_${meRes.status}`, message: 'ME API unavailable, please retry' });
+          continue;
+        }
+        let listings: Array<{ tokenMint?: string; mintAddress?: string }>;
+        try {
+          listings = await meRes.json() as typeof listings;
+        } catch {
+          // ME API returned 200 with non-JSON (CF rate-limit HTML page etc.) — retry
+          if (attempt === 2) return res.status(502).json({ ok: false, error: 'me_api_bad_response', message: 'ME API unavailable, please retry' });
+          continue;
+        }
+        mint = listings[0]?.tokenMint ?? listings[0]?.mintAddress ?? '';
+      }
+      if (!mint) return res.status(404).json({ ok: false, error: 'no_listings' });
+
+      const dasRes = await fetch(rpcUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      const das = await dasRes.json() as { result?: { creators?: Array<{ address: string; verified: boolean }>; content?: { metadata?: { name?: string } } } };
+      const fvca = (das.result?.creators ?? []).find(c => c.verified)?.address ?? '';
+      if (!fvca) return res.status(404).json({ ok: false, error: 'no_verified_creator' });
+      const name = das.result?.content?.metadata?.name ?? '';
+      return res.json({ ok: true, fvca, collectionName: name, slug });
+    } catch (err) {
+      return res.status(502).json({ ok: false, error: 'resolve_failed', message: String(err) });
     }
   });
 
