@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.3.1
+// @version      0.3.2
 // @description  VictoryLabs MMM bridge
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
@@ -16,15 +16,15 @@
   const ME_IXS    = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
   const TAG       = '[VL-userscript]';
 
-  // Both known VL origins — strict allowlist, not a wildcard
+  // Both known VL origins -- strict allowlist, not a wildcard
   const VL_ORIGINS = new Set([
     'https://vl.nikki.gg',
     'https://victorylabs.app',
   ]);
 
-  console.log(TAG, 'userscript loaded — origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'userscript loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
 
-  // ── Core fetch ──────────────────────────────────────────────────────────────
+  // Core fetch
   async function vlMmmFulfillBuy(params) {
     const { pool, seller, assetMint, assetAmount = 1, minPaymentAmount } = params ?? {};
 
@@ -43,7 +43,7 @@
       + '&assetAmount='      + encodeURIComponent(assetAmount)
       + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
 
-    console.log(TAG, 'calling fetch() →', url);
+    console.log(TAG, 'calling fetch() ->', url);
     const t0 = performance.now();
 
     try {
@@ -54,7 +54,7 @@
       });
 
       const elapsedMs = Math.round(performance.now() - t0);
-      console.log(TAG, 'fetch finished — status=' + resp.status + ' elapsed=' + elapsedMs + 'ms');
+      console.log(TAG, 'fetch finished - status=' + resp.status + ' elapsed=' + elapsedMs + 'ms');
 
       const rawBody = await resp.text();
       let data = null;
@@ -62,7 +62,7 @@
 
       const result = {
         ok: resp.ok, status: resp.status, elapsedMs, url, data, rawBody,
-        error: resp.ok ? null : (data?.message ?? data?.error ?? `HTTP ${resp.status}`),
+        error: resp.ok ? null : (data?.message ?? data?.error ?? ('HTTP ' + resp.status)),
       };
 
       if (resp.ok) console.log(TAG, 'fetch OK', result);
@@ -79,11 +79,11 @@
     }
   }
 
-  // ── postMessage bridge ──────────────────────────────────────────────────────
-  // targetOrigin is event.origin of the incoming message — whatever VL domain
+  // postMessage bridge
+  // targetOrigin is event.origin of the incoming message -- whatever VL domain
   // actually sent this request (vl.nikki.gg or victorylabs.app)
   function postToVl(target, msg, targetOrigin) {
-    console.log(TAG, 'postToVl → type=' + msg.type + ' id=' + (msg.id ?? '-') + ' to=' + targetOrigin);
+    console.log(TAG, 'postToVl -> type=' + msg.type + ' id=' + (msg.id ?? '-') + ' to=' + targetOrigin);
     try {
       target.postMessage(msg, targetOrigin);
       console.log(TAG, 'postToVl sent OK');
@@ -93,17 +93,17 @@
   }
 
   window.addEventListener('message', async (event) => {
-    console.log(TAG, 'message event received — origin=' + event.origin + ' type=' + (event.data?.type ?? 'none'));
+    console.log(TAG, 'message event received - origin=' + event.origin + ' type=' + (event.data?.type ?? 'none'));
 
     if (!VL_ORIGINS.has(event.origin)) {
-      console.log(TAG, '  ignored — origin not in allowlist (' + event.origin + ')');
+      console.log(TAG, '  ignored - origin not in allowlist (' + event.origin + ')');
       return;
     }
 
     const { type, id, payload } = event.data ?? {};
 
     if (type === 'VL_MMM_PING') {
-      console.log(TAG, 'PING received — sending READY');
+      console.log(TAG, 'PING received - sending READY');
       postToVl(event.source, { type: 'VL_MMM_READY' }, event.origin);
       return;
     }
@@ -124,9 +124,9 @@
     }
   });
 
-  // Announce ready to opener if present (not relied upon — ping handshake is primary)
+  // Announce ready to opener if present (not relied upon -- ping handshake is primary)
   if (window.opener) {
-    console.log(TAG, 'window.opener present — sending VL_MMM_READY to opener');
+    console.log(TAG, 'window.opener present - sending VL_MMM_READY to opener');
     try {
       window.opener.postMessage({ type: 'VL_MMM_READY' }, '*');
       console.log(TAG, 'VL_MMM_READY sent to opener');
@@ -134,9 +134,9 @@
       console.warn(TAG, 'failed to post to opener', e);
     }
   } else {
-    console.log(TAG, 'window.opener is null — relying on ping handshake');
+    console.log(TAG, 'window.opener is null - relying on ping handshake');
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.3.1 ready — postMessage listener active');
+  console.log(TAG, 'MMM bridge v0.3.2 ready - postMessage listener active');
 })();
