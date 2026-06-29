@@ -333,7 +333,36 @@ export default function MmmPoolLookupPage() {
       console.log('[VL-page] calling signSendAndConfirm — txBase64 length=' + txBase64.length + ' source=' + txSource);
       const { signature } = await signSendAndConfirm(txBase64);
       console.log('[VL-page] signSendAndConfirm returned — signature=' + signature);
+
+      // Show success immediately — tx is already submitted by Phantom
       setTxPhase({ sig: signature, source: txSource });
+
+      // Background: poll tx-status to verify it landed and detect on-chain failures
+      void (async () => {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+          try {
+            const r = await fetch(
+              `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
+              { headers: { ...authHeaders() } },
+            );
+            if (!r.ok) { console.warn('[VL-page] tx-status HTTP', r.status, '(attempt', attempt + 1, ')'); continue; }
+            const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
+            console.log('[VL-page] tx-status attempt', attempt + 1, ':', d);
+            if (!d.ok || !d.found) continue;
+            if (d.err) {
+              console.error('[VL-page] tx FAILED on-chain:', d.err);
+              setTxPhase({ error: 'Transaction failed on-chain: ' + JSON.stringify(d.err) });
+              return;
+            }
+            if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') {
+              console.log('[VL-page] tx confirmed on-chain —', d.confirmationStatus);
+              return;
+            }
+          } catch (e) { console.warn('[VL-page] tx-status poll error (attempt', attempt + 1, '):', e); }
+        }
+        console.warn('[VL-page] tx not confirmed after 5 polls (~15s) — sig:', signature, '— check Solscan');
+      })();
     } catch (e) {
       const msg = (e as Error).message;
       if (msg.toLowerCase().includes('rejected') || msg.toLowerCase().includes('cancelled')) {

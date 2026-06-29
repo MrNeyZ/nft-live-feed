@@ -654,6 +654,33 @@ export function createMmmPoolsRouter(): Router {
   const router = Router();
   const limit  = rateLimit({ limit: 10, windowMs: 60_000, label: 'tools/mmm-pools' });
 
+  // Verify a submitted transaction landed on-chain.
+  // Returns immediately with the current status (caller should poll if not_found).
+  router.get('/tools/mmm-pools/tx-status', limit, async (req: Request, res: Response) => {
+    const sig = String(req.query.sig ?? '').trim();
+    if (!sig || !/^[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(sig)) {
+      return res.status(400).json({ ok: false, error: 'invalid_sig' });
+    }
+    try {
+      const result = await rpcPost('getSignatureStatuses', [[sig], { searchTransactionHistory: true }]) as {
+        value: Array<{ slot: number; confirmations: number | null; confirmationStatus: string; err: unknown } | null>
+      };
+      const entry = result.value[0];
+      if (!entry) {
+        return res.json({ ok: true, found: false, confirmationStatus: null, err: null });
+      }
+      return res.json({
+        ok: true,
+        found: true,
+        confirmationStatus: entry.confirmationStatus,
+        err: entry.err ?? null,
+      });
+    } catch (err) {
+      console.error('[tools/mmm-pools] tx-status error', err);
+      return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });
+    }
+  });
+
   router.get('/tools/mmm-pools/wallet-nfts', limit, async (req: Request, res: Response) => {
     const wallet  = String(req.query.wallet ?? '').trim();
     const poolKey = String(req.query.pool   ?? '').trim();
