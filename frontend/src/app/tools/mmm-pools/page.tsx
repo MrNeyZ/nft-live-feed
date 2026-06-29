@@ -90,6 +90,25 @@ function pill(label: string, color: string, bg: string, border: string): React.R
   );
 }
 
+function CopyKey({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <span
+      onClick={copy}
+      title={value}
+      style={{ cursor: 'pointer', color: copied ? '#43b984' : '#a890e8', fontSize: 11, ...MONO, userSelect: 'none' }}
+    >
+      {copied ? 'copied!' : short(value)}
+    </span>
+  );
+}
+
 function ExecPill({ executable }: { executable: boolean }) {
   return executable
     ? pill('EXEC', '#43b984', 'rgba(92,224,160,0.15)', 'rgba(92,224,160,0.45)')
@@ -108,6 +127,13 @@ export default function MmmPoolsPage() {
   const [busy, setBusy]           = useState(false);
   const [result, setResult]       = useState<ScanResult | null>(null);
   const [error, setError]         = useState<string | null>(null);
+  const [sortCol, setSortCol]     = useState<'bpa' | 'spot' | 'missing' | null>(null);
+  const [sortDir, setSortDir]     = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (col: 'bpa' | 'spot' | 'missing') => {
+    if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortCol(col); setSortDir('desc'); }
+  };
 
   const canScan = ADDR_RE.test(inputVal.trim()) && !busy;
 
@@ -136,10 +162,18 @@ export default function MmmPoolsPage() {
 
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter') void runScan(); };
 
-  const highlighted = result?.pools.filter(p => p.underfunded) ?? [];
+  const highlighted = (() => {
+    const base = result?.pools.filter(p => p.underfunded) ?? [];
+    if (!sortCol) return base;
+    return [...base].sort((a, b) => {
+      const va = sortCol === 'bpa' ? a.bpa : sortCol === 'spot' ? a.spotPrice : a.missing;
+      const vb = sortCol === 'bpa' ? b.bpa : sortCol === 'spot' ? b.spotPrice : b.missing;
+      return sortDir === 'desc' ? vb - va : va - vb;
+    });
+  })();
 
   return (
-    <div className="feed-root page-transition" data-page="tools-mmm-pools">
+    <div className="feed-root page-transition" data-page="tools-mmm-pools" style={{ overflowY: 'auto' }}>
       {/* Header */}
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -256,10 +290,10 @@ export default function MmmPoolsPage() {
                       <th style={TH_L}>Collection</th>
                       <th style={TH_L}>Pool Key</th>
                       <th style={TH_L}>Escrow PDA</th>
-                      <th style={TH}>Spot</th>
-                      <th style={TH}>Tracked</th>
+                      <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('spot')}>Spot{sortCol==='spot' ? (sortDir==='desc'?' ↓':' ↑') : ''}</th>
+                      <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('bpa')}>Tracked{sortCol==='bpa' ? (sortDir==='desc'?' ↓':' ↑') : ''}</th>
                       <th style={TH}>Real</th>
-                      <th style={TH}>Missing</th>
+                      <th style={{ ...TH, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('missing')}>Missing{sortCol==='missing' ? (sortDir==='desc'?' ↓':' ↑') : ''}</th>
                       <th style={TH}>Divergence</th>
                       <th style={TH}>Expiry</th>
                       <th style={TH}>Type</th>
@@ -287,16 +321,7 @@ export default function MmmPoolsPage() {
                             <div style={{ fontSize: 10, color: '#9a9ab4', marginTop: 1 }}>{allowStr}</div>
                           </td>
                           <td style={TD_L}>
-                            <a
-                              href={`https://magiceden.io/mmm/pool/${p.poolKey}`}
-                              target="_blank" rel="noopener noreferrer"
-                              style={{ color: '#a890e8', textDecoration: 'none', fontSize: 11, ...MONO }}
-                              onMouseEnter={e => { (e.target as HTMLElement).style.textDecoration = 'underline'; }}
-                              onMouseLeave={e => { (e.target as HTMLElement).style.textDecoration = 'none'; }}
-                              title={`ME pool: ${p.poolKey}`}
-                            >
-                              {short(p.poolKey)}
-                            </a>
+                            <CopyKey value={p.poolKey} />
                           </td>
                           <td style={TD_L}>
                             <a
@@ -368,14 +393,7 @@ export default function MmmPoolsPage() {
                         <tr key={p.poolKey}>
                           <td style={TD_L}>{(p.collectionName || p.collectionSymbol || '—').slice(0, 24)}</td>
                           <td style={TD_L}>
-                            <a
-                              href={`https://magiceden.io/mmm/pool/${p.poolKey}`}
-                              target="_blank" rel="noopener noreferrer"
-                              style={{ color: '#a890e8', textDecoration: 'none', fontSize: 11, ...MONO }}
-                              title={`ME pool: ${p.poolKey}`}
-                            >
-                              {short(p.poolKey)}
-                            </a>
+                            <CopyKey value={p.poolKey} />
                           </td>
                           <td style={TD}>{fmtSol(p.spotPrice)}</td>
                           <td style={{ ...TD, color: '#c7b479' }}>{fmtSol(p.bpa)}</td>
