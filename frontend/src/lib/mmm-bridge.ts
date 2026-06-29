@@ -45,9 +45,20 @@ function fromMe(w: Window) {
 }
 
 // Send PING repeatedly until we get READY back.
-// Works whether the tab was opened by us or by the user directly — opener is irrelevant.
+//
+// Root cause of prior failure: window.open() returns a Window whose initial
+// origin is the opener's origin (victorylabs.app) during the about:blank
+// phase before navigation commits to magiceden.io.  postMessage(msg,
+// 'https://magiceden.io') throws synchronously when the window's current
+// origin doesn't match the targetOrigin — even while it's mid-navigation.
+//
+// Fix: use '*' as targetOrigin for PING only.  PING carries no sensitive
+// data ({type:'VL_MMM_PING'}).  The userscript validates event.origin on its
+// side.  Once magiceden.io finishes loading and the userscript fires, it
+// receives the next PING and responds.  REQUEST keeps ME_ORIGIN because by
+// then we have confirmed the window is at magiceden.io (proven by READY).
 async function pingUntilReady(w: Window, totalTimeoutMs: number): Promise<void> {
-  console.log(TAG, `pingUntilReady — will ping every ${PING_INTERVAL_MS}ms for up to ${totalTimeoutMs}ms`);
+  console.log(TAG, `pingUntilReady — '*' targetOrigin, every ${PING_INTERVAL_MS}ms, up to ${totalTimeoutMs}ms`);
 
   const readyP = waitForMessage(
     e => fromMe(w)(e) && e.data?.type === 'VL_MMM_READY',
@@ -55,24 +66,21 @@ async function pingUntilReady(w: Window, totalTimeoutMs: number): Promise<void> 
     'open',
   );
 
-  // Keep pinging until READY arrives (userscript may still be loading)
   let pings = 0;
   let lastPingError = '';
   const interval = setInterval(() => {
     if (w.closed) { clearInterval(interval); return; }
     pings++;
-    console.log(TAG, `sending PING #${pings} to ME window`);
+    console.log(TAG, `sending PING #${pings} (targetOrigin='*')`);
     try {
-      w.postMessage({ type: 'VL_MMM_PING' }, ME_ORIGIN);
+      // '*' intentional — window may still be on about:blank/victorylabs.app
+      // during navigation to magiceden.io; PING contains no sensitive data
+      w.postMessage({ type: 'VL_MMM_PING' }, '*');
     } catch (err) {
       const msg = (err as Error).message ?? String(err);
       if (msg !== lastPingError) {
         lastPingError = msg;
-        if (msg.includes('victorylabs') || msg.includes('vl.nikki.gg')) {
-          console.error(TAG, 'ME popup is still on VL origin / wrong window reference —', msg);
-        } else {
-          console.error(TAG, `PING #${pings} postMessage failed:`, msg);
-        }
+        console.error(TAG, `PING #${pings} postMessage threw:`, msg);
       }
     }
   }, PING_INTERVAL_MS);
@@ -83,7 +91,7 @@ async function pingUntilReady(w: Window, totalTimeoutMs: number): Promise<void> 
     clearInterval(interval);
   }
 
-  console.log(TAG, `READY received after ${pings} ping(s)`);
+  console.log(TAG, `READY received after ${pings} ping(s) — window confirmed at ${ME_ORIGIN}`);
 }
 
 async function ensureReady(): Promise<Window> {
