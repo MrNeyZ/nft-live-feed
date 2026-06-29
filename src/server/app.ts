@@ -24,6 +24,7 @@ import { createMintAnalyzerRouter } from './tools-mint-analyzer';
 import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
+import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
 
@@ -147,6 +148,10 @@ export function createApp() {
   // Holder Count tool — read-only exact distinct-owner count via Helius DAS.
   // GET /api/tools/holders/analyze?collection=<collectionAddress>
   app.use('/api', createHoldersRouter());
+
+  // MMM Dormant Pool Scanner — read-only on-chain escrow audit.
+  // GET /api/tools/mmm-pools/scan?owner=<wallet>
+  app.use('/api', createMmmPoolsRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
