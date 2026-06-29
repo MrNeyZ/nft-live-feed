@@ -331,8 +331,10 @@ export default function MmmPoolLookupPage() {
       }
 
       setTxPhase('signing');
+      console.log('[VL-page] calling signSendAndConfirm — txBase64 length=' + txBase64.length + ' source=' + txSource);
       const conn = new Connection(RPC_URL, 'confirmed');
       const { signature } = await signSendAndConfirm(txBase64, conn);
+      console.log('[VL-page] signSendAndConfirm returned — signature=' + signature);
       setTxPhase({ sig: signature, source: txSource });
     } catch (e) {
       const msg = (e as Error).message;

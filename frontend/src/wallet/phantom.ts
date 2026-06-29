@@ -64,6 +64,8 @@ export interface SignSendResult {
  * Returns `{ signature, txType }` so callers can include the deserialized
  * shape in their post-buy logs.
  */
+const TAG = '[VL-phantom]';
+
 export async function signSendAndConfirm(
   txBase64: string,
   connection: Connection,
@@ -72,7 +74,6 @@ export async function signSendAndConfirm(
   if (!sol) throw new Error('Phantom wallet not connected.');
 
   const raw = Buffer.from(txBase64, 'base64');
-  // Try versioned first (current ME format); fall back to legacy.
   let tx: Transaction | VersionedTransaction;
   let txType: 'versioned' | 'legacy';
   try {
@@ -82,17 +83,46 @@ export async function signSendAndConfirm(
     tx = Transaction.from(raw);
     txType = 'legacy';
   }
+  console.log(TAG, `deserialized tx type=${txType} byteLen=${raw.length}`);
 
-  const { signature } = await sol.signAndSendTransaction(tx);
+  console.log(TAG, 'calling signAndSendTransaction...');
+  let signature: string;
+  try {
+    const result = await sol.signAndSendTransaction(tx);
+    signature = result.signature;
+    console.log(TAG, 'signAndSendTransaction resolved — signature=' + signature);
+  } catch (err) {
+    console.error(TAG, 'signAndSendTransaction THREW:', (err as Error).message, err);
+    throw err;
+  }
 
-  // Confirm against the same RPC the rest of the app uses (so balance/UI
-  // reads agree). 60 s should comfortably cover one or two block-time retries.
-  const latest = await connection.getLatestBlockhash('confirmed');
-  await connection.confirmTransaction({
-    signature,
-    blockhash: latest.blockhash,
-    lastValidBlockHeight: latest.lastValidBlockHeight,
-  }, 'confirmed');
+  console.log(TAG, 'calling getLatestBlockhash...');
+  let latest: { blockhash: string; lastValidBlockHeight: number };
+  try {
+    latest = await connection.getLatestBlockhash('confirmed');
+    console.log(TAG, 'getLatestBlockhash resolved — blockhash=' + latest.blockhash + ' lastValidBlockHeight=' + latest.lastValidBlockHeight);
+  } catch (err) {
+    console.error(TAG, 'getLatestBlockhash THREW:', (err as Error).message, err);
+    throw err;
+  }
 
+  console.log(TAG, 'calling confirmTransaction — signature=' + signature);
+  try {
+    const conf = await connection.confirmTransaction({
+      signature,
+      blockhash: latest.blockhash,
+      lastValidBlockHeight: latest.lastValidBlockHeight,
+    }, 'confirmed');
+    console.log(TAG, 'confirmTransaction resolved — value=', conf.value);
+    if (conf.value.err) {
+      console.error(TAG, 'confirmTransaction: on-chain error:', conf.value.err);
+      throw new Error('Transaction failed on-chain: ' + JSON.stringify(conf.value.err));
+    }
+  } catch (err) {
+    console.error(TAG, 'confirmTransaction THREW:', (err as Error).message, err);
+    throw err;
+  }
+
+  console.log(TAG, 'signSendAndConfirm complete — signature=' + signature);
   return { signature, txType };
 }
