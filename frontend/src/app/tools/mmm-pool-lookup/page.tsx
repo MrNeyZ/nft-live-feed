@@ -154,6 +154,7 @@ export default function MmmPoolLookupPage() {
     elapsedMs: number;
     windowOpened: boolean;
     error: string | null;
+    txFound: boolean | null;
   }
   interface BackendAttempt {
     url: string;
@@ -265,11 +266,7 @@ export default function MmmPoolLookupPage() {
           pool: pool.poolKey, seller: wallet,
           assetMint: selectedNft.mint, assetAmount: 1, minPaymentAmount: minPayment,
         });
-        log.bridgeAttempt = {
-          status: br.status, rawBody: br.rawBody,
-          elapsedMs: br.elapsedMs, windowOpened: br.windowOpened,
-          error: br.error,
-        };
+        let txFound = false;
         if (br.ok && br.body) {
           const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
           const src = body.txSigned ?? body.tx;
@@ -279,12 +276,20 @@ export default function MmmPoolLookupPage() {
             for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
             txBase64 = btoa(bin);
             txSource = 'me_browser';
+            txFound = true;
           }
         }
+        const bridgeError = br.error
+          ?? (br.ok && !txFound ? 'ME bridge returned 200 but no tx/txSigned bytes found' : null);
+        log.bridgeAttempt = {
+          status: br.status, rawBody: br.rawBody,
+          elapsedMs: br.elapsedMs, windowOpened: br.windowOpened,
+          error: bridgeError, txFound,
+        };
       } catch (bridgeErr) {
         log.bridgeAttempt = {
           status: null, rawBody: null, elapsedMs: 0,
-          windowOpened: false, error: (bridgeErr as Error).message,
+          windowOpened: false, error: (bridgeErr as Error).message, txFound: false,
         };
       }
       setDiag({ ...log });
@@ -574,7 +579,7 @@ export default function MmmPoolLookupPage() {
                       <div style={{ textAlign:'right' }}>
                         <div style={{ fontSize:12, color:'#43b984', fontWeight:700, marginBottom:4 }}>
                           ✓ Bid accepted!
-                          {txPhase.source === 'me_browser' && <span style={{ fontSize:10, color:'#9a9ab4', fontWeight:400, marginLeft:6 }}>via ME browser session</span>}
+                          {txPhase.source === 'me_browser' && <span style={{ fontSize:10, color:'#9a9ab4', fontWeight:400, marginLeft:6 }}>via ME bridge</span>}
                           {txPhase.source === 'backend' && <span style={{ fontSize:10, color:'#9a9ab4', fontWeight:400, marginLeft:6 }}>via on-chain builder</span>}
                         </div>
                         <a href={`https://solscan.io/tx/${txPhase.sig}`} target="_blank"
@@ -640,6 +645,13 @@ export default function MmmPoolLookupPage() {
                           </span>
                           {m.elapsedMs > 0 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>}
                         </div>
+                        {m.txFound !== null && (
+                          <div><span style={{ color:'#9a9ab4' }}>tx bytes:</span>
+                            <span style={{ color: m.txFound ? '#43b984' : '#d96867', marginLeft:6, fontWeight:700 }}>
+                              {m.txFound ? 'found ✓' : 'not found'}
+                            </span>
+                          </div>
+                        )}
                         {m.error && (
                           <div><span style={{ color:'#9a9ab4' }}>error:   </span>
                             <span style={{ color:'#d96867' }}>{m.error}</span></div>
