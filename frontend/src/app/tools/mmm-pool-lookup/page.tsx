@@ -56,6 +56,41 @@ function StatusPill({ p }: { p: MmmPool }) {
   if (p.realEscrow === 0 && p.bpa === 0) return pill('EMPTY','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
   return pill('INACTIVE','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
 }
+
+type CanSellResult = { ok: true } | { ok: false; reason: string };
+function canSellPool(p: MmmPool): CanSellResult {
+  const now = Math.floor(Date.now() / 1000);
+  if (p.expiry !== 0 && p.expiry <= now)
+    return { ok: false, reason: 'Пул истёк' };
+  if (!p.executable)
+    return { ok: false, reason: 'Недостаточно SOL на эскроу' };
+  const hasTypedAllowlist = p.allowlists.some(
+    al => al.type !== 'any' && al.type !== 'empty'
+  );
+  if (!hasTypedAllowlist)
+    return { ok: false, reason: 'any-allowlist: ME не co-sign\'ит транзакцию' };
+  if (!p.collectionName && !p.collectionSymbol)
+    return { ok: false, reason: 'ME не знает коллекцию → не co-sign\'ит' };
+  return { ok: true };
+}
+function CanSellBadge({ p }: { p: MmmPool }) {
+  const res = canSellPool(p);
+  if (res.ok) return (
+    <div style={{ display:'flex', alignItems:'center', gap:6,
+      padding:'6px 12px', borderRadius:6, background:'rgba(67,185,132,0.10)',
+      border:'1px solid rgba(67,185,132,0.35)' }}>
+      <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Можно продать</span>
+    </div>
+  );
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:6,
+      padding:'6px 12px', borderRadius:6, background:'rgba(220,80,80,0.10)',
+      border:'1px solid rgba(220,80,80,0.30)' }}>
+      <span style={{ color:'#e06060', fontWeight:700, fontSize:13 }}>✗ Нельзя продать</span>
+      <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
+    </div>
+  );
+}
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'9px 16px',
@@ -276,6 +311,7 @@ export default function MmmPoolLookupPage() {
           pool: pool.poolKey, seller: wallet,
           assetMint: selectedNft.mint, assetTokenAccount, assetAmount: 1,
           minPaymentAmount: minPayment,
+          isMip1: pool.isMIP1 || false,
         });
         let txFound = false;
         if (br.ok && br.body) {
@@ -496,6 +532,7 @@ export default function MmmPoolLookupPage() {
                       </span>
                     )}
                     {pool.isMIP1 && pill('MIP1','#a890e8','rgba(168,144,232,0.12)','rgba(168,144,232,0.35)')}
+                    <CanSellBadge p={pool} />
                     <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
                       rel="noopener noreferrer"
                       style={{ marginLeft:'auto', fontSize:11, color:'#9a9ab4', textDecoration:'none',
