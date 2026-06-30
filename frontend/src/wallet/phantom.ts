@@ -134,6 +134,11 @@ export async function signSendAndConfirm(
         console.log(TAG, 'tx fully pre-signed — sending raw via backend proxy');
         signature = await backendSendRaw(vtx.serialize());
       } else {
+        if (vtx.message.header.numRequiredSignatures >= 2) {
+          // ME's cosigner slot is empty — pool underfunded or unrecognised
+          console.error(TAG, 'ME cosigner signature missing (allFilled=false, numReqSig=' + vtx.message.header.numRequiredSignatures + ')');
+          throw new Error('ME did not co-sign — pool is likely underfunded. Wait for escrow to be topped up and try again.');
+        }
         const signed = await sol.signTransaction(vtx);
         const serialized = (signed as VersionedTransaction).serialize();
         console.log(TAG, 'signTransaction resolved — sending raw tx via backend proxy...');
