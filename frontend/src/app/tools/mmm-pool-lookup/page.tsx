@@ -480,7 +480,6 @@ export default function MmmPoolLookupPage() {
                 <div style={PANEL}>
                   <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
                     display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                    <StatusPill p={pool} />
                     {(pool.collectionName || pool.collectionSymbol) && (
                       <span style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>
                         {pool.collectionName || pool.collectionSymbol}
@@ -708,6 +707,7 @@ export default function MmmPoolLookupPage() {
 
                   {/* Pool summary */}
                   <div style={{ padding:'14px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)' }}>
+                    <div style={{ marginBottom:10 }}><StatusPill p={pool} /></div>
                     <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
                       letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Spot price</div>
                     <div style={{ fontSize:22, fontWeight:700, color:'#f0eef8', ...MONO }}>
