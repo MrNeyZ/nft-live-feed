@@ -329,6 +329,18 @@ export default function MmmPoolLookupPage() {
       let txSource: TxSource = null;
 
       // ── Path 1: Tampermonkey bridge (magiceden.io origin) ─────────────────
+      // Skipped entirely for collectionName === '' pools: ME's own pool registry
+      // tags these poolType:"invalid" (confirmed via /v2/mmm/pools — any-allowlist
+      // pools with no resolvable FVCA/MCC collection), and sol-fulfill-buy always
+      // 400s "invalid token mint" for them regardless of the asset. Go straight to
+      // the backend on-chain builder, which doesn't consult ME's poolType at all.
+      if (pool.collectionName === '') {
+        log.bridgeAttempt = {
+          status: null, rawBody: null, elapsedMs: 0, windowOpened: false,
+          error: 'skipped — collectionName empty, ME flags this poolType invalid', txFound: false,
+        };
+        setDiag({ ...log });
+      } else
       try {
         const br = await requestMmmInstruction({
           pool: pool.poolKey, seller: wallet,
