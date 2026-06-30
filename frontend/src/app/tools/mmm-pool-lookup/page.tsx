@@ -61,16 +61,16 @@ type CanSellResult = { ok: true } | { ok: false; reason: string; warn?: boolean 
 function canSellPool(p: MmmPool): CanSellResult {
   const now = Math.floor(Date.now() / 1000);
   if (p.expiry !== 0 && p.expiry <= now)
-    return { ok: false, reason: 'Пул истёк' };
+    return { ok: false, reason: 'Pool expired' };
   if (!p.executable)
-    return { ok: false, reason: 'Недостаточно SOL на эскроу', warn: true };
+    return { ok: false, reason: 'Escrow balance too low', warn: true };
   const hasTypedAllowlist = p.allowlists.some(
     al => al.type !== 'any' && al.type !== 'empty'
   );
   if (!hasTypedAllowlist)
-    return { ok: false, reason: 'any-allowlist: ME не co-sign\'ит транзакцию' };
+    return { ok: false, reason: 'any-allowlist: ME won\'t co-sign' };
   if (!p.collectionName && !p.collectionSymbol)
-    return { ok: false, reason: 'ME не знает коллекцию → не co-sign\'ит' };
+    return { ok: false, reason: 'Collection unknown to ME → no co-sign' };
   return { ok: true };
 }
 function CanSellBadge({ p }: { p: MmmPool }) {
@@ -79,7 +79,7 @@ function CanSellBadge({ p }: { p: MmmPool }) {
     <div style={{ display:'flex', alignItems:'center', gap:6,
       padding:'6px 12px', borderRadius:6, background:'rgba(67,185,132,0.10)',
       border:'1px solid rgba(67,185,132,0.35)' }}>
-      <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Можно продать</span>
+      <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Sellable</span>
     </div>
   );
   const isWarn = !res.ok && res.warn;
@@ -89,7 +89,7 @@ function CanSellBadge({ p }: { p: MmmPool }) {
       background: isWarn ? 'rgba(199,180,121,0.10)' : 'rgba(220,80,80,0.10)',
       border: `1px solid ${isWarn ? 'rgba(199,180,121,0.40)' : 'rgba(220,80,80,0.30)'}` }}>
       <span style={{ color: isWarn ? '#c7b479' : '#e06060', fontWeight:700, fontSize:13 }}>
-        {isWarn ? '⚠ Мало SOL' : '✗ Нельзя продать'}
+        {isWarn ? '⚠ Low escrow' : '✗ Not sellable'}
       </span>
       <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
     </div>
