@@ -906,7 +906,11 @@ export default function MmmCollectionScannerPage() {
 
               {pfResult && !pfBusy && (
                 <>
-                  <StatChip label="Pools" value={pfResult.pools.length} color="#c7b479" />
+                  <div style={{ padding: '4px 10px', borderRadius: 6, alignSelf: 'flex-end',
+                    border: '1px solid rgba(199,180,121,0.3)', background: 'rgba(199,180,121,0.06)',
+                    fontSize: 11, fontWeight: 700, color: '#c7b479', ...MONO, whiteSpace: 'nowrap' }}>
+                    {pfResult.pools.length} pools
+                  </div>
                   <div style={{
                     padding: '4px 10px', borderRadius: 6, alignSelf: 'flex-end',
                     border: '1px solid rgba(168,144,232,0.14)',
