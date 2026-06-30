@@ -1040,7 +1040,12 @@ export default function MmmCollectionScannerPage() {
                                 <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
-                                <span style={{ color: alpha(VL.gold, 0.80), fontWeight: 600 }}>{p.realEscrowSol.toFixed(4)}</span>
+                                <a href={`https://solscan.io/account/${p.escrowPda}`} target="_blank" rel="noopener noreferrer"
+                                  style={{ color: rgb(VL.gold), fontWeight: 600, textDecoration: 'none' }}
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}>
+                                  {p.realEscrowSol.toFixed(4)}
+                                </a>
                                 <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
