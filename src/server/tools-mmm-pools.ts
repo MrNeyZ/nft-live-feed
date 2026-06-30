@@ -1051,7 +1051,7 @@ export function createMmmPoolsRouter(): Router {
         // Populate flat pool cache for pool-stream
         rawPoolsCache = {
           builtAt: Date.now(),
-          pools: underfunded.map(p => {
+          pools: underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata')).map(p => {
             const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
