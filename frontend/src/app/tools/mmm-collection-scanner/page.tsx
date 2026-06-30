@@ -181,8 +181,8 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
             padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
             border: 'none', borderBottom: active === t.id ? '2px solid #a890e8' : '2px solid transparent',
             marginBottom: -1,
-            background: active === t.id ? 'rgba(168,144,232,0.08)' : 'transparent',
-            color: active === t.id ? '#a890e8' : '#9a9ab4',
+            background: active === t.id ? 'rgba(168,144,232,0.13)' : 'transparent',
+            color: active === t.id ? '#c4aef8' : '#9a9ab4',
             borderRadius: '6px 6px 0 0',
             letterSpacing: '0.3px',
             transition: 'all 0.12s',
@@ -556,7 +556,7 @@ export default function MmmCollectionScannerPage() {
               </h1>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4' }}>
                 <LiveDot />
-                <span>underfunded infinite-lifetime bids · expiry=0 · executable on-chain if topped up</span>
+                <span>Live scanner for underfunded infinite-lifetime MMM buy pools</span>
               </div>
             </div>
           </div>
@@ -875,52 +875,74 @@ export default function MmmCollectionScannerPage() {
           <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', padding: '16px 4px' }}>
 
             {/* Controls */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+              {/* Min funded filter */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Min % funded</label>
-                <input type="number" value={pfMinPct} min="0" max="100" step="1"
-                  onChange={e => setPfMinPct(e.target.value)} disabled={pfBusy}
-                  style={{ width: 80, padding: '7px 10px', fontSize: 12, ...MONO, borderRadius: 5, border: '1px solid rgba(168,144,232,0.4)', background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none' }}
-                />
+                <label style={{ fontSize: 9, color: '#6b6b85', textTransform: 'uppercase', letterSpacing: '0.7px', fontWeight: 700 }}>Min Funded</label>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <input type="number" value={pfMinPct} min="0" max="100" step="1"
+                    onChange={e => setPfMinPct(e.target.value)} disabled={pfBusy}
+                    style={{ width: 70, padding: '7px 22px 7px 10px', fontSize: 13, ...MONO, borderRadius: 5,
+                      border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(20,14,34,0.9)',
+                      color: '#f0eef8', outline: 'none' }}
+                  />
+                  <span style={{ position: 'absolute', right: 8, fontSize: 11, color: '#6b6b85', pointerEvents: 'none' }}>%</span>
+                </div>
               </div>
 
+              {/* Scan */}
               <button type="button" disabled={pfBusy} onClick={() => runPoolFeed()}
                 style={{
-                  padding: '8px 22px', fontSize: 12, fontWeight: 700, letterSpacing: '0.4px',
+                  padding: '9px 28px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px',
                   textTransform: 'uppercase', borderRadius: 5, cursor: pfBusy ? 'not-allowed' : 'pointer',
-                  border: '1px solid rgba(168,144,232,0.55)',
-                  background: !pfBusy ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.08)',
+                  border: `1px solid ${!pfBusy ? 'rgba(168,144,232,0.7)' : 'rgba(168,144,232,0.2)'}`,
+                  background: !pfBusy ? 'linear-gradient(180deg,rgba(128,104,216,0.32) 0%,rgba(128,104,216,0.16) 100%)' : 'rgba(128,104,216,0.06)',
                   color: !pfBusy ? '#f0eef8' : '#9a9ab4',
-                  boxShadow: !pfBusy ? '0 0 14px rgba(128,104,216,0.2)' : 'none',
-                  alignSelf: 'flex-end',
+                  boxShadow: !pfBusy ? '0 0 18px rgba(128,104,216,0.22), inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
                 }}>
                 {pfBusy ? 'Scanning…' : 'Scan'}
               </button>
 
+              {/* Refresh */}
               {pfResult?.cached && !pfBusy && (
                 <button type="button" onClick={() => runPoolFeed({ force: true })}
-                  style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: '1px solid rgba(168,144,232,0.22)', background: 'transparent', color: '#9a9ab4', cursor: 'pointer', alignSelf: 'flex-end' }}>
+                  style={{ padding: '9px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5,
+                    border: '1px solid rgba(168,144,232,0.18)', background: 'transparent',
+                    color: '#6b6b85', cursor: 'pointer' }}>
                   ↺ Refresh
                 </button>
               )}
 
+              {/* KPI: pools count */}
               {pfResult && !pfBusy && (
-                <>
-                  <div style={{ padding: '4px 10px', borderRadius: 6, alignSelf: 'flex-end',
-                    border: '1px solid rgba(199,180,121,0.3)', background: 'rgba(199,180,121,0.06)',
-                    fontSize: 11, fontWeight: 700, color: '#c7b479', ...MONO, whiteSpace: 'nowrap' }}>
-                    {pfResult.pools.length} pools
-                  </div>
-                  <div style={{
-                    padding: '4px 10px', borderRadius: 6, alignSelf: 'flex-end',
-                    border: '1px solid rgba(168,144,232,0.14)',
-                    background: pfResult.cached ? 'rgba(67,185,132,0.06)' : 'rgba(168,144,232,0.05)',
-                  }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: pfResult.cached ? '#43b984' : '#a890e8', ...MONO }}>
-                      {pfResult.cached ? `⚡ cached · ${Math.floor(pfResult.cacheAgeMs / 60_000)}m ago` : '✓ live scan'}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  padding: '5px 14px', borderRadius: 6,
+                  border: '1px solid rgba(199,180,121,0.22)', background: 'rgba(199,180,121,0.05)',
+                  lineHeight: 1, gap: 3 }}>
+                  <span style={{ fontSize: 22, fontWeight: 700, color: '#c7b479', ...MONO, letterSpacing: '-0.5px' }}>
+                    {pfResult.pools.length}
+                  </span>
+                  <span style={{ fontSize: 8, color: '#7a7040', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>
+                    POOLS
+                  </span>
+                </div>
+              )}
+
+              {/* Cache status — secondary */}
+              {pfResult && !pfBusy && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                  padding: '5px 10px', borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.05)', background: 'transparent', gap: 2 }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: pfResult.cached ? '#52785c' : '#4a6b5a',
+                    textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    {pfResult.cached ? 'Cached' : 'Live'}
+                  </span>
+                  {pfResult.cached && (
+                    <span style={{ fontSize: 9, color: '#5a5a6a', ...MONO }}>
+                      {Math.floor(pfResult.cacheAgeMs / 60_000)}m ago
                     </span>
-                  </div>
-                </>
+                  )}
+                </div>
               )}
             </div>
 
@@ -979,28 +1001,42 @@ export default function MmmCollectionScannerPage() {
                           {sorted.map(p => (
                             <tr key={p.poolKey}
                               style={{ borderBottom: '1px solid rgba(255,255,255,0.022)' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(168,144,232,0.04)'; }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}>
                               <td style={TD_L}><CopyKey value={p.poolKey} label={short(p.poolKey)} /></td>
                               <td style={TD_L}>
                                 {p.collectionName
-                                  ? <span style={{ fontSize: 12, color: '#c7b479', fontWeight: 600 }}>{p.collectionName}</span>
-                                  : <span style={{ fontSize: 11, color: '#6b6b85' }}>—</span>
+                                  ? <span style={{ fontSize: 12, color: '#c7b479', fontWeight: 700 }}>{p.collectionName}</span>
+                                  : <span style={{ fontSize: 11, color: '#3e3e52' }}>—</span>
                                 }
                               </td>
-                              <td style={{ ...TD, color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</td>
+                              <td style={{ ...TD, textAlign: 'right' }}>
+                                <span style={{ color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</span>
+                                <div style={{ height: 2, borderRadius: 1, marginTop: 3,
+                                  background: pctColor(p.pct), width: `${Math.min(p.pct, 100)}%`,
+                                  opacity: 0.35, marginLeft: 'auto' }} />
+                              </td>
                               <td style={TD}>
                                 <span style={{ color: '#f0eef8', fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span>
+                                <span style={{ fontSize: 9, color: '#5a5a78', marginLeft: 2 }}>◎</span>
                               </td>
                               <td style={TD}>
                                 <span style={{ color: '#c7b479' }}>{p.realEscrowSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span>
+                                <span style={{ fontSize: 9, color: '#5a5a78', marginLeft: 2 }}>◎</span>
                               </td>
-                              <td style={{ ...TD, color: '#d96867', fontWeight: 700 }}>
-                                {p.missingSol.toFixed(4)}<span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span>
+                              <td style={{ ...TD, color: p.missingSol === 0 ? '#4a8c6a' : '#d96867', fontWeight: 700 }}>
+                                {p.missingSol.toFixed(4)}<span style={{ fontSize: 9, color: '#5a5a78', marginLeft: 2 }}>◎</span>
                               </td>
-                              <td style={TD_L}><CopyKey value={p.alKey} label={short(p.alKey)} /></td>
+                              <td style={TD_L}>
+                                <span
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#e8e6f4'; }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#5a5a7a'; }}
+                                  style={{ color: '#5a5a7a', cursor: 'pointer', fontSize: 11, ...MONO }}
+                                  onClick={() => void navigator.clipboard.writeText(p.alKey)}
+                                  title={p.alKey}>
+                                  {short(p.alKey)}
+                                </span>
+                              </td>
                               <td style={{ ...TD, textAlign: 'center' }}>
                                 <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                                   <a href={`https://magiceden.io/u/${p.owner}?chains=%5B%22solana%22%5D&wallets=%5B%22${p.owner}%22%5D&activeTab=%22offers%22`} target="_blank" rel="noopener noreferrer"
