@@ -904,9 +904,20 @@ export default function MmmCollectionScannerPage() {
                 </button>
               )}
 
-              <div style={{ fontSize: 11, color: '#6b6b85', alignSelf: 'flex-end', paddingBottom: 2 }}>
-                All underfunded pools sorted by % funded — individual pool view.
-              </div>
+              {pfResult && !pfBusy && (
+                <>
+                  <StatChip label="Pools" value={pfResult.pools.length} color="#c7b479" />
+                  <div style={{
+                    padding: '4px 10px', borderRadius: 6, alignSelf: 'flex-end',
+                    border: '1px solid rgba(168,144,232,0.14)',
+                    background: pfResult.cached ? 'rgba(67,185,132,0.06)' : 'rgba(168,144,232,0.05)',
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: pfResult.cached ? '#43b984' : '#a890e8', ...MONO }}>
+                      {pfResult.cached ? `⚡ cached · ${Math.floor(pfResult.cacheAgeMs / 60_000)}m ago` : '✓ live scan'}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Progress log */}
@@ -935,18 +946,6 @@ export default function MmmCollectionScannerPage() {
               const THp = { ...TH, cursor: 'pointer', userSelect: 'none' as const };
               return (
                 <>
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-                    <StatChip label="Pools shown" value={sorted.length} color="#c7b479" />
-                    <div style={{
-                      padding: '6px 12px', borderRadius: 8,
-                      border: '1px solid rgba(168,144,232,0.14)',
-                      background: pfResult.cached ? 'rgba(67,185,132,0.06)' : 'rgba(168,144,232,0.05)',
-                    }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: pfResult.cached ? '#43b984' : '#a890e8', ...MONO }}>
-                        {pfResult.cached ? `⚡ cached · ${Math.floor(pfResult.cacheAgeMs / 60_000)}m ago` : '✓ live scan'}
-                      </span>
-                    </div>
-                  </div>
                   <div style={PANEL}>
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
@@ -1006,11 +1005,12 @@ export default function MmmCollectionScannerPage() {
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src="/brand/me.png" alt="ME" width={22} height={22} draggable={false} style={{ display: 'block', width: 22, height: 22, objectFit: 'cover', pointerEvents: 'none' }} />
                                   </a>
-                                  <a href={`/tools/mmm-pool-lookup?pool=${encodeURIComponent(p.poolKey)}`}
+                                  <button type="button"
                                     title="Pool Lookup"
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(168,144,232,0.08)', cursor: 'pointer', textDecoration: 'none', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
+                                    onClick={() => { sessionStorage.setItem('vl.pfl.pending', p.poolKey); window.open('/tools/mmm-pool-lookup', '_blank'); }}
+                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(168,144,232,0.08)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
                                     ↗
-                                  </a>
+                                  </button>
                                 </div>
                               </td>
                             </tr>

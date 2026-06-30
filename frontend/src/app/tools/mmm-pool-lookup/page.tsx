@@ -139,6 +139,15 @@ function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolea
 export default function MmmPoolLookupPage() {
   useEffect(() => { document.title = 'MMM Bid Accept | VictoryLabs'; }, []);
 
+  useEffect(() => {
+    const pending = typeof window !== 'undefined' ? sessionStorage.getItem('vl.pfl.pending') : null;
+    if (!pending) return;
+    sessionStorage.removeItem('vl.pfl.pending');
+    setInputVal(pending);
+    void runLookup(pending);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [inputVal, setInputVal]         = useState('');
   const [lookupBusy, setLookupBusy]     = useState(false);
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
@@ -186,13 +195,14 @@ export default function MmmPoolLookupPage() {
 
   // ── Lookup ──────────────────────────────────────────────────────────────────
   const canLookup = ADDR_RE.test(inputVal.trim()) && !lookupBusy;
-  const runLookup = async () => {
-    if (!canLookup) return;
+  const runLookup = async (overrideKey?: string) => {
+    const key = overrideKey ?? inputVal.trim();
+    if (!ADDR_RE.test(key) || lookupBusy) return;
     setLookupBusy(true); setLookupError(null); setLookupResult(null);
     setNfts(null); setSelectedNft(null); setTxPhase(null); setDiag(null);
     try {
       const r = await fetch(
-        `${API_BASE}/api/tools/mmm-pools/pool?key=${encodeURIComponent(inputVal.trim())}`,
+        `${API_BASE}/api/tools/mmm-pools/pool?key=${encodeURIComponent(key)}`,
         { headers: { ...authHeaders() } },
       );
       if (!r.ok) {
