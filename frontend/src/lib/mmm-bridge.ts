@@ -150,6 +150,7 @@ export interface BridgeParams {
   assetTokenAccount: string;
   assetAmount: number;
   minPaymentAmount: number;
+  isMip1?: boolean;
 }
 
 export interface BridgeResult {

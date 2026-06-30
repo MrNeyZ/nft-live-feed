@@ -258,18 +258,26 @@ export default function MmmCollectionScannerPage() {
     if (!overrideFvca && !canScan) return;
     setBusy(true); setScanError(null);
     try {
-      let fvca = overrideFvca ?? (isDirectAddr ? trimmed : resolvedFvca);
+      let fvca   = overrideFvca ?? (isDirectAddr ? trimmed : resolvedFvca);
+      let mcc    = '';
+      let symbol = '';
       if (!fvca && !isDirectAddr) {
         setResolving(true);
         const rr = await fetch(`${API_BASE}/api/tools/mmm-pools/resolve-slug?slug=${encodeURIComponent(trimmed)}`, { headers: { ...authHeaders() } });
-        const rd = await rr.json().catch(() => null) as { ok: boolean; fvca?: string; collectionName?: string; error?: string } | null;
+        const rd = await rr.json().catch(() => null) as { ok: boolean; fvca?: string | null; mcc?: string | null; symbol?: string | null; collectionName?: string; error?: string } | null;
         setResolving(false);
-        if (!rd?.ok || !rd.fvca) throw new Error(rd?.error ?? (rr.ok ? 'slug_not_found' : `HTTP ${rr.status}`));
-        fvca = rd.fvca;
-        setResolvedFvca(fvca);
+        if (!rd?.ok || (!rd.fvca && !rd.mcc && !rd.symbol)) throw new Error(rd?.error ?? (rr.ok ? 'slug_not_found' : `HTTP ${rr.status}`));
+        fvca   = rd.fvca   ?? '';
+        mcc    = rd.mcc    ?? '';
+        symbol = rd.symbol ?? '';
+        setResolvedFvca(fvca || mcc || symbol);
         setCollectionName(rd.collectionName ?? '');
       }
-      const r = await fetch(`${API_BASE}/api/tools/mmm-pools/collection-scan?fvca=${encodeURIComponent(fvca)}`, { headers: { ...authHeaders() } });
+      const scanParams = new URLSearchParams();
+      if (fvca)   scanParams.set('fvca',   fvca);
+      if (mcc)    scanParams.set('mcc',    mcc);
+      if (symbol) scanParams.set('symbol', symbol);
+      const r = await fetch(`${API_BASE}/api/tools/mmm-pools/collection-scan?${scanParams}`, { headers: { ...authHeaders() } });
       if (!r.ok) {
         const b = await r.json().catch(() => null) as { message?: string; error?: string } | null;
         throw new Error(b?.message ?? b?.error ?? `HTTP ${r.status}`);
