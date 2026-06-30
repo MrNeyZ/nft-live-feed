@@ -164,7 +164,16 @@ export async function signSendAndConfirm(
     }
     console.log(TAG, 'send resolved — signature=' + signature);
   } catch (err) {
-    console.error(TAG, 'sign/send THREW:', (err as Error).message, err);
+    const msg = (err as Error).message ?? '';
+    console.error(TAG, 'sign/send THREW:', msg, err);
+    // Translate common opaque errors to actionable messages
+    if (msg.includes('Transaction too large') || msg.match(/\d+ > \d+/)) {
+      throw new Error(
+        'Transaction too large for legacy format — this pNFT pool sell requires a versioned transaction ' +
+        'with Address Lookup Tables, which the current ME API endpoint does not support. ' +
+        'Try selling via ME\'s own UI instead.'
+      );
+    }
     throw err;
   }
 
