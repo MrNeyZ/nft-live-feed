@@ -73,7 +73,26 @@ interface FlatPool {
   alType:         string;
   alKey:          string;
   collectionName: string;
+  isMIP1:         boolean;
+  anyOnly:        boolean;   // 'any' allowlist — invisible to the normal FVCA/MCC scan
 }
+
+type TokenType = 'Legacy' | 'pNFT' | 'Core' | 'Unknown';
+const ALL_TOKEN_TYPES: TokenType[] = ['Legacy', 'pNFT', 'Core', 'Unknown'];
+
+function poolTokenType(p: FlatPool): TokenType {
+  if (p.alType === 'core_collection' || p.alType === 'group') return 'Core';
+  if (p.isMIP1) return 'pNFT';
+  if (p.alType === 'FVCA' || p.alType === 'MCC') return 'Legacy';
+  return 'Unknown';
+}
+
+const TOKEN_TYPE_COLOR: Record<TokenType, string> = {
+  Legacy:  '#7eb8f7',
+  pNFT:    '#c084fc',
+  Core:    '#4ade80',
+  Unknown: '#6b7280',
+};
 interface PoolFeedResult {
   pools:      FlatPool[];
   cached:     boolean;
@@ -399,10 +418,23 @@ export default function MmmCollectionScannerPage() {
   // ── Pool Feed state ───────────────────────────────────────────────────────
   const [pfMinPct, setPfMinPct] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.minPct') : null) ?? '50');
   const pfFast = true;
+  // Full scan: also pulls 'any'-allowlist ("buy any NFT") pools, invisible to the normal
+  // FVCA/MCC-scoped scan. Separate result cache key so toggling never cross-serves.
+  const [pfIncludeAny, setPfIncludeAny] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.includeAny') : null) === '1');
+  const pfResultStorageKey = (includeAny: boolean) => includeAny ? 'vl.pf.result.any' : 'vl.pf.result';
+  const togglePfIncludeAny = () => {
+    setPfIncludeAny(prev => {
+      const next = !prev;
+      localStorage.setItem('vl.mmm-pf.includeAny', next ? '1' : '0');
+      return next;
+    });
+    setPfResult(null);
+    setPfError(null);
+  };
   const [pfLogs,   setPfLogs]   = useState<string[]>([]);
   const [pfResult, setPfResult] = useState<PoolFeedResult | null>(() => {
     try {
-      const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.pf.result') : null;
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(pfResultStorageKey(pfIncludeAny)) : null;
       if (!raw) return null;
       const parsed = JSON.parse(raw) as PoolFeedResult & { savedAt?: number };
       if (!parsed.savedAt || Date.now() - parsed.savedAt > 20 * 60 * 1000) return null;
@@ -433,6 +465,23 @@ export default function MmmCollectionScannerPage() {
   };
   const pfArrow = (col: PfSortCol) => pfSortCol === col ? (pfSortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
+  const [pfTypeFilter, setPfTypeFilter] = useState<Set<TokenType>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.typeFilter') : null;
+      if (!raw) return new Set<TokenType>();
+      const arr = JSON.parse(raw) as string[];
+      return new Set(arr.filter((x): x is TokenType => ALL_TOKEN_TYPES.includes(x as TokenType)));
+    } catch { return new Set<TokenType>(); }
+  });
+  const togglePfType = (t: TokenType) => {
+    setPfTypeFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t); else next.add(t);
+      localStorage.setItem('vl.mmm-pf.typeFilter', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
   const runPoolFeed = useCallback((opts?: { force?: boolean }) => {
     if (pfBusy) return;
     setPfBusy(true);
@@ -441,7 +490,7 @@ export default function MmmCollectionScannerPage() {
     setPfError(null);
 
     const minPct = parseFloat(pfMinPct) || 50;
-    const params = new URLSearchParams({ min_pct: String(minPct), fast: pfFast ? '1' : '0' });
+    const params = new URLSearchParams({ min_pct: String(minPct), fast: pfFast ? '1' : '0', any: pfIncludeAny ? '1' : '0' });
     if (opts?.force) params.set('force', '1');
     const url = `${API_BASE}/api/tools/mmm-pools/pool-stream?${params}`;
     const es  = new EventSource(url);
@@ -454,7 +503,7 @@ export default function MmmCollectionScannerPage() {
         } else if (data.type === 'result' && data.pools) {
           const r: PoolFeedResult = { pools: data.pools, cached: data.cached ?? false, cacheAgeMs: data.cacheAgeMs ?? 0 };
           setPfResult(r);
-          try { localStorage.setItem('vl.pf.result', JSON.stringify({ ...r, savedAt: Date.now() })); } catch { /* quota */ }
+          try { localStorage.setItem(pfResultStorageKey(pfIncludeAny), JSON.stringify({ ...r, savedAt: Date.now() })); } catch { /* quota */ }
           es.close();
           setPfBusy(false);
         } else if (data.type === 'error') {
@@ -465,7 +514,7 @@ export default function MmmCollectionScannerPage() {
       } catch { /* ignore */ }
     };
     es.onerror = () => { setPfError('Connection error'); es.close(); setPfBusy(false); };
-  }, [pfBusy, pfMinPct, pfFast]);
+  }, [pfBusy, pfMinPct, pfFast, pfIncludeAny]);
 
   // ── Triage table ──────────────────────────────────────────────────────────
   const renderTriageTable = (collections: TriageCollection[]) => {
@@ -933,6 +982,35 @@ export default function MmmCollectionScannerPage() {
                 <div style={{ width: 1, height: 28, background: alpha(VL.purpleTint, 0.12), margin: '0 14px', flexShrink: 0 }} />
               )}
 
+              {/* Full-scan toggle — also pulls 'any'-allowlist ("buy any NFT") pools,
+                  invisible to the normal FVCA/MCC-scoped scan above. */}
+              <button type="button" onClick={togglePfIncludeAny} disabled={pfBusy}
+                title="Also scan 'buy any NFT' pools (no FVCA/MCC allowlist) — the normal scan can't see these"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 7,
+                  height: 26, padding: '0 10px 0 4px', marginRight: 16,
+                  border: `1px solid ${pfIncludeAny ? alpha(VL.gold, 0.45) : alpha(VL.purpleTint, 0.18)}`,
+                  borderRadius: 13, cursor: pfBusy ? 'not-allowed' : 'pointer',
+                  background: pfIncludeAny ? alpha(VL.gold, 0.10) : 'rgba(16,11,30,0.70)',
+                  flexShrink: 0, transition: 'all 0.12s',
+                }}>
+                <span style={{
+                  display: 'inline-block', width: 22, height: 13, borderRadius: 7, position: 'relative',
+                  background: pfIncludeAny ? rgb(VL.gold) : alpha(VL.purpleTint, 0.25),
+                  transition: 'background 0.15s', flexShrink: 0,
+                }}>
+                  <span style={{
+                    position: 'absolute', top: 1, left: pfIncludeAny ? 10 : 1,
+                    width: 11, height: 11, borderRadius: '50%', background: '#15101f',
+                    transition: 'left 0.15s',
+                  }} />
+                </span>
+                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
+                  color: pfIncludeAny ? rgb(VL.gold) : alpha(VL.purpleTint, 0.45), whiteSpace: 'nowrap' }}>
+                  Full scan (+any)
+                </span>
+              </button>
+
               {/* KPI — eye anchor of the toolbar */}
               {pfResult && !pfBusy && (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1, marginRight: 16, flexShrink: 0 }}>
@@ -970,25 +1048,45 @@ export default function MmmCollectionScannerPage() {
                 </div>
               )}
 
-              {/* Filter — terminal chip, far right */}
-              <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-                border: `1px solid ${alpha(VL.purpleTint, 0.20)}`, borderRadius: 5,
-                background: 'rgba(16,11,30,0.90)', overflow: 'hidden' }}>
-                <span style={{ padding: '0 10px', height: 32, display: 'flex', alignItems: 'center',
-                  fontSize: 9, color: alpha(VL.purpleTint, 0.45), textTransform: 'uppercase',
-                  letterSpacing: '0.7px', fontWeight: 700,
-                  borderRight: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap' }}>
-                  Funded ≥
-                </span>
-                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                  <input type="text" inputMode="numeric" pattern="[0-9]*"
-                    value={pfMinPct}
-                    onChange={e => { if (/^\d{0,3}$/.test(e.target.value)) { setPfMinPct(e.target.value); localStorage.setItem('vl.mmm-pf.minPct', e.target.value); } }}
-                    disabled={pfBusy}
-                    style={{ width: 48, padding: '0 18px 0 8px', height: 32, fontSize: 13, ...MONO,
-                      border: 'none', background: 'transparent', color: VLText.primary, outline: 'none' }}
-                  />
-                  <span style={{ position: 'absolute', right: 8, fontSize: 10, color: VLText.faint, pointerEvents: 'none' }}>%</span>
+              {/* Filter controls — far right group */}
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+                {/* Token type filter chips */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {ALL_TOKEN_TYPES.map(t => {
+                    const active = pfTypeFilter.has(t);
+                    const c = TOKEN_TYPE_COLOR[t];
+                    return (
+                      <button key={t} type="button" onClick={() => togglePfType(t)}
+                        style={{ height: 26, padding: '0 9px', border: `1px solid ${active ? c : alpha(VL.purpleTint, 0.18)}`,
+                          borderRadius: 5, background: active ? `${c}18` : 'rgba(16,11,30,0.70)',
+                          color: active ? c : alpha(VL.purpleTint, 0.45),
+                          fontSize: 10, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.4px',
+                          textTransform: 'uppercase' as const, transition: 'all 0.12s', whiteSpace: 'nowrap' as const }}>
+                        {t}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Funded ≥ chip */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                  border: `1px solid ${alpha(VL.purpleTint, 0.20)}`, borderRadius: 5,
+                  background: 'rgba(16,11,30,0.90)', overflow: 'hidden' }}>
+                  <span style={{ padding: '0 10px', height: 32, display: 'flex', alignItems: 'center',
+                    fontSize: 9, color: alpha(VL.purpleTint, 0.45), textTransform: 'uppercase',
+                    letterSpacing: '0.7px', fontWeight: 700,
+                    borderRight: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap' }}>
+                    Funded ≥
+                  </span>
+                  <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                    <input type="text" inputMode="numeric" pattern="[0-9]*"
+                      value={pfMinPct}
+                      onChange={e => { if (/^\d{0,3}$/.test(e.target.value)) { setPfMinPct(e.target.value); localStorage.setItem('vl.mmm-pf.minPct', e.target.value); } }}
+                      disabled={pfBusy}
+                      style={{ width: 48, padding: '0 18px 0 8px', height: 32, fontSize: 13, ...MONO,
+                        border: 'none', background: 'transparent', color: VLText.primary, outline: 'none' }}
+                    />
+                    <span style={{ position: 'absolute', right: 8, fontSize: 10, color: VLText.faint, pointerEvents: 'none' }}>%</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1012,10 +1110,12 @@ export default function MmmCollectionScannerPage() {
             )}
 
             {pfResult && (() => {
-              const sorted = [...pfResult.pools].sort((a, b) => {
-                const v = a[pfSortCol] - b[pfSortCol];
-                return pfSortDir === 'asc' ? v : -v;
-              });
+              const sorted = [...pfResult.pools]
+                .filter(p => pfTypeFilter.size === 0 || pfTypeFilter.has(poolTokenType(p)))
+                .sort((a, b) => {
+                  const v = a[pfSortCol] - b[pfSortCol];
+                  return pfSortDir === 'asc' ? v : -v;
+                });
               const THp = { ...TH, cursor: 'pointer', userSelect: 'none' as const };
               return (
                 <>
@@ -1023,19 +1123,21 @@ export default function MmmCollectionScannerPage() {
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
                         <colgroup>
-                          <col style={{ width: '20%' }} />
                           <col style={{ width: '18%' }} />
+                          <col style={{ width: '16%' }} />
+                          <col style={{ width:  '7%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
-                          <col style={{ width: '14%' }} />
+                          <col style={{ width: '11%' }} />
                           <col style={{ width: '12%' }} />
                         </colgroup>
                         <thead>
                           <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                             <th style={TH_L}>POOL</th>
                             <th style={TH_L}>COLLECTION</th>
+                            <th style={{ ...TH, textAlign: 'center' }}>TYPE</th>
                             <th style={THp} onClick={() => togglePfSort('pct')}>% FUNDED{pfArrow('pct')}</th>
                             <th style={THp} onClick={() => togglePfSort('spotPriceSol')}>SPOT{pfArrow('spotPriceSol')}</th>
                             <th style={THp} onClick={() => togglePfSort('realEscrowSol')}>ESCROW{pfArrow('realEscrowSol')}</th>
@@ -1059,6 +1161,29 @@ export default function MmmCollectionScannerPage() {
                                       textShadow: `0 0 14px ${alpha(VL.gold, 0.22)}` }}>{p.collectionName}</span>
                                   : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.16) }}>—</span>
                                 }
+                                {p.anyOnly && (
+                                  <span title="No FVCA/MCC allowlist — the normal scan can't find this pool, only full scan (+any) does"
+                                    style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
+                                      border: `1px solid ${alpha(VL.red, 0.33)}`, background: alpha(VL.red, 0.08),
+                                      color: rgb(VL.red), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+                                      textTransform: 'uppercase', verticalAlign: 'middle' }}>
+                                    ⚡ any-only
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ ...TD, textAlign: 'center' }}>
+                                {(() => {
+                                  const tt = poolTokenType(p);
+                                  const c = TOKEN_TYPE_COLOR[tt];
+                                  return (
+                                    <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: 4,
+                                      border: `1px solid ${c}55`, background: `${c}12`,
+                                      color: c, fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+                                      textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                                      {tt}
+                                    </span>
+                                  );
+                                })()}
                               </td>
                               <td style={{ ...TD, textAlign: 'right', paddingBottom: 6 }}>
                                 <span style={{ color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</span>

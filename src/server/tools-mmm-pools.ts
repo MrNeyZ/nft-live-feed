@@ -112,6 +112,7 @@ interface MmmPool {
   underfunded:    boolean;  // expiry==0 && bpa>0 && bpa<spotPrice
   diverged:       boolean;  // realEscrow > bpa
   allowlists:     Allowlist[];
+  isMIP1:         boolean;
 }
 
 function parsePool(pubkey: string, dataB64: string): MmmPool | null {
@@ -164,6 +165,7 @@ function parsePool(pubkey: string, dataB64: string): MmmPool | null {
     underfunded:   expiry === 0 && bpa > 0 && bpa < spot,
     diverged:      false,
     allowlists,
+    isMIP1:        false,
   };
 }
 
@@ -235,6 +237,7 @@ export interface MmmPoolWithCollection extends MmmPool {
   collectionSymbol: string;
   poolType:         string;
   isMIP1:           boolean;
+  meKnown:          boolean;
 }
 
 export interface MmmPoolScanResult {
@@ -285,6 +288,7 @@ async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
       collectionSymbol: me.collectionSymbol ?? '',
       poolType:         me.poolType         ?? '',
       isMIP1:           me.isMIP1           ?? false,
+      meKnown:          Object.keys(me).length > 0,
     };
   });
 
@@ -318,6 +322,7 @@ interface DasAsset {
   };
   grouping?: Array<{ group_key: string; group_value: string }>;
   creators?: Array<{ address: string; verified: boolean }>;
+  compression?: { compressed?: boolean; tree?: string; leaf_id?: number };
 }
 
 // Fetch ALL wallet assets via getAssetsByOwner (object-params format required by Helius DAS)
@@ -370,7 +375,7 @@ function assetMatchesAllowlist(asset: DasAsset, al: Allowlist): boolean {
   }
 }
 
-export interface WalletNft { mint: string; name: string; imageUrl: string | null; }
+export interface WalletNft { mint: string; name: string; imageUrl: string | null; compressed?: boolean; }
 
 async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<WalletNft[]> {
   const allowlists = pool.allowlists.filter(al => al.type !== 'empty');
@@ -385,7 +390,7 @@ async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<Wa
         ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.cdn_uri
         ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.uri
         ?? null;
-      return { mint: asset.id, name: asset.content?.metadata?.name ?? asset.id.slice(0, 8), imageUrl: img };
+      return { mint: asset.id, name: asset.content?.metadata?.name ?? asset.id.slice(0, 8), imageUrl: img, compressed: asset.compression?.compressed === true };
     });
 
 }
@@ -640,6 +645,44 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
   const meInfo = await fetchMeCollectionInfo(pool.owner);
   const me     = meInfo.get(pool.poolKey) ?? {};
 
+  // ME API sometimes misses isMIP1 (e.g. owner lookup returns empty).
+  // Fall back to fvcaInfoCache (populated by pool-stream scans), then DAS.
+  let isMIP1 = me.isMIP1 ?? false;
+  if (!isMIP1) {
+    const fvcaAl = pool.allowlists.find(al => al.type === 'FVCA' || al.type === 'MCC');
+    if (fvcaAl) {
+      const cached = fvcaInfoCache.get(fvcaAl.pubkey);
+      if (cached?.tokenStandard) {
+        isMIP1 = cached.tokenStandard === 'ProgrammableNonFungible' || cached.tokenStandard === 'ProgrammableNFT';
+      } else {
+        // DAS searchAssets: sample one NFT from the collection
+        try {
+          const dasRes = await fetch(rpcUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'searchAssets',
+              params: { creatorAddress: fvcaAl.pubkey, creatorVerified: true, limit: 1, page: 1 } }),
+            signal: AbortSignal.timeout(8_000),
+          });
+          const dasJson = dasRes.ok ? await dasRes.json() as { result?: { items?: Array<{ content?: { metadata?: { token_standard?: string } }; interface?: string }> } } : {};
+          const item = dasJson.result?.items?.[0];
+          const tokenStd = item?.content?.metadata?.token_standard || item?.interface || '';
+          if (tokenStd) {
+            isMIP1 = tokenStd === 'ProgrammableNonFungible' || tokenStd === 'ProgrammableNFT';
+            // Populate cache for future pool-stream scans
+            const existing = fvcaInfoCache.get(fvcaAl.pubkey);
+            fvcaInfoCache.set(fvcaAl.pubkey, {
+              name:          existing?.name ?? '',
+              slug:          existing?.slug ?? '',
+              cachedAt:      Date.now(),
+              tokenStandard: tokenStd,
+            });
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+  }
+
   return {
     ok: true, type: 'pool',
     pool: {
@@ -647,7 +690,8 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
       collectionName:   me.collectionName   ?? me.collectionSymbol ?? '',
       collectionSymbol: me.collectionSymbol ?? '',
       poolType:         me.poolType         ?? '',
-      isMIP1:           me.isMIP1           ?? false,
+      isMIP1,
+      meKnown: Object.keys(me).length > 0,
     },
     scannedAt: new Date().toISOString(),
   };
@@ -699,8 +743,13 @@ interface FlatPool {
   alType:         string;
   alKey:          string;
   collectionName: string;
+  isMIP1:         boolean;
+  anyOnly:        boolean;   // allowlist type 'any' — invisible to FVCA/MCC-scoped scans
 }
 let rawPoolsCache: { pools: FlatPool[]; builtAt: number } | null = null;
+// Separate cache for the "include any-allowlist pools" pool-stream mode — kept apart from
+// rawPoolsCache (FVCA/MCC-scoped, also fed by triage-stream) so toggling doesn't cross-serve.
+let rawPoolsCacheAny: { pools: FlatPool[]; builtAt: number } | null = null;
 
 // Collections whose legacy NFTs are no longer actively traded (migrated to Core etc.)
 // Pools under these FVCAs are structurally valid but practically unsellable.
@@ -710,7 +759,7 @@ const FVCA_FEED_BLOCKLIST = new Set([
 
 // FVCA → collection info cache (populated by resolve-slug and batchResolveFvcaNames).
 // Keyed by FVCA address; long TTL because creator/name never change post-mint.
-const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number }>();
+const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number; tokenStandard?: string }>();
 const FVCA_INFO_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
@@ -807,7 +856,8 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
           result?: {
             items?: Array<{
               id?: string;
-              content?: { metadata?: { name?: string; symbol?: string } };
+              interface?: string;
+              content?: { metadata?: { name?: string; symbol?: string; token_standard?: string } };
               grouping?: Array<{ group_key?: string; group_value?: string }>;
             }>;
           };
@@ -827,10 +877,15 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
         const rawName  = meta?.name   ?? '';
         const baseName = rawName.replace(/\s+#\s*\d+$/, '').trim();
         const dasName  = (symbol.length > 2) ? symbol : baseName;
-        if (dasName) {
-          const existing = fvcaInfoCache.get(fvca);
-          fvcaInfoCache.set(fvca, { name: dasName, slug: existing?.slug ?? '', cachedAt: Date.now() });
-        }
+        // Prefer content.metadata.token_standard (reliable) over interface (can be "Custom")
+        const tokenStd = meta?.token_standard || item?.interface || '';
+        const existing = fvcaInfoCache.get(fvca);
+        fvcaInfoCache.set(fvca, {
+          name:          dasName || existing?.name || '',
+          slug:          existing?.slug ?? '',
+          cachedAt:      Date.now(),
+          tokenStandard: tokenStd || existing?.tokenStandard || '',
+        });
       } catch { /* non-fatal */ }
     }));
     if (i + DAS_CONCURRENCY < toResolve.length) {
@@ -861,7 +916,7 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
         const colName = data.result?.content?.metadata?.name ?? '';
         if (colName) {
           const existing = fvcaInfoCache.get(fvca);
-          fvcaInfoCache.set(fvca, { name: colName, slug: existing?.slug ?? '', cachedAt: Date.now() });
+          fvcaInfoCache.set(fvca, { name: colName, slug: existing?.slug ?? '', cachedAt: Date.now(), tokenStandard: existing?.tokenStandard });
         }
       } catch { /* non-fatal */ }
     }));
@@ -883,7 +938,7 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
       const mint = mintMap.get(fvca)!;
       const result = await resolveCollectionFromMint(mint);
       if (result) {
-        fvcaInfoCache.set(fvca, { name: result.name || (fvcaInfoCache.get(fvca)?.name ?? ''), slug: result.slug, cachedAt: Date.now() });
+        fvcaInfoCache.set(fvca, { name: result.name || (fvcaInfoCache.get(fvca)?.name ?? ''), slug: result.slug, cachedAt: Date.now(), tokenStandard: fvcaInfoCache.get(fvca)?.tokenStandard });
       }
     }));
     if (i + ME_CONCURRENCY < needSlug.length) {
@@ -1071,6 +1126,8 @@ export function createMmmPoolsRouter(): Router {
               alType:         al?.type ?? '',
               alKey:          al?.pubkey ?? '',
               collectionName: info?.name ?? '',
+              isMIP1:         info?.tokenStandard === 'ProgrammableNonFungible' || info?.tokenStandard === 'ProgrammableNFT',
+              anyOnly:        false,
             };
           }),
         };
@@ -1106,16 +1163,26 @@ export function createMmmPoolsRouter(): Router {
   );
 
   // ── Pool-stream SSE ───────────────────────────────────────────────────────
-  // GET /api/tools/mmm-pools/pool-stream?min_pct=50&fast=1&force=0
+  // GET /api/tools/mmm-pools/pool-stream?min_pct=50&fast=1&force=0&any=1
   // Returns individual underfunded pools sorted by % funded desc.
   // Reuses rawPoolsCache populated by the most recent triage run (20-min TTL).
+  //
+  // any=1 — also includes pools whose ONLY collection-scoped allowlist entry is
+  // type 'any' ("buy any NFT" bids). These have no FVCA/MCC to group or name by,
+  // so they're excluded from COLL_AL_TYPES and from triage entirely. Cached
+  // separately (rawPoolsCacheAny) so toggling the mode never cross-serves.
   router.get(
     '/tools/mmm-pools/pool-stream',
     limit,
     (req: Request, res: Response) => {
-      const minPct = parseFloat(req.query['min_pct'] as string ?? '50') || 50;
-      const force  = req.query['force'] === '1';
-      const fast   = req.query['fast']  !== '0'; // default true
+      const minPct     = parseFloat(req.query['min_pct'] as string ?? '50') || 50;
+      const force       = req.query['force'] === '1';
+      const fast        = req.query['fast']  !== '0'; // default true
+      const includeAny  = req.query['any']   === '1';
+      const cacheRef     = () => includeAny ? rawPoolsCacheAny : rawPoolsCache;
+      const setCacheRef  = (v: { pools: FlatPool[]; builtAt: number }) => {
+        if (includeAny) rawPoolsCacheAny = v; else rawPoolsCache = v;
+      };
 
       res.setHeader('Content-Type',  'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -1127,13 +1194,14 @@ export function createMmmPoolsRouter(): Router {
 
       void (async () => {
         try {
-          // Use rawPoolsCache if fresh
-          if (!force && rawPoolsCache && Date.now() - rawPoolsCache.builtAt < TRIAGE_CACHE_TTL_MS) {
-            const filtered = rawPoolsCache.pools
+          // Use cache if fresh
+          const cached = cacheRef();
+          if (!force && cached && Date.now() - cached.builtAt < TRIAGE_CACHE_TTL_MS) {
+            const filtered = cached.pools
               .filter(p => p.pct >= minPct)
               .sort((a, b) => b.pct - a.pct);
-            emit('progress', { msg: `Cached (${Math.floor((Date.now() - rawPoolsCache.builtAt) / 60_000)}m ago) — ${filtered.length} pools ≥${minPct}%`, cached: true });
-            emit('result', { pools: filtered, cached: true, cacheAgeMs: Date.now() - rawPoolsCache.builtAt });
+            emit('progress', { msg: `Cached (${Math.floor((Date.now() - cached.builtAt) / 60_000)}m ago) — ${filtered.length} pools ≥${minPct}%`, cached: true });
+            emit('result', { pools: filtered, cached: true, cacheAgeMs: Date.now() - cached.builtAt });
             return res.end();
           }
 
@@ -1158,7 +1226,9 @@ export function createMmmPoolsRouter(): Router {
             const p = parsePool(acct.pubkey, acct.account.data[0]);
             if (!p) continue;
             if (!(p.bpa > 0 && p.bpa < p.spotPrice)) continue;
-            if (!p.allowlists.some(al => COLL_AL_TYPES.has(al.type))) continue;
+            const hasCollAl = p.allowlists.some(al => COLL_AL_TYPES.has(al.type));
+            const hasAnyAl  = includeAny && p.allowlists.some(al => al.type === 'any');
+            if (!hasCollAl && !hasAnyAl) continue;
             candidates.push(p);
           }
 
@@ -1187,8 +1257,9 @@ export function createMmmPoolsRouter(): Router {
 
           // Populate flat cache and resolve names from fvcaInfoCache
           const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata') && !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
-            const al   = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
-            const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
+            const al        = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
+            const isAnyPool = !al && p.allowlists.some(a => a.type === 'any');
+            const info      = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
               poolKey:        p.poolKey,
               escrowPda:      p.escrowPda,
@@ -1197,16 +1268,18 @@ export function createMmmPoolsRouter(): Router {
               realEscrowSol:  p.realEscrowSol,
               missingSol:     p.missingSol,
               pct:            p.spotPrice > 0 ? p.realEscrow / p.spotPrice * 100 : 0,
-              alType:         al?.type ?? '',
+              alType:         al?.type ?? (isAnyPool ? 'any' : ''),
               alKey:          al?.pubkey ?? '',
-              collectionName: info?.name ?? '',
+              collectionName: info?.name ?? (isAnyPool ? '(Any NFT)' : ''),
+              isMIP1:         info?.tokenStandard === 'ProgrammableNonFungible' || info?.tokenStandard === 'ProgrammableNFT',
+              anyOnly:        isAnyPool,
             };
           });
-          const knownFlatPools = flatPools.filter(p => p.collectionName !== '' && p.realEscrowSol >= 0.01);
-          rawPoolsCache = { pools: knownFlatPools, builtAt: Date.now() };
+          const knownFlatPools = flatPools.filter(p => (p.collectionName !== '' || p.anyOnly) && p.realEscrowSol >= 0.01);
+          setCacheRef({ pools: knownFlatPools, builtAt: Date.now() });
 
           const filtered = knownFlatPools.filter(p => p.pct >= minPct).sort((a, b) => b.pct - a.pct);
-          emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded` });
+          emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded${includeAny ? ' (incl. any-NFT bids)' : ''}` });
           emit('result', { pools: filtered, cached: false, cacheAgeMs: 0 });
         } catch (e) {
           emit('error', { msg: String(e) });
@@ -1575,8 +1648,8 @@ export function createMmmPoolsRouter(): Router {
       }
 
       slugCache.set(slug, { fvca, mcc, collectionName: name, cachedAt: Date.now() });
-      if (fvca) fvcaInfoCache.set(fvca, { name, slug, cachedAt: Date.now() });
-      if (mcc)  fvcaInfoCache.set(mcc,  { name, slug, cachedAt: Date.now() });
+      if (fvca) fvcaInfoCache.set(fvca, { name, slug, cachedAt: Date.now(), tokenStandard: fvcaInfoCache.get(fvca)?.tokenStandard });
+      if (mcc)  fvcaInfoCache.set(mcc,  { name, slug, cachedAt: Date.now(), tokenStandard: fvcaInfoCache.get(mcc)?.tokenStandard });
       return res.json({ ok: true, fvca: fvca || null, mcc: mcc || null, symbol: null, collectionName: name, slug, cached: false });
     } catch (err) {
       return res.status(502).json({ ok: false, error: 'resolve_failed', message: String(err) });
