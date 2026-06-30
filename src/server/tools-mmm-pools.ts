@@ -702,6 +702,12 @@ interface FlatPool {
 }
 let rawPoolsCache: { pools: FlatPool[]; builtAt: number } | null = null;
 
+// Collections whose legacy NFTs are no longer actively traded (migrated to Core etc.)
+// Pools under these FVCAs are structurally valid but practically unsellable.
+const FVCA_FEED_BLOCKLIST = new Set([
+  '2So3Y3AT7MFkK8P6LqgP2yBCJouuDpSp1gYZmDDFxay3', // Honeyland Generations (migrated to Core)
+]);
+
 // FVCA → collection info cache (populated by resolve-slug and batchResolveFvcaNames).
 // Keyed by FVCA address; long TTL because creator/name never change post-mint.
 const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number }>();
@@ -1051,7 +1057,7 @@ export function createMmmPoolsRouter(): Router {
         // Populate flat pool cache for pool-stream
         rawPoolsCache = {
           builtAt: Date.now(),
-          pools: underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata')).map(p => {
+          pools: underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata') && !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
             const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
@@ -1180,7 +1186,7 @@ export function createMmmPoolsRouter(): Router {
           await batchResolveFvcaNames(uniqueFvcas);
 
           // Populate flat cache and resolve names from fvcaInfoCache
-          const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata')).map(p => {
+          const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata') && !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
             const al   = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
