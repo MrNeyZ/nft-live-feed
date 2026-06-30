@@ -23,7 +23,7 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.0 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.5.1 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
