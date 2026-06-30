@@ -29,6 +29,7 @@ import {
 }                                                    from '@solana/spl-token';
 import bs58                                          from 'bs58';
 import { rateLimit }                                 from './rate-limit';
+import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
 
 const MMM_PROGRAM_ID = new PublicKey('mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc');
 const ESCROW_SEED    = Buffer.from('mmm_buyside_sol_escrow_account');
@@ -66,12 +67,12 @@ function rpcUrl(): string {
     : 'https://api.mainnet-beta.solana.com';
 }
 
-async function rpcPost(method: string, params: unknown[]): Promise<unknown> {
+async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<unknown> {
   const r = await fetch(rpcUrl(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal:  AbortSignal.timeout(RPC_TIMEOUT_MS),
+    signal:  AbortSignal.timeout(timeoutMs),
   });
   if (!r.ok) throw new Error(`RPC ${method} HTTP ${r.status}`);
   const j = await r.json() as { result?: unknown; error?: { message?: string } };
@@ -293,14 +294,15 @@ async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
     return b.spotPrice - a.spotPrice;
   });
 
+  const known = merged.filter(p => p.collectionName !== '');
   return {
     ok:          true,
     owner,
-    total:       merged.length,
-    executable:  merged.filter(p => p.executable).length,
-    underfunded: merged.filter(p => p.underfunded).length,
-    diverged:    merged.filter(p => p.diverged).length,
-    pools:       merged,
+    total:       known.length,
+    executable:  known.filter(p => p.executable).length,
+    underfunded: known.filter(p => p.underfunded).length,
+    diverged:    known.filter(p => p.diverged).length,
+    pools:       known,
     scannedAt:   new Date().toISOString(),
   };
 }
@@ -651,9 +653,562 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
   };
 }
 
+// ── Triage collection types + cache ──────────────────────────────────────────
+const COLL_AL_TYPES = new Set(['FVCA', 'MCC', 'core_collection', 'group']);
+
+export interface TriageCollection {
+  alType:          string;
+  alKey:           string;
+  count:           number;
+  bestPct:         number;
+  avgPct:          number;
+  bestPool:        string;
+  bestSpotSol:     number;
+  bestRealSol:     number;   // 0 in fast mode
+  bestMissingSol:  number;
+  totalMissingSol: number;
+  tier:            'HIGH' | 'LOW' | 'VERY_LOW' | 'SKIP';
+  collectionName:  string;   // resolved via DAS (empty if unknown)
+  collectionSlug:  string;   // resolved via reverse slug cache (empty if unknown)
+}
+
+interface TriageCacheEntry {
+  collections:      TriageCollection[];
+  totalPools:       number;
+  underfundedTotal: number;
+  collectionCount:  number;
+  mode:             'full' | 'fast';
+  builtAt:          number;  // Date.now()
+}
+
+// In-memory triage cache (keyed by mode). Separate TTLs so a fresh full-mode
+// run doesn't evict the fast-mode cache and vice-versa.
+const triageCache: { full?: TriageCacheEntry; fast?: TriageCacheEntry } = {};
+const TRIAGE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
+
+// Flat pool list cache — populated as a side-effect of every triage run.
+// Used by pool-stream so it doesn't need a separate scan.
+interface FlatPool {
+  poolKey:        string;
+  escrowPda:      string;
+  owner:          string;
+  spotPriceSol:   number;
+  realEscrowSol:  number;
+  missingSol:     number;
+  pct:            number;    // realEscrow / spotPrice * 100
+  alType:         string;
+  alKey:          string;
+  collectionName: string;
+}
+let rawPoolsCache: { pools: FlatPool[]; builtAt: number } | null = null;
+
+// FVCA → collection info cache (populated by resolve-slug and batchResolveFvcaNames).
+// Keyed by FVCA address; long TTL because creator/name never change post-mint.
+const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number }>();
+const FVCA_INFO_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
+async function meFetchBulk(url: string) {
+  return fetch(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(8_000),
+  });
+}
+
+// Given a single NFT mint address, resolve ME collection slug + canonical name.
+// Uses ME /v2/tokens/{mint} → `collection` (ME slug) + /v2/collections/{slug} → `name`.
+// Returns null on any failure (non-fatal caller).
+async function resolveCollectionFromMint(mint: string): Promise<{ slug: string; name: string } | null> {
+  try {
+    const tokRes = await meFetchBulk(
+      `https://api-mainnet.magiceden.dev/v2/tokens/${encodeURIComponent(mint)}`,
+    );
+    if (tokRes.status === 429) { setMeCooldown(60_000); return null; }
+    if (!tokRes.ok) return null;
+    const tok = await tokRes.json() as {
+      collection?: string;       // ME slug
+      collectionName?: string;   // canonical name (sometimes present)
+      name?: string;             // NFT name e.g. "Open Solmap #12345"
+    };
+    const slug = tok.collection ?? '';
+    if (!slug) return null;
+
+    // Use collectionName if ME provides it; otherwise fetch from /v2/collections/{slug}
+    let name = tok.collectionName ?? '';
+    if (!name) {
+      try {
+        const colRes = await meFetchBulk(
+          `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}`,
+        );
+        if (colRes.ok) {
+          const col = await colRes.json() as { name?: string };
+          name = col.name ?? '';
+        }
+      } catch { /* non-fatal */ }
+    }
+    // Last resort: strip number from NFT name
+    if (!name && tok.name) name = tok.name.replace(/\s+#\s*\d+$/, '').trim();
+    return { slug, name };
+  } catch {
+    return null;
+  }
+}
+
+// Batch-resolve collection names + ME slugs for a list of FVCA/allowlist keys.
+// Three-step chain; each step is non-fatal:
+//
+//   1. DAS searchAssets(key) → first NFT mint + NFT symbol/baseName fallback + collection mint
+//      (collection mint is the Metaplex collection NFT address, from grouping[0].group_value)
+//   2. DAS getAsset(collectionMint) → canonical on-chain collection name (no ME rate-limit risk)
+//   3. ME /v2/tokens/{mint} → ME slug — ONLY if ME cooldown is not active, capped at low concurrency
+//
+// Populates fvcaInfoCache in-place.
+// fvcas must be pre-sorted by importance (most pools first) so rate-limit
+// budget is spent on the most valuable collections.
+async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
+  const DAS_CONCURRENCY = 3;   // Helius rate-limits hard; keep pressure low
+  const DAS_BATCH_DELAY = 50;  // ms between DAS batches (~60 req/s max)
+  const ME_CONCURRENCY  = 2;
+  const ME_BATCH_DELAY  = 150;
+
+  const missing = fvcas.filter(f => {
+    const hit = fvcaInfoCache.get(f);
+    return !hit || Date.now() - hit.cachedAt > FVCA_INFO_TTL_MS;
+  });
+  if (!missing.length) return;
+  // fvcas is pre-sorted by pool count desc — cap DAS queries to top 200 to
+  // avoid Helius rate limits while still covering all HIGH-tier collections.
+  const toResolve = missing.slice(0, 200);
+
+  // ── Step 1: DAS searchAssets → mint + collection mint + fallback name ──────
+  const mintMap    = new Map<string, string>(); // fvca → first NFT mint
+  const colMintMap = new Map<string, string>(); // fvca → collection mint (from grouping)
+
+  for (let i = 0; i < toResolve.length; i += DAS_CONCURRENCY) {
+    await Promise.all(toResolve.slice(i, i + DAS_CONCURRENCY).map(async fvca => {
+      try {
+        const res = await fetch(rpcUrl(), {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'searchAssets',
+            params:  { creatorAddress: fvca, creatorVerified: true, limit: 1, page: 1 },
+          }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          result?: {
+            items?: Array<{
+              id?: string;
+              content?: { metadata?: { name?: string; symbol?: string } };
+              grouping?: Array<{ group_key?: string; group_value?: string }>;
+            }>;
+          };
+        };
+        if (!data.result?.items?.length) return;
+        const item   = data.result.items[0];
+        const mintId = item?.id ?? '';
+        if (mintId) mintMap.set(fvca, mintId);
+
+        // Metaplex collection NFT address (grouping key = "collection")
+        const colMint = item?.grouping?.find(g => g.group_key === 'collection')?.group_value ?? '';
+        if (colMint) colMintMap.set(fvca, colMint);
+
+        // DAS fallback name (symbol or stripped NFT name) — overwritten in steps 2/3
+        const meta     = item?.content?.metadata;
+        const symbol   = meta?.symbol ?? '';
+        const rawName  = meta?.name   ?? '';
+        const baseName = rawName.replace(/\s+#\s*\d+$/, '').trim();
+        const dasName  = (symbol.length > 2) ? symbol : baseName;
+        if (dasName) {
+          const existing = fvcaInfoCache.get(fvca);
+          fvcaInfoCache.set(fvca, { name: dasName, slug: existing?.slug ?? '', cachedAt: Date.now() });
+        }
+      } catch { /* non-fatal */ }
+    }));
+    if (i + DAS_CONCURRENCY < toResolve.length) {
+      await new Promise(r => setTimeout(r, DAS_BATCH_DELAY));
+    }
+  }
+
+  // ── Step 2: DAS getAsset(collectionMint) → canonical name ────────────────
+  // Uses the Metaplex collection NFT's on-chain metadata, no ME calls needed.
+  const hasColMint = toResolve.filter(f => colMintMap.has(f));
+
+  for (let i = 0; i < hasColMint.length; i += DAS_CONCURRENCY) {
+    await Promise.all(hasColMint.slice(i, i + DAS_CONCURRENCY).map(async fvca => {
+      const colMint = colMintMap.get(fvca)!;
+      try {
+        const res = await fetch(rpcUrl(), {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'getAsset',
+            params:  { id: colMint },
+          }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        const data = await res.json() as {
+          result?: { content?: { metadata?: { name?: string } } };
+        };
+        const colName = data.result?.content?.metadata?.name ?? '';
+        if (colName) {
+          const existing = fvcaInfoCache.get(fvca);
+          fvcaInfoCache.set(fvca, { name: colName, slug: existing?.slug ?? '', cachedAt: Date.now() });
+        }
+      } catch { /* non-fatal */ }
+    }));
+  }
+
+  // ── Step 3: ME /v2/tokens/{mint} → ME slug (rate-limit aware) ────────────
+  // Skip entirely if the process-wide ME cooldown is active to avoid piling on.
+  // Cap at top 30 — we'll hit rate-limit anyway, so prioritise the biggest pools.
+  if (meCooldownActive()) return;
+
+  const needSlug = toResolve
+    .filter(f => mintMap.has(f) && !fvcaInfoCache.get(f)?.slug)
+    .slice(0, 30);
+
+  for (let i = 0; i < needSlug.length; i += ME_CONCURRENCY) {
+    if (meCooldownActive()) break;
+    await Promise.all(needSlug.slice(i, i + ME_CONCURRENCY).map(async fvca => {
+      if (meCooldownActive()) return;
+      const mint = mintMap.get(fvca)!;
+      const result = await resolveCollectionFromMint(mint);
+      if (result) {
+        fvcaInfoCache.set(fvca, { name: result.name || (fvcaInfoCache.get(fvca)?.name ?? ''), slug: result.slug, cachedAt: Date.now() });
+      }
+    }));
+    if (i + ME_CONCURRENCY < needSlug.length) {
+      await new Promise(r => setTimeout(r, ME_BATCH_DELAY));
+    }
+  }
+}
+
 export function createMmmPoolsRouter(): Router {
   const router = Router();
   const limit  = rateLimit({ limit: 10, windowMs: 60_000, label: 'tools/mmm-pools' });
+
+  // ── Triage SSE stream ──────────────────────────────────────────────────────
+  // GET /api/tools/mmm-pools/triage-stream?min_pct=5&fast=0&force=0
+  //
+  // fast=1  → skip getMultipleAccounts entirely, use on-chain bpa as proxy.
+  //           0 balance-fetch credits. Slightly less accurate but fast.
+  // force=1 → bypass the in-memory cache and re-run a full scan.
+  //
+  // Result is cached per mode (full/fast) for 20 min. Subsequent requests
+  // within the TTL are served instantly at 0 RPC credit cost.
+  router.get('/tools/mmm-pools/triage-stream',
+    rateLimit({ limit: 4, windowMs: 120_000, label: 'tools/mmm-triage' }),
+    async (req: Request, res: Response) => {
+      const minPct = Math.max(0, Math.min(100,
+        parseFloat(String(req.query.min_pct ?? '5')) || 5));
+      const fast  = req.query.fast  === '1';
+      const force = req.query.force === '1';
+      const mode  = fast ? 'fast' : 'full';
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      const emit = (type: string, payload: Record<string, unknown>) => {
+        try { res.write(`data: ${JSON.stringify({ type, ...payload })}\n\n`); }
+        catch { /* client disconnected */ }
+      };
+
+      try {
+        // ── Serve from cache if fresh ────────────────────────────────────────
+        const cached = triageCache[mode];
+        if (!force && cached && Date.now() - cached.builtAt < TRIAGE_CACHE_TTL_MS) {
+          const ageMin  = Math.floor((Date.now() - cached.builtAt) / 60_000);
+          const ageSec  = Math.floor((Date.now() - cached.builtAt) / 1_000) % 60;
+          const ageStr  = ageMin > 0 ? `${ageMin}m ${ageSec}s` : `${ageSec}s`;
+          emit('progress', { msg: `Cached result (${ageStr} old, TTL 20m) — 0 RPC calls`, cached: true });
+          emit('result', {
+            ...cached,
+            minPct,
+            cached:       true,
+            cacheAgeMs:   Date.now() - cached.builtAt,
+          });
+          return res.end();
+        }
+
+        // ── Live scan ────────────────────────────────────────────────────────
+        emit('progress', { msg: `Fetching all infinite-lifetime MMM pools${fast ? ' [fast mode]' : ''}...` });
+
+        const accounts = await rpcPost('getProgramAccounts', [
+          MMM_PROGRAM_ID.toBase58(),
+          {
+            encoding:   'base64',
+            commitment: 'confirmed',
+            // memcmp on expiry field (i64 LE @ OFF_EXPIRY=27): value 0 = 8 zero bytes
+            // bs58.encode(Buffer.alloc(8)) = '11111111'
+            filters: [
+              { dataSize: POOL_SIZE },
+              { memcmp: { offset: OFF_EXPIRY, bytes: '11111111' } },
+            ],
+          },
+        ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+
+        emit('progress', { msg: `Got ${accounts.length} infinite-lifetime pools, parsing...` });
+
+        // Pre-filter on bpa (no RPC needed, local parse only)
+        const candidates: MmmPool[] = [];
+        for (const acct of accounts) {
+          const p = parsePool(acct.pubkey, acct.account.data[0]);
+          if (!p) continue;
+          if (!(p.bpa > 0 && p.bpa < p.spotPrice)) continue;
+          if (!p.allowlists.some(al => COLL_AL_TYPES.has(al.type))) continue;
+          candidates.push(p);
+        }
+
+        let underfunded: MmmPool[];
+
+        if (fast) {
+          // Fast mode: treat bpa as the real balance — 0 getMultipleAccounts calls.
+          // bpa is the on-chain tracked deposit; it diverges from the actual PDA balance
+          // only when SOL was added/removed outside the MMM contract (rare). Good enough
+          // for broad triage; use full mode to verify top candidates.
+          emit('progress', { msg: `${candidates.length} candidates (fast mode — using tracked bpa, no balance fetch)` });
+          underfunded = candidates.map(p => applyBalance(p, p.bpa));
+          // After applyBalance with bpa: executable only if bpa >= spot, which we already
+          // filtered out (bpa < spot), so all candidates are "underfunded" here.
+          underfunded = underfunded.filter(p => !p.executable);
+        } else {
+          // Full mode: fetch real escrow balances via getMultipleAccounts batches.
+          // Cost: ceil(candidates.length / 100) RPC calls.
+          emit('progress', {
+            msg: `${candidates.length} candidates — fetching real escrow balances (${Math.ceil(candidates.length / 100)} batch calls)...`,
+          });
+          const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
+          const hydrated = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+          underfunded = hydrated.filter(p => p.realEscrow >= 10_000_000 && !p.executable);
+        }
+
+        emit('progress', { msg: `${underfunded.length} underfunded pools — grouping by collection...` });
+
+        // Group by primary collection allowlist key
+        const groups = new Map<string, { alType: string; alKey: string; pools: MmmPool[] }>();
+        for (const p of underfunded) {
+          const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
+          if (!al) continue;
+          const gk = al.pubkey;
+          if (!groups.has(gk)) groups.set(gk, { alType: al.type, alKey: al.pubkey, pools: [] });
+          groups.get(gk)!.pools.push(p);
+        }
+
+        // Batch-resolve names+slugs. Sort by pool count descending so Helius
+        // rate-limit budget is spent on the collections with the most pools first.
+        const uniqueFvcas = [...groups.entries()]
+          .sort((a, b) => b[1].pools.length - a[1].pools.length)
+          .map(([k]) => k);
+        emit('progress', { msg: `Resolving names for ${uniqueFvcas.length} collections...` });
+        await batchResolveFvcaNames(uniqueFvcas);
+
+        const tierOrd: Record<string, number> = { HIGH: 0, LOW: 1, VERY_LOW: 2, SKIP: 3 };
+        let collections: TriageCollection[] = [];
+
+        for (const [, g] of groups) {
+          const pcts    = g.pools.map(p => p.realEscrow / p.spotPrice * 100);
+          const bestPct = Math.max(...pcts);
+          const avgPct  = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+          const best    = g.pools.reduce((a, b) =>
+            (a.realEscrow / a.spotPrice > b.realEscrow / b.spotPrice ? a : b));
+          const t: TriageCollection['tier'] =
+            bestPct >= 20 ? 'HIGH' : bestPct >= 5 ? 'LOW' : bestPct >= 2.1 ? 'VERY_LOW' : 'SKIP';
+          const info = fvcaInfoCache.get(g.alKey);
+
+          collections.push({
+            alType:          g.alType,
+            alKey:           g.alKey,
+            count:           g.pools.length,
+            bestPct:         Math.round(bestPct * 10) / 10,
+            avgPct:          Math.round(avgPct  * 10) / 10,
+            bestPool:        best.poolKey,
+            bestSpotSol:     best.spotPriceSol,
+            bestRealSol:     fast ? 0 : best.realEscrowSol,
+            bestMissingSol:  best.missingSol,
+            totalMissingSol: Math.round(g.pools.reduce((s, p) => s + p.missing, 0) / 1e9 * 10000) / 10000,
+            tier:            t,
+            collectionName:  info?.name ?? '',
+            collectionSlug:  info?.slug ?? '',
+          });
+        }
+
+        // Drop collections ME doesn't recognise — their sol-fulfill-buy returns 500
+        collections = collections.filter(c => c.collectionName !== '');
+
+        collections.sort((a, b) => {
+          const da = tierOrd[a.tier] ?? 3;
+          const db = tierOrd[b.tier] ?? 3;
+          if (da !== db) return da - db;
+          if (a.count !== b.count) return b.count - a.count;
+          return b.bestPct - a.bestPct;
+        });
+
+        // Populate flat pool cache for pool-stream
+        rawPoolsCache = {
+          builtAt: Date.now(),
+          pools: underfunded.map(p => {
+            const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
+            const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
+            return {
+              poolKey:        p.poolKey,
+              escrowPda:      p.escrowPda,
+              owner:          p.owner,
+              spotPriceSol:   p.spotPriceSol,
+              realEscrowSol:  p.realEscrowSol,
+              missingSol:     p.missingSol,
+              pct:            p.spotPrice > 0 ? p.realEscrow / p.spotPrice * 100 : 0,
+              alType:         al?.type ?? '',
+              alKey:          al?.pubkey ?? '',
+              collectionName: info?.name ?? '',
+            };
+          }),
+        };
+
+        // Store in cache
+        triageCache[mode] = {
+          collections,
+          totalPools:       accounts.length,
+          underfundedTotal: underfunded.length,
+          collectionCount:  collections.length,
+          mode,
+          builtAt:          Date.now(),
+        };
+
+        emit('result', {
+          collections,
+          totalPools:       accounts.length,
+          underfundedTotal: underfunded.length,
+          collectionCount:  collections.length,
+          minPct,
+          cached:           false,
+          cacheAgeMs:       0,
+          fast,
+        });
+
+      } catch (e) {
+        console.error('[tools/mmm-pools] triage-stream error', e);
+        emit('error', { msg: String(e) });
+      }
+
+      res.end();
+    },
+  );
+
+  // ── Pool-stream SSE ───────────────────────────────────────────────────────
+  // GET /api/tools/mmm-pools/pool-stream?min_pct=50&fast=1&force=0
+  // Returns individual underfunded pools sorted by % funded desc.
+  // Reuses rawPoolsCache populated by the most recent triage run (20-min TTL).
+  router.get(
+    '/tools/mmm-pools/pool-stream',
+    limit,
+    (req: Request, res: Response) => {
+      const minPct = parseFloat(req.query['min_pct'] as string ?? '50') || 50;
+      const force  = req.query['force'] === '1';
+      const fast   = req.query['fast']  !== '0'; // default true
+
+      res.setHeader('Content-Type',  'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection',    'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      const emit = (type: string, data: Record<string, unknown>) => {
+        res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+      };
+
+      void (async () => {
+        try {
+          // Use rawPoolsCache if fresh
+          if (!force && rawPoolsCache && Date.now() - rawPoolsCache.builtAt < TRIAGE_CACHE_TTL_MS) {
+            const filtered = rawPoolsCache.pools
+              .filter(p => p.pct >= minPct)
+              .sort((a, b) => b.pct - a.pct);
+            emit('progress', { msg: `Cached (${Math.floor((Date.now() - rawPoolsCache.builtAt) / 60_000)}m ago) — ${filtered.length} pools ≥${minPct}%`, cached: true });
+            emit('result', { pools: filtered, cached: true, cacheAgeMs: Date.now() - rawPoolsCache.builtAt });
+            return res.end();
+          }
+
+          // Fresh scan
+          emit('progress', { msg: `Fetching all infinite-lifetime MMM pools${fast ? ' [fast]' : ''}…` });
+          const accounts = await rpcPost('getProgramAccounts', [
+            MMM_PROGRAM_ID.toBase58(),
+            {
+              encoding:   'base64',
+              commitment: 'confirmed',
+              filters: [
+                { dataSize: POOL_SIZE },
+                { memcmp: { offset: OFF_EXPIRY, bytes: '11111111' } },
+              ],
+            },
+          ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+
+          emit('progress', { msg: `${accounts.length} pools — filtering candidates…` });
+
+          const candidates: MmmPool[] = [];
+          for (const acct of accounts) {
+            const p = parsePool(acct.pubkey, acct.account.data[0]);
+            if (!p) continue;
+            if (!(p.bpa > 0 && p.bpa < p.spotPrice)) continue;
+            if (!p.allowlists.some(al => COLL_AL_TYPES.has(al.type))) continue;
+            candidates.push(p);
+          }
+
+          let underfunded: MmmPool[];
+          if (fast) {
+            underfunded = candidates.map(p => applyBalance(p, p.bpa)).filter(p => !p.executable);
+          } else {
+            emit('progress', { msg: `Fetching real escrow balances (${Math.ceil(candidates.length / 100)} calls)…` });
+            const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
+            underfunded = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0))
+              .filter(p => p.realEscrow >= 10_000_000 && !p.executable);
+          }
+
+          // Resolve collection names (same logic as triage — sort by pool count so
+          // Helius rate-limit budget goes to the most pool-heavy collections first).
+          const fvcaGroups = new Map<string, number>();
+          for (const p of underfunded) {
+            const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
+            if (al) fvcaGroups.set(al.pubkey, (fvcaGroups.get(al.pubkey) ?? 0) + 1);
+          }
+          const uniqueFvcas = [...fvcaGroups.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([k]) => k);
+          emit('progress', { msg: `Resolving names for ${uniqueFvcas.length} collections…` });
+          await batchResolveFvcaNames(uniqueFvcas);
+
+          // Populate flat cache and resolve names from fvcaInfoCache
+          const flatPools: FlatPool[] = underfunded.map(p => {
+            const al   = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
+            const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
+            return {
+              poolKey:        p.poolKey,
+              escrowPda:      p.escrowPda,
+              owner:          p.owner,
+              spotPriceSol:   p.spotPriceSol,
+              realEscrowSol:  p.realEscrowSol,
+              missingSol:     p.missingSol,
+              pct:            p.spotPrice > 0 ? p.realEscrow / p.spotPrice * 100 : 0,
+              alType:         al?.type ?? '',
+              alKey:          al?.pubkey ?? '',
+              collectionName: info?.name ?? '',
+            };
+          });
+          const knownFlatPools = flatPools.filter(p => p.collectionName !== '' && p.realEscrowSol >= 0.01);
+          rawPoolsCache = { pools: knownFlatPools, builtAt: Date.now() };
+
+          const filtered = knownFlatPools.filter(p => p.pct >= minPct).sort((a, b) => b.pct - a.pct);
+          emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded` });
+          emit('result', { pools: filtered, cached: false, cacheAgeMs: 0 });
+        } catch (e) {
+          emit('error', { msg: String(e) });
+        }
+        res.end();
+      })();
+    },
+  );
 
   // Proxy sendRawTransaction through Helius so the browser doesn't hit the public RPC
   // (which returns 403 for sendTransaction from browser origins).
@@ -766,30 +1321,101 @@ export function createMmmPoolsRouter(): Router {
 
   // ── Collection underfunded pool scan ──────────────────────────────────────
   // GET /api/tools/mmm-pools/collection-scan?fvca=<pubkey>[&mcc=<pubkey>]
+  //   or ?symbol=<me-collection-slug>  (for collections with no FVCA/MCC — any-allowlist pools)
   // Returns active (non-expired) pools for a collection where
   // 0 < realEscrow < spotPrice — the "ghost bids" that can execute on-chain
   // if topped up but are invisible in the ME UI.
+  // For symbol path, returns ALL active pools (executable + underfunded).
   router.get('/tools/mmm-pools/collection-scan', rateLimit({ limit: 6, windowMs: 60_000, label: 'tools/mmm-collection-scan' }), async (req: Request, res: Response) => {
-    const fvca = String(req.query.fvca ?? '').trim();
-    const mcc  = String(req.query.mcc  ?? '').trim();
-    if (!fvca && !mcc) {
-      return res.status(400).json({ ok: false, error: 'missing_params', message: 'fvca or mcc required' });
+    const fvca   = String(req.query.fvca   ?? '').trim();
+    const mcc    = String(req.query.mcc    ?? '').trim();
+    const symbol = String(req.query.symbol ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (!fvca && !mcc && !symbol) {
+      return res.status(400).json({ ok: false, error: 'missing_params', message: 'fvca, mcc, or symbol required' });
     }
     if (fvca && !ADDR_RE.test(fvca)) return res.status(400).json({ ok: false, error: 'invalid_fvca' });
     if (mcc  && !ADDR_RE.test(mcc))  return res.status(400).json({ ok: false, error: 'invalid_mcc' });
+
+    // ── Symbol path: fetch pools from ME by collectionSymbol ────────────────
+    if (symbol && !fvca && !mcc) {
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const meUrl = `https://api-mainnet.magiceden.io/v2/mmm/pools?collectionSymbol=${encodeURIComponent(symbol)}&filterOnSide=1&limit=100`;
+        const meResp = await fetch(meUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8_000) });
+        if (!meResp.ok) return res.status(502).json({ ok: false, error: 'me_api_error', message: `ME ${meResp.status}` });
+        const meData = await meResp.json() as { results?: Array<{ poolKey?: string }> };
+        const poolKeys = (meData.results ?? []).map(p => p.poolKey).filter((k): k is string => !!k);
+
+        if (poolKeys.length === 0) {
+          return res.json({ ok: true, fvca: null, mcc: null, symbol, collectionName: '', collectionSlug: symbol, totalFound: 0, expired: 0, activeTotal: 0, executable: 0, underfunded: 0, emptyEscrow: 0, pools: [], scannedAt: new Date().toISOString() });
+        }
+
+        // Batch-fetch on-chain pool accounts
+        const acctResp = await rpcPost('getMultipleAccounts', [
+          poolKeys,
+          { encoding: 'base64', commitment: 'confirmed' },
+        ]) as { value: Array<{ data: [string, string] } | null> };
+
+        const allPools: MmmPool[] = [];
+        for (let i = 0; i < poolKeys.length; i++) {
+          const acct = acctResp.value[i];
+          if (!acct) continue;
+          const p = parsePool(poolKeys[i], acct.data[0]);
+          if (p) allPools.push(p);
+        }
+
+        const balances  = await fetchMultipleBalances(allPools.map(p => p.escrowPda));
+        const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+        const isActive  = (p: MmmPool) => p.expiry === 0 || p.expiry > now;
+        const active    = hydrated.filter(isActive);
+        const expired   = hydrated.length - active.length;
+        const executable   = active.filter(p => p.executable);
+        const underfunded  = active.filter(p => !p.executable && p.realEscrow > 0);
+        const emptyEscrow  = active.filter(p => p.realEscrow === 0);
+
+        // Return all active pools (executable first, then underfunded by missing asc)
+        const pools = [
+          ...executable.sort((a, b) => b.spotPrice - a.spotPrice),
+          ...underfunded.sort((a, b) => a.missing - b.missing),
+        ];
+
+        let collectionName = '';
+        try {
+          const colResp = await meFetchBulk(`https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(symbol)}`);
+          if (colResp.ok) collectionName = ((await colResp.json() as { name?: string }).name) ?? '';
+        } catch { /* non-fatal */ }
+
+        return res.json({
+          ok: true, fvca: null, mcc: null, symbol, collectionName, collectionSlug: symbol,
+          totalFound: hydrated.length, expired, activeTotal: active.length,
+          executable: executable.length, underfunded: underfunded.length, emptyEscrow: emptyEscrow.length,
+          pools,
+          scannedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error('[tools/mmm-pools] collection-scan symbol error', err);
+        return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });
+      }
+    }
 
     try {
       const now = Math.floor(Date.now() / 1000);
       const seen = new Map<string, { pubkey: string; account: { data: [string, string] } }>();
 
-      // Search FVCA (type=1) and MCC (type=3) across all 6 allowlist slots
-      const queries: Array<{ type: 1 | 3; pubkey: string }> = [];
-      if (fvca) queries.push({ type: 1, pubkey: fvca });
-      if (mcc)  queries.push({ type: 3, pubkey: mcc });
+      // Try all 4 collection allowlist types for each provided pubkey.
+      // A pool is stored with exactly one type per slot; we don't know which
+      // the bidder chose, so we probe all variants and dedup by pool key.
+      // Types: FVCA=1, MCC=3, group=5, core_collection=6
+      const ALL_COLL_TYPES = [1, 3, 5, 6] as const;
+      const queries: Array<{ type: 1 | 3 | 5 | 6; pubkey: string }> = [];
+      for (const t of ALL_COLL_TYPES) {
+        if (fvca) queries.push({ type: t, pubkey: fvca });
+        if (mcc && mcc !== fvca) queries.push({ type: t, pubkey: mcc });
+      }
 
       for (const q of queries) {
         const creatorBuf = new PublicKey(q.pubkey).toBuffer();
-        // 33-byte prefix: 1 type byte + 32 pubkey bytes, base58-encoded for memcmp
+        // 33-byte allowlist entry: 1-byte type + 32-byte pubkey, base58-encoded for memcmp
         const matchBuf = Buffer.concat([Buffer.from([q.type]), creatorBuf]);
         const matchB58 = bs58.encode(matchBuf);
 
@@ -832,18 +1458,38 @@ export function createMmmPoolsRouter(): Router {
       // Sort underfunded by missing ASC (closest to executable first)
       underfunded.sort((a, b) => a.missing - b.missing);
 
+      // Resolve collection name for the scanned FVCA (non-fatal, uses 24h cache).
+      // DAS searchAssets → Tensor find_collection chain; slugCache may already have it.
+      let collectionName = '';
+      let collectionSlug = '';
+      const scanKey = fvca || mcc;
+      if (scanKey) {
+        const cached = fvcaInfoCache.get(scanKey);
+        if (cached && Date.now() - cached.cachedAt < FVCA_INFO_TTL_MS) {
+          collectionName = cached.name;
+          collectionSlug = cached.slug;
+        } else {
+          try { await batchResolveFvcaNames([scanKey]); } catch { /* non-fatal */ }
+          const info = fvcaInfoCache.get(scanKey);
+          collectionName = info?.name ?? '';
+          collectionSlug = info?.slug ?? '';
+        }
+      }
+
       return res.json({
-        ok:            true,
-        fvca:          fvca || null,
-        mcc:           mcc  || null,
-        totalFound:    hydrated.length,
+        ok:             true,
+        fvca:           fvca || null,
+        mcc:            mcc  || null,
+        collectionName,
+        collectionSlug,
+        totalFound:     hydrated.length,
         expired,
-        activeTotal:   active.length,
-        executable:    executable.length,
-        underfunded:   underfunded.length,
-        emptyEscrow:   emptyEscrow.length,
-        pools:         underfunded,
-        scannedAt:     new Date().toISOString(),
+        activeTotal:    active.length,
+        executable:     executable.length,
+        underfunded:    underfunded.length,
+        emptyEscrow:    emptyEscrow.length,
+        pools:          underfunded,
+        scannedAt:      new Date().toISOString(),
       });
     } catch (err) {
       console.error('[tools/mmm-pools] collection-scan error', err);
@@ -851,10 +1497,22 @@ export function createMmmPoolsRouter(): Router {
     }
   });
 
+  // Persistent in-process slug→FVCA cache. slug→FVCA mapping is immutable
+  // (collection creators don't change after mint), so TTL is intentionally long.
+  const slugCache = new Map<string, { fvca: string; mcc: string; collectionName: string; cachedAt: number }>();
+  const SLUG_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
   // Resolve a ME collection slug → first verified creator (FVCA) via ME listings + Helius DAS.
   router.get('/tools/mmm-pools/resolve-slug', limit, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (!slug) return res.status(400).json({ ok: false, error: 'missing_slug' });
+
+    // Serve from cache — slug→FVCA never changes post-mint
+    const hit = slugCache.get(slug);
+    if (hit && Date.now() - hit.cachedAt < SLUG_CACHE_TTL_MS) {
+      return res.json({ ok: true, fvca: hit.fvca || null, mcc: hit.mcc || null, collectionName: hit.collectionName, slug, cached: true });
+    }
+
     try {
       let mint = '';
       for (let attempt = 0; attempt < 3 && !mint; attempt++) {
@@ -872,7 +1530,6 @@ export function createMmmPoolsRouter(): Router {
         try {
           listings = await meRes.json() as typeof listings;
         } catch {
-          // ME API returned 200 with non-JSON (CF rate-limit HTML page etc.) — retry
           if (attempt === 2) return res.status(502).json({ ok: false, error: 'me_api_bad_response', message: 'ME API unavailable, please retry' });
           continue;
         }
@@ -880,17 +1537,41 @@ export function createMmmPoolsRouter(): Router {
       }
       if (!mint) return res.status(404).json({ ok: false, error: 'no_listings' });
 
+      // Get FVCA via DAS getAsset
       const dasRes = await fetch(rpcUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
         signal: AbortSignal.timeout(8_000),
       });
-      const das = await dasRes.json() as { result?: { creators?: Array<{ address: string; verified: boolean }>; content?: { metadata?: { name?: string } } } };
+      const das = await dasRes.json() as {
+        result?: {
+          creators?: Array<{ address: string; verified: boolean }>;
+          grouping?: Array<{ group_key: string; group_value: string }>;
+        };
+      };
       const fvca = (das.result?.creators ?? []).find(c => c.verified)?.address ?? '';
-      if (!fvca) return res.status(404).json({ ok: false, error: 'no_verified_creator' });
-      const name = das.result?.content?.metadata?.name ?? '';
-      return res.json({ ok: true, fvca, collectionName: name, slug });
+      const mcc  = (das.result?.grouping  ?? []).find(g => g.group_key === 'collection')?.group_value ?? '';
+
+      // Always fetch collection name (needed for all paths including symbol fallback)
+      let name = '';
+      try {
+        const colRes = await meFetchBulk(
+          `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}`,
+        );
+        if (colRes.ok) name = ((await colRes.json() as { name?: string }).name) ?? '';
+      } catch { /* non-fatal */ }
+
+      if (!fvca && !mcc) {
+        // No on-chain allowlist key — fall back to symbol-based ME scan
+        slugCache.set(slug, { fvca: '', mcc: '', collectionName: name, cachedAt: Date.now() });
+        return res.json({ ok: true, fvca: null, mcc: null, symbol: slug, collectionName: name, slug, cached: false });
+      }
+
+      slugCache.set(slug, { fvca, mcc, collectionName: name, cachedAt: Date.now() });
+      if (fvca) fvcaInfoCache.set(fvca, { name, slug, cachedAt: Date.now() });
+      if (mcc)  fvcaInfoCache.set(mcc,  { name, slug, cachedAt: Date.now() });
+      return res.json({ ok: true, fvca: fvca || null, mcc: mcc || null, symbol: null, collectionName: name, slug, cached: false });
     } catch (err) {
       return res.status(502).json({ ok: false, error: 'resolve_failed', message: String(err) });
     }

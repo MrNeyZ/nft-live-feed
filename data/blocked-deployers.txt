@@ -5,3 +5,4 @@
 # 2023 Team Series ICONs spam deployer — floods feed with many small
 # collections under one wallet (BhA2...). Confirmed 2026-06-22.
 BhA2Bfd8t2F2jDiUNdioGRJQt7MiaWo3Ro5H2Yt7APe2
+cq2Lcb7UtZZb43hwGXdxrYJfGcvZfoGGriePRSFd51R
