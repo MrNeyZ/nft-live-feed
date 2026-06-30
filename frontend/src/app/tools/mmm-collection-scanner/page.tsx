@@ -175,7 +175,7 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
     { id: 'poolfeed',   label: 'Pool Feed' },
   ];
   return (
-    <div style={{ display: 'flex', gap: 2, marginTop: 14, borderBottom: '1px solid rgba(168,144,232,0.18)' }}>
+    <div style={{ display: 'flex', gap: 2, marginTop: 8, borderBottom: '1px solid rgba(168,144,232,0.18)' }}>
       {tabs.map(t => (
         <button key={t.id} type="button" onClick={() => onChange(t.id)}
           style={{
@@ -549,13 +549,13 @@ export default function MmmCollectionScannerPage() {
   return (
     <div className="feed-root page-transition" data-page="tools-mmm-collection-scanner">
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%' }}>
-        <div style={{ padding: '20px 4px 0', width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ padding: '14px 4px 0', width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
               <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
                 MMM Collection Scanner
               </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 11, color: '#9a9ab4' }}>
                 <LiveDot />
                 <span>Live scanner for underfunded infinite-lifetime MMM buy pools</span>
               </div>
@@ -873,77 +873,91 @@ export default function MmmCollectionScannerPage() {
 
         {/* ── Pool Feed ───────────────────────────────────────────────────── */}
         {activeTab === 'poolfeed' && (
-          <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', padding: '16px 4px' }}>
+          <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', padding: '10px 4px' }}>
 
-            {/* Controls — hierarchy: SCAN › KPI › Refresh · cached › filter */}
-            <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+            {/* Controls — SCAN | divider | KPI · refresh · cached | filter */}
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0, marginBottom: 12 }}>
 
-              {/* SCAN — primary CTA */}
+              {/* SCAN — primary CTA, most dominant */}
               <button type="button" disabled={pfBusy} onClick={() => runPoolFeed()}
                 style={{
-                  padding: '10px 32px', fontSize: 13, fontWeight: 700, letterSpacing: '1px',
+                  padding: '10px 36px', fontSize: 13, fontWeight: 800, letterSpacing: '2px',
                   textTransform: 'uppercase', borderRadius: 6, cursor: pfBusy ? 'not-allowed' : 'pointer',
-                  border: `1px solid ${!pfBusy ? alpha(VL.purpleTint, 0.55) : alpha(VL.purpleTint, 0.12)}`,
+                  border: `1.5px solid ${!pfBusy ? alpha(VL.purpleTint, 0.68) : alpha(VL.purpleTint, 0.12)}`,
                   background: !pfBusy
-                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.40)} 0%,${alpha(VL.purpleDeep,0.22)} 100%)`
+                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.55)} 0%,${alpha(VL.purpleDeep,0.30)} 100%)`
                     : alpha(VL.purpleDeep,0.06),
                   color: !pfBusy ? VLText.primary : VLText.muted,
                   boxShadow: !pfBusy
-                    ? `0 0 24px ${alpha(VL.purpleDeep,0.30)}, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2)`
+                    ? `0 0 32px ${alpha(VL.purpleDeep,0.50)}, 0 0 10px ${alpha(VL.purpleTint,0.20)}, inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.3)`
                     : 'none',
-                  marginRight: 12,
+                  marginRight: 0,
+                  flexShrink: 0,
                 }}>
                 {pfBusy ? 'Scanning…' : 'Scan'}
               </button>
 
-              {/* KPI — prominent but compact, no card chrome */}
+              {/* Divider */}
               {pfResult && !pfBusy && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                  marginRight: 16, lineHeight: 1 }}>
-                  <span style={{ fontSize: 28, fontWeight: 800, color: rgb(VL.gold), ...MONO,
-                    letterSpacing: '-1px', lineHeight: 1 }}>
+                <div style={{ width: 1, height: 30, background: alpha(VL.purpleTint, 0.12), margin: '0 18px', flexShrink: 0 }} />
+              )}
+
+              {/* KPI — clearly secondary to SCAN, no card */}
+              {pfResult && !pfBusy && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1, marginRight: 20, flexShrink: 0 }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: rgb(VL.gold), ...MONO, letterSpacing: '-0.5px', lineHeight: 1 }}>
                     {pfResult.pools.length}
                   </span>
-                  <span style={{ fontSize: 9, color: alpha(VL.gold, 0.5), textTransform: 'uppercase',
-                    letterSpacing: '1px', fontWeight: 700, marginTop: 2 }}>
+                  <span style={{ fontSize: 8, color: alpha(VL.gold, 0.42), textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 700, marginTop: 3 }}>
                     active pools
                   </span>
                 </div>
               )}
 
-              {/* Refresh — ghost, secondary */}
+              {/* Refresh — ghost */}
               {pfResult?.cached && !pfBusy && (
                 <button type="button" onClick={() => runPoolFeed({ force: true })}
-                  style={{ padding: '4px 0', fontSize: 11, fontWeight: 500, background: 'none',
-                    border: 'none', color: VLText.faint, cursor: 'pointer', marginRight: 8,
-                    textDecoration: 'underline', textDecorationColor: 'rgba(99,99,122,0.35)',
-                    textUnderlineOffset: '3px' }}>
+                  style={{ padding: '3px 0', fontSize: 11, fontWeight: 500, background: 'none',
+                    border: 'none', color: VLText.faint, cursor: 'pointer', marginRight: 12,
+                    textDecoration: 'underline', textDecorationColor: alpha(VL.purpleTint, 0.25),
+                    textUnderlineOffset: '3px', flexShrink: 0 }}>
                   ↺ refresh
                 </button>
               )}
 
-              {/* Cache status — pure text, no chrome */}
+              {/* Cached — 2-line structured */}
               {pfResult && !pfBusy && (
-                <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.35), ...MONO, marginRight: 20 }}>
-                  {pfResult.cached
-                    ? `cached · ${Math.floor(pfResult.cacheAgeMs / 60_000)}m ago`
-                    : 'live'}
-                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, lineHeight: 1, flexShrink: 0 }}>
+                  <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>
+                    {pfResult.cached ? 'cached' : 'live scan'}
+                  </span>
+                  {pfResult.cached && (
+                    <span style={{ fontSize: 11, color: VLText.faint, ...MONO }}>
+                      {Math.floor(pfResult.cacheAgeMs / 60_000)}m ago
+                    </span>
+                  )}
+                </div>
               )}
 
-              {/* Filter — pushed right, terminal-style */}
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 9, color: VLText.faint, textTransform: 'uppercase',
-                  letterSpacing: '0.8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Min %</span>
+              {/* Filter — terminal chip, far right */}
+              <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                border: `1px solid ${alpha(VL.purpleTint, 0.20)}`, borderRadius: 5,
+                background: 'rgba(16,11,30,0.90)', overflow: 'hidden' }}>
+                <span style={{ padding: '0 10px', height: 32, display: 'flex', alignItems: 'center',
+                  fontSize: 9, color: alpha(VL.purpleTint, 0.45), textTransform: 'uppercase',
+                  letterSpacing: '0.7px', fontWeight: 700,
+                  borderRight: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap' }}>
+                  Funded ≥
+                </span>
                 <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                  <input type="number" value={pfMinPct} min="0" max="100" step="1"
-                    onChange={e => setPfMinPct(e.target.value)} disabled={pfBusy}
-                    style={{ width: 56, padding: '6px 18px 6px 8px', fontSize: 12, ...MONO, borderRadius: 4,
-                      border: `1px solid ${alpha(VL.purpleTint, 0.22)}`,
-                      background: 'rgba(20,14,34,0.95)', color: VLText.primary, outline: 'none' }}
+                  <input type="text" inputMode="numeric" pattern="[0-9]*"
+                    value={pfMinPct}
+                    onChange={e => { if (/^\d{0,3}$/.test(e.target.value)) setPfMinPct(e.target.value); }}
+                    disabled={pfBusy}
+                    style={{ width: 48, padding: '0 18px 0 8px', height: 32, fontSize: 13, ...MONO,
+                      border: 'none', background: 'transparent', color: VLText.primary, outline: 'none' }}
                   />
-                  <span style={{ position: 'absolute', right: 6, fontSize: 10,
-                    color: VLText.faint, pointerEvents: 'none' }}>%</span>
+                  <span style={{ position: 'absolute', right: 8, fontSize: 10, color: VLText.faint, pointerEvents: 'none' }}>%</span>
                 </div>
               </div>
             </div>
@@ -1000,17 +1014,19 @@ export default function MmmCollectionScannerPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {sorted.map(p => (
+                          {sorted.map((p, i) => (
                             <tr key={p.poolKey}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.05); }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}>
+                              style={{ background: i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : 'transparent' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : ''; }}>
                               <td style={TD_L}>
-                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={VLText.faint} />
+                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.38)} />
                               </td>
                               <td style={TD_L}>
                                 {p.collectionName
-                                  ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 600, letterSpacing: '-0.2px' }}>{p.collectionName}</span>
-                                  : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.2) }}>—</span>
+                                  ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 700, letterSpacing: '-0.3px',
+                                      textShadow: `0 0 14px ${alpha(VL.gold, 0.22)}` }}>{p.collectionName}</span>
+                                  : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.16) }}>—</span>
                                 }
                               </td>
                               <td style={{ ...TD, textAlign: 'right', paddingBottom: 6 }}>
@@ -1021,23 +1037,23 @@ export default function MmmCollectionScannerPage() {
                                   opacity: 0.3, marginLeft: 'auto' }} />
                               </td>
                               <td style={TD}>
-                                <span style={{ color: VLText.primary, fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
+                                <span style={{ color: VLText.primary, fontWeight: 800 }}>{p.spotPriceSol.toFixed(4)}</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
-                                <span style={{ color: rgb(VL.gold), fontWeight: 600 }}>{p.realEscrowSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
+                                <span style={{ color: alpha(VL.gold, 0.62), fontWeight: 500 }}>{p.realEscrowSol.toFixed(4)}</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
                                 <span style={{ color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
                                   {p.missingSol.toFixed(4)}
                                 </span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD_L}>
                                 <span
-                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = VLText.primary; }}
-                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = alpha(VL.purpleTint, 0.35); }}
+                                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = VLText.primary; el.style.textDecoration = 'underline'; el.style.textDecorationColor = alpha(VL.purpleTint, 0.40); }}
+                                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = alpha(VL.purpleTint, 0.35); el.style.textDecoration = 'none'; }}
                                   style={{ color: alpha(VL.purpleTint, 0.35), cursor: 'pointer', fontSize: 11, ...MONO }}
                                   onClick={() => void navigator.clipboard.writeText(p.alKey)}
                                   title={p.alKey}>
@@ -1045,17 +1061,21 @@ export default function MmmCollectionScannerPage() {
                                 </span>
                               </td>
                               <td style={{ ...TD, textAlign: 'center' }}>
-                                <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                <div style={{ display: 'inline-flex', border: `1px solid ${alpha(VL.purpleTint, 0.18)}`, borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
                                   <a href={`https://magiceden.io/u/${p.owner}?chains=%5B%22solana%22%5D&wallets=%5B%22${p.owner}%22%5D&activeTab=%22offers%22`} target="_blank" rel="noopener noreferrer"
                                     title="ME Owner Offers"
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textDecoration: 'none', flexShrink: 0, lineHeight: 0 }}>
+                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
+                                      borderRight: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
+                                      cursor: 'pointer', textDecoration: 'none', lineHeight: 0 }}>
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src="/brand/me.png" alt="ME" width={22} height={22} draggable={false} style={{ display: 'block', width: 22, height: 22, objectFit: 'cover', pointerEvents: 'none' }} />
+                                    <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                                   </a>
                                   <button type="button"
                                     title="Pool Lookup"
                                     onClick={() => { sessionStorage.setItem('vl.pfl.pending', p.poolKey); window.open('/tools/mmm-pool-lookup', '_blank'); }}
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(168,144,232,0.08)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
+                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
+                                      border: 'none', background: 'transparent',
+                                      cursor: 'pointer', fontSize: 11, fontWeight: 700, color: rgb(VL.purpleTint) }}>
                                     ↗
                                   </button>
                                 </div>
