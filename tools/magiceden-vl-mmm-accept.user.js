@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.1
-// @description  VictoryLabs MMM bridge — v0.5.1 pNFT uses sol-fulfill-buy (ME handles internally)
+// @version      0.5.2
+// @description  VictoryLabs MMM bridge — v0.5.2 pNFT passes tokenStandard=4 for versioned tx
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -23,7 +23,7 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.1 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.5.2 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
@@ -39,7 +39,9 @@
     }
 
     const baseUrl = ME_IXS;
-    console.log(TAG, 'isMip1=' + !!isMip1 + ' -> endpoint=sol-fulfill-buy (ME handles pNFT internally)');
+    // tokenStandard=4 = ProgrammableNonFungible; tells ME to use versioned tx with ALTs for pNFT
+    const tokenStandard = isMip1 ? 4 : 0;
+    console.log(TAG, 'isMip1=' + !!isMip1 + ' tokenStandard=' + tokenStandard + ' -> endpoint=sol-fulfill-buy');
 
     const url = baseUrl
       + '?pool='                + encodeURIComponent(pool)
@@ -47,7 +49,8 @@
       + '&assetMint='           + encodeURIComponent(assetMint)
       + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
       + '&assetAmount='         + encodeURIComponent(assetAmount)
-      + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount);
+      + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount)
+      + '&tokenStandard='       + tokenStandard;
 
     console.log(TAG, 'calling fetch() ->', url);
     const t0 = performance.now();
@@ -284,5 +287,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.5.1 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.5.2 ready - postMessage listener active - waiting for PING from VL');
 })();
