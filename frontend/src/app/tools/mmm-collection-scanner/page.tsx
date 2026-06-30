@@ -878,20 +878,19 @@ export default function MmmCollectionScannerPage() {
             {/* Controls — SCAN | divider | KPI · refresh · cached | filter */}
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0, marginBottom: 12 }}>
 
-              {/* SCAN — primary CTA, most dominant */}
+              {/* SCAN — clearly clickable, not the eye anchor */}
               <button type="button" disabled={pfBusy} onClick={() => runPoolFeed()}
                 style={{
-                  padding: '10px 36px', fontSize: 13, fontWeight: 800, letterSpacing: '2px',
+                  padding: '8px 22px', fontSize: 13, fontWeight: 700, letterSpacing: '0.8px',
                   textTransform: 'uppercase', borderRadius: 6, cursor: pfBusy ? 'not-allowed' : 'pointer',
-                  border: `1.5px solid ${!pfBusy ? alpha(VL.purpleTint, 0.68) : alpha(VL.purpleTint, 0.12)}`,
+                  border: `1px solid ${!pfBusy ? alpha(VL.purpleTint, 0.38) : alpha(VL.purpleTint, 0.10)}`,
                   background: !pfBusy
-                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.55)} 0%,${alpha(VL.purpleDeep,0.30)} 100%)`
+                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.38)} 0%,${alpha(VL.purpleDeep,0.20)} 100%)`
                     : alpha(VL.purpleDeep,0.06),
                   color: !pfBusy ? VLText.primary : VLText.muted,
                   boxShadow: !pfBusy
-                    ? `0 0 32px ${alpha(VL.purpleDeep,0.50)}, 0 0 10px ${alpha(VL.purpleTint,0.20)}, inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.3)`
+                    ? `0 0 16px ${alpha(VL.purpleDeep,0.28)}, inset 0 1px 0 rgba(255,255,255,0.07)`
                     : 'none',
-                  marginRight: 0,
                   flexShrink: 0,
                 }}>
                 {pfBusy ? 'Scanning…' : 'Scan'}
@@ -899,16 +898,16 @@ export default function MmmCollectionScannerPage() {
 
               {/* Divider */}
               {pfResult && !pfBusy && (
-                <div style={{ width: 1, height: 30, background: alpha(VL.purpleTint, 0.12), margin: '0 18px', flexShrink: 0 }} />
+                <div style={{ width: 1, height: 28, background: alpha(VL.purpleTint, 0.12), margin: '0 14px', flexShrink: 0 }} />
               )}
 
-              {/* KPI — clearly secondary to SCAN, no card */}
+              {/* KPI — eye anchor of the toolbar */}
               {pfResult && !pfBusy && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1, marginRight: 20, flexShrink: 0 }}>
-                  <span style={{ fontSize: 22, fontWeight: 800, color: rgb(VL.gold), ...MONO, letterSpacing: '-0.5px', lineHeight: 1 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1, marginRight: 16, flexShrink: 0 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: rgb(VL.gold), ...MONO, letterSpacing: '-1px', lineHeight: 1 }}>
                     {pfResult.pools.length}
                   </span>
-                  <span style={{ fontSize: 8, color: alpha(VL.gold, 0.42), textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 700, marginTop: 3 }}>
+                  <span style={{ fontSize: 8, color: alpha(VL.gold, 0.50), textTransform: 'uppercase', letterSpacing: '1.2px', fontWeight: 700, marginTop: 3 }}>
                     active pools
                   </span>
                 </div>
@@ -918,21 +917,21 @@ export default function MmmCollectionScannerPage() {
               {pfResult?.cached && !pfBusy && (
                 <button type="button" onClick={() => runPoolFeed({ force: true })}
                   style={{ padding: '3px 0', fontSize: 11, fontWeight: 500, background: 'none',
-                    border: 'none', color: VLText.faint, cursor: 'pointer', marginRight: 12,
+                    border: 'none', color: VLText.faint, cursor: 'pointer', marginRight: 10,
                     textDecoration: 'underline', textDecorationColor: alpha(VL.purpleTint, 0.25),
                     textUnderlineOffset: '3px', flexShrink: 0 }}>
                   ↺ refresh
                 </button>
               )}
 
-              {/* Cached — 2-line structured */}
+              {/* Cached — 2-line, secondary but readable */}
               {pfResult && !pfBusy && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3, lineHeight: 1, flexShrink: 0 }}>
-                  <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>
+                  <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.42), textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>
                     {pfResult.cached ? 'cached' : 'live scan'}
                   </span>
                   {pfResult.cached && (
-                    <span style={{ fontSize: 11, color: VLText.faint, ...MONO }}>
+                    <span style={{ fontSize: 11, color: VLText.muted, ...MONO }}>
                       {Math.floor(pfResult.cacheAgeMs / 60_000)}m ago
                     </span>
                   )}
@@ -1020,7 +1019,7 @@ export default function MmmCollectionScannerPage() {
                               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : ''; }}>
                               <td style={TD_L}>
-                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.38)} />
+                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.52)} />
                               </td>
                               <td style={TD_L}>
                                 {p.collectionName
@@ -1037,12 +1036,12 @@ export default function MmmCollectionScannerPage() {
                                   opacity: 0.3, marginLeft: 'auto' }} />
                               </td>
                               <td style={TD}>
-                                <span style={{ color: VLText.primary, fontWeight: 800 }}>{p.spotPriceSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
+                                <span style={{ color: VLText.primary, fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
-                                <span style={{ color: alpha(VL.gold, 0.62), fontWeight: 500 }}>{p.realEscrowSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
+                                <span style={{ color: alpha(VL.gold, 0.80), fontWeight: 600 }}>{p.realEscrowSol.toFixed(4)}</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
                                 <span style={{ color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
@@ -1053,8 +1052,8 @@ export default function MmmCollectionScannerPage() {
                               <td style={TD_L}>
                                 <span
                                   onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = VLText.primary; el.style.textDecoration = 'underline'; el.style.textDecorationColor = alpha(VL.purpleTint, 0.40); }}
-                                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = alpha(VL.purpleTint, 0.35); el.style.textDecoration = 'none'; }}
-                                  style={{ color: alpha(VL.purpleTint, 0.35), cursor: 'pointer', fontSize: 11, ...MONO }}
+                                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = alpha(VL.purpleTint, 0.52); el.style.textDecoration = 'none'; }}
+                                  style={{ color: alpha(VL.purpleTint, 0.52), cursor: 'pointer', fontSize: 11, ...MONO }}
                                   onClick={() => void navigator.clipboard.writeText(p.alKey)}
                                   title={p.alKey}>
                                   {short(p.alKey)}
