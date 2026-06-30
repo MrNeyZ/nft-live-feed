@@ -95,7 +95,14 @@ export async function signSendAndConfirm(
   let tx: Transaction | VersionedTransaction;
   let txType: 'versioned' | 'legacy';
   try {
-    tx = VersionedTransaction.deserialize(raw);
+    const vtxCandidate = VersionedTransaction.deserialize(raw);
+    // web3.js 1.x parses legacy txs into VersionedTransaction with LegacyMessage (version='legacy').
+    // Phantom rejects signTransaction on such hybrid objects with "Unexpected error".
+    // Fall through to Transaction.from so Phantom sees a proper legacy Transaction.
+    if ((vtxCandidate as VersionedTransaction).version === 'legacy') {
+      throw new Error('legacy');
+    }
+    tx = vtxCandidate;
     txType = 'versioned';
   } catch {
     tx = Transaction.from(raw);
@@ -149,7 +156,10 @@ export async function signSendAndConfirm(
         signature = await backendSendRaw(serialized);
       }
     } else {
-      const result = await sol.signAndSendTransaction(tx, { skipPreflight: true });
+      const ltx = tx as Transaction;
+      const ltxSigs = ltx.signatures.map(s => ({ key: s.publicKey.toBase58().slice(0, 8), filled: !!s.signature }));
+      console.log(TAG, 'legacy tx diagnostics', { sigSlots: ltxSigs });
+      const result = await sol.signAndSendTransaction(ltx, { skipPreflight: true });
       signature = result.signature;
     }
     console.log(TAG, 'send resolved — signature=' + signature);
