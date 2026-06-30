@@ -58,9 +58,9 @@ function StatusPill({ p }: { p: MmmPool }) {
 }
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'10px 20px',
+    <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'9px 16px',
       borderBottom:'1px solid rgba(255,255,255,0.022)' }}>
-      <div style={{ width:140, flexShrink:0, fontSize:11, color:'#9a9ab4', fontWeight:700,
+      <div style={{ width:120, flexShrink:0, fontSize:10, color:'#9a9ab4', fontWeight:700,
         textTransform:'uppercase', letterSpacing:'0.5px', paddingTop:1 }}>{label}</div>
       <div style={{ ...MONO, fontSize:12, color:'#f0eef8', fontWeight:600, wordBreak:'break-all', flex:1 }}>
         {children}
@@ -78,8 +78,9 @@ function SolLink({ addr, label }: { addr: string; label?: string }) {
     </a>
   );
 }
-function Btn({ onClick, disabled, children, variant = 'primary' }: {
-  onClick: () => void; disabled?: boolean; children: React.ReactNode; variant?: 'primary' | 'green';
+function Btn({ onClick, disabled, children, variant = 'primary', block }: {
+  onClick: () => void; disabled?: boolean; children: React.ReactNode;
+  variant?: 'primary' | 'green'; block?: boolean;
 }) {
   const on = !disabled;
   const bg = variant === 'green'
@@ -90,31 +91,34 @@ function Btn({ onClick, disabled, children, variant = 'primary' }: {
   const shadow = on ? (variant === 'green' ? '0 0 14px rgba(92,224,160,0.18)' : '0 0 12px rgba(128,104,216,0.18)') : 'none';
   return (
     <button type="button" onClick={onClick} disabled={disabled} style={{
-      padding:'7px 16px', fontSize:12, fontWeight:700, letterSpacing:'0.5px', textTransform:'uppercase',
-      borderRadius:5, cursor:on ? 'pointer' : 'not-allowed',
+      display: block ? 'block' : 'inline-block',
+      width: block ? '100%' : undefined,
+      padding:'9px 18px', fontSize:13, fontWeight:700, letterSpacing:'0.4px', textTransform:'uppercase',
+      borderRadius:7, cursor:on ? 'pointer' : 'not-allowed',
       border:`1px solid ${border}`, background:bg, color, boxShadow:shadow, transition:'all 0.15s',
     }}>{children}</button>
   );
 }
+
 function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolean; onClick: () => void }) {
   return (
     <div onClick={onClick} style={{
-      cursor:'pointer', width:100, borderRadius:8, overflow:'hidden',
+      cursor:'pointer', width:90, borderRadius:8, overflow:'hidden',
       border: selected ? '2px solid #43b984' : '1px solid rgba(168,144,232,0.22)',
       background: selected ? 'rgba(92,224,160,0.06)' : 'rgba(168,144,232,0.04)',
       boxShadow: selected ? '0 0 16px rgba(92,224,160,0.18)' : 'none',
       transition:'all 0.12s', flexShrink:0,
     }}>
-      <div style={{ width:100, height:100, background:'rgba(28,22,48,0.8)',
+      <div style={{ width:90, height:90, background:'rgba(28,22,48,0.8)',
         display:'flex', alignItems:'center', justifyContent:'center',
         overflow:'hidden', position:'relative' }}>
         {nft.imageUrl
-          ? <img src={`${API_BASE}/thumb?url=${encodeURIComponent(nft.imageUrl)}&w=100`}
-              alt={nft.name} width={100} height={100}
+          ? <img src={`${API_BASE}/thumb?url=${encodeURIComponent(nft.imageUrl)}&w=90`}
+              alt={nft.name} width={90} height={90}
               style={{ objectFit:'cover', width:'100%', height:'100%' }}
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
-          : <span style={{ fontSize:28, fontWeight:700, color:'#a890e8' }}>
+          : <span style={{ fontSize:26, fontWeight:700, color:'#a890e8' }}>
               {(nft.name[0] ?? '?').toUpperCase()}
             </span>
         }
@@ -135,48 +139,38 @@ function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolea
 export default function MmmPoolLookupPage() {
   useEffect(() => { document.title = 'MMM Bid Accept | VictoryLabs'; }, []);
 
-  const [inputVal, setInputVal]       = useState('');
-  const [lookupBusy, setLookupBusy]   = useState(false);
+  const [inputVal, setInputVal]         = useState('');
+  const [lookupBusy, setLookupBusy]     = useState(false);
   const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
   const [lookupError, setLookupError]   = useState<string | null>(null);
 
-  const [wallet, setWallet]           = useState<string | null>(null);
-  const [nfts, setNfts]               = useState<WalletNft[] | null>(null);
-  const [nftsBusy, setNftsBusy]       = useState(false);
-  const [nftsError, setNftsError]     = useState<string | null>(null);
-  const [selectedNft, setSelectedNft] = useState<WalletNft | null>(null);
-  const [meToken, setMeToken]         = useState('');
-  const [showToken, setShowToken]     = useState(false);
+  const [wallet, setWallet]             = useState<string | null>(null);
+  const [nfts, setNfts]                 = useState<WalletNft[] | null>(null);
+  const [nftsBusy, setNftsBusy]         = useState(false);
+  const [nftsError, setNftsError]       = useState<string | null>(null);
+  const [selectedNft, setSelectedNft]   = useState<WalletNft | null>(null);
+  const [meToken, setMeToken]           = useState('');
+  const [showToken, setShowToken]       = useState(false);
+  const [diagExpanded, setDiagExpanded] = useState(false);
 
   interface BridgeAttempt {
-    status: number | null;
-    rawBody: string | null;
-    elapsedMs: number;
-    windowOpened: boolean;
-    error: string | null;
-    txFound: boolean | null;
+    status: number | null; rawBody: string | null; elapsedMs: number;
+    windowOpened: boolean; error: string | null; txFound: boolean | null;
   }
   interface BackendAttempt {
-    url: string;
-    status: number;
-    rawBody: string | null;
-    elapsedMs: number;
+    url: string; status: number; rawBody: string | null; elapsedMs: number;
   }
   interface DiagLog {
-    poolKey: string;
-    mint: string;
-    seller: string;
-    assetTokenAccount: string;
-    minPayment: number;
-    bridgeAttempt: BridgeAttempt | null;
+    poolKey: string; mint: string; seller: string; assetTokenAccount: string;
+    minPayment: number; bridgeAttempt: BridgeAttempt | null;
     backendAttempt: BackendAttempt | null;
     finalErrorSource: 'Bridge (ME origin)' | 'Backend builder' | 'Frontend validation' | null;
     finalError: string | null;
   }
   type TxSource = 'me_browser' | 'backend' | null;
   type TxPhase = null | 'building' | 'signing' | 'confirming' | { sig: string; source: TxSource } | { error: string };
-  const [txPhase, setTxPhase]   = useState<TxPhase>(null);
-  const [diag, setDiag]         = useState<DiagLog | null>(null);
+  const [txPhase, setTxPhase] = useState<TxPhase>(null);
+  const [diag, setDiag]       = useState<DiagLog | null>(null);
 
   const pool = lookupResult?.type === 'pool' ? lookupResult.pool : null;
 
@@ -195,7 +189,7 @@ export default function MmmPoolLookupPage() {
   const runLookup = async () => {
     if (!canLookup) return;
     setLookupBusy(true); setLookupError(null); setLookupResult(null);
-    setNfts(null); setSelectedNft(null); setTxPhase(null);
+    setNfts(null); setSelectedNft(null); setTxPhase(null); setDiag(null);
     try {
       const r = await fetch(
         `${API_BASE}/api/tools/mmm-pools/pool?key=${encodeURIComponent(inputVal.trim())}`,
@@ -244,11 +238,6 @@ export default function MmmPoolLookupPage() {
     if (!pool || !wallet || !selectedNft) return;
     setTxPhase('building');
 
-    // minPaymentAmount = 0: seller accepts whatever the pool pays after fees.
-    // We have no royalty data at quote time; ME's frontend uses their own
-    // effectivePrice (spot - taker_fee - royalties - lp_fee). Setting our floor
-    // to 98% of spot caused Custom 6009 (InvalidRequestedPrice) for any NFT
-    // with royalties, since actual net payment < 98% of spot after fees.
     const minPayment = 0;
     const assetTokenAccount = getAssociatedTokenAddressSync(
       new PublicKey(selectedNft.mint),
@@ -281,9 +270,7 @@ export default function MmmPoolLookupPage() {
         let txFound = false;
         if (br.ok && br.body) {
           const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] }; presigned?: boolean; signature?: string };
-          // v0.4.0: userscript signed+sent in ME popup context, returns signature directly
           if (body.presigned && body.signature) {
-            console.log('[VL-page] bridge presigned — skipping Phantom, sig=' + body.signature);
             txFound = true;
             log.bridgeAttempt = {
               status: br.status, rawBody: br.rawBody,
@@ -365,14 +352,9 @@ export default function MmmPoolLookupPage() {
       }
 
       setTxPhase('signing');
-      console.log('[VL-page] calling signSendAndConfirm — txBase64 length=' + txBase64.length + ' source=' + txSource);
       const { signature } = await signSendAndConfirm(txBase64);
-      console.log('[VL-page] signSendAndConfirm returned — signature=' + signature);
-
-      // Show success immediately — tx is already submitted by Phantom
       setTxPhase({ sig: signature, source: txSource });
 
-      // Background: poll tx-status to verify it landed and detect on-chain failures
       void (async () => {
         for (let attempt = 0; attempt < 5; attempt++) {
           if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
@@ -381,22 +363,13 @@ export default function MmmPoolLookupPage() {
               `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
               { headers: { ...authHeaders() } },
             );
-            if (!r.ok) { console.warn('[VL-page] tx-status HTTP', r.status, '(attempt', attempt + 1, ')'); continue; }
+            if (!r.ok) continue;
             const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
-            console.log('[VL-page] tx-status attempt', attempt + 1, ':', d);
             if (!d.ok || !d.found) continue;
-            if (d.err) {
-              console.error('[VL-page] tx FAILED on-chain:', d.err);
-              setTxPhase({ error: 'Transaction failed on-chain: ' + JSON.stringify(d.err) });
-              return;
-            }
-            if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') {
-              console.log('[VL-page] tx confirmed on-chain —', d.confirmationStatus);
-              return;
-            }
-          } catch (e) { console.warn('[VL-page] tx-status poll error (attempt', attempt + 1, '):', e); }
+            if (d.err) { setTxPhase({ error: 'Transaction failed on-chain: ' + JSON.stringify(d.err) }); return; }
+            if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') return;
+          } catch (_) {}
         }
-        console.warn('[VL-page] tx not confirmed after 5 polls (~15s) — sig:', signature, '— check Solscan');
       })();
     } catch (e) {
       const msg = (e as Error).message;
@@ -417,398 +390,497 @@ export default function MmmPoolLookupPage() {
   return (
     <div className="feed-root page-transition" data-page="tools-mmm-pool-lookup">
       <div style={{ flex:1, minHeight:0, overflowY:'auto', width:'100%' }}>
-      <div style={{ padding:'20px 4px 72px', flexShrink:0, width:'100%',
-        maxWidth:'var(--tools-max,1100px)', margin:'0 auto', boxSizing:'border-box' }}>
-        <h1 style={{ fontSize:22, fontWeight:700, color:'#f0eef8', letterSpacing:'-0.5px' }}>
-          MMM Bid Accept
-        </h1>
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, fontSize:11, color:'#9a9ab4' }}>
-          <LiveDot />
-          <span>bypass ME UI · paste pool key · connect Phantom · accept bid directly</span>
-        </div>
+        <div style={{ padding:'20px 4px 40px', width:'100%',
+          maxWidth:'var(--tools-max,1100px)', margin:'0 auto', boxSizing:'border-box' }}>
 
-        <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}>
-          <input type="text" value={inputVal} onChange={e => setInputVal(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void runLookup(); }}
-            placeholder="Pool key (from MMM Pool Scanner)" spellCheck={false}
-            style={{ flex:1, minWidth:280, padding:'7px 12px', fontSize:12,
-              ...MONO, fontWeight:500, borderRadius:5, border:'1px solid rgba(168,144,232,0.45)',
-              background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }} />
-          <Btn onClick={() => void runLookup()} disabled={!canLookup}>
-            {lookupBusy ? 'Loading…' : 'Load Pool'}
-          </Btn>
-        </div>
-
-        {lookupError && (
-          <div style={{ marginTop:10, padding:'8px 12px', fontSize:12, color:'#d96867',
-            background:'rgba(239,120,120,0.08)', border:'1px solid rgba(239,120,120,0.32)', borderRadius:5 }}>
-            {lookupError}
+          {/* ── Header ── */}
+          <h1 style={{ fontSize:22, fontWeight:700, color:'#f0eef8', letterSpacing:'-0.5px' }}>
+            MMM Bid Accept
+          </h1>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, marginBottom:16, fontSize:11, color:'#9a9ab4' }}>
+            <LiveDot />
+            <span>bypass ME UI · paste pool key · connect Phantom · accept bid directly</span>
           </div>
-        )}
-      </div>
 
-      <div style={{ width:'100%', maxWidth:'var(--tools-max,1100px)', margin:'0 auto' }}>
+          {/* ── Pool key input ── */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <input type="text" value={inputVal} onChange={e => setInputVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void runLookup(); }}
+              placeholder="Paste pool key…" spellCheck={false}
+              style={{ flex:1, minWidth:280, padding:'9px 14px', fontSize:13,
+                ...MONO, fontWeight:500, borderRadius:6, border:'1px solid rgba(168,144,232,0.45)',
+                background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }} />
+            <button type="button" onClick={() => void runLookup()} disabled={!canLookup}
+              style={{
+                padding:'9px 20px', fontSize:13, fontWeight:700, letterSpacing:'0.4px',
+                textTransform:'uppercase', borderRadius:6,
+                cursor: canLookup ? 'pointer' : 'not-allowed',
+                border:'1px solid rgba(168,144,232,0.55)',
+                background: canLookup ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.08)',
+                color: canLookup ? '#f0eef8' : '#9a9ab4',
+                boxShadow: canLookup ? '0 0 12px rgba(128,104,216,0.18)' : 'none',
+                transition:'all 0.15s',
+              }}>
+              {lookupBusy ? 'Loading…' : 'Load Pool'}
+            </button>
+          </div>
 
-        {/* Escrow-only */}
-        {lookupResult?.type === 'escrow' && (
-          <div style={PANEL}>
-            <div style={{ padding:'12px 20px', borderBottom:'1px solid rgba(168,144,232,0.08)',
-              display:'flex', gap:10 }}>
-              {pill('ESCROW ACCOUNT','#c7b479','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)')}
-              <span style={{ fontSize:11, color:'#9a9ab4' }}>not a pool config</span>
+          {lookupError && (
+            <div style={{ marginTop:10, padding:'8px 12px', fontSize:12, color:'#d96867',
+              background:'rgba(239,120,120,0.08)', border:'1px solid rgba(239,120,120,0.32)', borderRadius:5 }}>
+              {lookupError}
             </div>
-            <Row label="Address"><SolLink addr={lookupResult.input} label={lookupResult.input} /></Row>
-            <Row label="Balance">
-              <span style={{ color: lookupResult.lamports > 0 ? '#43b984' : '#9a9ab4' }}>
-                {lookupResult.sol.toFixed(6)} SOL
-              </span>
-            </Row>
-          </div>
-        )}
+          )}
 
-        {/* Pool info */}
-        {pool && (
-          <>
-            <div style={PANEL}>
-              <div style={{ padding:'12px 20px', borderBottom:'1px solid rgba(168,144,232,0.08)',
-                display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                <StatusPill p={pool} />
-                {(pool.collectionName || pool.collectionSymbol) && (
-                  <span style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>
-                    {pool.collectionName || pool.collectionSymbol}
-                  </span>
-                )}
-                {pool.isMIP1 && pill('MIP1','#a890e8','rgba(168,144,232,0.12)','rgba(168,144,232,0.35)')}
-                <span style={{ marginLeft:'auto', fontSize:10, color:'#9a9ab4', ...MONO }}>
-                  {new Date(lookupResult!.scannedAt).toLocaleTimeString()}
-                </span>
+          {/* ── Escrow-only ── */}
+          {lookupResult?.type === 'escrow' && (
+            <div style={{ ...PANEL, marginTop:16 }}>
+              <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
+                display:'flex', gap:10 }}>
+                {pill('ESCROW ACCOUNT','#c7b479','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)')}
+                <span style={{ fontSize:11, color:'#9a9ab4' }}>not a pool config</span>
               </div>
-
-              <Row label="Pool Key">
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <SolLink addr={pool.poolKey} label={pool.poolKey} />
-                  <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize:10, color:'#9a9ab4', textDecoration:'none', padding:'1px 6px',
-                      border:'1px solid rgba(168,144,232,0.22)', borderRadius:3,
-                      background:'rgba(168,144,232,0.06)' }}
-                    onMouseEnter={e=>{(e.target as HTMLElement).style.color='#a890e8';}}
-                    onMouseLeave={e=>{(e.target as HTMLElement).style.color='#9a9ab4';}}>ME ↗</a>
-                </div>
-              </Row>
-
-              <Row label="Escrow">
-                <span>
-                  <SolLink addr={pool.escrowPda} label={short(pool.escrowPda)} />
-                  {'  '}
-                  <span style={{ color: pool.executable ? '#43b984' : pool.realEscrow > 0 ? '#c7b479' : '#9a9ab4' }}>
-                    {fmtSol(pool.realEscrow)} SOL
-                  </span>
+              <Row label="Address"><SolLink addr={lookupResult.input} label={lookupResult.input} /></Row>
+              <Row label="Balance">
+                <span style={{ color: lookupResult.lamports > 0 ? '#43b984' : '#9a9ab4' }}>
+                  {lookupResult.sol.toFixed(6)} SOL
                 </span>
               </Row>
+            </div>
+          )}
 
-              <Row label="Spot Price">
-                <span style={{ fontSize:14, fontWeight:700, color:'#f0eef8' }}>
-                  {fmtSol(pool.spotPrice)} SOL
-                </span>
-              </Row>
+          {/* ── Empty state ── */}
+          {!lookupResult && !lookupBusy && !lookupError && (
+            <div style={{ ...PANEL, marginTop:16, padding:'52px 24px', textAlign:'center',
+              color:'#9a9ab4', fontSize:13, lineHeight:1.7 }}>
+              Paste a pool key from{' '}
+              <a href="/tools/mmm-pools" style={{ color:'#a890e8', textDecoration:'none' }}
+                onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
+                onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
+                MMM Pool Scanner
+              </a>{' '}or{' '}
+              <a href="/tools/mmm-collection-scanner" style={{ color:'#a890e8', textDecoration:'none' }}
+                onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
+                onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
+                Collection Scanner
+              </a>
+              {' '}and click <span style={{ color:'#a890e8', fontWeight:600 }}>Load Pool</span>.
+              <br /><span style={{ fontSize:11 }}>Connect Phantom to accept the bid — bypasses ME UI.</span>
+            </div>
+          )}
 
-              {pool.allowlists.length > 0 && (
-                <Row label="Accepts">
-                  <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                    {pool.allowlists.map((al, i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span style={{ fontSize:10, color:'#a890e8', background:'rgba(168,144,232,0.10)',
-                          border:'1px solid rgba(168,144,232,0.22)', borderRadius:3, padding:'0 5px', lineHeight:1.5 }}>
-                          {al.type}
-                        </span>
-                        <SolLink addr={al.pubkey} label={al.pubkey} />
-                      </div>
-                    ))}
+          {/* ── Two-column layout when pool is loaded ── */}
+          {pool && (
+            <div style={{ display:'flex', gap:16, alignItems:'flex-start', marginTop:16 }}>
+
+              {/* ── LEFT: pool info + wallet + NFT picker ── */}
+              <div style={{ flex:'1 1 0', minWidth:0 }}>
+
+                {/* Pool info */}
+                <div style={PANEL}>
+                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
+                    display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                    <StatusPill p={pool} />
+                    {(pool.collectionName || pool.collectionSymbol) && (
+                      <span style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>
+                        {pool.collectionName || pool.collectionSymbol}
+                      </span>
+                    )}
+                    {pool.isMIP1 && pill('MIP1','#a890e8','rgba(168,144,232,0.12)','rgba(168,144,232,0.35)')}
+                    <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ marginLeft:'auto', fontSize:11, color:'#9a9ab4', textDecoration:'none',
+                        padding:'2px 8px', border:'1px solid rgba(168,144,232,0.22)', borderRadius:4,
+                        background:'rgba(168,144,232,0.06)', ...MONO }}
+                      onMouseEnter={e=>{(e.target as HTMLElement).style.color='#a890e8';}}
+                      onMouseLeave={e=>{(e.target as HTMLElement).style.color='#9a9ab4';}}>
+                      ME ↗
+                    </a>
                   </div>
-                </Row>
-              )}
-            </div>
 
-            {/* Wallet panel */}
-            <div style={PANEL}>
-              <div style={{ padding:'12px 20px', borderBottom:'1px solid rgba(168,144,232,0.08)',
-                display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-                <span style={{ fontSize:11, fontWeight:700, color:'#9a9ab4', textTransform:'uppercase',
-                  letterSpacing:'0.5px' }}>Wallet</span>
-                {wallet ? (
-                  <>
-                    <span style={{ ...MONO, fontSize:11, color:'#f0eef8' }}>{short(wallet)}</span>
-                    <SolLink addr={wallet} label="↗" />
-                    <button onClick={doDisconnect} style={{ marginLeft:'auto', fontSize:10,
-                      color:'#9a9ab4', background:'none', border:'none', cursor:'pointer',
-                      textDecoration:'underline' }}>disconnect</button>
-                  </>
-                ) : (
-                  <Btn onClick={() => void doConnect()}>Connect Phantom</Btn>
-                )}
-              </div>
-
-              {wallet && (
-                <div style={{ padding:'16px 20px' }}>
-                  {!nfts && !nftsBusy && !nftsError && (
-                    <Btn onClick={() => void loadNfts()}>Find Matching NFTs</Btn>
+                  <Row label="Pool Key">
+                    <SolLink addr={pool.poolKey} label={short(pool.poolKey)} />
+                  </Row>
+                  <Row label="Escrow">
+                    <span>
+                      <SolLink addr={pool.escrowPda} label={short(pool.escrowPda)} />
+                      {'  '}
+                      <span style={{ color: pool.executable ? '#43b984' : pool.realEscrow > 0 ? '#c7b479' : '#9a9ab4' }}>
+                        {fmtSol(pool.realEscrow)} SOL
+                      </span>
+                    </span>
+                  </Row>
+                  <Row label="Spot Price">
+                    <span style={{ fontSize:14, fontWeight:700, color:'#f0eef8' }}>
+                      {fmtSol(pool.spotPrice)} SOL
+                    </span>
+                  </Row>
+                  <Row label="Owner">
+                    <SolLink addr={pool.owner} label={short(pool.owner)} />
+                  </Row>
+                  {pool.expiry !== 0 && (
+                    <Row label="Expiry">
+                      <span style={{ color:'#c7b479' }}>
+                        {new Date(pool.expiry * 1000).toLocaleString()}
+                      </span>
+                    </Row>
                   )}
-                  {nftsBusy && <span style={{ fontSize:12, color:'#9a9ab4' }}>Searching wallet…</span>}
-                  {nftsError && !nftsBusy && (
-                    <div style={{ fontSize:12, color:'#d96867' }}>
-                      {nftsError}
-                      <button onClick={() => { setNftsError(null); void loadNfts(); }}
-                        style={{ marginLeft:10, fontSize:10, color:'#9a9ab4', background:'none',
-                          border:'none', cursor:'pointer', textDecoration:'underline' }}>retry</button>
-                    </div>
-                  )}
-                  {nfts && nfts.length > 0 && (
-                    <>
-                      <div style={{ fontSize:11, color:'#9a9ab4', marginBottom:12 }}>
-                        {nfts.length} matching NFT{nfts.length !== 1 ? 's' : ''} — pick one to sell
-                      </div>
-                      <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
-                        {nfts.map(n => (
-                          <NftThumb key={n.mint} nft={n}
-                            selected={selectedNft?.mint === n.mint}
-                            onClick={() => { setSelectedNft(n); setTxPhase(null); setDiag(null); }} />
+                  {pool.allowlists.length > 0 && (
+                    <Row label="Accepts">
+                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                        {pool.allowlists.map((al, i) => (
+                          <div key={i} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                            <span style={{ fontSize:10, color:'#a890e8', background:'rgba(168,144,232,0.10)',
+                              border:'1px solid rgba(168,144,232,0.22)', borderRadius:3, padding:'0 5px',
+                              lineHeight:1.5, flexShrink:0 }}>
+                              {al.type}
+                            </span>
+                            <SolLink addr={al.pubkey} label={short(al.pubkey)} />
+                          </div>
                         ))}
                       </div>
-                    </>
+                    </Row>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* Advanced: ME auth token — only shown after 401 or if previously set */}
-            {showToken && (
-              <div style={{ padding:'0 4px 12px' }}>
-                <div style={{ fontSize:10, color:'#c7b479', marginBottom:6, fontWeight:600 }}>
-                  Advanced — ME auth token
-                  {diag?.bridgeAttempt?.status === 401 && ' (ME returned 401, token required)'}
-                </div>
-                <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-                  <input
-                    type="password"
-                    value={meToken}
-                    onChange={e => {
-                      setMeToken(e.target.value);
-                      if (e.target.value) localStorage.setItem(ME_TOKEN_KEY, e.target.value);
-                      else localStorage.removeItem(ME_TOKEN_KEY);
-                    }}
-                    placeholder="optional ME auth token, only if browser session fails"
-                    spellCheck={false}
-                    style={{ flex:1, minWidth:260, padding:'5px 10px', fontSize:11,
-                      ...MONO, borderRadius:5, border:'1px solid rgba(232,193,74,0.35)',
-                      background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }}
-                  />
-                  {meToken && (
-                    <button onClick={() => { setMeToken(''); localStorage.removeItem(ME_TOKEN_KEY); }}
-                      style={{ fontSize:10, color:'#9a9ab4', background:'none', border:'none',
-                        cursor:'pointer', textDecoration:'underline' }}>clear</button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Accept bid */}
-            {selectedNft && (
-              <div style={PANEL}>
-                <div style={{ padding:'16px 20px', display:'flex', alignItems:'center',
-                  gap:16, flexWrap:'wrap' }}>
-                  <div>
-                    <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:2, fontWeight:700,
-                      textTransform:'uppercase', letterSpacing:'0.5px' }}>Selling</div>
-                    <div style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>{selectedNft.name}</div>
-                    <div style={{ fontSize:10, color:'#9a9ab4', ...MONO }}>{short(selectedNft.mint)}</div>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:2, fontWeight:700,
-                      textTransform:'uppercase', letterSpacing:'0.5px' }}>You Receive</div>
-                    <div style={{ fontSize:15, fontWeight:700, color:'#43b984' }}>
-                      ~{fmtSol(pool.spotPrice)} SOL
+                {/* NFT grid — appears once matching NFTs are loaded */}
+                {nfts && nfts.length > 0 && (
+                  <div style={PANEL}>
+                    <div style={{ padding:'10px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
+                      fontSize:11, color:'#9a9ab4' }}>
+                      {nfts.length} matching NFT{nfts.length !== 1 ? 's' : ''} in your wallet — pick one to sell
                     </div>
-                    <div style={{ fontSize:10, color:'#9a9ab4' }}>spot − protocol fees</div>
+                    <div style={{ padding:'14px 16px', display:'flex', flexWrap:'wrap', gap:10 }}>
+                      {nfts.map(n => (
+                        <NftThumb key={n.mint} nft={n}
+                          selected={selectedNft?.mint === n.mint}
+                          onClick={() => { setSelectedNft(n); setTxPhase(null); setDiag(null); }} />
+                      ))}
+                    </div>
                   </div>
+                )}
 
-                  <div style={{ marginLeft:'auto', display:'flex', flexDirection:'column',
-                    gap:8, alignItems:'flex-end' }}>
-                    {txPhase === null && (
-                      <Btn onClick={() => void acceptBid()} variant="green">Accept Bid</Btn>
-                    )}
-                    {txPhase === 'building' && (
-                      <span style={{ fontSize:12, color:'#9a9ab4' }}>Building transaction…</span>
-                    )}
-                    {txPhase === 'signing' && (
-                      <span style={{ fontSize:12, color:'#c7b479' }}>Check Phantom to sign…</span>
-                    )}
-                    {txPhase === 'confirming' && (
-                      <span style={{ fontSize:12, color:'#c7b479' }}>Confirming on-chain…</span>
-                    )}
-                    {typeof txPhase === 'object' && txPhase !== null && 'sig' in txPhase && (
-                      <div style={{ textAlign:'right' }}>
-                        <div style={{ fontSize:12, color:'#43b984', fontWeight:700, marginBottom:4 }}>
-                          ✓ Bid accepted!
-                          {txPhase.source === 'me_browser' && <span style={{ fontSize:10, color:'#9a9ab4', fontWeight:400, marginLeft:6 }}>via ME bridge</span>}
-                          {txPhase.source === 'backend' && <span style={{ fontSize:10, color:'#9a9ab4', fontWeight:400, marginLeft:6 }}>via on-chain builder</span>}
-                        </div>
-                        <a href={`https://solscan.io/tx/${txPhase.sig}`} target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ ...MONO, fontSize:10, color:'#a890e8', textDecoration:'none' }}
-                          onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
-                          onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
-                          {short(txPhase.sig)} ↗
-                        </a>
-                      </div>
-                    )}
-                    {typeof txPhase === 'object' && txPhase !== null && 'error' in txPhase && (
-                      <div style={{ fontSize:11, color:'#d96867', maxWidth:320, textAlign:'right' }}>
-                        {txPhase.error}
-                        <br />
-                        <button onClick={() => setTxPhase(null)}
+                {/* ME token (advanced, hidden by default) */}
+                {showToken && (
+                  <div style={{ padding:'0 0 12px' }}>
+                    <div style={{ fontSize:10, color:'#c7b479', marginBottom:6, fontWeight:600 }}>
+                      Advanced — ME auth token
+                      {diag?.bridgeAttempt?.status === 401 && ' (ME returned 401)'}
+                    </div>
+                    <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                      <input type="password" value={meToken}
+                        onChange={e => {
+                          setMeToken(e.target.value);
+                          if (e.target.value) localStorage.setItem(ME_TOKEN_KEY, e.target.value);
+                          else localStorage.removeItem(ME_TOKEN_KEY);
+                        }}
+                        placeholder="optional ME auth token"
+                        spellCheck={false}
+                        style={{ flex:1, minWidth:260, padding:'5px 10px', fontSize:11,
+                          ...MONO, borderRadius:5, border:'1px solid rgba(232,193,74,0.35)',
+                          background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }}
+                      />
+                      {meToken && (
+                        <button onClick={() => { setMeToken(''); localStorage.removeItem(ME_TOKEN_KEY); }}
                           style={{ fontSize:10, color:'#9a9ab4', background:'none', border:'none',
-                            cursor:'pointer', textDecoration:'underline', marginTop:4 }}>retry</button>
+                            cursor:'pointer', textDecoration:'underline' }}>clear</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Diagnostics (collapsible) */}
+                {diag && (
+                  <div style={{ marginBottom:16 }}>
+                    <button type="button"
+                      onClick={() => setDiagExpanded(v => !v)}
+                      style={{ fontSize:10, color:'#6b6b85', background:'none', border:'none',
+                        cursor:'pointer', padding:'4px 0', textTransform:'uppercase',
+                        letterSpacing:'0.5px', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                      {diagExpanded ? '▾' : '▸'} Diagnostics
+                      {diag.finalErrorSource && <span style={{ color:'#d96867', marginLeft:4 }}>· error</span>}
+                    </button>
+
+                    {diagExpanded && (
+                      <div style={{ ...MONO, fontSize:11, padding:'12px 14px', borderRadius:6, marginTop:6,
+                        background:'rgba(15,10,30,0.85)', border:'1px solid rgba(168,144,232,0.18)',
+                        display:'flex', flexDirection:'column', gap:8 }}>
+
+                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6 }}>
+                          Attempt params
+                        </div>
+                        <div style={{ color:'#c4c2d4', fontSize:11, lineHeight:1.7 }}>
+                          <span style={{ color:'#9a9ab4' }}>pool:    </span>{diag.poolKey}<br/>
+                          <span style={{ color:'#9a9ab4' }}>mint:    </span>{diag.mint}<br/>
+                          <span style={{ color:'#9a9ab4' }}>seller:  </span>{diag.seller}<br/>
+                          <span style={{ color:'#9a9ab4' }}>ata:     </span>{diag.assetTokenAccount}<br/>
+                          <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports
+                        </div>
+
+                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                          Path 1 — Bridge (magiceden.io origin)
+                        </div>
+                        {diag.bridgeAttempt ? (() => {
+                          const m = diag.bridgeAttempt;
+                          const ok = m.status !== null && m.status >= 200 && m.status < 300;
+                          return (
+                            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                              <div><span style={{ color:'#9a9ab4' }}>window:  </span>
+                                <span style={{ color:'#c4c2d4' }}>{m.windowOpened ? 'opened new tab' : 'reused existing tab'}</span></div>
+                              <div><span style={{ color:'#9a9ab4' }}>status:  </span>
+                                <span style={{ color: m.error && !ok ? '#d96867' : ok ? '#43b984' : '#c7b479', fontWeight:700 }}>
+                                  {m.status !== null ? `HTTP ${m.status}` : m.error ? 'ERROR (no HTTP status)' : 'pending'}
+                                </span>
+                                {m.elapsedMs > 0 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>}
+                              </div>
+                              {m.txFound !== null && (
+                                <div><span style={{ color:'#9a9ab4' }}>tx bytes:</span>
+                                  <span style={{ color: m.txFound ? '#43b984' : '#d96867', marginLeft:6, fontWeight:700 }}>
+                                    {m.txFound ? 'found ✓' : 'not found'}
+                                  </span>
+                                </div>
+                              )}
+                              {m.error && <div><span style={{ color:'#9a9ab4' }}>error:   </span>
+                                <span style={{ color:'#d96867' }}>{m.error}</span></div>}
+                              {m.rawBody !== null && (
+                                <div><span style={{ color:'#9a9ab4' }}>body:    </span>
+                                  <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                                    {m.rawBody.length > 300 ? m.rawBody.slice(0,300) + '…' : m.rawBody || '(empty)'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })() : <div style={{ color:'#9a9ab4' }}>not attempted yet</div>}
+
+                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                          Path 2 — Backend builder
+                        </div>
+                        {diag.backendAttempt ? (() => {
+                          const b = diag.backendAttempt;
+                          const ok = b.status >= 200 && b.status < 300;
+                          return (
+                            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                              <div><span style={{ color:'#9a9ab4' }}>url:     </span>
+                                <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{b.url}</span></div>
+                              <div><span style={{ color:'#9a9ab4' }}>status:  </span>
+                                <span style={{ color: ok ? '#43b984' : '#d96867', fontWeight:700 }}>HTTP {b.status}</span>
+                                <span style={{ color:'#9a9ab4', marginLeft:8 }}>{b.elapsedMs}ms</span>
+                              </div>
+                              {b.rawBody !== null && (
+                                <div><span style={{ color:'#9a9ab4' }}>body:    </span>
+                                  <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                                    {b.rawBody.length > 400 ? b.rawBody.slice(0,400) + '…' : b.rawBody || '(empty)'}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })() : (
+                          <div style={{ color:'#9a9ab4' }}>
+                            {diag.bridgeAttempt?.status === 200 ? 'skipped (bridge succeeded)' : 'not attempted yet'}
+                          </div>
+                        )}
+
+                        {diag.finalErrorSource && (
+                          <>
+                            <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                              textTransform:'uppercase', borderBottom:'1px solid rgba(239,120,120,0.20)',
+                              paddingBottom:6, marginTop:4 }}>Error source</div>
+                            <div>
+                              <span style={{ color:'#d96867', fontWeight:700 }}>{diag.finalErrorSource}</span><br/>
+                              <span style={{ color:'#d96867' }}>{diag.finalError}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── RIGHT: sticky action panel ── */}
+              <div style={{ width:280, flexShrink:0, position:'sticky', top:16, alignSelf:'flex-start' }}>
+                <div style={{ ...PANEL, marginBottom:0 }}>
+
+                  {/* Pool summary */}
+                  <div style={{ padding:'14px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)' }}>
+                    <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                      letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Spot price</div>
+                    <div style={{ fontSize:22, fontWeight:700, color:'#f0eef8', ...MONO }}>
+                      {fmtSol(pool.spotPrice)}
+                      <span style={{ fontSize:13, color:'#9a9ab4', marginLeft:4 }}>SOL</span>
+                    </div>
+                    <div style={{ fontSize:10, color: pool.executable ? '#43b984' : '#9a9ab4', marginTop:4 }}>
+                      Escrow: {fmtSol(pool.realEscrow)} SOL
+                      {!pool.executable && pool.missing > 0 && (
+                        <span style={{ color:'#d96867' }}> · needs {fmtSol(pool.missing)} more</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Wallet section */}
+                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)' }}>
+                    {!wallet ? (
+                      <Btn onClick={() => void doConnect()} block>Connect Phantom</Btn>
+                    ) : (
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                        <div>
+                          <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                            letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Wallet</div>
+                          <SolLink addr={wallet} label={short(wallet)} />
+                        </div>
+                        <button onClick={doDisconnect} style={{ fontSize:10, color:'#9a9ab4',
+                          background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
+                          disconnect
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action section */}
+                  <div style={{ padding:'16px' }}>
+                    {wallet && !nfts && !nftsBusy && !nftsError && (
+                      <Btn onClick={() => void loadNfts()} block>Find Matching NFTs</Btn>
+                    )}
+
+                    {wallet && nftsBusy && (
+                      <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center' }}>Searching wallet…</div>
+                    )}
+
+                    {wallet && nftsError && !nftsBusy && (
+                      <div style={{ fontSize:12, color:'#d96867', marginBottom:8 }}>
+                        {nftsError}
+                        <button onClick={() => { setNftsError(null); void loadNfts(); }}
+                          style={{ marginLeft:10, fontSize:10, color:'#9a9ab4', background:'none',
+                            border:'none', cursor:'pointer', textDecoration:'underline' }}>retry</button>
+                      </div>
+                    )}
+
+                    {wallet && nfts && !selectedNft && (
+                      <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center', lineHeight:1.6 }}>
+                        Select an NFT from the grid to sell it to this pool.
+                      </div>
+                    )}
+
+                    {wallet && selectedNft && (
+                      <>
+                        {/* Selected NFT summary */}
+                        <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:14,
+                          padding:'10px', borderRadius:8, background:'rgba(168,144,232,0.05)',
+                          border:'1px solid rgba(168,144,232,0.18)' }}>
+                          {selectedNft.imageUrl && (
+                            <img src={`${API_BASE}/thumb?url=${encodeURIComponent(selectedNft.imageUrl)}&w=48`}
+                              alt={selectedNft.name} width={48} height={48}
+                              style={{ borderRadius:6, objectFit:'cover', flexShrink:0 }}
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          )}
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                              letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Selling</div>
+                            <div style={{ fontSize:13, fontWeight:700, color:'#f0eef8',
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {selectedNft.name}
+                            </div>
+                            <div style={{ fontSize:10, color:'#9a9ab4', ...MONO }}>{short(selectedNft.mint)}</div>
+                          </div>
+                        </div>
+
+                        {/* You receive */}
+                        <div style={{ marginBottom:16 }}>
+                          <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                            letterSpacing:'0.5px', fontWeight:700, marginBottom:4 }}>You receive</div>
+                          <div style={{ fontSize:20, fontWeight:700, color:'#43b984', ...MONO }}>
+                            ~{fmtSol(pool.spotPrice)}
+                            <span style={{ fontSize:13, color:'#9a9ab4', marginLeft:4 }}>SOL</span>
+                          </div>
+                          <div style={{ fontSize:10, color:'#9a9ab4', marginTop:2 }}>
+                            spot price − protocol fees
+                          </div>
+                        </div>
+
+                        {/* TX controls */}
+                        {txPhase === null && (
+                          <Btn onClick={() => void acceptBid()} variant="green" block>
+                            Accept Bid
+                          </Btn>
+                        )}
+                        {txPhase === 'building' && (
+                          <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center', padding:'8px 0' }}>
+                            Building transaction…
+                          </div>
+                        )}
+                        {txPhase === 'signing' && (
+                          <div style={{ fontSize:12, color:'#c7b479', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
+                            Check Phantom to sign…
+                          </div>
+                        )}
+                        {txPhase === 'confirming' && (
+                          <div style={{ fontSize:12, color:'#c7b479', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
+                            Confirming on-chain…
+                          </div>
+                        )}
+                        {typeof txPhase === 'object' && txPhase !== null && 'sig' in txPhase && (
+                          <div style={{ padding:'12px', borderRadius:8, textAlign:'center',
+                            background:'rgba(92,224,160,0.06)', border:'1px solid rgba(92,224,160,0.28)' }}>
+                            <div style={{ fontSize:14, color:'#43b984', fontWeight:700, marginBottom:6 }}>
+                              ✓ Bid accepted!
+                            </div>
+                            <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:8 }}>
+                              {txPhase.source === 'me_browser' ? 'via ME bridge' : 'via on-chain builder'}
+                            </div>
+                            <a href={`https://solscan.io/tx/${txPhase.sig}`} target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ ...MONO, fontSize:10, color:'#a890e8', textDecoration:'none' }}
+                              onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
+                              onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
+                              {short(txPhase.sig)} ↗
+                            </a>
+                          </div>
+                        )}
+                        {typeof txPhase === 'object' && txPhase !== null && 'error' in txPhase && (
+                          <div style={{ padding:'10px', borderRadius:8,
+                            background:'rgba(239,120,120,0.08)', border:'1px solid rgba(239,120,120,0.28)' }}>
+                            <div style={{ fontSize:11, color:'#d96867', marginBottom:8, lineHeight:1.5 }}>
+                              {txPhase.error}
+                            </div>
+                            <button onClick={() => setTxPhase(null)}
+                              style={{ fontSize:11, color:'#9a9ab4', background:'none', border:'none',
+                                cursor:'pointer', textDecoration:'underline' }}>retry</button>
+                          </div>
+                        )}
+
+                        {/* Change selection */}
+                        {(txPhase === null || (typeof txPhase === 'object' && 'error' in txPhase)) && (
+                          <button onClick={() => { setSelectedNft(null); setTxPhase(null); setDiag(null); }}
+                            style={{ marginTop:10, width:'100%', fontSize:10, color:'#6b6b85',
+                              background:'none', border:'none', cursor:'pointer',
+                              textDecoration:'underline', textAlign:'center' }}>
+                            ← pick a different NFT
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {diag && !diagExpanded && (
+                      <button type="button" onClick={() => setDiagExpanded(true)}
+                        style={{ marginTop:10, fontSize:10, color:'#6b6b85',
+                          background:'none', border:'none', cursor:'pointer',
+                          textDecoration:'underline', display:'block' }}>
+                        view diagnostics
+                      </button>
                     )}
                   </div>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* ── Diagnostics panel ─────────────────────────────────────── */}
-            {diag && (
-              <div style={{ padding:'0 4px 16px' }}>
-                <div style={{ ...MONO, fontSize:11, padding:'12px 14px', borderRadius:6,
-                  background:'rgba(15,10,30,0.85)', border:'1px solid rgba(168,144,232,0.18)',
-                  display:'flex', flexDirection:'column', gap:8 }}>
-
-                  {/* Request params */}
-                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6 }}>
-                    Attempt params
-                  </div>
-                  <div style={{ color:'#c4c2d4', fontSize:11, lineHeight:1.7 }}>
-                    <span style={{ color:'#9a9ab4' }}>pool:    </span>{diag.poolKey}<br/>
-                    <span style={{ color:'#9a9ab4' }}>mint:    </span>{diag.mint}<br/>
-                    <span style={{ color:'#9a9ab4' }}>seller:  </span>{diag.seller}<br/>
-                    <span style={{ color:'#9a9ab4' }}>ata:     </span>{diag.assetTokenAccount}<br/>
-                    <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports ({(diag.minPayment/1e9).toFixed(6)} SOL)
-                  </div>
-
-                  {/* Bridge attempt */}
-                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
-                    Path 1 — Bridge (magiceden.io origin)
-                  </div>
-                  {diag.bridgeAttempt ? (() => {
-                    const m = diag.bridgeAttempt;
-                    const ok = m.status !== null && m.status >= 200 && m.status < 300;
-                    return (
-                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                        <div>
-                          <span style={{ color:'#9a9ab4' }}>window:  </span>
-                          <span style={{ color:'#c4c2d4' }}>{m.windowOpened ? 'opened new tab' : 'reused existing tab'}</span>
-                        </div>
-                        <div>
-                          <span style={{ color:'#9a9ab4' }}>status:  </span>
-                          <span style={{ color: m.error && !ok ? '#d96867' : ok ? '#43b984' : '#c7b479', fontWeight:700 }}>
-                            {m.status !== null ? `HTTP ${m.status}` : m.error ? 'ERROR (no HTTP status)' : 'pending'}
-                          </span>
-                          {m.elapsedMs > 0 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>}
-                        </div>
-                        {m.txFound !== null && (
-                          <div><span style={{ color:'#9a9ab4' }}>tx bytes:</span>
-                            <span style={{ color: m.txFound ? '#43b984' : '#d96867', marginLeft:6, fontWeight:700 }}>
-                              {m.txFound ? 'found ✓' : 'not found'}
-                            </span>
-                          </div>
-                        )}
-                        {m.error && (
-                          <div><span style={{ color:'#9a9ab4' }}>error:   </span>
-                            <span style={{ color:'#d96867' }}>{m.error}</span></div>
-                        )}
-                        {m.rawBody !== null && (
-                          <div style={{ marginTop:2 }}>
-                            <span style={{ color:'#9a9ab4' }}>body:    </span>
-                            <span style={{ color: ok ? '#43b984' : '#d96867' }}>
-                              {m.rawBody.length > 300 ? m.rawBody.slice(0,300) + '…' : m.rawBody || '(empty)'}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })() : (
-                    <div style={{ color:'#9a9ab4' }}>not attempted yet</div>
-                  )}
-
-                  {/* Backend attempt */}
-                  <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                    textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
-                    Path 2 — Backend builder
-                  </div>
-                  {diag.backendAttempt ? (() => {
-                    const b = diag.backendAttempt;
-                    const ok = b.status >= 200 && b.status < 300;
-                    return (
-                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                        <div><span style={{ color:'#9a9ab4' }}>url:     </span>
-                          <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{b.url}</span></div>
-                        <div><span style={{ color:'#9a9ab4' }}>status:  </span>
-                          <span style={{ color: ok ? '#43b984' : '#d96867', fontWeight:700 }}>HTTP {b.status}</span>
-                          <span style={{ color:'#9a9ab4', marginLeft:8 }}>{b.elapsedMs}ms</span>
-                        </div>
-                        {b.rawBody !== null && (
-                          <div><span style={{ color:'#9a9ab4' }}>body:    </span>
-                            <span style={{ color: ok ? '#43b984' : '#d96867' }}>
-                              {b.rawBody.length > 400 ? b.rawBody.slice(0,400) + '…' : b.rawBody || '(empty)'}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })() : (
-                    <div style={{ color:'#9a9ab4' }}>
-                      {diag.bridgeAttempt?.status === 200 ? 'skipped (bridge succeeded)' : 'not attempted yet'}
-                    </div>
-                  )}
-
-                  {/* Final error */}
-                  {diag.finalErrorSource && (
-                    <>
-                      <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                        textTransform:'uppercase', borderBottom:'1px solid rgba(239,120,120,0.20)', paddingBottom:6, marginTop:4 }}>
-                        Error source
-                      </div>
-                      <div>
-                        <span style={{ color:'#d96867', fontWeight:700 }}>Error source: {diag.finalErrorSource}</span>
-                        <br/>
-                        <span style={{ color:'#d96867' }}>{diag.finalError}</span>
-                      </div>
-                    </>
-                  )}
-
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Empty state */}
-        {!lookupResult && !lookupBusy && !lookupError && (
-          <div style={{ ...PANEL, padding:'48px 24px', textAlign:'center', color:'#9a9ab4',
-            fontSize:13, lineHeight:1.6 }}>
-            Paste a pool key from{' '}
-            <a href="/tools/mmm-pools" style={{ color:'#a890e8', textDecoration:'none' }}
-              onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
-              onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
-              MMM Pool Scanner
-            </a>{' '}and click <span style={{ color:'#a890e8', fontWeight:600 }}>Load Pool</span>.
-            <br />Connect Phantom to accept the bid directly — bypasses ME UI.
-          </div>
-        )}
-      </div>
+        </div>
       </div>
     </div>
   );
