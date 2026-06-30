@@ -57,13 +57,13 @@ function StatusPill({ p }: { p: MmmPool }) {
   return pill('INACTIVE','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
 }
 
-type CanSellResult = { ok: true } | { ok: false; reason: string };
+type CanSellResult = { ok: true } | { ok: false; reason: string; warn?: boolean };
 function canSellPool(p: MmmPool): CanSellResult {
   const now = Math.floor(Date.now() / 1000);
   if (p.expiry !== 0 && p.expiry <= now)
     return { ok: false, reason: 'Пул истёк' };
   if (!p.executable)
-    return { ok: false, reason: 'Недостаточно SOL на эскроу' };
+    return { ok: false, reason: 'Недостаточно SOL на эскроу', warn: true };
   const hasTypedAllowlist = p.allowlists.some(
     al => al.type !== 'any' && al.type !== 'empty'
   );
@@ -82,11 +82,15 @@ function CanSellBadge({ p }: { p: MmmPool }) {
       <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Можно продать</span>
     </div>
   );
+  const isWarn = !res.ok && res.warn;
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6,
-      padding:'6px 12px', borderRadius:6, background:'rgba(220,80,80,0.10)',
-      border:'1px solid rgba(220,80,80,0.30)' }}>
-      <span style={{ color:'#e06060', fontWeight:700, fontSize:13 }}>✗ Нельзя продать</span>
+      padding:'6px 12px', borderRadius:6,
+      background: isWarn ? 'rgba(199,180,121,0.10)' : 'rgba(220,80,80,0.10)',
+      border: `1px solid ${isWarn ? 'rgba(199,180,121,0.40)' : 'rgba(220,80,80,0.30)'}` }}>
+      <span style={{ color: isWarn ? '#c7b479' : '#e06060', fontWeight:700, fontSize:13 }}>
+        {isWarn ? '⚠ Мало SOL' : '✗ Нельзя продать'}
+      </span>
       <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
     </div>
   );
