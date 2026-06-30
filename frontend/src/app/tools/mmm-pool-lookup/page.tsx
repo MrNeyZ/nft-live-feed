@@ -39,7 +39,20 @@ interface MmmPool {
 type LookupResult =
   | { ok: true; type: 'pool';   pool: MmmPool; scannedAt: string }
   | { ok: true; type: 'escrow'; input: string; lamports: number; sol: number; scannedAt: string };
-interface WalletNft { mint: string; name: string; imageUrl: string | null; }
+interface WalletNft {
+  mint: string; name: string; imageUrl: string | null;
+  isPNFT: boolean; creatorsCount: number;
+}
+
+// Confirmed empirically (Jun 2026): pNFT + 5 verified creators lands the legacy
+// sol-fulfill-buy tx at exactly 1240 bytes — 8 over the 1232 network cap. pNFT + 3
+// creators fits; Legacy-standard NFTs have much more headroom regardless of count.
+function sizeRiskReason(nft: WalletNft): string | null {
+  if (nft.isPNFT && nft.creatorsCount >= 5) {
+    return `pNFT with ${nft.creatorsCount} creators — legacy tx likely exceeds the 1232-byte limit (confirmed at 1240B before)`;
+  }
+  return null;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtSol(lam: number): string { return (lam / 1e9).toFixed(4); }
@@ -165,6 +178,12 @@ function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolea
           <div style={{ position:'absolute', top:4, right:4, width:18, height:18, borderRadius:'50%',
             background:'#43b984', display:'flex', alignItems:'center', justifyContent:'center',
             fontSize:11, fontWeight:700, color:'#0a0a14' }}>✓</div>
+        )}
+        {sizeRiskReason(nft) && (
+          <div title={sizeRiskReason(nft) ?? undefined}
+            style={{ position:'absolute', top:4, left:4, width:18, height:18, borderRadius:'50%',
+              background:'#c7b479', display:'flex', alignItems:'center', justifyContent:'center',
+              fontSize:11, fontWeight:700, color:'#0a0a14' }}>⚠</div>
         )}
       </div>
       <div style={{ padding:'4px 6px', fontSize:10, color:'#f0eef8', fontWeight:600,
@@ -840,6 +859,16 @@ export default function MmmPoolLookupPage() {
                             <div style={{ fontSize:10, color:'#9a9ab4', ...MONO }}>{short(selectedNft.mint)}</div>
                           </div>
                         </div>
+
+                        {/* Size-risk warning — pNFT + 5+ creators tends to bust the legacy 1232B cap */}
+                        {sizeRiskReason(selectedNft) && (
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14,
+                            padding:'6px 12px', borderRadius:6, background:'rgba(199,180,121,0.10)',
+                            border:'1px solid rgba(199,180,121,0.40)' }}>
+                            <span style={{ color:'#c7b479', fontWeight:700, fontSize:13 }}>⚠ Size risk</span>
+                            <span style={{ color:'#9a9ab4', fontSize:11 }}>— {sizeRiskReason(selectedNft)}</span>
+                          </div>
+                        )}
 
                         {/* You receive */}
                         <div style={{ marginBottom:16 }}>

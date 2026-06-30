@@ -315,8 +315,9 @@ async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
 
 interface DasAsset {
   id: string;
+  interface?: string;
   content?: {
-    metadata?: { name?: string };
+    metadata?: { name?: string; token_standard?: string };
     links?: { image?: string };
     files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>;
   };
@@ -375,7 +376,19 @@ function assetMatchesAllowlist(asset: DasAsset, al: Allowlist): boolean {
   }
 }
 
-export interface WalletNft { mint: string; name: string; imageUrl: string | null; compressed?: boolean; }
+export interface WalletNft {
+  mint: string; name: string; imageUrl: string | null; compressed?: boolean;
+  isPNFT: boolean; creatorsCount: number;
+}
+
+// Confirmed empirically (Jun 2026): pNFT + 5 verified creators in a legacy (non-ALT)
+// MMM sol-fulfill-buy tx lands at exactly 1240 bytes — 8 over the 1232 network cap.
+// pNFT + 3 creators fits; Legacy-standard NFTs have much more headroom regardless
+// of creator count. Surfaced as a size-risk badge before the user hits Sell.
+function isProgrammable(asset: DasAsset): boolean {
+  const std = asset.content?.metadata?.token_standard;
+  return std === 'ProgrammableNonFungible' || std === 'ProgrammableNFT' || asset.interface === 'ProgrammableNFT';
+}
 
 async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<WalletNft[]> {
   const allowlists = pool.allowlists.filter(al => al.type !== 'empty');
@@ -390,7 +403,14 @@ async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<Wa
         ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.cdn_uri
         ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.uri
         ?? null;
-      return { mint: asset.id, name: asset.content?.metadata?.name ?? asset.id.slice(0, 8), imageUrl: img, compressed: asset.compression?.compressed === true };
+      return {
+        mint:          asset.id,
+        name:          asset.content?.metadata?.name ?? asset.id.slice(0, 8),
+        imageUrl:      img,
+        compressed:    asset.compression?.compressed === true,
+        isPNFT:        isProgrammable(asset),
+        creatorsCount: asset.creators?.length ?? 0,
+      };
     });
 
 }
