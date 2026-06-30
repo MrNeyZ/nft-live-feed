@@ -91,16 +91,16 @@ const PANEL: React.CSSProperties = {
   marginBottom: 16,
 };
 const TH: React.CSSProperties = {
-  padding: '10px 10px', fontSize: 11, fontWeight: 700,
-  color: '#9a9ab4', letterSpacing: '0.6px', textAlign: 'right',
-  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
+  padding: '8px 10px', fontSize: 10, fontWeight: 700,
+  color: '#6b6b85', letterSpacing: '0.8px', textAlign: 'right',
+  background: 'rgba(16,11,30,0.98)', borderBottom: '1px solid rgba(168,144,232,0.10)',
   textTransform: 'uppercase', userSelect: 'none', whiteSpace: 'nowrap',
 };
 const TH_L: React.CSSProperties = { ...TH, textAlign: 'left' };
 const TD: React.CSSProperties = {
-  ...MONO, padding: '9px 10px', fontSize: 12, fontWeight: 600,
+  ...MONO, padding: '8px 10px', fontSize: 12, fontWeight: 600,
   color: '#f0eef8', textAlign: 'right', verticalAlign: 'middle',
-  borderBottom: '1px solid rgba(255,255,255,0.022)',
+  borderBottom: '1px solid rgba(255,255,255,0.016)',
 };
 const TD_L: React.CSSProperties = { ...TD, textAlign: 'left' };
 
@@ -128,7 +128,7 @@ function tierColor(t: string): string {
 }
 
 // ── Atom components ───────────────────────────────────────────────────────────
-function CopyKey({ value, label }: { value: string; label?: string }) {
+function CopyKey({ value, label, color }: { value: string; label?: string; color?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void navigator.clipboard.writeText(value).then(() => {
@@ -137,7 +137,7 @@ function CopyKey({ value, label }: { value: string; label?: string }) {
   };
   return (
     <span onClick={copy} title={value}
-      style={{ cursor: 'pointer', color: copied ? '#43b984' : '#a890e8', fontSize: 11, ...MONO, userSelect: 'none' }}>
+      style={{ cursor: 'pointer', color: copied ? '#43b984' : (color ?? '#a890e8'), fontSize: 11, ...MONO, userSelect: 'none' }}>
       {copied ? 'copied!' : (label ?? short(value))}
     </span>
   );
@@ -875,76 +875,77 @@ export default function MmmCollectionScannerPage() {
         {activeTab === 'poolfeed' && (
           <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', padding: '16px 4px' }}>
 
-            {/* Controls */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
-              {/* Min funded filter */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 9, color: VLText.faint, textTransform: 'uppercase', letterSpacing: '0.7px', fontWeight: 700 }}>Min Funded</label>
-                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                  <input type="number" value={pfMinPct} min="0" max="100" step="1"
-                    onChange={e => setPfMinPct(e.target.value)} disabled={pfBusy}
-                    style={{ width: 70, padding: '7px 22px 7px 10px', fontSize: 13, ...MONO, borderRadius: 5,
-                      border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`, background: 'rgba(20,14,34,0.9)',
-                      color: VLText.primary, outline: 'none' }}
-                  />
-                  <span style={{ position: 'absolute', right: 8, fontSize: 11, color: VLText.faint, pointerEvents: 'none' }}>%</span>
-                </div>
-              </div>
+            {/* Controls — hierarchy: SCAN › KPI › Refresh · cached › filter */}
+            <div style={{ display: 'flex', gap: 0, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
 
-              {/* Scan */}
+              {/* SCAN — primary CTA */}
               <button type="button" disabled={pfBusy} onClick={() => runPoolFeed()}
                 style={{
-                  padding: '9px 28px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px',
-                  textTransform: 'uppercase', borderRadius: 5, cursor: pfBusy ? 'not-allowed' : 'pointer',
-                  border: `1px solid ${!pfBusy ? alpha(VL.purpleTint, ALPHA.glow) : alpha(VL.purpleTint, ALPHA.tintWeak)}`,
-                  background: !pfBusy ? `linear-gradient(180deg,${alpha(VL.purpleDeep,0.32)} 0%,${alpha(VL.purpleDeep,0.16)} 100%)` : alpha(VL.purpleDeep,0.06),
+                  padding: '10px 32px', fontSize: 13, fontWeight: 700, letterSpacing: '1px',
+                  textTransform: 'uppercase', borderRadius: 6, cursor: pfBusy ? 'not-allowed' : 'pointer',
+                  border: `1px solid ${!pfBusy ? alpha(VL.purpleTint, 0.55) : alpha(VL.purpleTint, 0.12)}`,
+                  background: !pfBusy
+                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.40)} 0%,${alpha(VL.purpleDeep,0.22)} 100%)`
+                    : alpha(VL.purpleDeep,0.06),
                   color: !pfBusy ? VLText.primary : VLText.muted,
-                  boxShadow: !pfBusy ? `0 0 18px ${alpha(VL.purpleDeep, ALPHA.glowSoft)}, inset 0 1px 0 rgba(255,255,255,0.06)` : 'none',
+                  boxShadow: !pfBusy
+                    ? `0 0 24px ${alpha(VL.purpleDeep,0.30)}, inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2)`
+                    : 'none',
+                  marginRight: 12,
                 }}>
                 {pfBusy ? 'Scanning…' : 'Scan'}
               </button>
 
-              {/* Refresh */}
+              {/* KPI — prominent but compact, no card chrome */}
+              {pfResult && !pfBusy && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                  marginRight: 16, lineHeight: 1 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: rgb(VL.gold), ...MONO,
+                    letterSpacing: '-1px', lineHeight: 1 }}>
+                    {pfResult.pools.length}
+                  </span>
+                  <span style={{ fontSize: 9, color: alpha(VL.gold, 0.5), textTransform: 'uppercase',
+                    letterSpacing: '1px', fontWeight: 700, marginTop: 2 }}>
+                    active pools
+                  </span>
+                </div>
+              )}
+
+              {/* Refresh — ghost, secondary */}
               {pfResult?.cached && !pfBusy && (
                 <button type="button" onClick={() => runPoolFeed({ force: true })}
-                  style={{ padding: '9px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5,
-                    border: `1px solid ${alpha(VL.purpleTint, ALPHA.border)}`, background: 'transparent',
-                    color: VLText.faint, cursor: 'pointer' }}>
-                  ↺ Refresh
+                  style={{ padding: '4px 0', fontSize: 11, fontWeight: 500, background: 'none',
+                    border: 'none', color: VLText.faint, cursor: 'pointer', marginRight: 8,
+                    textDecoration: 'underline', textDecorationColor: 'rgba(99,99,122,0.35)',
+                    textUnderlineOffset: '3px' }}>
+                  ↺ refresh
                 </button>
               )}
 
-              {/* KPI: pools count */}
+              {/* Cache status — pure text, no chrome */}
               {pfResult && !pfBusy && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center',
-                  padding: '5px 14px', borderRadius: 6,
-                  border: `1px solid ${alpha(VL.gold, ALPHA.border)}`, background: alpha(VL.gold, ALPHA.tintWeak),
-                  lineHeight: 1, gap: 3 }}>
-                  <span style={{ fontSize: 22, fontWeight: 700, color: rgb(VL.gold), ...MONO, letterSpacing: '-0.5px' }}>
-                    {pfResult.pools.length}
-                  </span>
-                  <span style={{ fontSize: 8, color: alpha(VL.gold, 0.45), textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>
-                    POOLS
-                  </span>
-                </div>
+                <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.35), ...MONO, marginRight: 20 }}>
+                  {pfResult.cached
+                    ? `cached · ${Math.floor(pfResult.cacheAgeMs / 60_000)}m ago`
+                    : 'live'}
+                </span>
               )}
 
-              {/* Cache status — secondary */}
-              {pfResult && !pfBusy && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                  padding: '5px 10px', borderRadius: 6,
-                  border: '1px solid rgba(255,255,255,0.05)', background: 'transparent', gap: 2 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: rgb(VL.greenMuted),
-                    textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    {pfResult.cached ? 'Cached' : 'Live'}
-                  </span>
-                  {pfResult.cached && (
-                    <span style={{ fontSize: 9, color: VLText.faint, ...MONO }}>
-                      {Math.floor(pfResult.cacheAgeMs / 60_000)}m ago
-                    </span>
-                  )}
+              {/* Filter — pushed right, terminal-style */}
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 9, color: VLText.faint, textTransform: 'uppercase',
+                  letterSpacing: '0.8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Min %</span>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                  <input type="number" value={pfMinPct} min="0" max="100" step="1"
+                    onChange={e => setPfMinPct(e.target.value)} disabled={pfBusy}
+                    style={{ width: 56, padding: '6px 18px 6px 8px', fontSize: 12, ...MONO, borderRadius: 4,
+                      border: `1px solid ${alpha(VL.purpleTint, 0.22)}`,
+                      background: 'rgba(20,14,34,0.95)', color: VLText.primary, outline: 'none' }}
+                  />
+                  <span style={{ position: 'absolute', right: 6, fontSize: 10,
+                    color: VLText.faint, pointerEvents: 'none' }}>%</span>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Progress log */}
@@ -1001,38 +1002,43 @@ export default function MmmCollectionScannerPage() {
                         <tbody>
                           {sorted.map(p => (
                             <tr key={p.poolKey}
-                              style={{ borderBottom: '1px solid rgba(255,255,255,0.022)' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.05); }}
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}>
-                              <td style={TD_L}><CopyKey value={p.poolKey} label={short(p.poolKey)} /></td>
+                              <td style={TD_L}>
+                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={VLText.faint} />
+                              </td>
                               <td style={TD_L}>
                                 {p.collectionName
-                                  ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 700 }}>{p.collectionName}</span>
-                                  : <span style={{ fontSize: 11, color: VLText.faint }}>—</span>
+                                  ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 600, letterSpacing: '-0.2px' }}>{p.collectionName}</span>
+                                  : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.2) }}>—</span>
                                 }
                               </td>
-                              <td style={{ ...TD, textAlign: 'right' }}>
+                              <td style={{ ...TD, textAlign: 'right', paddingBottom: 6 }}>
                                 <span style={{ color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</span>
-                                <div style={{ height: 2, borderRadius: 1, marginTop: 3,
-                                  background: pctColor(p.pct), width: `${Math.min(p.pct, 100)}%`,
-                                  opacity: 0.35, marginLeft: 'auto' }} />
+                                <div style={{ height: 1, marginTop: 4,
+                                  background: pctColor(p.pct),
+                                  width: `${Math.min(p.pct, 100)}%`,
+                                  opacity: 0.3, marginLeft: 'auto' }} />
                               </td>
                               <td style={TD}>
                                 <span style={{ color: VLText.primary, fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 9, color: VLText.faint, marginLeft: 2 }}>◎</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD}>
-                                <span style={{ color: rgb(VL.gold) }}>{p.realEscrowSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 9, color: VLText.faint, marginLeft: 2 }}>◎</span>
+                                <span style={{ color: rgb(VL.gold), fontWeight: 600 }}>{p.realEscrowSol.toFixed(4)}</span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
                               </td>
-                              <td style={{ ...TD, color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
-                                {p.missingSol.toFixed(4)}<span style={{ fontSize: 9, color: VLText.faint, marginLeft: 2 }}>◎</span>
+                              <td style={TD}>
+                                <span style={{ color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
+                                  {p.missingSol.toFixed(4)}
+                                </span>
+                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.3), marginLeft: 3 }}>◎</span>
                               </td>
                               <td style={TD_L}>
                                 <span
                                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = VLText.primary; }}
-                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = VLText.faint; }}
-                                  style={{ color: VLText.faint, cursor: 'pointer', fontSize: 11, ...MONO }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = alpha(VL.purpleTint, 0.35); }}
+                                  style={{ color: alpha(VL.purpleTint, 0.35), cursor: 'pointer', fontSize: 11, ...MONO }}
                                   onClick={() => void navigator.clipboard.writeText(p.alKey)}
                                   title={p.alKey}>
                                   {short(p.alKey)}
