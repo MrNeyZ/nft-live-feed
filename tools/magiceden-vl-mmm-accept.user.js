@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.0
-// @description  VictoryLabs MMM bridge — v0.5.0 pNFT (MIP1) support via sol-mip1-fulfill-buy
+// @version      0.5.1
+// @description  VictoryLabs MMM bridge — v0.5.1 pNFT uses sol-fulfill-buy (ME handles internally)
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -13,8 +13,7 @@
 (function () {
   'use strict';
 
-  const ME_IXS      = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
-  const ME_IXS_MIP1 = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-mip1-fulfill-buy';
+  const ME_IXS = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
   const TAG         = '[VL-userscript]';
 
   // Both known VL origins -- strict allowlist, not a wildcard
@@ -39,8 +38,8 @@
       };
     }
 
-    const baseUrl = isMip1 ? ME_IXS_MIP1 : ME_IXS;
-    console.log(TAG, 'isMip1=' + !!isMip1 + ' -> endpoint=' + (isMip1 ? 'sol-mip1-fulfill-buy' : 'sol-fulfill-buy'));
+    const baseUrl = ME_IXS;
+    console.log(TAG, 'isMip1=' + !!isMip1 + ' -> endpoint=sol-fulfill-buy (ME handles pNFT internally)');
 
     const url = baseUrl
       + '?pool='                + encodeURIComponent(pool)
@@ -285,5 +284,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.4.1 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.5.1 ready - postMessage listener active - waiting for PING from VL');
 })();
