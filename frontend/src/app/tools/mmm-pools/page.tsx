@@ -127,12 +127,26 @@ export default function MmmPoolsPage() {
   const [busy, setBusy]           = useState(false);
   const [result, setResult]       = useState<ScanResult | null>(null);
   const [error, setError]         = useState<string | null>(null);
-  const [sortCol, setSortCol]     = useState<'bpa' | 'spot' | 'missing' | null>(null);
-  const [sortDir, setSortDir]     = useState<'asc' | 'desc'>('desc');
+  const LS = (k: string) => typeof window !== 'undefined' ? localStorage.getItem(k) : null;
+  const VALID_SCAN_COLS = ['bpa', 'spot', 'missing'] as const;
+  type ScanSortCol = 'bpa' | 'spot' | 'missing';
+  const storedSortCol = LS('vl.mmm-scan.sortCol');
+  const storedSortDir = LS('vl.mmm-scan.sortDir');
+  const [sortCol, setSortCol] = useState<ScanSortCol | null>(
+    VALID_SCAN_COLS.includes(storedSortCol as ScanSortCol) ? (storedSortCol as ScanSortCol) : null
+  );
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(
+    storedSortDir === 'asc' || storedSortDir === 'desc' ? storedSortDir : 'desc'
+  );
 
-  const toggleSort = (col: 'bpa' | 'spot' | 'missing') => {
-    if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
-    else { setSortCol(col); setSortDir('desc'); }
+  const toggleSort = (col: ScanSortCol) => {
+    if (sortCol === col) {
+      const next: 'asc' | 'desc' = sortDir === 'desc' ? 'asc' : 'desc';
+      setSortDir(next); localStorage.setItem('vl.mmm-scan.sortDir', next);
+    } else {
+      setSortCol(col); localStorage.setItem('vl.mmm-scan.sortCol', col);
+      setSortDir('desc'); localStorage.setItem('vl.mmm-scan.sortDir', 'desc');
+    }
   };
 
   const canScan = ADDR_RE.test(inputVal.trim()) && !busy;

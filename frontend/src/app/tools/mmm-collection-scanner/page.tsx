@@ -317,7 +317,7 @@ export default function MmmCollectionScannerPage() {
   }, []);
 
   // ── Triage state ──────────────────────────────────────────────────────────
-  const [triageMinPct, setTriageMinPct] = useState('5');
+  const [triageMinPct, setTriageMinPct] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-triage.minPct') : null) ?? '5');
   const triageFast = true;
   const [triageLogs,   setTriageLogs]   = useState<string[]>([]);
   const [triageResult, setTriageResult] = useState<TriageResult | null>(null);
@@ -326,11 +326,23 @@ export default function MmmCollectionScannerPage() {
   const [triageSearch, setTriageSearch] = useState('');
 
   type TriageSortCol = 'count' | 'bestPct' | 'avgPct' | 'bestSpotSol' | 'bestMissingSol';
-  const [triageSortCol, setTriageSortCol] = useState<TriageSortCol | null>(null);
-  const [triageSortDir, setTriageSortDir] = useState<'asc' | 'desc'>('desc');
+  const VALID_TRIAGE_COLS: TriageSortCol[] = ['count', 'bestPct', 'avgPct', 'bestSpotSol', 'bestMissingSol'];
+  const storedTriageCol = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-triage.sortCol') : null;
+  const storedTriageDir = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-triage.sortDir') : null;
+  const [triageSortCol, setTriageSortCol] = useState<TriageSortCol | null>(
+    VALID_TRIAGE_COLS.includes(storedTriageCol as TriageSortCol) ? (storedTriageCol as TriageSortCol) : null
+  );
+  const [triageSortDir, setTriageSortDir] = useState<'asc' | 'desc'>(
+    storedTriageDir === 'asc' || storedTriageDir === 'desc' ? storedTriageDir : 'desc'
+  );
   const toggleTriageSort = (col: TriageSortCol) => {
-    if (triageSortCol === col) setTriageSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setTriageSortCol(col); setTriageSortDir('desc'); }
+    if (triageSortCol === col) {
+      const next: 'asc' | 'desc' = triageSortDir === 'asc' ? 'desc' : 'asc';
+      setTriageSortDir(next); localStorage.setItem('vl.mmm-triage.sortDir', next);
+    } else {
+      setTriageSortCol(col); localStorage.setItem('vl.mmm-triage.sortCol', col);
+      setTriageSortDir('desc'); localStorage.setItem('vl.mmm-triage.sortDir', 'desc');
+    }
   };
   const triageArrow = (col: TriageSortCol) => triageSortCol === col ? (triageSortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -385,7 +397,7 @@ export default function MmmCollectionScannerPage() {
   }, [triageBusy, triageMinPct, triageFast]);
 
   // ── Pool Feed state ───────────────────────────────────────────────────────
-  const [pfMinPct, setPfMinPct] = useState('50');
+  const [pfMinPct, setPfMinPct] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.minPct') : null) ?? '50');
   const pfFast = true;
   const [pfLogs,   setPfLogs]   = useState<string[]>([]);
   const [pfResult, setPfResult] = useState<PoolFeedResult | null>(() => {
@@ -401,11 +413,23 @@ export default function MmmCollectionScannerPage() {
   const [pfError,  setPfError]  = useState<string | null>(null);
 
   type PfSortCol = 'pct' | 'spotPriceSol' | 'realEscrowSol' | 'missingSol';
-  const [pfSortCol, setPfSortCol] = useState<PfSortCol>('pct');
-  const [pfSortDir, setPfSortDir] = useState<'asc' | 'desc'>('desc');
+  const VALID_PF_COLS: PfSortCol[] = ['pct', 'spotPriceSol', 'realEscrowSol', 'missingSol'];
+  const storedPfCol = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.sortCol') : null;
+  const storedPfDir = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.sortDir') : null;
+  const [pfSortCol, setPfSortCol] = useState<PfSortCol>(
+    VALID_PF_COLS.includes(storedPfCol as PfSortCol) ? (storedPfCol as PfSortCol) : 'pct'
+  );
+  const [pfSortDir, setPfSortDir] = useState<'asc' | 'desc'>(
+    storedPfDir === 'asc' || storedPfDir === 'desc' ? storedPfDir : 'desc'
+  );
   const togglePfSort = (col: PfSortCol) => {
-    if (pfSortCol === col) setPfSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setPfSortCol(col); setPfSortDir('desc'); }
+    if (pfSortCol === col) {
+      const next: 'asc' | 'desc' = pfSortDir === 'asc' ? 'desc' : 'asc';
+      setPfSortDir(next); localStorage.setItem('vl.mmm-pf.sortDir', next);
+    } else {
+      setPfSortCol(col); localStorage.setItem('vl.mmm-pf.sortCol', col);
+      setPfSortDir('desc'); localStorage.setItem('vl.mmm-pf.sortDir', 'desc');
+    }
   };
   const pfArrow = (col: PfSortCol) => pfSortCol === col ? (pfSortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
@@ -778,7 +802,7 @@ export default function MmmCollectionScannerPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <label style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Min % funded</label>
                 <input type="number" value={triageMinPct} min="0" max="100" step="0.1"
-                  onChange={e => setTriageMinPct(e.target.value)} disabled={triageBusy}
+                  onChange={e => { setTriageMinPct(e.target.value); localStorage.setItem('vl.mmm-triage.minPct', e.target.value); }} disabled={triageBusy}
                   style={{ width: 80, padding: '7px 10px', fontSize: 12, ...MONO, borderRadius: 5, border: '1px solid rgba(168,144,232,0.4)', background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none' }}
                 />
               </div>
@@ -959,7 +983,7 @@ export default function MmmCollectionScannerPage() {
                 <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                   <input type="text" inputMode="numeric" pattern="[0-9]*"
                     value={pfMinPct}
-                    onChange={e => { if (/^\d{0,3}$/.test(e.target.value)) setPfMinPct(e.target.value); }}
+                    onChange={e => { if (/^\d{0,3}$/.test(e.target.value)) { setPfMinPct(e.target.value); localStorage.setItem('vl.mmm-pf.minPct', e.target.value); } }}
                     disabled={pfBusy}
                     style={{ width: 48, padding: '0 18px 0 8px', height: 32, fontSize: 13, ...MONO,
                       border: 'none', background: 'transparent', color: VLText.primary, outline: 'none' }}
