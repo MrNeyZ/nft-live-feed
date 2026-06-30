@@ -28,6 +28,8 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 }                                                    from '@solana/spl-token';
 import bs58                                          from 'bs58';
+import { promises as fsp }                           from 'fs';
+import path                                          from 'path';
 import { rateLimit }                                 from './rate-limit';
 import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
 
@@ -771,6 +773,16 @@ let rawPoolsCache: { pools: FlatPool[]; builtAt: number } | null = null;
 // rawPoolsCache (FVCA/MCC-scoped, also fed by triage-stream) so toggling doesn't cross-serve.
 let rawPoolsCacheAny: { pools: FlatPool[]; builtAt: number } | null = null;
 
+// Append-only trend log for fresh (non-cached) scans — totalPools / collectionCount
+// over time, so "does the candidate pool keeps changing or is it stuck" is a grep
+// away instead of a guess. Non-fatal: a write failure never breaks the scan response.
+const SCAN_STATS_LOG = path.join(__dirname, '../../data/mmm-pool-scan-stats.jsonl');
+async function logScanStats(stats: Record<string, unknown>): Promise<void> {
+  try {
+    await fsp.appendFile(SCAN_STATS_LOG, JSON.stringify({ ts: new Date().toISOString(), ...stats }) + '\n', 'utf8');
+  } catch { /* non-fatal */ }
+}
+
 // Collections whose legacy NFTs are no longer actively traded (migrated to Core etc.)
 // Pools under these FVCAs are structurally valid but practically unsellable.
 const FVCA_FEED_BLOCKLIST = new Set([
@@ -1161,6 +1173,11 @@ export function createMmmPoolsRouter(): Router {
           mode,
           builtAt:          Date.now(),
         };
+        void logScanStats({
+          source: 'triage-stream', mode,
+          totalPools: accounts.length, candidates: candidates.length,
+          underfundedTotal: underfunded.length, collectionCount: collections.length,
+        });
 
         emit('result', {
           collections,
@@ -1297,6 +1314,11 @@ export function createMmmPoolsRouter(): Router {
           });
           const knownFlatPools = flatPools.filter(p => (p.collectionName !== '' || p.anyOnly) && p.realEscrowSol >= 0.01);
           setCacheRef({ pools: knownFlatPools, builtAt: Date.now() });
+          void logScanStats({
+            source: 'pool-stream', includeAny,
+            totalPools: accounts.length, candidates: candidates.length,
+            underfundedTotal: underfunded.length, collectionCount: uniqueFvcas.length,
+          });
 
           const filtered = knownFlatPools.filter(p => p.pct >= minPct).sort((a, b) => b.pct - a.pct);
           emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded${includeAny ? ' (incl. any-NFT bids)' : ''}` });
