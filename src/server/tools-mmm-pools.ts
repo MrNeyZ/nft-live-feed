@@ -1180,7 +1180,7 @@ export function createMmmPoolsRouter(): Router {
           await batchResolveFvcaNames(uniqueFvcas);
 
           // Populate flat cache and resolve names from fvcaInfoCache
-          const flatPools: FlatPool[] = underfunded.map(p => {
+          const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata')).map(p => {
             const al   = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
