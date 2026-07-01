@@ -517,27 +517,36 @@ export default function MmmCollectionScannerPage() {
   // no backend signal for this (see the "prior FulfillBuy" heuristic
   // rejected earlier — underfunded pools by definition never sold, so
   // there's nothing server-side to detect "doesn't work" from).
-  const [hiddenPools, setHiddenPools] = useState<Set<string>>(() => {
+  // Snapshots collection/pct/escrow at hide-time so the panel can show them
+  // even after a rescan drops the pool from pfResult (or across reloads,
+  // since this is the only thing that survives the 20-min result cache).
+  interface HiddenPoolInfo { collectionName: string; pct: number; realEscrowSol: number; escrowPda: string }
+  const [hiddenPools, setHiddenPools] = useState<Map<string, HiddenPoolInfo>>(() => {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.hidden') : null;
-      if (!raw) return new Set<string>();
-      return new Set(JSON.parse(raw) as string[]);
-    } catch { return new Set<string>(); }
+      if (!raw) return new Map<string, HiddenPoolInfo>();
+      return new Map(JSON.parse(raw) as Array<[string, HiddenPoolInfo]>);
+    } catch { return new Map<string, HiddenPoolInfo>(); }
   });
   const [showHiddenPanel, setShowHiddenPanel] = useState(false);
-  const hidePool = (poolKey: string) => {
+  const hidePool = (p: FlatPool) => {
     setHiddenPools(prev => {
-      const next = new Set(prev);
-      next.add(poolKey);
-      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next)));
+      const next = new Map(prev);
+      next.set(p.poolKey, {
+        collectionName: p.collectionName || '(unknown)',
+        pct: p.pct,
+        realEscrowSol: p.realEscrowSol,
+        escrowPda: p.escrowPda,
+      });
+      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next.entries())));
       return next;
     });
   };
   const unhidePool = (poolKey: string) => {
     setHiddenPools(prev => {
-      const next = new Set(prev);
+      const next = new Map(prev);
       next.delete(poolKey);
-      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next)));
+      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next.entries())));
       return next;
     });
   };
@@ -1171,15 +1180,22 @@ export default function MmmCollectionScannerPage() {
                   borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
                   Hidden pools — marked &quot;doesn&apos;t work&quot;
                 </div>
-                {Array.from(hiddenPools).map(pk => (
+                {Array.from(hiddenPools.entries()).map(([pk, info]) => (
                   <div key={pk} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '7px 14px', fontSize: 12, ...MONO, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
-                    <span style={{ color: VLText.primary }}>{pk}</span>
-                    <button type="button" onClick={() => unhidePool(pk)}
-                      style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
-                        border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                      Unhide
-                    </button>
+                    gap: 12, padding: '7px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                      <span style={{ color: rgb(VL.gold), fontWeight: 700 }}>{info.collectionName}</span>
+                      <span style={{ ...MONO, fontSize: 10, color: alpha(VL.purpleTint, 0.45) }} title={pk}>{short(pk)}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+                      <span style={{ ...MONO, fontSize: 11, color: pctColor(info.pct) }}>{info.pct.toFixed(1)}%</span>
+                      <span style={{ ...MONO, fontSize: 11, color: VLText.muted }}>{info.realEscrowSol.toFixed(4)} ◎</span>
+                      <button type="button" onClick={() => unhidePool(pk)}
+                        style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
+                          border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                        Unhide
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1327,7 +1343,7 @@ export default function MmmCollectionScannerPage() {
                                     <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                                   </a>
                                   <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
-                                  <button type="button" onClick={() => hidePool(p.poolKey)}
+                                  <button type="button" onClick={() => hidePool(p)}
                                     title="Hide — doesn't work"
                                     style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
                                       border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
