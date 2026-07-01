@@ -1152,8 +1152,8 @@ export default function MmmCollectionScannerPage() {
                 <button type="button" onClick={() => setShowHiddenPanel(v => !v)}
                   disabled={hiddenPools.size === 0}
                   style={{ height: 32, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
-                    border: `1px solid ${showHiddenPanel ? alpha(VL.purpleTint, 0.40) : alpha(VL.purpleTint, 0.20)}`,
-                    borderRadius: 5, background: showHiddenPanel ? alpha(VL.purpleTint, 0.08) : 'rgba(16,11,30,0.90)',
+                    border: `1px solid ${showHiddenPanel ? alpha(VL.purpleTint, 0.24) : alpha(VL.purpleTint, 0.20)}`,
+                    borderRadius: 5, background: showHiddenPanel ? 'rgba(16,11,30,0.95)' : 'rgba(16,11,30,0.90)',
                     color: hiddenPools.size === 0 ? alpha(VL.purpleTint, 0.30) : VLText.muted,
                     fontSize: 11, fontWeight: 700, cursor: hiddenPools.size === 0 ? 'not-allowed' : 'pointer',
                     whiteSpace: 'nowrap', flexShrink: 0 }}>
