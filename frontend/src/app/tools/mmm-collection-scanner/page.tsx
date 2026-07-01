@@ -513,6 +513,35 @@ export default function MmmCollectionScannerPage() {
     });
   };
 
+  // Manually hidden pools — "tried this, doesn't work" markers. Client-only,
+  // no backend signal for this (see the "prior FulfillBuy" heuristic
+  // rejected earlier — underfunded pools by definition never sold, so
+  // there's nothing server-side to detect "doesn't work" from).
+  const [hiddenPools, setHiddenPools] = useState<Set<string>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.hidden') : null;
+      if (!raw) return new Set<string>();
+      return new Set(JSON.parse(raw) as string[]);
+    } catch { return new Set<string>(); }
+  });
+  const [showHiddenPanel, setShowHiddenPanel] = useState(false);
+  const hidePool = (poolKey: string) => {
+    setHiddenPools(prev => {
+      const next = new Set(prev);
+      next.add(poolKey);
+      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+  const unhidePool = (poolKey: string) => {
+    setHiddenPools(prev => {
+      const next = new Set(prev);
+      next.delete(poolKey);
+      localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
   const runPoolFeed = useCallback((opts?: { force?: boolean }) => {
     if (pfBusy) return;
     setPfBusy(true);
@@ -1119,8 +1148,42 @@ export default function MmmCollectionScannerPage() {
                     <span style={{ position: 'absolute', right: 8, fontSize: 10, color: VLText.faint, pointerEvents: 'none' }}>%</span>
                   </div>
                 </div>
+                {/* Hidden pools toggle */}
+                <button type="button" onClick={() => setShowHiddenPanel(v => !v)}
+                  disabled={hiddenPools.size === 0}
+                  style={{ height: 32, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
+                    border: `1px solid ${showHiddenPanel ? alpha(VL.purpleTint, 0.40) : alpha(VL.purpleTint, 0.20)}`,
+                    borderRadius: 5, background: showHiddenPanel ? alpha(VL.purpleTint, 0.08) : 'rgba(16,11,30,0.90)',
+                    color: hiddenPools.size === 0 ? alpha(VL.purpleTint, 0.30) : VLText.muted,
+                    fontSize: 11, fontWeight: 700, cursor: hiddenPools.size === 0 ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  Hidden ({hiddenPools.size})
+                </button>
               </div>
             </div>
+
+            {/* Hidden pools panel */}
+            {showHiddenPanel && hiddenPools.size > 0 && (
+              <div style={{ marginBottom: 14, borderRadius: 8, border: `1px solid ${alpha(VL.purpleTint, 0.20)}`,
+                background: 'rgba(16,11,30,0.90)', overflow: 'hidden' }}>
+                <div style={{ padding: '8px 14px', fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
+                  textTransform: 'uppercase', color: alpha(VL.purpleTint, 0.55),
+                  borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
+                  Hidden pools — marked &quot;doesn&apos;t work&quot;
+                </div>
+                {Array.from(hiddenPools).map(pk => (
+                  <div key={pk} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '7px 14px', fontSize: 12, ...MONO, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
+                    <span style={{ color: VLText.primary }}>{pk}</span>
+                    <button type="button" onClick={() => unhidePool(pk)}
+                      style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
+                        border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Unhide
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Progress log */}
             {(pfBusy || pfLogs.length > 0) && !pfError && !pfResult && (
@@ -1142,6 +1205,7 @@ export default function MmmCollectionScannerPage() {
 
             {pfResult && (() => {
               const sorted = [...pfResult.pools]
+                .filter(p => !hiddenPools.has(p.poolKey))
                 .filter(p => pfTypeFilter.size === 0 || pfTypeFilter.has(poolTokenType(p)))
                 .sort((a, b) => {
                   const v = a[pfSortCol] - b[pfSortCol];
@@ -1263,6 +1327,13 @@ export default function MmmCollectionScannerPage() {
                                     <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                                   </a>
                                   <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
+                                  <button type="button" onClick={() => hidePool(p.poolKey)}
+                                    title="Hide — doesn't work"
+                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
+                                      border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
+                                      cursor: 'pointer', fontSize: 12, color: alpha(VL.red, 0.65) }}>
+                                    ✕
+                                  </button>
                                 </div>
                               </td>
                             </tr>
