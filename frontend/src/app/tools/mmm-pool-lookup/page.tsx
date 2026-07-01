@@ -35,6 +35,7 @@ interface MmmPool {
   bpa: number; realEscrow: number; missing: number; divergence: number;
   expiry: number; executable: boolean; underfunded: boolean; diverged: boolean;
   allowlists: Allowlist[];
+  sampleCreatorsCount?: number | null;
 }
 type LookupResult =
   | { ok: true; type: 'pool';   pool: MmmPool; scannedAt: string }
@@ -50,6 +51,15 @@ interface WalletNft {
 function sizeRiskReason(nft: WalletNft): string | null {
   if (nft.isPNFT && nft.creatorsCount >= 5) {
     return `pNFT with ${nft.creatorsCount} creators — legacy tx likely exceeds the 1232-byte limit (confirmed at 1240B before)`;
+  }
+  return null;
+}
+// Pool-level version of the same check — every asset in a collection shares the
+// same creators array from mint, so this is knowable before you own a matching
+// NFT at all (sampled off one representative asset server-side, see backend).
+function sizeRiskReasonForPool(p: MmmPool): string | null {
+  if (p.isMIP1 && (p.sampleCreatorsCount ?? 0) >= 5) {
+    return `pNFT with ${p.sampleCreatorsCount} creators (sampled) — legacy tx likely exceeds the 1232-byte limit (confirmed at 1240B before)`;
   }
   return null;
 }
@@ -569,6 +579,11 @@ export default function MmmPoolLookupPage() {
                       </span>
                     )}
                     {pool.isMIP1 && pill('MIP1','#a890e8','rgba(168,144,232,0.12)','rgba(168,144,232,0.35)')}
+                    {sizeRiskReasonForPool(pool) && (
+                      <span title={sizeRiskReasonForPool(pool) ?? undefined}>
+                        {pill('⚠ SIZE RISK','#c7b479','rgba(199,180,121,0.10)','rgba(199,180,121,0.40)')}
+                      </span>
+                    )}
                     <CanSellBadge p={pool} />
                     <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
                       rel="noopener noreferrer"

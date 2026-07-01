@@ -240,6 +240,11 @@ export interface MmmPoolWithCollection extends MmmPool {
   poolType:         string;
   isMIP1:           boolean;
   meKnown:          boolean;
+  // Verified-creators count sampled from one representative asset in the
+  // collection (same array for every mint in a drop) — only populated by
+  // lookupSinglePool today; owner-scan leaves it undefined (no per-pool DAS
+  // sample there, would multiply RPC cost across a whole wallet's pools).
+  sampleCreatorsCount?: number | null;
 }
 
 export interface MmmPoolScanResult {
@@ -669,39 +674,48 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
 
   // ME API sometimes misses isMIP1 (e.g. owner lookup returns empty).
   // Fall back to fvcaInfoCache (populated by pool-stream scans), then DAS.
+  // Also samples verified-creators count off the same DAS item — confirmed
+  // empirically (Jun 2026): pNFT + 5 creators busts the legacy 1232B tx cap.
+  // Surfaced here (pool level, before the buyer owns any matching NFT) since
+  // every asset in a collection shares the same creators array from mint —
+  // no need to already hold the NFT to know the size risk in advance.
   let isMIP1 = me.isMIP1 ?? false;
-  if (!isMIP1) {
-    const fvcaAl = pool.allowlists.find(al => al.type === 'FVCA' || al.type === 'MCC');
-    if (fvcaAl) {
-      const cached = fvcaInfoCache.get(fvcaAl.pubkey);
-      if (cached?.tokenStandard) {
-        isMIP1 = cached.tokenStandard === 'ProgrammableNonFungible' || cached.tokenStandard === 'ProgrammableNFT';
-      } else {
-        // DAS searchAssets: sample one NFT from the collection
-        try {
-          const dasRes = await fetch(rpcUrl(), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'searchAssets',
-              params: { creatorAddress: fvcaAl.pubkey, creatorVerified: true, limit: 1, page: 1 } }),
-            signal: AbortSignal.timeout(8_000),
+  let sampleCreatorsCount: number | undefined;
+  const fvcaAl = pool.allowlists.find(al => al.type === 'FVCA' || al.type === 'MCC');
+  if (fvcaAl) {
+    const cached = fvcaInfoCache.get(fvcaAl.pubkey);
+    if (cached?.tokenStandard && cached.sampleCreatorsCount !== undefined) {
+      if (!isMIP1) isMIP1 = cached.tokenStandard === 'ProgrammableNonFungible' || cached.tokenStandard === 'ProgrammableNFT';
+      sampleCreatorsCount = cached.sampleCreatorsCount;
+    } else {
+      // DAS searchAssets: sample one NFT from the collection
+      try {
+        const dasRes = await fetch(rpcUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'searchAssets',
+            params: { creatorAddress: fvcaAl.pubkey, creatorVerified: true, limit: 1, page: 1 } }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        const dasJson = dasRes.ok ? await dasRes.json() as {
+          result?: { items?: Array<{ content?: { metadata?: { token_standard?: string } }; interface?: string; creators?: Array<{ address: string }> }> };
+        } : {};
+        const item = dasJson.result?.items?.[0];
+        const tokenStd = item?.content?.metadata?.token_standard || item?.interface || '';
+        sampleCreatorsCount = item?.creators?.length;
+        if (tokenStd || sampleCreatorsCount !== undefined) {
+          if (!isMIP1 && tokenStd) isMIP1 = tokenStd === 'ProgrammableNonFungible' || tokenStd === 'ProgrammableNFT';
+          // Populate cache for future pool-stream scans + single-pool lookups
+          const existing = fvcaInfoCache.get(fvcaAl.pubkey);
+          fvcaInfoCache.set(fvcaAl.pubkey, {
+            name:          existing?.name ?? '',
+            slug:          existing?.slug ?? '',
+            cachedAt:      Date.now(),
+            tokenStandard: tokenStd || existing?.tokenStandard,
+            sampleCreatorsCount,
           });
-          const dasJson = dasRes.ok ? await dasRes.json() as { result?: { items?: Array<{ content?: { metadata?: { token_standard?: string } }; interface?: string }> } } : {};
-          const item = dasJson.result?.items?.[0];
-          const tokenStd = item?.content?.metadata?.token_standard || item?.interface || '';
-          if (tokenStd) {
-            isMIP1 = tokenStd === 'ProgrammableNonFungible' || tokenStd === 'ProgrammableNFT';
-            // Populate cache for future pool-stream scans
-            const existing = fvcaInfoCache.get(fvcaAl.pubkey);
-            fvcaInfoCache.set(fvcaAl.pubkey, {
-              name:          existing?.name ?? '',
-              slug:          existing?.slug ?? '',
-              cachedAt:      Date.now(),
-              tokenStandard: tokenStd,
-            });
-          }
-        } catch { /* non-fatal */ }
-      }
+        }
+      } catch { /* non-fatal */ }
     }
   }
 
@@ -714,6 +728,7 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
       poolType:         me.poolType         ?? '',
       isMIP1,
       meKnown: Object.keys(me).length > 0,
+      sampleCreatorsCount: sampleCreatorsCount ?? null,
     },
     scannedAt: new Date().toISOString(),
   };
@@ -791,7 +806,7 @@ const FVCA_FEED_BLOCKLIST = new Set([
 
 // FVCA → collection info cache (populated by resolve-slug and batchResolveFvcaNames).
 // Keyed by FVCA address; long TTL because creator/name never change post-mint.
-const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number; tokenStandard?: string }>();
+const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number; tokenStandard?: string; sampleCreatorsCount?: number }>();
 const FVCA_INFO_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
