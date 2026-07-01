@@ -1181,23 +1181,22 @@ export default function MmmCollectionScannerPage() {
                   Hidden pools — marked &quot;doesn&apos;t work&quot;
                 </div>
                 {Array.from(hiddenPools.entries()).map(([pk, info]) => (
-                  <div key={pk} style={{ display: 'flex', alignItems: 'center',
-                    gap: 16, padding: '7px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: 220, flexShrink: 0 }}>
-                      <span style={{ color: rgb(VL.gold), fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {info.collectionName}
-                      </span>
-                      <span style={{ ...MONO, fontSize: 10, color: alpha(VL.purpleTint, 0.45) }} title={pk}>{short(pk)}</span>
-                    </div>
-                    <span style={{ ...MONO, fontSize: 11, color: pctColor(info.pct), width: 56, flexShrink: 0 }}>
+                  <div key={pk} style={{ display: 'grid',
+                    gridTemplateColumns: 'minmax(120px,1fr) 60px 90px 56px', alignItems: 'center',
+                    columnGap: 10, padding: '6px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
+                    <span style={{ color: rgb(VL.gold), fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={pk}>
+                      {info.collectionName}
+                    </span>
+                    <span style={{ ...MONO, fontSize: 11, fontWeight: 700, color: pctColor(info.pct) }}>
                       {info.pct.toFixed(1)}%
                     </span>
-                    <span style={{ ...MONO, fontSize: 11, color: VLText.muted, width: 100, flexShrink: 0 }}>
+                    <span style={{ ...MONO, fontSize: 11, color: VLText.primary }}>
                       {info.realEscrowSol.toFixed(4)} ◎
                     </span>
                     <button type="button" onClick={() => unhidePool(pk)}
                       style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
-                        border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 }}>
+                        border: 'none', cursor: 'pointer', textDecoration: 'underline', justifySelf: 'start' }}>
                       Unhide
                     </button>
                   </div>
