@@ -1181,22 +1181,22 @@ export default function MmmCollectionScannerPage() {
                   Hidden pools — marked &quot;doesn&apos;t work&quot;
                 </div>
                 {Array.from(hiddenPools.entries()).map(([pk, info]) => (
-                  <div key={pk} style={{ display: 'grid',
-                    gridTemplateColumns: 'minmax(120px,1fr) 60px 90px 56px', alignItems: 'center',
-                    columnGap: 10, padding: '6px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
-                    <span style={{ color: rgb(VL.gold), fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  <div key={pk} style={{ display: 'flex', alignItems: 'baseline',
+                    gap: 8, padding: '6px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
+                    <span style={{ color: rgb(VL.gold), fontWeight: 700, maxWidth: 200, flexShrink: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                       title={pk}>
                       {info.collectionName}
                     </span>
-                    <span style={{ ...MONO, fontSize: 11, fontWeight: 700, color: pctColor(info.pct) }}>
-                      {info.pct.toFixed(1)}%
+                    <span style={{ ...MONO, fontSize: 11, fontWeight: 700, color: pctColor(info.pct), flexShrink: 0 }}>
+                      ({info.pct.toFixed(1)}%
                     </span>
-                    <span style={{ ...MONO, fontSize: 11, color: VLText.primary }}>
-                      {info.realEscrowSol.toFixed(4)} ◎
+                    <span style={{ ...MONO, fontSize: 11, color: VLText.primary, flexShrink: 0 }}>
+                      {info.realEscrowSol.toFixed(4)}◎)
                     </span>
                     <button type="button" onClick={() => unhidePool(pk)}
                       style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
-                        border: 'none', cursor: 'pointer', textDecoration: 'underline', justifySelf: 'start' }}>
+                        border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, marginLeft: 4 }}>
                       Unhide
                     </button>
                   </div>
