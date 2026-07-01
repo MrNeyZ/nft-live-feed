@@ -218,7 +218,17 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
 export default function MmmCollectionScannerPage() {
   useEffect(() => { document.title = 'MMM Collection Scanner | VictoryLabs'; }, []);
 
-  const [activeTab, setActiveTab] = useState<Tab>('collection');
+  // Persisted so a page reload lands back on whichever tab (esp. Pool Feed)
+  // you were on — the tab itself was resetting to 'collection' even though
+  // the underlying localStorage cache (vl.pf.result etc.) survived fine.
+  const [activeTab, setActiveTabRaw] = useState<Tab>(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-cs.activeTab') : null;
+    return stored === 'collection' || stored === 'triage' || stored === 'poolfeed' ? stored : 'collection';
+  });
+  const setActiveTab = useCallback((t: Tab) => {
+    setActiveTabRaw(t);
+    if (typeof window !== 'undefined') localStorage.setItem('vl.mmm-cs.activeTab', t);
+  }, []);
 
   // ── Collection scan state ─────────────────────────────────────────────────
   const [slugInput,      setSlugInput]      = useState('');
