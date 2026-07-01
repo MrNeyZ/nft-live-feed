@@ -161,6 +161,27 @@ function CopyKey({ value, label, color }: { value: string; label?: string; color
     </span>
   );
 }
+// Copies a ready-to-paste "pool key / escrow wallet" template — one click
+// instead of copying each address separately, and a fixed shape the chat
+// side parses without guessing which address is which.
+function CopyPoolTemplateBtn({ poolKey, escrowPda }: { poolKey: string; escrowPda: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const text = `${poolKey} - pool key\n\n${escrowPda} - escrow wallet`;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <button type="button" onClick={copy}
+      title="Copy pool key + escrow wallet template"
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
+        border: 'none', background: 'transparent',
+        cursor: 'pointer', fontSize: 12, fontWeight: 700, color: copied ? '#43b984' : rgb(VL.purpleTint) }}>
+      {copied ? '✓' : '⧉'}
+    </button>
+  );
+}
 function StatChip({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
     <div style={{
@@ -1241,14 +1262,7 @@ export default function MmmCollectionScannerPage() {
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                                   </a>
-                                  <button type="button"
-                                    title="Pool Lookup"
-                                    onClick={() => { sessionStorage.setItem('vl.pfl.pending', p.poolKey); window.open('/tools/mmm-pool-lookup', '_blank'); }}
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
-                                      border: 'none', background: 'transparent',
-                                      cursor: 'pointer', fontSize: 11, fontWeight: 700, color: rgb(VL.purpleTint) }}>
-                                    ↗
-                                  </button>
+                                  <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
                                 </div>
                               </td>
                             </tr>
