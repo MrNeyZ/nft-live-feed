@@ -28,6 +28,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 6 | Solana RPC + WebSocket Architecture | Complete | 2026-07-03 |
 | 7 | Helius DAS Architecture | Complete | 2026-07-03 |
 | 8 | Magic Eden Protocol & API Architecture | Complete | 2026-07-03 |
+| 9 | Magic Eden Integration Compliance (bridge lifecycle, retries, confirmation, sale parser) | Complete | 2026-07-03 |
 
 ---
 
@@ -717,7 +718,131 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Magic Eden API (sale ingestion parser) | Audit `src/ingestion/me-raw/*`'s ME v2 sale parser against the current ME API contract; check `sellerNetPriceSol` inflation guard behavior. Distinct scope from Audit #8, which covered the MMM pool-builder tool only. |
+| 1 | Magic Eden API (sale ingestion parser) | ✅ Addressed by Audit #9 (Finding ME6) — `sellerNetPriceSol` guard confirmed present in the ME v2 path only; MMM/cNFT paths lack it (Backlog). |
+
+---
+
+## Audit #9 — Magic Eden Integration Compliance (bridge lifecycle, retries, confirmation, sale parser)
+
+**Sources:**
+- Official docs: `solana.com/docs/core/transactions/confirmation` (blockhash validity window, `skipPreflight`, resend guidance), `solana.com/docs/core/transactions` (1,232-byte transaction size limit), `docs.magiceden.io/reference/get_instructions-mmm-sol-fulfill-buy` and `.../get_mmm-pools-1` (re-verified, same accessibility gaps as Audit #8), `wallet-standard/wallet-standard` `DESIGN.md` (documented Uint8Array-in/out contract for wallet adapters), `docs.phantom.com/solana/sending-a-transaction` (confirmed no documented duck-typed-object support).
+- VL codebase: `frontend/src/lib/mmm-bridge.ts`, `frontend/src/wallet/phantom.ts`, `src/server/tools-mmm-pools.ts`, `tools/magiceden-vl-mmm-accept.user.js`, `frontend/src/app/tools/mmm-pool-lookup/page.tsx`, `src/ingestion/me-raw/parser.ts`, `src/ingestion/me-raw/price.ts`.
+- **Scope note:** distinct from Audit #8 (userscript/bridge/proxy/cosigner architecture) — this audit covers what #8 left out or under-covered: retries, confirmation/blockhash lifecycle, popup lifecycle, Wallet Standard compliance, telemetry, and the ME sale-ingestion parser (`me-raw/*`, Audit #8's own "Next Research Target #1").
+
+**Audit #9 finding status:**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| ME1 | High | Backlog | Confirm-poll loops (×3, duplicated) never re-broadcast and ignore the blockhash's real ~60–90s validity window; silently give up after ~15s |
+| ME2 | Medium | ✅ Fixed | Bounded retry (max 2 retries, 250ms→500ms backoff) added to `rpcPost` for `getLatestBlockhash`/`getAccountInfo`/`getSignatureStatuses` only — `sendTransaction` untouched |
+| ME3 | Medium | Backlog | No telemetry/observability beyond `console.log`/`console.error` anywhere in the flow — broadens Audit #8's M11 |
+| ME4 | Medium | ✅ Fixed | `waitForMessage` in `mmm-bridge.ts` now detects a closed ME popup (500ms interval, mirroring `pingUntilReady`) and rejects immediately with a dedicated "popup closed" error instead of waiting out the full timeout |
+| ME5 | Medium | Backlog | Confirms/grounds Audit #8's M8 with an actual Wallet Standard doc citation — duck-typed fake tx object is confirmed non-compliant with the documented Uint8Array-in/out contract |
+| ME6 | Medium | Backlog | Seller-net rent-refund inflation guard exists only in the ME v2 sale parser (`parseMeV2Sale`), not in `parseMmmSale` or `parseMeCnftSale` — unconfirmed on real MMM/cNFT mainnet data |
+| ME7 | Informational | Compliant | 1,232-byte transaction size limit is officially documented (IPv6 min MTU − header) — confirms `phantom.ts`'s "Transaction too large" special-case targets a real protocol ceiling |
+| ME8 | Low | ✅ Fixed | Removed the permanent one-off diagnostic block in `parser.ts` keyed to a single historical tx signature, marked "TEMPORARY" in its own comment |
+
+---
+
+### Finding ME1 — Confirmation flow never re-broadcasts and ignores the blockhash validity window
+
+**Severity:** High
+
+**Doc:** `solana.com/docs/core/transactions/confirmation` — a blockhash is valid for the last 151 of 300 stored hashes, ~60–90s in practice; official guidance: *"clients should keep resending a transaction... on a frequent interval"* until expiry.
+
+**Evidence:** `frontend/src/app/tools/mmm-pool-lookup/page.tsx` has the identical pattern three times: `for (attempt<5) { sleep(3000); poll tx-status }`. On the 5th failed attempt the loop ends silently — no `setTxPhase` call, no error, no retry.
+
+**Root cause:** polling is bound to a fixed ~15s wall-clock window unrelated to the tx's actual `lastValidBlockHeight`; the send itself is one-shot (relies solely on `maxRetries:3` at the RPC node), not client-side resubmission as the docs recommend.
+
+**Impact:** any delay beyond ~15s (common under congestion, well inside the ~60–90s the blockhash stays valid) leaves the UI silently stuck showing a signature with neither confirmed nor failed status.
+
+**Status:** Backlog — not touched in this pass (excluded by explicit instruction).
+
+---
+
+### Finding ME2 — No retry/backoff in `rpcPost` for any RPC call ✅
+
+**Severity:** Medium
+
+**Status: Fixed**
+
+**Fix applied:** `src/server/tools-mmm-pools.ts` — `rpcPost` now retries only `getLatestBlockhash`, `getAccountInfo`, and `getSignatureStatuses` on failure, up to 2 retries with 250ms→500ms backoff, each attempt keeping its own `AbortSignal.timeout()`. `sendTransaction` and all other (state-changing) RPC calls are unretried, unchanged.
+
+---
+
+### Finding ME3 — No telemetry/observability beyond `console.log`/`console.error` anywhere in this flow
+
+**Severity:** Medium
+
+**Evidence:** no Sentry/Datadog/PostHog/analytics reference in any ME-related file. Every diagnostic in `mmm-bridge.ts`, `phantom.ts`, `tools-mmm-pools.ts`, the userscript, and `page.tsx` is console-only.
+
+**Impact:** broadens Audit #8's M11 — the entire flow is invisible outside a live browser console/server terminal.
+
+**Status:** Backlog — no vendor decision made; not in this fix pass.
+
+---
+
+### Finding ME4 — Popup-closed not detected while awaiting a bridge response ✅
+
+**Severity:** Medium
+
+**Status: Fixed**
+
+**Fix applied:** `frontend/src/lib/mmm-bridge.ts` — `waitForMessage` now runs a 500ms `w.closed` check (same interval `pingUntilReady` already used to stop pinging) for the whole time it's waiting, for both the ready-handshake and per-request response waits. On close it clears the timeout/listener and rejects immediately with `popup closed (<label>)` instead of waiting out the full `REQUEST_TIMEOUT_MS`/`READY_TIMEOUT_MS`.
+
+---
+
+### Finding ME5 — Duck-typed transaction object confirmed non-compliant with the Wallet Standard's documented contract
+
+**Severity:** Medium
+
+**Doc:** `wallet-standard/wallet-standard` `DESIGN.md`: *"The interface in the standard will always input and output transactions... as raw bytes (Uint8Array)... Wallet Adapter will encode these as web3.js Transaction... for compatibility with dapps."*
+
+**Evidence:** `tools/magiceden-vl-mmm-accept.user.js` — `fakeTx = { serialize: () => bytes, version: 0, signatures: [] }`; the code's own comment already flags "Phantom may vary."
+
+**Status:** Backlog — grounds Audit #8's M8 with an actual doc citation; not touched in this pass (existing fallback already absorbs failure).
+
+---
+
+### Finding ME6 — Seller-net rent-refund guard exists in only one of three sale parsers
+
+**Severity:** Medium
+
+**Evidence:** `src/ingestion/me-raw/parser.ts` — the `sellerNetClean` guard (drops `sellerNetLamports` when it exceeds the canonical price) exists only in `parseMeV2Sale`. `parseMmmSale` and `parseMeCnftSale` feed `computeSellerNetLamports` straight into `sellerNetLamports`/`sellerNetPriceSol` with no upper-bound check.
+
+**Impact:** per the Live Feed sale-price display chain (`sellerNetPriceSol ?? priceSol`), if an MMM or cNFT sale ever closes an escrow/listing account and refunds rent in the same tx, the same inflated-price bug fixed for ME v2 reappears unguarded and user-visible. Unconfirmed on real MMM/cNFT mainnet data.
+
+**Status:** Backlog — not touched in this pass (excluded by explicit instruction).
+
+---
+
+### Finding ME7 — Transaction size limit officially documented
+
+**Severity:** Informational
+
+**Doc:** `solana.com/docs/core/transactions` — max transaction size **1,232 bytes** (IPv6 min MTU 1,280 − 48-byte header).
+
+**Status:** Compliant — confirms `phantom.ts`'s "Transaction too large" special-case (and Audit #8's M3 `tokenStandard=4` workaround rationale) targets a real, documented protocol ceiling. No action.
+
+---
+
+### Finding ME8 — Permanent one-off diagnostic block in the sale parser ✅
+
+**Severity:** Low
+
+**Status: Fixed**
+
+**Fix applied:** removed the `if (tx.signature === '57uuQJLbQRZfXoSnueSKEQtR4G4nWTHBN3PCtNajm1PdVjzWQCHa8yn33xQD4ieow3AL996tVoigyYokkNx3kB3s') console.log(...)` block in `src/ingestion/me-raw/parser.ts`, left over from the trait-bid investigation and marked "TEMPORARY" in its own comment.
+
+---
+
+## Audit #9 summary
+
+**Fixed this pass:** ME2, ME4, ME8 — all production-safe, isolated, no behavior change outside the targeted failure modes. Commit hash recorded at the top of this file's git history for this change (see `git log`).
+
+**Explicitly not touched (per instruction):** ME1, ME6.
+
+**Remaining backlog:** ME3, ME5, ME7(compliant, no action needed).
 
 ---
 

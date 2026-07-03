@@ -69,7 +69,11 @@ function rpcUrl(): string {
     : 'https://api.mainnet-beta.solana.com';
 }
 
-async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<unknown> {
+// Idempotent reads only — never sendTransaction or any state-changing RPC.
+const RETRYABLE_RPC_METHODS = new Set(['getLatestBlockhash', 'getAccountInfo', 'getSignatureStatuses']);
+const RETRY_BACKOFF_MS = [250, 500];
+
+async function rpcPostOnce(method: string, params: unknown[], timeoutMs: number): Promise<unknown> {
   const r = await fetch(rpcUrl(), {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -80,6 +84,20 @@ async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOU
   const j = await r.json() as { result?: unknown; error?: { message?: string } };
   if (j.error) throw new Error(`RPC ${method} error: ${j.error.message ?? JSON.stringify(j.error)}`);
   return j.result;
+}
+
+async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<unknown> {
+  if (!RETRYABLE_RPC_METHODS.has(method)) {
+    return rpcPostOnce(method, params, timeoutMs);
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rpcPostOnce(method, params, timeoutMs);
+    } catch (err) {
+      if (attempt >= RETRY_BACKOFF_MS.length) throw err;
+      await new Promise((res) => setTimeout(res, RETRY_BACKOFF_MS[attempt]));
+    }
+  }
 }
 
 function deriveEscrowPda(poolKey: string): string {

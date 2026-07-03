@@ -47,9 +47,25 @@ function waitForMessage(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       window.removeEventListener('message', handler);
+      if (closedInterval) clearInterval(closedInterval);
       console.error(TAG, `timeout fired (${label}) after ${timeoutMs}ms`);
       reject(new Error(`bridge timeout (${label}) after ${timeoutMs}ms`));
     }, timeoutMs);
+
+    // Detect the ME popup closing mid-wait — same technique pingUntilReady
+    // already uses to stop pinging — and fail fast instead of waiting out
+    // the full timeout.
+    let closedInterval: ReturnType<typeof setInterval> | undefined;
+    if (w) {
+      closedInterval = setInterval(() => {
+        if (!w.closed) return;
+        clearInterval(closedInterval);
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        console.error(TAG, `popup closed while waiting (${label})`);
+        reject(new Error(`popup closed (${label})`));
+      }, PING_INTERVAL_MS);
+    }
 
     function handler(e: MessageEvent) {
       // Detailed rejection breakdown
@@ -68,6 +84,7 @@ function waitForMessage(
       }
       console.log(TAG, `predicate ACCEPTED (${label}) -> resolving`);
       clearTimeout(timer);
+      if (closedInterval) clearInterval(closedInterval);
       window.removeEventListener('message', handler);
       resolve(e);
     }

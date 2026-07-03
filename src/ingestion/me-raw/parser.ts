@@ -480,20 +480,6 @@ function parseMmmSale(
     }
   }
 
-  // TEMPORARY hard diagnostic for the trait-bid investigation. Logged
-  // unsampled for the specific fixture so the operator can verify the
-  // parser output without enabling the noisier general parse logs.
-  if (tx.signature === '57uuQJLbQRZfXoSnueSKEQtR4G4nWTHBN3PCtNajm1PdVjzWQCHa8yn33xQD4ieow3AL996tVoigyYokkNx3kB3s') {
-    const lpFee = readLpFeeFromLogs(tx.meta?.logMessages);
-    console.log(
-      `[debug-sale-fixture] sig=${tx.signature} ` +
-      `priceLamports=${payment.priceLamports.toString()} ` +
-      `direction=${match.direction} effectiveDirection=${effectiveDirection} ` +
-      `rawKind=${match.instructionName} lpFee=${lpFee ?? 'unknown'} ` +
-      `buyer=${buyer} seller=${seller}`,
-    );
-  }
-
   // ── Price selection ───────────────────────────────────────────────────────
   //
   // For MMM AMM buys (`fulfillSell`: user pulls NFT from a sell-side pool)
