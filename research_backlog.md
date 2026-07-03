@@ -741,8 +741,8 @@ Ordered by expected parser coverage gap / protocol complexity.
 |---|---|---|---|
 | R1 | Informational | Compliant | `logsSubscribe`/`getTransaction`/`getSignaturesForAddress` all explicitly request `commitment: 'confirmed'`, correctly overriding the documented `finalized` default |
 | R2 | Informational | Compliant | `getTransaction` versioned-tx handling (`maxSupportedTransactionVersion: 0` + ALT merge + signer reconstruction) matches documented behavior |
-| R3 | Low | ✅ Fixed — commit `03c5e97` | `enrichCgSupply`'s `getAccountInfo` call omits `commitment`, silently defaulting to `finalized` — inconsistent with every other RPC call site in the codebase |
-| R4 | High | ✅ Fixed — commit `03c5e97` | `amm-poller.ts` `fetchPage()` has no request timeout — the only RPC call site in the audited codebase without one; a hung connection permanently wedges that target's gap-healer |
+| R3 | Low | ✅ Fixed — commit `6ce9415` | `enrichCgSupply`'s `getAccountInfo` call omits `commitment`, silently defaulting to `finalized` — inconsistent with every other RPC call site in the codebase |
+| R4 | High | ✅ Fixed — commit `6ce9415` | `amm-poller.ts` `fetchPage()` has no request timeout — the only RPC call site in the audited codebase without one; a hung connection permanently wedges that target's gap-healer |
 | R5 | Medium | Backlog | `amm-poller.ts` `fetchPage()` has no 429-specific handling / circuit breaker, unlike `me-raw/ingest.ts`'s `fetchRawTx` |
 | R6 | Informational | No action | `confirmationStatus` field in `getSignaturesForAddress` responses is typed but unread — harmless, since `commitment: 'confirmed'` already gates the result set server-side |
 | R7 | Informational | Compliant | WS-unreliability defense (dual-poller + watchdog + hard periodic refresh) is architecturally correct given official docs document no delivery/gap guarantee for `logsSubscribe` |
@@ -805,7 +805,7 @@ No `commitment` key in the params object — every other RPC call site audited (
 
 **Minimal production-safe fix:** Add `commitment: 'confirmed'` to the `params` object in `enrichCgSupply`, matching every other call site.
 
-**Status:** ✅ Fixed — commit `03c5e97`. `params: [candyMachineState, { encoding: 'base64', commitment: 'confirmed' }]`.
+**Status:** ✅ Fixed — commit `6ce9415`. `params: [candyMachineState, { encoding: 'base64', commitment: 'confirmed' }]`.
 
 ---
 
@@ -838,7 +838,7 @@ Node's global `fetch` (undici) has no default request timeout — an unresponsiv
 
 **Minimal production-safe fix:** Add a bounded `AbortController` (matching the 8–10s pattern used everywhere else in the codebase) to the `fetch()` call inside `fetchPage()`, e.g. `signal: AbortSignal.timeout(8_000)`, so a hung connection surfaces as a normal rejected promise into `sweepTarget`'s existing `catch` block instead of hanging indefinitely.
 
-**Status:** ✅ Fixed — commit `03c5e97`. Added `signal: AbortSignal.timeout(8_000)` to the `fetch()` call in `fetchPage()`, matching the pattern already used in `listener.ts` / `me-raw/ingest.ts` / `mint-raw/reconcile.ts`. A timeout now surfaces as a normal rejected promise into `sweepTarget`'s existing `catch`/`finally`, so `sweepInFlight` is guaranteed to reset within 8s instead of hanging indefinitely.
+**Status:** ✅ Fixed — commit `6ce9415`. Added `signal: AbortSignal.timeout(8_000)` to the `fetch()` call in `fetchPage()`, matching the pattern already used in `listener.ts` / `me-raw/ingest.ts` / `mint-raw/reconcile.ts`. A timeout now surfaces as a normal rejected promise into `sweepTarget`'s existing `catch`/`finally`, so `sweepInFlight` is guaranteed to reset within 8s instead of hanging indefinitely.
 
 ---
 
