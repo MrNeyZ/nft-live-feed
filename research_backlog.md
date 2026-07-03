@@ -2539,3 +2539,232 @@ Ranked by production risk × implementation risk × user impact × effort (highe
 Between now and the next triggering event, prioritize the two open High-severity items (M4/TX2, ME1) and the "Next 5 recommended tasks" above over new audit passes. Two non-audit review types were proposed as the next useful lens on this codebase — **not started, no findings yet**:
 - **Performance review** — redundant RPC/DAS calls, latency, allocations/memory, unnecessary `JSON.parse`/`stringify`, batchable requests (e.g. `getAssetBatch`, flagged but not pursued as D5).
 - **UX review** — click-count, unclear error states, missing loading/progress feedback, perceived latency — a different improvement class from the correctness/architecture focus of Audits #1–#13.
+
+---
+
+# Architecture Simplification #1
+
+**Scope:** Not an audit — no protocol-doc comparison, no security review, no correctness-bug hunting. A senior-architect pass over the existing codebase (backend `src/`, frontend `frontend/src/`) looking only for duplicated logic, dead code, over-engineering, and file organization that adds cognitive load without adding value. No code was modified. Every finding below is backed by a direct repo grep/read performed during this pass — nothing is inferred without evidence.
+
+**Method:** repo-wide `grep`/`wc -l` sweeps for repeated patterns (raw `fetch()` + `jsonrpc:'2.0'` bodies, `sleep()` definitions, TTL-cache boilerplate, duplicate type/interface declarations, duplicate function names across sibling files, commented-out dead imports) plus targeted reads of the resulting hit files to confirm each pattern is a genuine duplicate and not a false positive.
+
+| ID | Severity | Category | One-line summary |
+|---|---|---|---|
+| AS1 | High | Simplify/Merge | No shared RPC/HTTP client — 33 files independently build raw Helius JSON-RPC `fetch()` calls |
+| AS2 | High | Merge | A working shared `TtlCache<K,V>` already exists but is used in only 6 of ~44 files with hand-rolled TTL-cache boilerplate |
+| AS3 | Medium | Split | `tools-mmm-pools.ts` is one 1,967-line file carrying 11 unrelated responsibilities behind 12 routes |
+| AS4 | Medium | Merge | Two independently-defined, non-overlapping `DasAsset` interfaces — directly causes an already-open backlog bug (Audit #7 D7) |
+| AS5 | Medium | Merge | Four near-identical tx-status confirm-poll loops copy-pasted across 2 frontend files |
+| AS6 | Medium | Merge | The entire SSE-reconnect-with-jittered-backoff implementation is duplicated whole between `feed/page.tsx` and `mints/page.tsx` |
+| AS7 | Medium | Delete | `poller.ts` + `raw-poller.ts` (600 lines) are fully dead — every import/call site commented out |
+| AS8 | Medium | Refactor | Cooldown/circuit-breaker pattern implemented once well, reimplemented once differently, and simply absent in two places that need it |
+| AS9 | Medium | Simplify | The ME bid-accept path always attempts a Bearer-token call documented as "reliably fails... for almost every real pool" before falling through |
+| AS10 | Low | Merge | `isValidWallet` — byte-identical wallet-address validator duplicated in two auth-adjacent files |
+| AS11 | Low | Merge | `sleep(ms)` reimplemented independently in 6 different files |
+| AS12 | Low | Merge | Small MMM-tool UI helpers (`fmtSol`, `short`, `CopyKey`, `ADDR_RE`, `API_BASE`, `MONO`, `PANEL`) redefined per page instead of shared |
+
+---
+
+### Finding AS1 — No shared RPC/HTTP client for Helius JSON-RPC calls
+
+**Severity:** High
+
+**Category:** Simplify / Merge
+
+**Evidence:** `find src -iname "*rpc*.ts"` returns zero results — there is no `rpc-client.ts` or equivalent anywhere in the repo. A repo-wide grep for `jsonrpc: '2.0'` (the literal JSON-RPC envelope every Solana RPC POST body needs) matches **33 separate files**: `listener.ts`, `amm-poller.ts`, `me-raw/ingest.ts`, `mint-raw/index.ts`, `mint-raw/reconcile.ts`, `tools-mmm-pools.ts`, `tools-holders/fetch-assets.ts`, `mints/core-supply-refresher.ts`, `mints/collection-created-resolver.ts`, `mints/resize-status-resolver.ts`, `mints/payment-token-enricher.ts`, `enrichment/helius-das.ts`, `enrichment/metaplex-onchain.ts`, `enrichment/lmnft-state.ts`, `server/me-bid-escrow.ts`, `server/market.ts`, `server/wallet-quick-balance.ts`, `server/tools-retardio-offers.ts`, `mint-analyzer/fetch-tx.ts`, plus a dozen one-off scripts/replay-tests. A separate grep for `AbortSignal.timeout`/`new AbortController` hits **37 call sites across 27 files**, each with its own timeout constant (values seen: 8s, 8.5s, 10s, 15s — no shared default). Audit #6 (Findings R3, R4) already found two concrete bugs that exist *because* of this — a missing `commitment` param in one call site and a missing timeout in another — that a shared client would have made structurally impossible to omit.
+
+**Why the current architecture is unnecessarily complex:** Every new RPC call site is a fresh opportunity to forget a timeout, forget `commitment: 'confirmed'`, or hand-roll a slightly different error-handling shape. There is no single place to add a feature (e.g. request-level metrics, a shared circuit breaker per AS8, automatic retry classification) that would benefit all 33 call sites at once — each improvement has to be manually propagated file-by-file, and audits have already shown this propagation doesn't reliably happen (R3/R4 both being *inconsistencies*, not universal gaps, is the tell).
+
+**Minimal production-safe improvement:** Extract a small `src/rpc/client.ts` exporting one `rpcCall(method, params, { timeoutMs, commitment })` helper that wraps `fetch()` + the JSON-RPC envelope + `AbortSignal.timeout` + `commitment` defaulting + JSON-RPC `error` field handling once. Migrate call sites incrementally (highest-traffic first: `listener.ts`, `me-raw/ingest.ts`, `tools-mmm-pools.ts`'s existing local `rpcPost`) — no call site needs to move on day one; new call sites should be required to use it going forward.
+
+**Estimated benefit:** maintainability (single place to fix a systemic RPC bug instead of N places), future features (a shared client is the natural home for AS8's circuit breaker), readability (33 files get shorter), performance (none directly, though a shared client makes connection-reuse/keep-alive tuning a one-line change instead of a 33-file one).
+
+---
+
+### Finding AS2 — A working shared `TtlCache<K,V>` exists but is used in only 6 of ~44 files that need it
+
+**Severity:** High
+
+**Category:** Merge
+
+**Evidence:** `src/enrichment/cache.ts` exports a clean, generic, already-correct `TtlCache<K,V>` class (lazy expiry on read + optional active sweep, 49 lines, no external deps). It is imported by 6 files, all inside `src/enrichment/` (`lmnft-state.ts`, `helius-das.ts`, `seller-collection-count.ts`, `image-retry.ts`, `seller-count-exact.ts`, `me-collection-name.ts`, `enrich.ts`). Meanwhile a grep for the `*_TTL_MS`/`Date.now() - x < TTL` hand-rolled pattern hits **44 other files** — `server/collection-meta.ts` (`HIT_TTL_MS`/`MISS_TTL_MS`, manual `hit.fetchedAt` check), `enrichment/me-stats.ts` (`ME_STATS_TTL_MS`, manual `now - hit.fetchedAt` check), `mints/core-supply-refresher.ts` (`PER_COLLECTION_TTL_MS`, manual `now - t.lastVerifiedAt` check), `server/tools-mmm-pools.ts`'s `fvcaInfoCache`, `rare-feed/rarity.ts`, `rare-feed/evaluator.ts`, `server/collection-stats.ts`, `server/collection-chart.ts`, `server/listings-store.ts`, `db/blocked-mint-cache.ts`, and roughly 30 more — every one reimplementing the identical `Map<K, {value, timestamp}>` + manual expiry-check shape `TtlCache` already solves.
+
+**Why the current architecture is unnecessarily complex:** The abstraction was correctly built once, but scoped under `src/enrichment/` rather than a neutral shared location, so it reads as "the enrichment module's private cache helper" rather than "the codebase's TTL cache" — every module outside `enrichment/` independently reinvented the same 5–10 lines of boilerplate, with small inconsistent variations (some track `fetchedAt`, some `lastVerifiedAt`, some `timestamp`; some have a miss-vs-hit TTL split like `collection-meta.ts`, most don't).
+
+**Minimal production-safe improvement:** Move `TtlCache` to a neutral path (e.g. `src/utils/ttl-cache.ts`) with a re-export left at the old path for the 6 existing importers (zero-risk, additive). New/touched call sites adopt it opportunistically — no mass migration required or recommended in one pass.
+
+**Estimated benefit:** maintainability (one cache-correctness bug fixed once instead of found N times), readability (removes ~5–10 boilerplate lines from ~40 files over time), future features (a hit/miss-TTL split like `collection-meta.ts`'s could become a `TtlCache` constructor option instead of a one-off reimplementation).
+
+---
+
+### Finding AS3 — `tools-mmm-pools.ts` is one 1,967-line file carrying 11 unrelated responsibilities
+
+**Severity:** Medium
+
+**Category:** Split
+
+**Evidence:** Second-largest backend file in the repo. Function/route inventory from a direct read: raw pool-account parsing + PDA derivation (`parsePool`, `deriveEscrowPda`, `applyBalance`), ME API collection-name lookups (`fetchMeCollectionInfo`, `scanOwnerPools`), DAS wallet-asset scanning + its own `DasAsset` type (`getAllWalletAssets`, `fetchWalletNftsForPool`, `assetMatchesAllowlist`), an on-chain `sol_fulfill_buy` transaction builder (`buildOnChainFulfillBuyTx`), the ME bid-accept-tx proxy with on-chain fallback (`fetchBidAcceptTx`), single-pool lookup (`lookupSinglePool`), the triage/pool-feed SSE pipeline with two independent scan-result caches (`rawPoolsCache`/`rawPoolsCacheAny`) plus a third, disk-persisted "known pool keys" ledger and its own debounced-save machinery, a tx-submission relay route, a tx-status poll-proxy route, manual-NFT/wallet-NFT endpoints, a collection-scan route, and a slug-resolve route — 12 `router.get`/`router.post` registrations total.
+
+**Why the current architecture is unnecessarily complex:** A single file mixing "parse raw on-chain pool bytes," "call three different Magic Eden API surfaces," "scan a wallet's DAS assets," "build and relay a signed transaction," and "run a persistent SSE stream with a disk-backed dedup ledger" means every change — even one scoped to, say, the known-pool-keys ledger (as in the most recent NEW-badge fix) — happens inside the same 2,000-line file as everything else, with no compiler-enforced boundary between "pure pool math" and "network I/O" and "transaction construction." New contributors have to read the whole file to be confident a change to one concern doesn't touch another.
+
+**Minimal production-safe improvement:** Split along the natural seams already visible in the file's own `// ──` section comments — e.g. `mmm-pool-parse.ts` (parsing/PDA/balance math, no I/O), `mmm-das.ts` (wallet-asset scanning), `mmm-tx-builder.ts` (on-chain builder + ME bid-accept proxy), `mmm-pool-stream.ts` (triage/pool-feed SSE + the three caches), leaving `tools-mmm-pools.ts` as the thin Express router that wires them together. Pure file/module reorganization — no logic changes, no behavior changes, `tsc` would catch any accidental break immediately.
+
+**Estimated benefit:** readability (each resulting file has one job), maintainability (a change to the SSE ledger can no longer accidentally touch tx-building code in the same diff), future features (new MMM functionality has an obvious home instead of "somewhere in the 2,000-line file").
+
+---
+
+### Finding AS4 — Two independently-defined, non-overlapping `DasAsset` interfaces
+
+**Severity:** Medium
+
+**Category:** Merge
+
+**Evidence:** `src/enrichment/helius-das.ts:41` and `src/server/tools-mmm-pools.ts:366` each declare their own `interface DasAsset`, read directly during this pass. `helius-das.ts`'s version carries `content.metadata.attributes`, `content.json_uri`, `content.links.animation_url`, `token_info.{decimals,supply}`, `ownership.owner` — but **not** `token_info.token_program`. `tools-mmm-pools.ts`'s version carries `token_info.token_program`, `compression.{compressed,tree,leaf_id}` — but **not** `token_info.decimals`/`supply`/`ownership`. Neither is a superset of the other. This is not a hypothetical concern — it is the literal, already-documented root cause of open backlog Finding **D7** (Audit #7): the Token-2022/WNS admission gap in `classifyDasAsset` cannot be fixed without adding `token_program` to `helius-das.ts`'s `DasAsset`, a field that already exists one file over in `tools-mmm-pools.ts`'s copy.
+
+**Why the current architecture is unnecessarily complex:** Both types describe the exact same Helius `getAsset` response shape, just with whichever fields each file's author happened to need at the time. A field one file's logic needs (like `token_program`) doesn't automatically become available to the other, so a correctness fix in one place doesn't propagate — exactly the D7 situation.
+
+**Minimal production-safe improvement:** Define one canonical `DasAsset` (union of both current field sets, all optional as they already are) in a shared location (`src/enrichment/das-types.ts` or similar), and have both `helius-das.ts` and `tools-mmm-pools.ts` import it instead of declaring their own. Purely additive to each file's available fields — no existing field is removed, so no existing read site can break.
+
+**Estimated benefit:** maintainability (one DAS shape to keep in sync with Helius's schema instead of two), directly unblocks fixing D7 without any new investigation, readability (one obvious source of truth for "what does a DAS asset look like").
+
+---
+
+### Finding AS5 — Four near-identical tx-status confirm-poll loops copy-pasted across 2 frontend files
+
+**Severity:** Medium
+
+**Category:** Merge
+
+**Evidence:** `frontend/src/app/tools/mmm-pool-lookup/page.tsx` contains the identical shape three times (lines ~499, ~527, ~602): `for (let attempt = 0; attempt < 5; attempt++) { sleep(3000); fetch('${API_BASE}/api/tools/mmm-pools/tx-status?sig=...') }` — already self-documented as a duplicate inside this file (Audit #9 Finding ME1: *"the identical pattern three times"*). `frontend/src/app/collection/[slug]/page.tsx` (line ~1315) added a **fourth** copy of the same loop when Audit #10's TX1 fix was implemented, with a code comment explicitly acknowledging it: *"poll the same tx-status endpoint the MMM pool tool uses."*
+
+**Why the current architecture is unnecessarily complex:** A fix to the polling behavior itself — e.g. Audit #9's still-open ME1 (poll should track the real blockhash validity window and re-broadcast instead of giving up after a fixed ~15s, currently one of the two highest-ranked open risks in this file) — has to be applied in four places by hand, in two different files, or it will silently only half-fix the problem. TX1's own fix already demonstrates this risk materializing: a known-duplicated pattern was copied a fourth time instead of extracted, at the exact moment a developer was already looking at it closely enough to reference it by name in a comment.
+
+**Minimal production-safe improvement:** Extract a single `pollTxStatus(signature, { attempts, intervalMs })` helper (or a `useTxStatusPoll` hook, matching the rest of the frontend's hook-heavy style) into a shared frontend lib file, and have all four call sites use it. Zero behavior change if the extraction is a faithful copy of the existing loop body; becomes the single place to apply ME1's fix later.
+
+**Estimated benefit:** maintainability (ME1's eventual fix becomes a one-file change instead of a four-site hunt), readability, future features (any tx-confirmation UX improvement — e.g. a progress indicator — now has one implementation to enhance).
+
+---
+
+### Finding AS6 — SSE-reconnect-with-jittered-backoff duplicated whole between `feed/page.tsx` and `mints/page.tsx`
+
+**Severity:** Medium
+
+**Category:** Merge
+
+**Evidence:** `frontend/src/app/feed/page.tsx` (1,481 lines) implements a full `EventSource` reconnect handler with exponential backoff + jitter (~line 421–487): `reconnectTimer`, backoff-reset-on-connect, comment *"Exponential backoff with jitter on reconnect — caps the herd-thunder..."*. `frontend/src/app/mints/page.tsx` (3,072 lines, the largest file in the frontend) has the same structure at ~line 1594–1608, with its own comment reading *"same pattern used [in feed/page.tsx]"* — i.e. the duplication is already known and named by whoever wrote the second copy, not a coincidence this pass discovered independently.
+
+**Why the current architecture is unnecessarily complex:** This is the single largest duplicated block of logic found in this pass by line count. Both files are already among the two largest in the entire frontend; neither needs more inline complexity. A reconnect-behavior bug fix (e.g. backoff cap tuning, a new visibility-change edge case) has the same two-file propagation risk as AS5, just for a more complex and more safety-critical piece of logic (silent data loss on a missed reconnect is exactly what Audit #11's LF8 is about).
+
+**Minimal production-safe improvement:** Extract a `useSseReconnect(url, handlers)` hook (or a plain non-hook connection-manager function, matching whichever style the rest of `soloist/` already favors) capturing the backoff/jitter/visibility-change logic, parameterized by the event handlers each page already defines separately. This is a larger, riskier extraction than AS5 (the surrounding event-handling code differs more between the two pages) — recommend doing it only after AS3-style file-splitting work has created a natural home for it (e.g. alongside `soloist/feed-store.ts`), not as a first move.
+
+**Estimated benefit:** maintainability (the biggest win on this list — removes real duplicated complexity from the two largest, most complex frontend files), readability, future features (LF8's SSE replay-buffer fix, if implemented, has one connection-lifecycle implementation to hook into instead of two).
+
+---
+
+### Finding AS7 — `poller.ts` + `raw-poller.ts` (600 lines) are fully dead code
+
+**Severity:** Medium
+
+**Category:** Delete
+
+**Evidence:** `src/ingestion/poller.ts` (351 lines) and `src/ingestion/raw-poller.ts` (249 lines). `src/index.ts` is the only file that references either, and every reference is commented out: `// import { startRawPoller } from './ingestion/raw-poller'; // disabled — see below`, `// import { startPoller } from './ingestion/poller';`, `// startPoller(); // Helius enhanced poller — disabled, see import above`. A repo-wide grep for any *live* import of either path returns nothing. CLAUDE.md itself already labels both "disabled at import (rollback only)."
+
+**Why the current architecture is unnecessarily complex:** 600 lines of ingestion logic sit in the live `src/` tree, show up in every file listing and every "how does ingestion work" exploration, and cost real attention from anyone (including this pass) who has to determine "is this used?" before moving on — a question git history already answers for free. Keeping dead code "for rollback" duplicates what version control already does, at the cost of two files silently bit-rotting against the rest of the pipeline's evolution (e.g. neither has the R3/R4 fixes from Audit #6, since audits explicitly scoped around the live path).
+
+**Minimal production-safe improvement:** Delete both files (git history preserves them permanently and far more reliably than a commented-out import — `git log --all -- src/ingestion/poller.ts` recovers the exact content instantly if ever needed). If an explicit rollback plan still wants a visible marker, a one-line note in CLAUDE.md pointing at the last commit that had them live is sufficient and costs zero ongoing maintenance.
+
+**Estimated benefit:** readability (removes 600 lines and 2 files from every future "explore the ingestion pipeline" pass), maintainability (no more silent bit-rot risk), no behavior change (already fully inert).
+
+---
+
+### Finding AS8 — Cooldown/circuit-breaker pattern implemented once well, reimplemented once differently, absent where it's needed twice more
+
+**Severity:** Medium
+
+**Category:** Refactor
+
+**Evidence:** `src/me-api-cooldown.ts` (31 lines) is a clean, well-documented, correctly shared module-scoped circuit breaker for Magic Eden API 429s — its own docstring explains it replaced N independent per-component cooldowns for exactly this reason, and it's correctly imported by 6 files (`tools-mmm-pools.ts`, `tools-retardio-offers.ts`, `collection-meta.ts`, `enrich.ts`, `me-stats.ts`, `rare-feed/providers/shared.ts`). Separately, `src/ingestion/me-raw/ingest.ts` implements its **own**, differently-shaped local circuit breaker (`isRateLimit()`, module-scoped `cooldownUntil`/`cooldownLogged` vars, a `COOLDOWN_THRESH` consecutive-failure counter `me-api-cooldown.ts` doesn't have) for Helius RPC 429s specifically — a legitimately different target (RPC vs ME API), but the *shape* of "track consecutive failures, open a cooldown window, log once per window" is reinvented rather than parameterized from a shared primitive. Meanwhile Audit #6 Finding R5 and Audit #7 Finding D10 (both still Backlog) document that `amm-poller.ts` and `helius-das.ts` have **no** circuit breaker at all for their own 429s — the exact gap `me-raw/ingest.ts`'s local copy already solved for its own call site.
+
+**Why the current architecture is unnecessarily complex:** There are effectively three states of the same underlying need (cooldown-on-repeated-429) scattered across the codebase: one shared+correct (ME API), one local+correct-but-not-shared (RPC in `ingest.ts`), and two missing entirely (`amm-poller.ts`, `helius-das.ts`) — findings the audits already flagged as real gaps. Closing R5/D10 today means writing a *third* independent implementation of the same pattern, rather than reusing what `ingest.ts` already proved works.
+
+**Minimal production-safe improvement:** Generalize `me-raw/ingest.ts`'s local breaker into a small `createCooldownBreaker({ thresholdMs, consecutiveFailThreshold })` factory (co-located with or exported alongside `me-api-cooldown.ts`, or in the AS1 `src/rpc/` home if that lands first), instantiate one for ME API (replacing `me-api-cooldown.ts`'s module-global state with an instance — same external API, `meCooldownActive()`/`setMeCooldown()` become thin wrappers), one for `me-raw/ingest.ts`'s RPC calls, and new ones for `amm-poller.ts`/`helius-das.ts` when R5/D10 are eventually picked up.
+
+**Estimated benefit:** maintainability (one circuit-breaker implementation to reason about instead of a bespoke one per call site), directly reduces the future implementation cost of two already-identified open Backlog findings (R5, D10), future features (a shared breaker is the natural place to add e.g. exponential cooldown growth on repeated trips).
+
+---
+
+### Finding AS9 — The ME bid-accept path always attempts a Bearer-token call already documented as reliably failing for the common case
+
+**Severity:** Medium
+
+**Category:** Simplify
+
+**Evidence:** `tools-mmm-pools.ts`'s `fetchBidAcceptTx` (per Audit #8/#9/#10's own extensive documentation, re-confirmed by direct read of the function during this pass) attempts the documented `.dev` + Bearer-token `sol-fulfill-buy` call **first**, on every invocation, before falling through to the on-chain builder (which itself immediately throws `me_cosigner_required` for any pool with a non-default cosigner). Audit #8 Finding M10 states plainly: *"this fallback path is structurally unable to complete a sale for any pool matching this project's own real-world pool population"* — i.e. for the common case (a real ME cosigner), this is a network round-trip to an endpoint the project's own accumulated evidence says will not work, on every single bid-accept attempt, before the code reaches the userscript-bridge path that actually works.
+
+**Why the current architecture is unnecessarily complex:** This isn't dead code (it does work for the rare pool with no real cosigner) and isn't a correctness bug (M10's own conclusion is "no fix proposed... this is the reason the current architecture exists") — but it is an always-taken, usually-doomed code path adding latency and an extra failure mode to the hot path of the tool's single most important user action, for a case the codebase's own accumulated empirical evidence says is rare.
+
+**Minimal production-safe improvement:** Not proposed as a code change here (this pass makes none) — but worth recording explicitly for a future pass: if the pool's `cosigner` is already known (it is, by the time `fetchBidAcceptTx` is called — callers already have the pool's on-chain data), a cheap pre-check (`cosigner === SystemProgram.programId` → try Bearer-token path; otherwise skip straight to the working path) would remove a guaranteed-slow, usually-doomed network call from the common case without touching the fallback logic itself.
+
+**Estimated benefit:** performance (removes one network round-trip + its timeout budget from the common-case latency of the tool's primary action), readability (the "try the thing that's documented to fail" step becomes conditional instead of unconditional, which better matches what the code's own comments already say about it).
+
+---
+
+### Finding AS10 — `isValidWallet`: byte-identical wallet-address validator duplicated in two files
+
+**Severity:** Low
+
+**Category:** Merge
+
+**Evidence:** `src/server/runtime.ts:83` and `src/auth/siws.ts:106` each define `function isValidWallet(...)` with the exact same body: `typeof x === 'string' && x.length >= 32 && x.length <= 44 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(x)` — same regex, same bounds, only the parameter name and one file's explanatory comment differ.
+
+**Why the current architecture is unnecessarily complex:** Both files are in the auth-adjacent trust boundary this project's own Audit #13 rated Compliant specifically because of its careful, consistent design (SEC6). A validator this security-relevant existing in two copies is exactly the kind of place where a future edit to one copy (e.g. tightening the length bounds) silently doesn't apply to the other.
+
+**Minimal production-safe improvement:** Move the function to a shared `src/utils/solana-address.ts` (or similar neutral location both `runtime.ts` and `siws.ts` can import from without a circular dependency — confirm neither currently imports the other, per Audit #13's own note that `runtime.ts` does not import from other server files it's paired with). One function, two importers.
+
+**Estimated benefit:** maintainability, readability; minor security-consistency benefit (one validator to keep correct instead of two).
+
+---
+
+### Finding AS11 — `sleep(ms)` reimplemented independently in 6 different files
+
+**Severity:** Low
+
+**Category:** Merge
+
+**Evidence:** Identical or near-identical `sleep`/`delay` helpers defined locally in `src/ingestion/concurrency.ts:22`, `src/ingestion/me-raw/ingest.ts:267`, `src/server/tools-retardio-offers.ts:373`, `src/enrichment/image-retry.ts:252`, plus inline arrow-function versions in `src/scripts/backfill-mmm-legacy-takebid-buyer.ts:107` and `src/scripts/backfill-me-v2-logprice.ts:68` — all six are `(ms) => new Promise(resolve => setTimeout(resolve, ms))` or a `function`-statement equivalent of the same one-liner.
+
+**Why the current architecture is unnecessarily complex:** The lowest-stakes finding in this pass (a one-line function costs little to duplicate), but it's a clean, zero-risk, zero-ambiguity merge candidate — there is no version of `sleep(ms)` that legitimately needs to differ from another.
+
+**Minimal production-safe improvement:** Export `sleep` once from an existing low-level shared file (`src/ingestion/concurrency.ts` already has it and is already a dependency-free utility module) and import it at the other 5 sites instead of redefining it.
+
+**Estimated benefit:** readability only — this is a pure boilerplate-reduction cleanup with no functional upside beyond one fewer thing to notice-and-dismiss when reading any of these 6 files.
+
+---
+
+### Finding AS12 — Small MMM-tool UI helpers redefined per page instead of shared
+
+**Severity:** Low
+
+**Category:** Merge
+
+**Evidence:** `fmtSol` and `short` (formatting helpers) are independently defined in both `frontend/src/app/tools/mmm-pool-lookup/page.tsx` and `frontend/src/app/tools/mmm-collection-scanner/page.tsx`. `ADDR_RE`, `API_BASE`, `MONO`, `PANEL` (constants/style tokens) are likewise redefined in both. `CopyKey` (a copy-to-clipboard component) is defined independently a **third** time in `frontend/src/app/tools/mmm-pools/page.tsx`, with a slightly narrower prop signature (`{ value }` only, vs the other file's `{ value, label, color }`) than the version in `mmm-collection-scanner/page.tsx`.
+
+**Why the current architecture is unnecessarily complex:** Three sibling pages under `frontend/src/app/tools/` solving the same "show a Solana address with a copy button, format a SOL amount, style a panel" problems independently, with the `CopyKey` prop-signature drift already showing the early symptom of divergence duplication tends to produce (one copy silently supports a `label`/`color` override the other two don't, for no principled reason).
+
+**Minimal production-safe improvement:** A small `frontend/src/app/tools/mmm-shared.tsx` (or extend the existing `frontend/src/soloist/shared.tsx`, which CLAUDE.md already documents as the project's shared UI-kit convention — "Copy, don't fork") exporting `fmtSol`, `short`, `CopyKey` (using the more capable 3-prop signature), `ADDR_RE`, `MONO`, `PANEL`; `API_BASE` likely already has a canonical home elsewhere in the frontend and should just be imported from there instead of redeclared.
+
+**Estimated benefit:** readability, maintainability (one `CopyKey` behavior instead of two silently-diverged ones), future features (a `CopyKey` UX improvement — e.g. a "copied!" toast — becomes a one-file change instead of three).
+
+---
+
+## Overall Architecture Assessment
+
+If starting a cleanup pass on today's codebase rather than a rewrite, the three highest-leverage moves are, in order:
+
+1. **Extract the shared RPC client (AS1).** This is the single change with the widest blast radius of benefit — 33 files, and it's the structural precondition that makes AS8's circuit-breaker consolidation cheap to do afterward instead of independently.
+2. **Promote and adopt the existing `TtlCache` (AS2).** The hard part (designing a correct generic TTL cache) is already done and already proven in production across 6 files — this is unusually low-risk for how much boilerplate it removes across the other ~40.
+3. **Split `tools-mmm-pools.ts` along its existing internal seams (AS3).** Not urgent on its own, but every other MMM-related finding in this pass (AS4's DAS type, AS8's cooldown, AS9's ME-path ordering) lives inside this one file — splitting it first would make each of those follow-up fixes touch a smaller, more obviously-scoped file instead of the same 2,000-line one.
+
+The frontend's two largest files (`mints/page.tsx` at 3,072 lines, `feed/page.tsx` at 1,481 lines) share a fully duplicated SSE-reconnect implementation (AS6) that is the single biggest chunk of duplicated logic found in this pass — but it's also the riskiest to extract safely given how large and stateful both surrounding files are, so it's correctly ranked Medium/do-later rather than a first move.
+
+No finding in this pass identified an abstraction with real over-engineering in the "adds a layer nobody needed" sense (the codebase's existing abstractions — `me-api-cooldown.ts`, `TtlCache`, the `soloist/` shared UI kit, `domain/sale-event-adapters.ts` — are each doing real, singular jobs correctly). The dominant pattern found here is the opposite failure mode: **under-abstraction** — the same small pieces of logic (RPC calls, TTL caches, `sleep`, wallet validation, tx-status polling, SSE reconnect) being written fresh at each new call site instead of reused from a shared home, several of which (AS2, AS8) already exist in the codebase and just aren't adopted broadly.
