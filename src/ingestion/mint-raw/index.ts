@@ -192,7 +192,7 @@ async function enrichCgSupply(candyMachineState: string, groupingKey: string): P
         jsonrpc: '2.0',
         id: 'cm-supply',
         method: 'getAccountInfo',
-        params: [candyMachineState, { encoding: 'base64' }],
+        params: [candyMachineState, { encoding: 'base64', commitment: 'confirmed' }],
       }),
       signal: AbortSignal.timeout(8_000),
     });

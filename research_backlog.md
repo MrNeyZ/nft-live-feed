@@ -25,6 +25,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 3 | Bubblegum / cNFT | Complete | 2026-06-28 |
 | 4 | Candy Guard / Candy Machine V3 | Complete | 2026-06-28 |
 | 5 | Token-2022 / SPL Token | Complete | 2026-06-28 |
+| 6 | Solana RPC + WebSocket Architecture | Complete | 2026-07-03 |
 
 ---
 
@@ -714,6 +715,223 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Solana Runtime / RPC / WebSocket | Audit `logsSubscribe` notification completeness, slot gap detection, and reconnect behavior under load. |
-| 2 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. Also unblocks T4/T9 DAS validation. |
-| 3 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 1 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. Also unblocks T4/T9 DAS validation — `token_info.token_program` presence was live-confirmed 2026-07-03 (Mutantmon T22 mint, ad hoc, outside this audit series) but the full field-stability pass is still open. |
+| 2 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+
+---
+
+## Audit #6 — Solana RPC + WebSocket Architecture
+
+**Sources:**
+- Official Solana docs: `solana.com/docs/rpc` (commitment parameter), `solana.com/docs/rpc/websocket/logssubscribe`, `solana.com/docs/rpc/websocket/slotsubscribe`, `solana.com/docs/rpc/http/getsignaturesforaddress`, `solana.com/docs/rpc/http/gettransaction`, `solana.com/docs/references/terminology`.
+- VL source (9 files): `src/ingestion/listener.ts`, `src/ingestion/amm-poller.ts`, `src/ingestion/me-raw/ingest.ts`, `src/ingestion/mint-raw/index.ts` (`enrichCgSupply`), `src/ingestion/mint-raw/reconcile.ts`, `src/ingestion/concurrency.ts`, `src/db/poller-state.ts`, `src/mints/core-supply-refresher.ts`, `src/mints/collection-created-resolver.ts`, `src/mints/resize-status-resolver.ts`, `src/index.ts` (boot order).
+
+**Scope note:** this audit covers `src/ingestion/*` and its `src/mints/*`/`src/db/*` RPC call sites only — the same scope as Audits #1–#5 (the Live Mint Feed / sale ingestion pipeline). The MMM pool transaction-builder tool (`src/server/tools-mmm-pools.ts`, `frontend/src/app/tools/mmm-pool-lookup/`) is a separate subsystem that constructs and submits transactions (blockhash lifecycle, signing) and is explicitly **out of scope** here — confirmed with the operator 2026-07-03.
+
+**Architecture facts confirmed:**
+- Two independent, redundant discovery paths run continuously: `listener.ts` (per-program `logsSubscribe` WS + a fast/healthy-cadence `getSignaturesForAddress` poller) and `amm-poller.ts` (a DB-cursor-persisted `getSignaturesForAddress` gap-healer, described in its own header comment as "the authoritative source of truth for which transactions exist on-chain").
+- A dedicated `slotSubscribe` WebSocket provides a ~400ms heartbeat independent of any program subscription, used purely to detect a dead TCP connection when NFT-sale volume is naturally low.
+- All sale/mint RPC reads request `commitment: 'confirmed'` explicitly (never rely on the RPC default) — one exception found (Finding R3).
+- Every signature is deduplicated at insert time via Postgres `ON CONFLICT (signature) DO NOTHING` (per `CLAUDE.md` / `insert.ts`), making the ingestion pipeline correct regardless of which path (WS, fast poller, gap-healer, webhook) delivers a given signature first, or whether more than one delivers it.
+- `getTransaction` is called with `maxSupportedTransactionVersion: 0` and manually merges `meta.loadedAddresses` (writable/readonly) into `transaction.message.accountKeys`, with signer-flags reconstructed from `header.numRequiredSignatures` — required because raw `json` encoding omits per-key signer booleans for ALT-loaded versioned transactions.
+
+**Audit #6 finding status:**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| R1 | Informational | Compliant | `logsSubscribe`/`getTransaction`/`getSignaturesForAddress` all explicitly request `commitment: 'confirmed'`, correctly overriding the documented `finalized` default |
+| R2 | Informational | Compliant | `getTransaction` versioned-tx handling (`maxSupportedTransactionVersion: 0` + ALT merge + signer reconstruction) matches documented behavior |
+| R3 | Low | ✅ Fixed — commit `03c5e97` | `enrichCgSupply`'s `getAccountInfo` call omits `commitment`, silently defaulting to `finalized` — inconsistent with every other RPC call site in the codebase |
+| R4 | High | ✅ Fixed — commit `03c5e97` | `amm-poller.ts` `fetchPage()` has no request timeout — the only RPC call site in the audited codebase without one; a hung connection permanently wedges that target's gap-healer |
+| R5 | Medium | Backlog | `amm-poller.ts` `fetchPage()` has no 429-specific handling / circuit breaker, unlike `me-raw/ingest.ts`'s `fetchRawTx` |
+| R6 | Informational | No action | `confirmationStatus` field in `getSignaturesForAddress` responses is typed but unread — harmless, since `commitment: 'confirmed'` already gates the result set server-side |
+| R7 | Informational | Compliant | WS-unreliability defense (dual-poller + watchdog + hard periodic refresh) is architecturally correct given official docs document no delivery/gap guarantee for `logsSubscribe` |
+| R8 | Informational | Compliant | `before`/`until` pagination in both pollers matches documented semantics and correctly avoids the "silently returns only the newest `limit` sigs" gap failure mode |
+| R9 | Informational | N/A — out of scope | Blockhash lifecycle, `getSignatureStatuses`, `searchTransactionHistory`, `accountSubscribe`, `programSubscribe`, `signatureSubscribe`, `blockSubscribe`, `rootSubscribe`, `getBlock`, `getBlocks`, `getSlot`, `getProgramAccounts` are not used anywhere in the audited ingestion pipeline — it is 100% read-only (no transaction construction/signing/submission occurs in this code path) |
+| R10 | Informational | Compliant | Idempotent `ON CONFLICT (signature) DO NOTHING` insert makes the pipeline correct under any WS/RPC notification ordering — official docs make no ordering guarantee between a WS notification and a subsequent RPC read, and VL's design doesn't need one |
+
+---
+
+### Finding R1 — Commitment level explicitly set to `confirmed` everywhere it matters
+
+**Severity:** Informational
+
+**Evidence:** `solana.com/docs/rpc` — *"Many RPC methods and subscriptions accept a `commitment` parameter... If a method or subscription accepts `commitment` and you omit it, the default is typically `finalized`."* `solana.com/docs/rpc/websocket/logssubscribe` confirms the same default for the WS config object.
+
+**Root cause / behavior:** `listener.ts` explicitly documents (openSubscription, ~line 878) why `confirmed` was chosen over the default: subscribing at `processed` measured a ~40% null-result rate against `fetchRawTx`, because Helius notified before the tx was indexed at `confirmed`. All `logsSubscribe` (`{ commitment: 'confirmed' }`), `getTransaction` (`commitment: 'confirmed'`), and `getSignaturesForAddress` (`commitment: 'confirmed'`) calls across `listener.ts`, `amm-poller.ts`, and `me-raw/ingest.ts` set this explicitly rather than relying on the default.
+
+**Impact:** None — this is the correct, deliberate choice, evidenced by the documented before/after measurement in the code comments.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding R2 — Versioned-transaction (`maxSupportedTransactionVersion`) handling is correct
+
+**Severity:** Informational
+
+**Evidence:** `solana.com/docs/rpc/http/gettransaction` — *"Setting it to `0` allows you to fetch all transactions, including both Versioned and legacy transactions... If you omit this parameter, only legacy transactions will be returned — any versioned transaction will result in an error."*
+
+**Root cause / behavior:** `me-raw/ingest.ts` (`_fetchRawTxRpc`) sets `maxSupportedTransactionVersion: 0` and separately reconstructs `accountKeys` from `meta.loadedAddresses.writable`/`.readonly` plus a signer-flag rebuild from `message.header.numRequiredSignatures` — because raw `json` encoding does not include ALT-loaded accounts in `message.accountKeys` and does not carry a per-key `signer` boolean at all (only the header's numRequiredSignatures count implies it).
+
+**Impact:** None — correct handling. Without this, every v0 (ALT) sale/mint transaction would either be rejected by the RPC (if `maxSupportedTransactionVersion` were omitted) or silently miss accounts referenced only via the ALT (if the merge were skipped).
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding R3 — `enrichCgSupply`'s `getAccountInfo` omits `commitment`, silently defaulting to `finalized`
+
+**Severity:** Low
+
+**Evidence:** `solana.com/docs/rpc` — *"If a method or subscription accepts `commitment` and you omit it, the default is typically `finalized`."* VL source, `src/ingestion/mint-raw/index.ts` (`enrichCgSupply`):
+```typescript
+body: JSON.stringify({
+  jsonrpc: '2.0', id: 'cm-supply', method: 'getAccountInfo',
+  params: [candyMachineState, { encoding: 'base64' }],
+}),
+```
+No `commitment` key in the params object — every other RPC call site audited (`listener.ts` ×4, `amm-poller.ts`, `me-raw/ingest.ts`, `mint-raw/reconcile.ts`, `core-supply-refresher.ts`) explicitly sets `commitment: 'confirmed'`.
+
+**Root cause:** Simple omission — the params object for this one call was never given a `commitment` field, so the RPC silently falls back to `finalized`.
+
+**Impact:** `finalized` commitment lags `confirmed` by however long it takes 2/3 of stake to vote past the block (documentation does not give a fixed slot count — see "documentation ambiguous" note below). In practice this means a just-minted Candy Machine's `items_redeemed` count read by this function can be a few seconds staler than the rest of the pipeline (which reads at `confirmed`). `CM_SUPPLY_TTL_MS` is 15 seconds, so the extra lag is within the existing cache tolerance — no user-visible bug has been traced to this. It is a real inconsistency, not a confirmed production incident.
+
+**Documentation ambiguity:** Official docs state the *definition* of `finalized` vs `confirmed` but do not give an exact slot-count or time delta between them anywhere in the pages fetched for this audit (`solana.com/docs/rpc`, `solana.com/docs/references/terminology`) — the practical lag is a network-observed quantity, not a protocol-guaranteed constant, so an exact "N seconds slower" claim cannot be sourced from official docs and is not asserted here.
+
+**Minimal production-safe fix:** Add `commitment: 'confirmed'` to the `params` object in `enrichCgSupply`, matching every other call site.
+
+**Status:** ✅ Fixed — commit `03c5e97`. `params: [candyMachineState, { encoding: 'base64', commitment: 'confirmed' }]`.
+
+---
+
+### Finding R4 — `amm-poller.ts` `fetchPage()` has no request timeout — can permanently wedge a target's gap-healer
+
+**Severity:** High
+
+**Evidence:** VL source, `src/ingestion/amm-poller.ts` (`fetchPage`, full function body — every other audited call site is quoted below for contrast):
+```typescript
+const res = await fetch(rpcUrl(), {
+  method:  'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getSignaturesForAddress', params: [program, params] }),
+});
+```
+No `signal` key at all. Contrast with every other RPC call site in the audited codebase, all of which set an explicit timeout:
+- `listener.ts` `pollTarget`: `signal: AbortSignal.timeout(8_000)`
+- `listener.ts` `seedSeenSigs`: `signal: AbortSignal.timeout(8_000)`
+- `me-raw/ingest.ts` `_fetchRawTxRpc`: `AbortController` + `FETCH_TIMEOUT_MS = 8_000`
+- `mint-raw/reconcile.ts`: `signal: AbortSignal.timeout(10_000)`
+- `mint-raw/index.ts` `enrichCgSupply`: `signal: AbortSignal.timeout(8_000)`
+- `mints/core-supply-refresher.ts`: `AbortController` + 15s manual timer
+- `mints/collection-created-resolver.ts`, `mints/resize-status-resolver.ts` (×2 call sites): `AbortController`-based timeouts
+
+Node's global `fetch` (undici) has no default request timeout — an unresponsive or half-open TCP connection to the RPC endpoint will hang for the underlying OS socket timeout (which can be minutes), not for any application-level bound, unless a `signal` is supplied.
+
+**Root cause:** `fetchPage()` is the sole low-level RPC caller inside `amm-poller.ts`. `sweepTarget()` sets `sweepInFlight.set(target.name, true)` before calling it and only clears the flag in a `finally` block after the awaited chain (`fetchSinceCursor` → `fetchPage`) settles. If `fetchPage`'s `fetch()` call never settles (hangs), the `finally` never runs, `sweepInFlight` for that target stays `true` forever, and every subsequent scheduled `tick()` call for that target short-circuits at the re-entrancy guard (`if (sweepInFlight.get(target.name)) return;`) without ever attempting another sweep.
+
+**Impact:** A single stalled TCP connection to the Helius RPC endpoint (a real, if infrequent, class of failure — silently dropped connections without a FIN/RST are a known behavior of some proxies/load balancers under network partition) permanently disables `amm-poller`'s gap-healing for one program (`me_v2`, `mmm`, `tcomp`, `tamm`, or `orbis`) until the process is restarted. Per the file's own header comment, this poller is explicitly "the authoritative source of truth for which transactions exist on-chain" — its silent death is not visible in any existing alerting (no watchdog analogous to `listener.ts`'s slot/event staleness checks exists for `amm-poller`). Sales for the affected program would still flow through `listener.ts`'s WS + fast-poller paths, so this is a *coverage-quality* degradation, not a full outage — but it defeats the specific purpose this poller exists for. No production incident has been confirmed for this specific failure mode; the finding is a code-level gap, not an observed outage.
+
+**Minimal production-safe fix:** Add a bounded `AbortController` (matching the 8–10s pattern used everywhere else in the codebase) to the `fetch()` call inside `fetchPage()`, e.g. `signal: AbortSignal.timeout(8_000)`, so a hung connection surfaces as a normal rejected promise into `sweepTarget`'s existing `catch` block instead of hanging indefinitely.
+
+**Status:** ✅ Fixed — commit `03c5e97`. Added `signal: AbortSignal.timeout(8_000)` to the `fetch()` call in `fetchPage()`, matching the pattern already used in `listener.ts` / `me-raw/ingest.ts` / `mint-raw/reconcile.ts`. A timeout now surfaces as a normal rejected promise into `sweepTarget`'s existing `catch`/`finally`, so `sweepInFlight` is guaranteed to reset within 8s instead of hanging indefinitely.
+
+---
+
+### Finding R5 — `amm-poller.ts` `fetchPage()` has no 429 / rate-limit-specific handling
+
+**Severity:** Medium
+
+**Evidence:** VL source, `src/ingestion/amm-poller.ts` (`fetchPage`) — the only error handling present is `if (json.error) throw new Error(...)`; there is no HTTP-status check for `429` and no equivalent of `me-raw/ingest.ts`'s `isRateLimit()` / circuit-breaker (`COOLDOWN_MS`, `COOLDOWN_THRESH`, `onRateLimitExhausted`).
+
+**Root cause:** `fetchPage`'s only failure path is a thrown exception, caught generically by `sweepTarget`'s outer `try/catch` (logs and returns). A 429 response is treated identically to any other RPC error — no distinction, no backoff specific to rate-limiting.
+
+**Impact:** Under sustained rate-limiting, every one of the (up to 5) `amm-poller` targets independently retries on its own next scheduled tick (5s–15s later depending on mode/backoff state) with no coordinated backoff — unlike `me-raw/ingest.ts`'s `fetchRawTx`, which trips a shared 30-second cooldown after 2 consecutive exhausted 429s. This does not risk data loss (the next tick's `getSignaturesForAddress` call re-covers the same window via the persisted cursor), but it does not actively reduce request pressure during a 429 episode the way the sibling `fetchRawTx` path does, and could prolong a rate-limit episode across all 5 targets simultaneously.
+
+**Minimal production-safe fix:** Reuse or mirror `me-raw/ingest.ts`'s `isRateLimit()` check inside `fetchPage`, and apply a short per-target cooldown (or reuse the existing saturated/degraded cadence machinery) on repeated 429s before the next scheduled tick fires.
+
+**Status:** Backlog — real gap, but self-healing via the existing tick cadence and persisted cursor; no confirmed production incident.
+
+---
+
+### Finding R6 — `confirmationStatus` field is fetched but never read
+
+**Severity:** Informational
+
+**Evidence:** `solana.com/docs/rpc/http/getsignaturesforaddress` — response field `confirmationStatus: string | null`, possible values `"processed"`, `"confirmed"`, or `"finalized"`. VL source: `amm-poller.ts` declares `interface SigInfo { signature: string; err: unknown; confirmationStatus: string | null; }` but no code in the audited files reads `.confirmationStatus` on any row.
+
+**Root cause / behavior:** Every `getSignaturesForAddress` call in the audited codebase passes `commitment: 'confirmed'` as a request parameter. Per `solana.com/docs/rpc`, the commitment parameter "specifies how finalized a block must be before the node returns data" — meaning the RPC server itself is expected to gate the result set to that level or higher before returning it, making a client-side re-check of `confirmationStatus` per-row redundant for VL's purposes.
+
+**Impact:** None. The field being present-but-unused is not a bug — it's an artifact of typing the full RPC response shape.
+
+**Fix:** None needed; optional cleanup only if the interface is touched for another reason.
+
+**Status:** No action.
+
+---
+
+### Finding R7 — Dual-poller + watchdog architecture is the correct response to `logsSubscribe`'s undocumented delivery guarantees
+
+**Severity:** Informational
+
+**Evidence:** `solana.com/docs/rpc/websocket/logssubscribe` was fetched specifically for this audit to check for any documented guarantee about notification ordering, dropped/missed notifications, or resubscribe-after-disconnect gap coverage. None of these are addressed anywhere on the official page — the documentation covers only the request/response shape and the `mentions` filter's one-address limitation.
+
+**Root cause / behavior:** In the absence of any documented delivery guarantee, VL's `listener.ts` is built around the explicit assumption that `logsSubscribe` **cannot** be trusted alone (module docstring: *"Reconnects automatically... Slot heartbeat + dual watchdog + forced 120s restart prevent silent stalls"*; a further comment: *"WS logsSubscribe is currently unreliable... This poller is the PRIMARY discovery path"*). Concretely: (a) a dedicated `slotSubscribe` heartbeat detects a fully-dead TCP connection independent of program-specific traffic; (b) a three-tier watchdog (global slot >20s stale, global event >30s stale, per-target notification staleness with quiet-program-aware thresholds) restarts exactly the failed scope; (c) every reconnect triggers an immediate `getSignaturesForAddress` catch-up poll to backfill whatever the WS missed during the outage; (d) an independent, DB-cursor-persisted `amm-poller` runs continuously regardless of WS health as a second, restart-surviving discovery path; (e) a 30-minute unconditional hard-refresh cycles every subscription as a backstop for degradation the watchdog logic doesn't catch.
+
+**Impact:** None — this is defense-in-depth appropriately scaled to a documented absence of guarantees, not overengineering. The idempotent DB insert (Finding R10) means even redundant re-delivery across all of these paths is harmless.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action. Worth noting for future maintainers: this architecture exists *because* the protocol offers no missed-notification guarantee, not despite one.
+
+---
+
+### Finding R8 — `before`/`until` pagination correctly avoids the "returns only the newest `limit` sigs" gap
+
+**Severity:** Informational
+
+**Evidence:** `solana.com/docs/rpc/http/getsignaturesforaddress` — `before`: *"Start searching backwards from this transaction signature. If not provided the search starts from the top of the highest max confirmed block."* `until`: *"Search until this transaction signature, if found before limit reached."* `limit` max is 1000; VL uses page sizes of 20 (`amm-poller.ts`) and 100 (`listener.ts`), both within bounds.
+
+**Root cause / behavior:** Both pollers correctly recognize that a single `getSignaturesForAddress` call bounded only by `limit` can silently truncate if more than `limit` signatures landed since the last cursor (`listener.ts`'s own comment: *"the RPC returns only the LIMIT newest sigs and silently skips older-but-still-newer-than-prevCursor ones"*). `amm-poller.ts`'s `fetchSinceCursor` detects this via a `saturated` flag (full page AND more than `LOW_PAGE_THRESHOLD` pages walked) and continues paginating backward with `before` while holding `until` fixed at the last confirmed cursor, persisting a `<frozen_newest>:<before>` continuation marker in Postgres (`poller_state`) so the walk survives a process restart. `listener.ts`'s `mpl_core` cursor-poll implements the equivalent at-cap pagination in-process.
+
+**Impact:** None — this is exactly the correct mitigation for the documented `limit`-truncation risk, and the persisted continuation marker additionally protects against losing the walk across a restart, which the bare protocol semantics do not provide on their own.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding R9 — Blockhash lifecycle, `getSignatureStatuses`, and account/program/signature/block/root subscriptions are out of scope (not used)
+
+**Severity:** Informational
+
+**Evidence:** Full-repository grep of `src/ingestion/**/*.ts` and the RPC-calling files under `src/mints/*` / `src/db/*` for `getSignatureStatuses`, `searchTransactionHistory`, `getLatestBlockhash`, `accountSubscribe`, `programSubscribe`, `signatureSubscribe`, `blockSubscribe`, `rootSubscribe`, `getBlock`, `getBlocks`, `getSlot`, `getProgramAccounts` returned zero real call sites (only comment/string mentions of `getAccountInfo`, which *is* used — see `mint-raw/index.ts` `enrichCgSupply` and `core-supply-refresher.ts`'s `getMultipleAccounts`, both audited above/positively).
+
+**Root cause / behavior:** The audited pipeline is a **read-only ingestion service** — it discovers signatures (`getSignaturesForAddress`, `logsSubscribe`), fetches their contents (`getTransaction`), and reads a small number of account states for enrichment (`getAccountInfo`, `getMultipleAccounts`). It never constructs, signs, or submits a transaction, so there is no blockhash to expire, no signature to poll for confirmation after sending, and no reason to subscribe to a specific account or program's account-level changes (`accountSubscribe`/`programSubscribe`) or block-level events (`blockSubscribe`/`rootSubscribe`).
+
+**Impact:** None — this is a scope boundary, not a gap. (The transaction-*sending* MMM pool builder tool, which does need blockhash-lifecycle handling, is a separate subsystem explicitly excluded from this audit's scope — see the scope note at the top of Audit #6.)
+
+**Fix:** None needed / not applicable.
+
+**Status:** N/A — out of scope for this audit target.
+
+---
+
+### Finding R10 — Idempotent insert makes WS/RPC ordering assumptions unnecessary
+
+**Severity:** Informational
+
+**Evidence:** Official docs (`solana.com/docs/rpc/websocket/logssubscribe`, `solana.com/docs/rpc`) make no statement anywhere about ordering guarantees between a WebSocket notification and a subsequent or concurrent RPC read for the same transaction, nor about whether two different notification sources (e.g. two separate `logsSubscribe` connections, or a WS notification vs. a poller's `getSignaturesForAddress` result) can legitimately deliver the same signature more than once. VL source: `insertSaleEvent` uses `ON CONFLICT (signature) DO NOTHING` (documented in `CLAUDE.md`: *"`ON CONFLICT (signature) DO NOTHING` makes re-ingest safe"*).
+
+**Root cause / behavior:** Rather than assuming any particular delivery order or exactly-once semantics from the protocol (which the docs do not promise), every code path that can discover a signature (WS listener, fast poller, `amm-poller`, Helius webhook fast-path) is allowed to race independently, with per-scope in-memory dedup (`sigSeenInScope`, `markLocalSeen`, `seenSigs`) as a *cost* optimization (avoiding redundant `getTransaction` credits), and the database `ON CONFLICT` clause as the actual *correctness* guarantee.
+
+**Impact:** None — this is the correct way to handle an undocumented ordering/uniqueness guarantee: don't assume one, make the final write idempotent instead.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.

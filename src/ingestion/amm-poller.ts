@@ -195,6 +195,7 @@ async function fetchPage(
       method:  'getSignaturesForAddress',
       params:  [program, params],
     }),
+    signal: AbortSignal.timeout(8_000),
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const json = await res.json() as { result?: SigInfo[]; error?: { message: string } };
