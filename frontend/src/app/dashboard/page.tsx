@@ -246,6 +246,23 @@ function aggregate(events: FeedEvent[], tf: Timeframe, now: number): LiveCollect
   return out;
 }
 
+// ── Trend color (7d floor direction) ────────────────────────────────────────
+// Sparkline/VolBars previously took `col.color` (the collection's own
+// identity color — same one used on its avatar), so the chart's hue carried
+// no trend signal at all. Compares the series' first vs last finite point —
+// green when the floor rose over the window, red when it fell, muted for
+// flat/insufficient/malformed data. Reuses the same VL.green/VL.red pair
+// Sparkline/VolBars already declare as their own default color.
+function trendColor(data: number[] | undefined): string {
+  if (!Array.isArray(data) || data.length < 2) return VLText.muted;
+  const first = data[0];
+  const last = data[data.length - 1];
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return VLText.muted;
+  if (last > first) return rgb(VL.green);
+  if (last < first) return rgb(VL.red);
+  return VLText.muted;
+}
+
 // ── Sparkline SVG ────────────────────────────────────────────────────────────
 
 /**
@@ -432,6 +449,7 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
   // handles the fill, scale, and glow.
   const volData   = col.vol7d   ?? [];
   const floorData = col.floor7d ?? [];
+  const trend     = trendColor(floorData);
   // Displayed floor is the REAL marketplace floor from /api/collections/bids.
   // `col.floor` (aggregated min sale price in tf) only serves as a fallback
   // during the brief first-render window before bids resolve. Momentum arrow
@@ -516,12 +534,12 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
-          <Sparkline data={floorData} color={col.color} w={64} h={18} />
+          <Sparkline data={floorData} color={trend} w={64} h={18} />
         </div>
       </td>
       <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
-          <VolBars data={volData} color={col.color} w={64} h={18} />
+          <VolBars data={volData} color={trend} w={64} h={18} />
         </div>
       </td>
     </tr>
@@ -537,6 +555,7 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
   const ago = timeAgo(col._latestTs);
   const volData   = col.vol7d   ?? [];
   const floorData = col.floor7d ?? [];
+  const trend     = trendColor(floorData);
   // See CollectionRow — real floor from /api/collections/bids, sale-min is fallback.
   const displayFloor = bid?.floorSol ?? col.floor;
   const hasMomentum = col.floor > col._prevFloor * MOMENTUM_THRESHOLD;
@@ -593,12 +612,12 @@ function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
-          <Sparkline data={floorData} color={col.color} w={64} h={18} />
+          <Sparkline data={floorData} color={trend} w={64} h={18} />
         </div>
       </td>
       <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
         <div style={{ display: 'inline-block' }}>
-          <VolBars data={volData} color={col.color} w={64} h={18} />
+          <VolBars data={volData} color={trend} w={64} h={18} />
         </div>
       </td>
     </tr>

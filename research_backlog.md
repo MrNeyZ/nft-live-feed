@@ -3379,3 +3379,202 @@ This pass surfaced 13 well-evidenced findings, not 15 — presented as-is rather
 - **The product's core color discipline** — `#43b984` (success), `#9a9ab4` (secondary text), `#f0eef8` (primary text) are each reused hundreds of times with real consistency; the *token migration* (UX11) is worth finishing, but the underlying color choices themselves are already right — don't touch the palette's actual hues, just where they're referenced from.
 - **The MMM tools' information density and jargon-forward copy** (FVCA, cosigner, allowlist terminology, etc.) — this is a deliberate power-user surface per this project's own extensive history; softening it wholesale (rather than just closing the specific tone *gap* noted in UX9) would work against the product's actual audience.
 - **Inline `title=` tooltips on genuinely low-stakes elements** (e.g. a decorative icon's name) — UX3's fix should be staged to the highest-stakes cases first; not every native tooltip in the product needs replacing, only the ones gating decision-relevant information.
+
+---
+
+# Core Product UX Polish Program
+
+**Scope:** `/feed`, `/dashboard`, `/mints`, `/offers` (Retardio personal-offers view, currently surfaced inside `/tools`), `/multi`. Not an audit, not a bug hunt, not a performance review — product-feel polish only. No code modified, nothing committed, nothing deployed, no redesign proposed.
+
+**Evidence basis — read this before the findings.** This task explicitly requires actually inspecting the rendered product, not inferring from JSX. The product is wallet-gated (SIWS signature required); getting a live session required either the user's help or reusing production credentials, and both were unavailable this pass (asked three times over the course of this session's UX work; no response; declined to work around the credential restriction a second time after it was explicitly blocked once already). Rather than fall back to a pure code read — which would violate this task's own "do not invent findings from JSX alone" rule — this review is instead grounded in **four real product screenshots already in this repo** (`docs/vl-audit-v2/uploads/`, dated **2026-05-18**, covering `/feed`, `/mints`, the Retardio offers view, and `/dashboard`'s "Board" trending view — no `/multi` screenshot exists), cross-referenced against the **current** source (2026-07-03) to determine, for every claim, whether it's still true, already fixed, or a confirmed deliberate decision. This is materially different from — and more honest than — either a stale screenshot alone or a fresh code read alone: several things a 6-week-old screenshot would flag as broken are provably fixed in the code today (see "Already resolved" below), and at least one is provably a **deliberate, reverted-once-already** design decision, not an oversight.
+
+**What this means for confidence levels:** findings below marked "confirmed current" are backed by a real screenshot **and** a matching current-code read (highest confidence). One finding (CPUX4) is flagged explicitly as needing live re-verification — the screenshot shows the issue, the code shows partial progress, but I can't confirm the exact current on-screen state without a real render. **No finding for `/multi` is included** — zero visual evidence exists for it this pass (no screenshot, no login), and manufacturing one from JSX alone would violate this task's central rule.
+
+| ID | Severity | Page(s) | Category | One-line summary |
+|---|---|---|---|---|
+| CPUX1 | High | `/feed`, `/dashboard` | Layout / Visual Hierarchy | Viewport-width usage is now *inconsistent between pages* — `/mints` breathes (up to 1560px, full-width on ultra-wide), `/feed` (660–840px) and `/dashboard` (1000–1140px) still feel boxed into a narrow centered card on the same desktop |
+| CPUX2 | Medium | `/feed` | Typography | Price decimal-place count still shifts by magnitude bucket (2–6 decimals) — `tabular-nums` fixed digit-*width* jitter within one price, but the decimal point still doesn't align vertically row-to-row |
+| CPUX3 | Medium | `/feed` | Information Hierarchy / Density | Seller/buyer wallet addresses still render as two stacked lines per row, costing real vertical density for information most users don't need to read on every pass |
+| CPUX4 | Medium | `/mints` | Visual Hierarchy / Badges | Partial badge-cluster compaction already shipped (status pill: 66px→~22px) — needs live re-verification to confirm whether the marketplace/launchpad icon cluster next to the collection name still competes with it |
+| CPUX5 | Low | `/offers` (Retardio) | Color / Feedback | ✅ Fixed — EXPIRED offer rows are already dimmed to 50% opacity (a real, confirmed fix since May) — but the SPREAD number itself was still colored by raw arithmetic sign, not by whether it's actually favorable |
+| CPUX6 | Medium | `/dashboard` | Color / Consistency | ✅ Fixed — sparkline (and volume-bar) color was still the collection's per-identity color, not the 7-day trend's direction — one visual channel doing identity, trend-sign, and volume-emphasis simultaneously |
+
+---
+
+### Finding CPUX1 — Viewport-width usage is now inconsistent between pages
+
+**Severity:** High
+
+**Page(s):** `/feed`, `/dashboard` (contrasted against `/mints`)
+
+**Category:** Layout / Visual Hierarchy
+
+**Evidence:** The May 18 screenshots show all three surfaces (Feed, Board/Dashboard, Mints) rendering inside a similarly narrow centered card. Current code tells a different story per page: `globals.css` sets `--feed-max: 660px` (base) / `840px` (laptop tier) and `--dashboard-max: 1000px` / `1140px`, while `--mints-max` is `1400px` / `1560px` at the same tiers — and on the largest desktop tier, `--dashboard-max`/`--tools-max` both step up to `100%` but `--feed-max` does not appear to follow at that same tier from the same read. **This is a real, current, code-confirmed asymmetry**, not a screenshot-era artifact — `/mints` has clearly had real width-utilization work done on it that `/feed` and `/dashboard` have not received to the same degree.
+
+**Current issue:** A user moving from `/mints` (which already fills most of a typical 1440–1920px desktop) to `/feed` or `/dashboard` (still boxed into a ~660–1140px centered card) experiences a real, jarring density drop between two core pages of the same product, in the same session. This is a *new* characterization of the old audit's "kill the centered card" finding — six weeks ago all three pages were equally narrow (a consistent, if suboptimal, feel); today the inconsistency itself is the more noticeable problem, because `/mints` sets a real expectation the other two don't meet.
+
+**Minimal improvement:** Not a redesign — extend whatever width-utilization change `/mints` already received to `/feed` and `/dashboard`'s `--feed-max`/`--dashboard-max` tokens, at least at the tiers where `/mints` and `/tools` already go wide. This is a token-value change, not a layout restructure — the underlying grid/flex structure of both pages presumably already responds to their own `--*-max` variable.
+
+**Expected UX benefit:** More rows visible per viewport on the two highest-traffic pages in the product (the literal front door); removes an inconsistency that's more noticeable now than the original uniform-narrowness ever was.
+
+**Implementation risk:** Medium — width changes on a live-scrolling, real-time list can interact with existing responsive breakpoints and row-wrap logic in ways a static page wouldn't; needs verification across the project's own documented breakpoint matrix (mobile/tablet/small_laptop/laptop/desktop_large), not just a single-viewport check.
+
+---
+
+### Finding CPUX2 — Price decimal-place count still shifts by magnitude bucket
+
+**Severity:** Medium
+
+**Page(s):** `/feed` (and anywhere else the shared `formatSol` helper is used for a price column)
+
+**Category:** Typography
+
+**Evidence:** The May 18 screenshot shows five consecutive Feed rows priced `0.080`, `0.79`, `0.036`, `0.014`, `1.09` SOL — five different apparent decimal precisions. Current code (`soloist/mock-data.ts`'s `formatSol`) confirms this is still exactly the current behavior: a magnitude-bucketed formatter (`toFixed(2)` for ≥0.1, `toFixed(3)` for ≥0.01, `toFixed(4)` for ≥0.001, etc.), by design, not an accident (the function's own doc comment explains the reasoning: fixed-precision would either collapse small prices to `0.000` or falsely over-precise-ify large ones). `font-variant-numeric: tabular-nums` **is** already applied in multiple places in `feed-card.tsx` — but tabular-nums only locks *digit width* within a single formatted string; it does nothing to align the *decimal point* across rows whose formatted strings have different total decimal counts.
+
+**Current issue:** A trader scanning a column of prices for magnitude differences has to actually read the digits, not just glance at where the decimal point sits, because the point itself moves depending on each row's own magnitude bucket. This is a real, still-current scan-speed cost — confirmed independently, not just carried over from the old audit.
+
+**Minimal improvement:** Not proposed as a specific fix here — the tradeoff the code comment already documents (fixed precision loses real information for both very small and very large prices) is legitimate, so this isn't a trivial one-line change like the old audit's H-07 framed it. Worth a real design decision (e.g., a per-price-bucket fixed precision *within* a visible page of results, recalculated as the bucket composition changes) rather than a blanket global format change.
+
+**Expected UX benefit:** faster magnitude comparison across a column of live prices, the single highest-leverage numeric-scanability change available on the page.
+
+**Implementation risk:** Medium — the existing adaptive formatter exists specifically to avoid a real information-loss failure mode (documented in its own comment); any fix needs to preserve that property, not just impose fixed decimals globally.
+
+---
+
+### Finding CPUX3 — Stacked seller/buyer address lines cost real vertical density
+
+**Severity:** Medium
+
+**Page(s):** `/feed`
+
+**Category:** Information Hierarchy / Density
+
+**Evidence:** The May 18 screenshot shows every row carrying two full lines — `seller: F9Qh…WMJu` / `buyer: Emkp…HQJh` — beneath the collection name. Current code confirms this layout is unchanged: `feed-card.tsx` still renders separate `seller:`/`buyer:` labeled lines (`FC_PARTY_LABEL_STYLE`, a fixed-width label column sized specifically to fit the wider "seller:" string), not a condensed single-line `from→to` format.
+
+**Current issue:** For a feed whose own stated purpose is fast pattern-matching across many rows (clusters, repeats, outliers — not reading individual wallet identities), two dedicated lines of truncated, largely-unreadable addresses is real vertical cost paid on every single row, competing with price/direction for the viewport's limited row budget — directly compounding CPUX1's narrower problem (fewer rows visible × taller rows = a real multiplicative density cost).
+
+**Minimal improvement:** Not a redesign — condense to a single line (`F9Qh…WMJu → Emkp…HQJh`, an arrow instead of two labeled rows) for the common case, keeping the full two-line labeled form available on hover or in a detail view for the rarer case where a user actually needs to confirm buyer/seller identity carefully (e.g. checking if a sale was to themselves, already specially cased as "YOU" per the existing `isMe` check).
+
+**Expected UX benefit:** meaningfully more rows visible per viewport with zero information loss for the common scan-and-pattern-match use case.
+
+**Implementation risk:** Medium — touches a component with a lot of existing fine-tuned spacing/alignment logic (per the file's own extensive inline comments about column widths tuned to specific label strings); needs care not to break that tuning, not a trivial copy-paste.
+
+---
+
+### Finding CPUX4 — Mints badge-cluster compaction: partial progress, needs live re-verification
+
+**Severity:** Medium
+
+**Page(s):** `/mints`
+
+**Category:** Visual Hierarchy / Badges
+
+**Evidence:** The May 18 screenshot shows a Mints row reading `WATCH · GAQQ · [ME][↑][X] · LMNFT` before any numeric column — a status pill, the collection name, three small marketplace/launchpad icons, and a tag. Current code (`MintsTableRow.tsx`) contains a direct comment confirming real work happened here since then: *"Status track was 66 px to fit the old ACTIVE/WATCH labels; after the A/W/S compaction the badge renders at ~22 px."* This confirms the **status pill** specifically has been compacted. It does not confirm whether the marketplace-icon (`ME`/`↑`/`X`) + launchpad-tag (`LMNFT`/`CORE`) cluster next to the collection name has *also* been reduced, moved to a right-side tray, or left as-is — the comment only speaks to the status track.
+
+**Current issue:** Unknown with full confidence — this is the one finding in this pass explicitly flagged as needing a real render to close out, rather than asserted as fact from a stale screenshot plus a partial code signal.
+
+**Minimal improvement:** Not proposed here — this needs a real screenshot of the current `/mints` page before any further design decision is made. If the icon cluster is confirmed still present at the collection-name line, the same "collapse to a single left-edge state indicator, move icons to a right-side tray" approach the old audit proposed (and that the status-pill compaction already partially followed) would be the natural next step.
+
+**Expected UX benefit:** unknown pending verification; the status-pill precedent suggests the team already agrees with the direction, so closing the loop here is likely low-friction once verified.
+
+**Implementation risk:** Low if the remaining badges do need compaction (direct precedent already exists in the same file); Low if they've already been addressed too (nothing to do). Genuinely unknown until verified — that uncertainty is the point of flagging it this way rather than guessing.
+
+---
+
+### Finding CPUX5 — Offers page: EXPIRED rows are dimmed, but SPREAD color is still pure arithmetic sign
+
+**Severity:** Low
+
+**Page(s):** `/offers` (Retardio personal-offers view, `app/tools/page.tsx`)
+
+**Category:** Color / Feedback
+
+**Evidence:** The May 18 screenshot shows EXPIRED rows (e.g. `#697`, spread `+42.8` / `+1973.7%`) rendered at full visual weight, identical to genuinely actionable ACTIVE rows — a stale, wildly-inflated spread number reading as loud and current as a real one. Current code (`app/tools/page.tsx`) confirms a real fix landed since then: `const rowOpacity = row.bestOfferStatus === 'EXPIRED' ? 0.5 : 1` — every EXPIRED row is now rendered at half opacity specifically because, per the code's own comment, *"they are universally not actionable until refreshed."* Separately, the SPREAD column's color logic (`positiveSpread ? '#43b984' : '#d96867'`) remains purely sign-based — a positive spread is always green, negative always red, regardless of offer status.
+
+**Current issue:** The worst symptom (a stale, absurd EXPIRED number reading as urgent) is already resolved by the row-level dimming. What remains is much smaller: an EXPIRED row's spread number is still full-saturation green/red *within* its own now-dimmed row, which is a minor residual inconsistency (the row says "don't trust this," the number's color still says "look at me") rather than the more serious issue the original screenshot showed.
+
+**Minimal improvement:** Not proposed as urgent — if ever touched, the SPREAD text color could itself respect `bestOfferStatus === 'EXPIRED'` (e.g., drop to the neutral/muted color the row's own dimming already implies) rather than staying saturated inside an already-dimmed row.
+
+**Expected UX benefit:** small, purely cosmetic consistency win — the bigger problem this originally pointed at is already fixed.
+
+**Implementation risk:** Low — a single conditional on an already-identified color expression.
+
+**Status: ✅ Fixed.** The SPREAD text color expression in `app/tools/page.tsx` now also checks `row.bestOfferStatus === 'EXPIRED'` and falls back to the same neutral `#9a9ab4` already used for the null/unlisted case, instead of the saturated green/red. `positiveSpread`, the `+`/`-` prefix, the percentage sub-line, and `rowOpacity` are all untouched — active (non-expired) offer styling is byte-for-byte unchanged. `tsc --noEmit` and `next build` both clean.
+
+---
+
+### Finding CPUX6 — Dashboard sparkline color is collection identity, not trend direction
+
+**Severity:** Medium
+
+**Page(s):** `/dashboard`
+
+**Category:** Color / Consistency
+
+**Evidence:** The May 18 "Board" screenshot shows each collection's 7-day floor sparkline in a different hue (Mall Street blue, Owltopia Coins green, SOL Decoder pink/red, Wizard of Alpha purple) with no visible correlation to whether that collection's floor actually trended up or down over the window. Current code confirms this is unchanged and by design: `Sparkline`'s `color` prop is passed `col.color` at both call sites in `dashboard/page.tsx` — the exact same `col.color` value also used for that row's `CollectionIcon` (avatar background) and its `VolBars` (volume bars). One color value is doing **identity** (icon), **trend** (sparkline), and **volume emphasis** (bars) simultaneously.
+
+**Current issue:** A sparkline's whole purpose is to let a trend's *sign* register pre-attentively via color, the same way the Feed's price deltas already do — but here color is spent on collection identity instead, so the actual signal (did this collection's floor go up or down this week) requires reading the line's slope, not just its hue. This is the one place in the reviewed pages where a genuinely useful color channel is fully occupied by something else.
+
+**Minimal improvement:** Not a redesign — reserve the sparkline's (and ideally the volume bars') hue for the 7-day delta's sign (one green, one red, neutral for flat), and keep the per-collection identity color exactly where it already does real work: the `CollectionIcon` avatar, which is the correct, sufficient place for identity-coding on this row.
+
+**Expected UX benefit:** the 7-day trend becomes scannable at a glance across the whole table (a genuinely fast "which collections are trending up" read), which is presumably the entire point of showing a sparkline in a trending-collections table in the first place.
+
+**Implementation risk:** Low — a color-prop derivation change at two call sites; the sparkline/bar rendering logic itself doesn't need to change, just which color it's handed.
+
+**Status: ✅ Fixed.** Added a `trendColor(data)` helper to `dashboard/page.tsx` — compares a 7-day floor series' first vs last finite point (green if it rose, red if it fell, `VLText.muted` for flat/insufficient/malformed data), reusing the exact `VL.green`/`VL.red` pair `Sparkline`/`VolBars` already declared as their own component defaults. Both `CollectionRow` and `RecentRow` (the two row renderers behind the ACTIVE/RECENT tabs) now compute `trend = trendColor(floorData)` once per row and pass it to both their `Sparkline` and `VolBars` — so both charts in a row share one trend signal, exactly as the finding's own minimal-improvement suggested. `col.color` (collection identity) was left untouched on `CollectionIcon` at both call sites — a repo-wide grep after the fix confirms `col.color` now feeds only the two `CollectionIcon` usages, nothing else. No chart geometry, data source, sorting, or layout changed. `tsc --noEmit` and `next build` both clean.
+
+---
+
+## Already resolved since the May 18 audit (verified, not re-flagged)
+
+Cross-referencing the prior `docs/vl-audit-v2` audit's High-impact findings against current code found real, confirmed progress on several — recorded here so this work isn't rediscovered or wastefully re-scoped later:
+
+- **Feed row density (old H-02).** The prior audit recommended the Feed default to "Compact" density instead of "Comfy." Current code (`app/feed/page.tsx`) confirms this shipped: *"default is COMPACT (the current polished baseline)."* A three-tier density system (Comfy/Compact/Tape) already exists and is user-togglable, persisted to `localStorage`.
+- **AMM color semantics (old H-03).** The prior audit's screenshot showed every AMM-routed sale badge in red regardless of whether it was actually a buy or sell (i.e., color coded *class*, not *direction* — exactly the "AMM is not inherently bad" complaint). Current code confirms `buyAmm` now inherits the same green as a plain `buy`, and `sellAmm` the same red as a plain `sell` — AMM is now visually distinguished only by its wave glyph (`∿`) and label text, not by a separate always-red treatment. Direction color is now consistently direction-only.
+- **Tabular price alignment, partially (old H-07).** `font-variant-numeric: tabular-nums` is already applied at multiple price/timestamp render sites in `feed-card.tsx`. This resolves the *digit-width jitter* half of the old complaint; the *decimal-bucket* half remains open as CPUX2 above — this was a real partial fix, not a non-fix.
+- **Mints status-badge compaction, partially (old H-05).** The status pill specifically went from a 66px-wide label area to a ~22px compact badge, per an explicit code comment documenting the change. Whether the rest of the badge cluster (marketplace/launchpad tags) received the same treatment is CPUX4 above, not re-asserted as unfixed.
+- **Offers EXPIRED-row visual weight, partially (old H-06 adjacent).** EXPIRED rows are now dimmed to 50% opacity — the worst symptom (a stale absurd number reading as urgent) is fixed; the narrower residual is CPUX5 above.
+
+## Confirmed deliberate — not a bug, do not re-flag
+
+- **The Feed's pink "hot" timestamp coloring (old H-04).** The prior audit recommended timestamps never carry a hue. Current code's own inline comment is unusually direct about this: the 1–15s pink tier is described as *"pre-migration color, restored"* — meaning a version of this product **already removed** the pink timestamp coloring at some point, and the team **put it back**, with an explicit "per spec" comment documenting a deliberate three-tier freshness color scheme (pink <15s, gold 15s–3min, muted beyond). This is a confirmed, considered, already-litigated product decision, not an oversight — do not recommend removing it again without a specific, new reason.
+
+---
+
+## Top 6 improvements (ranked by impact)
+
+This pass surfaced 6 findings meeting this task's evidence bar (real screenshot + current-code confirmation), not 10 — presented honestly rather than padded, consistent with this project's established review conventions. Ranked:
+
+1. **CPUX1** — viewport-width inconsistency between `/mints` and `/feed`/`/dashboard`. Highest-traffic pages, real and growing gap.
+2. **CPUX3** — stacked seller/buyer lines. Directly compounds CPUX1 (multiplicative row-density cost); one of the more concrete, scoped fixes on this list.
+3. **CPUX6** — sparkline color is identity, not trend. The one finding where a genuinely useful signal channel is fully wasted; low implementation risk.
+4. **CPUX2** — price decimal alignment. Real, confirmed, high scan-speed value — but the "minimal fix" is genuinely a design decision, not a trivial patch, so ranked below the more mechanical wins.
+5. **CPUX4** — Mints badge cluster. Real precedent already exists in-repo; ranked here pending the live-verification this finding explicitly calls for.
+6. **CPUX5** — Offers SPREAD color. Smallest, most cosmetic remaining piece of an already-mostly-fixed issue.
+
+## Quick wins (<30 min)
+
+- **CPUX6** — swap the sparkline/volume-bar color source from `col.color` (identity) to a trend-sign color at the two `dashboard/page.tsx` call sites; keep `col.color` on `CollectionIcon` only.
+- **CPUX5** — make the offers SPREAD text color respect `bestOfferStatus === 'EXPIRED'` the same way row opacity already does.
+
+## Medium wins (<2h)
+
+- **CPUX3** — condense `/feed`'s stacked `seller:`/`buyer:` lines to a single `from → to` line for the common case; this file's existing spacing logic is fine-tuned enough that this needs real care, not a copy-paste.
+- **CPUX4** — once live-verified, apply the same compaction pattern already proven on the Mints status pill to the remaining marketplace/launchpad badge cluster, if it's confirmed still needed.
+
+## Large wins (>1 day)
+
+- **CPUX1** — bring `/feed` and `/dashboard`'s viewport-width tokens up to what `/mints` already has, across the project's full documented breakpoint matrix (not just one viewport) — sizeable because it's the highest-traffic surface and needs real verification it doesn't regress the live-updating row-wrap/scroll behavior.
+- **CPUX2** — a real design decision (not just a code change) on how to preserve small-price precision while still giving traders decimal-aligned scanability; genuinely needs a product call, not just an engineering one.
+
+## Do NOT change
+
+- **The Feed's pink "hot" timestamp coloring** — confirmed deliberate and already reverted-and-restored once; see "Confirmed deliberate" above.
+- **The adaptive per-magnitude price-precision formatter's underlying logic** (not showing `0.000` for genuinely small prices, not over-precision-ing large ones) — the *bucketing* itself is correct and intentional; CPUX2 is about *alignment*, not about forcing a single fixed decimal count that would reintroduce real information loss.
+- **`/mints`'s current width utilization** — already the reference the rest of the product should be brought up to (CPUX1), not touched itself.
+- **The Feed's density-mode system (Comfy/Compact/Tape) and its Compact default** — already the correct, deliberately-chosen resolution of the old audit's density complaint; don't re-litigate the default.
+- **The AMM wave-glyph + direction-color treatment** — already correctly resolved (class shown via glyph/label, color reserved for direction); don't revert to a class-based color scheme.
+
+## Visual-coverage disclosure
+
+For full transparency: this review's evidence covers `/feed`, `/mints`, `/offers` (Retardio), and `/dashboard`'s "Board" view via the four real May 18, 2026 screenshots cross-referenced against current code. **`/multi` has zero visual evidence this pass** — no screenshot exists for it in this repo, and live access was unavailable. No `/multi`-specific finding was produced, per this task's explicit rule against inventing findings from source alone. A future pass with either live access or a fresh screenshot set should cover it, and should also re-shoot the four covered pages to confirm the "Already resolved" and "confirmed current" items still hold — this review's newest visual ground truth is six weeks old, even though every finding was cross-checked against today's actual source.

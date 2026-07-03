@@ -897,14 +897,19 @@ export default function ToolsPage() {
                     </td>
                     <td style={{
                       ...tdStyleNum,
-                      // Neutral grey for unlisted (no spread to express);
-                      // existing green/red palette for listed rows.
-                      // Mint Tracker palette match: positive spread uses
-                      // MINTS-column green (#43b984); negative uses a
-                      // softer red (#d96867) — same family as Feed's
+                      // Neutral grey for unlisted (no spread to express)
+                      // and for EXPIRED rows (already dimmed via
+                      // rowOpacity above — a stale spread shouldn't also
+                      // read as urgent/saturated inside its own dimmed
+                      // row); existing green/red palette for active,
+                      // listed rows. Mint Tracker palette match: positive
+                      // spread uses MINTS-column green (#43b984); negative
+                      // uses a softer red (#d96867) — same family as Feed's
                       // SELL tone but lower-saturation so the spread
                       // number no longer dominates the row.
-                      color: row.spreadSol == null ? '#9a9ab4' : (positiveSpread ? '#43b984' : '#d96867'),
+                      color: (row.spreadSol == null || row.bestOfferStatus === 'EXPIRED')
+                        ? '#9a9ab4'
+                        : (positiveSpread ? '#43b984' : '#d96867'),
                       fontWeight: 700,
                     }}>
                       {row.spreadSol == null ? '—' : (
