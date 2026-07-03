@@ -955,6 +955,49 @@ function saveFvcaInfoCacheDebounced(): void {
   }, 2_000);
 }
 
+// Persistent, never-expiring ledger of every poolKey pool-stream has ever shown.
+// Deliberately separate from rawPoolsCache/rawPoolsCacheAny (20-min TTL) — a
+// stale/cleared/rebuilt scan cache or a pm2 restart must never make an
+// existing pool look "new" again. Only a poolKey that has genuinely never
+// been recorded here gets the NEW badge, and it's recorded permanently the
+// first time it's shown, regardless of which cache branch served it.
+const KNOWN_POOL_KEYS_FILE = path.join(__dirname, '../../data/mmm-known-pool-keys.json');
+const knownPoolFirstSeen = new Map<string, number>(); // poolKey -> firstSeenAt (epoch ms)
+
+(function loadKnownPoolKeysFromDisk(): void {
+  try {
+    const raw = fs.readFileSync(KNOWN_POOL_KEYS_FILE, 'utf8');
+    const entries = JSON.parse(raw) as Array<[string, number]>;
+    for (const [k, v] of entries) knownPoolFirstSeen.set(k, v);
+    console.log(`[tools/mmm-pools] loaded ${knownPoolFirstSeen.size} known pool keys from disk`);
+  } catch { /* first boot or corrupt file — start empty, non-fatal */ }
+})();
+
+let knownPoolKeysSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveKnownPoolKeysDebounced(): void {
+  if (knownPoolKeysSaveTimer) return;
+  knownPoolKeysSaveTimer = setTimeout(() => {
+    knownPoolKeysSaveTimer = null;
+    fsp.writeFile(KNOWN_POOL_KEYS_FILE, JSON.stringify([...knownPoolFirstSeen.entries()]), 'utf8')
+      .catch(() => { /* non-fatal */ });
+  }, 2_000);
+}
+
+/** Tag isNew on each pool (true the first time its poolKey has ever been
+ *  recorded), then permanently record every key just shown. Applied at
+ *  emit time in pool-stream — independent of the 20-min scan-result cache,
+ *  so re-serving a cached/rebuilt list never re-flags an existing pool. */
+function tagNewPools(pools: FlatPool[]): Array<FlatPool & { isNew: boolean }> {
+  const now = Date.now();
+  const tagged = pools.map(p => ({ ...p, isNew: !knownPoolFirstSeen.has(p.poolKey) }));
+  let dirty = false;
+  for (const p of pools) {
+    if (!knownPoolFirstSeen.has(p.poolKey)) { knownPoolFirstSeen.set(p.poolKey, now); dirty = true; }
+  }
+  if (dirty) saveKnownPoolKeysDebounced();
+  return tagged;
+}
+
 // ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
 async function meFetchBulk(url: string) {
   return fetch(url, {
@@ -1414,7 +1457,7 @@ export function createMmmPoolsRouter(): Router {
               .filter(p => p.pct >= minPct)
               .sort((a, b) => b.pct - a.pct);
             emit('progress', { msg: `Cached (${Math.floor((Date.now() - cached.builtAt) / 60_000)}m ago) — ${filtered.length} pools ≥${minPct}%`, cached: true });
-            emit('result', { pools: filtered, cached: true, cacheAgeMs: Date.now() - cached.builtAt });
+            emit('result', { pools: tagNewPools(filtered), cached: true, cacheAgeMs: Date.now() - cached.builtAt });
             return res.end();
           }
 
@@ -1502,7 +1545,7 @@ export function createMmmPoolsRouter(): Router {
 
           const filtered = knownFlatPools.filter(p => p.pct >= minPct).sort((a, b) => b.pct - a.pct);
           emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded${includeAny ? ' (incl. any-NFT bids)' : ''}` });
-          emit('result', { pools: filtered, cached: false, cacheAgeMs: 0 });
+          emit('result', { pools: tagNewPools(filtered), cached: false, cacheAgeMs: 0 });
         } catch (e) {
           emit('error', { msg: String(e) });
         }

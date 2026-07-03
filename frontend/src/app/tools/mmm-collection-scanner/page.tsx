@@ -75,6 +75,7 @@ interface FlatPool {
   collectionName: string;
   isMIP1:         boolean;
   anyOnly:        boolean;   // 'any' allowlist — invisible to the normal FVCA/MCC scan
+  isNew?:         boolean;   // never seen by pool-stream before (persistent, not cache-derived)
 }
 
 type TokenType = 'Legacy' | 'pNFT' | 'Core' | 'Unknown';
@@ -819,7 +820,8 @@ export default function MmmCollectionScannerPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
                   <colgroup>
-                    <col style={{ width: '22%' }} />
+                    <col style={{ width:  '4%' }} />
+                    <col style={{ width: '18%' }} />
                     <col style={{ width: '10%' }} />
                     <col style={{ width: '10%' }} />
                     <col style={{ width: '10%' }} />
@@ -830,6 +832,7 @@ export default function MmmCollectionScannerPage() {
                   </colgroup>
                   <thead>
                     <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <th style={TH}>#</th>
                       <th style={TH_L}>POOL</th>
                       <th style={{ ...TH, cursor: 'pointer' }} onClick={() => toggleSort('spot')}>SPOT{arrow('spot')}</th>
                       <th style={{ ...TH, cursor: 'pointer' }} onClick={() => toggleSort('escrow')}>ESCROW{arrow('escrow')}</th>
@@ -842,20 +845,21 @@ export default function MmmCollectionScannerPage() {
                   </thead>
                   <tbody>
                     {!scanResult && !busy && (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.7 }}>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.7 }}>
                         Enter a collection slug or FVCA address above and press <kbd style={{ padding: '1px 6px', borderRadius: 3, border: '1px solid rgba(168,144,232,0.3)', fontSize: 11, background: 'rgba(168,144,232,0.08)', color: '#a890e8' }}>Enter</kbd> or click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan</span>.
                         <br /><span style={{ fontSize: 11 }}>Shows underfunded infinite-lifetime MMM pools invisible in the ME UI.</span>
                       </td></tr>
                     )}
                     {scanResult && scanResult.pools.length === 0 && !busy && (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', color: '#43b984', padding: '64px 24px', fontSize: 13, fontWeight: 600 }}>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: '#43b984', padding: '64px 24px', fontSize: 13, fontWeight: 600 }}>
                         ✓ No underfunded infinite-lifetime pools found for this collection.
                       </td></tr>
                     )}
-                    {sortedPools.map(p => {
+                    {sortedPools.map((p, i) => {
                       const pct = pctFunded(p);
                       return (
                         <tr key={p.poolKey}>
+                          <td style={{ ...TD, color: '#6b6b85' }}>{i + 1}</td>
                           <td style={TD_L}><CopyKey value={p.poolKey} /></td>
                           <td style={TD}>
                             <span style={{ color: '#f0eef8', fontWeight: 700 }}>{fmtSol(p.spotPrice)}</span>
@@ -888,15 +892,20 @@ export default function MmmCollectionScannerPage() {
                             {p.expiry === 0 ? 'no expiry' : new Date(p.expiry * 1000).toLocaleDateString()}
                           </td>
                           <td style={{ ...TD, textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                              <a href={`https://magiceden.io/mmm/pool/${p.poolKey}`} target="_blank" rel="noopener noreferrer"
-                                title="ME Pool"
-                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', textDecoration: 'none', flexShrink: 0, lineHeight: 0 }}>
+                            <div style={{ display: 'inline-flex', border: `1px solid ${alpha(VL.purpleTint, 0.18)}`, borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
+                              <a href={`https://magiceden.io/u/${p.owner}?chains=%5B%22solana%22%5D&wallets=%5B%22${p.owner}%22%5D&activeTab=%22offers%22`} target="_blank" rel="noopener noreferrer"
+                                title="ME Owner Offers"
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
+                                  borderRight: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
+                                  cursor: 'pointer', textDecoration: 'none', lineHeight: 0 }}>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src="/brand/me.png" alt="ME" width={22} height={22} draggable={false} style={{ display: 'block', width: 22, height: 22, objectFit: 'cover', pointerEvents: 'none' }} />
+                                <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                               </a>
+                              <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
                               <a href={`/tools/mmm-pool-lookup?pool=${encodeURIComponent(p.poolKey)}`} title="Pool Lookup"
-                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 5, border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(168,144,232,0.08)', cursor: 'pointer', textDecoration: 'none', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26,
+                                  borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
+                                  cursor: 'pointer', textDecoration: 'none', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
                                 ↗
                               </a>
                             </div>
@@ -1237,18 +1246,20 @@ export default function MmmCollectionScannerPage() {
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
                         <colgroup>
-                          <col style={{ width: '18%' }} />
-                          <col style={{ width: '16%' }} />
+                          <col style={{ width:  '4%' }} />
+                          <col style={{ width: '17%' }} />
+                          <col style={{ width: '15%' }} />
                           <col style={{ width:  '7%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
+                          <col style={{ width: '10%' }} />
                           <col style={{ width: '11%' }} />
-                          <col style={{ width: '12%' }} />
                         </colgroup>
                         <thead>
                           <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                            <th style={{ ...TH, textAlign: 'center' }}>#</th>
                             <th style={TH_L}>POOL</th>
                             <th style={TH_L}>COLLECTION</th>
                             <th style={{ ...TH, textAlign: 'center' }}>TYPE</th>
@@ -1266,6 +1277,9 @@ export default function MmmCollectionScannerPage() {
                               style={{ background: i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : 'transparent' }}
                               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : ''; }}>
+                              <td style={{ ...TD, textAlign: 'center', color: alpha(VL.purpleTint, 0.40), fontWeight: 600 }}>
+                                {i + 1}
+                              </td>
                               <td style={TD_L}>
                                 <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.52)} />
                               </td>
@@ -1275,6 +1289,15 @@ export default function MmmCollectionScannerPage() {
                                       textShadow: `0 0 14px ${alpha(VL.gold, 0.22)}` }}>{p.collectionName}</span>
                                   : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.16) }}>—</span>
                                 }
+                                {p.isNew && (
+                                  <span title="First time this pool has appeared in pool-feed"
+                                    style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
+                                      border: `1px solid ${alpha(VL.greenStrong, 0.33)}`, background: alpha(VL.greenStrong, 0.08),
+                                      color: rgb(VL.greenStrong), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+                                      textTransform: 'uppercase', verticalAlign: 'middle' }}>
+                                    new
+                                  </span>
+                                )}
                                 {p.anyOnly && (
                                   <span title="No FVCA/MCC allowlist — the normal scan can't find this pool, only full scan (+any) does"
                                     style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
