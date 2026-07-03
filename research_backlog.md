@@ -739,9 +739,9 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | Finding | Severity | Status | Notes |
 |---|---|---|---|
-| D1 | Medium | ✅ Fixed — commit `a682c78` | `classifyDasAsset`'s and `isProgrammable`'s explicit `interface` checks don't cover the full documented enum (`LEGACY_NFT`, `V2_NFT`, `MplBubblegumV2`, `MplCoreCollection`, `MplCoreGroup`) — falls through to a permissive numeric fallback, safe-direction but mislabeled |
+| D1 | Medium | ✅ Fixed — commit `e9dcf26` | `classifyDasAsset`'s and `isProgrammable`'s explicit `interface` checks don't cover the full documented enum (`LEGACY_NFT`, `V2_NFT`, `MplBubblegumV2`, `MplCoreCollection`, `MplCoreGroup`) — falls through to a permissive numeric fallback, safe-direction but mislabeled |
 | D2 | Informational | Compliant | `searchAssets`' undocumented `tokenType`+`ownerAddress` coupling is real (live-confirmed `-32000` error) and VL's existing workaround is correct |
-| D3 | Medium | ✅ Fixed — commit `a682c78` | `tools-mmm-pools.ts`'s `getAllWalletAssets` silently truncates on a transient mid-scan failure with zero signal to the caller, unlike the equivalent scan in `tools-holders/fetch-assets.ts` |
+| D3 | Medium | ✅ Fixed — commit `e9dcf26` | `tools-mmm-pools.ts`'s `getAllWalletAssets` silently truncates on a transient mid-scan failure with zero signal to the caller, unlike the equivalent scan in `tools-holders/fetch-assets.ts` |
 | D4 | Low | Backlog | `helius-das.ts`'s single-attempt DAS fetch + 60s negative cache has no retry, but call-site design (enricher.ts / collection-confirm.ts) already compensates for almost all of the practical impact |
 | D5 | Informational | Backlog | `getAssetBatch` (supports up to 1000 ids/call) is never used despite several one-mint-at-a-time DAS loops |
 | D6 | Informational | No action | `mint_extensions` is unused/unmodeled — not needed, since T22 detection already works via `token_info.token_program` |
@@ -783,7 +783,7 @@ Neither explicitly checks `LEGACY_NFT`, `V2_NFT`, `MplBubblegumV2`, `MplCoreColl
 
 **Minimal production-safe fix:** Added explicit branches in `classifyDasAsset` — `LEGACY_NFT` treated as an alias of `V1_NFT` (`kind: 'legacy'`); `MplBubblegumV2` explicit-accepted as `kind: 'legacy'` (no dedicated `NftKind` bucket exists for compressed assets — this makes the previously-implicit fallback behavior explicit instead of changing it); `MplCoreCollection`/`MplCoreGroup` explicitly **hard-rejected** (`interface=...`) since they are collection/group-level accounts, not individually owned NFTs — a case the original audit text underspecified but the "do not make unsupported assets executable/destructive by accident" instruction called for. `V2_NFT` intentionally left with no dedicated branch (ambiguous per docs; already falls through to the existing `token_standard` checks). `isProgrammable` in `tools-mmm-pools.ts` was **not** changed to treat `V2_NFT`/`LEGACY_NFT` as programmable — neither implies pNFT status, so doing so would have introduced false positives; a clarifying comment was added instead.
 
-**Status:** ✅ Fixed — commit `a682c78`. Regression-tested live against two real mints (a legacy `V1_NFT` and the Mutantmon T22 mint) post-fix — both still classify as `{ok:true, kind:'legacy'}`, unchanged from pre-fix behavior.
+**Status:** ✅ Fixed — commit `e9dcf26`. Regression-tested live against two real mints (a legacy `V1_NFT` and the Mutantmon T22 mint) post-fix — both still classify as `{ok:true, kind:'legacy'}`, unchanged from pre-fix behavior.
 
 ---
 
@@ -840,7 +840,7 @@ Contrast with the equivalent, more defensive scan in `src/tools-holders/fetch-as
 
 **Minimal production-safe fix:** `getAllWalletAssets` now returns `{ assets, truncated: boolean }` (mirroring `fetchCollectionOwners`'s shape) — `truncated` is set on a non-ok HTTP response or a thrown fetch/parse error, left `false` on the normal short-page completion path. `fetchWalletNftsForPool` propagates it through to `{ nfts, truncated }`, and the `GET /tools/mmm-pools/wallet-nfts` endpoint now includes `truncated` in its JSON response. No circuit-breaker/retry logic added (explicitly out of scope, that's D10). Frontend (`mmm-pool-lookup/page.tsx`) was **not** touched — it only reads `data.nfts` today and ignores unknown fields, so the new field is additive/non-breaking; wiring a UI warning off `truncated` is a separate follow-up.
 
-**Status:** ✅ Fixed — commit `a682c78`.
+**Status:** ✅ Fixed — commit `e9dcf26`.
 
 ---
 
