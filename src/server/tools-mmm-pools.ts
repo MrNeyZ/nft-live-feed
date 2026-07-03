@@ -983,15 +983,19 @@ function saveKnownPoolKeysDebounced(): void {
   }, 2_000);
 }
 
-/** Tag isNew on each pool (true the first time its poolKey has ever been
- *  recorded), then permanently record every key just shown. Applied at
- *  emit time in pool-stream — independent of the 20-min scan-result cache,
- *  so re-serving a cached/rebuilt list never re-flags an existing pool. */
-function tagNewPools(pools: FlatPool[]): Array<FlatPool & { isNew: boolean }> {
+/** Tag isNew on each pool in `toReturn` (true the first time its poolKey has
+ *  ever been recorded), then permanently record every key in `allScanned` —
+ *  the FULL unfiltered scan result, not just the min_pct-thresholded subset
+ *  being displayed. Recording only what's shown would let a poolKey that
+ *  exists but sits below today's threshold get flagged "new" later, the
+ *  first time a lower min_pct (or the any-mode toggle) brings it into view.
+ *  Independent of the 20-min scan-result cache, so re-serving a
+ *  cached/rebuilt list never re-flags an existing pool. */
+function tagNewPools(allScanned: FlatPool[], toReturn: FlatPool[]): Array<FlatPool & { isNew: boolean }> {
   const now = Date.now();
-  const tagged = pools.map(p => ({ ...p, isNew: !knownPoolFirstSeen.has(p.poolKey) }));
+  const tagged = toReturn.map(p => ({ ...p, isNew: !knownPoolFirstSeen.has(p.poolKey) }));
   let dirty = false;
-  for (const p of pools) {
+  for (const p of allScanned) {
     if (!knownPoolFirstSeen.has(p.poolKey)) { knownPoolFirstSeen.set(p.poolKey, now); dirty = true; }
   }
   if (dirty) saveKnownPoolKeysDebounced();
@@ -1457,7 +1461,7 @@ export function createMmmPoolsRouter(): Router {
               .filter(p => p.pct >= minPct)
               .sort((a, b) => b.pct - a.pct);
             emit('progress', { msg: `Cached (${Math.floor((Date.now() - cached.builtAt) / 60_000)}m ago) — ${filtered.length} pools ≥${minPct}%`, cached: true });
-            emit('result', { pools: tagNewPools(filtered), cached: true, cacheAgeMs: Date.now() - cached.builtAt });
+            emit('result', { pools: tagNewPools(cached.pools, filtered), cached: true, cacheAgeMs: Date.now() - cached.builtAt });
             return res.end();
           }
 
@@ -1545,7 +1549,7 @@ export function createMmmPoolsRouter(): Router {
 
           const filtered = knownFlatPools.filter(p => p.pct >= minPct).sort((a, b) => b.pct - a.pct);
           emit('progress', { msg: `${filtered.length} pools ≥${minPct}% funded${includeAny ? ' (incl. any-NFT bids)' : ''}` });
-          emit('result', { pools: tagNewPools(filtered), cached: false, cacheAgeMs: 0 });
+          emit('result', { pools: tagNewPools(knownFlatPools, filtered), cached: false, cacheAgeMs: 0 });
         } catch (e) {
           emit('error', { msg: String(e) });
         }
