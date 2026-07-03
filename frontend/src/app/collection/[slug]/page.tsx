@@ -115,9 +115,10 @@ interface StatsApiResponse {
 
 type BuyStatus =
   | { kind: 'idle' }
-  | { kind: 'busy';  step: 'preparing' | 'signing' }
-  | { kind: 'done';  signature: string }
-  | { kind: 'error'; message: string };
+  | { kind: 'busy';    step: 'preparing' | 'signing' | 'confirming' }
+  | { kind: 'pending'; signature: string } // submitted, landing not yet confirmed
+  | { kind: 'done';    signature: string }
+  | { kind: 'error';   message: string };
 
 // ── name → abbr/color (slug fallback when COLLECTIONS_DB has no entry) ──────
 function abbrOf(name: string): string {
@@ -282,21 +283,25 @@ const ListingRowItem = memo(function ListingRowItem({
   });
   const isMe = listing.marketplace === 'me';
   const busy = status.kind === 'busy';
+  const pending = status.kind === 'pending';
   const done = status.kind === 'done';
   const errored = status.kind === 'error';
   const serverDisabled = buyEnabled === false;
   const probing        = buyEnabled === null;
   // Buy execution is wired for ME only; Tensor rows render with the BUY
   // button disabled (no buy flow yet) — same affordance shape, no layout change.
-  const disabled = !isMe || busy || serverDisabled || probing || !walletConnected;
+  const disabled = !isMe || busy || pending || serverDisabled || probing || !walletConnected;
   const buyLabel =
     done            ? '✓'        :
+    pending         ? 'sent'     :
     errored         ? 'retry'    :
-    busy            ? (status.step === 'preparing' ? '…' : 'sign') :
+    busy            ? (status.step === 'signing' ? 'sign' : '…') :
     !isMe           ? 'BUY'      :
                       'BUY';
   const buyTitle = errored
     ? `error: ${(status as { kind: 'error'; message: string }).message}`
+    : pending
+    ? `Submitted, confirmation pending — https://solscan.io/tx/${(status as { kind: 'pending'; signature: string }).signature}`
     : !isMe             ? 'Tensor buy flow not yet implemented'
     : serverDisabled    ? 'Buy unavailable: ME_API_KEY not set on server'
     : !walletConnected  ? 'Connect Phantom to buy'
@@ -1294,13 +1299,43 @@ export default function CollectionPage() {
       };
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'signing' } }));
       const { signature, txType } = await signSendAndConfirm(txBase64);
-      setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
       // eslint-disable-next-line no-console
-      console.log('[buy/me] confirmed', {
+      console.log('[buy/me] sent', {
         mint: listing.mint, seller: serverListing.seller, auctionHouse: serverListing.auctionHouse,
         priceSol: serverListing.priceSol, tokenAta: serverListing.tokenAta,
         txType, signature,
       });
+      setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'confirming' } }));
+
+      // A returned signature only means the RPC accepted it, not that it
+      // landed — poll the same tx-status endpoint the MMM pool tool uses
+      // (getSignatureStatuses + searchTransactionHistory server-side)
+      // before claiming success (Audit #10 TX1).
+      let settled = false;
+      for (let attempt = 0; attempt < 5 && !settled; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+        try {
+          const r = await fetch(
+            `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
+            { headers: { ...authHeaders() } },
+          );
+          if (!r.ok) continue;
+          const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
+          if (!d.ok || !d.found) continue;
+          if (d.err) {
+            setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message: 'Transaction failed on-chain: ' + JSON.stringify(d.err) } }));
+            settled = true;
+            break;
+          }
+          if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') {
+            setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
+            settled = true;
+          }
+        } catch (_) { /* transient — retry */ }
+      }
+      if (!settled) {
+        setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'pending', signature } }));
+      }
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message } }));

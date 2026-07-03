@@ -29,6 +29,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 7 | Helius DAS Architecture | Complete | 2026-07-03 |
 | 8 | Magic Eden Protocol & API Architecture | Complete | 2026-07-03 |
 | 9 | Magic Eden Integration Compliance (bridge lifecycle, retries, confirmation, sale parser) | Complete | 2026-07-03 |
+| 10 | Solana Transaction Lifecycle, Wallet, Signing & Sending Architecture | Complete | 2026-07-03 |
 
 ---
 
@@ -719,6 +720,104 @@ Ordered by expected parser coverage gap / protocol complexity.
 | # | Protocol / Source | Notes |
 |---|---|---|
 | 1 | Magic Eden API (sale ingestion parser) | ✅ Addressed by Audit #9 (Finding ME6) — `sellerNetPriceSol` guard confirmed present in the ME v2 path only; MMM/cNFT paths lack it (Backlog). |
+
+---
+
+## Audit #10 — Solana Transaction Lifecycle, Wallet, Signing & Sending Architecture
+
+**Sources:**
+- Official docs: `solana.com/docs/core/transactions/confirmation` (signature-vs-confirmation distinction), `solana.com/docs/rpc/http/simulatetransaction`, `docs.phantom.com/solana/sending-a-transaction` (documented-recommended `signAndSendTransaction` path), `docs.phantom.com/solana/establishing-a-connection` (`onlyIfTrusted` semantics).
+- VL codebase: `frontend/src/wallet/phantom.ts`, `frontend/src/app/collection/[slug]/page.tsx`, `src/server/buy-me.ts`, `src/server/tools-mmm-pools.ts`, `tools/magiceden-vl-mmm-accept.user.js`.
+- **Scope note:** distinct from Audits #8/#9 (MMM-tool-specific) — this audit inventories every wallet-connect/sign/send call site repo-wide, including the Collection-page ME auction-house Buy flow, not previously audited.
+
+**Findings use prefix TX** (distinct from Audit #9's ME-prefixed findings).
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| TX1 | High | ✅ Fixed | Collection-page Buy flow never confirmed the tx landed — marked "done" on signature alone |
+| TX2 | High | Backlog | No `simulateTransaction` anywhere in the codebase — broadens Audit #8's M4 |
+| TX3 | Medium | Informational | Phantom's own "most recommended" `signAndSendTransaction` path is structurally unusable for VL's cosigned txs — root cause tying TX1/TX2/Audit-9 ME1 together |
+| TX4 | — | Compliant | `eagerConnectPhantom`'s `onlyIfTrusted:true` matches official Phantom docs exactly |
+| TX5 | — | Compliant | No `signAllTransactions` usage anywhere — batch-signing risk class doesn't apply |
+| TX6 | — | Informational | `buy-me.ts`'s structured `rejectLog()` is the better logging pattern in-repo (relevant to Audit #9's ME3) |
+
+---
+
+### Finding TX1 — Collection-page Buy flow never confirmed the transaction landed on-chain ✅
+
+**Severity:** High
+
+**Status: Fixed**
+
+**Doc:** `solana.com/docs/core/transactions/confirmation` — a signature returned by `sendTransaction`/`signAndSendTransaction` is not itself confirmation; official pattern requires a follow-up `getSignatureStatuses`/`getBlockHeight` poll.
+
+**Evidence (before fix):** `frontend/src/app/collection/[slug]/page.tsx` `onBuyListing` marked the buy `done` (rendered ✓) the instant `signSendAndConfirm` returned a signature, with no follow-up check — unlike `mmm-pool-lookup/page.tsx`, which already polled `/api/tools/mmm-pools/tx-status` after the same call.
+
+**Fix applied:** after `signSendAndConfirm` resolves, `onBuyListing` now sets a `confirming` busy-step and polls the existing `/api/tools/mmm-pools/tx-status` endpoint (unchanged — `getSignatureStatuses` + `searchTransactionHistory:true`, same as MMM tool) up to 5× with a 3s backoff. `BuyStatus` gained a `pending` kind (submitted, not yet confirmed) distinct from `done` (confirmed/finalized) and `error` (on-chain failure, surfaced from `err`). If the poll never observes a landed status, the UI shows "sent" / "Submitted, confirmation pending — solscan.io/tx/&lt;sig&gt;" rather than claiming success. `sendTransaction`/`skipPreflight` and wallet architecture untouched — reuses the existing backend endpoint verbatim, no backend change.
+
+---
+
+### Finding TX2 — No transaction simulation anywhere in the lifecycle
+
+**Severity:** High
+
+**Doc:** `solana.com/docs/rpc/http/simulatetransaction` — a free, side-effect-free dry run, available before a user is even asked to sign.
+
+**Evidence:** zero `simulateTransaction` references anywhere in `src/` or `frontend/src/`.
+
+**Status:** Backlog — explicitly excluded from this fix pass per instruction.
+
+---
+
+### Finding TX3 — Phantom's documented "most recommended" send path is unusable for VL's cosigned transactions
+
+**Severity:** Medium (Informational — architectural fact, no fix proposed)
+
+**Doc:** `docs.phantom.com/solana/sending-a-transaction` — Phantom states `signAndSendTransaction` is *"by far the easiest and most recommended"* path.
+
+**Evidence:** `phantom.ts` cannot use it for any versioned/cosigned or multi-signer legacy tx (`signAndSendTransaction` rejects partially-signed txs) — forced onto `signTransaction` + custom backend-proxy send instead.
+
+**Status:** Informational — root cause tying TX1/TX2/Audit #9's ME1 together; no fix proposed, the workaround is required.
+
+---
+
+### Finding TX4 — `eagerConnectPhantom` compliant with official Phantom docs
+
+**Severity:** —
+
+**Doc:** `docs.phantom.com/solana/establishing-a-connection` — confirms `connect({onlyIfTrusted:true})` semantics (4001 error + no popup if untrusted) match VL's implementation exactly.
+
+**Status:** Compliant, no action.
+
+---
+
+### Finding TX5 — No `signAllTransactions` usage anywhere
+
+**Severity:** —
+
+Every flow signs exactly one transaction per user action. Batch-signing wallet-compat risk class doesn't apply to this codebase.
+
+**Status:** Compliant / not applicable.
+
+---
+
+### Finding TX6 — `buy-me.ts`'s structured rejection logging is the better pattern in-repo
+
+**Severity:** —
+
+`rejectLog()` logs `{reason, mint, buyer, price, ...}` as structured JSON on every rejection branch — proof the fix pattern Audit #9's ME3 wants already exists in this codebase.
+
+**Status:** Informational, no action this pass.
+
+---
+
+## Audit #10 summary
+
+**Fixed this pass:** TX1 only, per explicit instruction — reuses the existing `/api/tools/mmm-pools/tx-status` endpoint verbatim (no backend change), adds a `pending` status + confirm-poll to the Collection-page Buy flow only. `sendTransaction`/`skipPreflight`/wallet architecture untouched, no refactor.
+
+**Explicitly not touched:** TX2 (simulation/`skipPreflight`), wallet architecture.
+
+**Remaining backlog:** TX2. TX3/TX4/TX5/TX6 are informational/compliant, no fix needed.
 
 ---
 
