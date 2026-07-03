@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { getWallets } from '@wallet-standard/app';
-import { isAuthed, loginWithSiws, clearAuth } from './auth';
+import { isAuthed, loginWithSiws, clearAuth, isAuditView } from './auth';
 import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMode } from './mode';
 import { setMintTrackerEnabled } from './mint-tracker';
 // import { VictoryLabsLogo } from '@/soloist/VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
@@ -50,12 +50,18 @@ export function Gate({ children }: { children: ReactNode }) {
   }, []);
 
   const resolve = useCallback(async () => {
-    if (!isAuthed()) { setState({ kind: 'login' }); return; }
+    // Audit view (read-only) unlocks the gated UI without a wallet login.
+    // It never mints a token, so writes stay blocked at the backend.
+    const audit = isAuditView();
+    if (!isAuthed() && !audit) { setState({ kind: 'login' }); return; }
     const mode = await fetchMode();
     if (mode != null && mode !== 'off') { setState({ kind: 'active', mode }); return; }
     // salesMode is off/unknown — but an explicit Mint Tracker choice keeps the
     // app active (mints run independently of salesMode). Otherwise prompt.
     if (getRuntimeChoice() === 'mints') { setState({ kind: 'active', mode: 'mints' }); return; }
+    // Audit view renders the real app even when sales mode is off/unknown, so
+    // an auditor sees live UI instead of the mode-select prompt.
+    if (audit) { setState({ kind: 'active', mode: 'sales_only' }); return; }
     setState({ kind: 'mode-select' });
   }, []);
 
@@ -72,8 +78,9 @@ export function Gate({ children }: { children: ReactNode }) {
     const t = setTimeout(() => {
       setState(prev => {
         if (prev.kind !== 'loading') return prev;
-        if (!isAuthed()) return { kind: 'login' };
+        if (!isAuthed() && !isAuditView()) return { kind: 'login' };
         if (getRuntimeChoice() === 'mints') return { kind: 'active', mode: 'mints' };
+        if (isAuditView()) return { kind: 'active', mode: 'sales_only' };
         return { kind: 'mode-select' };
       });
     }, 9000);

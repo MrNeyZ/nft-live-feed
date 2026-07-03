@@ -36,6 +36,21 @@ export function authHeaders(): Record<string, string> {
 }
 
 /**
+ * Audit-view flag — true only when the server-side Next middleware has
+ * validated a matching `?audit=<AUDIT_BYPASS_TOKEN>` and set the read-only
+ * view cookie (`vl_audit_view=1`). This unlocks ONLY the frontend view gate
+ * (see Gate.tsx): it deliberately never touches TOKEN_KEY, so `getToken()` /
+ * `isAuthed()` / `authHeaders()` stay empty and every backend requireAuth
+ * (write) path — buy, mint, send-tx, offer-scan, runtime-mode POST — still
+ * rejects an audit session. The cookie carries only a boolean marker, never
+ * the secret token. Read-only by construction.
+ */
+export function isAuditView(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.cookie.split('; ').includes('vl_audit_view=1');
+}
+
+/**
  * Attempt login with a wallet + password. Backend validates both and, on
  * success, returns an opaque HMAC-signed token that carries {wallet, iat, exp}.
  * Callers should only touch it via `getToken()` / `authHeaders()` —
