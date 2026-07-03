@@ -2561,7 +2561,7 @@ Between now and the next triggering event, prioritize the two open High-severity
 | AS9 | Medium | Simplify | The ME bid-accept path always attempts a Bearer-token call documented as "reliably fails... for almost every real pool" before falling through |
 | AS10 | Low | Merge | ✅ Fixed — `isValidWallet` was byte-identical, duplicated in two auth-adjacent files; now exported once from `siws.ts` |
 | AS11 | Low | Merge | ✅ Fixed — `sleep(ms)` was reimplemented independently in 6 files; the 5 trivial-identical copies now import the shared `concurrency.ts` version (`image-retry.ts`'s behaviorally-different `unref()` version left untouched) |
-| AS12 | Low | Merge | Small MMM-tool UI helpers (`fmtSol`, `short`, `CopyKey`, `ADDR_RE`, `API_BASE`, `MONO`, `PANEL`) redefined per page instead of shared |
+| AS12 | Low | Merge | ✅ Fixed — small MMM-tool UI helpers (`CopyKey`, `ADDR_RE`, `API_BASE`, `MONO`, `PANEL`) redefined per page instead of shared; now centralized in `frontend/src/app/tools/mmm-shared.tsx` |
 
 ---
 
@@ -2758,6 +2758,8 @@ Between now and the next triggering event, prioritize the two open High-severity
 **Minimal production-safe improvement:** A small `frontend/src/app/tools/mmm-shared.tsx` (or extend the existing `frontend/src/soloist/shared.tsx`, which CLAUDE.md already documents as the project's shared UI-kit convention — "Copy, don't fork") exporting `fmtSol`, `short`, `CopyKey` (using the more capable 3-prop signature), `ADDR_RE`, `MONO`, `PANEL`; `API_BASE` likely already has a canonical home elsewhere in the frontend and should just be imported from there instead of redeclared.
 
 **Estimated benefit:** readability, maintainability (one `CopyKey` behavior instead of two silently-diverged ones), future features (a `CopyKey` UX improvement — e.g. a "copied!" toast — becomes a one-file change instead of three).
+
+**Status:** ✅ Fixed — partially, by design. Created `frontend/src/app/tools/mmm-shared.tsx` exporting `API_BASE`, `ADDR_RE`, `MONO`, `PANEL`, `fmtSol`, `short`, `CopyKey` (the more capable 3-prop version). `mmm-pool-lookup/page.tsx` and `mmm-pools/page.tsx` now import all of these instead of redefining them — their local copies were byte-identical, confirmed by direct diff before merging. `mmm-collection-scanner/page.tsx` imports only `API_BASE`, `ADDR_RE`, `MONO`, `PANEL`, `CopyKey` from the shared file; its local `fmtSol`/`short` were found on closer inspection to be **behaviorally different** from the other two files' versions (adaptive 3-vs-4-decimal `fmtSol`; 4-char vs 5-char tail on `short`) and were deliberately left in place per this pass's "replace only truly identical copies" scope. One call site in `mmm-collection-scanner` (`<CopyKey value={p.poolKey} />`, no explicit `label`) relied on that file's own local `short` (4-char tail) as `CopyKey`'s default fallback; since the shared `CopyKey` now defaults to `mmm-shared.tsx`'s own `short` (5-char tail), that one call site was updated to `<CopyKey value={p.poolKey} label={short(p.poolKey)} />` — passing the file's own local `short` explicitly — so the rendered text is byte-for-byte unchanged. `CopyPoolTemplateBtn` (only ever defined once) was left in `mmm-collection-scanner/page.tsx` untouched, per "do not introduce a new abstraction if only one copy remains." `next build` (frontend) clean, all three MMM pages compile and prerender with no new warnings.
 
 ---
 

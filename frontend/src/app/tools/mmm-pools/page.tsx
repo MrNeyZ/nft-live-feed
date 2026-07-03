@@ -8,9 +8,7 @@
 import { useEffect, useState } from 'react';
 import { LiveDot }             from '@/soloist/shared';
 import { authHeaders }         from '@/runtime/auth';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-const ADDR_RE  = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short, CopyKey } from '@/app/tools/mmm-shared';
 
 interface MmmPool {
   poolKey:        string;
@@ -48,17 +46,6 @@ interface ScanResult {
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
-const MONO: React.CSSProperties = { fontFamily: "'SF Mono','Fira Code',monospace" };
-
-const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg,#1a1530 0%,#1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
-  borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),0 16px 50px rgba(0,0,0,0.6),0 0 0 1px rgba(0,0,0,0.4),0 0 28px rgba(128,104,216,0.10)',
-  overflow: 'hidden',
-  marginBottom: 16,
-};
-
 const TH: React.CSSProperties = {
   padding: '10px 10px', fontSize: 11, fontWeight: 700,
   color: '#9a9ab4', letterSpacing: '0.6px', textAlign: 'right',
@@ -73,12 +60,6 @@ const TD: React.CSSProperties = {
 };
 const TD_L: React.CSSProperties = { ...TD, textAlign: 'left' };
 
-function fmtSol(lamports: number): string {
-  return (lamports / 1e9).toFixed(4);
-}
-function short(s: string): string {
-  return s.length > 10 ? `${s.slice(0,5)}…${s.slice(-5)}` : s;
-}
 function pill(label: string, color: string, bg: string, border: string): React.ReactElement {
   return (
     <span style={{
@@ -87,25 +68,6 @@ function pill(label: string, color: string, bg: string, border: string): React.R
       lineHeight: 1.3, fontFamily: "'SF Mono','Fira Code',monospace",
       color, background: bg, border: `1px solid ${border}`,
     }}>{label}</span>
-  );
-}
-
-function CopyKey({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  };
-  return (
-    <span
-      onClick={copy}
-      title={value}
-      style={{ cursor: 'pointer', color: copied ? '#43b984' : '#a890e8', fontSize: 11, ...MONO, userSelect: 'none' }}
-    >
-      {copied ? 'copied!' : short(value)}
-    </span>
   );
 }
 

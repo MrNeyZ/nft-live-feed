@@ -12,19 +12,9 @@ import { LiveDot }                                        from '@/soloist/shared
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
 import { requestMmmInstruction } from '@/lib/mmm-bridge';
+import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short } from '@/app/tools/mmm-shared';
 
-const API_BASE  = process.env.NEXT_PUBLIC_API_URL ?? '';
-const ADDR_RE   = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const ME_TOKEN_KEY = 'vl.meToken';
-const MONO: React.CSSProperties = { fontFamily: "'SF Mono','Fira Code',monospace" };
-const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg,#1a1530 0%,#1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
-  borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),0 16px 50px rgba(0,0,0,0.6),0 0 0 1px rgba(0,0,0,0.4),0 0 28px rgba(128,104,216,0.10)',
-  overflow: 'hidden',
-  marginBottom: 16,
-};
 
 // ── API types ─────────────────────────────────────────────────────────────────
 interface Allowlist { type: string; pubkey: string; }
@@ -68,9 +58,6 @@ function sizeRiskReasonForPool(p: MmmPool): string | null {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function fmtSol(lam: number): string { return (lam / 1e9).toFixed(4); }
-function short(s: string): string { return s.length > 10 ? `${s.slice(0,5)}…${s.slice(-5)}` : s; }
-
 function pill(label: string, color: string, bg: string, border: string): React.ReactElement {
   return <span style={{ display:'inline-block', padding:'2px 8px', fontSize:10, fontWeight:700,
     letterSpacing:'0.5px', textTransform:'uppercase', borderRadius:4, lineHeight:1.3,

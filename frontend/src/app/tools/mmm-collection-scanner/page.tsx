@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot }                                            from '@/soloist/shared';
 import { authHeaders }                                        from '@/runtime/auth';
 import { VL, VLText, ALPHA, rgb, alpha }                     from '@/lib/palette';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
-const ADDR_RE  = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+import { API_BASE, ADDR_RE, MONO, PANEL, CopyKey }           from '@/app/tools/mmm-shared';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface UnderfundedPool {
@@ -101,15 +99,6 @@ interface PoolFeedResult {
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
-const MONO: React.CSSProperties = { fontFamily: "'SF Mono','Fira Code',monospace" };
-const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg,#1a1530 0%,#1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
-  borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06),0 16px 50px rgba(0,0,0,0.6),0 0 0 1px rgba(0,0,0,0.4),0 0 28px rgba(128,104,216,0.10)',
-  overflow: 'hidden',
-  marginBottom: 16,
-};
 const TH: React.CSSProperties = {
   padding: '8px 10px', fontSize: 10, fontWeight: 700,
   color: '#6b6b85', letterSpacing: '0.8px', textAlign: 'right',
@@ -148,20 +137,6 @@ function tierColor(t: string): string {
 }
 
 // ── Atom components ───────────────────────────────────────────────────────────
-function CopyKey({ value, label, color }: { value: string; label?: string; color?: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 1200);
-    });
-  };
-  return (
-    <span onClick={copy} title={value}
-      style={{ cursor: 'pointer', color: copied ? '#43b984' : (color ?? '#a890e8'), fontSize: 11, ...MONO, userSelect: 'none' }}>
-      {copied ? 'copied!' : (label ?? short(value))}
-    </span>
-  );
-}
 // Copies a ready-to-paste "pool key / escrow wallet" template — one click
 // instead of copying each address separately, and a fixed shape the chat
 // side parses without guessing which address is which.
@@ -860,7 +835,7 @@ export default function MmmCollectionScannerPage() {
                       return (
                         <tr key={p.poolKey}>
                           <td style={{ ...TD, color: '#6b6b85' }}>{i + 1}</td>
-                          <td style={TD_L}><CopyKey value={p.poolKey} /></td>
+                          <td style={TD_L}><CopyKey value={p.poolKey} label={short(p.poolKey)} /></td>
                           <td style={TD}>
                             <span style={{ color: '#f0eef8', fontWeight: 700 }}>{fmtSol(p.spotPrice)}</span>
                             <span style={{ fontSize: 10, color: '#9a9ab4', marginLeft: 3 }}>◎</span>
