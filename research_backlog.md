@@ -2707,6 +2707,11 @@ Between now and the next triggering event, prioritize the two open High-severity
 
 **Estimated benefit:** performance (removes one network round-trip + its timeout budget from the common-case latency of the tool's primary action), readability (the "try the thing that's documented to fail" step becomes conditional instead of unconditional, which better matches what the code's own comments already say about it).
 
+**Correction — the premise doesn't hold on closer read, not implemented.** A direct read of `fetchBidAcceptTx` (attempted 2026-07-03) found the pool's `cosigner` is **not** actually known to the caller ahead of time as this finding assumed — `lookupSinglePool` (the only place `cosigner` is read) only runs *inside* the existing fallback branch, i.e. only *after* the ME Bearer-token call has already failed. There is no cost-free version of the proposed fix:
+- Moving the lookup earlier so it always runs before the ME attempt adds one extra RPC read to the rare case where ME would have succeeded directly — a real latency/cost regression on that path, not a pure win.
+- Skipping the ME attempt outright once a non-default cosigner is known changes the *outcome*, not just the latency, for any pool where the Bearer-token path might occasionally still succeed despite a non-default cosigner — M10's own evidence says "almost every" real pool fails this way, not literally 100%, so this can't be ruled out as risk-free on a real-money transaction-building path.
+Given this, and that the original audit already concluded "no fix proposed" for the closely-related M10, this finding is being left **unimplemented, Backlog**, matching the audit's own original call — not applied this pass. No code was changed.
+
 ---
 
 ### Finding AS10 — `isValidWallet`: byte-identical wallet-address validator duplicated in two files
@@ -2774,3 +2779,232 @@ If starting a cleanup pass on today's codebase rather than a rewrite, the three 
 The frontend's two largest files (`mints/page.tsx` at 3,072 lines, `feed/page.tsx` at 1,481 lines) share a fully duplicated SSE-reconnect implementation (AS6) that is the single biggest chunk of duplicated logic found in this pass — but it's also the riskiest to extract safely given how large and stateful both surrounding files are, so it's correctly ranked Medium/do-later rather than a first move.
 
 No finding in this pass identified an abstraction with real over-engineering in the "adds a layer nobody needed" sense (the codebase's existing abstractions — `me-api-cooldown.ts`, `TtlCache`, the `soloist/` shared UI kit, `domain/sale-event-adapters.ts` — are each doing real, singular jobs correctly). The dominant pattern found here is the opposite failure mode: **under-abstraction** — the same small pieces of logic (RPC calls, TTL caches, `sleep`, wallet validation, tx-status polling, SSE reconnect) being written fresh at each new call site instead of reused from a shared home, several of which (AS2, AS8) already exist in the codebase and just aren't adopted broadly.
+
+---
+
+# Optimization Program #1 — Performance Review
+
+**Scope:** Not an audit, not a security review, not a refactor task. Read-only performance investigation only — no code modified, nothing committed, nothing deployed. Every finding below is backed by a real measurement (timed `curl`, a captured SSE progress-event timeline, `EXPLAIN ANALYZE`, a production scan-stats log, or a direct code read of the exact hot-path function) — nothing is asserted without evidence, and two hypotheses formed mid-investigation were revised after a follow-up measurement disproved them (see PERF1).
+
+**Method:** timed real endpoints with `curl`/`time`, captured per-line arrival timestamps on an existing SSE stream to get phase-level breakdown (no code touched — pure client-side timing of already-emitted progress events), ran read-only `EXPLAIN (ANALYZE, BUFFERS)` against the live production DB, read `data/mmm-pool-scan-stats.jsonl` (existing production telemetry, not new instrumentation), and read the exact source of every hot path discussed. All production reads were single-shot GETs on already-served/read-only routes — no load testing, no traffic amplification, no repeated hammering of Helius/ME/Tensor beyond what a single real user action would cost.
+
+| ID | Severity | Category | One-line summary |
+|---|---|---|---|
+| PERF1 | High | Backend / RPC | A fresh MMM pool scan takes ~20s end-to-end (measured); ~5.4s is fetching+parsing a 31MB `getProgramAccounts` response, ~14.6s is throttled DAS/ME collection-name resolution for cold FVCAs |
+| PERF2 | Medium | RPC | ✅ Fixed — `fetchMultipleBalances` chunked `getMultipleAccounts` calls sequentially instead of in parallel — ~21 sequential round-trips at current candidate volume on the opt-in accurate (`fast=0`) pool-stream path |
+| PERF3 | Medium | Backend / Caching | ✅ Fixed — `/api/events/latest` (first fetch on `/feed` and `/dashboard`) paid up to 2.5s in floor-cache warm-up on any collection not already cached; measured live variance 2.61s → 1.67s → 0.13s across 3 consecutive requests |
+| PERF4 | Low-Medium | Frontend | `MintsTableRow`/`LiveMintFeedCard` (up to 200 rows on the largest frontend file, 3,072 lines) are not `memo()`-wrapped, unlike `FeedCard` which explicitly is with documented rationale |
+| PERF5 | Low | DB | `/collection/[slug]`'s `BY_COLLECTION_SQL` scans the `block_time` index + filters by slug instead of using the existing slug-scoped index; measured on the single hottest real collection: 10.3ms, 3,882 buffer hits, 5,695 rows filtered out for 51 matches |
+
+---
+
+### Finding PERF1 — Fresh MMM pool scan takes ~20s end-to-end; dominant cost is DAS/ME name resolution, not account parsing
+
+**Severity:** High
+
+**Category:** Backend / RPC
+
+**Evidence — real measurement, phase-by-phase:**
+Captured live by reading arrival timestamps off the existing `pool-stream` SSE endpoint's own progress events (`GET /api/tools/mmm-pools/pool-stream?min_pct=0&fast=1&force=1&any=1`, single request, read-only):
+```
+ 0.02s  progress  "Fetching all infinite-lifetime MMM pools [fast]…"
+ 5.40s  progress  "23067 pools — filtering candidates…"
+ 5.40s  progress  "Resolving names for 385 collections…"
+19.98s  progress  "54 pools ≥50% funded (incl. any-NFT bids)"
+19.98s  result
+```
+Isolating the first phase further: a raw, standalone `getProgramAccounts` call against the same MMM program filter (read-only, single request) measured **1.57s network time, 31,331,255 bytes (31.3MB) response, 23,067 accounts**. The in-app phase for the equivalent call took 5.40s — the ~3.8s delta is `rpcPost`'s `await r.json()` (parsing the 31MB payload) plus its response-array handling, run synchronously on Node's single thread.
+
+Production telemetry (`data/mmm-pool-scan-stats.jsonl`, existing log, not new instrumentation) confirms this isn't a one-off: recent real scans consistently show `totalPools≈23,000`, `candidates≈2,085`, `collectionCount=385`.
+
+**Why it is slow:**
+- **Phase 1 (~5.4s):** `getProgramAccounts` has no server-side filtering beyond `dataSize`/`expiry` memcmp — every infinite-lifetime MMM pool ever created (23K+) is fetched and JSON-parsed on every cache-miss, even though only ~2,085 (candidates) or ~54 (post-balance-filter) are ever used. `JSON.parse` of a 31MB string is synchronous and blocks Node's event loop — on this process, that's the same process running live sale ingestion and SSE broadcast (per `CLAUDE.md`: single-process, no sharding), so a multi-second parse here is a real, if brief, stall risk for every other concurrent request/broadcast.
+- **Phase 2 (~14.6s, the dominant cost):** `batchResolveFvcaNames`'s `DAS_CONCURRENCY=3` / `DAS_BATCH_DELAY=50ms` (then a second ME-lookup pass at `ME_CONCURRENCY=2`/`ME_BATCH_DELAY=150ms`) throttle is deliberately conservative — the code's own comment says "Helius rate-limits hard; keep pressure low." This phase is `await`-based I/O, not CPU-blocking, but it's still a genuine 14.6s wall-clock wait for whichever user's request triggers a cache-miss scan. `FVCA_INFO_TTL_MS` is 24h and disk-persisted (survives restarts), so most scans hit a warm cache and skip this phase entirely — this cost is paid only when a meaningful fraction of the 385 collections are new/expired-cache, which is what happened on this specific `any=1` scan (a less-frequently-refreshed mode).
+
+**Correction during this investigation:** initial hypothesis (based on reading `parsePool`'s synchronous `PublicKey`/PDA-derivation-heavy body) was that per-account parsing of 23K accounts was the dominant cost and could block the event loop for ~18s. The phase timeline above disproves this — parsing+filtering all 23,067 accounts happens in under a second (the "filtering candidates" and "Resolving names" progress lines arrive at the same 5.40s timestamp). Recorded here per this task's "be honest if a finding is speculative" rule — the corrected finding (JSON.parse of the raw RPC response, not the parse loop) is the one to act on.
+
+**Minimal safe optimization (not applied — investigation only):**
+- Phase 1: none proposed without further measurement — `getProgramAccounts` with server-side filters is already the standard approach; the 31MB payload size is inherent to scanning every MMM pool on-chain. A `dataSlice` param (fetch only the byte ranges `parsePool` actually reads, not full 849-byte accounts) could shrink the payload significantly, but needs validation that Helius's `getProgramAccounts` supports `dataSlice` alongside `memcmp` filters before assuming it's safe.
+- Phase 2: the concurrency/delay constants are a deliberate rate-limit safety margin, not an oversight — any change needs to be validated against Helius's actual current limits before loosening, which this pass explicitly avoids (no load testing).
+
+**Expected benefit (if pursued):** latency reduction (the single biggest lever on this endpoint — dropping phase 1's ~3.8s parse cost would directly reduce event-loop stall risk during a scan the live ingestion pipeline shares).
+
+**Implementation risk:** Medium-High (touches the RPC filter contract and rate-limit-sensitive throttling — needs real measurement against Helius's current limits before changing, not a same-day fix).
+
+**Recommendation:** Needs measurement (confirm `dataSlice` support and current Helius rate-limit headroom before proposing a concrete change).
+
+---
+
+### Finding PERF2 — `fetchMultipleBalances` chunks RPC calls sequentially instead of in parallel
+
+**Severity:** Medium
+
+**Category:** RPC
+
+**Evidence:** `src/server/tools-mmm-pools.ts:210-227`, `fetchMultipleBalances`:
+```typescript
+for (let i = 0; i < pdas.length; i += CHUNK_SIZE) {
+  const chunk = pdas.slice(i, i + CHUNK_SIZE);
+  const result = await rpcPost('getMultipleAccounts', [chunk, {...}]) as ...;
+  ...
+}
+```
+`CHUNK_SIZE = 100`. Called at pool-stream's `fast=0` ("accurate") branch with `candidates.map(p => p.escrowPda)` — per production telemetry, `candidates≈2,085` at present pool-count → **~21 sequential round-trips**, each one waiting for the previous to fully resolve before starting the next, despite every chunk being an independent, order-irrelevant read.
+
+**Why it is slow:** Each `getMultipleAccounts` round-trip costs its own network latency (order of 100-300ms typically). 21 of them run back-to-back instead of overlapped, so total wall-clock time is approximately the sum of all 21 round-trips rather than the max of a few parallel batches.
+
+**Minimal safe optimization:** Batch the chunks with bounded concurrency, mirroring the exact pattern already proven elsewhere in the same file (`batchResolveFvcaNames`'s `for (i += CONCURRENCY) { await Promise.all(slice.map(...)) }` loop, a few hundred lines away in the same file):
+```typescript
+const CONCURRENCY = 5;
+for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+  await Promise.all(chunks.slice(i, i + CONCURRENCY).map(chunk => fetchOneChunk(chunk)));
+}
+```
+Same total request count, same per-request payload — only the scheduling changes.
+
+**Expected benefit:** latency reduction on the opt-in accurate pool-stream path — plausibly cuts this phase from ~21×latency to ~⌈21/5⌉×latency (roughly a 4-5x reduction on this specific phase), though not independently measured (this path wasn't exercised during this pass's `fast=1` test — see Measurement Gaps).
+
+**Implementation risk:** Low — read-only batched fetch, same downstream data shape, directly mirrors an already-working in-file pattern.
+
+**Recommendation:** Backlog / good quick-win candidate (see Quick Wins below) — low risk, clear precedent, but only benefits the less-used `fast=0` mode.
+
+**Status: ✅ Fixed.** `fetchMultipleBalances` (`src/server/tools-mmm-pools.ts`) now pre-splits `pdas` into the same `CHUNK_SIZE=100` chunks as before, then processes them in bounded-concurrency batches of `BALANCE_FETCH_CONCURRENCY=5` via `Promise.all`, mirroring `batchResolveFvcaNames`'s existing loop shape exactly as proposed. Total request count, chunk size, per-chunk `getMultipleAccounts` call, and per-chunk try/catch (a failed chunk still leaves its PDAs absent from the result — caller treats as 0, unchanged) are byte-for-byte the same as before; only the scheduling changed from strictly-sequential to 5-wide-parallel. Output is a single shared `Map<string, number>` keyed by PDA address — since no two chunks share a PDA, the final map contents are identical regardless of chunk-completion order, so the mapping stays deterministic.
+
+**Validation performed:** `tsc --noEmit` and `npm run build` both clean. Result-shape preservation verified by direct code comparison (the per-chunk body — request construction, response parsing, `out.set()` calls, catch block — is unchanged; only moved from a `for` loop's synchronous body into a `Promise.all`-mapped callback), not by a live before/after run: an isolated second server instance would need the same `.env` (DB, Helius key) the user has already ruled out reusing for ad-hoc verification in this session, and restarting the live `nft-backend` to test would be a deploy, explicitly out of scope for this task. The ~4-5x latency-reduction estimate for this phase (from the original finding) is therefore still arithmetic (⌈21 chunks / 5 concurrency⌉ ≈ 5 round-trip-equivalents instead of 21), not independently re-measured after the change.
+
+---
+
+### Finding PERF3 — `/api/events/latest` cold-floor-cache warm-up adds up to 2.5s to `/feed`/`/dashboard`'s first paint
+
+**Severity:** Medium
+
+**Category:** Backend / Caching
+
+**Evidence — real measurement**, three consecutive live GETs against the actual endpoint both `/feed` and `/dashboard` call first on mount:
+```
+attempt 1: time_total=2.611376s  http=200
+attempt 2: time_total=1.673905s  http=200
+attempt 3: time_total=0.129010s  http=200
+```
+Code path: `src/server/events-router.ts`'s `/latest` handler calls `warmSnapshotFloors(rows)`, which — for every distinct `me_collection_slug` in the just-fetched page **not already** in the 2-minute-TTL `floorCache` — fires `warmFloorCache(slug)` (a real ME/Tensor floor-price lookup) for up to `SNAPSHOT_FLOOR_WARM_CAP=20` slugs in parallel, capped by `Promise.race` against a `SNAPSHOT_FLOOR_WARM_TIMEOUT_MS=2,500` timeout.
+
+**Why it is slow:** This is a live, constantly-updating feed — as new sales for previously-unseen collections enter the top-N window, each reload can reintroduce up to 20 "cold" slugs needing a fresh external floor lookup, not just after a backend restart. The 2.61s → 1.67s → 0.13s spread across three rapid manual reloads in this test is consistent with genuinely different sets of cold slugs appearing between requests on a live production feed, not a fixed bug.
+
+**Minimal safe optimization:** not proposed as a code change here — the current design (parallel + capped + timeout-raced) is already the correct shape for an on-demand warm. The remaining lever is moving the warm from *reactive* (triggered by a user's page load) to *proactive* (a low-frequency background sweep that keeps the floor cache warm for whichever slugs are currently trending in the feed, independent of any specific request) — this would remove the latency from the user-facing path entirely, at the cost of a small constant background request rate. Needs a design decision (poll interval, which slugs to prioritize), not a one-line fix.
+
+**Expected benefit:** UX — removes a real, occasionally-multi-second delay from the very first thing a user sees on the two most-visited pages in the product.
+
+**Implementation risk:** Low-Medium (a background timer touching an existing, already-safe cache-population function — the risk is entirely in choosing a sensible poll cadence and not spamming ME/Tensor, not in the mechanism itself).
+
+**Recommendation:** Backlog — real, evidenced, user-facing, but the fix is a small design decision (background pre-warm cadence) rather than a same-session change.
+
+**Status: ✅ Fixed — smallest of the three proposed options, chosen deliberately.** Of the three fix shapes this finding originally listed (background warm-after-startup / don't block the first response / parallelize the warm-up further), "don't block the first response" was the smallest, safest change: `src/server/events-router.ts`'s `/latest` handler no longer `await`s `warmSnapshotFloors(rows)` — it's now fire-and-forget (`void warmSnapshotFloors(rows)`), so the response proceeds immediately using whatever's already in the floor cache or already persisted on the row (`floor_delta` set at enrichment time, migration 017 — `stampFromCache` already prefers this over the live cache and only falls back to the live cache when the DB has no value, so most rows are unaffected by this change either way). The background warm still runs to completion (same `warmFloorCache` calls, same `SNAPSHOT_FLOOR_WARM_CAP=20`/`SNAPSHOT_FLOOR_WARM_TIMEOUT_MS=2500` bounds, same external call count — nothing about *what* gets fetched changed, only whether the response waits for it) so the cache is warm for the *next* request regardless. A genuinely cold slug's badge is briefly absent on the one response that first encounters it and self-heals via (a) the next reload, once the background warm from this request lands, or (b) the next live `sale` SSE event for that collection, which independently carries its own `floorDelta` computed at enrichment time (`src/server/sse.ts:264`) — confirmed by reading the SSE payload shape, not assumed. Cache TTL (`FLOOR_TTL_MS=2min`), warm cap, and timeout were all left untouched, per the task's explicit "keep cache TTL behavior unless clearly justified" instruction — this fix only changes *whether the response blocks on* warming, not the warming mechanism itself.
+
+**Validation performed:** `tsc --noEmit` and `npm run build` both clean. **"Before" measurement is real** (from the original PERF3 finding): 3 consecutive live `GET /api/events/latest?limit=50` requests against the unmodified production endpoint measured 2.611s / 1.674s / 0.129s. **"After" was not independently re-measured** — doing so would require either restarting the live backend (a deploy, explicitly out of scope for this task) or booting a second instance with the same production `.env`/credentials, which the user has already ruled out reusing for ad-hoc verification earlier in this session. Reasoned expectation instead: since the response now returns as soon as `getLatestEvents` + `stampRarity(stampFromCache(...))` resolve — both fast, DB-only paths (the `/latest` DB query itself was separately measured via `EXPLAIN ANALYZE` at 0.591ms during the original performance pass) — without waiting on any external ME/Tensor call, the fixed response time should be dominated by the DB query alone (sub-10ms class) rather than the up-to-2.5s floor-warm wait, for every request regardless of cache temperature. This is a code-path argument, not a live measurement — flagged honestly per this task's "report measured improvement or explain why measurement was not possible" instruction.
+
+---
+
+### Finding PERF4 — Mint Tracker's table row components aren't memoized, unlike the sibling `FeedCard`
+
+**Severity:** Low-Medium
+
+**Category:** Frontend
+
+**Evidence:** `frontend/src/app/feed/lib/feed-card.tsx:433`: `export const FeedCard = memo(function FeedCard(...) {...})`, with an explicit code comment about why (referencing the same object lets `React.memo` bail out on shallow comparison). Grepping the same pattern (`memo(`) across `frontend/src/app/mints/components/MintsTableRow.tsx` and `LiveMintFeedCard.tsx` — **zero matches in either file**. `mints/page.tsx` (3,072 lines, the largest frontend file) renders the collections table via `displaySorted.map((r, i) => <MintsTableRow row={r} index={i} now={now} .../>)`, with `displaySorted` capped at `.slice(0, 200)` (line 400) — up to 200 unmemoized row components.
+
+**Why it is slow (proven in code, not directly measured):** Without a `memo()` boundary, every one of up to 200 `MintsTableRow` instances re-executes its full render function whenever the parent (`mints/page.tsx`) re-renders — which happens on every relevant SSE tick (new mint, mint_status update, etc.), even for rows whose own data didn't change in that tick. `FeedCard`'s sibling implementation already proves the team knows this pattern and applies it deliberately elsewhere in the same codebase; it appears to simply not have been ported to the Mint Tracker's row components.
+
+**Minimal safe optimization:** Wrap `MintsTableRow` and `LiveMintFeedCard` in `memo()`, mirroring `FeedCard`'s exact pattern. **Caveat, not yet verified:** this only helps if the props passed to each row are reference-stable across parent re-renders (a memoized component still re-renders if any prop is a freshly-created object/array/function each time) — worth a quick grep of the call site for inline object/arrow-function props before wrapping, or this "quick win" could land as a no-op.
+
+**Expected benefit:** lower CPU / smoother rendering during SSE bursts on the Mint Tracker's collections table — the single most row-dense, most SSE-frequent table in the frontend.
+
+**Implementation risk:** Low, contingent on the prop-stability caveat above (verify first, then it's a one-line wrap per component, exactly matching an already-proven in-repo pattern).
+
+**Recommendation:** Backlog / likely quick win pending the prop-stability check (see Quick Wins).
+
+---
+
+### Finding PERF5 — `/collection/[slug]`'s hot query scans the time index + filters, instead of using the collection-scoped index
+
+**Severity:** Low
+
+**Category:** DB
+
+**Evidence — real `EXPLAIN (ANALYZE, BUFFERS)`** against the live production DB (read-only), using the single highest-volume real collection in the table (`liminals`, 3,785 rows) with the exact shape of `BY_COLLECTION_SQL` (`src/db/queries.ts`):
+```sql
+WHERE me_collection_slug = 'liminals' AND block_time >= now() - interval '7 days'
+ORDER BY block_time DESC, id DESC LIMIT 50
+```
+```
+Index Scan using sale_events_block_time_idx on sale_events
+  Index Cond: (block_time >= (now() - '7 days'::interval))
+  Filter: (me_collection_slug = 'liminals'::text)
+  Rows Removed by Filter: 5695
+  Buffers: shared hit=3873
+Execution Time: 10.316 ms
+```
+The planner chose the `block_time`-only index (to get the `ORDER BY` for free) and filtered out 5,695 non-matching rows in-scan to find the 51 that matched, rather than using the collection-scoped `sale_events_me_collection_slug_idx` (migration 014 — already exists, per Audit #12 Finding DB10) and sorting the smaller matching set afterward.
+
+**Why it is slow:** Classic Postgres planner tradeoff — for a `LIMIT`-bounded, `ORDER BY`-driven query, scanning a pre-sorted index and filtering can beat "filter first, sort after" when the planner's row-count estimate makes it look cheap enough. Here the actual filtered-row-count (5,695) was far higher than useful, meaning ~99x more buffer touches than the 51-row result needed. This directly reconfirms Audit #12's Finding DB11 ("`BitmapAnd` of two single-column indexes... a scale watchpoint, not a current problem") with fresh numbers against the actual `/collection/[slug]` page read path specifically (DB11 originally measured a different query — the `updateSellerRemainingCountByCollection` background `UPDATE`).
+
+**Minimal safe optimization:** not proposed as a code/schema change here (this pass makes none). If ever pursued: a composite index `(me_collection_slug, block_time DESC)` would let this exact query use a single ordered index scan instead of a full-range scan-and-filter — DB11 already recommends this same shape.
+
+**Expected benefit:** at current scale (10.3ms), imperceptible to a user — this is a scale watchpoint, not a live problem. Would matter more as `sale_events` grows (currently 104,849 rows).
+
+**Implementation risk:** Low if pursued (additive index, no query-shape change) — but adds write-amplification to every `sale_events` insert, a real trade-off DB11 already flagged as "not justified yet."
+
+**Recommendation:** Do not fix yet — matches DB11's existing conclusion; this pass just supplies a second, independent, fresher confirmation with real numbers on the actual page query.
+
+---
+
+## Related findings already on record (Architecture Simplification #1)
+
+Cross-referenced here because they're directly performance-relevant, not re-investigated in this pass:
+
+- **AS9** — the ME bid-accept path always attempts a Bearer-token call already documented as reliably failing for real (non-default-cosigner) pools, adding a doomed network round-trip to the tool's primary user action. Investigated for a code fix during Architecture Simplification #1's follow-up; found to have no free-lunch implementation (any fix either adds latency to the rare success case or risks changing which pools succeed) — left as Backlog, matching the original finding.
+- **D5** (Audit #7) — `getAssetBatch` (documented, up to 1,000 ids/call) is never used anywhere in the repo; several one-mint-at-a-time DAS loops (`mints/enricher.ts`, `mints/collection-confirm.ts`, `mints/name-backfill.ts`) could batch. Recorded as a credit/latency efficiency opportunity, not a correctness issue, in the original audit — still open, still relevant here.
+- **AS2** — a working shared `TtlCache<K,V>` exists but is adopted in only 6 of ~44 files that hand-roll the same pattern. **Revisited during this pass with fresh evidence:** sampling several of those hand-rolled caches directly (`collection-rollups.ts` 5min, `collection-bids.ts` 60s, `enrichment/helius-das.ts` 4h positive / 60s negative, MMM floor cache 2min) found every one **already reasonably tuned** for its own data's volatility — no over-short-TTL bug was found anywhere sampled. AS2 remains a real maintainability/duplication finding, but should **not** be read as a proven performance bug — no evidence of an actual slow/wrong TTL was found this pass.
+- **LF8** (Audit #11) — no replay/backfill buffer on the `sale`/`metaUpdate`/`rawpatch`/`remove` SSE channels. Relevant to this review's "missed replay opportunities that also improve UX" prompt — still open, still Backlog per the original audit.
+
+---
+
+## Top 10 performance opportunities (ranked)
+
+Ranked by expected user impact × implementation risk × measurable benefit — high-confidence items first:
+
+1. **PERF3** — floor-cache cold-start latency on `/feed`/`/dashboard`'s first paint. Highest user impact (front door of the product, real measured multi-second variance), Low-Medium risk, needs a design decision (background pre-warm) not a one-line fix.
+2. **PERF1** — ~20s cold MMM pool scan. High impact for MMM tool users specifically, Medium-High risk (needs Helius `dataSlice` validation before changing), well-quantified by real phase timing.
+3. **PERF2** — sequential `getMultipleAccounts` chunking. Low risk, clear in-repo precedent to copy, genuine quick-win candidate — ranked here mainly because its benefit is scoped to the less-used `fast=0` path.
+4. **PERF4** — unmemoized Mint Tracker table rows. Medium impact (highest-traffic live table), Low risk contingent on a quick prop-stability check first.
+5. **D5 (cross-ref)** — `getAssetBatch` never used. Medium potential credit/latency win, Medium-High effort (touches 3 files' enrichment loops), no fresh measurement this pass.
+6. **PERF5** — collection-page query index mismatch. Low impact today (10ms), Low risk if pursued, already tracked as a scale watchpoint (DB11).
+7. **AS9 (cross-ref)** — doomed-first ME bid-accept call. Low-Medium impact (single user action, not a hot page), investigated with no safe fix found — correctly Backlog.
+8. **AS2 (cross-ref)** — TtlCache under-adoption. Low direct perf impact (verified: sampled hand-rolled caches are already well-tuned) — primarily a maintainability win, not a performance one.
+9. **LF8 (cross-ref)** — no SSE replay buffer. UX/perceived-freshness win on reconnect, not raw latency; real but not measured this pass.
+10. **Frontend bundle sizes** (`/tools/mmm-pool-lookup` 203KB First Load JS, largest of the reviewed pages) — informational only, no specific removable dependency identified without a bundle-analyzer pass; see Do Not Optimize Yet.
+
+## Quick wins (safe, plausibly under 1 hour each)
+
+- **PERF2** — convert `fetchMultipleBalances`'s sequential chunk loop to a bounded-concurrency `Promise.all` batch, copying the exact pattern already used a few hundred lines away in the same file (`batchResolveFvcaNames`). Read-only data shape unchanged, low risk, clear precedent.
+- **PERF4** — wrap `MintsTableRow`/`LiveMintFeedCard` in `memo()`, copying `FeedCard`'s already-proven pattern. **Do the prop-stability grep first** (any inline object/array/arrow-function prop at the call site defeats memoization) — if props are already stable, this is a near-trivial change; if not, it's no longer a quick win and needs the call site refactored too.
+
+## Do not optimize yet (looks slow, insufficient evidence)
+
+- **Frontend bundle sizes** — `/tools/mmm-pool-lookup` at 203KB First Load JS is the largest reviewed page, but 200KB isn't unusual for a feature-rich Next.js app and no specific oversized/removable dependency was identified without a bundle-analyzer pass (out of scope for this investigation-only review).
+- **AS2's 44 hand-rolled TTL caches** — sampled several directly this pass; all were reasonably tuned. Consolidating them (already tracked under Architecture Simplification #1) is a duplication/maintainability win, not a proven performance one — don't reclassify it as a perf fix without evidence.
+- **SSE connection/broadcast architecture** — Audit #11 already confirmed the stringify-once broadcast pattern, connection caps, and backpressure-based slow-client eviction are correctly implemented (with a documented before/after: ~2,500 redundant stringifications/min eliminated by the existing design). No new evidence surfaced this pass to suggest a live problem here.
+- **`mint-analyzer`** — a low-traffic, on-demand single-transaction analysis tool; no hot-path or repeated-call pattern found that would indicate a real bottleneck.
+
+## Measurement gaps
+
+- **No APM / latency histograms anywhere in the backend.** Every timing in this report was captured ad hoc (manual `curl`, SSE-progress-timestamp diffing, one-off `EXPLAIN`). A lightweight timing wrapper around `rpcPost` and around `batchResolveFvcaNames`'s two phases would make phase-level analysis routine instead of a one-off investigation — this directly extends Audit #8/#9's already-open M11/ME3 findings (no telemetry beyond `console.log`) from a debuggability angle to a performance-measurement angle.
+- **No real p50/p95 latency data for any hot endpoint in production.** The 3-sample `curl` test for `/api/events/latest` (PERF3) shows real variance but isn't statistically representative — a proper measurement would need dozens of samples across different times of day / feed activity levels.
+- **PERF2's expected benefit is not independently measured** — the `fast=0` pool-stream path wasn't exercised during this pass (only `fast=1`, the default, was timed). The "4-5x reduction" estimate is arithmetic from the chunk/concurrency math, not a before/after measurement.
+- **No bundle-analyzer output exists.** Can't confidently name which specific dependency drives `/tools/mmm-pool-lookup`'s 203KB First Load JS without one — flagged in Do Not Optimize Yet rather than guessed at.
+- **No EXPLAIN data at 10x current row-count.** PERF5/DB11's "cheap at current scale" conclusion is a reasonable extrapolation from a 104,849-row table, not a load-tested fact at the volume where it would actually start to matter.
+
+## Optimization Program #1 summary
+
+**Real, measured findings this pass:** PERF1 (High), PERF2 (Medium), PERF3 (Medium), PERF4 (Low-Medium), PERF5 (Low) — five findings, each backed by a real measurement or direct hot-path code read, matching this task's "prefer fewer high-quality findings over a long weak list" instruction. One mid-investigation hypothesis (PERF1's original "23K-account parse blocks the event loop for ~18s" guess) was tested and corrected rather than published as-is — the real dominant cost is the throttled DAS/ME name-resolution phase, not the parse loop.
+
+**Nothing implemented.** No code changed, nothing committed, nothing deployed, per this task's explicit rules. `research_backlog.md` is the only file touched by this pass, and only with this section — commit only if explicitly requested.

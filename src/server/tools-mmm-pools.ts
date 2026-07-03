@@ -207,22 +207,33 @@ function applyBalance(p: MmmPool, lamports: number): MmmPool {
   };
 }
 
+// Bounded parallelism across chunks — same shape as batchResolveFvcaNames's
+// concurrency-limited loop below. getMultipleAccounts is a plain, cheap RPC
+// read (not a rate-limit-fragile DAS searchAssets call), so a modest 5-wide
+// window is safe; still far short of "spam" since total request count is
+// unchanged, only the scheduling is.
+const BALANCE_FETCH_CONCURRENCY = 5;
+
 async function fetchMultipleBalances(pdas: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  for (let i = 0; i < pdas.length; i += CHUNK_SIZE) {
-    const chunk = pdas.slice(i, i + CHUNK_SIZE);
-    try {
-      const result = await rpcPost('getMultipleAccounts', [
-        chunk,
-        { encoding: 'base64', commitment: 'confirmed' },
-      ]) as { value: Array<{ lamports: number } | null> };
-      for (let j = 0; j < chunk.length; j++) {
-        const acct = result.value[j];
-        out.set(chunk[j], acct?.lamports ?? 0);
+  const chunks: string[][] = [];
+  for (let i = 0; i < pdas.length; i += CHUNK_SIZE) chunks.push(pdas.slice(i, i + CHUNK_SIZE));
+
+  for (let i = 0; i < chunks.length; i += BALANCE_FETCH_CONCURRENCY) {
+    await Promise.all(chunks.slice(i, i + BALANCE_FETCH_CONCURRENCY).map(async chunk => {
+      try {
+        const result = await rpcPost('getMultipleAccounts', [
+          chunk,
+          { encoding: 'base64', commitment: 'confirmed' },
+        ]) as { value: Array<{ lamports: number } | null> };
+        for (let j = 0; j < chunk.length; j++) {
+          const acct = result.value[j];
+          out.set(chunk[j], acct?.lamports ?? 0);
+        }
+      } catch {
+        // Leave missing PDAs absent — caller treats as 0
       }
-    } catch {
-      // Leave missing PDAs absent — caller treats as 0
-    }
+    }));
   }
   return out;
 }

@@ -194,10 +194,18 @@ export function createEventsRouter(): Router {
       // are SSE-only / not persisted) so a refresh keeps the FloorChip/RESIZE
       // badge. Shared with /by-collection via stampFromCache().
       const rows = await getLatestEvents(limit);
-      // On reload the floor cache is often cold → every floor_delta would be
-      // null until live sales warm it (~5–10s). Warm the snapshot's distinct
-      // slugs first (bounded + timeout-capped) so the FIRST render has badges.
-      await warmSnapshotFloors(rows);
+      // Cold-slug floor warming used to be awaited here so the FIRST render
+      // always had badges — measured cost: up to SNAPSHOT_FLOOR_WARM_TIMEOUT_MS
+      // (2.5s) added to this response on any reload that touches a
+      // not-yet-cached collection (real, not rare — every newly-appearing
+      // slug in a live feed re-triggers this). Fire-and-forget instead: rows
+      // already covered by a persisted floor_delta (set at enrichment time,
+      // migration 017) or an already-warm cache entry are unaffected either
+      // way; a genuinely cold slug's badge is briefly absent on this one
+      // response and self-heals on the next request (cache now warming in
+      // the background) or arrives live via the next `sale` SSE event for
+      // that collection (which carries its own floorDelta independently).
+      void warmSnapshotFloors(rows);
       const enriched = await stampRarity(stampFromCache(rows));
       res.json({ events: enriched, count: enriched.length });
     } catch (err) {
