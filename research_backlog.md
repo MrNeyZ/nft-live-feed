@@ -32,6 +32,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 10 | Solana Transaction Lifecycle, Wallet, Signing & Sending Architecture | Complete | 2026-07-03 |
 | 11 | Live Feed Architecture & Event Completeness | Complete | 2026-07-03 |
 | 12 | Postgres / Database Consistency, Idempotency, Retention & Query Performance | Complete | 2026-07-03 |
+| 13 | Security, Trust Boundaries & Production Hardening | Complete | 2026-07-03 |
 
 ---
 
@@ -2128,3 +2129,304 @@ No index exists on `seller` alone or as part of a composite; the planner combine
 **Recommended to fix immediately:** DB3 only — a one-line, additive `ORDER BY` tiebreaker change with a confirmed real-world trigger and zero downside. Everything else in this audit is either compliant, a deliberate product decision (DB2), or a larger architectural change warranting explicit sign-off before implementation (DB1, DB4).
 
 **Update:** DB3 applied — see commit `8226e32` ("fix(db): make sale ordering deterministic"). DB1, DB2, DB4, DB11 remain intentionally unimplemented per explicit scope instruction.
+
+---
+
+## Audit #13 — Security, Trust Boundaries & Production Hardening
+
+**Scope:** Audit-only, no code changes. Covers public HTTP APIs, auth, tool routes, image proxy, external fetches (SSRF), XSS, transaction safety, postMessage/userscript bridge, secrets handling, CORS/headers/CSP, SQL security, DoS/resource exhaustion, logging, and deployment assumptions (nginx/Cloudflare/UFW).
+
+**Sources:**
+- Official docs: `owasp.org` Top 10 A01/A5 (Broken Access Control), `cheatsheetseries.owasp.org` SSRF Prevention Cheat Sheet, `expressjs.com/en/guide/behind-proxies.html` (`trust proxy`), `developer.mozilla.org` `rel="noopener"` (reverse tabnabbing).
+- VL backend: `src/server/app.ts`, `cors.ts`, `rate-limit.ts`, `sse.ts`, `runtime.ts`, `src/auth/siws.ts`, `src/runtime/env-validation.ts`, `buy-me.ts`, `tools-mmm-pools.ts`, `tools-sns.ts`, `tools-holders.ts`, `market.ts`, `me-bid-escrow.ts`, `mints-blocked-deployers.ts`, `subscribers.ts`, `collection-rollups.ts`, `src/ingestion/helius/webhook.ts`, full route inventory across every file in `src/server/`.
+- VL frontend/bridge (delegated to a read-only Explore sub-agent, findings independently spot-verified against source): `frontend/src/lib/mmm-bridge.ts`, `frontend/src/app/thumb/route.ts`, `frontend/src/wallet/phantom.ts`, `frontend/src/runtime/auth.ts`, `frontend/src/app/layout.tsx`, `tools/magiceden-vl-mmm-accept.user.js`, plus repo-wide greps for `dangerouslySetInnerHTML`, `target="_blank"`, `NEXT_PUBLIC_`, redirect patterns, and `localStorage`.
+- Live read-only inspection: `ufw status verbose`, `/etc/nginx/sites-enabled/nft-live-feed`, `.env` / `.env.example` contents (names only, no secret values read into this report), `git ls-files` (confirming no committed secrets). No requests sent to production beyond what the app already serves; no transactions sent; no destructive commands run.
+
+**Findings use prefix SEC.**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| SEC1 | Critical | ✅ Fixed — commit `220a0cb` | `POST /api/tools/mmm-pools/send-tx` has **no `requireAuth`** — any unauthenticated caller can relay an arbitrary pre-signed Solana transaction through VL's own Helius RPC key, gated only by a 10/min-per-IP rate limit |
+| SEC2 | High | Fix now (recommended) | UFW allows direct origin access on 80/443 from `Anywhere`, in addition to Cloudflare-only CIDR rules — defeats the `CF-Connecting-IP`-based trust assumption hardcoded (and self-documented as fragile) in `rate-limit.ts` and `sse.ts`, letting an attacker who finds the origin IP spoof per-IP rate-limit/SSE-cap buckets at will |
+| SEC3 | Medium | Backlog | `/thumb` route's `gateway.irys.xyz` special case performs a real server-side `fetch()` with `redirect: 'follow'` and no destination-host allowlist during the fetch — an SSRF-shaped gap per OWASP guidance, though entry is scoped to a fixed external hostname, not an arbitrary user URL |
+| SEC4 | Low | Informational | A few `target="_blank"` anchors in the frontend lack an explicit `rel="noopener noreferrer"` — largely mitigated in modern browsers, which apply `noopener` behavior implicitly for `target="_blank"` per the HTML spec |
+| SEC5 | Low | Informational | Two no-payload postMessage "readiness ping" frames use a wildcard `'*'` `targetOrigin` (`mmm-bridge.ts`, the userscript) — no sensitive data carried, but not best practice |
+| SEC6 | — | Compliant | SIWS + HMAC bearer-token auth (`src/auth/siws.ts`, `runtime.ts`) — single-use/TTL'd nonces, constant-time comparisons, wallet allowlist enforced at multiple layers, production env-validation refuses to boot on missing/weak secrets |
+| SEC7 | — | Compliant | `buy-me.ts`'s marketplace buy-now flow — thorough defense-in-depth (collection binding, live price/slippage re-check, mint binding, lamports ceiling, signer-shape validation), and correctly `requireAuth`-gated |
+| SEC8 | — | Compliant | CORS origin-allowlist (`cors.ts`) — no wildcard echoing, denies preflights from unknown origins, warns loudly if production boots with an empty allowlist |
+| SEC9 | — | Compliant | SSE resource-exhaustion protections (`sse.ts`) — global + per-IP connection caps checked before headers flush, backpressure-based slow-client eviction, micro-batched broadcast |
+| SEC10 | — | Compliant | SQL injection surface — already exhaustively audited in Audit #12 Finding DB7 (zero injection surface found); no new dynamic-SQL pattern found in this pass |
+| SEC11 | Low | Informational | A handful of cheap/cached/no-external-cost endpoints (`market.ts` `/header`, `mints-blocked-deployers.ts`, `subscribers.ts` `/heartbeat`, `collection-rollups.ts` `/rollups`) have no rate limiter; low risk given bounded input + caching. The standby `helius/webhook.ts` route also has no rate limiter (moot today — `HELIUS_WEBHOOK_AUTH` is unset, so the route isn't mounted) |
+| SEC12 | — | Compliant | Secrets handling — `.env` is gitignored and not committed, `.env.example` holds only placeholders, no secret VALUES found in any `console.log`/`console.error` across the codebase (only "not set" diagnostic messages) |
+| SEC13 | — | Compliant | Frontend XSS surface — only 2 `dangerouslySetInnerHTML` sites exist (`app/layout.tsx`), both fully static strings with zero interpolation of NFT/user/collection data; no raw `.innerHTML` assignment anywhere; no `NEXT_PUBLIC_*` variable is secret-shaped; no open-redirect pattern (all redirect targets are hardcoded or same-origin encoded paths) |
+| SEC14 | — | Compliant | postMessage / userscript bridge (`mmm-bridge.ts` ↔ `tools/magiceden-vl-mmm-accept.user.js`) — every message that carries a real payload is origin-**and**-source-validated on both sides (no `*` used for anything sensitive); the userscript itself was already hardened to remove a hardcoded RPC key (its own v0.5.6 changelog) and contains no secrets today |
+
+---
+
+### Finding SEC1 — `/api/tools/mmm-pools/send-tx` is an unauthenticated open transaction-relay endpoint
+
+**Severity:** Critical
+
+**Evidence from official documentation:**
+- OWASP A5:2017-Broken Access Control: *"Accessing API with missing access controls for POST, PUT and DELETE."* — missing server-side authorization on a state-changing API action is a canonical, top-category access-control failure.
+
+**Evidence from current VictoryLabs code:**
+- `src/server/tools-mmm-pools.ts:1563-1579`:
+```typescript
+router.post('/tools/mmm-pools/send-tx', limit, async (req: Request, res: Response) => {
+  const { tx } = req.body as { tx?: string };
+  if (!tx || typeof tx !== 'string') {
+    return res.status(400).json({ ok: false, error: 'missing_tx' });
+  }
+  try {
+    const result = await rpcPost('sendTransaction', [
+      tx,
+      { encoding: 'base64', skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed' },
+    ]) as string;
+    return res.json({ ok: true, signature: result });
+  } ...
+```
+- `limit` = `rateLimit({ limit: 10, windowMs: 60_000, label: 'tools/mmm-pools' })` (`tools-mmm-pools.ts:1207`) — the ONLY gate on this route.
+- Repo-wide grep confirms `tools-mmm-pools.ts` never imports `requireAuth` from `./runtime` — contrast with `buy-me.ts:37` (`import { requireAuth } from './runtime'`, applied to its own transaction-building route at `buy-me.ts:189`) and `tools-retardio-offers.ts:28`, both of which DO gate their transaction-adjacent actions behind login.
+- `rpcPost()` (`tools-mmm-pools.ts:92-104`) calls `rpcUrl()` (`tools-mmm-pools.ts:68-73`), which embeds `process.env.HELIUS_API_KEY` — i.e. every call through this route spends VL's own Helius RPC budget.
+- Independently confirmed client-side: the frontend's `phantom.ts` `backendSendRaw()` POSTs pre-signed tx bytes to this exact route with no app-level content check either — the only integrity check anywhere in the round-trip is that the transaction must already carry a valid signature to execute on-chain (this endpoint cannot forge a signature or steal funds by itself).
+
+**Root cause:** `tools-mmm-pools.ts` follows the same "public tool, rate-limit only" convention used by its own read-only routes (`scan`, `pool`, `wallet-nfts`, `resolve-slug` — all intentionally unauthenticated by design, matching `tools-mint-analyzer.ts`'s documented "no auth middleware; pure read path" pattern). `send-tx` is not a read — it is a state-changing, cost-incurring action — but it was wired into the router using the read-tool convention instead of the `buy-me.ts` gated-action convention already established in the same codebase.
+
+**Impact:** Any unauthenticated caller (no wallet login, no session) can use VL's production backend as a generic "submit any already-signed Solana transaction" relay, at VL's own RPC-credit expense (a resource `CLAUDE.md` explicitly calls "constrained"). This is not a fund-theft vector — a transaction still requires its own valid signature(s) to execute, so an attacker cannot use this to move someone else's funds — but it is a complete authorization bypass on a privileged, cost-incurring action, and (combined with SEC2) the only mitigating control (a 10/min-per-IP limiter) is itself trivially defeatable.
+
+**Minimal production-safe fix:** Add `requireAuth` to this route, mirroring `buy-me.ts`'s pattern exactly: `router.post('/tools/mmm-pools/send-tx', limit, requireAuth, async (req, res) => { ... })`. One line; no behavior change for any legitimately logged-in user of the MMM tool (the frontend already sends the bearer token on other gated calls).
+
+**Status:** ✅ Fixed — commit `220a0cb`. Added `import { requireAuth } from './runtime';` and inserted `requireAuth` into the route's middleware chain: `router.post('/tools/mmm-pools/send-tx', limit, requireAuth, async (req, res) => { ... })` in `src/server/tools-mmm-pools.ts`. Request shape, response shape, and send logic (`rpcPost('sendTransaction', ...)`) are byte-for-byte unchanged — the only behavioral change is that a caller now needs a valid bearer token (the same one already required by `buy-me.ts` and the rest of the gated-action routes) before the transaction is relayed. `tsc` build verified clean; no circular import (confirmed `runtime.ts` does not import from `tools-mmm-pools.ts`).
+
+---
+
+### Finding SEC2 — UFW allows direct origin access, undermining the `CF-Connecting-IP` trust assumption
+
+**Severity:** High
+
+**Evidence from official documentation:**
+- `expressjs.com/en/guide/behind-proxies.html`: *"When using this setting, it is important to ensure there are not multiple, different-length paths to the Express application such that the client can be less than the configured number of hops away, otherwise it may be possible for the client to provide any value."*
+
+**Evidence from current VictoryLabs code and live configuration:**
+- `src/server/app.ts:33-38`: `app.set('trust proxy', 1)` — the comment states the topology is "exactly one reverse-proxy hop (nginx)."
+- `src/server/rate-limit.ts:40-55` and `src/server/sse.ts:82-95` both contain near-identical comments stating the REAL topology is actually **Client → Cloudflare → nginx → Express (two hops)**, and that trusting `CF-Connecting-IP` / left-most `X-Forwarded-For` for rate-limit/SSE-cap bucketing is *"trustworthy ONLY because all ingress is forced through Cloudflare+nginx (no direct origin exposure). If the origin were ever reachable directly, CF-Connecting-IP / XFF would be client-forgeable."*
+- **Live `ufw status verbose`** (read-only, this audit):
+```
+80                         ALLOW IN    Anywhere
+443                        ALLOW IN    Anywhere
+...
+80                         ALLOW IN    173.245.48.0/20   (Cloudflare CIDR)
+443                        ALLOW IN    173.245.48.0/20   (Cloudflare CIDR)
+... (14 more Cloudflare-CIDR-scoped rules for 80/443)
+80 (v6)                    ALLOW IN    Anywhere (v6)
+443 (v6)                   ALLOW IN    Anywhere (v6)
+```
+The broad `Anywhere` (and `Anywhere (v6)`) rules for 80/443 are present **in addition to** the Cloudflare-CIDR-scoped rules, and both nginx's `server_name victorylabs.app` block and its `location /` block will serve any TCP connection that reaches port 80/443 regardless of source — there is no Cloudflare-origin-verification check (e.g. a shared secret header, mTLS, or an nginx `allow`/`deny` directive scoped to the Cloudflare CIDR list) anywhere in `/etc/nginx/sites-enabled/nft-live-feed`.
+
+**Root cause:** The Cloudflare-CIDR-only UFW rules appear to have been added as a hardening pass without removing the original, broader `Anywhere` allow rules for the same ports — a classic "added the restrictive rule, forgot to remove the permissive one" firewall-ordering mistake. UFW evaluates rules in order and a match on the permissive `Anywhere` rule is sufficient; the narrower Cloudflare rules never come into play as an exclusive gate.
+
+**Impact:** Anyone who discovers the origin server's IP (via DNS history, a misconfigured subdomain, a leaked header, or simple IP-range scanning of the hosting provider) can connect to nginx **directly**, bypassing Cloudflare entirely — losing Cloudflare's edge DDoS/bot mitigation for that traffic, and, more concretely for this codebase, gaining full control over the `CF-Connecting-IP` and `X-Forwarded-For` headers nginx forwards to Express. Every per-IP control in the codebase that keys on those headers — the login limiter (5/5min), SIWS-verify limiter (10/min, the actual brake on online guessing of a signature/passphrase pair), `buy/me` limiter (10/min), and the SSE per-IP connection cap (4) — can be defeated by sending a fresh, self-chosen `CF-Connecting-IP` value on every request, since nginx has no reason to strip or validate a header value that (in the intended topology) only Cloudflare would set. Both source comments in the codebase explicitly flag this exact risk as their accepted trade-off *"only because the origin is not directly exposed"* — that precondition is not currently true in production. Combined with SEC1, this removes the sole remaining control on the send-tx relay for a moderately capable attacker.
+
+**Minimal production-safe fix:** Not applied (audit only; this is an infrastructure/firewall change, not a code change, so it is explicitly out of this audit's "do not modify" scope regardless). If addressed: remove the plain `80/tcp ALLOW IN Anywhere` and `443/tcp ALLOW IN Anywhere` (and their v6 equivalents) UFW rules, leaving only the Cloudflare-CIDR-scoped rules — this is the change the existing Cloudflare-CIDR rules were clearly intended to enforce.
+
+**Status:** Fix now (recommended) — a firewall-configuration fix, not a code change; flagged here for operator action since it invalidates a security assumption baked into two source files' own comments.
+
+---
+
+### Finding SEC3 — `/thumb` route's `gateway.irys.xyz` resolution path follows redirects during a server-side fetch with no destination-host allowlist
+
+**Severity:** Medium
+
+**Evidence from official documentation:**
+- `cheatsheetseries.owasp.org` SSRF Prevention Cheat Sheet: *"Disable the support for the following of the redirection in your web client in order to prevent the bypass of the input validation."*
+
+**Evidence from current VictoryLabs code:**
+- `frontend/src/app/thumb/route.ts`, `probeImage()` (~line 99): performs a real Next.js-server-side `fetch(url, { method: 'GET', headers: {...}, redirect: 'follow', signal: controller.signal })` — `redirect: 'follow'` is the opposite of OWASP's documented mitigation.
+- `resolveIrysTarget()` (~line 128) calls `probeImage(originalUrl)` where `originalUrl` is the caller-supplied `url` query param, gated only by `u.hostname === 'gateway.irys.xyz'` (a fixed, legitimate external hostname check on the ENTRY url, not on any redirect hop the fetch follows).
+- The only post-hoc host check (~line 142, `finalHost !== 'gateway.irys.xyz' && !finalHost.endsWith('.irys.xyz')`) happens AFTER the fetch (and any redirects) already completed — it decides whether to trust the final URL as a wsrv-forwardable target, but does nothing to stop the server-side request itself from having already reached wherever the redirect chain pointed, including (in principle) a private/internal address.
+- The general (non-irys) path in the same route only validates `url.startsWith('http://'||'https://')` (line 164) and never fetches the URL itself server-side — the actual byte-fetch for that path happens client-side via a `302` redirect to a fixed third-party host (`wsrv.nl`), so the wider SSRF risk described in this finding is specific to the `gateway.irys.xyz` branch only.
+
+**Root cause:** The entry check validates the ENTRY hostname (`gateway.irys.xyz`) but the fetch client is configured to auto-follow redirects with no re-validation of each hop's destination, which is exactly the gap OWASP's cheat sheet calls out.
+
+**Impact:** Exploitability is bounded by whether `gateway.irys.xyz` (a real, third-party, permanent-storage gateway VL does not control) can itself be induced to issue an HTTP redirect to an internal/private address for a given request — something this code-level audit cannot verify (it would require testing against or documentation from Irys's own gateway service, which is out of this audit's scope and source-priority list). No production incident is known or suspected; this is a code-level gap matching a documented anti-pattern, not a confirmed exploit path.
+
+**Minimal production-safe fix:** Not applied (audit only). If addressed: set `redirect: 'manual'` in `probeImage()`'s fetch options and, on a redirect response, re-validate the `Location` header's hostname against an allowlist (e.g. `arweave.net`, known CDN hosts) before following it manually, rather than letting `fetch` auto-follow to an unvalidated destination.
+
+**Status:** Backlog — real code-level gap matching OWASP's documented SSRF anti-pattern; entry point is scoped to a single fixed external hostname (not an arbitrary user URL), and no confirmed exploit path exists via this codebase alone.
+
+---
+
+### Finding SEC4 — A few `target="_blank"` anchors lack an explicit `rel="noopener noreferrer"`
+
+**Severity:** Low
+
+**Evidence from official documentation:**
+- `developer.mozilla.org` (`rel="noopener"`): the reverse-tabnabbing risk is real when `window.opener` is left accessible to a newly opened untrusted page — but also: *"Setting `target=\"_blank\"` on `<a>`... elements implicitly provides the same `rel` behavior as setting `rel=\"noopener\"`"* in modern browsers (a 2021+ HTML-spec-level change now shipped in current Chrome/Firefox/Safari).
+
+**Evidence from current VictoryLabs code:**
+- The large majority of ~45 `target="_blank"` occurrences across `frontend/src` correctly pair it with `rel="noopener noreferrer"` (e.g. `soloist/shared.tsx`, `app/tools/page.tsx`, `app/tools/mmm-collection-scanner/page.tsx`). All `window.open(...)` call sites pass `'noopener,noreferrer'` explicitly as the third argument.
+- A handful of anchors — e.g. `frontend/src/app/tools/mmm-pool-lookup/page.tsx` (some but not all occurrences) — show a bare `target="_blank"` with no adjacent `rel=` attribute on inspection.
+
+**Root cause:** Inconsistent copy-paste of the external-link JSX pattern across a large frontend codebase; no shared "ExternalLink" component enforces the attribute pair everywhere.
+
+**Impact:** Low. Per the MDN documentation above, current-generation browsers apply `noopener` semantics automatically for `target="_blank"` regardless of an explicit `rel` attribute, which substantially closes the classic reverse-tabnabbing window this pattern used to open. The `noreferrer` half (suppressing the `Referer` header to the destination site) is not implicit and would still be missing on the affected links, which is a minor information-leak (destination site sees VL as the referrer), not an exploitable vulnerability.
+
+**Minimal production-safe fix:** Not applied (audit only). If addressed: add `rel="noopener noreferrer"` to the small number of anchors missing it (a grep-and-fix pass, not a rewrite).
+
+**Status:** Informational — real but low-impact given modern browser defaults; no user data or session compromise possible via this gap alone.
+
+---
+
+### Finding SEC5 — Two postMessage "readiness ping" frames use a wildcard `'*'` `targetOrigin`
+
+**Severity:** Low
+
+**Evidence from current VictoryLabs code:**
+- `frontend/src/lib/mmm-bridge.ts` (~line 122): `w.postMessage({ type: 'VL_MMM_PING' }, '*')` — outbound ping to the ME popup window.
+- `tools/magiceden-vl-mmm-accept.user.js` (~line 307): `window.opener.postMessage({ type: 'VL_MMM_READY' }, '*')` — outbound readiness signal back to whichever tab opened the ME popup.
+- Every OTHER postMessage call site carrying an actual payload (pool key, seller, mint, price, or a signed-tx response) in both files uses a concrete origin (`ME_ORIGIN` on the frontend side; the caller's own already-origin-validated `event.origin` on the userscript side) — confirmed by direct reading of both files during this audit.
+- Inbound handling on both sides validates the sender: `mmm-bridge.ts`'s `fromMe()` checks `e.source === w && e.origin === ME_ORIGIN`; the userscript's handler checks `VL_ORIGINS.has(event.origin)` (an explicit two-entry allowlist, not a wildcard) before acting on anything.
+
+**Root cause:** These two frames carry no data beyond a literal type string (no pool/mint/price/tx payload), so a wildcard target was judged low-risk when written — consistent, since neither frame reveals anything sensitive to a page that happens to be listening at the wrong origin.
+
+**Impact:** None identified. A third party who somehow intercepted either ping learns only that a VL/ME bridge popup exists and is alive — no pool, wallet, price, or transaction data is exposed via either wildcard call.
+
+**Minimal production-safe fix:** Not applied (audit only). If addressed: replace `'*'` with the already-known concrete origin (`ME_ORIGIN` for the frontend's ping; the stored opener-origin for the userscript's ready signal) for defense-in-depth consistency with every other call site in the same files.
+
+**Status:** Informational — no sensitive data at risk; a consistency nit, not a vulnerability.
+
+---
+
+### Finding SEC6 — SIWS + HMAC bearer-token auth is well-designed
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `src/auth/siws.ts` — nonces are single-use (deleted on every verify attempt regardless of outcome), TTL'd at 5 minutes, and the canonical message is rebuilt server-side from the stored nonce record rather than trusted from the client (preventing message-substitution). `runtime.ts`'s bearer-token verification (`verifyToken`) uses `timingSafeEqual` for the HMAC signature comparison and for the passphrase comparison (`siws.ts:213-219`). `src/runtime/env-validation.ts` refuses to boot in production if `UI_AUTH_SECRET`/`UI_AUTH_PASSWORD` are missing or below a minimum length, and specifically refuses the dev convenience of falling back the signing secret to the login password in production (`runtime.ts:112-123`).
+
+**Impact:** None — this is a solid, well-reasoned auth design with an explicit, documented threat model (replay, substitution, brute-force, nonce-sniping) in the module's own header comment.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC7 — `buy-me.ts` marketplace buy-now flow has thorough transaction-safety checks
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `src/server/buy-me.ts` — the route is `requireAuth`-gated (`buy-me.ts:189`), re-fetches the live ME listing as the price source of truth rather than trusting a client-supplied price, verifies collection binding against VL's own enriched index before ever calling ME, and — after receiving the unsigned tx from ME — independently re-verifies (1) the mint appears in the tx's account keys, (2) the buyer's total `SystemProgram.Transfer` outflow stays within a slippage-adjusted ceiling, and (3) no signer other than the buyer is left unsatisfied (so a compromised/malicious ME response can't smuggle in an unexpected required signer).
+
+**Impact:** None — this is a genuinely thorough defense-in-depth implementation for a server that builds (but never signs) a marketplace transaction on a user's behalf.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC8 — CORS origin-allowlist is correctly implemented
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `src/server/cors.ts` — reads `UI_ALLOWED_ORIGINS`, never echoes an unrecognized `Origin` back (no wildcard fallback), explicitly 403s a rejected preflight rather than silently omitting headers (a clearer failure signal than a confusing browser-side CORS error), and logs a loud startup warning if production boots with an empty allowlist. `Vary: Origin` is set so shared caches don't pin one origin's response to another's request.
+
+**Impact:** None.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC9 — SSE connection/backpressure protections are correctly enforced
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `src/server/sse.ts` — `MAX_SSE_CLIENTS` (global, default 2000) and `MAX_SSE_CLIENTS_PER_IP` (default 4) are both checked and return a clean `429` BEFORE response headers are flushed (`sse.ts:617-627`), preventing a "200-then-hang" resource leak. A slow/wedged client is detected via consecutive `res.write()` backpressure returns and evicted (`sse.ts:147-178`) rather than allowed to grow Node's internal write buffer without bound. High-frequency event types are micro-batched (`sse.ts:204-233`) with a hard `MAX_BATCH_FRAMES` overflow flush, bounding both per-client and per-process memory growth under burst load.
+
+**Impact:** None — this is a well-reasoned, multi-layered defense against SSE-specific DoS (connection exhaustion, slow-client memory growth, broadcast-loop cost blowup).
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC10 — SQL injection surface remains zero (cross-reference to Audit #12)
+
+**Severity:** — (Compliant)
+
+**Evidence:** Audit #12 Finding DB7 already performed an exhaustive repo-wide grep for request-derived values interpolated into SQL text and found zero matches, with sort/filter/enum parameters allow-listed or regex-sanitized before ever reaching a query. This audit's own route-by-route pass (covering every file in `src/server/`) found no new dynamic-SQL construction pattern introduced since — every `pool.query()` call site inspected uses `$n` bind parameters exclusively.
+
+**Impact:** None.
+
+**Status:** Compliant — no action; see Audit #12 DB7 for the full evidence trail.
+
+---
+
+### Finding SEC11 — A handful of cheap endpoints (and the standby webhook) have no rate limiter
+
+**Severity:** Low
+
+**Evidence from current VictoryLabs code:**
+- `src/server/market.ts` `/header` — no rate limit, but the route serves a 20-minute-TTL in-process cache with a `refreshing` promise that dedups concurrent cache-miss refreshes (`market.ts:68-81`); a request flood only ever reads the cached object, never fans out to the upstream APIs per-request.
+- `src/server/mints-blocked-deployers.ts` `/blocked-deployers` — no rate limit, but serves a small in-memory list, no DB/external call.
+- `src/server/subscribers.ts` `/heartbeat` — no rate limit; bounds input length (`MAX_SLUG_LEN = 200`) and only writes one `Map` entry per call, no DB/external call.
+- `src/server/collection-rollups.ts` `/rollups` — no rate limit; input is capped to `MAX_NAMES_PER_REQUEST` and reads through an in-process cache (`getRollupsForNames`).
+- `src/ingestion/helius/webhook.ts` — no rate limit on the POST handler itself; moot today since `HELIUS_WEBHOOK_AUTH` is unset in the live `.env` (confirmed this audit), so per `app.ts:47-54` the route is never mounted (a request to `/webhooks/` 404s at the Express layer regardless of nginx forwarding it).
+
+**Root cause:** Rate limiting was applied deliberately to expensive/external-call/scan-style endpoints throughout the codebase (confirmed broadly present elsewhere: buy, holders, mmm-pools, sns, login/SIWS, trending); these particular routes were judged cheap enough to skip it, which the evidence above supports for their CURRENT implementations.
+
+**Impact:** Low today given the bounded/cached nature of each handler. Worth a second look only if any of these routes' underlying implementation changes to add an external call or unbounded DB scan without revisiting the rate-limit decision. If `helius/webhook.ts` is ever activated (setting `HELIUS_WEBHOOK_AUTH`), it would be worth adding a rate limiter alongside the existing constant-time auth check, since a correctly-authenticated-but-malicious or compromised webhook source could otherwise submit unbounded-frequency batches.
+
+**Minimal production-safe fix:** Not applied (audit only). If addressed: add a generous rate limiter to each (e.g. 60-120/min) purely as defense-in-depth; not urgent given current implementations are already bounded.
+
+**Status:** Informational / Backlog — low current risk, worth a rate limiter as defense-in-depth if any of these handlers gain an external/unbounded cost path, or if the webhook route is ever activated.
+
+---
+
+### Finding SEC12 — Secrets handling is clean across the repository
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `.gitignore` excludes `.env` and `.env.*` (with an explicit `!.env.example` carve-out); `git ls-files` confirms only `.env.example` is tracked, and its contents are placeholders (`UI_AUTH_SECRET=replace_with_long_random_secret`, etc.), never real values. A repo-wide grep for `console.log`/`console.error`/`console.warn` lines mentioning API keys, secrets, passwords, bearer tokens, or the specific env-var names found only "not set" diagnostic messages and length/boolean summaries (matching `env-validation.ts`'s own stated policy: *"This module never logs a secret's value"*) — no actual secret value is ever written to a log line anywhere in `src/`.
+
+**Impact:** None.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC13 — Frontend XSS / injection surface is clean
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** Only two `dangerouslySetInnerHTML` sites exist in the entire frontend, both in `frontend/src/app/layout.tsx` — one is a fully static inline boot script (a layout-mode `localStorage` read gated by an exact three-value allowlist before use), the other is a static CSS string (`GATE_CSS`) imported from a file with no template-literal interpolation. No `.innerHTML` assignment exists anywhere under `frontend/src`. Neither site ever receives NFT name, collection name, metadata, or any other request-derived/user-controlled data. Separately: no `NEXT_PUBLIC_*` environment variable in use is secret-shaped (only an API base URL and two boolean feature flags), and no redirect target anywhere in the frontend is taken from an unvalidated URL query parameter or other user input (all are hardcoded paths or same-origin, URI-encoded collection-slug paths sourced from VL's own backend catalog).
+
+**Impact:** None.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding SEC14 — postMessage / userscript bridge correctly validates origin and carries no hardcoded secrets
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code:** `frontend/src/lib/mmm-bridge.ts`'s `fromMe()` predicate checks both `e.source === w` (the specific popup window reference) AND `e.origin === ME_ORIGIN` before trusting any inbound message; every outbound message carrying real request data (pool/seller/mint/price, or a signed-tx response) targets the concrete `ME_ORIGIN`, never `'*'` (see SEC5 for the two harmless exceptions). `tools/magiceden-vl-mmm-accept.user.js` checks inbound `event.origin` against an explicit two-entry `VL_ORIGINS` allowlist (`https://vl.nikki.gg`, `https://victorylabs.app`) before acting on anything, and its own changelog (v0.5.6) documents having removed a previously hardcoded RPC key specifically because "a userscript is plaintext/readable by anyone who installs it" — a live, applied lesson-learned, not a currently-open gap. No hardcoded secret was found in the userscript during this audit.
+
+**Impact:** None.
+
+**Status:** Compliant — no action.
+
+---
+
+## Audit #13 summary
+
+**Ranking by production risk (highest first):**
+
+1. **SEC1** (Critical) — `/api/tools/mmm-pools/send-tx` has no `requireAuth` — a complete authorization bypass on a state-changing, RPC-cost-incurring production endpoint.
+2. **SEC2** (High) — UFW allows direct-origin access alongside Cloudflare-only rules, invalidating the `CF-Connecting-IP` trust assumption two source files' own comments rely on — compounds with SEC1 by defeating its only remaining rate-limit control.
+3. **SEC3** (Medium) — `/thumb`'s `gateway.irys.xyz` path follows redirects during a server-side fetch with no destination-host re-validation — a real code-level SSRF-shaped gap, exploitability contingent on a third-party gateway's own redirect behavior (unverifiable from this codebase alone).
+4. **SEC4 / SEC5** (Low) — inconsistent `rel="noopener noreferrer"` on a few external links (largely mitigated by modern browser defaults) and two no-payload wildcard-`targetOrigin` postMessage pings (no sensitive data at risk).
+5. **SEC11** (Low) — a few cheap/cached endpoints (plus the currently-unmounted webhook route) have no rate limiter; bounded risk given their current implementations.
+
+**Confirmed compliant, no action needed:** SEC6 (SIWS/HMAC auth), SEC7 (buy-me.ts transaction safety), SEC8 (CORS allowlist), SEC9 (SSE resource limits), SEC10 (SQL injection surface, cross-ref Audit #12 DB7), SEC12 (secrets handling), SEC13 (frontend XSS surface), SEC14 (postMessage/userscript origin validation).
+
+**Recommended to fix immediately:** SEC1 (one-line `requireAuth` addition to `send-tx` — zero behavioral impact on legitimate use) and SEC2 (a firewall-configuration fix, not code — remove the permissive UFW `Anywhere` rules for 80/443 now that Cloudflare-CIDR-scoped rules already exist). SEC3–SEC5 and SEC11 are real but lower-urgency; Backlog/Informational is appropriate until SEC1/SEC2 are resolved.
+
+**Not implemented in this pass:** This was an audit-only engagement — no code, firewall, or configuration changes were made. All fixes above require explicit approval before implementation, per the task's own instructions.

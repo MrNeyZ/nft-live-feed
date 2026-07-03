@@ -31,6 +31,7 @@ import bs58                                          from 'bs58';
 import fs, { promises as fsp }                       from 'fs';
 import path                                          from 'path';
 import { rateLimit }                                 from './rate-limit';
+import { requireAuth }                               from './runtime';
 import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
 
 const MMM_PROGRAM_ID = new PublicKey('mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc');
@@ -1560,7 +1561,7 @@ export function createMmmPoolsRouter(): Router {
 
   // Proxy sendRawTransaction through Helius so the browser doesn't hit the public RPC
   // (which returns 403 for sendTransaction from browser origins).
-  router.post('/tools/mmm-pools/send-tx', limit, async (req: Request, res: Response) => {
+  router.post('/tools/mmm-pools/send-tx', limit, requireAuth, async (req: Request, res: Response) => {
     const { tx } = req.body as { tx?: string };
     if (!tx || typeof tx !== 'string') {
       return res.status(400).json({ ok: false, error: 'missing_tx' });
