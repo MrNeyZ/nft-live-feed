@@ -123,6 +123,118 @@ async function probeImage(url: string): Promise<ProbeResult | null> {
   }
 }
 
+// ── Redirect-destination allowlist (Audit #13 SEC3 hardening) ───────────────
+// gateway.irys.xyz's redirect target is untrusted — irys (or whoever
+// uploaded the underlying txid) controls what a given path resolves to.
+// Blindly following redirects (`redirect: 'follow'`) let a crafted response
+// point this server-side fetch at an arbitrary host, including an internal
+// / private address (SSRF). `probeIrysRedirectGuarded` below walks the
+// redirect chain itself and only follows a hop whose destination is one of
+// these explicitly-known-safe hosts; anything else is rejected and the
+// caller falls back to the arweave rewrite exactly like any other probe miss.
+const IRYS_REDIRECT_ALLOWED_HOSTS = new Set(['gateway.irys.xyz']);
+const IRYS_REDIRECT_ALLOWED_SUFFIXES = ['.datasprite-cdn.com']; // documented class-B CDN target
+const MAX_REDIRECT_HOPS = 5;
+
+function isAllowedRedirectHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (IRYS_REDIRECT_ALLOWED_HOSTS.has(h)) return true;
+  return IRYS_REDIRECT_ALLOWED_SUFFIXES.some((suf) => h === suf.slice(1) || h.endsWith(suf));
+}
+
+// Literal-address guard — blocks the common SSRF-to-internal-network shapes
+// (loopback / RFC1918 / link-local) without a DNS lookup. Does NOT protect
+// against DNS rebinding (an allowlisted hostname resolving to a private IP
+// at fetch time); that needs socket-level enforcement and is out of scope
+// for this fix.
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h === '0.0.0.0') return true;
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 127 || a === 10 || a === 0) return true;          // loopback / 10.0.0.0/8 / "this network"
+    if (a === 172 && b >= 16 && b <= 31) return true;            // 172.16.0.0/12
+    if (a === 192 && b === 168) return true;                     // 192.168.0.0/16
+    if (a === 169 && b === 254) return true;                     // link-local
+    return false;
+  }
+  if (h === '::1' || h === '::') return true;                    // loopback / unspecified
+  if (h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true; // link-local / unique-local
+  return false;
+}
+
+function isSafeRedirectTarget(url: URL): boolean {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  if (isBlockedHost(url.hostname)) return false;
+  return isAllowedRedirectHost(url.hostname);
+}
+
+// Manual-redirect variant of probeImage, used ONLY for the untrusted
+// gateway.irys.xyz origin. Walks the redirect chain itself (`redirect:
+// 'manual'`) instead of letting fetch auto-follow, rejecting the first hop
+// whose destination isn't an allowlisted host / is a private-address literal
+// / isn't http(s). One shared AbortController covers the whole chain so the
+// total time budget matches the original single-fetch-with-follow behaviour
+// (PROBE_TIMEOUT_MS overall, not per hop). On any rejection this returns
+// null — identical to a network-failure probe miss — so resolveIrysTarget's
+// existing fallback-to-arweave-rewrite path handles it with no new failure
+// mode.
+async function probeIrysRedirectGuarded(startUrl: string): Promise<ProbeResult | null> {
+  let current: URL;
+  try { current = new URL(startUrl); } catch { return null; }
+  if (!isSafeRedirectTarget(current)) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+      let res: Response;
+      try {
+        res = await fetch(current.toString(), {
+          method: 'GET',
+          headers: { Range: 'bytes=0-0', 'user-agent': 'nft-live-feed-thumb/1.0' },
+          redirect: 'manual',
+          signal: controller.signal,
+        });
+      } catch {
+        return null;
+      }
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        try { await res.body?.cancel(); } catch { /* best-effort */ }
+        if (!location) return null;
+        let next: URL;
+        try { next = new URL(location, current); } catch { return null; }
+        if (!isSafeRedirectTarget(next)) {
+          // Host only — never log the full URL (may carry long paths/query).
+          console.warn(`[image/thumb] blocked redirect host=${next.hostname}`);
+          return null;
+        }
+        current = next;
+        continue;
+      }
+
+      const contentType = (res.headers.get('content-type') ?? '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      const ok = res.ok;
+      // Same body-cancel guard as probeImage — stop a non-Range-respecting
+      // server from streaming a full image into the worker.
+      try { await res.body?.cancel(); } catch { /* best-effort */ }
+      return { ok, finalUrl: current.toString(), contentType };
+    }
+    return null; // too many redirect hops — treat like any other probe failure
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Resolve a gateway.irys.xyz URL to the best wsrv-renderable target.
 // `pathname` is `/<txid>` (the leading slash is kept by URL.pathname), and the
 // arweave gateway wants the bare txid with no query, so dropping `?ext=…` is
@@ -139,8 +251,9 @@ async function resolveIrysTarget(
     return { target: arweaveUrl, confident: true };
   }
 
-  // 2. Else resolve the original irys URL's redirect chain (class B).
-  const g = await probeImage(originalUrl);
+  // 2. Else resolve the original irys URL's redirect chain (class B),
+  //    guarded against redirecting to a non-allowlisted host (SEC3).
+  const g = await probeIrysRedirectGuarded(originalUrl);
   if (g && g.ok && g.contentType.startsWith('image/')) {
     try {
       const finalHost = new URL(g.finalUrl).hostname.toLowerCase();
