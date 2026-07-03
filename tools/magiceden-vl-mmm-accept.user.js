@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.2
-// @description  VictoryLabs MMM bridge — v0.5.2 pNFT passes tokenStandard=4 for versioned tx
+// @version      0.5.3
+// @description  VictoryLabs MMM bridge — v0.5.3 removes hardcoded RPC key; signed-but-unsent txs are submitted by VL's backend instead
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -23,7 +23,7 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.2 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.5.3 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
@@ -176,7 +176,12 @@
       }
     }
 
-    // Try signTransaction + manual RPC send
+    // Try signTransaction only — do NOT send from here. Sending requires an
+    // RPC endpoint/API key; the popup has no safe way to hold one (a userscript
+    // is plaintext, readable by anyone who installs it — see Audit #8 M1 in
+    // research_backlog.md). Return the signed bytes so VL can submit them
+    // through its own backend proxy (/tools/mmm-pools/send-tx), same as every
+    // other signed-but-unsent path in this bridge already does.
     for (const [label, provider] of [
       ['solflare', window.solflare],
       ['solana', window.solana],
@@ -186,17 +191,9 @@
         console.log(TAG, 'trySignInPopup — trying ' + label + '.signTransaction');
         const signed = await provider.signTransaction(fakeTx);
         const serialized = signed?.serialize?.() ?? bytes;
-        // Send via Helius RPC directly
-        const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'sendTransaction',
-          params: [btoa(String.fromCharCode(...serialized)), { encoding: 'base64', skipPreflight: true, maxRetries: 3 }] });
-        const rpcResp = await fetch('https://mainnet.helius-rpc.com/?api-key=5baf4ccb-82fd-4d44-87b1-fb71dfac926c',
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-        const rpcJson = await rpcResp.json();
-        if (rpcJson.result) {
-          console.log(TAG, 'trySignInPopup — ' + label + '+RPC OK sig=' + rpcJson.result);
-          return { signature: rpcJson.result };
-        }
-        console.warn(TAG, 'trySignInPopup — RPC error:', JSON.stringify(rpcJson.error));
+        const signedTxBase64 = btoa(String.fromCharCode(...serialized));
+        console.log(TAG, 'trySignInPopup — ' + label + ' signed — returning bytes for VL to submit');
+        return { signedTxBase64 };
       } catch (e) {
         console.warn(TAG, 'trySignInPopup — ' + label + ' signTransaction failed:', e.message);
       }
@@ -256,6 +253,19 @@
           }, event.origin);
           return;
         }
+        if (signResult?.signedTxBase64) {
+          console.log(TAG, 'in-popup signing succeeded (unsent) — returning signed tx for VL to submit');
+          postToVl(event.source, {
+            type:    'VL_MMM_RESPONSE',
+            id,
+            ok:      true,
+            status:  200,
+            body:    { presignedUnsent: true, signedTxBase64: signResult.signedTxBase64 },
+            rawBody: JSON.stringify({ presignedUnsent: true }),
+            error:   null,
+          }, event.origin);
+          return;
+        }
         console.warn(TAG, 'in-popup signing failed — falling back to tx-bytes response');
       }
 
@@ -287,5 +297,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.5.2 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.5.3 ready - postMessage listener active - waiting for PING from VL');
 })();

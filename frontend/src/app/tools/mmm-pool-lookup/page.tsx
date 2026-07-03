@@ -362,7 +362,60 @@ export default function MmmPoolLookupPage() {
         });
         let txFound = false;
         if (br.ok && br.body) {
-          const body = br.body as { tx?: { data?: number[] }; txSigned?: { data?: number[] }; presigned?: boolean; signature?: string };
+          const body = br.body as {
+            tx?: { data?: number[] }; txSigned?: { data?: number[] };
+            presigned?: boolean; signature?: string;
+            presignedUnsent?: boolean; signedTxBase64?: string;
+          };
+          // Signed in the ME popup but not yet submitted (Audit #8 M1 fix —
+          // the userscript no longer holds an RPC key to send with itself).
+          // Submit through the same backend proxy phantom.ts's backendSendRaw
+          // already uses, then reuse the identical confirm-poll below.
+          if (body.presignedUnsent && body.signedTxBase64) {
+            txFound = true;
+            log.bridgeAttempt = {
+              status: br.status, rawBody: br.rawBody,
+              elapsedMs: br.elapsedMs, windowOpened: br.windowOpened,
+              error: null, txFound: true,
+            };
+            setDiag({ ...log });
+            setTxPhase('confirming');
+            void (async () => {
+              let signature: string;
+              try {
+                const sendRes = await fetch(`${API_BASE}/api/tools/mmm-pools/send-tx`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...authHeaders() },
+                  body: JSON.stringify({ tx: body.signedTxBase64 }),
+                });
+                const sendJson = await sendRes.json() as { ok: boolean; signature?: string; message?: string };
+                if (!sendJson.ok || !sendJson.signature) {
+                  setTxPhase({ error: sendJson.message ?? `send-tx HTTP ${sendRes.status}` });
+                  return;
+                }
+                signature = sendJson.signature;
+              } catch (err) {
+                setTxPhase({ error: (err as Error).message ?? 'send-tx failed' });
+                return;
+              }
+              setTxPhase({ sig: signature, source: 'me_browser' });
+              for (let attempt = 0; attempt < 5; attempt++) {
+                if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+                try {
+                  const r = await fetch(
+                    `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
+                    { headers: { ...authHeaders() } },
+                  );
+                  if (!r.ok) continue;
+                  const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
+                  if (!d.ok || !d.found) continue;
+                  if (d.err) { setTxPhase({ error: 'Transaction failed on-chain: ' + JSON.stringify(d.err) }); return; }
+                  if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') return;
+                } catch (_) {}
+              }
+            })();
+            return;
+          }
           if (body.presigned && body.signature) {
             txFound = true;
             log.bridgeAttempt = {
