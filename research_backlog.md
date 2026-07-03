@@ -2147,7 +2147,7 @@ No index exists on `seller` alone or as part of a composite; the planner combine
 | Finding | Severity | Status | Notes |
 |---|---|---|---|
 | SEC1 | Critical | ✅ Fixed — commit `220a0cb` | `POST /api/tools/mmm-pools/send-tx` has **no `requireAuth`** — any unauthenticated caller can relay an arbitrary pre-signed Solana transaction through VL's own Helius RPC key, gated only by a 10/min-per-IP rate limit |
-| SEC2 | High | Fix now (recommended) | UFW allows direct origin access on 80/443 from `Anywhere`, in addition to Cloudflare-only CIDR rules — defeats the `CF-Connecting-IP`-based trust assumption hardcoded (and self-documented as fragile) in `rate-limit.ts` and `sse.ts`, letting an attacker who finds the origin IP spoof per-IP rate-limit/SSE-cap buckets at will |
+| SEC2 | High | ✅ Fixed (ops) — 2026-07-03 | UFW allows direct origin access on 80/443 from `Anywhere`, in addition to Cloudflare-only CIDR rules — defeats the `CF-Connecting-IP`-based trust assumption hardcoded (and self-documented as fragile) in `rate-limit.ts` and `sse.ts`, letting an attacker who finds the origin IP spoof per-IP rate-limit/SSE-cap buckets at will |
 | SEC3 | Medium | Backlog | `/thumb` route's `gateway.irys.xyz` special case performs a real server-side `fetch()` with `redirect: 'follow'` and no destination-host allowlist during the fetch — an SSRF-shaped gap per OWASP guidance, though entry is scoped to a fixed external hostname, not an arbitrary user URL |
 | SEC4 | Low | Informational | A few `target="_blank"` anchors in the frontend lack an explicit `rel="noopener noreferrer"` — largely mitigated in modern browsers, which apply `noopener` behavior implicitly for `target="_blank"` per the HTML spec |
 | SEC5 | Low | Informational | Two no-payload postMessage "readiness ping" frames use a wildcard `'*'` `targetOrigin` (`mmm-bridge.ts`, the userscript) — no sensitive data carried, but not best practice |
@@ -2228,9 +2228,16 @@ The broad `Anywhere` (and `Anywhere (v6)`) rules for 80/443 are present **in add
 
 **Impact:** Anyone who discovers the origin server's IP (via DNS history, a misconfigured subdomain, a leaked header, or simple IP-range scanning of the hosting provider) can connect to nginx **directly**, bypassing Cloudflare entirely — losing Cloudflare's edge DDoS/bot mitigation for that traffic, and, more concretely for this codebase, gaining full control over the `CF-Connecting-IP` and `X-Forwarded-For` headers nginx forwards to Express. Every per-IP control in the codebase that keys on those headers — the login limiter (5/5min), SIWS-verify limiter (10/min, the actual brake on online guessing of a signature/passphrase pair), `buy/me` limiter (10/min), and the SSE per-IP connection cap (4) — can be defeated by sending a fresh, self-chosen `CF-Connecting-IP` value on every request, since nginx has no reason to strip or validate a header value that (in the intended topology) only Cloudflare would set. Both source comments in the codebase explicitly flag this exact risk as their accepted trade-off *"only because the origin is not directly exposed"* — that precondition is not currently true in production. Combined with SEC1, this removes the sole remaining control on the send-tx relay for a moderately capable attacker.
 
-**Minimal production-safe fix:** Not applied (audit only; this is an infrastructure/firewall change, not a code change, so it is explicitly out of this audit's "do not modify" scope regardless). If addressed: remove the plain `80/tcp ALLOW IN Anywhere` and `443/tcp ALLOW IN Anywhere` (and their v6 equivalents) UFW rules, leaving only the Cloudflare-CIDR-scoped rules — this is the change the existing Cloudflare-CIDR rules were clearly intended to enforce.
+**Minimal production-safe fix:** Remove the plain `80/tcp ALLOW IN Anywhere` and `443/tcp ALLOW IN Anywhere` (and their v6 equivalents) UFW rules, leaving only the Cloudflare-CIDR-scoped rules — this is the change the existing Cloudflare-CIDR rules were clearly intended to enforce.
 
-**Status:** Fix now (recommended) — a firewall-configuration fix, not a code change; flagged here for operator action since it invalidates a security assumption baked into two source files' own comments.
+**Status:** ✅ Fixed (ops, no code/commit — firewall config only) — 2026-07-03. Ran, with explicit per-command user approval:
+```
+ufw --force delete 35   # 443 (v6) ALLOW IN Anywhere (v6)
+ufw --force delete 34   # 80 (v6)  ALLOW IN Anywhere (v6)
+ufw --force delete 2    # 443      ALLOW IN Anywhere
+ufw --force delete 1    # 80       ALLOW IN Anywhere
+```
+Post-fix `ufw status numbered` confirms: only `OpenSSH` (v4 + v6) and the 30 Cloudflare-CIDR rules for 80/443 remain — no bare `Anywhere`/`Anywhere (v6)` rule exists for port 80 or 443 anymore. nginx config was not touched; backend/frontend were not restarted (not required for a firewall-only change). The `CF-Connecting-IP` trust assumption in `rate-limit.ts` and `sse.ts` now holds in production as those comments originally intended.
 
 ---
 
@@ -2419,14 +2426,14 @@ The broad `Anywhere` (and `Anywhere (v6)`) rules for 80/443 are present **in add
 
 **Ranking by production risk (highest first):**
 
-1. **SEC1** (Critical) — `/api/tools/mmm-pools/send-tx` has no `requireAuth` — a complete authorization bypass on a state-changing, RPC-cost-incurring production endpoint.
-2. **SEC2** (High) — UFW allows direct-origin access alongside Cloudflare-only rules, invalidating the `CF-Connecting-IP` trust assumption two source files' own comments rely on — compounds with SEC1 by defeating its only remaining rate-limit control.
+1. **SEC1** (Critical) — `/api/tools/mmm-pools/send-tx` had no `requireAuth` — a complete authorization bypass on a state-changing, RPC-cost-incurring production endpoint. **✅ Fixed**, commit `0892c18`.
+2. **SEC2** (High) — UFW allowed direct-origin access alongside Cloudflare-only rules, invalidating the `CF-Connecting-IP` trust assumption two source files' own comments rely on — compounded with SEC1 by defeating its only remaining rate-limit control. **✅ Fixed (ops)**, 2026-07-03.
 3. **SEC3** (Medium) — `/thumb`'s `gateway.irys.xyz` path follows redirects during a server-side fetch with no destination-host re-validation — a real code-level SSRF-shaped gap, exploitability contingent on a third-party gateway's own redirect behavior (unverifiable from this codebase alone).
 4. **SEC4 / SEC5** (Low) — inconsistent `rel="noopener noreferrer"` on a few external links (largely mitigated by modern browser defaults) and two no-payload wildcard-`targetOrigin` postMessage pings (no sensitive data at risk).
 5. **SEC11** (Low) — a few cheap/cached endpoints (plus the currently-unmounted webhook route) have no rate limiter; bounded risk given their current implementations.
 
 **Confirmed compliant, no action needed:** SEC6 (SIWS/HMAC auth), SEC7 (buy-me.ts transaction safety), SEC8 (CORS allowlist), SEC9 (SSE resource limits), SEC10 (SQL injection surface, cross-ref Audit #12 DB7), SEC12 (secrets handling), SEC13 (frontend XSS surface), SEC14 (postMessage/userscript origin validation).
 
-**Recommended to fix immediately:** SEC1 (one-line `requireAuth` addition to `send-tx` — zero behavioral impact on legitimate use) and SEC2 (a firewall-configuration fix, not code — remove the permissive UFW `Anywhere` rules for 80/443 now that Cloudflare-CIDR-scoped rules already exist). SEC3–SEC5 and SEC11 are real but lower-urgency; Backlog/Informational is appropriate until SEC1/SEC2 are resolved.
+**Recommended to fix immediately:** SEC1 and SEC2 — both now fixed (see above). SEC3–SEC5 and SEC11 are real but lower-urgency; Backlog/Informational remains appropriate for those, unchanged by this pass.
 
 **Not implemented in this pass:** This was an audit-only engagement — no code, firewall, or configuration changes were made. All fixes above require explicit approval before implementation, per the task's own instructions.
