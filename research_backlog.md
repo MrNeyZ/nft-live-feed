@@ -2439,3 +2439,88 @@ Validation performed: (1) `next build` — clean, no type errors; (2) a standalo
 **Recommended to fix immediately:** SEC1 and SEC2 — both now fixed (see above). SEC3–SEC5 and SEC11 are real but lower-urgency; Backlog/Informational remains appropriate for those, unchanged by this pass.
 
 **Not implemented in this pass:** This was an audit-only engagement — no code, firewall, or configuration changes were made. All fixes above require explicit approval before implementation, per the task's own instructions.
+
+---
+
+## Final Audit Triage Summary
+
+**Scope:** Read-only triage of Audits #1–#13 as recorded in this file. No code changes, no deploys, no new findings invented. Bucketing rule below is applied uniformly across all 13 audits (which use inconsistent status vocabularies — "Deferred", "Skip", "Validation only", "Informational", "Compliant", "N/A" — pre-Audit #6 findings also have no formal `Severity` column, so severity is inferred from each finding's own "priority"/impact language where not explicit).
+
+**Bucketing rule:**
+- **Fixed** — status contains ✅ Fixed (commit or ops action recorded).
+- **Open Fix-now** — status is Backlog/Deferred, a concrete minimal fix is described in the finding, and severity is High/Critical (or the audit's own summary explicitly named it a "recommended immediate fix" candidate). These are actionable and currently open.
+- **Backlog** — status is Backlog/Deferred/Skip/Cleanup with Medium/Low severity, or High-severity-but-contingent-on-an-event-that-hasn't-happened (e.g. Bubblegum V2 adoption).
+- **Compliant/informational** — status is Compliant, Informational, Validation-only (no fix proposed / accepted architectural risk), or N/A-out-of-scope.
+
+### Audit status table
+
+| # | Topic | Finding IDs | Fixed | Open Fix-now | Backlog | Compliant/Info |
+|---|---|---|---|---|---|---|
+| 1 | Metaplex Token Metadata | F1–F7 | 1 | 1 | 5 | 0 |
+| 2 | Metaplex Core | C1–C9 | 1 | 0 | 4 | 4 |
+| 3 | Bubblegum / cNFT | B1–B9 | 0 | 0 | 7 | 2 |
+| 4 | Candy Guard / Candy Machine V3 | G1–G7 | 4 | 0 | 2 | 1 |
+| 5 | Token-2022 / SPL Token | T1–T9 | 0 | 0 | 5 | 4 |
+| 6 | Solana RPC + WebSocket Architecture | R1–R10 | 2 | 0 | 1 | 7 |
+| 7 | Helius DAS Architecture | D1–D10 | 2 | 0 | 4 | 4 |
+| 8 | Magic Eden Protocol & API Architecture | M1–M11 | 1 | 1 | 4 | 5 |
+| 9 | ME Integration Compliance (bridge/retry/parser) | ME1–ME8 | 3 | 1 | 3 | 1 |
+| 10 | Solana Tx Lifecycle, Wallet, Signing | TX1–TX6 | 1 | 1 | 0 | 4 |
+| 11 | Live Feed Architecture & Event Completeness | LF1–LF8 | 2 | 0 | 1 | 5 |
+| 12 | Postgres Consistency, Idempotency, Retention | DB1–DB11 | 1 | 1 | 1 | 8 |
+| 13 | Security, Trust Boundaries & Hardening | SEC1–SEC14 | 3 | 0 | 0 | 11 |
+| **Total** | | **119 findings** | **21** | **5** | **37** | **56** |
+
+**Documentation integrity note (found during this triage, not a code finding):** two of the commit hashes cited inline in Audit #13 are stale — the finding text for **SEC1** (lines citing the fix) and **SEC3** cite commits `220a0cb` and `4fe123a` respectively, but those two hashes are **orphaned/not ancestors of the current branch** (verified via `git merge-base --is-ancestor`). The real commits on `main` carrying the identical fix messages are `0892c18` (SEC1 — matches what the Audit #13 *summary* section at the bottom already correctly cites) and `d299f30` (SEC3). Likely cause: a rebase/amend after this file was written. Recommend a one-line text correction to the two inline hash citations next time this file is touched — no code or status change implied.
+
+### Top unresolved risks (ranked by production risk, highest first)
+
+1. **M4 (Audit #8) + TX2 (Audit #10) — no `simulateTransaction`, every send path uses `skipPreflight: true`.** High severity, **evidenced twice in the same working session** (T22 ATA-derivation bug, `two_sided`-pool cosigner-empty case) — both cost a real on-chain fee that a free client-side simulation would have caught. TX2 explicitly "broadens" M4; same open issue, two audits.
+2. **ME1 (Audit #9) — confirm-poll loops ignore the blockhash's real ~60–90s validity window, give up silently after ~15s, never re-broadcast.** High severity, official Solana docs directly contradict current behavior ("clients should keep resending... until expiry"). Three duplicated poll loops in `mmm-pool-lookup/page.tsx`.
+3. **DB1 (Audit #12) — `sale_events` UNIQUE(signature) cannot represent a multi-instruction/multi-sale transaction.** High severity *by mechanism* (any bundled marketplace "buy multiple" tx would silently and permanently lose every sale after the first) but **zero confirmed occurrence** in the current 104,849-row dataset. Needs a product/eng decision (parser contract + schema change), not a quick patch.
+4. **LF8 (Audit #11) — `sale`/`metaUpdate`/`rawpatch`/`remove` SSE channels have no replay/backfill buffer.** Medium severity but real, user-visible (feed reload/reconnect shows a silent gap with zero indication). Low implementation risk — `mint_meta`'s existing ring-buffer pattern in the same codebase is a direct template.
+5. **ME6 (Audit #9) — seller-net rent-refund inflation guard exists only in `parseMeV2Sale`, not `parseMmmSale`/`parseMeCnftSale`.** Medium severity, same bug class already confirmed and fixed once for the ME v2 path — a real regression risk if an MMM/cNFT sale ever closes an escrow/listing account in the same tx, currently unguarded.
+6. **M11 (Audit #8) + ME3 (Audit #9) — ME API failures and the whole bridge flow log nothing beyond `console.log`/status code; no response body, latency, or vendor telemetry anywhere.** Medium severity, directly evidenced by this session's own repeated need to manually re-run `curl` to see *why* ME rejected a request. Low implementation effort (one `await r.text()` line, matching an existing in-repo pattern).
+7. **DB4 (Audit #12) — no migrations-tracking ledger; `npm run migrate` is a fully manual step never wired into boot.** Medium, process/tooling gap that fails loud (not silent) today because all 19 migrations happen to be idempotent by convention, not by enforcement.
+8. **M8 (Audit #8) / ME5 (Audit #9) — duck-typed fake transaction object in the userscript's in-popup signer, confirmed non-compliant with the Wallet Standard's documented Uint8Array contract.** Medium on paper, but the existing fallback-to-VL-frontend path already absorbs the failure mode cleanly — lower real risk than its severity label suggests.
+9. **T4/T9 (Audit #5) → D7 (Audit #7) — DAS `FungibleAsset`+decimals=0+supply=1 admits Token-2022 (WNS) NFT-shaped tokens; validation step (confirm `token_info.token_program` is live) is now done, fix still not applied.** Unconfirmed in production; unblocked but not implemented per explicit operator scoping.
+10. **B1/B2/B3 (Audit #3) — Bubblegum V2 (`mintV2`) wrong tree index / missing MPL Noop / Merkle-tree-not-real-collection grouping.** High *if* Bubblegum V2 is ever adopted by a tracked launchpad, but currently zero production impact — contingent risk, correctly parked.
+
+### Deduplicated backlog (same underlying issue tracked under more than one Finding ID)
+
+| Underlying issue | Finding IDs (audit) | Status |
+|---|---|---|
+| No pre-send simulation / `skipPreflight: true` everywhere | M4 (#8), TX2 (#10) | Both Backlog — TX2 explicitly "broadens" M4, same fix would close both |
+| Blockhash lifecycle not honored across the send/confirm round-trip | M9 (#8, expiry mid-flow), ME1 (#9, confirm-poll ignores validity window) | Both Backlog — same transaction-lifecycle family, ME1 is the more severe/evidenced half |
+| ME bridge/API observability — console-only logging | M11 (#8, ME API failure logs), ME3 (#9, no telemetry anywhere in the flow) | Both Backlog — TX6 (#10, `buy-me.ts`'s `rejectLog()`) is cross-referenced in both as the *already-working* pattern to copy |
+| Duck-typed fake transaction object dependent on undocumented wallet behavior | M8 (#8) | ME5 (#9) is not a duplicate finding but an explicit doc-citation upgrade of M8 ("grounds Audit #8's M8 with an actual doc citation") — same open item, cite together |
+| Wildcard `'*'` `targetOrigin` on two no-payload postMessage pings | M7 (#8) | SEC5 (#13) re-audits and re-confirms the *identical* two call sites (`mmm-bridge.ts` PING, userscript READY) — literal duplicate across audits, not just related |
+| SQL-injection surface (zero found) | DB7 (#12) | SEC10 (#13) is an explicit cross-reference/re-confirmation, not independent verification — Compliant, no new work |
+| Token-2022 `FungibleAsset` admission gap in DAS classification | T4, T9 (#5) | D7 (#7) carries these forward — same open item, now unblocked (validation done) but still unfixed |
+| MPL Core + BubblegumV2 cross-protocol gap | C9 (#2) | B6 (#3) — C9 was explicitly deferred into B6 at Audit #3 time; not two separate open items, just one, tracked under B6 (which itself folds into B1+B2) |
+
+### Findings no longer relevant / already fully closed
+
+Every finding this file's own text proves was closed by a later commit is already marked `✅ Fixed` in its own audit section (21 total, see table above) — none require a status change per the "only change status if the file itself proves a later fix closed it" rule. No finding was found to be silently obsoleted by a later, differently-labeled fix. The two commit-hash citations noted above are a **documentation accuracy** issue, not a status error — SEC1 and SEC3 are correctly marked Fixed; only the specific hash text is stale.
+
+### Findings that should remain backlog intentionally (not oversights)
+
+- **M2, M3, M5, M10 (Audit #8)** — "Validation only", no fix proposed. These record that VL's entire MMM pool-sellability methodology rests on undocumented ME behavior (`.io` domain, `tokenStandard=4`, `poolType`/`cosigner`/`blockedAt` semantics) — accepted architectural risk since no documented alternative exists.
+- **DB1, DB2 (Audit #12)** — both explicitly flagged as needing a **product decision**, not a code patch: DB1 (multi-sale tx support) is a schema+parser-contract change; DB2 (`sale_events` retention) risks a **product regression** (loss of historical collection data) if "fixed" carelessly.
+- **B1–B7 (Audit #3, Bubblegum V2)** — correctly parked until a tracked launchpad actually adopts Bubblegum V2 `mintV2`; fixing now would be speculative engineering against an unconfirmed future.
+- **M8/ME5 (duck-typed tx object)** — the existing fallback path already handles the failure mode correctly; "fixing" this would mean removing a working optimization, not closing a gap.
+- **T4/T9/D7 (Token-2022 FungibleAsset gap)** — validation is complete, but the operator has not requested implementation; correctly held pending an explicit go-ahead.
+- **R9 (Audit #6)** — N/A/out-of-scope by design (the ingestion pipeline is read-only; blockhash/signing concerns belong to the MMM tool, audited separately in #9/#10).
+- **SEC11 (Audit #13)** — a handful of cheap/cached/bounded-input endpoints with no rate limiter; correctly low-priority given their current bounded implementations, worth revisiting only if their cost profile changes.
+
+### Next 5 recommended tasks
+
+Ranked by production risk × implementation risk × user impact × effort (highest combined priority first):
+
+1. **Turn off `skipPreflight: true` on the primary send paths and surface the simulation error before submit** (closes M4 + TX2). Highest production risk of anything open — two real, confirmed on-chain-fee losses already happened from exactly this gap in one session. Low implementation risk: flip a config value, reuse the existing "Transaction too large" friendly-error pattern for the new simulation-failure case. `phantom.ts` (frontend), `tools-mmm-pools.ts`'s `/send-tx` (backend), userscript — 3 call sites.
+2. **Add a bounded ring-buffer replay for the `sale` SSE channel** (closes LF8). Real user-visible gap (silent feed gaps on reload/reconnect), but the lowest-effort fix on this list — `mint_meta`'s buffer in `src/events/emitter.ts` is a direct, already-proven-in-this-codebase template to copy for `sale`/`metaUpdate`/`rawpatch`/`remove`.
+3. **Rewrite ME1's three duplicated confirm-poll loops to track the real blockhash `lastValidBlockHeight` and re-broadcast on a documented interval instead of giving up after a fixed ~15s.** Second-highest production risk open (High severity, official docs directly contradict current behavior), but higher implementation risk than #1/#2 — touches `mmm-pool-lookup/page.tsx`'s send flow directly; needs care not to regress the working sale path. Do after #1 (shares the same send/confirm surface).
+4. **Extend the seller-net rent-refund inflation guard from `parseMeV2Sale` to `parseMmmSale`/`parseMeCnftSale`** (closes ME6). Same bug class already proven real and fixed once for ME v2 — low effort (copy the existing guard), Medium severity, but meaningfully reduces the chance of a user-visible inflated-price display bug reappearing unguarded on MMM/cNFT sales.
+5. **Log the ME API failure response body + latency on the non-`ok` branch of `fetchBidAcceptTx`** (closes M11/ME3's most concrete sub-case). Lowest-effort item on this list (one `await r.text()` line, matching an existing truncated-body logging pattern already used elsewhere in the codebase) with immediate operator-facing payoff — directly would have saved this session's own repeated manual `curl` re-runs to diagnose ME rejections.
+
+**Explicitly not recommended next:** DB1 (needs a product decision on multi-item sale support before any code is written) and the Bubblegum V2 findings (B1–B7, correctly contingent on an adoption event that hasn't happened) — both are real but are scoping/decision items, not ready-to-implement tasks.
