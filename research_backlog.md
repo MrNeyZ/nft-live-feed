@@ -738,7 +738,7 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | Finding | Severity | Status | Notes |
 |---|---|---|---|
-| M1 | Critical | ✅ Fixed — commit `1b20c06` | Live Helius API key hardcoded in plaintext in the userscript, a client-side file distributed/readable by anyone who installs it |
+| M1 | Critical | ✅ Fixed — commit `6ce3ade` | Live Helius API key hardcoded in plaintext in the userscript, a client-side file distributed/readable by anyone who installs it |
 | M2 | High | Validation only | The only working sell path depends on an **undocumented domain** (`api-mainnet.magiceden.io`, not the documented `.dev`) and undocumented cookie-session auth, confirmed against official docs which document only `.dev` + Bearer token |
 | M4 | High | Backlog | `skipPreflight: true` on every send path means every malformed-tx failure (two of which were found and fixed this session — T22 ATA bug, two_sided cosigner-empty) costs a real on-chain fee instead of being caught for free by simulation |
 | M3 | Medium-High | Validation only | `tokenStandard=4` sent to `sol-fulfill-buy` for pNFT pools is confirmed absent from ME's documented parameter list |
@@ -771,7 +771,7 @@ This is the project's real, currently-active Helius API key (confirmed identical
 
 **Note — key rotation:** the fix removes the *code path* that exposed the key. The specific key value that was hardcoded (and has been visible in this session's own pasted logs) should still be rotated in Helius's dashboard and `.env` as a separate operational step; that is outside this repo's source control and was not done as part of this commit.
 
-**Status:** ✅ Fixed — commit `1b20c06`. `npm run build` (backend) and frontend `tsc --noEmit` + `next build` both clean.
+**Status:** ✅ Fixed — commit `6ce3ade`. `npm run build` (backend) and frontend `tsc --noEmit` + `next build` both clean.
 
 ---
 
