@@ -103,7 +103,7 @@ const LATEST_SQL = `
          raw_data->>'_parser' AS parser_source,
          ${SALE_TYPE_EXTRACTS}
   FROM sale_events
-  ORDER BY block_time DESC
+  ORDER BY block_time DESC, id DESC
   LIMIT $1
 `;
 
@@ -124,7 +124,7 @@ const BY_COLLECTION_SQL = `
   FROM sale_events
   WHERE me_collection_slug = $1
     AND block_time >= $2
-  ORDER BY block_time DESC
+  ORDER BY block_time DESC, id DESC
   LIMIT $3
 `;
 
@@ -140,7 +140,7 @@ const BY_COLLECTION_NO_WINDOW_SQL = `
          ${SALE_TYPE_EXTRACTS}
   FROM sale_events
   WHERE me_collection_slug = $1
-  ORDER BY block_time DESC
+  ORDER BY block_time DESC, id DESC
   LIMIT $2
 `;
 

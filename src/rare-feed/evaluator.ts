@@ -310,7 +310,7 @@ async function bootReplay(): Promise<void> {
         WHERE se.block_time >= now() - ($1 || ' minutes')::interval
           AND se.mint_address IS NOT NULL AND se.mint_address <> ''
           AND rf.sale_signature IS NULL
-        ORDER BY se.block_time DESC
+        ORDER BY se.block_time DESC, se.id DESC
         LIMIT $2`,
       [String(BOOT_REPLAY_MIN), BOOT_REPLAY_LIMIT],
     );

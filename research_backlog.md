@@ -31,6 +31,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 9 | Magic Eden Integration Compliance (bridge lifecycle, retries, confirmation, sale parser) | Complete | 2026-07-03 |
 | 10 | Solana Transaction Lifecycle, Wallet, Signing & Sending Architecture | Complete | 2026-07-03 |
 | 11 | Live Feed Architecture & Event Completeness | Complete | 2026-07-03 |
+| 12 | Postgres / Database Consistency, Idempotency, Retention & Query Performance | Complete | 2026-07-03 |
 
 ---
 
@@ -1836,3 +1837,294 @@ Node's global `fetch` (undici) has no default request timeout — an unresponsiv
 **Fix:** None needed.
 
 **Status:** Compliant — no action.
+
+---
+
+## Audit #12 — Postgres / Database Consistency, Idempotency, Retention & Query Performance
+
+**Scope:** Audit-only, no code changes. Postgres as source of truth for `sale_events`, `mint_events`, `rare_feed_events`, `mint_rarity_cache`, `mint_resize_status`, `collection_created`, `collection_catalog`, `poller_state`.
+
+**Sources:**
+- Official docs: `postgresql.org/docs/current/sql-insert.html` (ON CONFLICT / UPSERT semantics), `postgresql.org/docs/current/sql-createindex.html` (CONCURRENTLY restrictions), `postgresql.org/docs/current/routine-vacuuming.html` (autovacuum), `node-postgres.com/apis/pool` (Pool config + error event), `solana.com/docs/core/transactions` (multi-instruction transaction model).
+- VL codebase: all 19 files in `src/db/migrations/`, `src/db/client.ts`, `src/db/insert.ts`, `src/db/queries.ts`, `src/db/poller-state.ts`, `src/db/blocked-mint-cache.ts`, `src/db/resize-status.ts`, `src/db/collection-created.ts`, `src/db/migrate.ts`, `src/mints/event-store.ts`, `src/rare-feed/store.ts`, `src/rare-feed/rarity.ts`, `src/rare-feed/evaluator.ts`, `src/server/collection-stats.ts`, `src/server/listings-store.ts`, `src/server/tools-trending-collections.ts`, full-repo greps for transaction usage, SQL-injection surface, and pagination patterns.
+- Live read-only inspection of the production database (`\dt`, `\di`, `pg_stat_user_tables`, and `EXPLAIN` / `EXPLAIN ANALYZE` on real hot-query shapes with real parameter values). No destructive SQL, no `VACUUM`/`ANALYZE` run, no migrations run, no writes performed.
+
+**Findings use prefix DB.**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| DB1 | High | Backlog | `sale_events` unique constraint is `signature`-only; a transaction with more than one sale instruction would have every sale after the first silently dropped — both at parse time (single-object `ParseResult`, no array) and reinforced by `ON CONFLICT (signature) DO NOTHING` |
+| DB2 | Medium | Validation only | `sale_events` has no retention policy, unlike `mint_events` (7d), `rare_feed_events` (7d), `mint_rarity_cache` (14d) — likely intentional (it's the collection-history source of truth), but never explicitly decided |
+| DB3 | High | ✅ Fixed — commit `44f6659` | `ORDER BY block_time DESC` with no secondary tiebreaker in `queries.ts` / `collection-*.ts`; confirmed **11,269 groups of rows sharing an identical `block_time`** in production (one group 62 rows wide) — real, not theoretical, ordering/pagination ambiguity |
+| DB4 | Medium | Backlog | No migrations-tracking table; `npm run migrate` is a fully manual step never invoked from `src/index.ts` boot — safety today depends entirely on every migration file being hand-written idempotent (true for all 19 today, but unenforced) |
+| DB5 | — | Compliant | No explicit `BEGIN`/`COMMIT` anywhere in the codebase — but every multi-step write is deliberately fail-soft (a failed enrichment `UPDATE` never diverges DB state from the SSE frame already sent), so per-statement autocommit atomicity is sufficient for the design |
+| DB6 | — | Compliant | SSE emission verified to happen only after the awaited `pool.query()` resolves, across all three write paths (`insertSaleEvent`, `patchSaleEventRaw`, `applyEnrichment`) — see also Audit #11 LF7 (idempotency gate) / LF8 (no replay buffer, tracked separately, not re-litigated here) |
+| DB7 | — | Compliant | Zero SQL-injection surface — exhaustive grep of every `req.query`/`req.params`/`req.body` consumer found no request-derived value interpolated into SQL text; sort/filter fields are allow-listed enums or regex-sanitized, all values otherwise passed as `$n` bind parameters |
+| DB8 | — | Compliant | Vacuum/bloat: current dead-tuple ratios (`sale_events` 8.3%, `mint_events` 18%) and `last_autovacuum`/`last_autoanalyze` timestamps are healthy at present volume; no per-table storage-parameter overrides needed today |
+| DB9 | — | Compliant | Failure recovery + source-of-truth: every in-memory acceleration structure found (poller cursor, blocked-mint cache, resize-status, collection-created, mint_events ring, rare-feed events + `bootReplay`) has a corresponding DB-backed boot preload/hydration path — no purely in-memory-only marker exists that would silently lose state across a restart |
+| DB10 | — | Compliant | `CREATE INDEX CONCURRENTLY` (migration 014) correctly respects the documented "cannot run inside a transaction block" restriction, via the migration runner's one-statement-per-file execution model — already self-documented in the migration's own comment |
+| DB11 | Low | Informational | Per-collection hot queries (`collection-stats.ts`, seller-remaining-count range `UPDATE`) rely on Postgres combining two single-column indexes (`BitmapAnd`) rather than a matching composite index; `EXPLAIN` confirms this is cheap at the current ~105K-row scale — a scale watchpoint, not a current problem |
+
+---
+
+### Finding DB1 — `sale_events` unique(signature) cannot represent a multi-sale transaction
+
+**Severity:** High
+
+**Evidence from official documentation:**
+- `solana.com/docs/core/transactions`: *"A transaction includes one or more instructions... The network processes all instructions in a transaction together."* — a single transaction/signature can legitimately contain more than one sale-type instruction (e.g., a marketplace "buy multiple" cart checkout bundling several `BuyV2`/`BuyNft`-style instructions into one signed transaction).
+- `postgresql.org/docs/current/sql-insert.html`: *"ON CONFLICT DO NOTHING simply avoids inserting a row... if an arbiter constraint or index specified by conflict_target is violated."* — the arbiter here is `sale_events_signature_key` (UNIQUE on `signature` alone, migration 001), so **any** second row sharing that signature is dropped, regardless of whether it represents a genuinely different sale (different mint/seller/buyer/price).
+
+**Evidence from current VictoryLabs code/schema:**
+- `src/db/migrations/001_initial.sql:3`: `signature TEXT NOT NULL UNIQUE` — the only uniqueness arbiter on the table.
+- `src/db/insert.ts` `INSERT_SQL` (`insert.ts:204-213`): `ON CONFLICT (signature) DO NOTHING RETURNING id`.
+- Every raw-tx parser (`src/ingestion/me-raw/parser.ts` `parseRawMeTransaction`, and the sibling Tensor/Helius parsers) returns a single `ParseResult` / `SaleEvent | null` — grep for a `SaleEvent[]`-returning parser function across `src/ingestion/**` found zero matches, and grep for `instructionIndex`/`instruction_index`/`ixIndex` across `src/ingestion`, `src/models`, `src/db` found zero matches. The pipeline has no concept of "the Nth sale within this signature" anywhere.
+- Contrast with `mint_events`, which already learned this exact lesson: migration 008 keys on `UNIQUE (signature, mint_address)` specifically so a single transaction minting multiple distinct assets is captured per-asset, not collapsed to one row.
+
+**Root cause:** `sale_events`' identity model was designed assuming one sale per signature. Nothing in the ingestion pipeline — not the parsers, not the event model, not the DB constraint — carries an instruction-level discriminator the way `mint_events` does for mints.
+
+**Impact:** If any tracked marketplace ever bundles more than one NFT sale into a single signed transaction, every sale after the first is silently and permanently lost — not queued, not logged as a conflict, not visible anywhere. This is a genuine, demonstrable capability of the pipeline's data model (confirmed via code + Solana's own multi-instruction transaction model), not a hypothetical protocol quirk. No specific missed sale has been confirmed in the current 104,849-row dataset during this audit (that would require independently reconciling against a marketplace's own trade history, which is out of scope for a DB-layer audit) — so this is reported as a real, evidenced mechanism, not a confirmed incident.
+
+**Minimal production-safe fix:** Not applied (audit only). If ever pursued: parsers would need to return `SaleEvent[]` instead of a single object, and `sale_events` would need a composite arbiter (e.g., `UNIQUE (signature, mint_address)`, mirroring `mint_events`) instead of `UNIQUE (signature)` alone. This is a real schema + parser-contract change, not a one-line fix — flagged for a deliberate decision, not immediate action.
+
+**Status:** Backlog — needs a product/eng decision on whether bundled multi-item sales are worth the parser-contract change, not a quick patch.
+
+---
+
+### Finding DB2 — `sale_events` has no retention policy
+
+**Severity:** Medium
+
+**Evidence from current VictoryLabs code/schema:**
+- `mint_events` (migration 008 comment + `src/mints/event-store.ts:129-136`): `DELETE FROM mint_events WHERE created_at < now() - ($1 || ' days')::interval`, `MINT_EVENTS_RETENTION_DAYS` default 7, cleaned up daily.
+- `rare_feed_events` / `mint_rarity_cache` (`src/rare-feed/store.ts:131-138`, `src/rare-feed/rarity.ts:38-41,159-160`): same pattern, 7d and 14d respectively, cleaned up every 6 hours.
+- `sale_events`: no `DELETE`, no retention env var, no cleanup job anywhere in the codebase (confirmed via repo-wide grep for `DELETE FROM sale_events` — the only two hits are the per-signature blacklist/cNFT-floor deletes in `src/db/insert.ts:173,446`, not a retention sweep).
+- Live inspection: `sale_events` currently holds 104,849 rows / 114 MB, spanning `block_time` from **2022-04-12** to today (2026-07-03) — over four years of history, versus `mint_events`' 7-day and `rare_feed_events`' 7-day windows.
+
+**Root cause:** `sale_events` predates the retention pattern that was later added to `mint_events` and the Rare Feed tables; the pattern was never retrofitted onto the original table.
+
+**Impact:** Unbounded growth going forward — currently modest (114 MB for 4+ years, ~26 MB/year at present volume), so no near-term operational risk. However, unlike `mint_events` (a sampled *feed display* cache the product explicitly treats as disposable after 7 days) and `rare_feed_events`/`mint_rarity_cache` (derived caches), `sale_events` is the actual historical record `collection-trade-history` and the Collection drill-down pages read from — deleting old rows here would be a **product** regression (loss of historical sales data), not a pure hygiene win. This needs an explicit decision, not an automatic fix.
+
+**Minimal production-safe fix:** Not applied. If retention is ever desired, it should be scoped very differently from the other tables (e.g., archive-to-cold-storage or JSONB `raw_data` truncation for old rows, rather than row deletion) given the display dependency. If retention is *not* wanted, that should be recorded explicitly (e.g., a one-line comment on the table) so a future audit doesn't re-flag it as "missing."
+
+**Status:** Validation only — flagging for an explicit intentional-vs-missing decision, not a code fix.
+
+---
+
+### Finding DB3 — `ORDER BY block_time DESC` has no secondary sort key, and production data proves ties are common
+
+**Severity:** High
+
+**Evidence from official documentation:**
+- PostgreSQL's `SELECT` documentation (general `ORDER BY` semantics): rows that compare equal on all specified sort expressions are returned in an implementation-dependent order that can vary between executions of the same query (no stability guarantee is made for tied rows without an additional tiebreaker column).
+
+**Evidence from current VictoryLabs code/schema:**
+- `src/db/queries.ts` — `LATEST_SQL`, `BY_COLLECTION_SQL`, `BY_COLLECTION_NO_WINDOW_SQL`: all three end in `ORDER BY block_time DESC` with a bare `LIMIT $n`, no secondary key.
+- Same pattern in `src/server/collection-icon.ts:75`, `collection-meta.ts:108`, `collection-chart.ts:68`, `collection-search.ts` (`array_agg(... ORDER BY block_time DESC)`), `rare-feed/evaluator.ts:313`, `scripts/backfill-mmm-legacy-takebid-buyer.ts:214`, `scripts/backfill-me-v2-logprice.ts:162`.
+- Contrast with `src/mints/event-store.ts:100` (`ORDER BY block_time DESC NULLS LAST, id DESC`) and `src/rare-feed/store.ts:99` (`ORDER BY rf.sale_time DESC NULLS LAST, rf.id DESC`) — both siblings already learned to add a tiebreaker; `sale_events`' own read paths never got the same treatment.
+- **Live confirmation** (read-only `GROUP BY block_time HAVING count(*) > 1` on production `sale_events`): **11,269 distinct `block_time` values are shared by 2+ rows**, the largest group being **62 rows with the identical timestamp**. This is not a theoretical edge case — it is the normal state of the table today.
+
+**Root cause:** `block_time` is sourced from Solana's `blockTime` (whole-second Unix time) across a multi-marketplace, multi-program aggregator; many unrelated sales across different collections/programs land in the same second under real traffic. `LIMIT`-only "latest N" queries and the by-collection window queries never break these ties deterministically.
+
+**Impact:** A client that pages by repeatedly calling `getLatestEvents(limit)` or reloads `/api/events/latest`/`/collection` endpoints across two ties spanning a `LIMIT` boundary can receive a different subset of the tied rows on each call — a row can appear to vanish from one response and reappear in another, or two different page loads can render the "same" latest-N set in a different order. Since the underlying `sale_events` row is never lost (Postgres itself is fine), this is a display/consistency risk, not a data-loss risk — but it is real and currently happening at meaningful frequency.
+
+**Minimal production-safe fix:** Add a secondary sort key mirroring the already-proven in-repo pattern, e.g. `ORDER BY block_time DESC, id DESC` (or `ingested_at DESC` if insertion order is preferred as the tiebreaker) in `queries.ts`'s three SQL constants and the by-collection read paths. Purely additive to the `ORDER BY` clause — no schema change, no index change required (existing `sale_events_block_time_idx` still applies; `id` is the PK and trivially available for the tiebreak).
+
+**Status:** ✅ Fixed — commit `44f6659`. Added `, id DESC` to every hot production read path ordering `sale_events` by `block_time DESC` alone:
+- `src/db/queries.ts` — `LATEST_SQL`, `BY_COLLECTION_SQL`, `BY_COLLECTION_NO_WINDOW_SQL`
+- `src/server/collection-icon.ts` (latest-image lookup)
+- `src/server/collection-meta.ts` (`fetchNameFromDb`)
+- `src/server/collection-chart.ts` (`CHART_SQL`)
+- `src/rare-feed/evaluator.ts` (`bootReplay` anti-join query, `se.id DESC`)
+- `src/server/collection-search.ts` (`array_agg(image_url ORDER BY block_time DESC, id DESC)`)
+
+`src/server/runtime.ts` and `src/mints/event-store.ts` already had `id DESC` and were left untouched. Two one-off manual backfill scripts (`src/scripts/backfill-mmm-legacy-takebid-buyer.ts`, `src/scripts/backfill-me-v2-logprice.ts`) were intentionally left as-is — they are not hot read paths (run once, offline, by an operator), out of this fix's scope. No filtering, pagination shape, schema, or indexes were changed; `tsc` build verified clean, and both a plain-row and an `array_agg`-inside-aggregate variant of the new `ORDER BY` were validated with a read-only `EXPLAIN` against the live production schema.
+
+---
+
+### Finding DB4 — No migrations-tracking table; `npm run migrate` is a manual, non-boot-wired step
+
+**Severity:** Medium
+
+**Evidence from official documentation:**
+- `postgresql.org/docs/current/sql-createindex.html`: confirms `CREATE INDEX CONCURRENTLY` "cannot be performed within a transaction block" — relevant because VL's migration runner's one-file-per-statement model is what makes migration 014 safe (see DB10); the same runner has no applied-migrations ledger, so it re-executes every `.sql` file's *text* on every invocation and relies entirely on each file's own idempotency.
+
+**Evidence from current VictoryLabs code/schema:**
+- `src/db/migrate.ts:14-24`: reads every file in `migrations/`, sorted, and runs `await pool.query(sql)` for each — no `schema_migrations`/`pgmigrations`-style ledger table, no check for "already applied."
+- `package.json:10`: `"migrate": "ts-node src/db/migrate.ts"` — a standalone script.
+- `src/index.ts` boot sequence (DB ping → `createApp()` → `startListener()` → `startAmmPoller()`): grep for `migrate` in `src/index.ts` returns zero matches — migration is never invoked automatically on backend start/restart/deploy.
+- All 19 existing migration files use `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (verified by reading all 19 files) — which is *why* re-running everything is safe today.
+
+**Root cause:** The migration runner was built as "run every file, make every file idempotent" rather than "track which files have run." This works as long as the convention holds, but nothing enforces it.
+
+**Impact:** Two related risks, both process/tooling rather than data-corruption: (1) a deploy that ships code depending on a new column requires a human to remember to run `npm run migrate` separately — if forgotten, every write referencing the new column fails immediately and loudly (a hard Postgres "column does not exist" error, not silent corruption, so this fails fast rather than fails silent); (2) if a future migration is ever written without `IF NOT EXISTS` (e.g., a one-time data backfill `INSERT`, or a `DROP COLUMN`), re-running all files on the next `npm run migrate` invocation would either error or duplicate data — there is no ledger to prevent re-execution.
+
+**Minimal production-safe fix:** Not applied (audit only). If addressed: a minimal applied-migrations ledger table (filename + applied_at) checked before each file runs would remove the "re-run everything, hope it's idempotent" dependency without changing the existing plain-`.sql`-file authoring model.
+
+**Status:** Backlog — real process gap, no confirmed incident; today's convention (universal `IF NOT EXISTS`) has held for all 19 migrations.
+
+---
+
+### Finding DB5 — No explicit transactions anywhere; compliant given the fail-soft design
+
+**Severity:** — (Compliant)
+
+**Evidence from official documentation:** `postgresql.org/docs/current/sql-insert.html` / general Postgres transaction semantics — each individually-sent, single-statement `pool.query(sql, params)` call is auto-committed atomically on its own; no partial-statement failure is possible within one call.
+
+**Evidence from current VictoryLabs code/schema:** Repo-wide grep for `BEGIN`, `COMMIT`, `ROLLBACK`, and `pool.connect(` across `src/**/*.ts` (excluding tests) returned zero matches — no explicit multi-statement transaction exists anywhere in the codebase. Multi-step sequences like `insertSaleEvent`'s INSERT followed later by `UPDATE_META_SQL` (`src/db/insert.ts:461-471`) are two independent auto-committed statements. Critically, `applyEnrichment`'s `try/catch` (`insert.ts:432-509`) means a failed `UPDATE_META_SQL` is caught, logged, and **never reaches** `saleEventBus.emitMetaUpdate(...)` — so a DB write failure and the SSE broadcast fail *together*, never diverging.
+
+**Root cause / behavior:** The architecture is intentionally "insert now, enrich later, fail-soft" (per `insert.ts`'s own comments: "MUST NOT throw or block"). Atomicity is achieved per-statement, and the fail-soft catch blocks ensure a failed follow-up write never leaves the SSE-visible state ahead of the DB-visible state.
+
+**Impact:** None identified. The one theoretical gap — an enrichment `UPDATE` succeeding in the DB but the process crashing before `emitMetaUpdate` fires — would leave a row correctly enriched in Postgres but never announced over SSE for that specific card; the next reload/REST fetch would still show the correct enriched data, since Postgres is the source of truth read on every fresh load.
+
+**Fix:** None needed.
+
+**Status:** Compliant — explicit transactions are not required for this design; the fail-soft pattern is the correct simpler alternative.
+
+---
+
+### Finding DB6 — SSE emission consistently gated on awaited DB write success
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code/schema:** All three write→emit paths in `src/db/insert.ts` await the `pool.query(...)` call and inspect its result before emitting: `insertSaleEvent` checks `result.rows[0]?.id` before calling `emitSaleFrame` (`insert.ts:291-336`); `patchSaleEventRaw` awaits `PATCH_RAW_SQL` before `emitRawPatch` (`insert.ts:178-196`); `applyEnrichment` awaits `UPDATE_META_SQL` before `emitMetaUpdate` (`insert.ts:461-492`). No code path emits before its corresponding write settles.
+
+**Root cause / behavior:** This is the same idempotency-gate pattern already verified in Audit #11 Finding LF7 (`ON CONFLICT ... RETURNING id` gates emission end-to-end for duplicate signatures) — this audit re-confirms it holds for the enrichment/patch paths too, not just the initial insert.
+
+**Impact:** None — a duplicate or failed write can never produce a phantom SSE frame with no backing DB row.
+
+**Note:** Audit #11 Finding LF8 (sale-side SSE channels have no replay/backfill buffer, no `Last-Event-ID` support) remains open and is **not** re-litigated here — it is a live-fan-out/reconnect concern already tracked in that audit's backlog, distinct from this audit's write-then-emit ordering check.
+
+**Status:** Compliant — no action from this audit; see Audit #11 LF8 for the separate, already-tracked replay-buffer gap.
+
+---
+
+### Finding DB7 — No SQL-injection surface found
+
+**Severity:** — (Compliant)
+
+**Evidence from official documentation:** `node-postgres` parameterized queries (`pool.query(sql, params)`) send `params` via the extended query protocol as bind values, never string-interpolated into the SQL text — the standard, documented mitigation for SQL injection.
+
+**Evidence from current VictoryLabs code/schema:** Repo-wide grep for any SQL string built via template-literal interpolation of a request-derived value (`` `...${req... ` `` patterns inside `SELECT`/`WHERE`/`ORDER BY` clauses) returned zero matches across `src/server/**`. Every endpoint accepting a sort/filter/direction parameter (`src/server/tools-trending-collections.ts:96-121`) validates against a fixed enum (`inEnum(rangeRaw, TRENDING_RANGES)`, etc.) and returns `400` on anything else *before* the value ever reaches a query. Slug-like parameters elsewhere (`tools-mmm-pools.ts:1693,1868`) are further regex-sanitized (`.replace(/[^a-z0-9_-]/g, '')`). The one template-literal `LIMIT ${MINT_TO_SLUG_MAX}` in `listings-store.ts:391` interpolates a hardcoded numeric constant (`50_000`), never a request value.
+
+**Root cause / behavior:** Consistent use of parameterized queries plus allow-list validation at the API boundary for the few endpoints that accept sort/filter fields.
+
+**Impact:** None.
+
+**Status:** Compliant — no action needed.
+
+---
+
+### Finding DB8 — Vacuum/bloat risk is currently well-managed
+
+**Severity:** — (Compliant)
+
+**Evidence from official documentation:** `postgresql.org/docs/current/routine-vacuuming.html` — recommends "moderately-frequent standard VACUUM runs" for heavily-updated tables and notes autovacuum thresholds may need per-table tuning "for your situation."
+
+**Evidence from current VictoryLabs code/schema — live inspection (`pg_stat_user_tables`):**
+```
+relname             n_live_tup  total_size  n_dead_tup  last_autovacuum         last_autoanalyze
+sale_events         104849      114 MB      8718        2026-06-29 19:18:10+00  2026-07-02 16:06:09+00
+mint_rarity_cache   15653       39 MB       251         2026-07-03 05:06:19+00  2026-07-03 05:06:19+00
+mint_events         11957       21 MB       2151        2026-07-02 03:21:36+00  2026-07-03 09:55:22+00
+```
+No table has a custom `autovacuum_vacuum_scale_factor`/threshold override (default reliance confirmed — no `ALTER TABLE ... SET (autovacuum_...)` anywhere in the migrations). Dead-tuple ratios are ≤18% across the update-heaviest tables, and `last_autovacuum`/`last_autoanalyze` timestamps are recent relative to today (2026-07-03).
+
+**Root cause / behavior:** Default autovacuum settings are keeping pace with the current UPDATE-churn sources (`patchSaleEventRaw`, `updateSellerRemainingCount(ByCollection)`, `mint_events` `PATCH_SQL`, `mint_resize_status`'s upsert) at present volume.
+
+**Impact:** None currently. Worth monitoring — not fixing — if `sale_events` write volume grows an order of magnitude, since it is both the most row-heavy table and one of the update targets.
+
+**Fix:** None needed now.
+
+**Status:** Compliant — monitor, no action.
+
+---
+
+### Finding DB9 — Postgres is consistently the source of truth; every in-memory structure has a DB-backed recovery path
+
+**Severity:** — (Compliant)
+
+**Evidence from current VictoryLabs code/schema:** Every in-memory acceleration/state structure found during this audit has a corresponding DB-backed boot preload or hydration path, so a process restart never permanently loses state:
+- Poller cursors: `poller_state` table, read via `getLastSig` on every poll (`src/db/poller-state.ts`).
+- Blacklist short-circuit cache: `preloadBlockedMintsFromDb` re-derives it from `sale_events` on boot (`src/db/blocked-mint-cache.ts:98-128`).
+- Resize-status cache: `loadAllResizeStatuses` hydrates from `mint_resize_status` on resolver boot (`src/db/resize-status.ts:49-72`).
+- Collection-created cache: `loadAllCollectionCreated` hydrates from `collection_created` on boot (`src/db/collection-created.ts:15-25`).
+- Mint Tracker ring + meta buffer: `startMintEventPersistence` hydrates both from `mint_events` on boot (`src/mints/event-store.ts:140-158`).
+- Rare Feed: `bootReplay` re-evaluates recent undecided sales via an anti-join against `rare_feed_events` (`src/rare-feed/evaluator.ts:301-348`), explicitly designed to recover state lost when "the `sale`→`meta` correlation was lost when the process restarted mid-flight."
+- Mint→slug index: one-time boot preload from `sale_events` (`src/server/listings-store.ts:378-399`).
+
+No purely in-memory-only marker (a cache with no DB-backed recovery path) was found anywhere in the audited code.
+
+**Root cause / behavior:** This matches CLAUDE.md's stated architecture ("Backend is the source of truth... Postgres `sale_events` (single source of truth)"), and this audit confirms the claim holds structurally, not just as a stated intent — the frontend/SSE layer never becomes the only durable record of an event; a restart always recovers to the same state Postgres holds.
+
+**Impact:** None — this is the correct pattern, consistently applied.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding DB10 — `CREATE INDEX CONCURRENTLY` correctly respects the transaction-block restriction
+
+**Severity:** — (Compliant)
+
+**Evidence from official documentation:** `postgresql.org/docs/current/sql-createindex.html`: *"a regular CREATE INDEX command can be performed within a transaction block, but CREATE INDEX CONCURRENTLY cannot."*
+
+**Evidence from current VictoryLabs code/schema:** `src/db/migrations/014_sale_events_me_collection_slug_index.sql` is the only migration using `CONCURRENTLY`, and its own comment explicitly documents why it's safe: *"`src/db/migrate.ts` runs each `.sql` file via `pool.query()` as a single statement (no BEGIN/COMMIT wrapping), so CONCURRENTLY is safe here."* Confirmed by reading `migrate.ts` (`for (const file of files) { ... await pool.query(sql); }` — one file, one `pool.query` call, no surrounding transaction) and confirming migration 014 contains exactly one SQL statement.
+
+**Root cause / behavior:** The migration author already reasoned through the exact documented restriction and structured both the migration file and the runner to respect it.
+
+**Impact:** None — correctly implemented. Worth flagging only that this correctness is currently incidental to "one statement per migration file" being the house style rather than an enforced rule (see DB4) — a future migration file that combined `CONCURRENTLY` with other statements in the same file would break this invariant.
+
+**Fix:** None needed now; covered by the same ledger recommendation as DB4 if ever implemented (a migration runner that understood statement boundaries would prevent this by construction).
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding DB11 — Per-collection hot queries lean on `BitmapAnd` of two single-column indexes rather than a composite index
+
+**Severity:** Low
+
+**Evidence from current VictoryLabs code/schema — live `EXPLAIN`:**
+- `collection-stats.ts` `STATS_SQL` (`WHERE me_collection_slug = $1 AND block_time >= NOW() - INTERVAL '7 days'`) uses `Bitmap Index Scan on sale_events_me_collection_slug_idx` directly — single-index, already optimal (migration 014 was purpose-built for this).
+- `updateSellerRemainingCountByCollection`'s range `UPDATE` (`WHERE seller = $2 AND collection_address = $3 AND block_time >= NOW() - interval '24 hours'`) — live `EXPLAIN` on production data:
+```
+Update on sale_events  (cost=35.45..55.22 rows=1)
+  ->  Bitmap Heap Scan on sale_events
+        Recheck Cond: (collection_address = ... AND block_time >= ...)
+        Filter: (seller = ...)
+        ->  BitmapAnd
+              ->  Bitmap Index Scan on sale_events_collection_idx
+              ->  Bitmap Index Scan on sale_events_block_time_idx
+```
+No index exists on `seller` alone or as part of a composite; the planner combines the `collection_address` and `block_time` indexes via `BitmapAnd` and filters `seller` during the recheck.
+
+**Root cause / behavior:** No composite index (`collection_address, block_time`) or (`seller, collection_address`) exists; Postgres compensates via `BitmapAnd` over the two single-column indexes that do exist.
+
+**Impact:** None currently — `EXPLAIN` cost is ~55 (cheap) at the present ~105K-row scale, and this query is a fire-and-forget background `UPDATE`, not a user-facing latency-sensitive path. Would be worth revisiting if `sale_events` grows an order of magnitude and this specific access pattern's cost grows non-linearly.
+
+**Minimal production-safe fix:** None needed now. If ever revisited: a composite index on `(collection_address, block_time)` would let this query (and `collection-chart.ts`/`collection-meta.ts`'s similar per-collection-address scans) use a single index scan instead of a bitmap AND — but current cost does not justify the write-amplification tradeoff yet.
+
+**Status:** Informational — scale watchpoint, no action needed today.
+
+---
+
+## Audit #12 summary
+
+**Real, fixable production risks identified:**
+- **DB3** (ordering — no secondary sort key on `sale_events` reads) — **High**, confirmed by live data (11,269 tied-timestamp groups). ✅ **Fixed** — commit `44f6659`.
+- **DB1** (`sale_events` unique(signature) can't represent multi-sale transactions) — **High** by mechanism, but requires a parser-contract + schema change, not a quick patch. **Backlog**, needs a product decision on whether multi-item marketplace bundles are worth tracking.
+- **DB4** (no migrations ledger, manual `npm run migrate`) — **Medium**, process/tooling gap, fails loud not silent. **Backlog**.
+- **DB2** (`sale_events` has no retention) — **Medium**, but likely *should* stay unbounded given its role as the historical record for collection pages — **flag for an explicit decision**, not an automatic delete job.
+
+**Confirmed compliant, no action needed:** DB5 (transaction boundaries — fail-soft design is appropriate), DB6 (SSE-after-commit ordering), DB7 (no SQL-injection surface), DB8 (vacuum/bloat currently healthy), DB9 (Postgres consistently the source of truth, every cache has a DB-backed recovery path), DB10 (`CONCURRENTLY` correctly used).
+
+**Recorded as a scale watchpoint, not a defect:** DB11 (composite-index opportunity, cheap today).
+
+**Ranking by production risk (highest first):** DB3 > DB1 > DB4 > DB2 > DB11 > (DB5–DB10 compliant).
+
+**Recommended to fix immediately:** DB3 only — a one-line, additive `ORDER BY` tiebreaker change with a confirmed real-world trigger and zero downside. Everything else in this audit is either compliant, a deliberate product decision (DB2), or a larger architectural change warranting explicit sign-off before implementation (DB1, DB4).
+
+**Update:** DB3 applied — see commit `44f6659` ("fix(db): make sale ordering deterministic"). DB1, DB2, DB4, DB11 remain intentionally unimplemented per explicit scope instruction.

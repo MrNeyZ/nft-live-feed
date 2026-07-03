@@ -72,7 +72,7 @@ async function fetchIcon(slug: string): Promise<string | null> {
            FROM sale_events
           WHERE me_collection_slug = $1
             AND image_url IS NOT NULL
-          ORDER BY block_time DESC
+          ORDER BY block_time DESC, id DESC
           LIMIT 1`,
         [slug],
       );

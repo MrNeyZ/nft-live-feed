@@ -65,7 +65,7 @@ const CHART_SQL = `
   WHERE me_collection_slug = $1
     AND block_time >= $2
     AND price_sol > 0
-  ORDER BY block_time DESC
+  ORDER BY block_time DESC, id DESC
   LIMIT $3
 `;
 

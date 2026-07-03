@@ -105,7 +105,7 @@ async function fetchNameFromDb(slug: string): Promise<string | null> {
          FROM sale_events
         WHERE me_collection_slug = $1
           AND collection_name IS NOT NULL
-        ORDER BY block_time DESC
+        ORDER BY block_time DESC, id DESC
         LIMIT 1`,
       [slug],
     );

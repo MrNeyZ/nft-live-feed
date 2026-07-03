@@ -42,7 +42,7 @@ const DB_SEARCH_SQL = `
   SELECT
     me_collection_slug AS slug,
     MAX(collection_name) AS name,
-    (array_agg(image_url ORDER BY block_time DESC) FILTER (WHERE image_url IS NOT NULL))[1] AS image_url,
+    (array_agg(image_url ORDER BY block_time DESC, id DESC) FILTER (WHERE image_url IS NOT NULL))[1] AS image_url,
     COUNT(*)::int AS freq
   FROM sale_events
   WHERE me_collection_slug IS NOT NULL
