@@ -1855,7 +1855,7 @@ Node's global `fetch` (undici) has no default request timeout — an unresponsiv
 |---|---|---|---|
 | DB1 | High | Backlog | `sale_events` unique constraint is `signature`-only; a transaction with more than one sale instruction would have every sale after the first silently dropped — both at parse time (single-object `ParseResult`, no array) and reinforced by `ON CONFLICT (signature) DO NOTHING` |
 | DB2 | Medium | Validation only | `sale_events` has no retention policy, unlike `mint_events` (7d), `rare_feed_events` (7d), `mint_rarity_cache` (14d) — likely intentional (it's the collection-history source of truth), but never explicitly decided |
-| DB3 | High | ✅ Fixed — commit `44f6659` | `ORDER BY block_time DESC` with no secondary tiebreaker in `queries.ts` / `collection-*.ts`; confirmed **11,269 groups of rows sharing an identical `block_time`** in production (one group 62 rows wide) — real, not theoretical, ordering/pagination ambiguity |
+| DB3 | High | ✅ Fixed — commit `8226e32` | `ORDER BY block_time DESC` with no secondary tiebreaker in `queries.ts` / `collection-*.ts`; confirmed **11,269 groups of rows sharing an identical `block_time`** in production (one group 62 rows wide) — real, not theoretical, ordering/pagination ambiguity |
 | DB4 | Medium | Backlog | No migrations-tracking table; `npm run migrate` is a fully manual step never invoked from `src/index.ts` boot — safety today depends entirely on every migration file being hand-written idempotent (true for all 19 today, but unenforced) |
 | DB5 | — | Compliant | No explicit `BEGIN`/`COMMIT` anywhere in the codebase — but every multi-step write is deliberately fail-soft (a failed enrichment `UPDATE` never diverges DB state from the SSE frame already sent), so per-statement autocommit atomicity is sufficient for the design |
 | DB6 | — | Compliant | SSE emission verified to happen only after the awaited `pool.query()` resolves, across all three write paths (`insertSaleEvent`, `patchSaleEventRaw`, `applyEnrichment`) — see also Audit #11 LF7 (idempotency gate) / LF8 (no replay buffer, tracked separately, not re-litigated here) |
@@ -1930,7 +1930,7 @@ Node's global `fetch` (undici) has no default request timeout — an unresponsiv
 
 **Minimal production-safe fix:** Add a secondary sort key mirroring the already-proven in-repo pattern, e.g. `ORDER BY block_time DESC, id DESC` (or `ingested_at DESC` if insertion order is preferred as the tiebreaker) in `queries.ts`'s three SQL constants and the by-collection read paths. Purely additive to the `ORDER BY` clause — no schema change, no index change required (existing `sale_events_block_time_idx` still applies; `id` is the PK and trivially available for the tiebreak).
 
-**Status:** ✅ Fixed — commit `44f6659`. Added `, id DESC` to every hot production read path ordering `sale_events` by `block_time DESC` alone:
+**Status:** ✅ Fixed — commit `8226e32`. Added `, id DESC` to every hot production read path ordering `sale_events` by `block_time DESC` alone:
 - `src/db/queries.ts` — `LATEST_SQL`, `BY_COLLECTION_SQL`, `BY_COLLECTION_NO_WINDOW_SQL`
 - `src/server/collection-icon.ts` (latest-image lookup)
 - `src/server/collection-meta.ts` (`fetchNameFromDb`)
@@ -2114,7 +2114,7 @@ No index exists on `seller` alone or as part of a composite; the planner combine
 ## Audit #12 summary
 
 **Real, fixable production risks identified:**
-- **DB3** (ordering — no secondary sort key on `sale_events` reads) — **High**, confirmed by live data (11,269 tied-timestamp groups). ✅ **Fixed** — commit `44f6659`.
+- **DB3** (ordering — no secondary sort key on `sale_events` reads) — **High**, confirmed by live data (11,269 tied-timestamp groups). ✅ **Fixed** — commit `8226e32`.
 - **DB1** (`sale_events` unique(signature) can't represent multi-sale transactions) — **High** by mechanism, but requires a parser-contract + schema change, not a quick patch. **Backlog**, needs a product decision on whether multi-item marketplace bundles are worth tracking.
 - **DB4** (no migrations ledger, manual `npm run migrate`) — **Medium**, process/tooling gap, fails loud not silent. **Backlog**.
 - **DB2** (`sale_events` has no retention) — **Medium**, but likely *should* stay unbounded given its role as the historical record for collection pages — **flag for an explicit decision**, not an automatic delete job.
@@ -2127,4 +2127,4 @@ No index exists on `seller` alone or as part of a composite; the planner combine
 
 **Recommended to fix immediately:** DB3 only — a one-line, additive `ORDER BY` tiebreaker change with a confirmed real-world trigger and zero downside. Everything else in this audit is either compliant, a deliberate product decision (DB2), or a larger architectural change warranting explicit sign-off before implementation (DB1, DB4).
 
-**Update:** DB3 applied — see commit `44f6659` ("fix(db): make sale ordering deterministic"). DB1, DB2, DB4, DB11 remain intentionally unimplemented per explicit scope instruction.
+**Update:** DB3 applied — see commit `8226e32` ("fix(db): make sale ordering deterministic"). DB1, DB2, DB4, DB11 remain intentionally unimplemented per explicit scope instruction.
