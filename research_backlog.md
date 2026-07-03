@@ -30,6 +30,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 8 | Magic Eden Protocol & API Architecture | Complete | 2026-07-03 |
 | 9 | Magic Eden Integration Compliance (bridge lifecycle, retries, confirmation, sale parser) | Complete | 2026-07-03 |
 | 10 | Solana Transaction Lifecycle, Wallet, Signing & Sending Architecture | Complete | 2026-07-03 |
+| 11 | Live Feed Architecture & Event Completeness | Complete | 2026-07-03 |
 
 ---
 
@@ -720,6 +721,168 @@ Ordered by expected parser coverage gap / protocol complexity.
 | # | Protocol / Source | Notes |
 |---|---|---|
 | 1 | Magic Eden API (sale ingestion parser) | ✅ Addressed by Audit #9 (Finding ME6) — `sellerNetPriceSol` guard confirmed present in the ME v2 path only; MMM/cNFT paths lack it (Backlog). |
+
+---
+
+## Audit #11 — Live Feed Architecture & Event Completeness
+
+**Sources:**
+- Official docs: `solana.com/docs/rpc/websocket/logssubscribe`, `solana.com/docs/rpc/http/getsignaturesforaddress`, `solana.com/docs/rpc#configuring-state-commitment`, `helius.dev/docs/rpc/websocket` (idle timeout, keepalive, reconnect guidance).
+- VL codebase: `src/ingestion/listener.ts` (2072 lines — primary logsSubscribe live path + cursor poller), `src/ingestion/amm-poller.ts` (AMM gap-healer), `src/db/insert.ts` (idempotent write path), `src/server/sse.ts` (fan-out), `src/events/emitter.ts` (replay buffers).
+- One implementation detail (SSE reconnect/replay semantics) required checking the EventSource/SSE web-platform spec, which is outside the Solana/Helius/ME/Metaplex source list — flagged explicitly per the audit's own exception for "absolutely required to verify an implementation detail."
+
+**Findings use prefix LF.**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| LF1 | Medium-High | Backlog | Per-target WS reconnect backoff has no jitter — the self-scheduled "hard refresh" path does, the actual unplanned-disconnect path doesn't |
+| LF2 | Low | Backlog | Code comment cites an unconfirmed "~30s" Helius idle-timeout figure; official docs say 10 minutes — comment-accuracy only, no functional effect |
+| LF3 | — | Compliant | `logsSubscribe` + `getTransaction` both pinned to `commitment: 'confirmed'`, deliberately avoiding a measured `processed`-vs-confirmed indexing race |
+| LF4 | — | Compliant | Gap-healer's `getSignaturesForAddress` usage matches documented newest-first + `before`/`until` pagination; already fixed a real inter-page gap-loss incident |
+| LF5 | — | Compliant | "Warm mode" mint-tracker catch-up-skip is a deliberate, self-documented, accepted incompleteness trade-off, not an oversight |
+| LF6 | — | Informational | Sales are broadcast in processing-completion order, not strict on-chain chronological order — architectural characteristic, not a documented-behavior violation |
+| LF7 | — | Compliant | DB-level idempotency (`ON CONFLICT DO NOTHING` + `RETURNING id`) correctly gates SSE emission — a duplicate signature never reaches the broadcast layer |
+| LF8 | Medium | Backlog | `sale`/`metaUpdate`/`rawpatch`/`remove` SSE channels have no replay/backfill of any kind — no app-level snapshot buffer (unlike `mint_meta`, which has one) and no `Last-Event-ID` support (no SSE frame ever sets `id:`) |
+
+---
+
+### Finding LF1 — Per-target WS reconnect backoff has no jitter
+
+**Severity:** Medium-High
+
+**Doc:** `helius.dev/docs/rpc/websocket` — Helius's own reconnection guidance explicitly recommends "exponential backoff with jitter" and states connections drop "every few minutes" in practice, causing "missing expected subscription updates."
+
+**Evidence:** `src/ingestion/listener.ts`, `openSubscription`'s `ws.on('close', ...)` handler:
+```typescript
+const nextBackoff = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+console.warn(`[listener/${target.name}] disconnected (code=${code})  reconnecting in ${backoffMs / 1000}s`);
+setTimeout(() => openSubscription(target, nextBackoff, true), backoffMs);
+```
+No randomization. Contrast with the self-scheduled "hard periodic refresh" path in the same file, which explicitly adds jitter:
+```typescript
+const delay = i * HARD_REFRESH_STAGGER_MS + Math.floor(Math.random() * HARD_REFRESH_STAGGER_MS);
+// comment: "spread the reconnect storm across ~TARGETS.length × step seconds instead of a single instant"
+```
+
+**Root cause:** jitter was added only for the self-triggered periodic refresh. The real unplanned-disconnect handler — the one actually exercised by Helius's documented "connection drops every few minutes" behavior, which is provider-side and likely to hit several of VL's 6 concurrent WS connections at once — never got the same treatment.
+
+**Impact:** if Helius drops multiple/all of VL's target subscriptions simultaneously, every affected target reconnects on the identical deterministic backoff schedule (10s→20s→40s→80s→120s), re-subscribing AND firing simultaneous `getSignaturesForAddress` catch-up polls (the `isReconnect=true` path) at each retry boundary — a self-inflicted synchronized burst against the same Helius endpoint, exactly the failure mode the `HARD_REFRESH` jitter already exists to prevent, just not applied here.
+
+**Minimal production-safe fix:** add `Math.random() * <small window, e.g. 3000ms>` to the per-target `setTimeout` delay in the `ws.on('close')` handler, mirroring the existing `HARD_REFRESH_STAGGER_MS` pattern.
+
+**Status:** Backlog — not fixed as part of this audit (audit-only, no code changes).
+
+---
+
+### Finding LF2 — Code comment cites an unconfirmed Helius idle-timeout figure
+
+**Severity:** Low
+
+**Doc:** `helius.dev/docs/rpc/websocket`: *"WebSockets have a 10-minute inactivity timer."*
+
+**Evidence:** `listener.ts`, comment above `openSubscription`: *"if Helius drops idle WebSocket connections every ~30s"*.
+
+**Root cause:** an empirical/assumed figure baked into a design-rationale comment, apparently never checked against Helius's published number.
+
+**Impact:** none functionally — the actual behavior the comment justifies (not resetting `lastNotificationTs` on automatic reconnect) is unaffected either way, and is if anything more conservative than the real 10-minute window requires. Flagged only because the audit requires grounding every claim, including ones embedded in comments, against official docs.
+
+**Minimal production-safe fix:** update the comment to cite the correct figure or drop the specific number.
+
+**Status:** Backlog — cosmetic, not fixed this pass.
+
+---
+
+### Finding LF3 — `commitment: 'confirmed'` used consistently across subscribe and fetch
+
+**Severity:** — (Compliant)
+
+**Doc:** `solana.com/docs/rpc#configuring-state-commitment` — `processed` is "the newest view, but it can still be rolled back"; `confirmed` requires supermajority vote.
+
+**Evidence:** `logsSubscribe` params use `{ commitment: 'confirmed' }` with an explicit comment recording a measured ~40% null-result rate when subscribing at `processed` (a real race against the processed→confirmed indexing window, ~0.8–1.2s), matched against `getTransaction`'s own `confirmed` commitment.
+
+**Status:** Compliant — subscribe-side and fetch-side commitment levels are intentionally aligned, based on the team's own measured data, avoiding an internally-inconsistent race.
+
+---
+
+### Finding LF4 — Gap-healer's `getSignaturesForAddress` usage matches documented pagination behavior
+
+**Severity:** — (Compliant)
+
+**Doc:** `solana.com/docs/rpc/http/getsignaturesforaddress` — "newest first"; does not accept `processed`; `before`/`until` for pagination.
+
+**Evidence:** `amm-poller.ts` calls with `commitment: 'confirmed'` (valid) and implements a `before`-continuation walk specifically because a single page returns only the newest `limit` signatures — with a comment recording a real prior incident ("MMM loss") where an earlier single-page implementation silently dropped the gap between the page boundary and the `until` cursor.
+
+**Status:** Compliant.
+
+---
+
+### Finding LF5 — "Warm mode" mint-tracker catch-up skip is a deliberate, accepted trade-off
+
+**Severity:** — (Compliant/Informational)
+
+**Evidence:** `listener.ts` reconnect handler explicitly skips the catch-up poll for mint targets when the mint tracker is in "warm" mode, with an in-code comment: *"warm explicitly tolerates incomplete/delayed coverage."*
+
+**Status:** Compliant — this is a conscious, documented trade-off, not an oversight. Noted because `logsSubscribe` itself has zero documented delivery guarantee (the official reference documents notification structure and commitment levels only — no guarantee of delivery, ordering, or dedup), so "warm mode" has no independent backstop during any disconnect window. Accepted risk, matches the mode's own stated intent.
+
+---
+
+### Finding LF6 — Sales are broadcast in processing-completion order, not strict on-chain order
+
+**Severity:** — (Informational)
+
+**Evidence:** six independent subscription pipelines (me_v2, mmm, tcomp, tamm, mpl_core, token_metadata) each run their own async `getTransaction` fetch + parse + insert + emit chain with independent latency. Neither `src/db/insert.ts` nor `src/server/sse.ts` re-sorts by `blockTime` before broadcasting — events reach the frontend in the order their individual pipelines finish processing, not the order they occurred on-chain.
+
+**Root cause:** no official Solana/Helius doc specifies or requires a particular fan-out order for a multi-program real-time aggregator built on independent WS subscriptions; this is an inherent architectural property of the design, not a documented-behavior violation.
+
+**Status:** Informational — recorded per the audit's "transaction ordering" scope item; not a defect. The system already tolerates deliberate reordering elsewhere (e.g. `MMM_DEFER_MS` noise-shedding delay), so arrival-order display is consistent with the rest of the design.
+
+---
+
+### Finding LF7 — DB-level idempotency correctly gates SSE emission end-to-end
+
+**Severity:** — (Compliant)
+
+**Evidence:** `src/db/insert.ts`, `insertSaleEvent`:
+```sql
+INSERT INTO sale_events (...) VALUES (...) ON CONFLICT (signature) DO NOTHING RETURNING id
+```
+```typescript
+const id = result.rows[0]?.id ?? null;
+if (!id) { /* ... */ return null; }   // duplicate signature — already processed
+```
+The function returns before any enrichment scheduling or `saleEventBus.emitSale(...)` call when the insert was a no-op conflict.
+
+**Status:** Compliant — a signature reaching the ingestion pipeline twice (WS + poller race, WS + gap-healer overlap, etc.) can never result in two SSE broadcasts or two DB rows; the `RETURNING id` check is the correct place to gate this, and it's wired correctly.
+
+---
+
+### Finding LF8 — Sale-side SSE channels have no replay or backfill mechanism
+
+**Severity:** Medium
+
+**Note on sourcing:** the mechanism in question (`Last-Event-ID` / EventSource auto-reconnect resume) is a web-platform SSE behavior, not documented in the Solana/Helius/ME/Metaplex source list. Included per the audit's own allowance to check an implementation detail against a non-primary source when required — flagged explicitly as such, not presented as a Solana/Helius doc violation.
+
+**Evidence:** `src/server/sse.ts` never writes an `id:` field in any SSE frame (`event: sale\ndata: ...\n\n` etc., no `id: N` line anywhere in the file) — so a reconnecting `EventSource` has no `Last-Event-ID` to send and the server has no way to resume from a specific point even if it wanted to. Compare `src/events/emitter.ts`'s `mint_meta` channel, which has an explicit bounded ring buffer replayed to every new SSE connection (`recentMintMetaSnapshot()`, sized "to comfortably cover the longest DAS retry window"). No equivalent buffer exists for `sale`, `metaUpdate`, `rawpatch`, or `remove`. `frontend/src/app/feed/page.tsx` opens its `EventSource` with no prior REST fetch of recent sales — the feed starts empty on every page load/reload and stays that way until the next live sale fires.
+
+**Root cause:** the mint-tracker team solved this exact problem (late-connecting tabs, DAS-patch replay) for `mint_meta`; the same pattern was never ported to the sales side, which predates it.
+
+**Impact:** the underlying data is never lost — `sale_events` (Postgres) is the real source of truth and is populated correctly regardless of any SSE client's state. The loss is purely display-side: a user who reloads `/feed`, backgrounds a tab, or hits any network blip during an active session sees a silent gap in the live feed with zero indication anything was missed, and nothing ever backfills it.
+
+**Minimal production-safe fix:** none applied (audit only). Two independent options exist, either mirrors an already-proven in-repo pattern: (a) a small bounded ring buffer of recent `sale` events replayed on SSE connect, exactly like `mint_meta`'s; or (b) a lightweight REST snapshot endpoint (`GET /api/sales/recent`-style) fetched once on `/feed` mount before opening the `EventSource`.
+
+**Status:** Backlog — not fixed as part of this audit (audit-only, no code changes).
+
+---
+
+## Audit #11 summary
+
+**Real, fixable production risks identified:** LF1 (reconnect jitter gap — Medium-High) and LF8 (no sale-side SSE replay — Medium). Both backlog, no code changed this pass.
+
+**Cosmetic:** LF2 (comment accuracy).
+
+**Confirmed compliant, no action needed:** LF3, LF4, LF5, LF7.
+
+**Recorded as architectural characteristic, not a defect:** LF6.
 
 ---
 
