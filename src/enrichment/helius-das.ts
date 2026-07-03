@@ -285,13 +285,31 @@ function classifyDasAsset(asset: DasAsset | undefined): NftVerdict {
   if (typeof fSupply === 'number' && fSupply > 1) {
     return { ok: false, reason: `supply=${fSupply}` };
   }
+  // MplCoreCollection / MplCoreGroup are collection-level / group-level asset
+  // accounts (per the official Helius DAS `interface` enum), not individually
+  // owned NFTs — accepting one here would let a collection/group asset be
+  // treated as a real per-wallet mint. Audit #7 (research_backlog.md) D1.
+  if (iface === 'MplCoreCollection' || iface === 'MplCoreGroup') {
+    return { ok: false, reason: `interface=${iface}` };
+  }
 
   // ── Accepts ──
   if (iface === 'MplCoreAsset')                      return { ok: true, kind: 'core' };
   if (iface === 'ProgrammableNFT')                   return { ok: true, kind: 'pnft' };
-  if (iface === 'V1_NFT')                            return { ok: true, kind: 'legacy' };
+  // LEGACY_NFT is the same class of asset as V1_NFT under the official enum.
+  if (iface === 'V1_NFT' || iface === 'LEGACY_NFT')  return { ok: true, kind: 'legacy' };
+  // MplBubblegumV2 = compressed NFT v2 leaf. NftKind has no dedicated 'cnft'
+  // bucket (compressed assets are detected/ingested through a separate
+  // on-chain path, not this DAS classifier) — bucket under 'legacy', same as
+  // the permissive fallback already did implicitly, but explicit so a future
+  // change to the fallback's numeric conditions can't silently drop it.
+  if (iface === 'MplBubblegumV2')                    return { ok: true, kind: 'legacy' };
   if (tokenStandard === 'NonFungible')               return { ok: true, kind: 'legacy' };
   if (tokenStandard === 'ProgrammableNonFungible')   return { ok: true, kind: 'pnft' };
+  // V2_NFT (official enum) intentionally has no dedicated branch here — Helius
+  // docs list it without specifying legacy vs pNFT; it's classified via the
+  // token_standard checks above (same as any other interface value) or the
+  // permissive fallback below.
 
   // ── Permissive fallback ──
   // Unknown interface but NFT-shaped (decimals 0, supply ≤ 1) — accept

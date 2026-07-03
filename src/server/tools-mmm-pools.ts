@@ -334,11 +334,17 @@ interface DasAsset {
 }
 
 // Fetch ALL wallet assets via getAssetsByOwner (object-params format required by Helius DAS)
-async function getAllWalletAssets(wallet: string): Promise<DasAsset[]> {
+// Audit #7 (research_backlog.md) D3: an HTTP error or thrown fetch/parse error
+// mid-scan used to silently `break` and return whatever pages were already
+// collected, indistinguishable from "wallet genuinely owns only N NFTs".
+// `truncated` now tells the caller (and ultimately the API response) that
+// the result may be an undercount, mirroring `tools-holders/fetch-assets.ts`.
+async function getAllWalletAssets(wallet: string): Promise<{ assets: DasAsset[]; truncated: boolean }> {
   const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) return { assets: [], truncated: false };
   const all: DasAsset[] = [];
   const PAGE_LIMIT = 1000;
+  let truncated = false;
   for (let page = 1; page <= 20; page++) {
     try {
       const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
@@ -355,14 +361,14 @@ async function getAllWalletAssets(wallet: string): Promise<DasAsset[]> {
         }),
         signal: AbortSignal.timeout(15_000),
       });
-      if (!r.ok) break;
+      if (!r.ok) { truncated = true; break; }
       const j = await r.json() as { result?: { items?: DasAsset[]; total?: number } };
       const batch = j.result?.items ?? [];
       all.push(...batch);
       if (batch.length < PAGE_LIMIT) break;
-    } catch { break; }
+    } catch { truncated = true; break; }
   }
-  return all;
+  return { assets: all, truncated };
 }
 
 function assetMatchesAllowlist(asset: DasAsset, al: Allowlist): boolean {
@@ -392,18 +398,26 @@ export interface WalletNft {
 // MMM sol-fulfill-buy tx lands at exactly 1240 bytes — 8 over the 1232 network cap.
 // pNFT + 3 creators fits; Legacy-standard NFTs have much more headroom regardless
 // of creator count. Surfaced as a size-risk badge before the user hits Sell.
+// Audit #7 (research_backlog.md) D1: the official Helius DAS `interface`
+// enum also includes LEGACY_NFT / V2_NFT / MplBubblegumV2 / MplCoreCollection
+// / MplCoreGroup — none of them imply pNFT status, so they're intentionally
+// NOT added here. LEGACY_NFT/V2_NFT are non-programmable by definition;
+// MplBubblegumV2 (cNFT) and MplCore* (collection/group accounts) are outside
+// the legacy sol-fulfill-buy byte-size risk this check exists for.
 function isProgrammable(asset: DasAsset): boolean {
   const std = asset.content?.metadata?.token_standard;
   return std === 'ProgrammableNonFungible' || std === 'ProgrammableNFT' || asset.interface === 'ProgrammableNFT';
 }
 
-async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<WalletNft[]> {
+async function fetchWalletNftsForPool(
+  wallet: string, pool: MmmPool,
+): Promise<{ nfts: WalletNft[]; truncated: boolean }> {
   const allowlists = pool.allowlists.filter(al => al.type !== 'empty');
-  if (!allowlists.length) return [];
+  if (!allowlists.length) return { nfts: [], truncated: false };
 
-  const allAssets = await getAllWalletAssets(wallet);
+  const { assets: allAssets, truncated } = await getAllWalletAssets(wallet);
 
-  return allAssets
+  const nfts = allAssets
     .filter(asset => allowlists.some(al => assetMatchesAllowlist(asset, al)))
     .map(asset => {
       const img = asset.content?.links?.image
@@ -419,7 +433,7 @@ async function fetchWalletNftsForPool(wallet: string, pool: MmmPool): Promise<Wa
         creatorsCount: asset.creators?.length ?? 0,
       };
     });
-
+  return { nfts, truncated };
 }
 
 // ── On-chain sol_fulfill_buy builder ─────────────────────────────────────────
@@ -1401,9 +1415,9 @@ export function createMmmPoolsRouter(): Router {
     }
     try {
       const result = await lookupSinglePool(poolKey);
-      if (result.type !== 'pool') return res.json({ ok: true, nfts: [] });
-      const nfts = await fetchWalletNftsForPool(wallet, result.pool);
-      return res.json({ ok: true, nfts });
+      if (result.type !== 'pool') return res.json({ ok: true, nfts: [], truncated: false });
+      const { nfts, truncated } = await fetchWalletNftsForPool(wallet, result.pool);
+      return res.json({ ok: true, nfts, truncated });
     } catch (err) {
       console.error('[tools/mmm-pools] wallet-nfts error', err);
       return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });

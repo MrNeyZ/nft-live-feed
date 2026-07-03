@@ -26,6 +26,7 @@ Durable record of protocol/docs research findings, decisions, fixes, and deferre
 | 4 | Candy Guard / Candy Machine V3 | Complete | 2026-06-28 |
 | 5 | Token-2022 / SPL Token | Complete | 2026-06-28 |
 | 6 | Solana RPC + WebSocket Architecture | Complete | 2026-07-03 |
+| 7 | Helius DAS Architecture | Complete | 2026-07-03 |
 
 ---
 
@@ -715,10 +716,250 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | # | Protocol / Source | Notes |
 |---|---|---|
-| 1 | Helius DAS / Enhanced Transactions | Audit `getAsset` field stability, `tokenStandard` completeness across TM and Core, and `interface` enum coverage. Also unblocks T4/T9 DAS validation — `token_info.token_program` presence was live-confirmed 2026-07-03 (Mutantmon T22 mint, ad hoc, outside this audit series) but the full field-stability pass is still open. |
-| 2 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
+| 1 | Magic Eden API | Audit ME v2 sale parser against current ME API contract; check `sellerNetPriceSol` inflation guard behavior. |
 
 ---
+
+## Audit #7 — Helius DAS Architecture
+
+**Sources:**
+- Official Helius docs: `helius.dev/docs/api-reference/das/getasset`, `.../getassetsbyowner`, `.../searchassets`, `.../getassetbatch`.
+- Live Helius API responses from the project's configured `HELIUS_API_KEY` (source priority #4 — used only to validate/disprove specific behavior, per audit rules, never as a primary source ahead of official docs).
+- VL source (7 files): `src/enrichment/helius-das.ts`, `src/server/tools-mmm-pools.ts` (DAS call sites), `src/mints/enricher.ts`, `src/mints/collection-confirm.ts`, `src/tools-holders/fetch-assets.ts`, `src/mints/payment-token-enricher.ts`, `src/mints/name-backfill.ts`.
+- `helius.dev/docs/rate-limits` and `.../rpc/limits` were requested and both returned HTTP 404 — Helius's current docs site does not appear to publish a rate-limit/retry-policy page at either guessed path. Noted explicitly per the "documentation ambiguous/unavailable" rule rather than asserting unsourced retry guidance.
+
+**Scope note:** unlike Audit #6, this audit's scope explicitly includes `src/server/tools-mmm-pools.ts` (MMM Pool Lookup NFT filtering) because that tool's DAS *reads* (not its transaction-building path, still out of scope) are asset-classification logic identical in kind to the mint-feed enrichment DAS reads. No Wallet Checker code exists inside this repo (`/root/nft-live-feed`) — grep across the full source tree found zero matches for wallet-checker-specific paths; that tool lives in the separate `/root/wallet-checker` repo and is out of scope for an audit of *this* codebase.
+
+**Architecture facts confirmed:**
+- Every DAS-consuming module in this repo makes its own direct `fetch()` call to `https://mainnet.helius-rpc.com/?api-key=...` — there is no single shared DAS client wrapper; `src/enrichment/helius-das.ts` is the closest thing (shared cache + inflight-dedup for `getAsset`), but `tools-mmm-pools.ts` and `tools-holders/fetch-assets.ts` each implement their own independent `fetch` calls with separately-typed `DasAsset`/response interfaces.
+- `getAssetBatch` (documented, up to 1000 ids per call) is never called anywhere in the repo — every DAS-consuming path issues one `getAsset`/`getAssetsByOwner`/`searchAssets` call per asset or per wallet.
+- Four real DAS-reliant subsystems were audited end-to-end: (1) live mint feed enrichment (`helius-das.ts` + `mints/enricher.ts` + `mints/collection-confirm.ts`), (2) MMM Pool Lookup NFT filtering (`tools-mmm-pools.ts`), (3) the Holders tool (`tools-holders/fetch-assets.ts`), (4) name-backfill (`mints/name-backfill.ts`, thin wrapper around the shared `getAsset`).
+
+**Audit #7 finding status:**
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| D1 | Medium | ✅ Fixed — commit `a682c78` | `classifyDasAsset`'s and `isProgrammable`'s explicit `interface` checks don't cover the full documented enum (`LEGACY_NFT`, `V2_NFT`, `MplBubblegumV2`, `MplCoreCollection`, `MplCoreGroup`) — falls through to a permissive numeric fallback, safe-direction but mislabeled |
+| D2 | Informational | Compliant | `searchAssets`' undocumented `tokenType`+`ownerAddress` coupling is real (live-confirmed `-32000` error) and VL's existing workaround is correct |
+| D3 | Medium | ✅ Fixed — commit `a682c78` | `tools-mmm-pools.ts`'s `getAllWalletAssets` silently truncates on a transient mid-scan failure with zero signal to the caller, unlike the equivalent scan in `tools-holders/fetch-assets.ts` |
+| D4 | Low | Backlog | `helius-das.ts`'s single-attempt DAS fetch + 60s negative cache has no retry, but call-site design (enricher.ts / collection-confirm.ts) already compensates for almost all of the practical impact |
+| D5 | Informational | Backlog | `getAssetBatch` (supports up to 1000 ids/call) is never used despite several one-mint-at-a-time DAS loops |
+| D6 | Informational | No action | `mint_extensions` is unused/unmodeled — not needed, since T22 detection already works via `token_info.token_program` |
+| D7 | (carried) | Backlog — unblocked | Audit #5 T4/T9 remains open: `token_info.token_program` is now proven live in real responses, but `classifyDasAsset`'s `DasAsset` type still doesn't model it, so the FungibleAsset+decimals=0+supply=1 SFT-accept branch still can't exclude Token-2022 |
+| D8 | Informational | Compliant | `collection-confirm.ts`'s 30s/120s/300s multi-attempt retry queue is the correct mitigation for DAS indexing lag |
+| D9 | Informational | Compliant | `tools-holders/fetch-assets.ts` is a fully compliant reference implementation: explicit error/truncation surfacing, burnt-asset stale-owner handling, proper timeout |
+| D10 | Low | Backlog | No DAS caller in the repo has 429-specific handling; official Helius rate-limit docs could not be located (two guessed paths both 404), so this is evaluated only against the codebase's own established circuit-breaker precedent (Audit #6) |
+
+---
+
+### Finding D1 — `interface` enum coverage is incomplete against the documented set
+
+**Severity:** Medium
+
+**Evidence:** `helius.dev/docs/api-reference/das/getasset` — the `interface` field's documented values are: `V1_NFT`, `V1_PRINT`, `LEGACY_NFT`, `V2_NFT`, `FungibleAsset`, `FungibleToken`, `Custom`, `Identity`, `Executable`, `ProgrammableNFT`, `MplCoreAsset`, `MplBubblegumV2`, `MplCoreCollection`, `MplCoreGroup`.
+
+VL source, `src/enrichment/helius-das.ts` (`classifyDasAsset`):
+```typescript
+if (iface === 'MplCoreAsset')                      return { ok: true, kind: 'core' };
+if (iface === 'ProgrammableNFT')                   return { ok: true, kind: 'pnft' };
+if (iface === 'V1_NFT')                            return { ok: true, kind: 'legacy' };
+if (tokenStandard === 'NonFungible')               return { ok: true, kind: 'legacy' };
+if (tokenStandard === 'ProgrammableNonFungible')   return { ok: true, kind: 'pnft' };
+```
+VL source, `src/server/tools-mmm-pools.ts` (`isProgrammable`):
+```typescript
+function isProgrammable(asset: DasAsset): boolean {
+  const std = asset.content?.metadata?.token_standard;
+  return std === 'ProgrammableNonFungible' || std === 'ProgrammableNFT' || asset.interface === 'ProgrammableNFT';
+}
+```
+Neither explicitly checks `LEGACY_NFT`, `V2_NFT`, `MplBubblegumV2`, `MplCoreCollection`, or `MplCoreGroup`.
+
+**Root cause:** Both classifiers were written against the `interface` values actually observed in this session's live traffic (`V1_NFT`, `ProgrammableNFT`, `MplCoreAsset`, `Custom` — all seen directly in this conversation's own DAS queries), not against the full documented enum.
+
+**Impact:** For `classifyDasAsset` specifically, the *permissive fallback* (`decimals === 0/undefined && supply ≤ 1 → accept as 'legacy'`) means an asset with `interface: "LEGACY_NFT"` or `"V2_NFT"` would very likely still be *accepted* into the mint feed — just mislabeled `kind: 'legacy'` regardless of its true shape, and NOT independently verified as pNFT/Core-specific. `MplBubblegumV2` is the more consequential case: it's the compressed-NFT-V2 interface, directly related to the still-open Bubblegum V2 gap from Audit #3 (B1/B2) — a V2 cNFT reaching `classifyDasAsset` would also fall to the numeric fallback rather than being recognized as compressed. For `isProgrammable` in the MMM tool, a pNFT that DAS reports as `interface: "V2_NFT"` (rather than `"ProgrammableNFT"`) combined with a missing/absent `token_standard` would be misclassified as *not* programmable, which feeds directly into the byte-size-risk badge (`sizeRiskReason` in `mmm-pool-lookup/page.tsx`) that warns users about the pNFT + 5-creator transaction-size limit — a false negative here means the size-risk warning could fail to show for a real pNFT.
+
+**No production incident confirmed** for any of these five interface values on assets VL has actually processed — this is a documented-enum-vs-code-enum gap, not an observed bug.
+
+**Minimal production-safe fix:** Added explicit branches in `classifyDasAsset` — `LEGACY_NFT` treated as an alias of `V1_NFT` (`kind: 'legacy'`); `MplBubblegumV2` explicit-accepted as `kind: 'legacy'` (no dedicated `NftKind` bucket exists for compressed assets — this makes the previously-implicit fallback behavior explicit instead of changing it); `MplCoreCollection`/`MplCoreGroup` explicitly **hard-rejected** (`interface=...`) since they are collection/group-level accounts, not individually owned NFTs — a case the original audit text underspecified but the "do not make unsupported assets executable/destructive by accident" instruction called for. `V2_NFT` intentionally left with no dedicated branch (ambiguous per docs; already falls through to the existing `token_standard` checks). `isProgrammable` in `tools-mmm-pools.ts` was **not** changed to treat `V2_NFT`/`LEGACY_NFT` as programmable — neither implies pNFT status, so doing so would have introduced false positives; a clarifying comment was added instead.
+
+**Status:** ✅ Fixed — commit `a682c78`. Regression-tested live against two real mints (a legacy `V1_NFT` and the Mutantmon T22 mint) post-fix — both still classify as `{ok:true, kind:'legacy'}`, unchanged from pre-fix behavior.
+
+---
+
+### Finding D2 — `searchAssets`' `tokenType`+`ownerAddress` coupling: undocumented but live-confirmed, and VL's workaround is correct
+
+**Severity:** Informational
+
+**Evidence:** Official docs fetched for this audit did not surface this validation rule explicitly. Live API call made against the project's own Helius key for this audit:
+```
+params: { grouping: ["collection","G3uz4QgSbPFxmCc29YjoE9A1T8BBtJSFSNsb1ZJt4Gzw"], tokenType: "all", page: 1, limit: 1, burnt: false }
+→ {"error":{"code":-32000,"message":"Validation Error: Must provide `owner_address` when using `token_type` field"}}
+```
+The identical call with `tokenType` omitted succeeded (`"total":0,"items":[]`, no error). VL source, `src/enrichment/helius-das.ts` (`getCollectionMintedCount`) already carries this exact finding as a code comment:
+```typescript
+// NB: do NOT pass `tokenType` here. Helius DAS validates `tokenType` only in
+// conjunction with `ownerAddress` — sending it with grouping-only filters
+// returns `-32000 Validation Error: Must provide owner_address when using
+// token_type field`...
+```
+
+**Root cause / behavior:** An undocumented (or at least not surfaced by the pages fetched for this audit) server-side validation coupling in Helius's `searchAssets` implementation.
+
+**Impact:** None — VL already discovered this empirically (live source, priority #4, exactly as this audit's rules permit) and coded the correct workaround before this audit ran.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action. Documented here so the constraint has an audit-trail entry independent of the inline code comment.
+
+---
+
+### Finding D3 — `tools-mmm-pools.ts`'s wallet-asset scan silently truncates on transient failure
+
+**Severity:** Medium
+
+**Evidence:** VL source, `src/server/tools-mmm-pools.ts` (`getAllWalletAssets`):
+```typescript
+for (let page = 1; page <= 20; page++) {
+  try {
+    const r = await fetch(..., { signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) break;
+    const j = await r.json() as { result?: { items?: DasAsset[]; total?: number } };
+    const batch = j.result?.items ?? [];
+    all.push(...batch);
+    if (batch.length < PAGE_LIMIT) break;
+  } catch { break; }
+}
+return all;
+```
+Contrast with the equivalent, more defensive scan in `src/tools-holders/fetch-assets.ts` (`fetchCollectionOwners`), which sets `dasError` / `truncated` on the identical failure classes and returns them to the caller for surfacing.
+
+**Root cause:** `getAllWalletAssets`'s `catch { break; }` and `if (!r.ok) break;` both silently stop pagination and return whatever pages were already collected — the caller (`fetchWalletNftsForPool`, ultimately the MMM Pool Lookup UI) has no way to distinguish "this wallet genuinely owns only 3 matching NFTs" from "the scan died on page 2 of 6 owing to a transient 429/timeout and 3 is a truncated undercount."
+
+**Impact:** A user checking the MMM Pool Lookup tool with a large wallet could see fewer eligible NFTs than they actually hold, with zero indication that the result is incomplete — directly relevant to this session's own repeated pattern of the user pasting an NFT mint and asking "does this fit the pool," which this scan is supposed to answer proactively.
+
+**Minimal production-safe fix:** `getAllWalletAssets` now returns `{ assets, truncated: boolean }` (mirroring `fetchCollectionOwners`'s shape) — `truncated` is set on a non-ok HTTP response or a thrown fetch/parse error, left `false` on the normal short-page completion path. `fetchWalletNftsForPool` propagates it through to `{ nfts, truncated }`, and the `GET /tools/mmm-pools/wallet-nfts` endpoint now includes `truncated` in its JSON response. No circuit-breaker/retry logic added (explicitly out of scope, that's D10). Frontend (`mmm-pool-lookup/page.tsx`) was **not** touched — it only reads `data.nfts` today and ignores unknown fields, so the new field is additive/non-breaking; wiring a UI warning off `truncated` is a separate follow-up.
+
+**Status:** ✅ Fixed — commit `a682c78`.
+
+---
+
+### Finding D4 — `helius-das.ts`'s DAS fetch has no retry, but call-site design already absorbs most of the practical impact
+
+**Severity:** Low
+
+**Evidence:** VL source, `src/enrichment/helius-das.ts` (`fetchAssetWithSource`) — single `fetch()` attempt with an 8s timeout; any non-ok response, thrown error, or `json.error`/missing `json.result` goes straight to `assetMissCache.set(address, true)` (60s negative cache), no retry attempt. Contrast with `src/mints/collection-confirm.ts`'s explicit 3-attempt retry queue (30s/120s/300s) for the same underlying `getAsset` call, built specifically to handle "DAS hasn't indexed this mint yet" per that file's own docstring.
+
+**Root cause / behavior:** The low-level fetch layer (`helius-das.ts`) is deliberately simple (cache + inflight-dedup only); retry-on-transient-failure is instead implemented per-caller where the stakes justify it (`collection-confirm.ts`), and where they don't, callers are designed to fail safe. `src/mints/enricher.ts`'s `isConfirmedFungibleVerdict` explicitly distinguishes a DAS transport failure from a confirmed non-NFT verdict and does **not** evict the mint-feed row on the former — so a `verifyAndFetchAsset` failure never removes a real NFT from `/mints`, it only skips the group-name-patch and fungible-eviction-check for that one specific mint. Per-mint (not per-group) dedup in `enricher.ts` means a transient failure on one mint doesn't block enrichment attempts for later mints in the same collection drop.
+
+**Impact:** Low in practice. The one residual gap: `enricher.ts`'s per-mintAddress `verifiedMints` set is marked "attempted" at enqueue time, before the DAS call runs — so if a *specific* mint's one DAS attempt fails transiently, that exact mint never gets a second try (self-heals only via later mints in the same group triggering their own independent attempts, not via that mint being retried).
+
+**Minimal production-safe fix (not applied — backlog per audit rules):** Either add a bounded retry (1 attempt, short delay) inside `fetchAssetWithSource` for timeout/5xx/429 specifically, or remove the mint from `verifiedMints` on a transient (not confirmed-fungible) verdict so a later re-enqueue can retry it.
+
+**Status:** Backlog — low priority given the existing fail-safe design; no confirmed case of a real NFT being permanently mis-enriched found in this audit.
+
+---
+
+### Finding D5 — `getAssetBatch` is documented and available but never used
+
+**Severity:** Informational
+
+**Evidence:** `helius.dev/docs/api-reference/das/getassetbatch` — *"retrieves detailed information for up to 1,000 Solana NFTs, compressed NFTs, or tokens in a single efficient batch request."* Full-repository grep for `getAssetBatch` / `method:\s*['"]getAssetBatch['"]` returned zero matches anywhere in `src/`.
+
+**Root cause / behavior:** Every DAS-consuming path in the repo (`mints/enricher.ts`'s throttled one-mint-at-a-time queue, `mints/collection-confirm.ts`'s per-mint retry queue, `mints/name-backfill.ts`'s per-mint sweep) issues individual `getAsset` calls rather than batching pending mint addresses into one `getAssetBatch` call.
+
+**Impact:** None confirmed — these paths are already rate-shaped (500ms `REQUEST_GAP_MS` throttle, per-mint dedup) specifically to stay well under Helius limits per their own comments, so this is a potential credit/latency efficiency opportunity, not a correctness issue.
+
+**Fix:** Not proposed — this is architecture-shaped batching work, explicitly out of scope for this audit's "not a refactor task" instruction. Recorded for a future dedicated pass if DAS credit cost becomes a constraint.
+
+**Status:** Backlog — informational, no urgency.
+
+---
+
+### Finding D6 — `mint_extensions` is unused; not a gap for VL's current needs
+
+**Severity:** Informational
+
+**Evidence:** The `getAsset` documentation page fetched for this audit did not surface a `mint_extensions` field in the schema summary returned (it may exist on the live page under a section not captured by the fetch). VL's `DasAsset` interfaces (`helius-das.ts`, `tools-mmm-pools.ts`) do not model or read `mint_extensions` anywhere.
+
+**Root cause / behavior:** VL's actual Token-2022 detection need — confirmed working in this session on a real T22 mint (Mutantmon) and shipped in the `tools-mmm-pools.ts` MMM-builder fix — is satisfied entirely by the simpler `token_info.token_program` field, which does not require parsing the extension list.
+
+**Impact:** None. `mint_extensions` would only matter if VL needed to read specific T22 extension *contents* (e.g. `metadata_pointer`'s embedded fields, transfer-fee config) — no current feature does.
+
+**Fix:** None needed.
+
+**Status:** No action.
+
+---
+
+### Finding D7 — Audit #5 T4/T9 (Token-2022 FungibleAsset admission gap) remains open, now unblocked
+
+**Severity:** Carried from Audit #5 (originally Backlog / blocked on live DAS validation)
+
+**Evidence:** Audit #5 Finding T4 required confirming that Helius DAS actually returns `token_info.token_program` before a fix could be written. This session independently live-confirmed the field on a real Token-2022 mint (Mutantmon, `token_info.token_program: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"`) — ad hoc, outside this audit series, during unrelated MMM-pool work. VL source, `src/enrichment/helius-das.ts`'s `DasAsset` interface (used specifically by `classifyDasAsset`, the mint-feed's NFT-vs-fungible gate) still has **no** `token_info.token_program` field:
+```typescript
+token_info?: {
+  decimals?: number;
+  supply?: number;
+};
+```
+The `FungibleAsset` accept branch (`decimals === 0 && fSupply === 1 → { ok: true, kind: 'sft' }`) therefore still cannot exclude a Token-2022 WNS-style NFT-shaped token, per Audit #5 T4's original concern.
+
+**Root cause:** The validation Audit #5 asked for is now done, but the corresponding code change was never made — this is a distinct file/type from the one already fixed for the *MMM builder tool's* T22 support (`tools-mmm-pools.ts`'s `DasAsset`, which does have `token_info.token_program` as of this session's earlier fix).
+
+**Impact:** Unchanged from Audit #5's original assessment — no confirmed production occurrence of a WNS/T22 token reaching this path with the vulnerable `FungibleAsset`+decimals=0+supply=1 shape.
+
+**Minimal production-safe fix (not applied — backlog per audit rules):** Add `token_program?: string` to `helius-das.ts`'s `DasAsset.token_info`, and add an early exclusion in `classifyDasAsset`'s `FungibleAsset` branch when `token_info.token_program === TOKEN_2022_PROGRAM`.
+
+**Status:** Backlog — unblocked (validation step complete), fix still not applied; the operator did not request implementation of this fix in this audit's execution.
+
+---
+
+### Finding D8 — `collection-confirm.ts`'s multi-attempt retry queue correctly handles DAS indexing lag
+
+**Severity:** Informational
+
+**Evidence:** VL source, `src/mints/collection-confirm.ts` module docstring: *"a freshly-minted MPL Core asset isn't in DAS's index for the first few seconds (sometimes a couple of minutes) after the on-chain tx confirms... This module accepts the row optimistically... then verifies asynchronously via three DAS polls at 30 s / 120 s / 300 s after the mint."*
+
+**Root cause / behavior:** This directly matches the audit checklist's "stale / cached DAS data" concern — DAS is a secondary index with a real, variable-length lag after on-chain confirmation, and any code that treats a single immediate `getAsset` miss as authoritative would misclassify or drop real assets. This module explicitly does not do that.
+
+**Impact:** None — correct design, addresses a real and previously-observed failure mode (per the module's own cited incident signature).
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding D9 — `tools-holders/fetch-assets.ts` is a fully compliant reference implementation
+
+**Severity:** Informational
+
+**Evidence:** VL source, `src/tools-holders/fetch-assets.ts` — explicit `dasError`/`truncated` result fields surfaced to the caller on every failure class, `PAGE_LIMIT = 1000` matching the documented `getAssetsByGroup` maximum, `PAGE_TIMEOUT_MS = 10_000` on every request, and explicit handling of the documented-but-easy-to-miss `burnt: true` stale-owner behavior (verified against chain per its own code comment: a burnt asset's account becomes a 1-byte closed stub, yet DAS continues to report a stale pre-burn owner, which would otherwise inflate that wallet into a phantom top holder).
+
+**Root cause / behavior:** N/A — this is the audit calling out a correct pattern, for contrast with Finding D3's gap in a sibling tool.
+
+**Impact:** None — this module should be treated as the template for D3's fix.
+
+**Fix:** None needed.
+
+**Status:** Compliant — no action.
+
+---
+
+### Finding D10 — No 429-specific handling in any DAS caller; official rate-limit docs page not locatable
+
+**Severity:** Low
+
+**Evidence:** `helius.dev/docs/rate-limits` and `helius.dev/docs/rpc/limits` both returned HTTP 404 when fetched for this audit — Helius's current docs site does not appear to publish a rate-limit/retry-policy reference at either guessed path (or it has moved; not locatable via the sources this audit's priority list permits). VL source: none of `helius-das.ts`'s `fetchAssetWithSource`, `tools-mmm-pools.ts`'s DAS calls, or `tools-holders/fetch-assets.ts` distinguish HTTP 429 from any other non-ok response — all three treat it identically to a 5xx or malformed response (fail/cache-miss/break, no backoff).
+
+**Root cause:** No official Helius-specific rate-limit/retry guidance could be sourced for this audit (see above). Evaluated instead against the codebase's own internal precedent: `src/ingestion/me-raw/ingest.ts`'s `fetchRawTx` (audited in #6) has an explicit `isRateLimit()` check and a circuit-breaker (30s cooldown after 2 consecutive exhausted 429s) — no DAS caller has an equivalent.
+
+**Impact:** Unconfirmed — no production incident traced to DAS-specific rate-limiting in this audit. Given DAS calls in this repo are already throttled at the application level (500ms gaps, per-mint/per-collection dedup, TTL caches), sustained 429 storms are less likely here than in the high-volume `getTransaction` path Audit #6 flagged, but the codebase has no defense if one occurs.
+
+**Minimal production-safe fix (not applied — backlog per audit rules):** Reuse the `isRateLimit()` pattern from `me-raw/ingest.ts` in `helius-das.ts`'s `fetchAssetWithSource`, at minimum to log/distinguish 429s from other failures before deciding whether a shared DAS-specific circuit breaker is warranted.
+
+**Status:** Backlog — real gap by internal-consistency standard, but external (Helius) retry guidance could not be sourced, and no confirmed production incident.
 
 ## Audit #6 — Solana RPC + WebSocket Architecture
 
