@@ -29,7 +29,7 @@ import { getPool } from '../db/client';
 import { recentMintMetaSnapshot } from '../events/emitter';
 import { getMintListenerStatus } from '../ingestion/listener';
 import { rateLimit } from './rate-limit';
-import { issueNonce, verifyLogin, siwsRequired } from '../auth/siws';
+import { issueNonce, verifyLogin, siwsRequired, isValidWallet } from '../auth/siws';
 
 // ── Idle auto-off ──────────────────────────────────────────────────────────
 // If no frontend tab has checked in for IDLE_TIMEOUT_MS and a non-`off` mode
@@ -78,13 +78,6 @@ function allowedWallets(): Set<string> | null {
   const raw = (process.env.UI_ALLOWED_WALLETS ?? '').trim();
   if (!raw) return null;
   return new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
-}
-
-function isValidWallet(wallet: unknown): wallet is string {
-  // Solana base58 pubkeys are 32-44 chars, charset [1-9A-HJ-NP-Za-km-z].
-  return typeof wallet === 'string'
-      && wallet.length >= 32 && wallet.length <= 44
-      && /^[1-9A-HJ-NP-Za-km-z]+$/.test(wallet);
 }
 
 function extractBearer(req: Request): string | null {

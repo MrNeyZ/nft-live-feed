@@ -2559,8 +2559,8 @@ Between now and the next triggering event, prioritize the two open High-severity
 | AS7 | Medium | Delete | `poller.ts` + `raw-poller.ts` (600 lines) are fully dead — every import/call site commented out |
 | AS8 | Medium | Refactor | Cooldown/circuit-breaker pattern implemented once well, reimplemented once differently, and simply absent in two places that need it |
 | AS9 | Medium | Simplify | The ME bid-accept path always attempts a Bearer-token call documented as "reliably fails... for almost every real pool" before falling through |
-| AS10 | Low | Merge | `isValidWallet` — byte-identical wallet-address validator duplicated in two auth-adjacent files |
-| AS11 | Low | Merge | `sleep(ms)` reimplemented independently in 6 different files |
+| AS10 | Low | Merge | ✅ Fixed — `isValidWallet` was byte-identical, duplicated in two auth-adjacent files; now exported once from `siws.ts` |
+| AS11 | Low | Merge | ✅ Fixed — `sleep(ms)` was reimplemented independently in 6 files; the 5 trivial-identical copies now import the shared `concurrency.ts` version (`image-retry.ts`'s behaviorally-different `unref()` version left untouched) |
 | AS12 | Low | Merge | Small MMM-tool UI helpers (`fmtSol`, `short`, `CopyKey`, `ADDR_RE`, `API_BASE`, `MONO`, `PANEL`) redefined per page instead of shared |
 
 ---
@@ -2723,6 +2723,8 @@ Between now and the next triggering event, prioritize the two open High-severity
 
 **Estimated benefit:** maintainability, readability; minor security-consistency benefit (one validator to keep correct instead of two).
 
+**Status:** ✅ Fixed. `isValidWallet` is now exported once from `src/auth/siws.ts` (the neutral-enough home: `runtime.ts` already imports `issueNonce`/`verifyLogin`/`siwsRequired` from it, and `siws.ts` has no import back on `runtime.ts`, so no circular dependency). `runtime.ts`'s local copy was deleted and its 3 call sites now use the imported function — validation logic byte-for-byte unchanged (same regex, same length bounds), only the definition site moved. `tsc --noEmit` clean.
+
 ---
 
 ### Finding AS11 — `sleep(ms)` reimplemented independently in 6 different files
@@ -2738,6 +2740,8 @@ Between now and the next triggering event, prioritize the two open High-severity
 **Minimal production-safe improvement:** Export `sleep` once from an existing low-level shared file (`src/ingestion/concurrency.ts` already has it and is already a dependency-free utility module) and import it at the other 5 sites instead of redefining it.
 
 **Estimated benefit:** readability only — this is a pure boilerplate-reduction cleanup with no functional upside beyond one fewer thing to notice-and-dismiss when reading any of these 6 files.
+
+**Status:** ✅ Fixed — partially, by design. `sleep` is now exported once from `src/ingestion/concurrency.ts` (already dependency-free, confirmed zero imports). The 4 trivially-identical copies were replaced with an import of the shared version: `src/ingestion/me-raw/ingest.ts` (added to its existing `../concurrency` import), `src/server/tools-retardio-offers.ts`, `src/scripts/backfill-mmm-legacy-takebid-buyer.ts`, `src/scripts/backfill-me-v2-logprice.ts`. `src/enrichment/image-retry.ts`'s `sleep` was **deliberately left untouched** — on closer read it is not trivially identical: it calls `t.unref()` on the timer so a pending sleep never keeps the Node process alive, a real behavioral difference this pass was explicitly scoped not to touch. Delay/retry counts and intervals at every touched call site are unchanged — only the function definition moved. `tsc --noEmit` clean.
 
 ---
 

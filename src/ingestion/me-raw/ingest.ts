@@ -27,7 +27,7 @@ import { extractPaymentInfo, extractNftMint, extractNftMintsInvolved, extractPar
 import { extractCoreAssetFromInnerIx } from './decoder';
 import { ME_V2_PROGRAM, ME_AMM_PROGRAM, ME_CNFT_PROGRAM } from './programs';
 import bs58 from 'bs58';
-import { Limiter, Priority } from '../concurrency';
+import { Limiter, Priority, sleep } from '../concurrency';
 import { incTxFetch, incTxNull, incTxRetry, startTelemetry } from '../telemetry';
 import { incGetTx, incNullGetTx, type GetTxSource } from '../../helius-credit-metrics';
 import { saleEventBus } from '../../events/emitter';
@@ -262,10 +262,6 @@ function isRateLimit(status: number, errMsg?: string): boolean {
   if (status === 429) return true;
   if (errMsg && /rate.limit|too many request/i.test(errMsg)) return true;
   return false;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ─── 429 circuit-breaker ──────────────────────────────────────────────────────

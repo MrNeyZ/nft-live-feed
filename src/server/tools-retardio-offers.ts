@@ -34,6 +34,7 @@ import {
   type FundingStatus,
 } from './me-bid-escrow';
 import { meCooldownActive, meCooldownRemainMs } from '../me-api-cooldown';
+import { sleep } from '../ingestion/concurrency';
 // Scanner-local cooldown: only blocked by its own 429s, not by floor/rare-feed.
 let scannerCooldownUntil = 0;
 function scannerCooldownActive(): boolean { return Date.now() < scannerCooldownUntil; }
@@ -369,10 +370,6 @@ export interface ScanResult {
 }
 
 let cached: { key: string; result: ScanResult } | null = null;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
-}
 
 /** Marker error for transient Magic Eden listings outages — 5xx, timeout,
  *  or anything we read as "ME is unhealthy right now". The route handler

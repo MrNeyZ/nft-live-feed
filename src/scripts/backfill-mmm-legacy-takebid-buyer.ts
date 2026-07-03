@@ -50,6 +50,7 @@ import * as path from 'path';
 import { parseRawMeTransaction } from '../ingestion/me-raw/parser';
 import { ME_AMM_PROGRAM } from '../ingestion/me-raw/programs';
 import type { RawSolanaTx } from '../ingestion/me-raw/types';
+import { sleep } from '../ingestion/concurrency';
 
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const BACKFILL_TAG   = 'mmm_legacy_takebid_buyer_v1';
@@ -104,7 +105,6 @@ function rpcUrl(): string {
   return `https://mainnet.helius-rpc.com/?api-key=${key}`;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isRateLimit = (status: number) => status === 429 || (status >= 500 && status <= 599);
 
 /** One JSON-RPC call with timeout + backoff on transient (429/5xx) errors. */

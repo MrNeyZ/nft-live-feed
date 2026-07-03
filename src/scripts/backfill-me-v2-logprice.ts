@@ -46,6 +46,7 @@ import 'dotenv/config';
 import { getPool, closePool } from '../db/client';
 import { parseRawMeTransaction } from '../ingestion/me-raw/parser';
 import { RawSolanaTx } from '../ingestion/me-raw/types';
+import { sleep } from '../ingestion/concurrency';
 
 const API_KEY = process.env.HELIUS_API_KEY;
 if (!API_KEY) { console.error('HELIUS_API_KEY not set'); process.exit(1); }
@@ -64,8 +65,6 @@ const SIG      = flag('sig')     ?? null;
 const BATCH    = flag('batch')   ? Math.max(1, parseInt(flag('batch')!, 10))   : 8;
 const SLEEP_MS = flag('sleep-ms')? Math.max(0, parseInt(flag('sleep-ms')!, 10)) : 100;
 const MIN_DIFF = flag('min-diff')? Math.max(1, parseInt(flag('min-diff')!, 10)) : 1;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── RPC (mirrors replay-test.ts getTx, incl. v0 accountKeys merge) ───────────
 async function getTx(sig: string, attempt = 0): Promise<RawSolanaTx | null> {

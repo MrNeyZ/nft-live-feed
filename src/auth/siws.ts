@@ -103,7 +103,8 @@ function buildMessage(wallet: string, nonce: string, now: Date, exp: Date): stri
 
 // ── Input shape guards ─────────────────────────────────────────────────────
 
-function isValidWallet(s: unknown): s is string {
+/** Solana base58 pubkeys are 32-44 chars, charset [1-9A-HJ-NP-Za-km-z]. */
+export function isValidWallet(s: unknown): s is string {
   return typeof s === 'string'
       && s.length >= 32 && s.length <= 44
       && /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
