@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState }                    from 'react';
 import { PublicKey }                                      from '@solana/web3.js';
-import { getAssociatedTokenAddressSync }                  from '@solana/spl-token';
+import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { LiveDot }                                        from '@/soloist/shared';
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
@@ -30,19 +30,22 @@ const PANEL: React.CSSProperties = {
 interface Allowlist { type: string; pubkey: string; }
 interface MmmPool {
   poolKey: string; escrowPda: string; owner: string;
-  collectionName: string; collectionSymbol: string; poolType: string; isMIP1: boolean;
+  collectionName: string; collectionSymbol: string; poolType: string; isMIP1: boolean; meKnown: boolean;
   spotPrice: number; spotPriceSol: number;
   bpa: number; realEscrow: number; missing: number; divergence: number;
   expiry: number; executable: boolean; underfunded: boolean; diverged: boolean;
   allowlists: Allowlist[];
   sampleCreatorsCount?: number | null;
+  buysideCreatorRoyaltyBp?: number | null;
+  buyOrdersAmount?: number | null;
+  meUpdatedAt?: string | null;
 }
 type LookupResult =
   | { ok: true; type: 'pool';   pool: MmmPool; scannedAt: string }
   | { ok: true; type: 'escrow'; input: string; lamports: number; sol: number; scannedAt: string };
 interface WalletNft {
-  mint: string; name: string; imageUrl: string | null;
-  isPNFT: boolean; creatorsCount: number;
+  mint: string; name: string; imageUrl: string | null; compressed?: boolean;
+  isPNFT: boolean; creatorsCount: number; isToken2022?: boolean;
 }
 
 // Confirmed empirically (Jun 2026): pNFT + 5 verified creators lands the legacy
@@ -80,41 +83,76 @@ function StatusPill({ p }: { p: MmmPool }) {
   return pill('INACTIVE','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
 }
 
-type CanSellResult = { ok: true } | { ok: false; reason: string; warn?: boolean };
-function canSellPool(p: MmmPool): CanSellResult {
+interface SellIssue { warn: boolean; label: string; reason: string; }
+// Each check is independent — a pool can be BOTH underfunded AND ME-flagged
+// invalid at once, and both facts matter (fixing one doesn't fix the other).
+// Previously this was a single early-return chain, so whichever condition was
+// checked first hid the rest — e.g. "Low escrow" masked "ME data stale" until
+// the pool got topped up, which looked like the invalid badge only "appears"
+// once the escrow warning clears. Collect every issue instead of picking one.
+function getSellIssues(p: MmmPool): SellIssue[] {
   const now = Math.floor(Date.now() / 1000);
+  const issues: SellIssue[] = [];
   if (p.expiry !== 0 && p.expiry <= now)
-    return { ok: false, reason: 'Pool expired' };
+    issues.push({ warn: false, label: '✗ Not sellable', reason: 'Pool expired' });
   if (!p.executable)
-    return { ok: false, reason: 'Escrow balance too low', warn: true };
+    issues.push({ warn: true, label: '⚠ Low escrow', reason: 'Escrow balance too low' });
+  // poolType:'invalid' is ME's own registry flag — but confirmed stale Jul 2026:
+  // a pool topped up well past spotPrice (executable flipped true) still read
+  // poolType:'invalid' with buyOrdersAmount:0 from a snapshot over a year old
+  // (updatedAt frozen at the moment ME first marked it invalid; ME appears to
+  // stop re-scanning pools once flagged). A same-royalty sibling pool from the
+  // same owner was poolType:'buy_sided' — buysideCreatorRoyaltyBp alone does
+  // NOT predict this. So this is a soft warning (ME's last-known read may be
+  // stale), not a confirmed-permanent wall — cosigner is still required either
+  // way (Anchor IDL, Signer<'info> on every *FulfillBuy variant), so the
+  // on-chain fallback can't bypass it regardless.
+  if (p.poolType === 'invalid') {
+    const synced = p.meUpdatedAt ? new Date(p.meUpdatedAt).toLocaleDateString() : 'unknown';
+    issues.push({ warn: true, label: '⚠ ME data stale',
+      reason: `ME last synced ${synced} — buyOrdersAmount was ${p.buyOrdersAmount ?? '?'}, `
+        + `royaltyBp ${p.buysideCreatorRoyaltyBp ?? '?'} at that time. May be outdated, cosigner still required.` });
+  }
+  // Correction 2026-07-02: any-allowlist alone does NOT block ME co-signing —
+  // Mutantmon pool 9C9QTQ36oV4hM3ArSvpCiUJms6nZLxGzQy2bKPQupvge (any-allowlist)
+  // sold successfully same day. What actually blocks ME is not knowing the
+  // collection at all (collectionName === '' with meKnown true) — see the
+  // acceptBid() gate below, which this now mirrors.
   const hasTypedAllowlist = p.allowlists.some(
     al => al.type !== 'any' && al.type !== 'empty'
   );
-  if (!hasTypedAllowlist)
-    return { ok: false, reason: 'any-allowlist: ME won\'t co-sign' };
-  if (!p.collectionName && !p.collectionSymbol)
-    return { ok: false, reason: 'Collection unknown to ME → no co-sign' };
-  return { ok: true };
+  if (!hasTypedAllowlist && p.meKnown && p.collectionName === '')
+    issues.push({ warn: false, label: '✗ Not sellable', reason: 'any-allowlist + unknown collection: ME won\'t co-sign' });
+  else if (!hasTypedAllowlist)
+    issues.push({ warn: true, label: '⚠ any-allowlist',
+      reason: 'ME co-signed this shape before (Mutantmon) — try it, don\'t assume blocked' });
+  if (p.meKnown === false)
+    issues.push({ warn: true, label: '⚠ ME check failed',
+      reason: 'ME lookup failed/rate-limited (or genuinely unknown) — retry may differ' });
+  return issues;
 }
 function CanSellBadge({ p }: { p: MmmPool }) {
-  const res = canSellPool(p);
-  if (res.ok) return (
+  const issues = getSellIssues(p);
+  if (!issues.length) return (
     <div style={{ display:'flex', alignItems:'center', gap:6,
       padding:'6px 12px', borderRadius:6, background:'rgba(67,185,132,0.10)',
       border:'1px solid rgba(67,185,132,0.35)' }}>
       <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Sellable</span>
     </div>
   );
-  const isWarn = !res.ok && res.warn;
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:6,
-      padding:'6px 12px', borderRadius:6,
-      background: isWarn ? 'rgba(199,180,121,0.10)' : 'rgba(220,80,80,0.10)',
-      border: `1px solid ${isWarn ? 'rgba(199,180,121,0.40)' : 'rgba(220,80,80,0.30)'}` }}>
-      <span style={{ color: isWarn ? '#c7b479' : '#e06060', fontWeight:700, fontSize:13 }}>
-        {isWarn ? '⚠ Low escrow' : '✗ Not sellable'}
-      </span>
-      <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
+    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      {issues.map((res, i) => (
+        <div key={i} style={{ display:'flex', alignItems:'center', gap:6,
+          padding:'6px 12px', borderRadius:6,
+          background: res.warn ? 'rgba(199,180,121,0.10)' : 'rgba(220,80,80,0.10)',
+          border: `1px solid ${res.warn ? 'rgba(199,180,121,0.40)' : 'rgba(220,80,80,0.30)'}` }}>
+          <span style={{ color: res.warn ? '#c7b479' : '#e06060', fontWeight:700, fontSize:13 }}>
+            {res.label}
+          </span>
+          <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -128,6 +166,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
         {children}
       </div>
     </div>
+  );
+}
+function CopyableBalance({ addr, color, children }: { addr: string; color: string; children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(addr).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <span onClick={copy} title={`Click to copy escrow address to top up: ${addr}`}
+      style={{ cursor:'pointer', color: copied ? '#43b984' : color, userSelect:'none' }}>
+      {copied ? 'copied!' : children}
+    </span>
   );
 }
 function SolLink({ addr, label }: { addr: string; label?: string }) {
@@ -226,6 +278,9 @@ export default function MmmPoolLookupPage() {
   const [nftsBusy, setNftsBusy]         = useState(false);
   const [nftsError, setNftsError]       = useState<string | null>(null);
   const [selectedNft, setSelectedNft]   = useState<WalletNft | null>(null);
+  const [manualMint, setManualMint]     = useState('');
+  const [manualBusy, setManualBusy]     = useState(false);
+  const [manualError, setManualError]   = useState<string | null>(null);
   const [meToken, setMeToken]           = useState('');
   const [showToken, setShowToken]       = useState(false);
   const [diagExpanded, setDiagExpanded] = useState(false);
@@ -311,15 +366,41 @@ export default function MmmPoolLookupPage() {
     finally { setNftsBusy(false); }
   };
 
+  // Fallback for when the wallet doesn't hold the target NFT yet (e.g. checking a
+  // pool before buying it) — doesn't check allowlist match or ownership, same
+  // "attempt for real and let the response decide" approach as 'any' pools.
+  const loadManualNft = async () => {
+    const mint = manualMint.trim();
+    if (!mint) return;
+    setManualBusy(true); setManualError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/tools/mmm-pools/manual-nft?mint=${encodeURIComponent(mint)}`,
+        { headers: { ...authHeaders() } });
+      if (!r.ok) throw new Error(r.status === 404 ? 'NFT not found' : `HTTP ${r.status}`);
+      const data = await r.json() as { ok: true; nft: WalletNft };
+      setNfts(prev => [data.nft, ...(prev ?? [])]);
+      setSelectedNft(data.nft);
+      setNftsError(null);
+    } catch (e) { setManualError((e as Error).message); }
+    finally { setManualBusy(false); }
+  };
+
   // ── Accept bid ──────────────────────────────────────────────────────────────
   const acceptBid = async () => {
     if (!pool || !wallet || !selectedNft) return;
     setTxPhase('building');
 
     const minPayment = 0;
-    const assetTokenAccount = getAssociatedTokenAddressSync(
+    const isCnft = selectedNft.compressed === true;
+    // Confirmed 2026-07-02 (Mutantmon/T22): DAS `interface` reads as a plain
+    // legacy NFT even when the mint is Token-2022 — deriving the ATA without
+    // the T22 program id lands on a different, never-created account, which
+    // ME's tx then references and fails on-chain (AccountNotInitialized).
+    const assetTokenAccount = isCnft ? '' : getAssociatedTokenAddressSync(
       new PublicKey(selectedNft.mint),
       new PublicKey(wallet),
+      false,
+      selectedNft.isToken2022 ? TOKEN_2022_PROGRAM_ID : undefined,
     ).toBase58();
     const backendUrl = `${API_BASE}/api/tools/mmm-pools/bid-accept-tx`
       + `?pool=${encodeURIComponent(pool.poolKey)}`
@@ -328,7 +409,7 @@ export default function MmmPoolLookupPage() {
 
     const log: DiagLog = {
       poolKey: pool.poolKey, mint: selectedNft.mint, seller: wallet,
-      assetTokenAccount, minPayment,
+      assetTokenAccount: isCnft ? '(cNFT — no ATA)' : assetTokenAccount, minPayment,
       bridgeAttempt: null, backendAttempt: null,
       finalErrorSource: null, finalError: null,
     };
@@ -339,26 +420,42 @@ export default function MmmPoolLookupPage() {
       let txSource: TxSource = null;
 
       // ── Path 1: Tampermonkey bridge (magiceden.io origin) ─────────────────
-      // Skipped for collectionName === '' (any-allowlist, no FVCA/MCC to name)
-      // OR poolType === 'invalid' (ME flags these directly — confirmed via
-      // /v2/mmm/pools, e.g. buysideCreatorRoyaltyBp:10000 configs ME's own UI
-      // can't handle, independent of allowlist type). sol-fulfill-buy always
-      // 400s "invalid token mint" for both classes regardless of the asset.
-      // Go straight to the backend on-chain builder, which never consults
-      // ME's poolType at all.
-      if (pool.collectionName === '' || pool.poolType === 'invalid') {
+      // Skipped ONLY for collectionName === '' (any-allowlist — ME has no
+      // FVCA/MCC to check royalty against, structurally can't co-sign).
+      //
+      // Previously ALSO pre-skipped for poolType === 'invalid', on the theory
+      // that ME's registry flag was a reliable "will 400 regardless of asset"
+      // signal. Confirmed wrong Jul 2026: poolType:'invalid' turned out to be
+      // a frozen ME snapshot (multiple pools stuck on a Feb-2025 read,
+      // buyOrdersAmount:0 never re-evaluated) — NOT a live rejection. TROGG
+      // sold successfully through this exact bridge while presumably carrying
+      // the same flag; the only thing that reliably predicted failure across
+      // TROGG/Solmap (legacy, sellable) vs BayBot/ProtoSol (pNFT, blocked) was
+      // token_standard, not poolType. Rather than guess from a second
+      // unreliable heuristic, always attempt the real bridge and let ME's
+      // live response be the ground truth — worst case it 400s for real and
+      // we fall through to the backend path exactly as before.
+      // Gated on meKnown=true: our own /mmm/pools?owner=... lookup is
+      // best-effort (rate-limited/times out silently -> empty result), which
+      // ALSO produces collectionName===''. Without this gate a transient ME
+      // fetch failure gets treated as a confirmed "any-allowlist" verdict and
+      // skips the one path that can actually get a real co-sign.
+      if (pool.meKnown && pool.collectionName === '') {
         log.bridgeAttempt = {
           status: null, rawBody: null, elapsedMs: 0, windowOpened: false,
-          error: `skipped — ${pool.poolType === 'invalid' ? 'ME poolType=invalid' : 'collectionName empty'}`, txFound: false,
+          error: 'skipped — collectionName empty (any-allowlist)', txFound: false,
         };
         setDiag({ ...log });
       } else
       try {
         const br = await requestMmmInstruction({
           pool: pool.poolKey, seller: wallet,
-          assetMint: selectedNft.mint, assetTokenAccount, assetAmount: 1,
+          assetMint: selectedNft.mint,
+          ...(isCnft ? {} : { assetTokenAccount }),
+          assetAmount: 1,
           minPaymentAmount: minPayment,
           isMip1: pool.isMIP1 || false,
+          isCnft,
         });
         let txFound = false;
         if (br.ok && br.body) {
@@ -637,6 +734,7 @@ export default function MmmPoolLookupPage() {
                         {pill('⚠ SIZE RISK','#c7b479','rgba(199,180,121,0.10)','rgba(199,180,121,0.40)')}
                       </span>
                     )}
+                    {pool.meKnown === false && pill('ME UNKNOWN','#e06060','rgba(220,80,80,0.10)','rgba(220,80,80,0.30)')}
                     <CanSellBadge p={pool} />
                     <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
                       rel="noopener noreferrer"
@@ -656,15 +754,38 @@ export default function MmmPoolLookupPage() {
                     <span>
                       <SolLink addr={pool.escrowPda} label={short(pool.escrowPda)} />
                       {'  '}
-                      <span style={{ color: pool.executable ? '#43b984' : pool.realEscrow > 0 ? '#c7b479' : '#9a9ab4' }}>
+                      <CopyableBalance addr={pool.escrowPda}
+                        color={pool.executable ? '#43b984' : pool.realEscrow > 0 ? '#c7b479' : '#9a9ab4'}>
                         {fmtSol(pool.realEscrow)} SOL
-                      </span>
+                      </CopyableBalance>
                     </span>
                   </Row>
                   <Row label="Spot Price">
                     <span style={{ fontSize:14, fontWeight:700, color:'#f0eef8' }}>
                       {fmtSol(pool.spotPrice)} SOL
                     </span>
+                  </Row>
+                  <Row label="Bpa">
+                    <span>
+                      {fmtSol(pool.bpa)} SOL
+                      {pool.divergence > 0 && (
+                        <span style={{ fontSize:11, color:'#c7b479', marginLeft:6 }}>
+                          (divergence {fmtSol(pool.divergence)} — realEscrow &gt; bpa, don&apos;t trust executable)
+                        </span>
+                      )}
+                    </span>
+                  </Row>
+                  <Row label="Missing">
+                    {pool.missing > 0 ? (
+                      <span>
+                        <span style={{ color:'#d96867', fontWeight:700 }}>{fmtSol(pool.missing)} SOL</span>
+                        <span style={{ fontSize:11, color:'#9a9ab4', marginLeft:6 }}>
+                          ({((pool.bpa / pool.spotPrice) * 100).toFixed(1)}% funded)
+                        </span>
+                      </span>
+                    ) : (
+                      <span style={{ color:'#43b984', fontWeight:700 }}>0 — fully funded</span>
+                    )}
                   </Row>
                   <Row label="Owner">
                     <SolLink addr={pool.owner} label={short(pool.owner)} />
@@ -909,6 +1030,29 @@ export default function MmmPoolLookupPage() {
                         <button onClick={() => { setNftsError(null); void loadNfts(); }}
                           style={{ marginLeft:10, fontSize:10, color:'#9a9ab4', background:'none',
                             border:'none', cursor:'pointer', textDecoration:'underline' }}>retry</button>
+                      </div>
+                    )}
+
+                    {wallet && nftsError && !nftsBusy && pool.allowlists.some(al => al.type === 'any') && (
+                      <div style={{ marginTop:4 }}>
+                        <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:6 }}>
+                          &apos;Any NFT&apos; pool — enter a mint address directly instead of
+                          scanning the whole wallet.
+                        </div>
+                        <div style={{ display:'flex', gap:6 }}>
+                          <input value={manualMint} onChange={e => setManualMint(e.target.value)}
+                            placeholder="NFT mint address" disabled={manualBusy}
+                            style={{ flex:1, padding:'7px 10px', fontSize:11, ...MONO, borderRadius:5,
+                              border:'1px solid rgba(168,144,232,0.4)', background:'rgba(20,14,34,0.85)',
+                              color:'#f0eef8', outline:'none' }}
+                          />
+                          <Btn onClick={() => void loadManualNft()} disabled={manualBusy || !manualMint.trim()}>
+                            {manualBusy ? '…' : 'Use'}
+                          </Btn>
+                        </div>
+                        {manualError && (
+                          <div style={{ fontSize:11, color:'#d96867', marginTop:4 }}>{manualError}</div>
+                        )}
                       </div>
                     )}
 

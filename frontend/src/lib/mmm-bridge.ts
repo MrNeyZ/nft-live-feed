@@ -164,10 +164,11 @@ export interface BridgeParams {
   pool: string;
   seller: string;
   assetMint: string;
-  assetTokenAccount: string;
+  assetTokenAccount?: string;
   assetAmount: number;
   minPaymentAmount: number;
   isMip1?: boolean;
+  isCnft?: boolean;
 }
 
 export interface BridgeResult {

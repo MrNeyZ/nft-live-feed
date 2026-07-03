@@ -28,7 +28,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 }                                                    from '@solana/spl-token';
 import bs58                                          from 'bs58';
-import { promises as fsp }                           from 'fs';
+import fs, { promises as fsp }                       from 'fs';
 import path                                          from 'path';
 import { rateLimit }                                 from './rate-limit';
 import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
@@ -38,6 +38,10 @@ const ESCROW_SEED    = Buffer.from('mmm_buyside_sol_escrow_account');
 const POOL_SIZE      = 849;
 const RPC_TIMEOUT_MS = 90_000;
 const CHUNK_SIZE     = 100;
+// Dust threshold shared by triage-stream, pool-stream, and collection-scan — pools
+// below this real escrow are noise (can't realistically be topped up + sold for
+// meaningful profit) and are hidden consistently across all three scanners.
+const MIN_VISIBLE_ESCROW_LAMPORTS = 10_000_000; // 0.01 SOL
 
 // Pool layout field offsets (verified empirically, Jun 2026)
 const OFF_SPOT     = 8;
@@ -50,7 +54,6 @@ const OFF_AL       = 249;   // allowlists start
 
 // MMM on-chain constants (verified from live sol_fulfill_buy txs)
 const METAPLEX_PROGRAM   = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
-const ME_COSIGNER_PUBKEY = 'NTYeYJ1wr4bpM5xo6zx5En44SvJFAd35zTxxNoERYqd';
 const MMM_FEE_CONSTANT   = new PublicKey('4nGoPfgRW2nkAp6ELx8bYRxLVRrNB3Si8drp4PRuDa3Q');
 const SOL_FULFILL_BUY_DISC = Buffer.from('5c10e24f1ff23576', 'hex');
 const SELL_STATE_SEED      = Buffer.from('mmm_sell_state');
@@ -227,28 +230,42 @@ async function fetchMultipleBalances(pdas: string[]): Promise<Map<string, number
 const ME_BASE = 'https://api-mainnet.magiceden.dev/v2';
 
 interface MePoolResult {
-  collectionSymbol?: string;
-  collectionName?:   string;
-  poolType?:         string;
-  isMIP1?:           boolean;
-  poolKey?:          string;
+  collectionSymbol?:        string;
+  collectionName?:          string;
+  poolType?:                string;
+  isMIP1?:                  boolean;
+  poolKey?:                 string;
+  buysideCreatorRoyaltyBp?: number;
+  buyOrdersAmount?:         number;
+  updatedAt?:               string;
 }
 
 async function fetchMeCollectionInfo(owner: string): Promise<Map<string, MePoolResult>> {
   const out = new Map<string, MePoolResult>();
-  try {
-    const url = `${ME_BASE}/mmm/pools?owner=${encodeURIComponent(owner)}&showInvalid=true&filterOnSide=1&limit=100`;
-    const r   = await fetch(url, {
-      headers: { 'User-Agent': 'VictoryLabs/1.0' },
-      signal:  AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) return out;
-    const data = await r.json() as { results?: MePoolResult[] };
-    for (const mp of data.results ?? []) {
-      const pk = mp.poolKey;
-      if (pk) out.set(pk, mp);
+  if (meCooldownActive()) return out;
+  const url = `${ME_BASE}/mmm/pools?owner=${encodeURIComponent(owner)}&showInvalid=true&filterOnSide=1&limit=100`;
+  // One retry: a transient failure here silently becomes meKnown=false
+  // downstream, which the frontend treats as "confirmed unknown/invalid" and
+  // skips the ME bridge (the only path that can get a real co-sign) — so a
+  // single flaky request can wrongly doom an otherwise-sellable pool.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(url, {
+        headers: { 'User-Agent': 'VictoryLabs/1.0' },
+        signal:  AbortSignal.timeout(15_000),
+      });
+      if (r.status === 429) { setMeCooldown(60_000); return out; }
+      if (!r.ok) { if (attempt === 0) { await new Promise(res => setTimeout(res, 1500)); continue; } return out; }
+      const data = await r.json() as { results?: MePoolResult[] };
+      for (const mp of data.results ?? []) {
+        const pk = mp.poolKey;
+        if (pk) out.set(pk, mp);
+      }
+      return out;
+    } catch {
+      if (attempt === 0) { await new Promise(res => setTimeout(res, 1500)); continue; }
     }
-  } catch { /* non-fatal */ }
+  }
   return out;
 }
 
@@ -263,6 +280,13 @@ export interface MmmPoolWithCollection extends MmmPool {
   // lookupSinglePool today; owner-scan leaves it undefined (no per-pool DAS
   // sample there, would multiply RPC cost across a whole wallet's pools).
   sampleCreatorsCount?: number | null;
+  // Raw ME registry fields for poolType==='invalid' diagnostics. ME's
+  // /mmm/pools?owner= listing can go stale for a pool it already wrote off
+  // (confirmed Jul 2026: a topped-up pool still read buyOrdersAmount:0 from
+  // a Feb-2025 snapshot) — surface these instead of trusting poolType alone.
+  buysideCreatorRoyaltyBp?: number | null;
+  buyOrdersAmount?:         number | null;
+  meUpdatedAt?:             string | null;
 }
 
 export interface MmmPoolScanResult {
@@ -349,6 +373,7 @@ interface DasAsset {
   grouping?: Array<{ group_key: string; group_value: string }>;
   creators?: Array<{ address: string; verified: boolean }>;
   compression?: { compressed?: boolean; tree?: string; leaf_id?: number };
+  token_info?: { token_program?: string };
 }
 
 // Fetch ALL wallet assets via getAssetsByOwner (object-params format required by Helius DAS)
@@ -407,9 +432,11 @@ function assetMatchesAllowlist(asset: DasAsset, al: Allowlist): boolean {
   }
 }
 
+const TOKEN_2022_PROGRAM_ID_STR = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+
 export interface WalletNft {
   mint: string; name: string; imageUrl: string | null; compressed?: boolean;
-  isPNFT: boolean; creatorsCount: number;
+  isPNFT: boolean; creatorsCount: number; isToken2022: boolean;
 }
 
 // Confirmed empirically (Jun 2026): pNFT + 5 verified creators in a legacy (non-ALT)
@@ -427,6 +454,29 @@ function isProgrammable(asset: DasAsset): boolean {
   return std === 'ProgrammableNonFungible' || std === 'ProgrammableNFT' || asset.interface === 'ProgrammableNFT';
 }
 
+function toWalletNft(asset: DasAsset): WalletNft {
+  const img = asset.content?.links?.image
+    ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.cdn_uri
+    ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.uri
+    ?? null;
+  return {
+    mint:          asset.id,
+    name:          asset.content?.metadata?.name ?? asset.id.slice(0, 8),
+    imageUrl:      img,
+    compressed:    asset.compression?.compressed === true,
+    isPNFT:        isProgrammable(asset),
+    creatorsCount: asset.creators?.length ?? 0,
+    // DAS `interface`/`token_standard` can both read as a plain legacy NFT
+    // (e.g. Mutantmon: `interface: "V1_NFT"`) while the mint is actually
+    // owned by the Token-2022 program — only `token_info.token_program`
+    // reveals it. Confirmed 2026-07-02: getAssociatedTokenAddressSync()
+    // called without the T22 program id derives a *different, nonexistent*
+    // ATA for these mints, which ME's sol-fulfill-buy tx then references —
+    // on-chain fails with AccountNotInitialized (payer_asset_account).
+    isToken2022:   asset.token_info?.token_program === TOKEN_2022_PROGRAM_ID_STR,
+  };
+}
+
 async function fetchWalletNftsForPool(
   wallet: string, pool: MmmPool,
 ): Promise<{ nfts: WalletNft[]; truncated: boolean }> {
@@ -437,21 +487,32 @@ async function fetchWalletNftsForPool(
 
   const nfts = allAssets
     .filter(asset => allowlists.some(al => assetMatchesAllowlist(asset, al)))
-    .map(asset => {
-      const img = asset.content?.links?.image
-        ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.cdn_uri
-        ?? asset.content?.files?.find(f => f.mime?.startsWith('image/'))?.uri
-        ?? null;
-      return {
-        mint:          asset.id,
-        name:          asset.content?.metadata?.name ?? asset.id.slice(0, 8),
-        imageUrl:      img,
-        compressed:    asset.compression?.compressed === true,
-        isPNFT:        isProgrammable(asset),
-        creatorsCount: asset.creators?.length ?? 0,
-      };
-    });
+    .map(toWalletNft);
   return { nfts, truncated };
+}
+
+// Manual lookup for a single mint — bypasses the wallet-holds-it-already requirement.
+// Confirmed (Jul 2026) the "no matching NFTs" case is common when the user hasn't
+// bought the target NFT yet (they're checking the pool before acquiring it) — same
+// reasoning as 'any'-allowlist pools where every NFT is a valid candidate. Doesn't
+// check ownership or allowlist match; the real bridge/on-chain attempt is the ground
+// truth either way (matches the "always attempt, let ME's response decide" philosophy
+// already used for poolType/royaltyBp above).
+async function fetchAssetByMint(mint: string): Promise<WalletNft | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json() as { result?: DasAsset };
+    if (!j.result) return null;
+    return toWalletNft(j.result);
+  } catch { return null; }
 }
 
 // ── On-chain sol_fulfill_buy builder ─────────────────────────────────────────
@@ -586,11 +647,11 @@ async function fetchBidAcceptTx(
   console.log('[fallback] pool allowlists: %s', JSON.stringify(pool.allowlists));
   console.log('[fallback] pool escrowPda=%s realEscrowSol=%s executable=%s', pool.escrowPda, pool.realEscrowSol, pool.executable);
 
-  if (pool.cosigner === ME_COSIGNER_PUBKEY) {
-    console.log('[fallback] BLOCKED: ME cosigner required, cosigner=%s', pool.cosigner);
-    throw new Error('me_cosigner_required: ME API unavailable for this pool and it requires ME cosigner');
+  if (pool.cosigner !== SystemProgram.programId.toBase58()) {
+    console.log('[fallback] BLOCKED: pool requires a real cosigner signature, cosigner=%s', pool.cosigner);
+    throw new Error('me_cosigner_required: ME API unavailable for this pool and it requires a cosigner signature (on-chain builder cannot provide one)');
   }
-  console.log('[fallback] cosigner check passed (not ME cosigner)');
+  console.log('[fallback] cosigner check passed (default/no cosigner)');
 
   // Derive all PDAs before building tx so we can log them
   const poolPk   = new PublicKey(poolKey);
@@ -746,6 +807,7 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
             tokenStandard: tokenStd || existing?.tokenStandard,
             sampleCreatorsCount,
           });
+          saveFvcaInfoCacheDebounced();
         }
       } catch { /* non-fatal */ }
     }
@@ -761,13 +823,22 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
       isMIP1,
       meKnown: Object.keys(me).length > 0,
       sampleCreatorsCount: sampleCreatorsCount ?? null,
+      buysideCreatorRoyaltyBp: me.buysideCreatorRoyaltyBp ?? null,
+      buyOrdersAmount:         me.buyOrdersAmount         ?? null,
+      meUpdatedAt:             me.updatedAt               ?? null,
     },
     scannedAt: new Date().toISOString(),
   };
 }
 
 // ── Triage collection types + cache ──────────────────────────────────────────
-const COLL_AL_TYPES = new Set(['FVCA', 'MCC', 'core_collection', 'group']);
+// 'core_collection' deliberately excluded: Metaplex Core postdates MMM's
+// infinite-lifetime pool creation window, and the one Core pool tested so far
+// (Curved Cats, poolType:two_sided) failed the bridge — treat all Core-backed
+// pools as unsupported rather than trust a per-pool poolType/funding check.
+// Single-pool lookup (/tools/mmm-pools/pool?key=) is unaffected — still shows
+// core_collection pools for manual inspection, just excluded from scan results.
+const COLL_AL_TYPES = new Set(['FVCA', 'MCC', 'group']);
 
 export interface TriageCollection {
   alType:          string;
@@ -838,8 +909,51 @@ const FVCA_FEED_BLOCKLIST = new Set([
 
 // FVCA → collection info cache (populated by resolve-slug and batchResolveFvcaNames).
 // Keyed by FVCA address; long TTL because creator/name never change post-mint.
-const fvcaInfoCache = new Map<string, { name: string; slug: string; cachedAt: number; tokenStandard?: string; sampleCreatorsCount?: number }>();
+type FvcaInfo = { name: string; slug: string; cachedAt: number; tokenStandard?: string; sampleCreatorsCount?: number };
+const fvcaInfoCache = new Map<string, FvcaInfo>();
 const FVCA_INFO_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Negative cache for FVCAs that failed to resolve a name (DAS searchAssets
+// returned nothing / errored — usually a dead/rugged collection with no
+// indexed assets). Without this, a failed FVCA is never written to
+// fvcaInfoCache, so it stays "missing" forever and keeps re-consuming the
+// top-200-per-scan resolution budget every single run (confirmed Jul 2026:
+// two back-to-back scans grew the cache by +1 then +111 — most of the
+// budget was being burned re-attempting the same unresolvable set instead
+// of reaching new candidates). Short TTL (vs 24h success TTL) so a
+// collection that gets indexed later still gets picked up reasonably soon.
+// In-memory only (not disk-persisted) — a restart just costs one extra
+// wasted retry per dead FVCA, not worth the added complexity.
+const fvcaFailCache = new Map<string, number>(); // fvca → failedAt
+const FVCA_FAIL_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+// Disk-backed so a pm2 restart doesn't wipe every resolved collection name —
+// batchResolveFvcaNames only resolves ~200 new/expired names per scan (Helius
+// rate-limit budget), so out of ~800 underfunded collections it can take 4+
+// scans to fully repopulate an empty cache. Confirmed Jul 2026: a backend
+// restart made previously-visible pools vanish from pool-stream results
+// (filtered out for empty collectionName) until re-resolved scan-by-scan,
+// looking exactly like "new" pools reappearing days later.
+const FVCA_CACHE_FILE = path.join(__dirname, '../../data/mmm-fvca-info-cache.json');
+
+(function loadFvcaInfoCacheFromDisk(): void {
+  try {
+    const raw = fs.readFileSync(FVCA_CACHE_FILE, 'utf8');
+    const entries = JSON.parse(raw) as Array<[string, FvcaInfo]>;
+    for (const [k, v] of entries) fvcaInfoCache.set(k, v);
+    console.log(`[tools/mmm-pools] loaded ${fvcaInfoCache.size} cached collection names from disk`);
+  } catch { /* first boot or corrupt file — start empty, non-fatal */ }
+})();
+
+let fvcaCacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveFvcaInfoCacheDebounced(): void {
+  if (fvcaCacheSaveTimer) return;
+  fvcaCacheSaveTimer = setTimeout(() => {
+    fvcaCacheSaveTimer = null;
+    const entries = [...fvcaInfoCache.entries()];
+    fsp.writeFile(FVCA_CACHE_FILE, JSON.stringify(entries), 'utf8').catch(() => { /* non-fatal */ });
+  }, 2_000);
+}
 
 // ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
 async function meFetchBulk(url: string) {
@@ -907,7 +1021,10 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
 
   const missing = fvcas.filter(f => {
     const hit = fvcaInfoCache.get(f);
-    return !hit || Date.now() - hit.cachedAt > FVCA_INFO_TTL_MS;
+    if (hit && Date.now() - hit.cachedAt <= FVCA_INFO_TTL_MS) return false;
+    const failedAt = fvcaFailCache.get(f);
+    if (failedAt && Date.now() - failedAt <= FVCA_FAIL_TTL_MS) return false;
+    return true;
   });
   if (!missing.length) return;
   // fvcas is pre-sorted by pool count desc — cap DAS queries to top 200 to
@@ -1001,10 +1118,21 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
     }));
   }
 
+  // Anything still nameless after steps 1+2 (dead/rugged FVCA, DAS found
+  // nothing, or a transient error) — negative-cache it so it stops
+  // re-consuming the top-200 budget every scan. Step 3 (ME slug) can't
+  // rescue a name-less entry since it only runs for fvcas already in
+  // mintMap (i.e. step 1 already succeeded).
+  const failedNow = toResolve.filter(f => !fvcaInfoCache.get(f)?.name);
+  if (failedNow.length) {
+    const now = Date.now();
+    for (const f of failedNow) fvcaFailCache.set(f, now);
+  }
+
   // ── Step 3: ME /v2/tokens/{mint} → ME slug (rate-limit aware) ────────────
   // Skip entirely if the process-wide ME cooldown is active to avoid piling on.
   // Cap at top 30 — we'll hit rate-limit anyway, so prioritise the biggest pools.
-  if (meCooldownActive()) return;
+  if (meCooldownActive()) { saveFvcaInfoCacheDebounced(); return; }
 
   const needSlug = toResolve
     .filter(f => mintMap.has(f) && !fvcaInfoCache.get(f)?.slug)
@@ -1024,6 +1152,7 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
       await new Promise(r => setTimeout(r, ME_BATCH_DELAY));
     }
   }
+  saveFvcaInfoCacheDebounced();
 }
 
 export function createMmmPoolsRouter(): Router {
@@ -1115,7 +1244,7 @@ export function createMmmPoolsRouter(): Router {
           underfunded = candidates.map(p => applyBalance(p, p.bpa));
           // After applyBalance with bpa: executable only if bpa >= spot, which we already
           // filtered out (bpa < spot), so all candidates are "underfunded" here.
-          underfunded = underfunded.filter(p => !p.executable);
+          underfunded = underfunded.filter(p => !p.executable && p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS);
         } else {
           // Full mode: fetch real escrow balances via getMultipleAccounts batches.
           // Cost: ceil(candidates.length / 100) RPC calls.
@@ -1124,7 +1253,7 @@ export function createMmmPoolsRouter(): Router {
           });
           const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
           const hydrated = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
-          underfunded = hydrated.filter(p => p.realEscrow >= 10_000_000 && !p.executable);
+          underfunded = hydrated.filter(p => p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS && !p.executable);
         }
 
         emit('progress', { msg: `${underfunded.length} underfunded pools — grouping by collection...` });
@@ -1318,12 +1447,13 @@ export function createMmmPoolsRouter(): Router {
 
           let underfunded: MmmPool[];
           if (fast) {
-            underfunded = candidates.map(p => applyBalance(p, p.bpa)).filter(p => !p.executable);
+            underfunded = candidates.map(p => applyBalance(p, p.bpa))
+              .filter(p => !p.executable && p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS);
           } else {
             emit('progress', { msg: `Fetching real escrow balances (${Math.ceil(candidates.length / 100)} calls)…` });
             const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
             underfunded = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0))
-              .filter(p => p.realEscrow >= 10_000_000 && !p.executable);
+              .filter(p => p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS && !p.executable);
           }
 
           // Resolve collection names (same logic as triage — sort by pool count so
@@ -1354,12 +1484,15 @@ export function createMmmPoolsRouter(): Router {
               pct:            p.spotPrice > 0 ? p.realEscrow / p.spotPrice * 100 : 0,
               alType:         al?.type ?? (isAnyPool ? 'any' : ''),
               alKey:          al?.pubkey ?? '',
-              collectionName: info?.name ?? (isAnyPool ? '(Any NFT)' : ''),
+              // Unresolved FVCA name is NOT a sellability signal (confirmed empirically
+              // on multiple pools) — fall back to a short address label instead of
+              // dropping the pool entirely, so unresolved-name collections stay visible.
+              collectionName: info?.name || (isAnyPool ? '(Any NFT)' : (al ? `Unknown (${al.pubkey.slice(0, 6)}…)` : '')),
               isMIP1:         info?.tokenStandard === 'ProgrammableNonFungible' || info?.tokenStandard === 'ProgrammableNFT',
               anyOnly:        isAnyPool,
             };
           });
-          const knownFlatPools = flatPools.filter(p => (p.collectionName !== '' || p.anyOnly) && p.realEscrowSol >= 0.01);
+          const knownFlatPools = flatPools.filter(p => p.realEscrowSol >= MIN_VISIBLE_ESCROW_LAMPORTS / 1e9);
           setCacheRef({ pools: knownFlatPools, builtAt: Date.now() });
           void logScanStats({
             source: 'pool-stream', includeAny,
@@ -1421,6 +1554,23 @@ export function createMmmPoolsRouter(): Router {
       });
     } catch (err) {
       console.error('[tools/mmm-pools] tx-status error', err);
+      return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });
+    }
+  });
+
+  // Manual mint lookup — fallback for when the connected wallet doesn't hold a
+  // matching NFT yet (e.g. checking a pool before buying the target NFT).
+  router.get('/tools/mmm-pools/manual-nft', limit, async (req: Request, res: Response) => {
+    const mint = String(req.query.mint ?? '').trim();
+    if (!mint || !ADDR_RE.test(mint)) {
+      return res.status(400).json({ ok: false, error: 'invalid_params' });
+    }
+    try {
+      const nft = await fetchAssetByMint(mint);
+      if (!nft) return res.status(404).json({ ok: false, error: 'not_found' });
+      return res.json({ ok: true, nft });
+    } catch (err) {
+      console.error('[tools/mmm-pools] manual-nft error', err);
       return res.status(502).json({ ok: false, error: 'rpc_error', message: String(err) });
     }
   });
@@ -1538,8 +1688,8 @@ export function createMmmPoolsRouter(): Router {
         const active    = hydrated.filter(isActive);
         const expired   = hydrated.length - active.length;
         const executable   = active.filter(p => p.executable);
-        const underfunded  = active.filter(p => !p.executable && p.realEscrow > 0);
-        const emptyEscrow  = active.filter(p => p.realEscrow === 0);
+        const underfunded  = active.filter(p => !p.executable && p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS);
+        const emptyEscrow  = active.filter(p => p.realEscrow < MIN_VISIBLE_ESCROW_LAMPORTS);
 
         // Return all active pools (executable first, then underfunded by missing asc)
         const pools = [
@@ -1620,8 +1770,8 @@ export function createMmmPoolsRouter(): Router {
       const active        = hydrated.filter(isActive);
       const expired       = hydrated.length - active.length;
       const executable    = active.filter(p => p.executable);
-      const underfunded   = active.filter(p => !p.executable && p.realEscrow > 0);
-      const emptyEscrow   = active.filter(p => p.realEscrow === 0);
+      const underfunded   = active.filter(p => !p.executable && p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS);
+      const emptyEscrow   = active.filter(p => p.realEscrow < MIN_VISIBLE_ESCROW_LAMPORTS);
 
       // Sort underfunded by missing ASC (closest to executable first)
       underfunded.sort((a, b) => a.missing - b.missing);
@@ -1739,6 +1889,7 @@ export function createMmmPoolsRouter(): Router {
       slugCache.set(slug, { fvca, mcc, collectionName: name, cachedAt: Date.now() });
       if (fvca) fvcaInfoCache.set(fvca, { name, slug, cachedAt: Date.now(), tokenStandard: fvcaInfoCache.get(fvca)?.tokenStandard });
       if (mcc)  fvcaInfoCache.set(mcc,  { name, slug, cachedAt: Date.now(), tokenStandard: fvcaInfoCache.get(mcc)?.tokenStandard });
+      saveFvcaInfoCacheDebounced();
       return res.json({ ok: true, fvca: fvca || null, mcc: mcc || null, symbol: null, collectionName: name, slug, cached: false });
     } catch (err) {
       return res.status(502).json({ ok: false, error: 'resolve_failed', message: String(err) });

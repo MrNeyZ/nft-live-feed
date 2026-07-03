@@ -157,10 +157,29 @@ export async function signSendAndConfirm(
       }
     } else {
       const ltx = tx as Transaction;
-      const ltxSigs = ltx.signatures.map(s => ({ key: s.publicKey.toBase58().slice(0, 8), filled: !!s.signature }));
-      console.log(TAG, 'legacy tx diagnostics', { sigSlots: ltxSigs });
-      const result = await sol.signAndSendTransaction(ltx, { skipPreflight: true });
-      signature = result.signature;
+      const myKey = sol.publicKey?.toBase58() ?? '';
+      const ltxSigsRaw = ltx.signatures.map(s => ({ key: s.publicKey.toBase58(), filled: !!s.signature }));
+      console.log(TAG, 'legacy tx diagnostics', { sigSlots: ltxSigsRaw.map(s => ({ ...s, key: s.key.slice(0, 8) })) });
+
+      const mySlot = ltxSigsRaw.findIndex(s => s.key === myKey);
+      const hasMultipleSigners = ltxSigsRaw.length > 1;
+      const allCoSignersFilled = ltxSigsRaw.every((s, i) => i === mySlot || s.filled);
+
+      if (hasMultipleSigners && allCoSignersFilled && mySlot >= 0) {
+        // ME pre-signed co-signer slots; Phantom refuses signAndSendTransaction on multi-signer legacy txs.
+        // Add our sig and send raw via backend proxy instead.
+        console.log(TAG, 'legacy multi-signer: co-signers filled — using signTransaction + backendSendRaw');
+        const signed = await sol.signTransaction(ltx);
+        const serialized = (signed as Transaction).serialize();
+        signature = await backendSendRaw(serialized);
+      } else if (hasMultipleSigners && mySlot >= 0 && !allCoSignersFilled) {
+        const emptySlots = ltxSigsRaw.filter((s, i) => i !== mySlot && !s.filled).map(s => s.key.slice(0, 8));
+        console.error(TAG, 'ME co-signer slot(s) empty:', emptySlots);
+        throw new Error('ME did not co-sign the legacy transaction — pool may be unsupported. Empty slots: ' + emptySlots.join(', '));
+      } else {
+        const result = await sol.signAndSendTransaction(ltx, { skipPreflight: true });
+        signature = result.signature;
+      }
     }
     console.log(TAG, 'send resolved — signature=' + signature);
   } catch (err) {

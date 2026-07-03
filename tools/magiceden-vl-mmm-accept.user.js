@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.3
-// @description  VictoryLabs MMM bridge — v0.5.3 removes hardcoded RPC key; signed-but-unsent txs are submitted by VL's backend instead
+// @version      0.5.6
+// @description  VictoryLabs MMM bridge — v0.5.6 removes hardcoded RPC key; signed-but-unsent txs are submitted by VL's backend instead
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -13,7 +13,8 @@
 (function () {
   'use strict';
 
-  const ME_IXS = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
+  const ME_IXS       = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
+  const ME_IXS_CNFT  = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-cnft-fulfill-buy';
   const TAG         = '[VL-userscript]';
 
   // Both known VL origins -- strict allowlist, not a wildcard
@@ -23,34 +24,50 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.3 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.5.6 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   // Core fetch
   async function vlMmmFulfillBuy(params) {
-    const { pool, seller, assetMint, assetTokenAccount, assetAmount = 1, minPaymentAmount, isMip1 } = params ?? {};
+    const { pool, seller, assetMint, assetTokenAccount, assetAmount = 1, minPaymentAmount, isMip1, isCnft } = params ?? {};
 
-    if (!pool || !seller || !assetMint || !assetTokenAccount || minPaymentAmount == null) {
+    if (!pool || !seller || !assetMint || minPaymentAmount == null) {
       return {
         ok: false, status: null, elapsedMs: 0, url: null,
         data: null, rawBody: null,
-        error: 'Missing required param(s): pool, seller, assetMint, assetTokenAccount, minPaymentAmount',
+        error: 'Missing required param(s): pool, seller, assetMint, minPaymentAmount',
+      };
+    }
+    if (!isCnft && !assetTokenAccount) {
+      return {
+        ok: false, status: null, elapsedMs: 0, url: null,
+        data: null, rawBody: null,
+        error: 'Missing assetTokenAccount for non-cNFT',
       };
     }
 
-    const baseUrl = ME_IXS;
-    // tokenStandard=4 = ProgrammableNonFungible; tells ME to use versioned tx with ALTs for pNFT
-    const tokenStandard = isMip1 ? 4 : 0;
-    console.log(TAG, 'isMip1=' + !!isMip1 + ' tokenStandard=' + tokenStandard + ' -> endpoint=sol-fulfill-buy');
-
-    const url = baseUrl
-      + '?pool='                + encodeURIComponent(pool)
-      + '&seller='              + encodeURIComponent(seller)
-      + '&assetMint='           + encodeURIComponent(assetMint)
-      + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
-      + '&assetAmount='         + encodeURIComponent(assetAmount)
-      + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount)
-      + '&tokenStandard='       + tokenStandard;
+    let url;
+    if (isCnft) {
+      // cNFT: dedicated endpoint, no assetTokenAccount needed
+      url = ME_IXS_CNFT
+        + '?pool='             + encodeURIComponent(pool)
+        + '&seller='           + encodeURIComponent(seller)
+        + '&assetMint='        + encodeURIComponent(assetMint)
+        + '&assetAmount='      + encodeURIComponent(assetAmount)
+        + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
+    } else {
+      // pNFT pools: add tokenStandard=4 so ME builds the right accounts
+      // ME may return versioned tx (ALTs) for its own pools → trySignInPopup handles it
+      url = ME_IXS
+        + '?pool='                + encodeURIComponent(pool)
+        + '&seller='              + encodeURIComponent(seller)
+        + '&assetMint='           + encodeURIComponent(assetMint)
+        + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
+        + '&assetAmount='         + encodeURIComponent(assetAmount)
+        + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount)
+        + (isMip1 ? '&tokenStandard=4' : '');
+    }
+    console.log(TAG, 'isCnft=' + !!isCnft + ' isMip1=' + !!isMip1 + ' -> ' + url);
 
     console.log(TAG, 'calling fetch() ->', url);
     const t0 = performance.now();
@@ -297,5 +314,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.5.3 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.5.6 ready - postMessage listener active - waiting for PING from VL');
 })();
