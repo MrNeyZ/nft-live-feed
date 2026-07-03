@@ -2524,3 +2524,18 @@ Ranked by production risk × implementation risk × user impact × effort (highe
 5. **Log the ME API failure response body + latency on the non-`ok` branch of `fetchBidAcceptTx`** (closes M11/ME3's most concrete sub-case). Lowest-effort item on this list (one `await r.text()` line, matching an existing truncated-body logging pattern already used elsewhere in the codebase) with immediate operator-facing payoff — directly would have saved this session's own repeated manual `curl` re-runs to diagnose ME rejections.
 
 **Explicitly not recommended next:** DB1 (needs a product decision on multi-item sale support before any code is written) and the Bubblegum V2 findings (B1–B7, correctly contingent on an adoption event that hasn't happened) — both are real but are scoping/decision items, not ready-to-implement tasks.
+
+---
+
+## Audit Program v1 — Closed
+
+**Audit Program v1 Complete.** Protocol (Metaplex Token Metadata, Core, Bubblegum, Candy Guard/Candy Machine V3, Token-2022/SPL), RPC + WebSocket ingestion, Helius DAS, Magic Eden marketplace/API integration, Solana transaction lifecycle/wallet/signing, Live Feed architecture, Postgres consistency/idempotency/retention, and Security/trust-boundary architecture have all been reviewed end-to-end against official documentation and real production/mainnet behavior — Audits #1–#13, 119 findings, 21 fixed. Findings trended from architecturally significant (RPC, DAS, ME, DB, Security in the earlier audits) toward Informational/Compliant/low-risk Backlog in the later ones, consistent with a codebase that has been genuinely hardened by the process rather than one still accumulating High/Critical issues.
+
+**Do not open Audit #14 on a fixed cadence.** Future audits should be triggered by a specific event, not calendar time:
+- A major new module (e.g. a full marketplace aggregator, a new order-book/orders system).
+- Support for a new external protocol or a breaking version bump of an already-integrated one (e.g. Bubblegum V2 adoption by a tracked launchpad would immediately activate B1/B2/B3).
+- A new marketplace integration beyond Magic Eden/Tensor.
+
+Between now and the next triggering event, prioritize the two open High-severity items (M4/TX2, ME1) and the "Next 5 recommended tasks" above over new audit passes. Two non-audit review types were proposed as the next useful lens on this codebase — **not started, no findings yet**:
+- **Performance review** — redundant RPC/DAS calls, latency, allocations/memory, unnecessary `JSON.parse`/`stringify`, batchable requests (e.g. `getAssetBatch`, flagged but not pursued as D5).
+- **UX review** — click-count, unclear error states, missing loading/progress feedback, perceived latency — a different improvement class from the correctness/architecture focus of Audits #1–#13.
