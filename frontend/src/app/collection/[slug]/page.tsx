@@ -349,8 +349,8 @@ const ListingRowItem = memo(function ListingRowItem({
               style={{
                 display:'inline-flex', alignItems:'center', fontSize:12, fontWeight:700,
                 padding:'2px 7px', borderRadius:3,
-                border:`1px solid ${errored ? '#bf5f5f48' : '#43b98448'}`,
-                background: errored ? '#bf5f5f20' : '#43b98420',
+                border:`1px solid ${errored ? '#d9686748' : '#43b98448'}`,
+                background: errored ? '#d9686720' : '#43b98420',
                 color: errored ? '#d96867' : '#43b984',
                 letterSpacing:'0.3px', flexShrink:0, lineHeight:'16px',
                 cursor: disabled ? 'default' : 'pointer',
@@ -1404,7 +1404,7 @@ export default function CollectionPage() {
               <span style={{ color:'#241f3b', cursor:'pointer', fontSize:14 }}>☆</span>
               {marketSignal && (() => {
                 const cfg = marketSignal === 'sell'
-                  ? { label: 'SELL PRESSURE',   border: '1px solid #bf5f5f80', background: '#bf5f5f22', color: '#d96867' }
+                  ? { label: 'SELL PRESSURE',   border: '1px solid #d9686780', background: '#d9686722', color: '#d96867' }
                   : marketSignal === 'buy'
                   ? { label: 'BUY OPPORTUNITY', border: '1px solid #43b98480', background: '#43b98422', color: '#43b984' }
                   : { label: 'MIXED',           border: '1px solid #7c5cf080', background: '#7c5cf022', color: '#b8a8f0' };
@@ -1637,7 +1637,7 @@ export default function CollectionPage() {
                   ? { border: '1px solid #e05858a8', background: '#e0585830', color: '#ff9b9b' }
                   : bidDumpSeverity === 'strong'
                   ? { border: '1px solid #d06a6a90', background: '#d06a6a28', color: '#f08080' }
-                  : { border: '1px solid #bf5f5f60', background: '#bf5f5f22', color: '#d96867' };
+                  : { border: '1px solid #d9686760', background: '#d9686722', color: '#d96867' };
                 const tooltip =
                   `${bidDumpStats.count} bid-sells in 60s`
                   + ` · ${formatSol(bidDumpStats.volume)} total`

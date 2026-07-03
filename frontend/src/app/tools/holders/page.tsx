@@ -358,7 +358,7 @@ export default function HoldersPage() {
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ color: '#9a9ab4', textAlign: 'left' }}>
+                      <tr style={{ color: '#9a9ab4', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1, background: '#1a1530' }}>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase' }}>#</th>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase' }}>Wallet</th>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase', textAlign: 'right' }}>NFTs</th>

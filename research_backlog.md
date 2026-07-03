@@ -3008,3 +3008,374 @@ Ranked by expected user impact × implementation risk × measurable benefit — 
 **Real, measured findings this pass:** PERF1 (High), PERF2 (Medium), PERF3 (Medium), PERF4 (Low-Medium), PERF5 (Low) — five findings, each backed by a real measurement or direct hot-path code read, matching this task's "prefer fewer high-quality findings over a long weak list" instruction. One mid-investigation hypothesis (PERF1's original "23K-account parse blocks the event loop for ~18s" guess) was tested and corrected rather than published as-is — the real dominant cost is the throttled DAS/ME name-resolution phase, not the parse loop.
 
 **Nothing implemented.** No code changed, nothing committed, nothing deployed, per this task's explicit rules. `research_backlog.md` is the only file touched by this pass, and only with this section — commit only if explicitly requested.
+
+---
+
+# UX Polish Program #1
+
+**Scope:** Not a bug hunt, not a protocol audit, not a performance audit — UX polish only. No code modified, nothing committed, nothing deployed, no redesigns proposed. Every finding is backed by a direct read of the actual styling code across the 9 major pages and the shared component library (`soloist/shared.tsx`, `globals.css`, `app/tools/mmm-shared.tsx`) — no screenshots were taken (not required per this task), but every claim below is traceable to a specific file/line/value, not a visual guess. Two hypotheses formed while grepping (a possible color-hex inconsistency, a possible missing-`alt`-text pattern) were checked further and **dropped** when the evidence didn't hold up — recorded as such rather than published as findings, per the "do not invent issues without evidence" rule.
+
+**Method:** grepped for concrete CSS values (`borderRadius`, `boxShadow`, `transition`, hex colors) across every page and the shared kit and compared values used for the *same conceptual element* in different places; grepped for structural patterns (`<thead>`+`sticky`, `onMouseEnter` vs CSS `:hover`, `<svg>` vs unicode glyphs, `title=` vs a custom tooltip component, `@keyframes`/`animation` usage per page); read the actual empty-state and table-header code side-by-side across sibling pages.
+
+| ID | Severity | Category | One-line summary |
+|---|---|---|---|
+| UX1 | High | Layout / Consistency | ✅ Fixed — the three MMM tool pages (`mmm-pools`, `mmm-pool-lookup`, `mmm-collection-scanner`) each defined their own table-header style — different padding, font size, and color for the same conceptual "pool table" |
+| UX2 | High | Motion | Zero animation/transition-on-update anywhere in 8 of 9 major pages (all 6 tool pages + Collection + Multi), while `/feed` has a deliberate, polished motion language (live pulse, flash-on-new-sale, slide-in filters panel) |
+| UX3 | Medium | Discoverability / Feedback | No custom tooltip component exists anywhere; 40+ native `title=` attributes carry genuinely important context (full addresses, size-risk warnings, badge meanings) as unstyled OS tooltips |
+| UX4 | Medium | Loading | No skeleton-loading pattern anywhere in the product; only 2 places (2 buttons) show any loading feedback at all, both a plain text swap |
+| UX5 | Medium | Visual / Consistency | ✅ Fixed — two different reds (`#bf5f5f` for border/background, `#d96867` for text) represented the same "danger/error" semantic role, used together in the same badge |
+| UX6 | Low | Visual / Premium polish | `borderRadius` values are scattered across 2/3/4/5/6/7/8/10/12/16 with no consistent scale — even within one shared file, the `Pill` component (radius 4) and adjacent hand-rolled status badges (radius 3) disagree |
+| UX7 | Low | Consistency | `transition` duration notation mixes `0.15s`-style and `150ms`-style for values on the same conceptual timing scale |
+| UX8 | Medium | Consistency / Icons | Dashboard uses real inline SVG icons; every tool page uses plain unicode glyph characters (✓, ⧉, ↗) for the same kind of iconography |
+| UX9 | Low-Medium | Copy / Consistency | Empty-state copy tone differs across pages — Mint Tracker's is warm/helpful, MMM Collection Scanner's is instructional/technical, for the same UI role |
+| UX10 | Low | Consistency | `CopyKey`'s default address-truncation length differs by one character between sibling MMM tool pages, a small but currently-live visual inconsistency for the same UI element |
+| UX11 | Medium | Hierarchy / Consistency | A color-token migration to the shared `palette.ts`/`VL.*` system is self-documented as partially complete ("phase 1 done, rest pending") — a genuinely unfinished state, not a guess |
+| UX12 | Medium | Layout | ✅ Fixed — sticky table headers were inconsistent even within the MMM tool family — some scrollable pool tables kept their header visible, sibling tools' tables didn't |
+| UX13 | Low | Interaction | Hover feedback is implemented two structurally different ways across the product — inline `onMouseEnter`/`onMouseLeave` JS handlers in the MMM tools vs CSS `:hover` classes elsewhere |
+
+---
+
+### Finding UX1 — Three MMM tool pages each define their own table-header style
+
+**Severity:** High
+
+**Category:** Layout / Consistency
+
+**Page(s):** `/tools/mmm-pools`, `/tools/mmm-pool-lookup`, `/tools/mmm-collection-scanner`
+
+**Evidence:** Direct comparison of each page's `TH` constant:
+```typescript
+// mmm-pools/page.tsx
+const TH = { padding: '10px 10px', fontSize: 11, color: '#9a9ab4', letterSpacing: '0.6px', ... };
+// mmm-collection-scanner/page.tsx
+const TH = { padding: '8px 10px',  fontSize: 10, color: '#6b6b85', letterSpacing: '0.8px', ... };
+```
+`mmm-pool-lookup/page.tsx` doesn't use a sortable `<table>`/`<thead>` at all for its primary view (a different UI shape, card-based) — so the inconsistency here is specifically between the two pages that *do* share the same table-based UI shape.
+
+**Current issue:** A user moving between these two sibling tools — both showing the exact same kind of data (MMM pools) in the exact same visual family (dark purple-tinted table) — sees a subtly different row height, header weight, and header color with no functional reason for the difference. This is the kind of detail a Stripe/Linear-caliber product would never let drift, precisely because users bounce between these two tools in the same MMM workflow session.
+
+**Minimal improvement:** Extract one shared `TH`/`TH_L`/`TD`/`TD_L` set into `app/tools/mmm-shared.tsx` (which already exists, created for exactly this kind of MMM-tool-wide primitive per Architecture Simplification #1's AS12 fix) and have both pages import it instead of each declaring their own.
+
+**Expected UX benefit:** immediate visual consistency between the two most-used MMM tools in the same session; removes a "did the page change or did I misclick" micro-friction.
+
+**Implementation risk:** Low — pure style-constant consolidation, same pattern already proven for `CopyKey`/`PANEL`/`MONO` under AS12.
+
+**Status: ✅ Fixed.** `app/tools/mmm-shared.tsx` now exports `TH`/`TH_L`, standardized on `mmm-collection-scanner`'s values (chosen because that page's sticky headers already relied on this exact padding/background pairing looking right — reusing an already-proven combination rather than an untested one, which also directly served UX12's fix on the same tables). Both `mmm-pools/page.tsx` and `mmm-collection-scanner/page.tsx` now import `TH`/`TH_L` instead of each declaring their own; `mmm-pool-lookup` was correctly left untouched, per the finding's own note that it doesn't use a comparable sortable-table UI shape. **Scope discipline:** only the header (`TH`/`TH_L`) was unified — each page's `TD`/`TD_L` (body-row density: padding, font size) was left exactly as-is, per this task's explicit "do not change table density" instruction; the two pages' row heights remain whatever they were before this fix. Column order and content were untouched. `tsc --noEmit` and `next build` both clean; all three MMM tool pages compile, prerender, and their bundle sizes shift by <0.1KB (4.04→4.09kB / 10.9→11kB), consistent with a pure style-constant move.
+
+---
+
+### Finding UX2 — Tool pages have zero motion; `/feed` has a rich, deliberate motion language
+
+**Severity:** High
+
+**Category:** Motion
+
+**Page(s):** All 6 `/tools/*` pages, `/collection/[slug]`, `/multi` (no animation/`@keyframes` reference found in any of them) vs `/feed` (rich: `slideDown`, `flashBuy`/`flashSell`/`flashListingFeed`, `feedFiltersIn`/`Out`, a pulsing live-dot)
+
+**Evidence:** Repo-wide grep for `animation` / `@keyframes` usage per page file: `mmm-pools`, `mmm-collection-scanner`, `mmm-pool-lookup`, `mint-analyzer`, `holders`, `trending`, `collection/[slug]`, `multi` — **zero matches in every one**. `globals.css` has a genuinely polished motion system used by `/feed`: new rows slide in (`slideDown 0.45s ease`), a new buy/sell/listing briefly flashes its own distinct color (`flashBuy`/`flashSell`/`flashListingFeed`, 3.6s ease-out), the filters panel animates open/closed (`feedFiltersIn 200ms` / `feedFiltersOut 180ms`), and a live-status dot pulses continuously (`dashboardLivePulse 2.6s`).
+
+**Current issue:** In the MMM tools specifically — which are the product's power-user, real-money-adjacent workflow, used repeatedly in a single session (per this project's own extensive pool-checking history) — a new pool appearing in a live scan result, a row's funding percentage updating, or a fresh triage result simply *replaces* the previous DOM state with zero transition. The product's most "alive" feeling (the feed) and its most functionally important tool (MMM pools) feel like they were built by different teams.
+
+**Minimal improvement:** Not a redesign — just port the *smallest* piece of the existing feed vocabulary to the tool tables: a `slideDown`-equivalent (or even simpler, a 150-200ms opacity fade-in) on newly-appended rows in `pool-feed`/triage results, reusing the exact same `@keyframes` already defined in `globals.css` rather than inventing new motion.
+
+**Expected UX benefit:** the single highest-leverage "feels premium" change available — motion on data arrival is one of the most reliable signals of a polished live-data product (this is literally what makes DexScreener/Tensor feed real-time updates feel alive rather than jarring).
+
+**Implementation risk:** Low-Medium — reusing existing, already-tuned keyframes; the only real risk is applying it to a *fast-updating* table without throttling (a table re-rendering every second with a fade-in on every row would feel worse, not better — needs to key off genuinely new rows only, mirroring how `/feed` already scopes its `new-buy`/`new-sell` classes to specific incoming items, not the whole list).
+
+---
+
+### Finding UX3 — No custom tooltip component; 40+ native `title=` tooltips carry important context
+
+**Severity:** Medium
+
+**Category:** Discoverability / Feedback
+
+**Page(s):** Primarily `/tools/mmm-collection-scanner` (14 occurrences), `/mints` (`LiveMintFeedCard`, 6), `/tools/mint-analyzer` (5), `/tools/trending` (4), `/tools/mmm-pool-lookup` (4), plus smaller counts across `rare-feed`, `mints` badges, `mmm-pools`, `feed`
+
+**Evidence:** Repo-wide search for a custom `Tooltip` component (`function Tooltip`, `const Tooltip`) — zero matches anywhere in `app/` or `soloist/`. Every one of 40+ `title=` attributes across the frontend relies entirely on the browser's native tooltip (delayed appearance, unstyled gray box, no theming, inconsistent behavior across browsers/OSes). Real examples of what's gated behind this: `CopyKey`'s `title={value}` (the only way to see a pool/wallet's *full* un-truncated address before copying), the pNFT byte-size-risk explanation on `mmm-pool-lookup` (`sizeRiskReason`), and collection/allowlist explanations across `mmm-collection-scanner`.
+
+**Current issue:** Several of these tooltips carry information a user genuinely needs *before* acting (e.g., confirming a full address matches what they expect before clicking copy, or understanding *why* a pool is flagged size-risk) — gating that behind a slow, unstyled, easy-to-miss native tooltip is a real usability cost, not just a cosmetic one, on a product where address confusion has real money consequences.
+
+**Minimal improvement:** One small shared `Tooltip` component (positioned `span`, matching the existing dark-panel visual language — `background: #1a1530`, `border: 1px solid rgba(168,144,232,0.32)`, already the product's established panel styling) in `soloist/shared.tsx`, adopted first on the highest-stakes cases (`CopyKey`'s full-address reveal, size-risk explanations) rather than a blanket sweep.
+
+**Expected UX benefit:** faster, more discoverable, on-brand tooltips exactly where address/risk confirmation matters most — this is a "premium feel" tell precisely because native tooltips are the single most obvious "unstyled default" left in the product.
+
+**Implementation risk:** Low for the component itself; Medium in aggregate only if applied to all 40+ sites at once (recommend the staged, highest-stakes-first rollout above, not a mechanical find-replace).
+
+---
+
+### Finding UX4 — No skeleton-loading pattern anywhere in the product
+
+**Severity:** Medium
+
+**Category:** Loading
+
+**Page(s):** Product-wide — most directly visible on `/feed`, `/dashboard`, and any MMM tool triggering a scan
+
+**Evidence:** Repo-wide search for `skeleton`/`Skeleton` — zero matches in any `.tsx`/`.css` file. Search for any loading-indicator pattern beyond a text label found exactly 2 instances, both a button label swap (`{busy ? 'Loading…' : 'Refresh'}` on `/tools/trending`, `{lookupBusy ? 'Loading…' : 'Load Pool'}` on `/tools/mmm-pool-lookup`). Every other data-fetching surface in the product — `/feed`'s and `/dashboard`'s initial `/api/events/latest` fetch, the MMM pool-feed/triage SSE streams, the collection-scan results table — has no examined loading affordance at all in the code (the table/panel presumably renders empty or with a stale previous result until data arrives).
+
+**Current issue:** A content-shaped loading placeholder (a handful of gray bars matching the eventual row layout) is one of the clearest, lowest-cost signals of a "premium" product (Linear, Stripe Dashboard, Vercel Dashboard all use this precisely because a blank pause before content pop-in reads as "did this break?" rather than "this is working").
+
+**Minimal improvement:** A single reusable `SkeletonRow`/`SkeletonBar` primitive in `soloist/shared.tsx` (a fixed-height div with a subtle shimmer/pulse background, reusing an existing `@keyframes pulseDot`-style animation rather than inventing a new one), adopted first on the two highest-traffic first-load surfaces (`/feed`, `/dashboard`).
+
+**Expected UX benefit:** removes the single most common "is this broken?" moment in the product — the pause between page mount and first data arrival.
+
+**Implementation risk:** Low for the component; Medium to retrofit cleanly into `/feed`'s/`/dashboard`'s existing mount logic without disturbing the SSE-driven live-update path already working there (needs to be *replaced* by real content on first data arrival, not stacked alongside it).
+
+---
+
+### Finding UX5 — Two different reds represent the same "danger" semantic role
+
+**Severity:** Medium
+
+**Category:** Visual / Consistency
+
+**Page(s):** `/collection/[slug]` (both instances), also present in the shared `soloist/shared.tsx` badge helper
+
+**Evidence:**
+```typescript
+// collection/[slug]/page.tsx:1407
+{ label: 'SELL PRESSURE', border: '1px solid #bf5f5f80', background: '#bf5f5f22', color: '#d96867' }
+```
+`#bf5f5f` (used for border/background, 8 occurrences product-wide) and `#d96867` (used for text, 64 occurrences product-wide) are genuinely different hex values, not alpha-variants of one base color — and they're combined *in the same badge* to represent one semantic idea (danger/sell-pressure/error).
+
+**Current issue:** A single warning badge rendering with a border tinted one shade of red and its text another, subtly, is exactly the kind of thing that reads as "slightly off" without a user being able to say why — a hallmark of a product that hasn't fully unified its design tokens yet.
+
+**Minimal improvement:** Pick one canonical "danger red" (given `#d96867` is far more widely used across the product at 64 occurrences vs `#bf5f5f`'s 8, it's the more natural canonical choice) and use it for both border and text in this specific badge, or derive the border color from the text color via the existing `alpha()` helper already used throughout the codebase for exactly this purpose.
+
+**Expected UX benefit:** small but real visual-cohesion win on a badge that specifically exists to draw urgent attention — worth getting exactly right.
+
+**Implementation risk:** Low — a two-value swap in one file.
+
+**Status: ✅ Fixed.** `#d96867` (already the far-more-common value, and already correct in every affected badge's `color` field) was kept as the canonical danger red; every paired `#bf5f5f*` border/background occurrence was replaced with the equivalent-alpha `#d9686x*` value. This turned out to be **3 locations in `collection/[slug]/page.tsx`** (an errored-state pill, the "SELL PRESSURE" market-signal badge quoted in this finding's evidence, and a bid-dump-severity badge) plus **1 in the shared `soloist/shared.tsx`** (the `TypeBadge` "SELL" pill) — all four are the identical documented `#bf5f5f`-border/`#d96867`-text mismatch, and `soloist/shared.tsx` was explicitly named in this finding's own "Page(s)" field, so fixing it was in-scope, not scope creep. A repo-wide grep for `#bf5f5f` after the fix returns **zero remaining occurrences** — confirms the 8 occurrences this finding's evidence counted were fully accounted for and no instance of the pattern was missed or left half-fixed. No other color was touched (the healthy/buy-green `#43b984` pairings alongside these badges were left exactly as they were). `tsc --noEmit` and `next build` both clean.
+
+---
+
+### Finding UX6 — `borderRadius` values are scattered with no consistent scale
+
+**Severity:** Low
+
+**Category:** Visual / Premium polish
+
+**Page(s):** Product-wide, most visible in `soloist/shared.tsx` (the shared kit itself)
+
+**Evidence:** Repo-wide frequency count of `borderRadius:` values: 2, 3, 4, 5, 6, 7, 8, 10, 12, 16 all appear multiple times, with no discernible small/medium/large scale (contrast a typical 4/8/12/16 or 2/4/8 system). Within `soloist/shared.tsx` itself — the shared kit, not scattered page code — the `Pill` component's own badge style uses `borderRadius: 4`, while six adjacent hand-rolled status-badge styles in the *same file* (lines 472-557) use `borderRadius: 3`.
+
+**Current issue:** Individually imperceptible (1px differences), but in aggregate this is exactly the kind of detail that separates "feels intentional" from "feels assembled" — and finding it *inside the shared kit itself* means even components meant to be the canonical version haven't fully agreed with each other.
+
+**Minimal improvement:** Not a sweep — just align the six hand-rolled badge styles in `soloist/shared.tsx` to the `Pill` component's own radius (4), since they're already living in the same file next to the canonical version.
+
+**Expected UX benefit:** small, low-visibility polish; primarily valuable as a signal that the shared kit is internally consistent (this is the file every other page is supposed to copy from, per `CLAUDE.md`'s "Copy, don't fork" convention).
+
+**Implementation risk:** Low — six single-value edits in one already-identified file.
+
+---
+
+### Finding UX7 — Transition-duration notation mixes seconds and milliseconds
+
+**Severity:** Low
+
+**Category:** Consistency
+
+**Page(s):** Product-wide
+
+**Evidence:** Grep for `transition:` duration values across the frontend surfaces both `'all 0.15s'`-style (11 occurrences) and `'transform 120ms'`-style (multiple occurrences) notation for values on the same ~100-200ms interaction-feedback scale — e.g. `120ms` and `0.12s` are the identical duration, just written two different ways in different files.
+
+**Current issue:** Purely a code-consistency nit, not a visually perceivable bug (both notations compute to the same rendered timing) — included because it's the kind of small inconsistency that, left unaddressed, tends to accumulate into real timing drift over time as new code copies whichever notation happens to be nearby.
+
+**Minimal improvement:** None proposed as urgent — worth a single convention decision (pick one notation) the next time any of these files is touched for another reason, not a dedicated pass.
+
+**Expected UX benefit:** none directly (no rendered difference) — purely a codebase-hygiene item that happens to touch the same values a designer/engineer would tune for feel.
+
+**Implementation risk:** Low, whenever it's done.
+
+---
+
+### Finding UX8 — Dashboard uses SVG icons; every tool page uses unicode glyph characters
+
+**Severity:** Medium
+
+**Category:** Consistency / Icons
+
+**Page(s):** `/dashboard` (SVG) vs all `/tools/*` pages (unicode glyphs)
+
+**Evidence:** `dashboard/page.tsx` contains 5 inline `<svg>` icon definitions. Every reviewed tool page instead uses literal unicode characters as icons — `'⧉'` (copy), `'✓'` (success/copied), `'↗'` (external link, seen earlier in `mmm-collection-scanner`'s ME-link button), `'✗'` (not-sellable, seen in `mmm-pool-lookup`'s sellability badge).
+
+**Current issue:** Unicode glyph icons render with the OS/browser's default emoji or symbol font, which varies in weight, size, and vertical alignment across platforms (a `⧉` on macOS Chrome looks different from the same character on Windows Firefox) — SVG icons render pixel-identically everywhere and can be styled (color, stroke-width, size) to match the surrounding UI exactly. Using both approaches across the product means icon crispness and alignment literally depends on which page a user is on and which OS they're using.
+
+**Current issue (continued):** This is also a discoverability cost — a `↗`/`✗` glyph reads far less immediately as "external link" / "blocked" than a purpose-drawn icon would, especially at the small sizes (fontSize 11-12) these are used at throughout the MMM tools.
+
+**Minimal improvement:** Not a full icon-system migration — start with the highest-frequency, highest-stakes glyphs (copy, external-link, success/fail) as small inline SVGs in `soloist/shared.tsx`, reusable across the tool pages that already import from it.
+
+**Expected UX benefit:** crisper, platform-consistent rendering on the most-used interactive glyphs; a small but real step toward the SVG-based visual language `/dashboard` already established.
+
+**Implementation risk:** Low-Medium — swapping a handful of well-identified glyph usages for equivalent small SVGs, no layout restructuring needed.
+
+---
+
+### Finding UX9 — Empty-state copy tone differs across pages
+
+**Severity:** Low-Medium
+
+**Category:** Copy / Consistency
+
+**Page(s):** `/mints` vs `/tools/mmm-collection-scanner`
+
+**Evidence:**
+```
+// mints/page.tsx — .mints-empty-primary / .mints-empty-helper
+"No collections in this timeframe"
+"Try a longer window"
+
+// mmm-collection-scanner/page.tsx — pre-scan empty state
+"Enter a collection slug or FVCA address above and press Enter or click Scan."
+"Shows underfunded infinite-lifetime MMM pools invisible in the ME UI."
+```
+The Mint Tracker's empty state speaks *to* the user in plain, encouraging language ("Try a longer window"); the MMM Collection Scanner's speaks *at* the user in instructional, technical language (naming the exact keys to press and using jargon — "FVCA", "infinite-lifetime" — with no softening).
+
+**Current issue:** Neither tone is wrong in isolation (the MMM tools are explicitly power-user surfaces, per this project's whole history), but a product with two visibly different "voices" for the same UI role (an empty state) reads as built by different people at different times rather than one considered product voice.
+
+**Minimal improvement:** Not a full copy pass — just note the tone gap for whoever next touches either empty state, so new copy trends toward one voice rather than either extreme hardening further.
+
+**Expected UX benefit:** long-term brand cohesion; not an urgent fix on its own.
+
+**Implementation risk:** Low (copy-only), but genuinely needs a human voice decision, not a mechanical find-replace.
+
+---
+
+### Finding UX10 — `CopyKey`'s default truncation length differs by one character between sibling pages
+
+**Severity:** Low
+
+**Category:** Consistency
+
+**Page(s):** `/tools/mmm-collection-scanner` vs `/tools/mmm-pool-lookup` / `/tools/mmm-pools`
+
+**Evidence:** Cross-referencing Architecture Simplification #1's AS12 fix: `mmm-collection-scanner/page.tsx`'s own `short()` helper truncates to a 4-character tail (`${s.slice(0,5)}…${s.slice(-4)}`), while the shared `short()` in `app/tools/mmm-shared.tsx` (used by `mmm-pool-lookup`/`mmm-pools`) truncates to a 5-character tail (`${s.slice(0,5)}…${s.slice(-5)}`). This was **found and deliberately preserved** during the AS12 code-deduplication pass specifically because the two behaviors were confirmed different and changing either would have altered visible output — the underlying *code duplication* was fixed, but the *visual* inconsistency itself is still live today.
+
+**Current issue:** A pool key shown as `3mFwqv…j9fDNw` on one tool and `3mFwqv…u9fDNw` (one extra tail character) on its sibling tool is a tiny, easy-to-miss but real inconsistency for the exact same kind of data (a pool key) shown in the exact same visual component (`CopyKey`) across pages used back-to-back in the same workflow.
+
+**Minimal improvement:** A deliberate one-line decision (not a mechanical fix, since AS12 already proved this needs care) — pick one tail length (5, matching the more widely-used `mmm-shared.tsx` version) and update `mmm-collection-scanner`'s local `short()` to match, then verify its one remaining explicit-label call site (`label={short(p.poolKey)}`, added during the AS12 fix specifically to preserve this exact behavior) still renders the intended text.
+
+**Expected UX benefit:** small; mostly relevant because this exact inconsistency was already surfaced once and consciously left as-is — worth a real decision rather than leaving it as an accidental artifact of the AS12 fix's "preserve behavior" scope.
+
+**Implementation risk:** Low, but requires re-reading the AS12 fix notes carefully before touching it (the whole point of that fix was not to change this value silently).
+
+---
+
+### Finding UX11 — The palette-token migration is self-documented as unfinished
+
+**Severity:** Medium
+
+**Category:** Hierarchy / Consistency
+
+**Page(s):** Product-wide, primarily `/feed` and the badge/floor-price surfaces
+
+**Evidence:** Recorded directly in this project's own memory/notes: *"nft-live-feed has `palette.ts` + `:root` RGB-triplet `--vl-*` scale to kill one-off color shades; use `VL.*`/`alpha()` not literals; phase 1 (badges/floor) done, rest of `/feed` + purple-tint + neutrals + gold pending."* This is not this pass's own inference — it's the project's own tracked, acknowledged state.
+
+**Current issue:** A partially-migrated design-token system means some colors on `/feed` are already canonical (`VL.*` references, easy to retheme/adjust consistently) while others are still one-off literal hex values (harder to keep in sync, more prone to exactly the kind of drift UX5/UX6 already document elsewhere). This is the closest thing in the whole review to a genuinely "unfinished" feeling, in the literal sense — it's an incomplete migration, not a finished-but-imperfect design.
+
+**Minimal improvement:** Not proposed here (this is a known, already-scoped follow-up, not a new discovery) — flagging its continued open status as directly relevant to this UX pass's "unfinished" criterion, and noting it as the most efficient next investment for anyone doing further color/consistency polish, since the infrastructure (the token system itself) already exists and works.
+
+**Expected UX benefit:** completing it would likely resolve a meaningful fraction of UX5/UX6-style small color/radius drift automatically, since the whole point of the token system is to make "one canonical value" the path of least resistance.
+
+**Implementation risk:** Medium — touches `/feed`, the highest-traffic page, and needs careful visual verification that no color shifts are introduced (this project's own stated rule: preserve UX/layout, no uninvited redesigns).
+
+---
+
+### Finding UX12 — Sticky table headers are inconsistent even within the MMM tool family
+
+**Severity:** Medium
+
+**Category:** Layout
+
+**Page(s):** `/tools/mmm-pools`, `/tools/holders` (no sticky headers) vs `/tools/mmm-collection-scanner`, `/tools/mmm-pool-lookup`, `/tools/trending` (sticky headers present)
+
+**Evidence:** Grep for `position: 'sticky'` (or `position:'sticky'`) per page: present in `mmm-collection-scanner` (3 occurrences), `mmm-pool-lookup` (2), `trending` (1), `mints` (1), `tools` (1) — **absent** from `mmm-pools/page.tsx` (has 2 `<thead>` tables, zero sticky) and `holders/page.tsx` (has 1 `<thead>` table, zero sticky).
+
+**Current issue:** Scrolling down a long result table in `mmm-pools` or `holders` loses the column headers entirely, while the near-identical UI shape in `mmm-collection-scanner` keeps them pinned — a user who's learned "headers stay visible while I scroll" from one MMM tool loses that affordance switching to a sibling tool with no visual cue that the behavior differs.
+
+**Minimal improvement:** Add the same `position: 'sticky', top: 0, zIndex: 1` treatment already used in `mmm-collection-scanner`'s `<thead>` styling to `mmm-pools`'s and `holders`'s table headers — a copy of an already-proven, already-working pattern, not a new design.
+
+**Expected UX benefit:** consistent scroll behavior across every table-based tool in the product; removes a real usability gap on longer result sets specifically (both tables' row counts can exceed a single viewport, per this session's own earlier pool-scan measurements showing 1,000+ underfunded pools in some modes).
+
+**Implementation risk:** Low — additive `position: sticky` on an existing `<thead>`, well-precedented in-repo.
+
+**Status: ✅ Fixed.** Added `position: 'sticky', top: 0, zIndex: 1` to both of `mmm-pools/page.tsx`'s header `<tr>` elements (it has two separate result tables) and to `holders/page.tsx`'s single header `<tr>`, matching `mmm-collection-scanner`'s exact existing pattern. **One necessary companion change:** `holders/page.tsx`'s header row had no `background` set at all (fine when static, since the row never overlapped scrolling content) — made sticky with no background, table rows would visibly scroll *through* it. Added `background: '#1a1530'`, matching the exact solid color of the `PANEL` wrapper this specific table already sits inside (`app/tools/holders/page.tsx`'s own `PANEL` constant), so the header blends with its surrounding panel exactly as `mmm-collection-scanner`'s and `mmm-pools`'s headers already do via their `TH` cells' own `background`. No offsets/z-index deviated from the reference pattern (`top: 0, zIndex: 1` copied verbatim); no column reordering, no density change, no other styling touched. `mmm-pool-lookup` and `trending` already had sticky headers and were left untouched. `tsc --noEmit` and `next build` both clean.
+
+---
+
+### Finding UX13 — Hover feedback is implemented two structurally different ways
+
+**Severity:** Low
+
+**Category:** Interaction
+
+**Page(s):** MMM tool pages (inline JS handlers) vs `/feed`/`/mints` (CSS classes)
+
+**Evidence:** 7 files under `/tools/*` use inline `onMouseEnter`/`onMouseLeave` handlers that imperatively mutate `style.background` on row hover (e.g. `mmm-collection-scanner`'s pool-feed rows: `onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}`). `globals.css` instead defines 29 `:hover`-suffixed CSS rules (`.feed-card:hover`, `.mints-feed-row:hover`, etc.) for the equivalent interaction elsewhere in the product, per this project's own documented "hover lift" pattern (`translateY(-1px) scale(1.005)` + inset ring + soft glow).
+
+**Current issue:** CSS-driven `:hover` is GPU-composited and handled entirely by the browser's own paint pipeline — instant, and correctly cancels/reverses on rapid mouse in/out with no extra work. Inline JS handlers run on the main JS thread and only do exactly what's coded (here, a flat background swap, with none of the lift/glow treatment `/feed`'s hover state has) — both technically slightly less smooth and visually less rich than the product's own established hover language.
+
+**Minimal improvement:** Not a full migration — the MMM tool tables could adopt the same `:hover` class + `globals.css` rule pattern already proven on `.feed-card`/`.mints-feed-row`, at least for the row-level highlight (the JS handlers exist here specifically because these rows need per-row *dynamic* styling based on `i % 2` zebra-striping interacting with hover state, which is solvable with a CSS class toggle instead of inline style mutation).
+
+**Expected UX benefit:** smoother, more consistent hover feel across the product; brings the MMM tools' row interaction up to the same polish level as `/feed`'s already-tuned hover lift.
+
+**Implementation risk:** Medium — the zebra-striping + hover interaction in the MMM tables is more stateful than `/feed`'s simpler card hover, so this needs a real CSS-class-based redesign of that specific interaction, not a one-line swap.
+
+---
+
+## Dropped during investigation (checked, not published)
+
+Per this task's "do not invent issues without evidence" rule — two hypotheses were tested and dropped when the evidence didn't support them:
+
+- **Suspected color-hex duplication for "success green"** — checked all close-variant hex values near `#43b984` (the product's single most-used accent color, 104 occurrences); found zero near-duplicates. The success/green color is used with real discipline across the product — not a finding.
+- **Suspected missing `alt` text on NFT thumbnail images** — a first-pass grep looked concerning, but a direct read of `soloist/shared.tsx`'s actual `<img>` usage showed deliberate `alt=""` on purely decorative thumbnails (correct practice when adjacent text already names the item) and real, descriptive `alt="VictoryLabs"` / `alt="SOL"` on meaningful icons/logos — not a finding.
+
+---
+
+## Top 13 UX improvements (ranked by user impact)
+
+This pass surfaced 13 well-evidenced findings, not 15 — presented as-is rather than padded with lower-confidence items, per this task's own "optimize for quality, not novelty" instruction.
+
+1. **UX2** — Motion asymmetry (tool pages vs `/feed`). Highest-leverage "feels premium" change; touches the product's actual working surface (MMM tools), not just its show page.
+2. **UX1** — Divergent MMM table-header styles. High-frequency, side-by-side comparison point in a real user's actual workflow.
+3. **UX12** — Inconsistent sticky headers. Real usability cost on long result tables, not just cosmetic.
+4. **UX4** — No skeleton loading anywhere. The single most common "is this broken?" moment across the whole product.
+5. **UX3** — No custom tooltip; 40+ native tooltips gate real decision-relevant info (full addresses, risk explanations).
+6. **UX11** — Unfinished palette-token migration. The most efficient next investment — infrastructure already exists, just needs finishing.
+7. **UX8** — SVG-vs-unicode icon split. Real platform-rendering inconsistency on the most-used interactive glyphs.
+8. **UX5** — Two reds for one "danger" role. Small but on a badge that specifically exists to draw urgent attention.
+9. **UX13** — Two different hover-feedback mechanisms. Real feel difference, medium effort given the zebra-striping interaction.
+10. **UX9** — Empty-state copy tone gap. Long-term brand-voice item, not urgent.
+11. **UX10** — `CopyKey` truncation-length drift. Small, but a known, previously-surfaced artifact worth a deliberate close-out.
+12. **UX6** — Scattered `borderRadius` scale. Low-visibility but easy, high-leverage-per-minute fix inside the shared kit itself.
+13. **UX7** — Transition-duration notation mixing. Pure hygiene, zero rendered impact — lowest priority on this list.
+
+## Quick wins (<30 min each)
+
+- **UX6** — align `soloist/shared.tsx`'s six hand-rolled badge styles to the `Pill` component's own `borderRadius: 4` (currently 3) — six single-value edits in one already-identified file.
+- **UX5** — swap `#bf5f5f`/`#d96867` mismatch in the `collection/[slug]` "SELL PRESSURE"-style badge to one canonical red — two-value swap in one file.
+- **UX12** — add `position: sticky` to `mmm-pools`'s and `holders`'s `<thead>` elements, copying `mmm-collection-scanner`'s already-working styling verbatim.
+- **UX1** — extract the shared `TH`/`TH_L`/`TD`/`TD_L` constants into `app/tools/mmm-shared.tsx`, matching the exact pattern AS12 already used for `CopyKey`/`PANEL`/`MONO`.
+
+## Medium wins (<2h each)
+
+- **UX3** — one shared `Tooltip` component in `soloist/shared.tsx`, adopted first on `CopyKey`'s full-address reveal and the pNFT size-risk explanation (the two highest-stakes call sites, not a blanket sweep).
+- **UX8** — 3-4 small inline SVGs (copy, external-link, success, fail) in `soloist/shared.tsx` replacing the highest-frequency unicode glyphs in the MMM tools.
+- **UX2** (scoped narrowly) — a single reusable fade/slide-in treatment for newly-appended pool-feed rows, reusing `globals.css`'s existing `slideDown` keyframe rather than a new one.
+- **UX10** — a deliberate, documented decision on `CopyKey`'s truncation length + verification the one AS12-added explicit-label call site still renders correctly.
+
+## Large wins (>1 day)
+
+- **UX4** — a proper skeleton-loading system: a reusable `SkeletonRow`/`SkeletonBar` primitive plus retrofitting it cleanly into `/feed`'s and `/dashboard`'s existing SSE-driven mount logic without disturbing the live-update path.
+- **UX11** — finishing the palette-token migration (the rest of `/feed` + purple-tint + neutrals + gold) — already scoped elsewhere in this project's own notes, sizeable because it touches the highest-traffic page and needs careful visual verification.
+- **UX13** (full version) — migrating the MMM tool tables' row-hover interaction from inline JS handlers to a CSS-class-based system that still supports the zebra-striping + hover interaction correctly — more involved than it first looks because of that state interaction.
+
+## Things that should NOT be changed
+
+- **`/feed`'s existing motion system** (`slideDown`, `flashBuy`/`flashSell`/`flashListingFeed`, `feedFiltersIn`/`Out`) — already polished, already well-tuned (specific durations for specific purposes), and the *reference* other pages should copy from per UX2, not a page that itself needs work.
+- **`LiveDot`, `Pill`, `SettingsToggle`, `ItemThumb` adoption** — checked across 16 files; consistently reused from `soloist/shared.tsx` everywhere, exactly matching this project's own "Copy, don't fork" convention. A genuinely compliant pattern, cited here as a positive baseline, not a finding.
+- **The product's core color discipline** — `#43b984` (success), `#9a9ab4` (secondary text), `#f0eef8` (primary text) are each reused hundreds of times with real consistency; the *token migration* (UX11) is worth finishing, but the underlying color choices themselves are already right — don't touch the palette's actual hues, just where they're referenced from.
+- **The MMM tools' information density and jargon-forward copy** (FVCA, cosigner, allowlist terminology, etc.) — this is a deliberate power-user surface per this project's own extensive history; softening it wholesale (rather than just closing the specific tone *gap* noted in UX9) would work against the product's actual audience.
+- **Inline `title=` tooltips on genuinely low-stakes elements** (e.g. a decorative icon's name) — UX3's fix should be staged to the highest-stakes cases first; not every native tooltip in the product needs replacing, only the ones gating decision-relevant information.

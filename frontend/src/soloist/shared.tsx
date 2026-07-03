@@ -488,8 +488,8 @@ export function TypeBadge({ type }: { type: 'buy' | 'sell' }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
-      padding: '1px 6px', borderRadius: 3, border: '1px solid #bf5f5f48',
-      background: '#bf5f5f20', color: '#d96867', letterSpacing: '0.3px',
+      padding: '1px 6px', borderRadius: 3, border: '1px solid #d9686748',
+      background: '#d9686720', color: '#d96867', letterSpacing: '0.3px',
       flexShrink: 0, lineHeight: '14px',
     }}>SELL</span>
   );

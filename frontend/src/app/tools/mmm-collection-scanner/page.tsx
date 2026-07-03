@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot }                                            from '@/soloist/shared';
 import { authHeaders }                                        from '@/runtime/auth';
 import { VL, VLText, ALPHA, rgb, alpha }                     from '@/lib/palette';
-import { API_BASE, ADDR_RE, MONO, PANEL, CopyKey }           from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface UnderfundedPool {
@@ -99,13 +99,6 @@ interface PoolFeedResult {
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
-const TH: React.CSSProperties = {
-  padding: '8px 10px', fontSize: 10, fontWeight: 700,
-  color: '#6b6b85', letterSpacing: '0.8px', textAlign: 'right',
-  background: 'rgba(16,11,30,0.98)', borderBottom: '1px solid rgba(168,144,232,0.10)',
-  textTransform: 'uppercase', userSelect: 'none', whiteSpace: 'nowrap',
-};
-const TH_L: React.CSSProperties = { ...TH, textAlign: 'left' };
 const TD: React.CSSProperties = {
   ...MONO, padding: '8px 10px', fontSize: 12, fontWeight: 600,
   color: '#f0eef8', textAlign: 'right', verticalAlign: 'middle',

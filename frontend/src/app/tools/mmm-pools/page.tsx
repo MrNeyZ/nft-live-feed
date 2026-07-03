@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import { LiveDot }             from '@/soloist/shared';
 import { authHeaders }         from '@/runtime/auth';
-import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short, CopyKey } from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
 
 interface MmmPool {
   poolKey:        string;
@@ -46,13 +46,6 @@ interface ScanResult {
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
-const TH: React.CSSProperties = {
-  padding: '10px 10px', fontSize: 11, fontWeight: 700,
-  color: '#9a9ab4', letterSpacing: '0.6px', textAlign: 'right',
-  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
-  textTransform: 'uppercase', userSelect: 'none', whiteSpace: 'nowrap',
-};
-const TH_L: React.CSSProperties = { ...TH, textAlign: 'left' };
 const TD: React.CSSProperties = {
   ...MONO, padding: '11px 10px', fontSize: 12, fontWeight: 600,
   color: '#f0eef8', textAlign: 'right', verticalAlign: 'middle',
@@ -262,7 +255,7 @@ export default function MmmPoolsPage() {
                     <col style={{ minWidth: 60  }} />{/* Exec        */}
                   </colgroup>
                   <thead>
-                    <tr>
+                    <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                       <th style={TH_L}>Collection</th>
                       <th style={TH_L}>Pool Key</th>
                       <th style={TH_L}>Escrow PDA</th>
@@ -353,7 +346,7 @@ export default function MmmPoolsPage() {
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
-                      <tr>
+                      <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                         <th style={TH_L}>Collection</th>
                         <th style={TH_L}>Pool Key</th>
                         <th style={TH}>Spot</th>
