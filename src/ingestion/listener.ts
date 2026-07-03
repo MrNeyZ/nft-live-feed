@@ -837,14 +837,21 @@ const intervalHandles: NodeJS.Timeout[] = [];
 
 const BACKOFF_MIN_MS = 10_000;  // 10s minimum — avoids rapid reconnect storms
 const BACKOFF_MAX_MS = 120_000; // 2 min ceiling
+// Jitter added on top of the exponential backoff delay (not folded into the
+// backoff value itself) so a correlated multi-target drop — e.g. Helius
+// dropping several/all of our WS connections at once — doesn't reconnect
+// every target in lockstep. Same idea HARD_REFRESH_STAGGER_MS already uses
+// for the self-scheduled periodic refresh path (Audit #11 LF1).
+const RECONNECT_JITTER_MS = 3_000;
 
 function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnect = false): void {
   if (!running) return;  // stopListener() was called — don't re-open
   // NOTE: lastNotificationTs is NOT reset here.
   // Resetting it on every reconnect (including automatic close-handler reconnects)
-  // would mask silent subscriptions: if Helius drops idle WebSocket connections
-  // every ~30s, the clock is reset on each reconnect and never ages to
-  // STALE_TARGET_MS — which is exactly the me_v2/mmm/tcomp non-restart bug.
+  // would mask silent subscriptions: Helius's documented WS idle timeout is
+  // 10 minutes (helius.dev/docs/rpc/websocket) — if the clock were reset on
+  // each reconnect it would never age to STALE_TARGET_MS, which is exactly
+  // the me_v2/mmm/tcomp non-restart bug.
   // The clock is reset only in restartTarget (explicit watchdog restart) and
   // restartListeners (full restart), where a deliberate grace period is wanted.
 
@@ -1147,8 +1154,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     clearInterval(pingTimer);
     activeSockets.delete(target.name);
     const nextBackoff = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
-    console.warn(`[listener/${target.name}] disconnected (code=${code})  reconnecting in ${backoffMs / 1000}s`);
-    setTimeout(() => openSubscription(target, nextBackoff, true), backoffMs);
+    const jitterMs = Math.floor(Math.random() * RECONNECT_JITTER_MS);
+    console.warn(`[listener/${target.name}] disconnected (code=${code})  reconnecting in ${(backoffMs + jitterMs) / 1000}s`);
+    setTimeout(() => openSubscription(target, nextBackoff, true), backoffMs + jitterMs);
   });
 }
 

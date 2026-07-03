@@ -735,8 +735,8 @@ Ordered by expected parser coverage gap / protocol complexity.
 
 | Finding | Severity | Status | Notes |
 |---|---|---|---|
-| LF1 | Medium-High | Backlog | Per-target WS reconnect backoff has no jitter — the self-scheduled "hard refresh" path does, the actual unplanned-disconnect path doesn't |
-| LF2 | Low | Backlog | Code comment cites an unconfirmed "~30s" Helius idle-timeout figure; official docs say 10 minutes — comment-accuracy only, no functional effect |
+| LF1 | Medium-High | ✅ Fixed | Per-target WS reconnect backoff has no jitter — the self-scheduled "hard refresh" path does, the actual unplanned-disconnect path doesn't |
+| LF2 | Low | ✅ Fixed | Code comment cites an unconfirmed "~30s" Helius idle-timeout figure; official docs say 10 minutes — comment-accuracy only, no functional effect |
 | LF3 | — | Compliant | `logsSubscribe` + `getTransaction` both pinned to `commitment: 'confirmed'`, deliberately avoiding a measured `processed`-vs-confirmed indexing race |
 | LF4 | — | Compliant | Gap-healer's `getSignaturesForAddress` usage matches documented newest-first + `before`/`until` pagination; already fixed a real inter-page gap-loss incident |
 | LF5 | — | Compliant | "Warm mode" mint-tracker catch-up-skip is a deliberate, self-documented, accepted incompleteness trade-off, not an oversight |
@@ -770,7 +770,7 @@ const delay = i * HARD_REFRESH_STAGGER_MS + Math.floor(Math.random() * HARD_REFR
 
 **Minimal production-safe fix:** add `Math.random() * <small window, e.g. 3000ms>` to the per-target `setTimeout` delay in the `ws.on('close')` handler, mirroring the existing `HARD_REFRESH_STAGGER_MS` pattern.
 
-**Status:** Backlog — not fixed as part of this audit (audit-only, no code changes).
+**Status: Fixed.** Added `RECONNECT_JITTER_MS = 3_000` and applied `backoffMs + Math.floor(Math.random() * RECONNECT_JITTER_MS)` as the actual `setTimeout` delay in `ws.on('close')` — the exponential `nextBackoff` value passed forward to the next attempt is untouched, only the wait for *this* reconnect gets jittered, same principle as `HARD_REFRESH_STAGGER_MS`. Subscription logic untouched.
 
 ---
 
@@ -787,6 +787,8 @@ const delay = i * HARD_REFRESH_STAGGER_MS + Math.floor(Math.random() * HARD_REFR
 **Impact:** none functionally — the actual behavior the comment justifies (not resetting `lastNotificationTs` on automatic reconnect) is unaffected either way, and is if anything more conservative than the real 10-minute window requires. Flagged only because the audit requires grounding every claim, including ones embedded in comments, against official docs.
 
 **Minimal production-safe fix:** update the comment to cite the correct figure or drop the specific number.
+
+**Status: Fixed.** Comment now reads "Helius's documented WS idle timeout is 10 minutes (helius.dev/docs/rpc/websocket)". Comment-only change, no behavior affected.
 
 **Status:** Backlog — cosmetic, not fixed this pass.
 
@@ -876,9 +878,9 @@ The function returns before any enrichment scheduling or `saleEventBus.emitSale(
 
 ## Audit #11 summary
 
-**Real, fixable production risks identified:** LF1 (reconnect jitter gap — Medium-High) and LF8 (no sale-side SSE replay — Medium). Both backlog, no code changed this pass.
+**Real, fixable production risks identified:** LF1 (reconnect jitter gap — Medium-High, ✅ Fixed) and LF8 (no sale-side SSE replay — Medium, still Backlog — SSE replay/backfill architecture explicitly out of scope for the LF1/LF2 fix pass).
 
-**Cosmetic:** LF2 (comment accuracy).
+**Cosmetic:** LF2 (comment accuracy, ✅ Fixed).
 
 **Confirmed compliant, no action needed:** LF3, LF4, LF5, LF7.
 
