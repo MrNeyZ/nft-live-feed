@@ -20,6 +20,7 @@ import { fetchMode, setMode, getRuntimeChoice, setRuntimeChoice, type RuntimeMod
 import { setMintTrackerEnabled } from './mint-tracker';
 // import { VictoryLabsLogo } from '@/soloist/VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
 import { FloatingLayoutModeSwitcher, BottomStatusBar, TopNav } from '@/soloist/shared';
+import { CommandPalette } from '@/soloist/CommandPalette';
 import { usePathname } from 'next/navigation';
 // CSS is server-rendered via layout.tsx → gate-css.ts. Runtime import here
 // so the bundler links Gate.tsx to gate-css.ts — changing gate-css.ts forces
@@ -107,6 +108,7 @@ export function Gate({ children }: { children: ReactNode }) {
       {children}
       {!embedded && <PersistentBottomStatusBar />}
       {!embedded && <FloatingLayoutModeSwitcher />}
+      {!embedded && <CommandPalette />}
     </>
   );
 }

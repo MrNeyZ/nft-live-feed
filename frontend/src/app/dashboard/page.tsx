@@ -14,6 +14,7 @@ import {
 import { fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { CollectionIcon, LiveDot, Pill, compressImage, rowLinkHandlers, RowLinkOverlay, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { isCnftDust } from '@/soloist/cnft-filter';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
@@ -641,6 +642,12 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [mkt, setMkt] = useState<MktFilter>('all');
+  // Command palette (⌘K) delegates Settings here — see CommandPalette.tsx.
+  useEffect(() => {
+    const onSettings = () => setFiltersOpen(o => !o);
+    window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+    return () => window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+  }, []);
 
   // Subtle fade on timeframe change — signals the table "snapped" to a new
   // view without layout shift. clearTimeout prevents animation stacking when

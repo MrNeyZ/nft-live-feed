@@ -10,6 +10,7 @@ import { useBlacklist, FEED_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { isFeedEventBlacklisted } from '@/soloist/blacklist-filter';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { LiveDot, Pill, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { PALETTE_TOGGLE_PAUSE_EVENT, PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { useInclusiveFees } from '@/soloist/price-mode';
 import {
   feedReducer, initFeedState, orderedEvents,
@@ -271,6 +272,17 @@ export default function FeedPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Command palette (⌘K) delegates Pause/Settings here — see CommandPalette.tsx.
+  useEffect(() => {
+    const onPause = () => setPaused(p => !p);
+    const onSettings = () => setFiltersOpen(o => !o);
+    window.addEventListener(PALETTE_TOGGLE_PAUSE_EVENT, onPause);
+    window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+    return () => {
+      window.removeEventListener(PALETTE_TOGGLE_PAUSE_EVENT, onPause);
+      window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+    };
+  }, []);
   // Two-state mount machine so the close animation has time to play
   // before React unmounts the panel. `filtersMounted` lags
   // `filtersOpen` by the close-animation duration: it flips true

@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveDot, ItemThumb, Pill, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { useBlacklist, MINTS_BLACKLIST_KEY, readBlacklist } from '@/soloist/blacklist-store';
 import { isMintEventBlacklisted, isMintStatusBlacklisted } from '@/soloist/blacklist-filter';
 import { formatSol } from '@/soloist/mock-data';
@@ -1107,6 +1108,12 @@ export default function MintsPage() {
   // the table starts high; the header "Settings" pill toggles it. Not a
   // floating popover — it expands/collapses inline.
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+  // Command palette (⌘K) delegates Settings here — see CommandPalette.tsx.
+  useEffect(() => {
+    const onSettings = () => setSettingsOpen(o => !o);
+    window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+    return () => window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
+  }, []);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
     // Tab switch clears manual-sort state so each tab opens with its
