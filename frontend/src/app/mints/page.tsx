@@ -678,21 +678,21 @@ const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== '
 // Pill colors taken directly from sourceBadge fg values (source.ts) so they
 // match the card badges exactly.
 const TYPE_COLORS: Record<string, string> = {
-  cnft:  '#43b984', // rgb(VL.green)       — Bubblegum / cNFT
-  core:  '#a890e8', // rgb(VL.purpleTint) — MPL Core
-  candy: '#e58aa3', // #e58aa3             — Candy Machine (CANDY badge pink)
+  cnft:  '#43b984', // VL.green      — Bubblegum / cNFT — hex: settingsPillActive/Pill concat `${color}NN` alpha suffixes, rgb() breaks that
+  core:  '#a890e8', // VL.purpleTint — MPL Core
+  candy: '#e58aa3', // Candy Machine (CANDY badge pink) — no VL token yet
 };
 const SOURCE_COLORS: Record<SourceKey, string> = {
-  LMNFT: '#c7b479', // rgb(VL.gold)        — LaunchMyNFT
-  VVV:   '#5fa8e6', // #5fa8e6             — VVV.so (card badge light blue)
-  GRAVE: '#a0a0a8', // #a0a0a8             — GraveMint (card badge gray)
-  CANDY: '#e58aa3', // #e58aa3             — Candy Guard (same as candy type)
-  CORE:  '#a890e8', // rgb(VL.purpleTint) — Core (hidden from UI)
+  LMNFT: '#c7b479', // VL.gold       — LaunchMyNFT — hex only, see TYPE_COLORS note above
+  VVV:   '#5fa8e6', // VVV.so (card badge light blue) — no VL token yet
+  GRAVE: '#a0a0a8', // GraveMint (card badge gray) — no VL token yet
+  CANDY: '#e58aa3', // Candy Guard (same as candy type) — no VL token yet
+  CORE:  '#a890e8', // VL.purpleTint — Core (hidden from UI)
 };
 const STATUS_COLORS: Record<string, string> = {
-  active: '#43b984', // green
-  watch:  '#c7b479', // gold/amber
-  sold:   '#d96867', // red
+  active: '#43b984', // VL.green
+  watch:  '#c7b479', // VL.gold
+  sold:   '#d96867', // VL.red — hex only, see TYPE_COLORS note above
 };
 
 type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
@@ -2534,7 +2534,7 @@ export default function MintsPage() {
                       color="#d96867"
                       onClick={() => addBlacklist(blInput)}
                       label="+"
-                      
+
                       size="sm"
                       style={settingsPillActive('#d96867')}
                     />
