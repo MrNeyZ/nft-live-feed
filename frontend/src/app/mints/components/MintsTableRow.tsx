@@ -556,7 +556,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 const b = e.currentTarget;
                 b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)';
                 b.style.boxShadow  = 'none';
-                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = VLText.muted; t.style.textShadow = 'none'; }
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = VLText.faint; t.style.textShadow = 'none'; }
               }
             }}
             style={{
@@ -590,25 +590,26 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 // Pinned (active) state kept distinctly purple so the
                 // affordance still reads when toggled on.
                 ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(140,112,228,0.20) 28%, rgba(155,124,240,0.34) 50%, rgba(140,112,228,0.20) 72%, rgba(128,104,216,0.06) 100%)'
-                // Idle: gradient alphas halved (0.04 → 0.018,
-                // 0.06 → 0.025) so the strip stops competing for
-                // attention on every row. Hover restores the purple
-                // glow via onMouseEnter handler above — unchanged.
-                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.018) 28%, rgba(128,104,216,0.025) 50%, rgba(128,104,216,0.018) 72%, rgba(128,104,216,0) 100%)',
+                // Idle initial-render value matches the post-hover resting
+                // style below (the onMouseLeave target) — three states stay:
+                // idle/after-hover (this), :hover (brighter, imperative
+                // above), pinned. Was dimmer (0.018/0.025) before first
+                // hover; bumped to match so idle doesn't visibly jump the
+                // first time the row is touched.
+                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)',
               boxShadow: isPinned ? 'inset 0 0 0 1px rgba(188,160,246,0.42), inset 0 0 18px rgba(155,124,240,0.18)' : 'none',
               transition: 'background 160ms ease, box-shadow 160ms ease',
             }}
           >
             <span style={{
-              // Strong pass: text rendered as a compact muted label —
-              // smaller (10.5 → 9.5), lighter weight (700 → 600), and
-              // a noticeably dimmer idle color (#9a9ab4 → #6e6688) so
-              // the SHOW column no longer pulls the eye on every row.
-              // Hover/pinned restore strong purple/white via the parent
-              // handlers (unchanged).
+              // Dim color: VLText.faint (tertiary-label tone) — a near-exact
+              // token match for the old hardcoded #6e6688. VLText.muted
+              // (#9A9AB4, same tone as regular body text) made SHOW compete
+              // with everything else on the row instead of receding as a
+              // secondary action.
               fontSize: 9.5, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase',
               whiteSpace: 'nowrap', transition: 'color 160ms ease, text-shadow 160ms ease',
-              color: isPinned ? '#ffffff' : '#6e6688',
+              color: isPinned ? '#ffffff' : VLText.faint,
               textShadow: isPinned ? '0 0 10px rgba(188,160,246,0.55)' : 'none',
             }}>SHOW</span>
           </div>
