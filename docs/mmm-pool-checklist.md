@@ -216,6 +216,25 @@ alone anymore** — attempt the bridge call and read the real result.
    time (rate limit, transient). Ordinem showed `meKnown:false` once from a
    fetch hiccup even though ME's real data had a proper collection name —
    always re-query directly before concluding "genuinely unknown."
+5. **cNFT bid-accept is dead — the ME endpoint the userscript calls doesn't
+   exist.** `VL-MMM-Bid-Accept-Bridge.user.js`'s `isCnft` branch calls
+   `https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-cnft-fulfill-buy`.
+   Confirmed 2026-07-03 (pool `2ZMyJJE1ojNFHXS72mKZMvXDkQtwBGnyt7wQRsGpfAxh`,
+   Mushboomers, cNFT `4P43Pgt5C8DXbaCpNcJFooS4FVQsHtTJTX4ToHnJjuR3` — creator
+   matched the pool's FVCA exactly, real on-chain royalty 0%, pool
+   `executable:true`, so nothing else about the candidate was wrong): the
+   call returns a plain **`404 Cannot GET /v2/instructions/mmm/sol-cnft-fulfill-buy`**
+   — an Express routing 404, not a validation error. This is categorically
+   different from the legacy path's `{"err":"invalid token mint"}` (a real,
+   existing API that evaluates and rejects) — here the route itself isn't
+   registered on ME's server at all. Either ME removed it after this code
+   was written, or it was never real (added speculatively by analogy with
+   `sol-fulfill-buy`, never verified against ME's actual API surface).
+   **Verdict: cNFT bid-accept cannot work via this bridge in its current
+   form, independent of pool/creator/royalty/funding — the endpoint doesn't
+   exist.** Don't spend time qualifying a cNFT candidate against pool
+   criteria until/unless a real working ME endpoint for cNFT fulfillment is
+   found and the userscript is updated to call it.
 
 ## Funding: bpa vs realEscrow — read `bpa`, not raw balance
 
