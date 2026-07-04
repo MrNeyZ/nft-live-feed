@@ -16,7 +16,7 @@ import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
 import { displayPrice } from '@/soloist/price-mode';
 import { formatFeedPrice, safeFiniteNumber } from './format';
 import { RarityRankBadge } from './rarity-rank-badge';
-import { shortenNftName } from './nft-name';
+import { shortenNftName, applyCollectionNameOverride } from './nft-name';
 import { KIND_STYLES, saleKind, getNftBorderColor } from './sale-kind';
 import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
 import type { FeedCardProps } from './types';
@@ -122,7 +122,12 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
   const showDomain  = !!snsDomain && (snsDomainAuto || domainClicked);
 
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+    // UX audit C1: minWidth:0 lets this span actually shrink inside the
+    // (already minWidth:0) party row instead of forcing the row wider than
+    // its allotted space — the missing link in the truncation chain at
+    // squeezed widths (e.g. the /multi tablet column). See WALLET_LINK_STYLE
+    // for the matching overflow/ellipsis half of the fix.
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
       <a
         href={solscanUrl}
         target="_blank"
@@ -165,10 +170,15 @@ function WalletLink({ wallet, snsDomainAuto }: { wallet: string | null; snsDomai
   );
 }
 
+// UX audit C1: overflow/ellipsis added (mirrors FC_NAME_LINK_STYLE's
+// existing truncation, just never applied here before) — inert at normal
+// card widths since the shortened address already fits; only kicks in once
+// the party row is squeezed narrower than the address text.
 const WALLET_LINK_STYLE: React.CSSProperties = {
   color: '#b9b7cb', fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
   textDecoration: 'none',
+  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 /** Wallet link style when showing a resolved SNS domain. VL.green (#43B984)
  *  matches the SNS logo's brand green within the VL palette. */
@@ -176,6 +186,7 @@ const SNS_DOMAIN_LINK_STYLE: React.CSSProperties = {
   color: '#43B984', fontWeight: 600,
   fontFamily: "'SF Mono','Fira Code',monospace",
   textDecoration: 'none',
+  minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 /** "YOU" pill — cyan/blue, distinct from the buy/sell badge palette so
  *  it doesn't conflict visually with the existing kind tokens. */
@@ -315,6 +326,11 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // (Was #9a9ab4 — identical to the wallet, which made the two blur
   // together.)
   fontSize: 10.5, color: VLText.faint, display: 'flex', alignItems: 'center', gap: 2,
+  // UX audit C1: minWidth:0 + overflow:hidden let this row actually shrink
+  // and clip instead of visually overflowing onto the card's right column
+  // (badge/price) once the card is squeezed — e.g. the /multi tablet
+  // column. Mirrors FC_NAME_ROW_STYLE's existing overflow:hidden above.
+  minWidth: 0, overflow: 'hidden',
 };
 /** Fixed-width column for the `seller:` / `buyer:` labels so both rows align:
  *  the wallet (and the ME/SNS badges after it) start at the same X on every
@@ -514,12 +530,15 @@ export const FeedCard = memo(function FeedCard({
   // Shared shortener (also used by the /multi compact Rare strip) — caps the
   // visible title at 18 chars; when truncated we fall back to a single string
   // (loses the styled `#…` color) and append an ellipsis.
-  const { baseName, num, shortName } = shortenNftName(event.nftName);
+  const { baseName, num, shortName } = shortenNftName(
+    applyCollectionNameOverride(event.nftName, event.collectionAddress),
+  );
   const isTruncated = shortName != null;
 
   // Avatar click routing, local to the Live Feed card:
   //   LMB  → centered image preview (onPreview callback).
-  //   MMB  → open /collection/<slug> in a new tab.
+  //   MMB  → page-wide autoscroll (see FeedRoot) — no per-thumb handler,
+  //          so it isn't swallowed here.
   //   RMB  → default (browser context menu) — no handler.
   //
   // The inner <ItemThumb> is wrapped in a `pointer-events: none` shell so
@@ -533,20 +552,8 @@ export const FeedCard = memo(function FeedCard({
   // without enlarging this rolling-feed card request.
   const thumbImg       = compressImage(event.imageUrl);
   const previewImg     = compressImage(event.imageUrl, 256);
-  const thumbSlug      = event.meCollectionSlug;
   const nftBorderColor = getNftBorderColor(event.nftType);
   const handleThumbClick = () => { if (previewImg) onPreview(previewImg); };
-  const handleThumbMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
-  };
-  const handleThumbAuxClick = (e: React.MouseEvent) => {
-    if (e.button !== 1) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (thumbSlug) {
-      window.open(`/collection/${encodeURIComponent(thumbSlug)}`, '_blank', 'noopener,noreferrer');
-    }
-  };
 
   return (
     <div className={`feed-row-wrap${isCached ? ' feed-row-wrap-cached' : ''}${isNew ? ' new-' + event.side : ''}`}>
@@ -554,8 +561,6 @@ export const FeedCard = memo(function FeedCard({
         <div
           className="feed-thumb"
           onClick={handleThumbClick}
-          onMouseDown={handleThumbMouseDown}
-          onAuxClick={handleThumbAuxClick}
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}
         >
           <div draggable={false} style={FC_THUMB_INNER_STYLE}>

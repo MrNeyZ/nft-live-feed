@@ -10,7 +10,7 @@
 // when a `subscribe` fn is injected (via SaleStreamContext), and fall back to
 // their own EventSource otherwise.
 
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -23,10 +23,22 @@ export function useSaleStream(): StreamSubscribe | null {
   return useContext(SaleStreamContext);
 }
 
+// UX audit H3: the shared ES's open/error state, so the three /multi panels
+// can show a real "reconnecting" state instead of a permanently-green
+// LiveDot. Separate context (not merged into SaleStreamContext, which stays
+// a plain function) so no existing `useSaleStream()` call site changes
+// shape. Defaults to `true` outside a <SaleStreamProvider> — nothing outside
+// /multi reads this, so the default is never observed there.
+const SaleStreamConnectedContext = createContext<boolean>(true);
+export function useSaleStreamConnected(): boolean {
+  return useContext(SaleStreamConnectedContext);
+}
+
 export function SaleStreamProvider({ children }: { children: React.ReactNode }) {
   // type → set of handlers. Source of truth; re-attached to each new ES.
   const handlersRef = useRef<Map<string, Set<(e: MessageEvent) => void>>>(new Map());
   const esRef = useRef<EventSource | null>(null);
+  const [connected, setConnected] = useState(true);
 
   // Stable subscribe identity (so consuming effects don't re-run): registers
   // the handler and attaches it to the live ES if one is open.
@@ -62,9 +74,9 @@ export function SaleStreamProvider({ children }: { children: React.ReactNode }) 
       esRef.current?.close();
       const es = new EventSource(`${API_BASE}/api/events/stream`);
       esRef.current = es;
-      es.addEventListener('open', () => { attempt = 0; });
+      es.addEventListener('open', () => { attempt = 0; setConnected(true); });
       attachAll(es);   // re-attach every registered handler to the new ES
-      es.addEventListener('error', () => { es.close(); scheduleReconnect(); });
+      es.addEventListener('error', () => { es.close(); setConnected(false); scheduleReconnect(); });
     };
 
     connect();
@@ -78,7 +90,9 @@ export function SaleStreamProvider({ children }: { children: React.ReactNode }) 
 
   return (
     <SaleStreamContext.Provider value={subscribeRef.current}>
-      {children}
+      <SaleStreamConnectedContext.Provider value={connected}>
+        {children}
+      </SaleStreamConnectedContext.Provider>
     </SaleStreamContext.Provider>
   );
 }

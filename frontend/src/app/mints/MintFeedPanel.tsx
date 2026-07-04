@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { LiveDot, Pill } from '@/soloist/shared';
-import { useSaleStream } from '@/app/multi-native/lib/sale-event-stream';
+import { useSaleStream, useSaleStreamConnected } from '@/app/multi-native/lib/sale-event-stream';
 import type { MintEvent } from './lib/types';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
 import { useMintFeed } from './lib/use-mint-feed';
@@ -20,9 +20,11 @@ import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const RENDER_CAP = 40;
 
-/** Replicated PAUSED status chip (the /mints one is inline in page.tsx and
- *  not exported; copied verbatim here to avoid touching the page). */
-function PausedChip() {
+/** Replicated status chip (the /mints PAUSED one is inline in page.tsx and
+ *  not exported; copied verbatim here to avoid touching the page). Label is
+ *  parametrized (UX audit H3) so the same shape covers both PAUSED and the
+ *  new RECONNECTING state — no new chip design. */
+function StatusChip({ label }: { label: string }) {
   return (
     <span aria-live="polite" style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -32,13 +34,14 @@ function PausedChip() {
       border: `1px solid ${alpha(VL.purpleTint,0.22)}`, whiteSpace: 'nowrap',
     }}>
       <span style={{ width: 4, height: 4, borderRadius: '50%', background: alpha(VL.purpleTint,0.65) }} />
-      PAUSED
+      {label}
     </span>
   );
 }
 
 export function MintFeedPanel() {
   const { events, rows } = useMintFeed(useSaleStream());
+  const connected = useSaleStreamConnected();
 
   const [paused, setPaused] = useState(false);
   // Pause freeze: while paused, render the last live snapshot (events keep
@@ -52,6 +55,17 @@ export function MintFeedPanel() {
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
   }, []);
+
+  // UX audit M6: distinguishes "just mounted, first snapshot/SSE frame not
+  // in yet" from a genuinely quiet feed — both otherwise show the same
+  // "Waiting for…" empty state. Local timer only (no fetch/hook changes):
+  // cleared as soon as either the grace window elapses or events arrive.
+  const [justMounted, setJustMounted] = useState(true);
+  useEffect(() => {
+    if (list.length > 0) { setJustMounted(false); return; }
+    const t = setTimeout(() => setJustMounted(false), 800);
+    return () => clearTimeout(t);
+  }, [list.length]);
 
   const visible = list.length > RENDER_CAP ? list.slice(0, RENDER_CAP) : list;
 
@@ -71,16 +85,17 @@ export function MintFeedPanel() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 4, minWidth: 0, flex: 1 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
-          <LiveDot />
+          <LiveDot color={connected ? rgb(VL.green) : rgb(VL.gold)} />
           <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
-          {paused && <PausedChip />}
+          {paused && <StatusChip label="PAUSED" />}
+          {!connected && <StatusChip label="RECONNECTING" />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
           <Pill
             active
-            color={paused ? '#c7b479' : '#43b984'}
+            color={paused ? rgb(VL.gold) : rgb(VL.green)}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -92,7 +107,16 @@ export function MintFeedPanel() {
         display: 'flex', flexDirection: 'column', gap: 6,
         padding: '8px 8px', scrollbarGutter: 'stable both-edges',
       }}>
-        {list.length === 0 && (
+        {/* UX audit M6: skeleton only for the brief "just mounted" window —
+            once it elapses (or events arrive), a still-empty feed falls
+            through to the existing "Waiting for…" message unchanged. */}
+        {justMounted && list.length === 0 && Array.from({ length: 4 }).map((_, i) => (
+          <div key={`skeleton-${i}`} aria-hidden="true" style={{
+            height: 56, borderRadius: 8, background: 'rgba(255,255,255,0.035)',
+            opacity: 1 - i * 0.15,
+          }} />
+        ))}
+        {!justMounted && list.length === 0 && (
           <div style={{ textAlign: 'center', color: '#241f3b', padding: '36px 16px', fontSize: 12 }}>
             Waiting for individual mint events…
           </div>

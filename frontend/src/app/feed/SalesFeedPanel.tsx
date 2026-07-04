@@ -14,15 +14,36 @@ import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
 import { useMultiSales } from '@/app/multi-native/lib/multi-sales';
+import { useSaleStreamConnected } from '@/app/multi-native/lib/sale-event-stream';
 import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
 
+/** UX audit H3 — reconnecting status chip. Same shape as MintFeedPanel's
+ *  local StatusChip (that file's comment explains why these are copied
+ *  per-panel rather than shared); this panel had no chip of its own before,
+ *  so only the RECONNECTING label is added here, not a PAUSED one. */
+function ReconnectingChip() {
+  return (
+    <span aria-live="polite" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      padding: '1px 5px', borderRadius: 3,
+      fontSize: 9, fontWeight: 600, letterSpacing: '0.5px',
+      color: 'rgba(201,189,240,0.78)', background: alpha(VL.purpleTint,0.06),
+      border: `1px solid ${alpha(VL.purpleTint,0.22)}`, whiteSpace: 'nowrap',
+    }}>
+      <span style={{ width: 4, height: 4, borderRadius: '50%', background: alpha(VL.purpleTint,0.65) }} />
+      RECONNECTING
+    </span>
+  );
+}
+
 export function SalesFeedPanel() {
   const { events } = useMultiSales();
   const [inclusiveFees] = useInclusiveFees();
+  const connected = useSaleStreamConnected();
 
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -34,6 +55,15 @@ export function SalesFeedPanel() {
   if (!paused) frozenRef.current = events;
   const list = paused ? frozenRef.current : events;
   const visible = list.length > RENDER_CAP ? list.slice(0, RENDER_CAP) : list;
+
+  // UX audit M6 — see MintFeedPanel.tsx for the identical rationale: a
+  // short local grace window so "just mounted" isn't shown as "no sales".
+  const [justMounted, setJustMounted] = useState(true);
+  useEffect(() => {
+    if (list.length > 0) { setJustMounted(false); return; }
+    const t = setTimeout(() => setJustMounted(false), 800);
+    return () => clearTimeout(t);
+  }, [list.length]);
 
   const onPreview = useCallback((url: string) => {
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
@@ -88,12 +118,13 @@ export function SalesFeedPanel() {
         borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`,
         background: alpha(VL.purpleTint, 0.04),
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, rowGap: 4, minWidth: 0 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live events</h1>
-          <LiveDot />
+          <LiveDot color={connected ? rgb(VL.green) : rgb(VL.gold)} />
           <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
             ({list.length.toLocaleString()})
           </span>
+          {!connected && <ReconnectingChip />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <SettingsToggle active={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
@@ -138,7 +169,15 @@ export function SalesFeedPanel() {
         )}
 
         <div ref={listRef} className={`feed-list feed-density-${density}`} style={{ flex: 1, overflowY: 'auto', padding: '6px 10px 10px 13px' }}>
-          {list.length === 0 && (
+          {/* UX audit M6 — see MintFeedPanel.tsx: skeleton only for the brief
+              "just mounted" window, real empty state unchanged after that. */}
+          {justMounted && list.length === 0 && Array.from({ length: 4 }).map((_, i) => (
+            <div key={`skeleton-${i}`} aria-hidden="true" style={{
+              height: 64, borderRadius: 10, marginBottom: 8,
+              background: 'rgba(255,255,255,0.035)', opacity: 1 - i * 0.15,
+            }} />
+          ))}
+          {!justMounted && list.length === 0 && (
             <div style={{ textAlign: 'center', color: VLText.muted, padding: '48px 0', fontSize: 13 }}>
               Waiting for sales…
             </div>
