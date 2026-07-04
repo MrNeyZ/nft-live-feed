@@ -2373,7 +2373,7 @@ export default function MintsPage() {
           /multi column shows ONLY the Live Mint Feed cards (right pane).
           Non-embed /mints is unchanged. ──────────────────────────────── */}
       {!embedded && (
-      <div style={{
+      <div className="mints-collections-panel" style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
         // Restore the VictoryLabs dark-purple panel identity (the v2
         // strong-pass de-saturated this to cold #15121f/#0f0c19 which

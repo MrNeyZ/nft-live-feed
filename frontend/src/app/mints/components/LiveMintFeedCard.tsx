@@ -130,10 +130,23 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
   const [hover, setHover] = useState<null | { x: number; y: number; flip: boolean }>(null);
   const [data, setData] = useState<QuickBalance | null | 'loading'>(null);
 
-  const onEnter = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  // UX audit (H5): typed as SyntheticEvent (not MouseEvent) so the same
+  // handler covers both onMouseEnter/onMouseLeave and onFocus/onBlur —
+  // keyboard-only users can now reach this popup too, same content, same
+  // trigger logic, no hover-only behavior change.
+  const onEnter = (e: React.SyntheticEvent<HTMLAnchorElement>) => {
     (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline';
     const r = e.currentTarget.getBoundingClientRect();
-    const flip = r.top < 180; // not enough room above → render below
+    // UX audit (H4): 180 was measured against the viewport, not against the
+    // "Live Mint Feed" panel header that actually sits just above the first
+    // card. On the topmost card that header (nav + page title + panel
+    // header ≈ 160px of chrome) left less real clearance than the popup's
+    // own height needed, so it rendered upward and overlapped the header.
+    // Bumped to 280 — comfortably covers that chrome + the popup's height
+    // for the first couple of cards; deeper in the list this only changes
+    // whether the popup renders above vs. below the wallet text, which is
+    // harmless either way.
+    const flip = r.top < 280; // not enough room above → render below
     setHover({ x: r.left + r.width / 2, y: flip ? r.bottom + 8 : r.top - 8, flip });
     const cached = wbCache.get(wallet);
     if (cached && Date.now() - cached.fetchedAt < WB_TTL_MS) {
@@ -143,7 +156,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
     setData('loading');
     fetchQuickBalance(wallet).then((d) => setData(d ?? null));
   };
-  const onLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const onLeave = (e: React.SyntheticEvent<HTMLAnchorElement>) => {
     (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none';
     setHover(null);
   };
@@ -164,6 +177,8 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
         style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
         onMouseEnter={onEnter}
         onMouseLeave={onLeave}
+        onFocus={onEnter}
+        onBlur={onLeave}
       >
         {shortMint(wallet)}
       </a>

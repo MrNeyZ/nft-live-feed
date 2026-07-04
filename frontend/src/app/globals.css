@@ -1612,6 +1612,42 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
     grid-template-columns: 1fr !important;
   }
 }
+/* UX audit fix (C1): stacking the grid into two equal-height rows means
+   the collections panel is often shorter than its row count, so its
+   internal scroll area (`.collection-table-scroll`, `overflow-y: auto`)
+   hard-clips the last partially-visible row right at the panel's own
+   bottom edge. With only a 10px gap before the Live Mint Feed panel
+   starts, that abrupt clip reads as the row disappearing UNDER the next
+   panel, even though the two panels don't actually overlap (confirmed via
+   getBoundingClientRect — there's no z-index collision). A bottom fade
+   mask communicates "more below, scroll" instead of a hard cut. Purely a
+   visual overlay (`pointer-events: none`); doesn't change the grid, the
+   row split, or which columns render — laptop/pc (2-column, no stacking)
+   are unaffected. */
+@media (max-width: 768px) {
+  [data-page="mints"] .mints-collections-panel { position: relative; }
+  [data-page="mints"] .mints-collections-panel::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 28px;
+    background: linear-gradient(180deg, transparent, #1a1530);
+    pointer-events: none;
+    border-radius: 0 0 12px 12px;
+  }
+}
+html[data-layout="phone"] .mints-collections-panel {
+  position: relative;
+}
+html[data-layout="phone"] .mints-collections-panel::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 28px;
+  background: linear-gradient(180deg, transparent, #1a1530);
+  pointer-events: none;
+  border-radius: 0 0 12px 12px;
+}
 
 @media (max-width: 768px) {
   [data-page="collection"] .collection-grid {

@@ -640,8 +640,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           <>
             <td
               ref={mintsCellRef}
+              tabIndex={0}
               onMouseEnter={openMintsPopover}
               onMouseLeave={closeMintsPopover}
+              onFocus={openMintsPopover}
+              onBlur={closeMintsPopover}
               style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: rgb(VL.green), letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {tfCount.toLocaleString()}
@@ -656,7 +659,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                   transform: mintsHover.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
                 }}
               >
-                <div style={POPOVER_HEADER_STYLE}>Mint stats</div>
+                {/* UX audit (H3): the metrics below are scoped to the active
+                    timeframe pill (mintTf drives tfCount/inFeed upstream), but
+                    the header didn't say so — a user had no way to tell
+                    "Detected 745" meant "in the last 1H" vs. lifetime. */}
+                <div style={POPOVER_HEADER_STYLE}>Mint stats · {mintTf}</div>
                 <PopRow label="Detected" value={tfCount.toLocaleString()} />
                 {inFeed   !== null && <PopRow label="In feed"  value={inFeed.toLocaleString()} />}
                 {ratioText !== null && <PopRow label="Feed ratio" value={ratioText} highlight />}
@@ -737,8 +744,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           <>
             <td
               ref={supplyCellRef}
+              tabIndex={0}
               onMouseEnter={openSupplyPopover}
               onMouseLeave={closeSupplyPopover}
+              onFocus={openSupplyPopover}
+              onBlur={closeSupplyPopover}
               style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {display}
@@ -811,7 +821,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               : `Latest observed mint price: ${solDisplay} SOL · not averaged — updates when a new mint event lands at a different price`;
         return (
           <td
-            
+            // UX audit (M8): `tip` was already computed with the right
+            // explanatory copy ("No mint price observed yet…") but was
+            // never wired to the cell, so the bare "—" for an unpriced
+            // collection looked identical to missing/broken data. A
+            // native title tooltip is the minimal fix — no new UI, no
+            // price-logic change.
+            title={tip}
             style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: cellColor, letterSpacing: '-0.1px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
