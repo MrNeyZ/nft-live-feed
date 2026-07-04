@@ -735,7 +735,7 @@ export const FeedCard = memo(function FeedCard({
               the badge sits closer to the price, which is the cleaner
               look anyway since the chip was the dominant left-side
               element in this row. */}
-          <div style={FC_PRICE_ROW_STYLE}>
+          <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
             {/* RESIZE qualifier — backend resize-status-resolver (Path C)
                 gates this strictly to mints with a confirmed Metaplex-
                 authority resize AND no observed user claim. Heuristic

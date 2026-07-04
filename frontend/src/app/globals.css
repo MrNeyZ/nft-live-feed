@@ -931,8 +931,13 @@ a { color: inherit; text-decoration: none; }
      place; combined with the inset ring + outer glow, the focused
      row feels like a card that just rose 1 px out of the tape.
      Same 200 ms ease-out as before; no new animations. */
+  /* UX audit: hover read as too faint, especially on buy/sell rows where
+     the colored .buy-card/.sell-card :hover background (below) wins over
+     this neutral one. Bumped the background lift only (not the border/
+     ring/glow) per the audit's "background over border" direction —
+     rgba(255,255,255, 0.09 → 0.12). */
   transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.12);
   border-color: rgba(168, 144, 232, var(--hover-ring-alpha, 0.40));
   box-shadow:
     0 0 0 1px rgba(168, 144, 232, var(--hover-ring-alpha, 0.40)) inset,
@@ -980,13 +985,13 @@ a { color: inherit; text-decoration: none; }
   border-right: 2px solid rgba( 64, 212, 168, 0.40);
   background:   rgba( 64, 212, 168, 0.030);
 }
-.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.066); }
+.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.088); }
 .feed-card.sell-card    {
   border-left:  2px solid rgba(245,  88, 102, 0.45);
   border-right: 2px solid rgba(245,  88, 102, 0.45);
   background:   rgba(245,  88, 102, 0.025);
 }
-.feed-card.sell-card:hover { background: rgba(245,  88, 102, 0.060); }
+.feed-card.sell-card:hover { background: rgba(245,  88, 102, 0.082); }
 .feed-card.listing-card {
   border-left:  2px solid rgba(168, 144, 232, 0.95);
   border-right: 2px solid rgba(168, 144, 232, 0.95);
@@ -2200,6 +2205,47 @@ body[data-bottombar="1"] .feed-root {
   .bp-desktop-large-up   { display: revert; }
 }
 /* ===== /breakpoints ===== */
+
+/* Mobile-only fix (live-feed UX audit): on narrow phone widths the
+   right column's price-row (RESIZE tag + FloorChip + BUY/SELL/AMM pill
+   + price, all single-line/flexShrink:0) could demand more width than
+   was left over after the fixed-width seller/buyer labels + thumb,
+   squeezing the middle column so far that the wallet address wrapped
+   onto a second line — which then sat underneath/behind the badges,
+   reading as an overlap. Capping the price-row's width and letting it
+   wrap (right-aligned) puts RESIZE/FloorChip on their own line above
+   the pill+price instead, so nothing ever competes with the buyer row
+   for horizontal space. Tablet/small-laptop/laptop/desktop keep the
+   existing single-line layout — this only applies at the true mobile
+   breakpoint (src/lib/breakpoints.ts mobileMax). */
+@media (max-width: 480px) {
+  .feed-price-row {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 4px;
+    max-width: 130px;
+  }
+}
+
+/* Small-laptop / tablet-landscape TopNav overflow (live-feed UX audit):
+   in the 769–1024 physical range (src/lib/breakpoints.ts small_laptop),
+   no rule shrank the search box, and the nav tabs + logo (fixed
+   min-content, non-shrinkable) + the runtime module (fixed width) plus
+   the search box's own UA-default input min-width (~225px, ignoring the
+   `flex-shrink` on its container) added up to more than the viewport —
+   pushing the right-side runtime module (● Sales · Mints ▾ / power)
+   partially or fully off-screen with no scrollbar to reveal it.
+   Two-part fix: (1) the input needs `min-width: 0` before it can shrink
+   below its intrinsic content width at all; (2) `--shell-search-max` is
+   scaled down with viewport width so the search box narrows earlier and
+   proportionally, instead of hitting a hard floor. Nothing is hidden —
+   the search box just gets narrower, matching the audit's "shrink search
+   first" direction. Desktop/laptop/pc (>1024) and phone/tablet-portrait
+   (≤768, already condensed above) are untouched. */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .topnav-search input { min-width: 0; }
+  :root { --shell-search-max: clamp(60px, calc(100vw - 710px), 300px); }
+}
 
 /* ============================================================================
    VictoryLabs source chip — Stripe Premium "Final Production Candidate"

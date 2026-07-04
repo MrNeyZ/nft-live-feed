@@ -1393,7 +1393,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           )}
         </div>
 
-        {open && results.length > 0 && (
+        {open && (results.length > 0 || q.trim().length > 0) && (
           <div style={{
             position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
             background: 'linear-gradient(180deg, #1a1430 0%, #14102a 100%)',
@@ -1405,6 +1405,15 @@ export function TopNav({ active }: { active?: Page } = {}) {
             {!q && (
               <div style={{ fontSize: 9, fontWeight: 600, color: '#9a9ab4', letterSpacing: '0.8px', padding: '5px 8px 3px' }}>
                 TRENDING
+              </div>
+            )}
+            {/* Empty state — a typed query that matched nothing previously
+                just closed the dropdown with no feedback (it looked like the
+                search silently did nothing). Reuses the same dropdown shell,
+                just swaps the row list for one muted message. */}
+            {results.length === 0 && q.trim().length > 0 && (
+              <div style={{ padding: '10px 8px', fontSize: 11, color: '#9a9ab4', textAlign: 'center' }}>
+                No collections found
               </div>
             )}
             {results.map((col, i) => {
