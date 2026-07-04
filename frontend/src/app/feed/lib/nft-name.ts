@@ -12,6 +12,22 @@ export interface ShortNftName {
   shortName: string | null; // sliced+ellipsis when fullName exceeds maxLen, else null
 }
 
+// DotLand plots (MPL Core collection) — operator request: drop the
+// "DotLand Plot " prefix so cards show just "(16, 86)" instead of
+// "DotLand Plot (16, 86)". Scoped to this one collection by on-chain
+// collection address, not name matching.
+const DOTLAND_COLLECTION_ADDRESS = 'FASMrm8q4Z9xSejvpbyZP6uzuory8DCwqRskhuGJV2MX';
+
+export function applyCollectionNameOverride(
+  nftName: string | null | undefined,
+  collectionAddress: string | null | undefined,
+): string | null | undefined {
+  if (collectionAddress === DOTLAND_COLLECTION_ADDRESS && nftName) {
+    return nftName.replace(/^DotLand Plot\s*/, '');
+  }
+  return nftName;
+}
+
 export function shortenNftName(nftName: string | null | undefined, maxLen = 18): ShortNftName {
   const m = nftName?.match(/^(.*?)\s*#?(\d+)$/);
   const baseName = m ? m[1] : (nftName ?? '');

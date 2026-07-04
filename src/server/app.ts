@@ -25,6 +25,7 @@ import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
+import { createDotlandRouter } from './tools-dotland';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
 
@@ -152,6 +153,10 @@ export function createApp() {
   // MMM Dormant Pool Scanner — read-only on-chain escrow audit.
   // GET /api/tools/mmm-pools/scan?owner=<wallet>
   app.use('/api', createMmmPoolsRouter());
+
+  // DotLand direct-mint tool — personal use, requireAuth-gated on every
+  // route (see tools-dotland.ts header comment).
+  app.use('/api', createDotlandRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
