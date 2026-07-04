@@ -694,6 +694,11 @@ export default function Dashboard() {
   // collection stats scoped to the selected timeframe. Initial snapshot comes
   // from /api/events/latest; live deltas via SSE /api/events/stream.
   const [events, setEvents] = useState<FeedEvent[]>([]);
+  // True once the initial /api/events/latest snapshot fetch has settled
+  // (success or failure) — distinguishes "still loading" from "genuinely
+  // zero collections in this timeframe" for the table body below, since
+  // both states otherwise render an identical empty <tbody>.
+  const [snapshotDone, setSnapshotDone] = useState(false);
   const seenRef = useRef<Set<string>>(new Set());
 
   function addEvent(ev: FeedEvent) {
@@ -807,7 +812,7 @@ export default function Dashboard() {
         }
       })
       .catch(() => { /* snapshot failed — live stream still connects */ })
-      .finally(() => { if (!cancelled) connect(); });
+      .finally(() => { if (!cancelled) { setSnapshotDone(true); connect(); } });
 
     return () => {
       cancelled = true;
@@ -1252,6 +1257,19 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
+              {/* Loading placeholder — only before the initial snapshot fetch
+                  settles. Once snapshotDone is true, a zero-row result falls
+                  through to the existing (unchanged) empty <tbody>, so the
+                  genuine "no collections" state is untouched. Reuses the same
+                  row background as the real rows (.mints-tracker-row) so
+                  nothing new is introduced visually. */}
+              {!snapshotDone && sortedCols.length === 0 && Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`skeleton-${i}`} className="mints-tracker-row" aria-hidden="true">
+                  <td colSpan={8} style={{ padding: '14px 12px' }}>
+                    <div style={{ height: 14, width: `${62 - i * 7}%`, borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
+                  </td>
+                </tr>
+              ))}
               {sortedCols.map((col, i) => {
                 const href = col._meSlug ? `/collection/${encodeURIComponent(col._meSlug)}` : null;
                 const bid  = col._meSlug ? bids[col._meSlug] ?? null : null;

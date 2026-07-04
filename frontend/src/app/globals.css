@@ -1452,20 +1452,13 @@ a { color: inherit; text-decoration: none; }
   z-index: 1;
 }
 
-/* Dashboard rows opt OUT of the /tools row hover (no scale, no outer
-   glow) — the dashboard is a dense analytics table, not a clickable
-   card surface. Hover here = "focused terminal row": ~3% brighter
-   background plus a slightly stronger inset ring. No transform, no
-   outer glow, no motion. Higher specificity (0,3,0 vs 0,2,0) so this
-   wins on the dashboard but leaves /tools / /mints rows alone. */
-.dash-row.tools-offer-row:hover {
-  transform:  none;
-  background: rgba(255, 255, 255, 0.035);
-  /* Inset ring only (no outer glow). Reuses --hover-ring-alpha but at
-     ~½ strength of the feed-card / tools-offer-row hover, matching
-     the original quieter-dashboard intent. */
-  box-shadow: inset 0 0 0 1px rgba(168, 144, 232, calc(var(--hover-ring-alpha, 0.40) * 0.55));
-}
+/* Dashboard rows previously opted OUT of the /tools row hover here
+   (UX audit M6: the downgrade made dashboard-row hover nearly
+   imperceptible while scanning). Dashboard rows share the
+   `tools-offer-row` class with /mints tracker rows and are equally
+   clickable (row onClick → collection drill-down), so they now fall
+   through to the standard `.tools-offer-row:hover` above — same
+   pattern as /mints, nothing stronger, no new hover language. */
 
 /* /tools LINKS column — ME + Tensor logo chips. Adds a subtle hover
    treatment matching the page's lilac language without an aggressive
@@ -2261,6 +2254,21 @@ body[data-bottombar="1"] .feed-root {
     row-gap: 4px;
     max-width: 130px;
   }
+}
+
+/* BottomStatusBar phone overflow (dashboard UX audit M5): at the true
+   mobile breakpoint the bar's left group (SOL price / TPS / live+alerts)
+   already fills most of the 390 px-class viewport, leaving very little
+   room for the right group (sound + fees icon buttons, then Discord /
+   Twitter). Discord/Twitter now render icon-only on mobile (see the
+   `bp-only-mobile` / `bp-tablet-up` spans in shared.tsx's
+   BottomStatusBar) — that alone wasn't quite enough, so the two flex
+   gaps in the right group are trimmed here as well. Nothing else in
+   the bar changes; tablet/laptop/desktop keep their existing 16px/14px
+   gaps untouched. */
+@media (max-width: 480px) {
+  .bottom-status-right  { gap: 2px !important; }
+  .bottom-status-social { gap: 2px !important; }
 }
 
 /* Small-laptop / tablet-landscape TopNav overflow (live-feed UX audit):
