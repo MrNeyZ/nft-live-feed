@@ -22,6 +22,7 @@ import {
   type MintMetaPatch,
 } from '../events/emitter';
 import { hydrateRecentMints } from './accumulator';
+import { recordMintedAt, FRESH_WINDOW_MS } from './fresh-mint-cache';
 
 const RETENTION_DAYS = parseInt(process.env.MINT_EVENTS_RETENTION_DAYS ?? '7', 10) || 7;
 const RECENT_LIMIT   = 150;   // matches RECENT_MINTS_MAX + frontend LIVE_FEED_MAX
@@ -126,6 +127,27 @@ export async function loadRecentMintEvents(limit = RECENT_LIMIT): Promise<Stored
   }));
 }
 
+/**
+ * One-time boot hydration for the FRESH-badge cache: earliest created_at
+ * per mint_address within the freshness window. Runs once at startup only —
+ * never on the sale hot path. Keeps the cache correct across a backend
+ * restart without needing a live DB query per sale.
+ */
+async function hydrateFreshMintCache(): Promise<number> {
+  const { rows } = await getPool().query<{ mint_address: string; created_at: string }>(
+    `SELECT mint_address, MIN(created_at) AS created_at
+       FROM mint_events
+      WHERE created_at >= now() - ($1 || ' milliseconds')::interval
+        AND mint_address <> ''
+      GROUP BY mint_address`,
+    [String(FRESH_WINDOW_MS)],
+  );
+  for (const r of rows) {
+    recordMintedAt(r.mint_address, new Date(r.created_at).getTime());
+  }
+  return rows.length;
+}
+
 /** Delete events older than the retention window. Returns rows removed. */
 export async function cleanupOldMintEvents(): Promise<number> {
   const { rowCount } = await getPool().query(
@@ -160,6 +182,17 @@ export async function startMintEventPersistence(): Promise<void> {
   // 2) Persist live events + enrichment patches (decoupled via the bus).
   saleEventBus.onMint((ev) => { void insertMintEvent(ev); });
   saleEventBus.onMintMeta((p) => { void patchMintEventMeta(p); });
+
+  // 2b) FRESH-badge cache: record every live mint's first-observed time.
+  // Same bus subscription pattern as the DB persistence above, just an
+  // additional in-memory listener — no extra ingestion, no DB write.
+  saleEventBus.onMint((ev) => { recordMintedAt(ev.mintAddress, Date.now()); });
+  try {
+    const freshHydrated = await hydrateFreshMintCache();
+    console.log(`[mints/store] fresh-mint cache hydrated entries=${freshHydrated}`);
+  } catch (err) {
+    console.warn(`[mints/store] fresh-mint cache hydrate failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // 3) Retention cleanup at boot + daily.
   void cleanupOldMintEvents()

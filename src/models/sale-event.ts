@@ -86,6 +86,16 @@ export interface SaleEvent {
    *  — a `resize_status` SSE patch event will arrive later if it
    *  resolves to the actionable value. */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
+  /**
+   * FRESH MINT badge support. Set when this sale's `mintAddress` matches a
+   * `mint_events` row observed within the last 4h (NFT-level join only — see
+   * `src/mints/fresh-mint-cache.ts`). Null when there's no match: unknown
+   * mint, mint older than the window, or (today) a cNFT sale from a
+   * marketplace whose parser stores the merkle tree instead of the real
+   * per-asset ID in `mintAddress` (ME / MMM `cnftFulfillBuy` — Tensor cNFT
+   * sales resolve the real asset ID and DO join correctly).
+   */
+  mintedAtMs?: number | null;
 }
 
 /**

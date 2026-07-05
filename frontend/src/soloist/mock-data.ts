@@ -114,6 +114,14 @@ export interface FeedEvent {
    *  triggers the RESIZE chip in the Live Feed. Null/undefined = no
    *  signal yet (prefilter didn't match or resolver still running). */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
+  /** FRESH MINT badge. Wall-clock time (ms) this NFT's mint was observed by
+   *  our backend, when the sale's mint_address matched a mint_events row
+   *  within the last 4h (NFT-level join only — see
+   *  src/mints/fresh-mint-cache.ts). Null/undefined = no badge: unknown
+   *  mint, older than the window, or (today) a cNFT sale from a marketplace
+   *  parser that stores the merkle tree instead of the real per-asset ID
+   *  in mint_address (ME/MMM cnftFulfillBuy — Tensor cNFT sales do join). */
+  mintedAtMs?: number | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [

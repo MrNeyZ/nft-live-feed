@@ -45,6 +45,13 @@ const AMM_SYMBOL = '∿';
  *  page); standalone /feed leaves it false → unchanged 1 s cadence. */
 export const SlowTimeTickContext = createContext(false);
 
+// Single source of truth for the sale-age timer's "freshest tier" pink —
+// VL.gold / VLText.muted below are already shared palette tokens; this is
+// the one color that previously only existed as an inline literal inside
+// TimeAgo. Hoisted here so the FRESH badge can reuse the exact same value
+// instead of a second copy of the hex string.
+const TIMER_FRESH_PINK = '#e87ab0';
+
 function TimeAgo({ ts }: { ts: number }) {
   const now = useSharedNow(useContext(SlowTimeTickContext));
   // Defensive: invalid timestamp renders an em-dash so a malformed /
@@ -63,7 +70,7 @@ function TimeAgo({ ts }: { ts: number }) {
   let color: string;
   let weight: 500 | 600 = 500;
   if (ageMs < 15000) {
-    color  = '#e87ab0'; // bright pink — freshest tier: "just now" (<5s) + 6-15s hot window (pre-migration color, restored)
+    color  = TIMER_FRESH_PINK; // bright pink — freshest tier: "just now" (<5s) + 6-15s hot window (pre-migration color, restored)
     weight = 600;
   } else if (ageMs < 180000) {
     color  = rgb(VL.gold); // yellow — 16s to 3min
@@ -87,6 +94,56 @@ function TimeAgo({ ts }: { ts: number }) {
     }}>
       {text}
     </span>
+  );
+}
+
+// ── FRESH MINT badge ─────────────────────────────────────────────────────────
+// NFT-level join only: true when this sale's mint_address matched a
+// mint_events row observed within the last 4h (src/mints/fresh-mint-cache.ts).
+// No collection slug, no mint price, no floor/volume/median — a missed badge
+// (unknown mint, cold cache, or a cNFT sale from ME/MMM whose parser stores
+// the merkle tree instead of the real per-asset ID in mint_address) is
+// acceptable; a false positive is not. Same shared ticker as TimeAgo above so
+// the age keeps counting without a per-card timer.
+const FRESH_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+function formatFreshAge(ageMs: number): string {
+  const mins = Math.floor(ageMs / 60000);
+  if (mins < 60) return `${Math.max(mins, 0)}m`;
+  return `${Math.floor(mins / 60)}h`;
+}
+
+// Same age-progression language as the TimeAgo timer above, reusing its
+// exact color tokens (TIMER_FRESH_PINK / VL.gold / VLText.muted) — just a
+// different set of thresholds tuned to the FRESH badge's own (much longer)
+// 4h window instead of TimeAgo's 15s/3min tiers.
+const FRESH_PINK_MAX_MS = 30 * 60 * 1000;      // 0–30 min
+const FRESH_GOLD_MAX_MS = 2 * 60 * 60 * 1000;  // 31 min–2h
+
+function freshBadgeColor(ageMs: number): string {
+  if (ageMs <= FRESH_PINK_MAX_MS) return TIMER_FRESH_PINK;
+  if (ageMs <= FRESH_GOLD_MAX_MS) return rgb(VL.gold);
+  return VLText.muted; // 2h–4h
+}
+
+function FreshBadge({ mintedAtMs }: { mintedAtMs: number | null | undefined }) {
+  const now = useSharedNow(useContext(SlowTimeTickContext));
+  if (mintedAtMs == null) return null;
+  const liveNow = now > 0 ? now : mintedAtMs; // SSR-safe, mirrors TimeAgo above
+  const ageMs = liveNow - mintedAtMs;
+  if (ageMs < 0 || ageMs > FRESH_WINDOW_MS) return null;
+  return (
+    <span
+      aria-label="Minted recently, now trading on secondary"
+      style={{
+        fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+        color: freshBadgeColor(ageMs), background: 'transparent',
+        border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
+        padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
+        fontFamily: "'SF Mono','Fira Code',monospace",
+        textTransform: 'uppercase', flexShrink: 0,
+      }}
+    >FRESH · {formatFreshAge(ageMs)}</span>
   );
 }
 
@@ -760,6 +817,7 @@ export const FeedCard = memo(function FeedCard({
                 }}
               >RESIZE</span>
             )}
+            <FreshBadge mintedAtMs={event.mintedAtMs} />
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
               // Solid action capsule (live-feed-final.html reference),

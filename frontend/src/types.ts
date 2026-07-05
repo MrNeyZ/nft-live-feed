@@ -55,6 +55,12 @@ export interface FeedEvent {
    *  didn't pass prefilter) or pending. May arrive later via a
    *  `resize_status` SSE patch. */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
+  /** FRESH MINT badge. Set when this sale's mint_address matched a
+   *  mint_events row observed within the last 4h (NFT-level join only, no
+   *  collection heuristics). Null = no match — unknown mint, older than the
+   *  window, or a cNFT sale from a marketplace parser that doesn't resolve
+   *  the real per-asset ID (see src/mints/fresh-mint-cache.ts). */
+  mintedAtMs?: number | null;
 }
 
 /** Shape returned by GET /api/events/latest */
@@ -97,6 +103,9 @@ export interface RestRow {
   /** Resize-status stamped on the REST snapshot from the resolver
    *  cache (which is DB-preloaded on boot). Survives a page refresh. */
   resize_status?: string | null;
+  /** Non-persisted — stamped from the backend's in-process fresh-mint cache
+   *  (same pattern as resize_status/floor_delta above). Absent = no match. */
+  minted_at_ms?: number | null;
   /** Server-persisted seller-remaining-count (DB column, migration 015).
    *  Null when never resolved. Makes the SELL badge consistent across
    *  devices/reloads without depending on per-browser localStorage. */
@@ -131,5 +140,6 @@ export function fromRow(row: RestRow): FeedEvent {
     raritySource:     row.rarity_source ?? null,
     oneOfOne:         row.one_of_one ?? false,
     resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
+    mintedAtMs: row.minted_at_ms ?? null,
   };
 }

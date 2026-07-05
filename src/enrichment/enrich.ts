@@ -8,6 +8,7 @@ import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/lis
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { getMintedAt } from '../mints/fresh-mint-cache';
 
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
@@ -512,6 +513,7 @@ export async function enrich(event: SaleEvent): Promise<SaleEvent> {
       collectionAddress: resolved.collectionAddress,
       meCollectionSlug:  resolved.meCollectionSlug,
       // floor/offer are sale-specific — recompute below rather than reuse
+      mintedAtMs:        getMintedAt(mint),
     };
   }
 
@@ -795,6 +797,11 @@ function applyMetadata(event: SaleEvent, metadata: NftMetadata | null): SaleEven
     meCollectionSlug:  metadata?.meCollectionSlug   ?? null,
     verifiedCreators:  metadata?.verifiedCreators   ?? null,
     hasArtistAttribute: metadata?.hasArtistAttribute ?? false,
+    // NFT-level join only (mint_address === mint_address) — see
+    // fresh-mint-cache.ts. Independent of DAS metadata resolution, so this
+    // still runs on the empty-mint short-circuit path (mint stays null
+    // there, cache lookup naturally no-ops).
+    mintedAtMs:        getMintedAt(event.mintAddress),
   };
 }
 

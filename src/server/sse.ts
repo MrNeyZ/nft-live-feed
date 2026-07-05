@@ -264,6 +264,7 @@ function buildSaleFrame(event: SaleEvent): string {
     floorDelta:            event.floorDelta             ?? null,
     offerDelta:        event.offerDelta        ?? null,
     resizeStatus:      event.resizeStatus      ?? null,
+    mintedAtMs:        event.mintedAtMs         ?? null,
     rarityRank:        rar?.rarityRank        ?? null,
     totalSupply:       rar?.totalSupply       ?? null,
     rarityPercentile:  rar?.rarityPercentile  ?? null,
