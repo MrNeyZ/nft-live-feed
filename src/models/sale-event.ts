@@ -107,6 +107,16 @@ export interface SaleEvent {
    * for historical rows.
    */
   ownershipLoop?: OwnershipLoopSignal;
+  /**
+   * Repeat-near-floor-buyer signal — backend-only derived value, NOT
+   * persisted, NOT a claim of whale behavior or intentional floor defense.
+   * Purely factual: the same `buyer` has bought near-floor (`floorDelta`
+   * within 5% of floor) in the same `collectionAddress` at least 3 times,
+   * totaling >= 1 SOL, within a 7-day window, on non-AMM marketplaces only
+   * (see `src/enrichment/repeat-floor-buyer-cache.ts`). Undefined when the
+   * check didn't run or the ring doesn't yet qualify.
+   */
+  repeatFloorBuyer?: RepeatFloorBuyerSignal;
 }
 
 /**
@@ -119,6 +129,16 @@ export interface OwnershipLoopSignal {
   confidence: 'high' | 'low';
   closedAfterMs: number;
   hopsAgo: number;
+}
+
+/** See `SaleEvent.repeatFloorBuyer`. `spanMs` is the gap between the first
+ *  and latest qualifying near-floor buy within the current 7-day ring. */
+export interface RepeatFloorBuyerSignal {
+  detected: boolean;
+  confidence: 'high' | 'low';
+  buyCount: number;
+  totalSpentSol: number;
+  spanMs: number;
 }
 
 /**

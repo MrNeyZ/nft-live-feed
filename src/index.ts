@@ -27,6 +27,7 @@ import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 import { startRareFeed } from './rare-feed';
 import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
 import { hydrateOwnershipLoopCache } from './enrichment/ownership-loop-cache';
+import { hydrateRepeatFloorBuyerCache } from './enrichment/repeat-floor-buyer-cache';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -73,6 +74,16 @@ async function main() {
     console.log(`[ownership-loop] cache hydrated entries=${seeded}`);
   } catch (err) {
     console.warn(`[ownership-loop] hydrate failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Seed the repeat-near-floor-buyer cache the same way (7d window, non-AMM,
+  // near-floor sale_events only). Non-fatal on failure — an empty cache just
+  // means detection starts cold and rebuilds from live traffic.
+  try {
+    const seeded = await hydrateRepeatFloorBuyerCache();
+    console.log(`[repeat-floor-buyer] cache hydrated entries=${seeded}`);
+  } catch (err) {
+    console.warn(`[repeat-floor-buyer] hydrate failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Restore /mints accumulator from the on-disk snapshot so quiet

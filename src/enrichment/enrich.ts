@@ -10,6 +10,7 @@ import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 import { getMintedAt } from '../mints/fresh-mint-cache';
 import { checkAndRecordOwnership } from './ownership-loop-cache';
+import { checkAndRecordRepeatFloorBuyer } from './repeat-floor-buyer-cache';
 
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
@@ -732,7 +733,20 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
     isTensor ? resolveTensorCollectionSlug(slug, enriched.collectionAddress) : Promise.resolve(null),
   ]);
 
-  return { ...enriched, floorDelta, offerDelta, tensorCollectionSlug };
+  // repeatFloorBuyer depends on floorDelta, which is only known here (the end
+  // of this async tail) — unlike the ownership-loop check, it can't run
+  // synchronously up front in the outer enrich(). Purely factual signal: see
+  // repeat-floor-buyer-cache.ts — not a whale/floor-defense claim.
+  const repeatFloorBuyer = checkAndRecordRepeatFloorBuyer(
+    enriched.collectionAddress,
+    enriched.buyer,
+    enriched.marketplace,
+    floorDelta,
+    enriched.priceSol,
+    event.blockTime.getTime(),
+  ) ?? undefined;
+
+  return { ...enriched, floorDelta, offerDelta, tensorCollectionSlug, repeatFloorBuyer };
 }
 
 /**
