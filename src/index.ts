@@ -26,6 +26,7 @@ import { startMintNameBackfill } from './mints/name-backfill';
 import { getMintTrackerMode } from './ingestion/mint-raw/launchpad-detector';
 import { startRareFeed } from './rare-feed';
 import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
+import { hydrateOwnershipLoopCache } from './enrichment/ownership-loop-cache';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -61,6 +62,18 @@ async function main() {
   // BEFORE the first insertSaleEvent so the pre-emit gate at insert.ts:115
   // sees a populated cache. Non-fatal on failure.
   await preloadBlockedMintsFromDb(pool);
+
+  // Seed the circular-ownership-loop cache from recent non-AMM sale_events
+  // (7d window) so the check is correct for the first live sale after a
+  // restart, without a live query per sale. Must run before the listener
+  // starts inserting new sales. Non-fatal on failure — an empty cache just
+  // means loop detection starts cold and rebuilds from live traffic.
+  try {
+    const seeded = await hydrateOwnershipLoopCache();
+    console.log(`[ownership-loop] cache hydrated entries=${seeded}`);
+  } catch (err) {
+    console.warn(`[ownership-loop] hydrate failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Restore /mints accumulator from the on-disk snapshot so quiet
   // collections survive a pm2 restart / deploy. Must run BEFORE the

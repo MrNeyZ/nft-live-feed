@@ -96,6 +96,29 @@ export interface SaleEvent {
    * sales resolve the real asset ID and DO join correctly).
    */
   mintedAtMs?: number | null;
+  /**
+   * Circular-ownership-loop signal — backend-only derived value, NOT
+   * persisted, NOT comprehensive wash detection. Set when this sale's
+   * `seller` matches an earlier `buyer` of the SAME `mintAddress` within a
+   * bounded 7-day/5-hop, non-AMM-marketplace-only window (see
+   * `src/enrichment/ownership-loop-cache.ts`). Undefined when the check
+   * didn't run (empty mint/seller/buyer, AMM marketplace) or found no match.
+   * Order-sensitive: only meaningful at live-enrichment time, not re-derived
+   * for historical rows.
+   */
+  ownershipLoop?: OwnershipLoopSignal;
+}
+
+/**
+ * See `SaleEvent.ownershipLoop`. `closedAfterMs`/`hopsAgo` are 0 for the
+ * same-row buyer===seller self-deal case (the strongest, cheapest signal);
+ * otherwise they measure the gap back to the matching prior buy.
+ */
+export interface OwnershipLoopSignal {
+  detected: boolean;
+  confidence: 'high' | 'low';
+  closedAfterMs: number;
+  hopsAgo: number;
 }
 
 /**

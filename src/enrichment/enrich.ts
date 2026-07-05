@@ -9,6 +9,7 @@ import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
 import { getMintedAt } from '../mints/fresh-mint-cache';
+import { checkAndRecordOwnership } from './ownership-loop-cache';
 
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
@@ -499,6 +500,18 @@ export async function enrich(event: SaleEvent): Promise<SaleEvent> {
   // below skips all downstream metadata lookups.
   const mint = event.mintAddress;
 
+  // Ownership-loop check: independent of the async DAS/floor/offer pipeline
+  // below — needs only parser-level fields already on `event`, so it's
+  // computed once up front and attached on every return path (inflight-merge,
+  // dropped-enrichment, and the normal path). See ownership-loop-cache.ts.
+  const ownershipLoop = checkAndRecordOwnership(
+    mint,
+    event.seller,
+    event.buyer,
+    event.marketplace,
+    event.blockTime.getTime(),
+  ) ?? undefined;
+
   // If the same mint is already being enriched, reuse that promise.
   // Skip dedup when mint is still empty — each unresolved event is unique.
   const inflight = mint ? inFlightEnriches.get(mint) : undefined;
@@ -514,18 +527,23 @@ export async function enrich(event: SaleEvent): Promise<SaleEvent> {
       meCollectionSlug:  resolved.meCollectionSlug,
       // floor/offer are sale-specific — recompute below rather than reuse
       mintedAtMs:        getMintedAt(mint),
+      ownershipLoop,
     };
   }
 
   const granted = await acquireEnrichSlot();
   if (!granted) {
-    return event;  // dropped — counted in skippedEnriches, visible in 10s log
+    // dropped — counted in skippedEnriches, visible in 10s log. Still carry
+    // the ownership-loop signal: already computed, no HTTP involved.
+    return ownershipLoop ? { ...event, ownershipLoop } : event;
   }
 
-  const promise = _enrich(event).finally(() => {
-    releaseEnrichSlot();
-    if (mint) inFlightEnriches.delete(mint);
-  });
+  const promise = _enrich(event)
+    .then((enriched) => (ownershipLoop ? { ...enriched, ownershipLoop } : enriched))
+    .finally(() => {
+      releaseEnrichSlot();
+      if (mint) inFlightEnriches.delete(mint);
+    });
   if (mint) inFlightEnriches.set(mint, promise);
   return promise;
 }
