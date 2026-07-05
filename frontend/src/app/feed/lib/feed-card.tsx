@@ -143,7 +143,39 @@ function FreshBadge({ mintedAtMs }: { mintedAtMs: number | null | undefined }) {
         fontFamily: "'SF Mono','Fira Code',monospace",
         textTransform: 'uppercase', flexShrink: 0,
       }}
-    >FRESH · {formatFreshAge(ageMs)}</span>
+    >NEW {formatFreshAge(ageMs)}</span>
+  );
+}
+
+// ── OFFER badge ──────────────────────────────────────────────────────────────
+// Surfaces the existing `offerDelta` field as-is — no new fetch, no new
+// backend logic. Backend already computes this on every sale
+// (enrichment/enrich.ts computeOfferDelta, ME collection-level top offer)
+// and already uses it to fire the console-only ABOVE_OFFER alert
+// (alerts/alerts.ts); this just renders the same number that was silently
+// available on the wire all along.
+// offerDelta = salePriceSol − topOfferSol (models/sale-event.ts), so a
+// higher available ME offer than the sale price is offerDelta < 0.
+// Deliberately worded as a plain fact, not a verdict: this is a
+// COLLECTION-level top offer, not verified against this exact NFT's
+// traits/eligibility — no "missed"/"best exit" language, no implied
+// certainty the NFT could have actually filled that offer.
+function OfferBadge({ offerDelta }: { offerDelta: number | null | undefined }) {
+  const delta = safeFiniteNumber(offerDelta);
+  if (delta == null || delta >= 0) return null;
+  const magnitude = -delta;
+  return (
+    <span
+      aria-label="A higher Magic Eden collection offer existed at sale time"
+      style={{
+        fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+        color: VLText.muted, background: 'transparent',
+        border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
+        padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
+        fontFamily: "'SF Mono','Fira Code',monospace",
+        textTransform: 'uppercase', flexShrink: 0,
+      }}
+    >OFFER +{formatFeedPrice(magnitude)}</span>
   );
 }
 
@@ -818,6 +850,7 @@ export const FeedCard = memo(function FeedCard({
               >RESIZE</span>
             )}
             <FreshBadge mintedAtMs={event.mintedAtMs} />
+            <OfferBadge offerDelta={event.offerDelta} />
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {
               // Solid action capsule (live-feed-final.html reference),

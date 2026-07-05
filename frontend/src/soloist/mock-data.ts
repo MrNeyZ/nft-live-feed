@@ -78,6 +78,12 @@ export interface FeedEvent {
    *  the backend couldn't resolve a floor for this collection — render
    *  consumers must hide the indicator in that case. */
   floorDelta: number | null;
+  /** Sale price (SOL) minus the ME collection-level top offer (SOL).
+   *  Negative = a higher ME collection offer existed than the sale price.
+   *  Backend-computed only (enrichment/enrich.ts computeOfferDelta) — not
+   *  verified against this exact NFT's trait/allowlist eligibility, so
+   *  render consumers must keep this to a plain, non-committal signal. */
+  offerDelta?: number | null;
   marketplace: Marketplace;
   ts: number;
   /** Wall-clock time (ms) the event arrived on the LIVE SSE path in

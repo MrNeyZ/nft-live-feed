@@ -100,6 +100,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     // The Live Feed hides the indicator on null; rendering 0 would be
     // misleading (= "exactly at floor", a meaningful, distinct state).
     floorDelta: b.floorDelta ?? null,
+    offerDelta: b.offerDelta ?? null,
     marketplace: mapMarketplace(b.marketplace),
     ts: Date.parse(b.blockTime),
     side,

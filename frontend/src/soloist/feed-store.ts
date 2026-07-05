@@ -207,6 +207,7 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           // `??` semantics keep any previously-applied non-null value
           // when a later patch arrives without one.
           floorDelta:       patch.floorDelta      ?? ev.floorDelta,
+          offerDelta:       patch.offerDelta      ?? ev.offerDelta,
         };
       };
       // Blacklist boundary on the LATE path: a sale frame often lands with a
