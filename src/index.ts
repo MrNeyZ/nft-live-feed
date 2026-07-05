@@ -28,6 +28,7 @@ import { startRareFeed } from './rare-feed';
 import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
 import { hydrateOwnershipLoopCache } from './enrichment/ownership-loop-cache';
 import { hydrateRepeatFloorBuyerCache } from './enrichment/repeat-floor-buyer-cache';
+import { startTradingStatusSweep } from './mints/trading-status-sweep';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -165,6 +166,11 @@ async function main() {
   // 'metaplex_resized_unclaimed' so the Live Feed can render the RESIZE
   // badge after the fact.
   void startResizeStatusResolver();
+  // TRADING-status sweep (Commit 1 — log-only). Periodic (3 min) check of
+  // recently-active collections for genuine early secondary-market activity.
+  // No accumulator write, no SSE, no UI in this commit — see
+  // trading-status-sweep.ts for why that's deliberate.
+  startTradingStatusSweep();
 
   // Rare Feed — bus-listener-only (no RPC, no Helius). Subscribes to the
   // existing sale + meta events, enriches with ME rarity (DB-cached), scores,
