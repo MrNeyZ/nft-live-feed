@@ -693,7 +693,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/holders', '/tools/trending', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/dotland', '/tools/pixel-forge', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/retardio', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/holders', '/tools/trending', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/dotland', '/tools/pixel-forge', '/tools/me-tensor-arb', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
@@ -1181,15 +1181,15 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     </a>
                     <Link
                       role="menuitem"
-                      href="/tools"
+                      href="/tools/retardio"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools'); }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/retardio'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
                           (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools');
+                          console.log('[nav-perf] click /tools/retardio');
                         }
                         setToolsOpen(false);
                       }}
@@ -1348,6 +1348,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       }}
                     >
                       PIXEL
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      href="/tools/me-tensor-arb"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/me-tensor-arb'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/me-tensor-arb');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      ARB
                     </Link>
                   </div>
                   </div>
@@ -2039,7 +2056,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
           onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
           onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-          onClick={() => goInternal('/tools')}
+          onClick={() => goInternal('/tools/retardio')}
         >
           <span style={ITEM_LABEL}>Offers</span>
         </button>
