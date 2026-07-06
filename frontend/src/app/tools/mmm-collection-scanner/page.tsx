@@ -122,6 +122,15 @@ function pctColor(pct: number): string {
   if (pct >=  5) return '#c7b479';
   return '#d96867';
 }
+// Pool-feed VALUE score — % funded alone surfaces a 99%-funded pool sitting
+// on 0.01 SOL above a genuinely toppable 80%-funded pool sitting on 0.2 SOL;
+// the second is the one actually worth topping up. Blending the two as a
+// simple product (fraction funded × real escrow SOL) ranks "meaningful
+// balance + reasonably funded" over "technically-almost-full but empty":
+// 0.80 × 0.2 = 0.16  vs  0.99 × 0.01 = 0.0099.
+function pfValueScore(p: FlatPool): number {
+  return (p.pct / 100) * p.realEscrowSol;
+}
 function tierColor(t: string): string {
   if (t === 'HIGH')     return '#43b984';
   if (t === 'LOW')      return '#c7b479';
@@ -151,6 +160,136 @@ function CopyPoolTemplateBtn({ poolKey, escrowPda }: { poolKey: string; escrowPd
     </button>
   );
 }
+// Full pool-feed row — one shared renderer for the main table, the Hidden
+// panel, and the Later panel, so all three show identical detailed info +
+// hyperlinks instead of the panels having their own cut-down summary. Caller
+// supplies `actions` for the LINKS column (varies: Later+Hide on the main
+// table, Unhide-only in the Hidden panel, Remove-only in the Later panel).
+function PoolFeedRow({ p, i, actions }: { p: FlatPool; i: number; actions: React.ReactNode }) {
+  return (
+    <tr
+      style={{ background: i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : 'transparent' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : ''; }}>
+      <td style={{ ...TD, textAlign: 'center', color: alpha(VL.purpleTint, 0.40), fontWeight: 600 }}>
+        {i + 1}
+      </td>
+      <td style={TD_L}>
+        <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.52)} />
+      </td>
+      <td style={TD_L}>
+        {p.collectionName
+          ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 700, letterSpacing: '-0.3px',
+              textShadow: `0 0 14px ${alpha(VL.gold, 0.22)}` }}>{p.collectionName}</span>
+          : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.16) }}>—</span>
+        }
+        {p.isNew && (
+          <span title="First time this pool has appeared in pool-feed"
+            style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
+              border: `1px solid ${alpha(VL.greenStrong, 0.33)}`, background: alpha(VL.greenStrong, 0.08),
+              color: rgb(VL.greenStrong), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+              textTransform: 'uppercase', verticalAlign: 'middle' }}>
+            new
+          </span>
+        )}
+        {p.anyOnly && (
+          <span title="No FVCA/MCC allowlist — the normal scan can't find this pool, only full scan (+any) does"
+            style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
+              border: `1px solid ${alpha(VL.red, 0.33)}`, background: alpha(VL.red, 0.08),
+              color: rgb(VL.red), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+              textTransform: 'uppercase', verticalAlign: 'middle' }}>
+            ⚡ any-only
+          </span>
+        )}
+      </td>
+      <td style={{ ...TD, textAlign: 'center' }}>
+        {(() => {
+          const tt = poolTokenType(p);
+          const c = TOKEN_TYPE_COLOR[tt];
+          return (
+            <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: 4,
+              border: `1px solid ${c}55`, background: `${c}12`,
+              color: c, fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
+              textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+              {tt}
+            </span>
+          );
+        })()}
+      </td>
+      <td style={{ ...TD, textAlign: 'right', paddingBottom: 6 }}>
+        <span style={{ color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</span>
+        <div style={{ height: 1, marginTop: 4,
+          background: pctColor(p.pct),
+          width: `${Math.min(p.pct, 100)}%`,
+          opacity: 0.3, marginLeft: 'auto' }} />
+      </td>
+      <td style={TD}>
+        <span style={{ color: VLText.primary, fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
+        <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
+      </td>
+      <td style={TD}>
+        <a href={`https://solscan.io/account/${p.escrowPda}`} target="_blank" rel="noopener noreferrer"
+          style={{ color: rgb(VL.gold), fontWeight: 600, textDecoration: 'none' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}>
+          {p.realEscrowSol.toFixed(4)}
+        </a>
+        <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
+      </td>
+      <td style={TD}>
+        <span style={{ color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
+          {p.missingSol.toFixed(4)}
+        </span>
+        <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
+      </td>
+      <td style={TD} title="% funded × real escrow SOL — surfaces meaningfully-funded pools with real balance over near-100%-of-tiny ones">
+        <span style={{ color: rgb(VL.purpleTint), fontWeight: 700 }}>
+          {pfValueScore(p).toFixed(4)}
+        </span>
+        <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
+      </td>
+      <td style={TD_L}>
+        <span
+          onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = VLText.primary; el.style.textDecoration = 'underline'; el.style.textDecorationColor = alpha(VL.purpleTint, 0.40); }}
+          onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = alpha(VL.purpleTint, 0.52); el.style.textDecoration = 'none'; }}
+          style={{ color: alpha(VL.purpleTint, 0.52), cursor: 'pointer', fontSize: 11, ...MONO }}
+          onClick={() => void navigator.clipboard.writeText(p.alKey)}
+          title={p.alKey}>
+          {short(p.alKey)}
+        </span>
+      </td>
+      <td style={{ ...TD, textAlign: 'center' }}>
+        <div style={{ display: 'inline-flex', border: `1px solid ${alpha(VL.purpleTint, 0.18)}`, borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
+          <a href={`https://magiceden.io/u/${p.owner}?chains=%5B%22solana%22%5D&wallets=%5B%22${p.owner}%22%5D&activeTab=%22offers%22`} target="_blank" rel="noopener noreferrer"
+            title="ME Owner Offers"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
+              borderRight: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
+              cursor: 'pointer', textDecoration: 'none', lineHeight: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
+          </a>
+          <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
+          {actions}
+        </div>
+      </td>
+    </tr>
+  );
+}
+const POOL_FEED_HEADER = (
+  <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+    <th style={{ ...TH, textAlign: 'center' }}>#</th>
+    <th style={TH_L}>POOL</th>
+    <th style={TH_L}>COLLECTION</th>
+    <th style={{ ...TH, textAlign: 'center' }}>TYPE</th>
+    <th style={TH}>% FUNDED</th>
+    <th style={TH}>SPOT</th>
+    <th style={TH}>ESCROW</th>
+    <th style={TH}>MISSING</th>
+    <th style={TH} title="% funded × real escrow SOL">VALUE</th>
+    <th style={TH_L}>ADDRESS</th>
+    <th style={{ ...TH, textAlign: 'center' }}>LINKS</th>
+  </tr>
+);
 function StatChip({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
     <div style={{
@@ -444,8 +583,8 @@ export default function MmmCollectionScannerPage() {
   const [pfBusy,   setPfBusy]   = useState(false);
   const [pfError,  setPfError]  = useState<string | null>(null);
 
-  type PfSortCol = 'pct' | 'spotPriceSol' | 'realEscrowSol' | 'missingSol';
-  const VALID_PF_COLS: PfSortCol[] = ['pct', 'spotPriceSol', 'realEscrowSol', 'missingSol'];
+  type PfSortCol = 'pct' | 'spotPriceSol' | 'realEscrowSol' | 'missingSol' | 'value';
+  const VALID_PF_COLS: PfSortCol[] = ['pct', 'spotPriceSol', 'realEscrowSol', 'missingSol', 'value'];
   const storedPfCol = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.sortCol') : null;
   const storedPfDir = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.sortDir') : null;
   const [pfSortCol, setPfSortCol] = useState<PfSortCol>(
@@ -486,27 +625,22 @@ export default function MmmCollectionScannerPage() {
   // no backend signal for this (see the "prior FulfillBuy" heuristic
   // rejected earlier — underfunded pools by definition never sold, so
   // there's nothing server-side to detect "doesn't work" from).
-  // Snapshots collection/pct/escrow at hide-time so the panel can show them
-  // even after a rescan drops the pool from pfResult (or across reloads,
-  // since this is the only thing that survives the 20-min result cache).
-  interface HiddenPoolInfo { collectionName: string; pct: number; realEscrowSol: number; escrowPda: string }
-  const [hiddenPools, setHiddenPools] = useState<Map<string, HiddenPoolInfo>>(() => {
+  // Snapshots the FULL pool at hide-time (not just a summary) so the panel
+  // can render the same detailed row + hyperlinks as the live feed, even
+  // after a rescan drops the pool from pfResult (or across reloads, since
+  // this is the only thing that survives the 20-min result cache).
+  const [hiddenPools, setHiddenPools] = useState<Map<string, FlatPool>>(() => {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.hidden') : null;
-      if (!raw) return new Map<string, HiddenPoolInfo>();
-      return new Map(JSON.parse(raw) as Array<[string, HiddenPoolInfo]>);
-    } catch { return new Map<string, HiddenPoolInfo>(); }
+      if (!raw) return new Map<string, FlatPool>();
+      return new Map(JSON.parse(raw) as Array<[string, FlatPool]>);
+    } catch { return new Map<string, FlatPool>(); }
   });
   const [showHiddenPanel, setShowHiddenPanel] = useState(false);
   const hidePool = (p: FlatPool) => {
     setHiddenPools(prev => {
       const next = new Map(prev);
-      next.set(p.poolKey, {
-        collectionName: p.collectionName || '(unknown)',
-        pct: p.pct,
-        realEscrowSol: p.realEscrowSol,
-        escrowPda: p.escrowPda,
-      });
+      next.set(p.poolKey, p);
       localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next.entries())));
       return next;
     });
@@ -516,6 +650,35 @@ export default function MmmCollectionScannerPage() {
       const next = new Map(prev);
       next.delete(poolKey);
       localStorage.setItem('vl.mmm-pf.hidden', JSON.stringify(Array.from(next.entries())));
+      return next;
+    });
+  };
+
+  // "Accept later" pools — same shape/mechanics as hiddenPools above, but
+  // for pools worth accepting that just aren't a priority right now (vs.
+  // hidden's "tried this, doesn't work"). Same client-only/localStorage
+  // persistence rationale applies.
+  const [laterPools, setLaterPools] = useState<Map<string, FlatPool>>(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.later') : null;
+      if (!raw) return new Map<string, FlatPool>();
+      return new Map(JSON.parse(raw) as Array<[string, FlatPool]>);
+    } catch { return new Map<string, FlatPool>(); }
+  });
+  const [showLaterPanel, setShowLaterPanel] = useState(false);
+  const laterPool = (p: FlatPool) => {
+    setLaterPools(prev => {
+      const next = new Map(prev);
+      next.set(p.poolKey, p);
+      localStorage.setItem('vl.mmm-pf.later', JSON.stringify(Array.from(next.entries())));
+      return next;
+    });
+  };
+  const unlaterPool = (poolKey: string) => {
+    setLaterPools(prev => {
+      const next = new Map(prev);
+      next.delete(poolKey);
+      localStorage.setItem('vl.mmm-pf.later', JSON.stringify(Array.from(next.entries())));
       return next;
     });
   };
@@ -1145,39 +1308,87 @@ export default function MmmCollectionScannerPage() {
                     whiteSpace: 'nowrap', flexShrink: 0 }}>
                   Hidden ({hiddenPools.size})
                 </button>
+                {/* Later pools toggle */}
+                <button type="button" onClick={() => setShowLaterPanel(v => !v)}
+                  disabled={laterPools.size === 0}
+                  style={{ height: 32, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
+                    border: `1px solid ${showLaterPanel ? alpha(VL.purpleTint, 0.24) : alpha(VL.purpleTint, 0.20)}`,
+                    borderRadius: 5, background: showLaterPanel ? 'rgba(16,11,30,0.95)' : 'rgba(16,11,30,0.90)',
+                    color: laterPools.size === 0 ? alpha(VL.purpleTint, 0.30) : VLText.muted,
+                    fontSize: 11, fontWeight: 700, cursor: laterPools.size === 0 ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  🔖 Later ({laterPools.size})
+                </button>
               </div>
             </div>
 
-            {/* Hidden pools panel */}
+            {/* Hidden pools panel — same detailed row + hyperlinks as the live feed */}
             {showHiddenPanel && hiddenPools.size > 0 && (
-              <div style={{ marginBottom: 14, borderRadius: 8, border: `1px solid ${alpha(VL.purpleTint, 0.20)}`,
-                background: 'rgba(16,11,30,0.90)', overflow: 'hidden' }}>
+              <div style={{ marginBottom: 14, ...PANEL }}>
                 <div style={{ padding: '8px 14px', fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
                   textTransform: 'uppercase', color: alpha(VL.purpleTint, 0.55),
                   borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
                   Hidden pools — marked &quot;doesn&apos;t work&quot;
                 </div>
-                {Array.from(hiddenPools.entries()).map(([pk, info]) => (
-                  <div key={pk} style={{ display: 'flex', alignItems: 'baseline',
-                    gap: 8, padding: '6px 14px', fontSize: 12, borderBottom: `1px solid ${alpha(VL.purpleTint, 0.06)}` }}>
-                    <span style={{ color: rgb(VL.gold), fontWeight: 700, maxWidth: 200, flexShrink: 0,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      title={pk}>
-                      {info.collectionName}
-                    </span>
-                    <span style={{ ...MONO, fontSize: 11, fontWeight: 700, color: pctColor(info.pct), flexShrink: 0 }}>
-                      ({info.pct.toFixed(1)}%
-                    </span>
-                    <span style={{ ...MONO, fontSize: 11, color: VLText.primary, flexShrink: 0 }}>
-                      {info.realEscrowSol.toFixed(4)}◎)
-                    </span>
-                    <button type="button" onClick={() => unhidePool(pk)}
-                      style={{ fontSize: 11, fontWeight: 700, color: rgb(VL.gold), background: 'none',
-                        border: 'none', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, marginLeft: 4 }}>
-                      Unhide
-                    </button>
-                  </div>
-                ))}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
+                    <colgroup>
+                      <col style={{ width:  '4%' }} /><col style={{ width: '14%' }} /><col style={{ width: '13%' }} />
+                      <col style={{ width:  '7%' }} /><col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} />
+                      <col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} /><col style={{ width:  '8%' }} />
+                      <col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} />
+                    </colgroup>
+                    <thead>{POOL_FEED_HEADER}</thead>
+                    <tbody>
+                      {Array.from(hiddenPools.values()).map((p, i) => (
+                        <PoolFeedRow key={p.poolKey} p={p} i={i} actions={
+                          <button type="button" onClick={() => unhidePool(p.poolKey)}
+                            title="Unhide"
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
+                              border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
+                              cursor: 'pointer', fontSize: 12, color: rgb(VL.gold) }}>
+                            ↺
+                          </button>
+                        } />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Later pools panel — same detailed row + hyperlinks as the live feed */}
+            {showLaterPanel && laterPools.size > 0 && (
+              <div style={{ marginBottom: 14, ...PANEL }}>
+                <div style={{ padding: '8px 14px', fontSize: 10, fontWeight: 700, letterSpacing: '0.6px',
+                  textTransform: 'uppercase', color: alpha(VL.purpleTint, 0.55),
+                  borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
+                  🔖 Saved for later — accept, just not now
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
+                    <colgroup>
+                      <col style={{ width:  '4%' }} /><col style={{ width: '14%' }} /><col style={{ width: '13%' }} />
+                      <col style={{ width:  '7%' }} /><col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} />
+                      <col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} /><col style={{ width:  '8%' }} />
+                      <col style={{ width:  '9%' }} /><col style={{ width:  '9%' }} />
+                    </colgroup>
+                    <thead>{POOL_FEED_HEADER}</thead>
+                    <tbody>
+                      {Array.from(laterPools.values()).map((p, i) => (
+                        <PoolFeedRow key={p.poolKey} p={p} i={i} actions={
+                          <button type="button" onClick={() => unlaterPool(p.poolKey)}
+                            title="Remove from later"
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
+                              border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
+                              cursor: 'pointer', fontSize: 12, color: alpha(VL.red, 0.65) }}>
+                            ✕
+                          </button>
+                        } />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -1202,9 +1413,12 @@ export default function MmmCollectionScannerPage() {
             {pfResult && (() => {
               const sorted = [...pfResult.pools]
                 .filter(p => !hiddenPools.has(p.poolKey))
+                .filter(p => !laterPools.has(p.poolKey))
                 .filter(p => pfTypeFilter.size === 0 || pfTypeFilter.has(poolTokenType(p)))
                 .sort((a, b) => {
-                  const v = a[pfSortCol] - b[pfSortCol];
+                  const v = pfSortCol === 'value'
+                    ? pfValueScore(a) - pfValueScore(b)
+                    : a[pfSortCol] - b[pfSortCol];
                   return pfSortDir === 'asc' ? v : -v;
                 });
               const THp = { ...TH, cursor: 'pointer', userSelect: 'none' as const };
@@ -1215,15 +1429,16 @@ export default function MmmCollectionScannerPage() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 800 }}>
                         <colgroup>
                           <col style={{ width:  '4%' }} />
-                          <col style={{ width: '17%' }} />
-                          <col style={{ width: '15%' }} />
+                          <col style={{ width: '14%' }} />
+                          <col style={{ width: '13%' }} />
                           <col style={{ width:  '7%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
                           <col style={{ width:  '9%' }} />
-                          <col style={{ width: '10%' }} />
-                          <col style={{ width: '11%' }} />
+                          <col style={{ width:  '8%' }} />
+                          <col style={{ width:  '9%' }} />
+                          <col style={{ width:  '9%' }} />
                         </colgroup>
                         <thead>
                           <tr style={{ position: 'sticky', top: 0, zIndex: 1 }}>
@@ -1235,118 +1450,31 @@ export default function MmmCollectionScannerPage() {
                             <th style={THp} onClick={() => togglePfSort('spotPriceSol')}>SPOT{pfArrow('spotPriceSol')}</th>
                             <th style={THp} onClick={() => togglePfSort('realEscrowSol')}>ESCROW{pfArrow('realEscrowSol')}</th>
                             <th style={THp} onClick={() => togglePfSort('missingSol')}>MISSING{pfArrow('missingSol')}</th>
+                            <th style={THp} onClick={() => togglePfSort('value')} title="% funded × real escrow SOL">VALUE{pfArrow('value')}</th>
                             <th style={TH_L}>ADDRESS</th>
                             <th style={{ ...TH, textAlign: 'center' }}>LINKS</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sorted.map((p, i) => (
-                            <tr key={p.poolKey}
-                              style={{ background: i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : 'transparent' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = alpha(VL.purpleTint, 0.07); }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? alpha(VL.purpleTint, 0.022) : ''; }}>
-                              <td style={{ ...TD, textAlign: 'center', color: alpha(VL.purpleTint, 0.40), fontWeight: 600 }}>
-                                {i + 1}
-                              </td>
-                              <td style={TD_L}>
-                                <CopyKey value={p.poolKey} label={short(p.poolKey)} color={alpha(VL.purpleTint, 0.52)} />
-                              </td>
-                              <td style={TD_L}>
-                                {p.collectionName
-                                  ? <span style={{ fontSize: 12, color: rgb(VL.gold), fontWeight: 700, letterSpacing: '-0.3px',
-                                      textShadow: `0 0 14px ${alpha(VL.gold, 0.22)}` }}>{p.collectionName}</span>
-                                  : <span style={{ fontSize: 10, color: alpha(VL.purpleTint, 0.16) }}>—</span>
-                                }
-                                {p.isNew && (
-                                  <span title="First time this pool has appeared in pool-feed"
-                                    style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
-                                      border: `1px solid ${alpha(VL.greenStrong, 0.33)}`, background: alpha(VL.greenStrong, 0.08),
-                                      color: rgb(VL.greenStrong), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
-                                      textTransform: 'uppercase', verticalAlign: 'middle' }}>
-                                    new
-                                  </span>
-                                )}
-                                {p.anyOnly && (
-                                  <span title="No FVCA/MCC allowlist — the normal scan can't find this pool, only full scan (+any) does"
-                                    style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
-                                      border: `1px solid ${alpha(VL.red, 0.33)}`, background: alpha(VL.red, 0.08),
-                                      color: rgb(VL.red), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
-                                      textTransform: 'uppercase', verticalAlign: 'middle' }}>
-                                    ⚡ any-only
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ ...TD, textAlign: 'center' }}>
-                                {(() => {
-                                  const tt = poolTokenType(p);
-                                  const c = TOKEN_TYPE_COLOR[tt];
-                                  return (
-                                    <span style={{ display: 'inline-block', padding: '2px 6px', borderRadius: 4,
-                                      border: `1px solid ${c}55`, background: `${c}12`,
-                                      color: c, fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
-                                      textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                                      {tt}
-                                    </span>
-                                  );
-                                })()}
-                              </td>
-                              <td style={{ ...TD, textAlign: 'right', paddingBottom: 6 }}>
-                                <span style={{ color: pctColor(p.pct), fontWeight: 700 }}>{p.pct.toFixed(1)}%</span>
-                                <div style={{ height: 1, marginTop: 4,
-                                  background: pctColor(p.pct),
-                                  width: `${Math.min(p.pct, 100)}%`,
-                                  opacity: 0.3, marginLeft: 'auto' }} />
-                              </td>
-                              <td style={TD}>
-                                <span style={{ color: VLText.primary, fontWeight: 700 }}>{p.spotPriceSol.toFixed(4)}</span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
-                              </td>
-                              <td style={TD}>
-                                <a href={`https://solscan.io/account/${p.escrowPda}`} target="_blank" rel="noopener noreferrer"
-                                  style={{ color: rgb(VL.gold), fontWeight: 600, textDecoration: 'none' }}
-                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
-                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}>
-                                  {p.realEscrowSol.toFixed(4)}
-                                </a>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.30), marginLeft: 3 }}>◎</span>
-                              </td>
-                              <td style={TD}>
-                                <span style={{ color: p.missingSol === 0 ? rgb(VL.greenMuted) : rgb(VL.red), fontWeight: 700 }}>
-                                  {p.missingSol.toFixed(4)}
-                                </span>
-                                <span style={{ fontSize: 8, color: alpha(VL.purpleTint, 0.28), marginLeft: 3 }}>◎</span>
-                              </td>
-                              <td style={TD_L}>
-                                <span
-                                  onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.color = VLText.primary; el.style.textDecoration = 'underline'; el.style.textDecorationColor = alpha(VL.purpleTint, 0.40); }}
-                                  onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.color = alpha(VL.purpleTint, 0.52); el.style.textDecoration = 'none'; }}
-                                  style={{ color: alpha(VL.purpleTint, 0.52), cursor: 'pointer', fontSize: 11, ...MONO }}
-                                  onClick={() => void navigator.clipboard.writeText(p.alKey)}
-                                  title={p.alKey}>
-                                  {short(p.alKey)}
-                                </span>
-                              </td>
-                              <td style={{ ...TD, textAlign: 'center' }}>
-                                <div style={{ display: 'inline-flex', border: `1px solid ${alpha(VL.purpleTint, 0.18)}`, borderRadius: 5, overflow: 'hidden', flexShrink: 0 }}>
-                                  <a href={`https://magiceden.io/u/${p.owner}?chains=%5B%22solana%22%5D&wallets=%5B%22${p.owner}%22%5D&activeTab=%22offers%22`} target="_blank" rel="noopener noreferrer"
-                                    title="ME Owner Offers"
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
-                                      borderRight: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
-                                      cursor: 'pointer', textDecoration: 'none', lineHeight: 0 }}>
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
-                                  </a>
-                                  <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
-                                  <button type="button" onClick={() => hidePool(p)}
-                                    title="Hide — doesn't work"
-                                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
-                                      border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
-                                      cursor: 'pointer', fontSize: 12, color: alpha(VL.red, 0.65) }}>
-                                    ✕
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
+                            <PoolFeedRow key={p.poolKey} p={p} i={i} actions={
+                              <>
+                                <button type="button" onClick={() => laterPool(p)}
+                                  title="Accept later — save, not now"
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
+                                    border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
+                                    cursor: 'pointer', fontSize: 12 }}>
+                                  🔖
+                                </button>
+                                <button type="button" onClick={() => hidePool(p)}
+                                  title="Hide — doesn't work"
+                                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 26,
+                                    border: 'none', borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`, background: 'transparent',
+                                    cursor: 'pointer', fontSize: 12, color: alpha(VL.red, 0.65) }}>
+                                  ✕
+                                </button>
+                              </>
+                            } />
                           ))}
                         </tbody>
                       </table>
