@@ -22,7 +22,7 @@ interface HolderDistribution {
   holders1: number; holders2to5: number; holders6to10: number; holders11plus: number;
 }
 interface HoldersAnalysis {
-  inputType:         'collection' | 'slug' | 'name';
+  inputType:         'collection' | 'mint' | 'slug' | 'name';
   inputValue:        string;
   resolvedCollectionAddress: string;
   resolvedName?:     string;
@@ -183,7 +183,7 @@ export default function HoldersPage() {
 
         {/* Input */}
         <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
-          Collection address, slug, or name
+          Collection address, NFT mint address, slug, or name
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <input
@@ -191,7 +191,7 @@ export default function HoldersPage() {
             value={collection}
             onChange={(e) => setCollection(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
-            placeholder="Collection address, marketplace slug, or name…"
+            placeholder="Collection address, one NFT's mint address, marketplace slug, or name…"
             spellCheck={false}
             disabled={busy}
             style={{
@@ -290,6 +290,7 @@ export default function HoldersPage() {
                   ? `${analysis.resolvedName} →`
                   : analysis.inputType === 'slug' ? `slug "${analysis.inputValue}" →`
                   : analysis.inputType === 'name' ? `"${analysis.inputValue}" →`
+                  : analysis.inputType === 'mint' ? 'resolved from NFT mint →'
                   : 'collection'}
               </span>
               <a

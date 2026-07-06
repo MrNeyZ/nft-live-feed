@@ -74,3 +74,27 @@ export async function resolveSlugToCollection(slug: string): Promise<SlugResolut
   if (!collectionAddress) return { collectionAddress: null, sampleMint, error: 'no_onchain_collection' };
   return { collectionAddress, sampleMint, error: null };
 }
+
+/**
+ * Address-shaped input can be EITHER a collection's own on-chain address
+ * (the common case — used directly by getAssetsByGroup) OR an individual
+ * NFT mint belonging to that collection (a user pasting one item instead of
+ * the collection). Distinguish by asking DAS what the address itself groups
+ * under: a real collection root has no `collection` grouping (it IS the
+ * group value), while a member NFT's grouping points at a DIFFERENT
+ * address. Returns null when the input should be treated as-is (either it's
+ * genuinely the collection address, or DAS doesn't recognize it as an asset
+ * at all — same fallback `resolveSlugToCollection`'s sample-mint step
+ * already relies on). Never throws.
+ */
+export async function resolveMintToCollectionAddress(address: string): Promise<string | null> {
+  try {
+    const meta = await getAsset(address);
+    if (meta.collectionAddress && meta.collectionAddress !== address) {
+      return meta.collectionAddress;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

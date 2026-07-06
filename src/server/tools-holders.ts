@@ -14,7 +14,7 @@ import { Router, Request, Response } from 'express';
 import { rateLimit } from './rate-limit';
 import { buildHoldersAnalysis } from '../tools-holders/analyze';
 import { fetchCollectionOwners, isValidCollectionAddress } from '../tools-holders/fetch-assets';
-import { resolveSlugToCollection, isValidSlug } from '../tools-holders/resolve-slug';
+import { resolveSlugToCollection, resolveMintToCollectionAddress, isValidSlug } from '../tools-holders/resolve-slug';
 import { resolveNameToCollection, isValidName } from '../tools-holders/resolve-name';
 import type { HoldersInputType } from '../tools-holders/types';
 
@@ -43,9 +43,26 @@ export function createHoldersRouter(): Router {
       if (!isValidCollectionAddress(collection)) {
         return res.status(400).json({ ok: false, error: 'invalid_collection_address' });
       }
-      inputType = 'collection';
-      inputValue = collection;
-      address = collection;
+      // Address-shaped input could be an individual NFT mint instead of the
+      // collection's own address — resolve via DAS before scanning. Falls
+      // back to treating it as the collection address itself (unchanged
+      // existing behavior) when DAS finds no distinct parent collection.
+      let mintCollection: string | null = null;
+      try {
+        mintCollection = await resolveMintToCollectionAddress(collection);
+      } catch (err) {
+        console.error('[tools/holders] mint resolve error', err);
+      }
+      if (mintCollection) {
+        inputType = 'mint';
+        inputValue = collection;
+        address = mintCollection;
+        extraWarnings.push(`Address ${collection} is an individual NFT — resolved to its collection ${address}.`);
+      } else {
+        inputType = 'collection';
+        inputValue = collection;
+        address = collection;
+      }
     } else if (slug) {
       if (!isValidSlug(slug)) {
         return res.status(400).json({ ok: false, error: 'invalid_slug' });

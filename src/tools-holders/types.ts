@@ -22,10 +22,12 @@ export interface HolderDistribution {
   holders11plus:number;  // hold 11+
 }
 
-/** What the caller supplied: a raw on-chain collection address, a marketplace
- *  slug, or a plain collection name — each resolved to an on-chain collection
- *  address before the DAS scan (counts stay DAS-only either way). */
-export type HoldersInputType = 'collection' | 'slug' | 'name';
+/** What the caller supplied: a raw on-chain collection address, an individual
+ *  NFT mint address (resolved to its collection via DAS getAsset), a
+ *  marketplace slug, or a plain collection name — each resolved to an
+ *  on-chain collection address before the DAS scan (counts stay DAS-only
+ *  either way). */
+export type HoldersInputType = 'collection' | 'mint' | 'slug' | 'name';
 
 /** Final analysis returned by the API ( `{ ok: true, analysis }` ). */
 export interface HoldersAnalysis {
