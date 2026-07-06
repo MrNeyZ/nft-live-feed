@@ -12,11 +12,27 @@
  * collection. Tensor floor is computed from the FULL fetched Tensor set,
  * not the cheapest-portion-trimmed view `collection-listings.ts` serves the
  * Collection page — that trim is a UI concern for this route.
+ *
+ * Input accepts four shapes, auto-detected:
+ *   - ME collection slug        (e.g. "solfussisters0")     — used as-is.
+ *   - Tensor collection slug    — passed through as-is too; `resolveTensorMeta`
+ *     (inside listings-store's fetchTensor) already tries several slug-shape
+ *     candidates, so a Tensor-native slug usually resolves on the Tensor side
+ *     even when it differs from ME's. The ME/MMM side simply comes back empty
+ *     for a slug ME doesn't recognize — same as any collection with no ME
+ *     presence.
+ *   - On-chain collection address — passed through as-is; Tensor's
+ *     `find_collection` filter accepts an address directly (same trick
+ *     `collection-bids.ts`'s cnft-floor-by-address already relies on).
+ *   - An individual NFT mint address — resolved to its ME collection slug via
+ *     the public, keyless `GET /v2/tokens/:mint` (`.collection` field) before
+ *     doing anything else. Falls back to treating the mint itself as a
+ *     collection address if ME doesn't know it (e.g. a Tensor-only cNFT).
  */
 
 import { Router, Request, Response } from 'express';
 import { ensureFresh, getByCollection } from './listings-store';
-import { rateLimit, isValidSlug } from './rate-limit';
+import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
 
 export interface ArbListing {
   mint:      string;
@@ -31,14 +47,68 @@ export interface ArbListing {
   multiple:  number;
 }
 
+const MINT_LOOKUP_TTL_MS = 10 * 60_000;
+const mintCollectionCache = new Map<string, { slug: string | null; fetchedAt: number }>();
+
+/** `GET /v2/tokens/:mint` is public and keyless; `.collection` is the ME
+ *  slug when ME has indexed this mint under a collection. Cached (hit AND
+ *  miss) so repeated lookups of the same mint across requests are free
+ *  within the TTL. */
+async function resolveMintToMeSlug(mint: string): Promise<string | null> {
+  const hit = mintCollectionCache.get(mint);
+  const now = Date.now();
+  if (hit && now - hit.fetchedAt < MINT_LOOKUP_TTL_MS) return hit.slug;
+
+  let slug: string | null = null;
+  try {
+    const res = await fetch(
+      `https://api-mainnet.magiceden.dev/v2/tokens/${encodeURIComponent(mint)}`,
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    if (res.ok) {
+      const json = await res.json() as { collection?: string };
+      slug = typeof json.collection === 'string' && json.collection.length > 0 ? json.collection : null;
+    }
+  } catch {
+    slug = null;
+  }
+  mintCollectionCache.set(mint, { slug, fetchedAt: now });
+  return slug;
+}
+
+type ResolveOutcome =
+  | { ok: true; slug: string; resolvedVia: 'slug' | 'me-mint-lookup' | 'address-passthrough' }
+  | { ok: false };
+
+async function resolveInput(raw: string): Promise<ResolveOutcome> {
+  if (isValidSlug(raw)) {
+    return { ok: true, slug: raw, resolvedVia: 'slug' };
+  }
+  if (isValidMint(raw)) {
+    const meSlug = await resolveMintToMeSlug(raw);
+    if (meSlug) return { ok: true, slug: meSlug, resolvedVia: 'me-mint-lookup' };
+    // Not a known ME-indexed NFT mint — could already be a bare collection
+    // address (cNFT collections without an ME slug). Pass it straight
+    // through; the Tensor side resolves addresses directly, ME/MMM simply
+    // returns nothing for a string it doesn't recognize as a slug.
+    return { ok: true, slug: raw, resolvedVia: 'address-passthrough' };
+  }
+  return { ok: false };
+}
+
 export function createMeTensorArbRouter(): Router {
   const router = Router();
   const arbLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/me-tensor-arb' });
 
   router.get('/tools/me-tensor-arb', arbLimit, async (req: Request, res: Response) => {
-    const slug = String(req.query.slug ?? '').trim();
-    if (!isValidSlug(slug)) {
-      res.status(400).json({ error: 'invalid_slug' });
+    const raw = String(req.query.q ?? req.query.slug ?? '').trim();
+    if (!raw) {
+      res.status(400).json({ error: 'invalid_input' });
+      return;
+    }
+    const resolved = await resolveInput(raw);
+    if (!resolved.ok) {
+      res.status(400).json({ error: 'invalid_input', message: 'Expected a collection slug, collection address, or NFT mint address.' });
       return;
     }
     if (!process.env.TENSOR_API_KEY) {
@@ -46,13 +116,14 @@ export function createMeTensorArbRouter(): Router {
       return;
     }
 
+    const { slug, resolvedVia } = resolved;
     try {
       await ensureFresh(slug);
       const rows = getByCollection(slug);
 
       const tensorPrices = rows.filter(r => r.source === 'TENSOR').map(r => r.priceSol);
       if (tensorPrices.length === 0) {
-        res.json({ ok: true, tensorFloorSol: null, tensorListedCount: 0, listings: [] });
+        res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol: null, tensorListedCount: 0, listings: [] });
         return;
       }
       const tensorFloorSol = Math.min(...tensorPrices);
@@ -72,7 +143,7 @@ export function createMeTensorArbRouter(): Router {
           multiple: tensorFloorSol / r.priceSol,
         }));
 
-      res.json({ ok: true, tensorFloorSol, tensorListedCount: tensorPrices.length, listings });
+      res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol, tensorListedCount: tensorPrices.length, listings });
     } catch (err) {
       console.error('[tools/me-tensor-arb] error', err);
       res.status(500).json({ error: 'internal' });

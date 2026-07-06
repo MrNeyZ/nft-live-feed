@@ -1,19 +1,21 @@
 'use client';
 
 // VictoryLabs — Tools › ME vs Tensor Arb.
-// Paste a Magic Eden collection slug → backend reuses the existing
-// ME + MMM + Tensor listings snapshot (listings-store.ts) and returns every
-// ME/MMM-side listing currently priced BELOW Tensor's own cheapest active
-// listing for that collection. Read-only, no wallet connect, no signing —
-// one lookup per request, cached server-side per collection TTL so repeat
-// checks on a hot collection are fast, not a fresh scan every time.
-// Data: GET /api/tools/me-tensor-arb?slug=<collection slug>
+// Paste a collection slug, collection address, or an individual NFT mint
+// address → backend auto-detects which, resolves a mint to its ME
+// collection first if needed, then reuses the existing ME + MMM + Tensor
+// listings snapshot (listings-store.ts) and returns every ME/MMM-side
+// listing currently priced BELOW Tensor's own cheapest active listing for
+// that collection. Read-only, no wallet connect, no signing — one lookup
+// per request, cached server-side per collection TTL so repeat checks on a
+// hot collection are fast, not a fresh scan every time.
+// Data: GET /api/tools/me-tensor-arb?q=<slug | collection address | mint>
 
 import { useEffect, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
-import { API_BASE, MONO, PANEL, TH, TH_L, short } from '@/app/tools/mmm-shared';
+import { API_BASE, MONO, PANEL, TH, TH_L, ADDR_RE, short } from '@/app/tools/mmm-shared';
 
 interface ArbListing {
   mint:      string;
@@ -28,12 +30,20 @@ interface ArbListing {
 }
 interface ArbResult {
   ok: true;
+  resolvedSlug:      string;
+  resolvedVia:       'slug' | 'me-mint-lookup' | 'address-passthrough';
   tensorFloorSol:    number | null;
   tensorListedCount: number;
   listings:          ArbListing[];
 }
 
 const SLUG_RE = /^[a-z0-9_-]+$/i;
+function isValidQuery(v: string): boolean { return SLUG_RE.test(v) || ADDR_RE.test(v); }
+function resolvedViaLabel(via: ArbResult['resolvedVia']): string {
+  if (via === 'me-mint-lookup') return 'resolved from NFT mint →';
+  if (via === 'address-passthrough') return 'collection address →';
+  return 'slug →';
+}
 
 function fmtSol(n: number): string { return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, ''); }
 function fmtWhen(ms: number | null): string {
@@ -52,19 +62,19 @@ export default function MeTensorArbPage() {
 
   const run = async () => {
     const trimmed = slug.trim();
-    if (busy || !SLUG_RE.test(trimmed)) {
-      if (trimmed.length > 0) setError('Invalid slug — use the marketplace collection slug (letters, digits, _ or -).');
+    if (busy || !isValidQuery(trimmed)) {
+      if (trimmed.length > 0) setError('Invalid input — use a marketplace slug, collection address, or NFT mint address.');
       return;
     }
     playUiConfirm();
     setBusy(true);
     setError(null);
     try {
-      const r = await fetch(`${API_BASE}/api/tools/me-tensor-arb?slug=${encodeURIComponent(trimmed)}`, {
+      const r = await fetch(`${API_BASE}/api/tools/me-tensor-arb?q=${encodeURIComponent(trimmed)}`, {
         headers: { ...authHeaders() },
       });
       if (r.status === 429) { setError('Rate limited — wait a moment and try again.'); return; }
-      if (r.status === 400) { setError('Invalid slug.'); return; }
+      if (r.status === 400) { setError('Invalid input.'); return; }
       if (r.status === 503) { setError('Tensor API key not configured on the server — nothing to compare against.'); return; }
       if (!r.ok) { setError(`Lookup failed — HTTP ${r.status}.`); return; }
       const body = await r.json() as ArbResult;
@@ -93,7 +103,7 @@ export default function MeTensorArbPage() {
         </div>
 
         <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
-          Collection slug (Magic Eden)
+          Collection slug, collection address, or NFT mint address
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <input
@@ -101,7 +111,7 @@ export default function MeTensorArbPage() {
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void run(); }}
-            placeholder="e.g. solfussisters0"
+            placeholder="e.g. solfussisters0, a collection address, or one NFT's mint address"
             spellCheck={false}
             disabled={busy}
             style={{
@@ -143,6 +153,12 @@ export default function MeTensorArbPage() {
 
         {result && !busy && (
           <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: '#9a9ab4' }}>
+              <span style={{ ...MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c7b479' }}>
+                {resolvedViaLabel(result.resolvedVia)}
+              </span>
+              <span style={{ ...MONO, color: '#c4b8e8' }}>{result.resolvedSlug}</span>
+            </div>
             <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap', marginBottom: 11 }}>
               <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>Tensor floor</div>
