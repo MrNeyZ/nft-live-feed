@@ -8,6 +8,7 @@
     "dev": "nodemon --exec ts-node src/index.ts",
     "start": "node dist/index.js",
     "migrate": "ts-node src/db/migrate.ts",
+    "pixel-forge:validate": "ts-node src/scripts/pixel-forge-validation.ts",
     "test:mint-analyzer": "ts-node src/mint-analyzer/__tests__/analyze.test.ts",
     "test:holders-tool": "ts-node src/tools-holders/__tests__/analyze.test.ts",
     "test:prnt-detector": "ts-node src/ingestion/mint-raw/__tests__/prnt-detector.test.ts",
@@ -23,12 +24,14 @@
     "debug:lmnft-config": "ts-node src/scripts/debug-lmnft-config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "pg": "^8.12.0",
+    "sharp": "^0.35.3",
     "tweetnacl": "^1.0.3",
     "ws": "^8.20.0"
   },

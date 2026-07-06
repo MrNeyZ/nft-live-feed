@@ -26,6 +26,7 @@ import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createDotlandRouter } from './tools-dotland';
+import { createPixelForgeRouter } from './tools-pixel-forge';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
 
@@ -157,6 +158,10 @@ export function createApp() {
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
   app.use('/api', createDotlandRouter());
+
+  // Pixel-forge drawing agent — personal use, requireAuth-gated on every
+  // route (see tools-pixel-forge.ts header comment).
+  app.use('/api', createPixelForgeRouter());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
