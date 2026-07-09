@@ -16,6 +16,8 @@
  *   - MeTrendingSchemaError   → response wasn't the expected array → 502
  */
 
+import { meAuthHeaders } from '../me-api-cooldown';
+
 const ME_TRENDING_BASE = 'https://stats-mainnet.magiceden.io/collection_stats/search';
 const ME_TRENDING_TTL_MS     = 45_000;
 const ME_TRENDING_TIMEOUT_MS = 8_000;
@@ -226,7 +228,7 @@ export async function getTrendingCollections(q: TrendingQuery): Promise<Trending
     let res: Response;
     try {
       res = await fetch(url, {
-        headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json' },
+        headers: { 'User-Agent': BROWSER_UA, Accept: 'application/json', ...meAuthHeaders() },
         signal: AbortSignal.timeout(ME_TRENDING_TIMEOUT_MS),
       });
     } catch (err) {

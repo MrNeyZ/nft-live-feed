@@ -36,6 +36,7 @@ import { VersionedTransaction, Transaction, PublicKey, SystemProgram, LAMPORTS_P
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
 import { slugForMint } from './listings-store';
+import { hasMeApiKey, meAuthHeaders } from '../me-api-cooldown';
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const FETCH_TIMEOUT_MS = 8_000;
@@ -183,7 +184,7 @@ export function createBuyMeRouter(): Router {
   // Capability probe — unauthenticated, cheap; frontend uses it to
   // render the Buy button's disabled state on mount.
   router.get('/me/status', (_req: Request, res: Response) => {
-    res.json({ enabled: !!process.env.ME_API_KEY });
+    res.json({ enabled: hasMeApiKey() });
   });
 
   router.get('/me', buyLimit, requireAuth, async (req: Request, res: Response) => {
@@ -286,8 +287,7 @@ export function createBuyMeRouter(): Router {
     }
 
     // Only now do we need the ME key — every cheaper check already ran.
-    const apiKey = process.env.ME_API_KEY;
-    if (!apiKey) {
+    if (!hasMeApiKey()) {
       res.status(503).json({ error: 'me_api_key_missing', message: 'ME_API_KEY env var not set on server.' });
       return;
     }
@@ -305,7 +305,7 @@ export function createBuyMeRouter(): Router {
     let meRes: Awaited<ReturnType<typeof fetch>>;
     try {
       meRes = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+        headers: { ...meAuthHeaders(), Accept: 'application/json' },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
     } catch (err) {
