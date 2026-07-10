@@ -504,6 +504,8 @@ export default function MmmCollectionScannerPage() {
   };
   const triageArrow = (col: TriageSortCol) => triageSortCol === col ? (triageSortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
+  const triageEsRef = useRef<EventSource | null>(null);
+
   const runTriage = useCallback((opts?: { force?: boolean; fast?: boolean; resultCallback?: (r: TriageResult) => void }) => {
     if (triageBusy) return;
     setTriageBusy(true);
@@ -518,7 +520,14 @@ export default function MmmCollectionScannerPage() {
     if (fastMode)    params.set('fast',  '1');
     if (opts?.force) params.set('force', '1');
     const url = `${API_BASE}/api/tools/mmm-pools/triage-stream?${params}`;
-    const es  = new EventSource(url);
+
+    triageEsRef.current?.close();
+    const es = new EventSource(url);
+    triageEsRef.current = es;
+    const closeEs = () => {
+      if (triageEsRef.current === es) triageEsRef.current = null;
+      es.close();
+    };
 
     es.onmessage = (e: MessageEvent) => {
       try {
@@ -538,18 +547,18 @@ export default function MmmCollectionScannerPage() {
           };
           setTriageResult(r);
           if (opts?.resultCallback) opts.resultCallback(r);
-          es.close();
+          closeEs();
           setTriageBusy(false);
         } else if (data.type === 'error') {
           setTriageError(data.msg ?? 'Unknown error');
-          es.close();
+          closeEs();
           setTriageBusy(false);
         }
       } catch { /* ignore parse errors */ }
     };
     es.onerror = () => {
       setTriageError('Connection error');
-      es.close();
+      closeEs();
       setTriageBusy(false);
     };
   }, [triageBusy, triageMinPct, triageFast]);
@@ -683,6 +692,8 @@ export default function MmmCollectionScannerPage() {
     });
   };
 
+  const pfEsRef = useRef<EventSource | null>(null);
+
   const runPoolFeed = useCallback((opts?: { force?: boolean }) => {
     if (pfBusy) return;
     setPfBusy(true);
@@ -694,7 +705,14 @@ export default function MmmCollectionScannerPage() {
     const params = new URLSearchParams({ min_pct: String(minPct), fast: pfFast ? '1' : '0', any: pfIncludeAny ? '1' : '0' });
     if (opts?.force) params.set('force', '1');
     const url = `${API_BASE}/api/tools/mmm-pools/pool-stream?${params}`;
-    const es  = new EventSource(url);
+
+    pfEsRef.current?.close();
+    const es = new EventSource(url);
+    pfEsRef.current = es;
+    const closeEs = () => {
+      if (pfEsRef.current === es) pfEsRef.current = null;
+      es.close();
+    };
 
     es.onmessage = (e: MessageEvent) => {
       try {
@@ -705,17 +723,28 @@ export default function MmmCollectionScannerPage() {
           const r: PoolFeedResult = { pools: data.pools, cached: data.cached ?? false, cacheAgeMs: data.cacheAgeMs ?? 0 };
           setPfResult(r);
           try { localStorage.setItem(pfResultStorageKey(pfIncludeAny), JSON.stringify({ ...r, savedAt: Date.now() })); } catch { /* quota */ }
-          es.close();
+          closeEs();
           setPfBusy(false);
         } else if (data.type === 'error') {
           setPfError(data.msg ?? 'Unknown error');
-          es.close();
+          closeEs();
           setPfBusy(false);
         }
       } catch { /* ignore */ }
     };
-    es.onerror = () => { setPfError('Connection error'); es.close(); setPfBusy(false); };
+    es.onerror = () => { setPfError('Connection error'); closeEs(); setPfBusy(false); };
   }, [pfBusy, pfMinPct, pfFast, pfIncludeAny]);
+
+  // Unmount / navigation-away: tear down any in-flight scan stream so no
+  // EventSource survives the component going away.
+  useEffect(() => {
+    return () => {
+      triageEsRef.current?.close();
+      triageEsRef.current = null;
+      pfEsRef.current?.close();
+      pfEsRef.current = null;
+    };
+  }, []);
 
   // ── Triage table ──────────────────────────────────────────────────────────
   const renderTriageTable = (collections: TriageCollection[]) => {
