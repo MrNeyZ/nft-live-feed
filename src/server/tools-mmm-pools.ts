@@ -33,6 +33,7 @@ import path                                          from 'path';
 import { rateLimit }                                 from './rate-limit';
 import { requireAuth }                               from './runtime';
 import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
+import { fetchAsset }                                from '../enrichment/helius-das';
 
 const MMM_PROGRAM_ID = new PublicKey('mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc');
 const ESCROW_SEED    = Buffer.from('mmm_buyside_sol_escrow_account');
@@ -511,20 +512,14 @@ async function fetchWalletNftsForPool(
 // truth either way (matches the "always attempt, let ME's response decide" philosophy
 // already used for poolType/royaltyBp above).
 async function fetchAssetByMint(mint: string): Promise<WalletNft | null> {
-  const apiKey = process.env.HELIUS_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) return null;
-    const j = await r.json() as { result?: DasAsset };
-    if (!j.result) return null;
-    return toWalletNft(j.result);
-  } catch { return null; }
+  // Routed through the shared cached/deduped fetchAsset() (helius-das.ts)
+  // instead of a raw getAsset POST — same underlying DAS payload, so the
+  // cast below is safe: it just widens the shared helper's narrower return
+  // type to this file's richer local `DasAsset` (id/compression/token_info
+  // fields the shared type doesn't model but the real Helius response has).
+  const asset = await fetchAsset(mint);
+  if (!asset) return null;
+  return toWalletNft(asset as unknown as DasAsset);
 }
 
 // ── On-chain sol_fulfill_buy builder ─────────────────────────────────────────
@@ -1156,19 +1151,10 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
     await Promise.all(hasColMint.slice(i, i + DAS_CONCURRENCY).map(async fvca => {
       const colMint = colMintMap.get(fvca)!;
       try {
-        const res = await fetch(rpcUrl(), {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            jsonrpc: '2.0', id: 1, method: 'getAsset',
-            params:  { id: colMint },
-          }),
-          signal: AbortSignal.timeout(8_000),
-        });
-        const data = await res.json() as {
-          result?: { content?: { metadata?: { name?: string } } };
-        };
-        const colName = data.result?.content?.metadata?.name ?? '';
+        // Shared cached/deduped fetchAsset() (helius-das.ts) instead of a
+        // raw getAsset POST — same 8s timeout the direct call used.
+        const asset   = await fetchAsset(colMint);
+        const colName = asset?.content?.metadata?.name ?? '';
         if (colName) {
           const existing = fvcaInfoCache.get(fvca);
           fvcaInfoCache.set(fvca, { name: colName, slug: existing?.slug ?? '', cachedAt: Date.now(), tokenStandard: existing?.tokenStandard });
