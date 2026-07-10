@@ -698,6 +698,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
 type SortDir = 'asc' | 'desc';
+const SORT_KEYS: readonly SortKey[] = ['collection', 'mints', 'supply', 'last', 'price', 'created'];
 type MintTab = 'active' | 'recent';
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
@@ -996,19 +997,32 @@ export default function MintsPage() {
   // and render backstop can never diverge. Fields unchanged.
   const isBlacklistedRow   = (r: MintStatus): boolean => isMintStatusBlacklisted(r, blacklistSet);
   const isBlacklistedEvent = (e: MintEvent): boolean => isMintEventBlacklisted(e, blacklistSet);
-  const [sortKey, setSortKey] = useState<SortKey>('created');
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    if (typeof window === 'undefined') return 'created';
+    try {
+      const v = window.localStorage.getItem('vl.mints.sortKey');
+      return (SORT_KEYS as readonly string[]).includes(v ?? '') ? (v as SortKey) : 'created';
+    } catch { return 'created'; }
+  });
   // Direction is per-key; toggling the same header flips it, picking a
   // new header resets to 'desc' (the natural default for numeric/recency
   // columns — collection/source still default to 'desc' so a single click
   // produces a Z→A read, second click flips to A→Z).
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-  // Has the user manually clicked a column header in the current tab?
-  // While false, each tab uses its own default (ACTIVE → CREATED desc,
-  // RECENT → LAST MINT desc) so the table reads as "active activity"
-  // / "recent activity" without surprising the user with an unrelated
-  // metric ordering. Resets on tab switch so going to RECENT always
-  // starts newest-first regardless of what was clicked under ACTIVE.
-  const [hasManualSort, setHasManualSort] = useState<boolean>(false);
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    if (typeof window === 'undefined') return 'desc';
+    try {
+      return window.localStorage.getItem('vl.mints.sortDir') === 'asc' ? 'asc' : 'desc';
+    } catch { return 'desc'; }
+  });
+  // Has the user manually clicked a column header (as opposed to relying on
+  // the tab's own default: ACTIVE → CREATED desc, RECENT → LAST MINT desc)?
+  // Persisted like sortKey/sortDir so a manual choice survives both tab
+  // switches and reloads — it no longer resets on tab switch (see the
+  // mintTab effect below).
+  const [hasManualSort, setHasManualSort] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem('vl.mints.hasManualSort') === '1'; } catch { return false; }
+  });
   const handleSortClick = (k: SortKey) => {
     setHasManualSort(true);
     // When entering manual mode, the displayed sort key may differ
@@ -1116,14 +1130,23 @@ export default function MintsPage() {
   }, []);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
-    // Tab switch clears manual-sort state so each tab opens with its
-    // own default ordering (ACTIVE → CREATED desc, RECENT → LAST MINT
-    // desc). Manual click in the new tab re-enables the user's choice.
-    setHasManualSort(false);
+    // A manual sort choice now persists across tab switches (and reloads,
+    // via the localStorage-backed initializers above) instead of resetting
+    // to each tab's default ordering — matches every other /mints
+    // preference (tab, timeframe, filters) already surviving a tab switch.
   }, [mintTab]);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tf', mintTf); } catch { /* noop */ }
   }, [mintTf]);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.sortKey', sortKey); } catch { /* noop */ }
+  }, [sortKey]);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.sortDir', sortDir); } catch { /* noop */ }
+  }, [sortDir]);
+  useEffect(() => {
+    try { window.localStorage.setItem('vl.mints.hasManualSort', hasManualSort ? '1' : '0'); } catch { /* noop */ }
+  }, [hasManualSort]);
 
   // Legacy global "show cNFT everywhere" gate. The UI control that used
   // to toggle this lived in the LIVE MINT FEED header and was replaced
