@@ -1215,6 +1215,7 @@ export function createMmmPoolsRouter(): Router {
   // within the TTL are served instantly at 0 RPC credit cost.
   router.get('/tools/mmm-pools/triage-stream',
     rateLimit({ limit: 4, windowMs: 120_000, label: 'tools/mmm-triage' }),
+    requireAuth,
     async (req: Request, res: Response) => {
       const minPct = Math.max(0, Math.min(100,
         parseFloat(String(req.query.min_pct ?? '5')) || 5));
@@ -1432,6 +1433,7 @@ export function createMmmPoolsRouter(): Router {
   router.get(
     '/tools/mmm-pools/pool-stream',
     limit,
+    requireAuth,
     (req: Request, res: Response) => {
       const minPct     = parseFloat(req.query['min_pct'] as string ?? '50') || 50;
       const force       = req.query['force'] === '1';
@@ -1578,7 +1580,7 @@ export function createMmmPoolsRouter(): Router {
 
   // Verify a submitted transaction landed on-chain.
   // Returns immediately with the current status (caller should poll if not_found).
-  router.get('/tools/mmm-pools/tx-status', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/tx-status', limit, requireAuth, async (req: Request, res: Response) => {
     const sig = String(req.query.sig ?? '').trim();
     if (!sig || !/^[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(sig)) {
       return res.status(400).json({ ok: false, error: 'invalid_sig' });
@@ -1605,7 +1607,7 @@ export function createMmmPoolsRouter(): Router {
 
   // Manual mint lookup — fallback for when the connected wallet doesn't hold a
   // matching NFT yet (e.g. checking a pool before buying the target NFT).
-  router.get('/tools/mmm-pools/manual-nft', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/manual-nft', limit, requireAuth, async (req: Request, res: Response) => {
     const mint = String(req.query.mint ?? '').trim();
     if (!mint || !ADDR_RE.test(mint)) {
       return res.status(400).json({ ok: false, error: 'invalid_params' });
@@ -1620,7 +1622,7 @@ export function createMmmPoolsRouter(): Router {
     }
   });
 
-  router.get('/tools/mmm-pools/wallet-nfts', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/wallet-nfts', limit, requireAuth, async (req: Request, res: Response) => {
     const wallet  = String(req.query.wallet ?? '').trim();
     const poolKey = String(req.query.pool   ?? '').trim();
     if (!wallet || !ADDR_RE.test(wallet) || !poolKey || !ADDR_RE.test(poolKey)) {
@@ -1637,7 +1639,7 @@ export function createMmmPoolsRouter(): Router {
     }
   });
 
-  router.get('/tools/mmm-pools/bid-accept-tx', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/bid-accept-tx', limit, requireAuth, async (req: Request, res: Response) => {
     const poolKey = String(req.query.pool   ?? '').trim();
     const seller  = String(req.query.seller ?? '').trim();
     const mint    = String(req.query.mint   ?? '').trim();
@@ -1661,7 +1663,7 @@ export function createMmmPoolsRouter(): Router {
     }
   });
 
-  router.get('/tools/mmm-pools/pool', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/pool', limit, requireAuth, async (req: Request, res: Response) => {
     const key = String(req.query.key ?? '').trim();
     if (!key || !ADDR_RE.test(key)) {
       return res.status(400).json({ ok: false, error: 'invalid_address' });
@@ -1689,7 +1691,7 @@ export function createMmmPoolsRouter(): Router {
   // 0 < realEscrow < spotPrice — the "ghost bids" that can execute on-chain
   // if topped up but are invisible in the ME UI.
   // For symbol path, returns ALL active pools (executable + underfunded).
-  router.get('/tools/mmm-pools/collection-scan', rateLimit({ limit: 6, windowMs: 60_000, label: 'tools/mmm-collection-scan' }), async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/collection-scan', rateLimit({ limit: 6, windowMs: 60_000, label: 'tools/mmm-collection-scan' }), requireAuth, async (req: Request, res: Response) => {
     const fvca   = String(req.query.fvca   ?? '').trim();
     const mcc    = String(req.query.mcc    ?? '').trim();
     const symbol = String(req.query.symbol ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
@@ -1866,7 +1868,7 @@ export function createMmmPoolsRouter(): Router {
   const SLUG_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   // Resolve a ME collection slug → first verified creator (FVCA) via ME listings + Helius DAS.
-  router.get('/tools/mmm-pools/resolve-slug', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/resolve-slug', limit, requireAuth, async (req: Request, res: Response) => {
     const slug = String(req.query.slug ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (!slug) return res.status(400).json({ ok: false, error: 'missing_slug' });
 
@@ -1941,7 +1943,7 @@ export function createMmmPoolsRouter(): Router {
     }
   });
 
-  router.get('/tools/mmm-pools/scan', limit, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/scan', limit, requireAuth, async (req: Request, res: Response) => {
     const owner = String(req.query.owner ?? '').trim();
     if (!owner || !ADDR_RE.test(owner)) {
       return res.status(400).json({ ok: false, error: 'invalid_owner_address' });
