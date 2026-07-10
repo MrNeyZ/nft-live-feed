@@ -593,7 +593,7 @@ export const FeedCard = memo(function FeedCard({
   // re-mount on a future route return sees the id and stays static.
   const isCached = useState(() => seenFeedEventIds.has(event.id))[0];
   useEffect(() => { rememberSeenEventId(event.id); }, [event.id]);
-  const kind  = saleKind(event.saleTypeRaw);
+  const kind  = saleKind(event.saleTypeRaw, event.isPoolMarketplace);
   const sellerCount = event.sellerRemainingCount;
   const style = KIND_STYLES[kind];
   // Pill appearance: Rare Feed passes an explicit `pillOverride` (a

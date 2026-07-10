@@ -66,10 +66,20 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   unknown: { label: '—',    fg: VLText.muted, bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
-export function saleKind(saleTypeRaw: string | null): SaleKind {
+/**
+ * `isPoolMarketplace` mirrors the same disambiguation `price-mode.ts`'s
+ * `displayPrice()` already applies: a pool's `takeBid` (MMM `SolFulfillBuy` /
+ * Tensor AMM take-bid) is emitted as `sale_type: 'bid_sell'` — same as a real
+ * ME/Tensor collection-bid acceptance from another wallet — but on a pool
+ * marketplace (`magic_eden_amm` / `tensor_amm`) it IS an AMM pool sale, not a
+ * plain peer-to-peer sell. Without this check it silently renders as a
+ * generic SELL with no ∿ AMM marker, indistinguishable from a normal
+ * instant sale — that's the bug this parameter fixes.
+ */
+export function saleKind(saleTypeRaw: string | null, isPoolMarketplace = false): SaleKind {
   switch (saleTypeRaw) {
     case SALE_TYPE_BUY:      return 'buy';
-    case SALE_TYPE_SELL:     return 'sell';
+    case SALE_TYPE_SELL:     return isPoolMarketplace ? 'sellAmm' : 'sell';
     case SALE_TYPE_BUY_AMM:  return 'buyAmm';
     case SALE_TYPE_SELL_AMM: return 'sellAmm';
     // Lucky Buy is still a buy from the seller's perspective; the
