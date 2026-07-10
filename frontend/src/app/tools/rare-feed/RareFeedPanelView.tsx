@@ -3,10 +3,11 @@
 // VictoryLabs — Rare Feed panel VIEW (single source of truth for chrome).
 // The gradient panel + embed compact header + feed-list + rare cards,
 // extracted VERBATIM from rare-feed/page.tsx so there is ONE implementation
-// of the panel chrome. Both consumers render this:
-//   • standalone /tools/rare-feed page (its full Rare-Feed header sits
-//     ABOVE this panel; passes embedded + maxW from its own state)
-//   • native /multi RareFeedPanel (embedded, maxW 'none')
+// of the panel chrome. Rendered by the standalone /tools/rare-feed page
+// (its full Rare-Feed header sits ABOVE this panel; passes embedded + maxW
+// from its own state). /multi's rare column uses the separate
+// RareFeedCompactPanel instead — a live-feed-derived signal strip, not a
+// consumer of this view.
 // Presentational only — data (rows/error/loading) is passed in.
 
 import { LiveDot } from '@/soloist/shared';

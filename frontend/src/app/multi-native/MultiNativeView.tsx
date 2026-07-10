@@ -2,7 +2,7 @@
 
 // VictoryLabs — native Multi-tab layout (shared).
 // Single source of truth for the three-column native composition (no
-// iframes): LEFT MintFeedPanel · CENTER RareFeedPanel · RIGHT SalesFeedPanel.
+// iframes): LEFT MintFeedPanel · CENTER RareFeedCompactPanel · RIGHT SalesFeedPanel.
 // Rendered by BOTH /multi (default/production) and /multi-native (kept as a
 // fallback/reference) so there is one implementation of the layout.
 //
