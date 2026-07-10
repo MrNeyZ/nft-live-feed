@@ -38,6 +38,11 @@ const WINDOW_MS           = 7 * 24 * 60 * 60 * 1000; // 7d lookback
 const MAX_HOPS            = 5;                        // last N non-AMM sales tracked per mint
 const HIGH_CONFIDENCE_MS  = 72 * 60 * 60 * 1000;      // 72h — closes faster => higher confidence
 
+// Total distinct mint_address keys tracked — same operational safeguard as
+// recent-sell-tracker.ts / repeat-floor-buyer-cache.ts's MAX_KEYS, oldest
+// insertion-order entry dropped when the map would grow past the cap.
+const MAX_KEYS = 50_000;
+
 const AMM_MARKETPLACES = new Set(['magic_eden_amm', 'tensor_amm']);
 
 interface Entry { wallet: string; ts: number; }
@@ -104,6 +109,12 @@ export function checkAndRecordOwnership(
       };
       break;
     }
+  }
+
+  if (!history.has(mintAddress) && history.size >= MAX_KEYS) {
+    const it = history.keys();
+    const r = it.next();
+    if (!r.done) history.delete(r.value);
   }
 
   existing.push({ wallet: seller, ts: blockTimeMs });
