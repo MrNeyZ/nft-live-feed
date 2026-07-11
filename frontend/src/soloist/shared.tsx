@@ -1380,7 +1380,21 @@ export function TopNav({ active }: { active?: Page } = {}) {
             type="button"
             className="topnav-tab topnav-tab-other-mobile"
             data-tab="other"
-            onClick={() => setOtherOpen(true)}
+            onClick={() => {
+              // The idle-prefetch pump above (HREFS) already covers /mints
+              // and /tools/retardio in the common case, but it's staggered
+              // one route per idle tick — on iOS Safari (no
+              // requestIdleCallback at all, falls back to a 200ms
+              // setTimeout per tick) that puts /mints ~600ms and
+              // /tools/retardio ~1000ms after mount. This menu is
+              // mobile-only, i.e. exactly that audience, so a user who
+              // taps OTHER fast on a fresh load can still beat the pump.
+              // Explicit prefetch here is a no-op once the pump already
+              // covered it (Next dedupes per path) and costs nothing.
+              router.prefetch('/mints');
+              router.prefetch('/tools/retardio');
+              setOtherOpen(true);
+            }}
             aria-haspopup="dialog"
             aria-expanded={otherOpen}
             style={{

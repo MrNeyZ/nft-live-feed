@@ -1697,20 +1697,24 @@ html[data-layout="phone"] .mints-collections-panel::after {
    Tweaks vs. earlier version:
      • dropped the 6 px translate-up — the slight slide produced a
        visible reflow flicker against the stable nav chrome above.
-     • opacity start raised from 0 → 0.35 so the fade-in never goes
-       fully blank between routes.
-     • duration trimmed 160 ms → 140 ms for a snappier feel.
+     • opacity starts at 0 (goes fully blank for an instant between
+       routes) — the keyframe below is the actual current behavior;
+       an earlier draft floored it at 0.35 but that was never shipped.
      • `body[data-app="1"]` carries the dark base color so the
        half-second between unmount and remount paints on a stable
        background, never on white.
 */
 /* Chrome (TopNav + BottomStatusBar) is now rendered persistently by
    Gate, so the route-content area can crossfade fully without the chrome
-   ever unmounting. Opacity 0 → 1 + a 3 px translate-up over 160 ms; ease-
+   ever unmounting. Opacity 0 → 1 + a 3 px translate-up over 90 ms; ease-
    out keeps the start snappy. The page-root itself doesn't animate (so
-   layout never reflows); only direct children fade in. */
+   layout never reflows); only direct children fade in.
+   TEMPORARY (nav-latency audit, 2026-07-11): trimmed 160ms → 90ms —
+   route chunks are already prefetched and mounts land in 20–120ms, so
+   this fade duration was the dominant term in perceived nav latency,
+   not a mask for a slow load. Revisit if 90ms ever feels too abrupt. */
 .page-transition {
-  animation: pageRootFadeIn 160ms ease-out both;
+  animation: pageRootFadeIn 90ms ease-out both;
 }
 @keyframes pageRootFadeIn {
   from { opacity: 0; transform: translateY(3px); }
