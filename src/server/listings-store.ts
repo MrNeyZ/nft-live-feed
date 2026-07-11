@@ -28,6 +28,7 @@ import { saleEventBus } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { getPool } from '../db/client';
 import { isSlugHot } from './subscribers';
+import { recordFirstListedAtObservation, type ListingTimeQuality } from '../analytics/mint-lifecycle';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -52,6 +53,14 @@ export interface Listing {
   rank:         number | null;
   /** Epoch ms when the listing was created on-chain. Null when unavailable. */
   listedAt:     number | null;
+  /** Provenance of `listedAt`, for mint-lifecycle's durable first-listing
+   *  record (src/analytics/mint-lifecycle.ts): 'exact' when it came from a
+   *  real list-transaction timestamp (ME `/activities?type=list` or
+   *  Tensor's `listing.txAt`), 'approximate' when it's ME's buyNow-fallback
+   *  surrogate for pool-hosted listings, null when `listedAt` itself is
+   *  null. Not surfaced on the legacy wire adapter (`toWire`) — internal to
+   *  this store and its mint-lifecycle consumer only. */
+  listedAtQuality?: ListingTimeQuality | null;
   /** NFT item name from ME's `token.name` (often just `"#4101"`). Null for
    *  sources without an upstream name field (MMM pool rows). */
   nftName:      string | null;
@@ -149,6 +158,16 @@ function add(l: Listing): void {
   if (l.source === 'MMM') {
     const poolKey = l.id.split(':')[1];
     if (poolKey) indexAdd(byPoolKey, poolKey, l.slug);
+  }
+  // Durable first-listing recording (mint-lifecycle Stage 3) — fire-and-
+  // forget, no new ME/RPC request (this is a timestamp listings-store
+  // already resolved as part of its own snapshot fetch). Only when a
+  // listedAt was actually resolved; the write itself is idempotent/
+  // monotonic (LEAST()-based upsert) so redundant calls across snapshot
+  // refreshes are harmless, just unnecessary — recordFirstListedAtObservation
+  // short-circuits those via its own in-process dedup set.
+  if (l.listedAt != null) {
+    void recordFirstListedAtObservation(l.mint, l.listedAt, l.listedAtQuality ?? 'unknown');
   }
 }
 
@@ -722,7 +741,8 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
           auctionHouse: l.auctionHouse ?? '',
           tokenAta:     l.tokenAddress,
           rank:         l.rarity?.howrare?.rank ?? l.rarity?.moonrank?.rank ?? null,
-          listedAt:     null,   // filled in after the activities map resolves
+          listedAt:        null,   // filled in after the activities map resolves
+          listedAtQuality: null,
           nftName:      l.token?.name ?? null,
           imageUrl:     l.extra?.img ?? l.token?.image ?? null,
         });
@@ -731,16 +751,18 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
       if (json.length < ME_PAGE_SIZE) break;
     }
   } catch { /* partial result still useful — return what we have */ }
-  // Join the activities timestamps after listings are collected.
+  // Join the activities timestamps after listings are collected. A real
+  // list-transaction timestamp — 'exact' quality for mint-lifecycle.
   const listedAtByMint = await listedAtByMintPromise;
   if (listedAtByMint.size > 0) {
     for (const l of out) {
       const t = listedAtByMint.get(l.mint);
-      if (t) l.listedAt = t;
+      if (t) { l.listedAt = t; l.listedAtQuality = 'exact'; }
     }
   }
   // Second-pass: for anything still unresolved (primarily MMM pool-hosted
-  // rows, `auctionHouse=''`), fall back to the last buyNow block time.
+  // rows, `auctionHouse=''`), fall back to the last buyNow block time —
+  // a surrogate, not a real list event, so 'approximate' quality.
   const stillMissing = out.some(l => !l.listedAt);
   if (stillMissing) {
     const buyNowByMint = await buyNowByMintPromise;
@@ -748,7 +770,7 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
       for (const l of out) {
         if (l.listedAt) continue;
         const t = buyNowByMint.get(l.mint);
-        if (t) l.listedAt = t;
+        if (t) { l.listedAt = t; l.listedAtQuality = 'approximate'; }
       }
     }
   }
@@ -816,8 +838,10 @@ async function fetchMmmPools(slug: string): Promise<Listing[]> {
           rank:         null,                                        // pools don't carry rarity
           // Pool `updatedAt` is pool-wide (any spot change, any NFT add/remove)
           // — not a per-mint deposit timestamp. Leave null so the UI shows "—"
-          // rather than a misleading relative time.
-          listedAt:     null,
+          // rather than a misleading relative time. No quality either —
+          // there's no per-mint timestamp here at all, exact or approximate.
+          listedAt:        null,
+          listedAtQuality: null,
           nftName:      null,   // MMM pool response doesn't carry per-mint name
           imageUrl:     null,   // likewise no per-mint image
         });
@@ -995,7 +1019,9 @@ async function fetchTensor(slug: string): Promise<Listing[]> {
         tokenAta:     '',
         rank:         typeof m.rarityRank === 'number' ? m.rarityRank : null,
         // active_listings carries listing.txAt — wire it through as listedAt.
-        listedAt:     Number.isFinite(txAtMs) ? txAtMs : null,
+        // A real list-transaction timestamp, same as ME's own — 'exact'.
+        listedAt:        Number.isFinite(txAtMs) ? txAtMs : null,
+        listedAtQuality: Number.isFinite(txAtMs) ? 'exact' : null,
         nftName:      null,   // active_listings has `name`/`imageUri`; not wired to Listing yet
         imageUrl:     null,
       });
