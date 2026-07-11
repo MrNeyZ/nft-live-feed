@@ -33,6 +33,7 @@
 import { Router, Request, Response } from 'express';
 import { ensureFresh, getByCollection } from './listings-store';
 import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
+import { getMeTokenData } from '../enrichment/me-token-cache';
 
 export interface ArbListing {
   mint:      string;
@@ -47,33 +48,14 @@ export interface ArbListing {
   multiple:  number;
 }
 
-const MINT_LOOKUP_TTL_MS = 10 * 60_000;
-const mintCollectionCache = new Map<string, { slug: string | null; fetchedAt: number }>();
-
-/** `GET /v2/tokens/:mint` is public and keyless; `.collection` is the ME
- *  slug when ME has indexed this mint under a collection. Cached (hit AND
- *  miss) so repeated lookups of the same mint across requests are free
- *  within the TTL. */
+/** `.collection` is the ME slug when ME has indexed this mint under a
+ *  collection. Delegates to the shared `getMeTokenData()` client
+ *  (`../enrichment/me-token-cache`) for the actual `GET /v2/tokens/:mint`
+ *  fetch — cache, in-flight dedup, timeout, and cooldown integration all
+ *  live there now instead of this file's own now-removed TTL map. */
 async function resolveMintToMeSlug(mint: string): Promise<string | null> {
-  const hit = mintCollectionCache.get(mint);
-  const now = Date.now();
-  if (hit && now - hit.fetchedAt < MINT_LOOKUP_TTL_MS) return hit.slug;
-
-  let slug: string | null = null;
-  try {
-    const res = await fetch(
-      `https://api-mainnet.magiceden.dev/v2/tokens/${encodeURIComponent(mint)}`,
-      { signal: AbortSignal.timeout(5_000) },
-    );
-    if (res.ok) {
-      const json = await res.json() as { collection?: string };
-      slug = typeof json.collection === 'string' && json.collection.length > 0 ? json.collection : null;
-    }
-  } catch {
-    slug = null;
-  }
-  mintCollectionCache.set(mint, { slug, fetchedAt: now });
-  return slug;
+  const data = await getMeTokenData(mint);
+  return data.slug;
 }
 
 type ResolveOutcome =

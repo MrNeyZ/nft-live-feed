@@ -8,6 +8,7 @@ import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/lis
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
 import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { getMeTokenData, MeTokenData } from './me-token-cache';
 import { getMintedAt } from '../mints/fresh-mint-cache';
 import { checkAndRecordOwnership } from './ownership-loop-cache';
 import { checkAndRecordRepeatFloorBuyer } from './repeat-floor-buyer-cache';
@@ -106,88 +107,12 @@ const MINT_SLUG_MISS_TTL_MS = 2 * 60 * 1000;  // 2 min — don't re-hit the DB f
 const mintSlugCache     = new TtlCache<string, { slug: string; collectionName: string | null }>(MINT_SLUG_TTL_MS, 5 * 60_000);
 const mintSlugMissCache = new TtlCache<string, true>(MINT_SLUG_MISS_TTL_MS, 60_000);
 
-interface MeTokenData {
-  slug:           string | null;
-  collectionName: string | null;
-  nftName:        string | null;
-  imageUrl:       string | null;
-}
-
-/**
- * Fetches the Magic Eden token record for a mint.
- * Returns slug, human-readable collectionName, nftName, and imageUrl (all may be null).
- * Uses the public ME v2 tokens API — no key required.
- * Never throws.
- */
-// Optional ME API key — keyless calls hit Cloudflare's per-IP limiter
-// (HTTP 429 / "error code: 1015"), which silently nulled the slug and thus
-// the floor-delta chip (floor lookup is slug-only). Sending a key removes
-// that limit; behaviour is unchanged (keyless) when neither var is set.
-const ME_API_KEY = process.env.ME_API_KEY ?? process.env.MAGIC_EDEN_API_KEY ?? '';
-const ME_TOKEN_HEADERS: Record<string, string> = ME_API_KEY
-  ? { Authorization: `Bearer ${ME_API_KEY}` }
-  : {};
-
-export async function getMeTokenData(mint: string): Promise<MeTokenData> {
-  const EMPTY: MeTokenData = { slug: null, collectionName: null, nftName: null, imageUrl: null };
-  // Skip immediately if the process-wide ME cooldown is active (set by any ME
-  // caller — rare feed, retardio scanner — hitting 429 on the shared IP quota).
-  if (meCooldownActive()) return EMPTY;
-  // Two attempts max: a single short-backoff retry recovers the slug after a
-  // transient rate-limit (429 / CF 1015 / 403) or timeout under feed load.
-  // Terminal client errors (404 unknown mint, 400/401) are NOT retried.
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    let status = 0;
-    let reason = 'unknown';
-    try {
-      const res = await fetch(
-        `https://api-mainnet.magiceden.dev/v2/tokens/${mint}`,
-        { headers: ME_TOKEN_HEADERS, signal: AbortSignal.timeout(4000) },
-      );
-      status = res.status;
-      if (res.ok) {
-        // ME v2 tokens shape (verified against live response):
-        //   { collection: "<slug>", collectionName: "<Human Name>", name: "<NFT Name>", image, ... }
-        const json = await res.json() as {
-          collection?:     string;
-          collectionName?: string;
-          name?:           string;
-          image?:          string;
-        };
-        return {
-          slug:           json.collection     ?? null,
-          collectionName: json.collectionName ?? null,
-          nftName:        json.name           ?? null,
-          imageUrl:       json.image          ?? null,
-        };
-      }
-      reason = `http_${status}`;
-      if (status === 429) {
-        setMeCooldown(60_000);
-        console.warn(`[enrich] ME 429 — process-wide cooldown set (60s)`);
-        return EMPTY;
-      }
-      // Terminal client errors (404 unknown mint, 400/401) are not retried.
-      const retryable = status === 403 || status === 408 || status >= 500;
-      if (!retryable) {
-        console.warn(`[enrich] ME slug resolve failed mint=${mint.slice(0, 8)} status=${status} reason=${reason} attempts=${attempt}`);
-        return EMPTY;
-      }
-    } catch (e) {
-      reason = (e instanceof Error && e.name === 'TimeoutError') ? 'timeout' : 'fetch_error';
-      // network/timeout is transient → allowed to retry
-    }
-    if (attempt === 2) {
-      // Single quiet line per mint only on FINAL failure — never on success
-      // or on the first (retried) attempt, so logs don't flood under load.
-      console.warn(`[enrich] ME slug resolve failed mint=${mint.slice(0, 8)} status=${status} reason=${reason} attempts=${attempt}`);
-      return EMPTY;
-    }
-    // Short backoff (500–1000 ms) before the single retry.
-    await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 500)));
-  }
-  return EMPTY; // unreachable (loop always returns by attempt 2) — satisfies tsc
-}
+// getMeTokenData (GET /v2/tokens/{mint}) moved to `./me-token-cache` -- it's
+// the shared, cached, in-flight-deduped client for this endpoint, also used
+// by `image-retry.ts`, `me-collection-name.ts`, `name-backfill.ts`, and
+// `tools-me-tensor-arb.ts`. Re-exported here so existing imports of
+// `getMeTokenData` / `MeTokenData` from './enrich' keep working.
+export { getMeTokenData, type MeTokenData };
 
 /**
  * Recovers a collection's ME slug from a known collection_address, used only

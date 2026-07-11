@@ -20,11 +20,10 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../db/client';
 import { searchCatalog, catalogSize, refreshCatalog } from './collection-catalog';
 import { rateLimit } from './rate-limit';
+import { getMeCollectionData } from '../enrichment/me-collection-cache';
 
 const TTL_MS           = 30_000;
-const FETCH_TIMEOUT_MS = 4_000;
 const MAX_RESULTS      = 20;
-const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 /** Slug-shape: what ME accepts as a collection symbol — alnum + `_-`. */
 const SLUG_RE = /^[a-z0-9_-]+$/;
 
@@ -73,26 +72,19 @@ async function dbSearch(q: string): Promise<SearchResult[]> {
   }));
 }
 
-interface MeCollection { symbol?: string; name?: string; image?: string }
-
 async function meExactSlug(slug: string): Promise<SearchResult | null> {
-  try {
-    const res = await fetch(
-      `${ME_API_BASE}/collections/${encodeURIComponent(slug)}`,
-      { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
-    );
-    if (!res.ok) return null;
-    const json = await res.json() as MeCollection;
-    if (!json.symbol) return null;
-    return {
-      slug:     json.symbol,
-      name:     json.name ?? json.symbol,
-      imageUrl: json.image ?? null,
-      source:   'me',
-    };
-  } catch {
-    return null;
-  }
+  // Actual GET /v2/collections/{slug} fetch, cache, in-flight dedup, timeout,
+  // and cooldown integration now live in the shared me-collection-cache.ts
+  // (also used by collection-meta.ts) — this function only narrows the
+  // shared result to the SearchResult shape.
+  const data = await getMeCollectionData(slug);
+  if (!data.slug) return null;
+  return {
+    slug:     data.slug,
+    name:     data.name ?? data.slug,
+    imageUrl: data.image,
+    source:   'me',
+  };
 }
 
 

@@ -18,6 +18,7 @@
 
 import { getPool } from '../db/client';
 import { getAsset } from '../enrichment/helius-das';
+import { getMeTokenData } from '../enrichment/me-token-cache';
 import { saleEventBus } from '../events/emitter';
 import { isMintTrackerEnabled } from '../runtime/mode';
 
@@ -63,7 +64,7 @@ async function runSweep(): Promise<void> {
   // the enricher.
   if (!isMintTrackerEnabled()) return;
   running = true;
-  let scanned = 0, resolved = 0, skippedNoAsset = 0, failed = 0;
+  let scanned = 0, resolved = 0, resolvedViaMe = 0, skippedNoAsset = 0, failed = 0;
   try {
     const { rows } = await getPool().query(SELECT_SQL, [GRACE_MINUTES, WINDOW_HOURS, BATCH_LIMIT]);
     for (const r of rows as Array<{ signature: string; mint_address: string }>) {
@@ -71,32 +72,53 @@ async function runSweep(): Promise<void> {
       const mint = r.mint_address;
       if ((attempts.get(sig) ?? 0) >= MAX_ATTEMPTS) continue;
       scanned++;
+      let name = '';
+      let imageUrl: string | null = null;
+      let dasFailed = false;
       try {
         const meta = await getAsset(mint, 'name_backfill');
-        const name = typeof meta.nftName === 'string' ? meta.nftName.trim() : '';
-        if (name.length > 0) {
-          // Emit RAW per-asset name (not cleaned) so the frontend's
-          // `hasRealNftName` guard accepts it instead of falling back to
-          // shortMint. emitMintMeta -> onMintMeta -> patchMintEventMeta
-          // persists to the DB (COALESCE) and fans out to live SSE clients.
-          saleEventBus.emitMintMeta({
-            signature:   sig,
-            mintAddress: mint,
-            nftName:     name,
-            imageUrl:    meta.imageUrl ?? null,
-          });
-          attempts.delete(sig);
-          resolved++;
-        } else {
-          // DAS still has no name (not indexed yet / nameless) — try again on a
-          // later sweep, up to MAX_ATTEMPTS.
-          bumpAttempt(sig);
-          skippedNoAsset++;
-        }
+        name = typeof meta.nftName === 'string' ? meta.nftName.trim() : '';
+        imageUrl = meta.imageUrl ?? null;
       } catch {
+        dasFailed = true;
+      }
+      let viaMe = false;
+      if (name.length === 0) {
+        // DAS remains primary — ME is only consulted here as a secondary
+        // source when DAS returned no name (empty result or a thrown
+        // error), the same "DAS first, ME backstop" pattern enrich.ts
+        // already uses for sale enrichment. Shared, cached, cooldown-aware
+        // client (me-token-cache.ts) — cheap even at this sweep's batch size.
+        const me = await getMeTokenData(mint);
+        if (me.nftName) {
+          name = me.nftName.trim();
+          imageUrl = imageUrl ?? me.imageUrl ?? null;
+          viaMe = true;
+        }
+      }
+      if (name.length > 0) {
+        // Emit RAW per-asset name (not cleaned) so the frontend's
+        // `hasRealNftName` guard accepts it instead of falling back to
+        // shortMint. emitMintMeta -> onMintMeta -> patchMintEventMeta
+        // persists to the DB (COALESCE) and fans out to live SSE clients.
+        saleEventBus.emitMintMeta({
+          signature:   sig,
+          mintAddress: mint,
+          nftName:     name,
+          imageUrl,
+        });
+        attempts.delete(sig);
+        resolved++;
+        if (viaMe) resolvedViaMe++;
+      } else if (dasFailed) {
         // Fail soft on any DAS/network error; retry on a later sweep.
         bumpAttempt(sig);
         failed++;
+      } else {
+        // DAS + ME both have no name (not indexed yet / nameless) — try
+        // again on a later sweep, up to MAX_ATTEMPTS.
+        bumpAttempt(sig);
+        skippedNoAsset++;
       }
       await new Promise<void>((res) => setTimeout(res, REQUEST_GAP_MS));
     }
@@ -109,7 +131,7 @@ async function runSweep(): Promise<void> {
   // Only log when there was work to report (no idle spam).
   if (scanned > 0) {
     console.log(
-      `[mints/backfill] scanned=${scanned} resolved=${resolved} ` +
+      `[mints/backfill] scanned=${scanned} resolved=${resolved} (via_me=${resolvedViaMe}) ` +
       `skipped_no_asset=${skippedNoAsset} failed=${failed}`,
     );
   }

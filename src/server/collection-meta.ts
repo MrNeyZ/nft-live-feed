@@ -20,19 +20,10 @@ import { Router, Request, Response } from 'express';
 import { getCatalogEntry } from './collection-catalog';
 import { getPool } from '../db/client';
 import { rateLimit, isValidSlug } from './rate-limit';
-import { meCooldownActive } from '../me-api-cooldown';
+import { getMeCollectionData } from '../enrichment/me-collection-cache';
 
-const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const HIT_TTL_MS       = 60 * 60_000;     // 1 h for real data
 const MISS_TTL_MS      = 2  * 60_000;     // 2 min for empties / 429s
-const FETCH_TIMEOUT_MS = 5_000;
-
-interface MeCollection {
-  name?:    string;
-  twitter?: string;
-  discord?: string;
-  website?: string;
-}
 
 interface Meta {
   name:    string | null;
@@ -116,23 +107,17 @@ async function fetchNameFromDb(slug: string): Promise<string | null> {
 }
 
 async function fetchMeFallback(slug: string): Promise<Meta> {
-  if (meCooldownActive()) return emptyMeta();
-  try {
-    const res = await fetch(
-      `${ME_API}/collections/${encodeURIComponent(slug)}`,
-      { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
-    );
-    if (!res.ok) return emptyMeta();
-    const json = await res.json() as MeCollection;
-    return {
-      name:    coerce(json.name),
-      twitter: coerceUrl(json.twitter),
-      discord: coerceUrl(json.discord),
-      website: coerceUrl(json.website),
-    };
-  } catch {
-    return emptyMeta();
-  }
+  // Actual GET /v2/collections/{slug} fetch, cache, in-flight dedup, timeout,
+  // and cooldown integration now live in the shared me-collection-cache.ts
+  // (also used by collection-search.ts). This function only narrows the
+  // shared result and applies the URL-safety coercion below.
+  const data = await getMeCollectionData(slug);
+  return {
+    name:    coerce(data.name),
+    twitter: coerceUrl(data.twitter),
+    discord: coerceUrl(data.discord),
+    website: coerceUrl(data.website),
+  };
 }
 
 export function createCollectionMetaRouter(): Router {
