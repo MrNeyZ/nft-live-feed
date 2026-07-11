@@ -30,6 +30,7 @@ import {
   extractNftMint,
   extractPartiesFromTokenFlow,
   extractCnftAssetId,
+  extractCnftLeafTransferParties,
 } from './price';
 
 export type ParseResult =
@@ -105,17 +106,42 @@ function parseTcompSale(
 
   // ── Seller / buyer ─────────────────────────────────────────────────────────
 
+  // cNFT has two structurally different flows and they are NOT
+  // interchangeable for party identity:
+  //   - takeBid* (bid acceptance): the seller holds the cNFT directly in
+  //     their own wallet until the moment they accept; Bubblegum's
+  //     leaf_owner at transfer time genuinely IS the seller (confirmed:
+  //     matches the tx signer and receives the sale proceeds). The bidder's
+  //     own wallet moves 0 lamports in this tx (funds were locked in an
+  //     earlier place-bid tx), so SOL-balance-delta locks onto Tensor's
+  //     bid-state PDA instead of the real bidder — see
+  //     extractCnftLeafTransferParties for the confirmed bug this fixes.
+  //   - buy (fixed-price listing): the cNFT sits in an escrow/delegate
+  //     structure from listing time, so Bubblegum's leaf_owner at transfer
+  //     time is that ESCROW, not the human seller (verified: it moves only
+  //     a small rent-sized amount, not the sale proceeds, which land on a
+  //     separate account via a plain System Transfer). The existing
+  //     SOL-delta/account-index resolution already gets this right and
+  //     must NOT be replaced by the Bubblegum-derived value here.
+  const isBidAcceptance = match.instructionName.startsWith('takeBid');
+
   let seller: string | null = null;
   let buyer:  string | null = null;
 
-  if (match.buyerAcctIdx  !== null) buyer  = accs[match.buyerAcctIdx]  ?? null;
-  if (match.sellerAcctIdx !== null) seller = accs[match.sellerAcctIdx] ?? null;
+  if (nftType === 'cnft' && isBidAcceptance) {
+    const parties = extractCnftLeafTransferParties(tx);
+    seller = parties?.seller ?? null;
+    buyer  = parties?.buyer  ?? null;
+  } else {
+    if (match.buyerAcctIdx  !== null) buyer  = accs[match.buyerAcctIdx]  ?? null;
+    if (match.sellerAcctIdx !== null) seller = accs[match.sellerAcctIdx] ?? null;
 
-  // SPL token flow fallback for non-Core/non-cNFT when indices are absent.
-  if ((!buyer || !seller) && nftType !== 'cnft' && nftType !== 'core') {
-    const flow = extractPartiesFromTokenFlow(tx, mint);
-    buyer  = buyer  ?? flow.buyer;
-    seller = seller ?? flow.seller;
+    // SPL token flow fallback for non-Core when indices are absent.
+    if ((!buyer || !seller) && nftType !== 'core') {
+      const flow = extractPartiesFromTokenFlow(tx, mint);
+      buyer  = buyer  ?? flow.buyer;
+      seller = seller ?? flow.seller;
+    }
   }
 
   // ── Price ──────────────────────────────────────────────────────────────────
@@ -126,7 +152,6 @@ function parseTcompSale(
   // direct lamport manipulation (no inner System Transfer CPIs), so the cNFT
   // inner-transfer scan finds nothing and returns null. Use SOL-delta for those:
   // the bidder's wallet carries the largest decrease and gives the correct price.
-  const isBidAcceptance = match.instructionName.startsWith('takeBid');
   const payment = (nftType === 'cnft' && !isBidAcceptance)
     ? extractCnftPaymentInfo(tx, match.ix)
     : extractPaymentInfo(tx);
@@ -135,8 +160,16 @@ function parseTcompSale(
   }
 
   // SOL-delta fallback for buyer/seller (e.g. takeBid has no buyerAcctIdx).
-  seller = seller ?? payment.seller;
-  buyer  = buyer  ?? payment.buyer;
+  // Excluded for cNFT takeBid: party identity there comes only from the
+  // Bubblegum leaf-transfer above; if that returned null we fail closed
+  // below rather than let SOL-delta substitute a PDA (bid-state /
+  // tree_authority) for a real wallet. price extraction is untouched —
+  // only party identity is gated here. cNFT `buy` (listing) still uses
+  // SOL-delta as before — unaffected by this fix.
+  if (!(nftType === 'cnft' && isBidAcceptance)) {
+    seller = seller ?? payment.seller;
+    buyer  = buyer  ?? payment.buyer;
+  }
 
   if (!seller || !buyer) {
     return { ok: false, reason: `tcomp(${match.instructionName}): could not determine seller/buyer` };

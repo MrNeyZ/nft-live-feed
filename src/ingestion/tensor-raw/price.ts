@@ -265,7 +265,23 @@ const ASSET_SEED = Buffer.from('asset');
 /** Minimum byte length for a Bubblegum `transfer` ix data: 8+32+32+32+8+4. */
 const BUBBLEGUM_TRANSFER_MIN_DATA_LEN = 116;
 
-export function extractCnftAssetId(tx: RawSolanaTx): string | null {
+interface BubblegumTransferIx {
+  /** Resolved pubkey strings for the instruction's accounts, in canonical
+   *  order: [0]=tree_authority [1]=leaf_owner [2]=leaf_delegate
+   *  [3]=new_leaf_owner [4]=merkle_tree [5]=log_wrapper
+   *  [6]=compression_program [7]=system_program, then proof accounts. */
+  accounts: string[];
+  data: Buffer;
+}
+
+/**
+ * Finds the Bubblegum `transfer` inner CPI that TComp emits when settling a
+ * compressed-NFT sale — shared by asset-id derivation (extractCnftAssetId)
+ * and party resolution (extractCnftLeafTransferParties) so both read the
+ * exact same instruction. Fails closed (null) on any decode/shape mismatch
+ * rather than guessing.
+ */
+function findBubblegumTransferIx(tx: RawSolanaTx): BubblegumTransferIx | null {
   const groups = tx.meta?.innerInstructions ?? [];
   for (const g of groups) {
     for (const ix of g.instructions) {
@@ -275,20 +291,70 @@ export function extractCnftAssetId(tx: RawSolanaTx): string | null {
       try { data = Buffer.from(bs58.decode(ix.data)); } catch { continue; }
       if (data.length < BUBBLEGUM_TRANSFER_MIN_DATA_LEN) continue;
       if (!data.subarray(0, 8).equals(BUBBLEGUM_TRANSFER_DISC)) continue;
-      const merkleIdx = ix.accounts[4];
-      if (merkleIdx === undefined) continue;
-      const merkle = resolveAccountKey(tx, merkleIdx);
-      if (!merkle) continue;
-      const nonceBuf = Buffer.alloc(8);
-      data.copy(nonceBuf, 0, 104, 112);
-      try {
-        const [pda] = PublicKey.findProgramAddressSync(
-          [ASSET_SEED, new PublicKey(merkle).toBuffer(), nonceBuf],
-          BUBBLEGUM_PROGRAM_PK,
-        );
-        return pda.toBase58();
-      } catch { /* malformed merkle key — skip */ }
+      const accounts = ix.accounts.map((idx: number) => resolveAccountKey(tx, idx));
+      if (accounts.some((a: string) => !a)) continue; // unresolved key — fail closed
+      return { accounts, data };
     }
   }
   return null;
+}
+
+export function extractCnftAssetId(tx: RawSolanaTx): string | null {
+  const found = findBubblegumTransferIx(tx);
+  if (!found) return null;
+  const merkle = found.accounts[4];
+  if (!merkle) return null;
+  const nonceBuf = Buffer.alloc(8);
+  found.data.copy(nonceBuf, 0, 104, 112);
+  try {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [ASSET_SEED, new PublicKey(merkle).toBuffer(), nonceBuf],
+      BUBBLEGUM_PROGRAM_PK,
+    );
+    return pda.toBase58();
+  } catch {
+    return null; // malformed merkle key
+  }
+}
+
+export interface CnftLeafTransferParties {
+  seller: string;
+  buyer: string;
+}
+
+/**
+ * Resolves cNFT buyer/seller from the SAME Bubblegum `transfer` inner CPI
+ * `extractCnftAssetId` reads:
+ *   accounts[1] = leaf_owner (old owner) = seller
+ *   accounts[3] = new_leaf_owner (new owner) = buyer
+ *
+ * ⚠️ SCOPE: this is authoritative ONLY for cNFT `takeBid*` (bid-acceptance)
+ * instructions, where the seller holds the cNFT directly in their own
+ * wallet until accepting — confirmed bug (2026-07-11, asset CaixMh97…): the
+ * bidder's own wallet moves 0 lamports in a takeBid fulfillment (funds were
+ * locked in an earlier place-bid transaction), so a balance-delta heuristic
+ * locks onto Tensor's TCMP-owned bid-state PDA instead and reports it as
+ * "buyer"; the tree_authority PDA (accounts[0]) is likewise not the seller,
+ * despite `sellerAcctIdx` guessing it is for some takeBid* variants.
+ *
+ * Do NOT use this for cNFT `buy` (fixed-price listing): there the cNFT
+ * sits in an escrow/delegate structure from listing time, so accounts[1]
+ * at transfer time is that ESCROW, not the human seller (verified: it
+ * moves only a small rent-sized amount; the real sale proceeds land on a
+ * different account via a separate System Transfer). The caller
+ * (parseTcompSale) gates this correctly on `isBidAcceptance` — do not widen
+ * that gate without re-verifying the listing-purchase flow on-chain first.
+ *
+ * Fails closed (null) when no valid Bubblegum transfer CPI is found or
+ * accounts[1]/[3] can't be resolved — callers must NOT fall back to
+ * account-index or balance-delta heuristics for cNFT takeBid party identity
+ * in that case; treat it the same as "seller/buyer unknown".
+ */
+export function extractCnftLeafTransferParties(tx: RawSolanaTx): CnftLeafTransferParties | null {
+  const found = findBubblegumTransferIx(tx);
+  if (!found) return null;
+  const seller = found.accounts[1];
+  const buyer  = found.accounts[3];
+  if (!seller || !buyer) return null;
+  return { seller, buyer };
 }

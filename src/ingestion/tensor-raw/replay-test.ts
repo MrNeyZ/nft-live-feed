@@ -21,7 +21,8 @@
  */
 import 'dotenv/config';
 import { parseRawTensorTransaction } from './parser';
-import { RawSolanaTx } from './types';
+import { extractCnftAssetId, extractCnftLeafTransferParties } from './price';
+import { RawSolanaTx, RawInnerInstructionGroup, RawAccountKey } from './types';
 
 const API_KEY = process.env.HELIUS_API_KEY;
 if (!API_KEY) { console.error('HELIUS_API_KEY not set'); process.exit(1); }
@@ -106,21 +107,100 @@ interface TestCase {
 
 const CASES: TestCase[] = [
   // ── TComp: bid accept (cNFT) — takeBidFullMeta ──────────────────────────────
-  // Verified 2026-06-27. Seller accepts open bid on a cNFT.
-  // Buyer (bidder at ix[15]) pays 0.887 SOL directly from their wallet.
-  // extractCnftPaymentInfo wrongly returned null (no inner System Transfer CPIs
-  // in bid settlement) → fixed by routing takeBid* through extractPaymentInfo.
+  // Verified 2026-06-27 with the SOL-delta buyer/seller path; RE-VERIFIED and
+  // CORRECTED 2026-07-11. The original expectSeller/expectBuyer below were
+  // themselves the bug this fixture family exists to catch — they were the
+  // tree_authority PDA and Tensor's bid-state PDA (largest SOL mover), not
+  // real wallets. Confirmed on-chain via the inner Bubblegum `transfer` CPI:
+  //   accounts[1] (leaf_owner)     = 8hGxFBBx...  (real seller)
+  //   accounts[3] (new_leaf_owner) = HNXzkeUz...  (real buyer)
+  // Old (wrong) values for reference: seller=4JdzLtiv96HEnpmpyN7ZdkupvZpZfSFRV6im7HUnsEXT
+  // (tree_authority, 0 SOL delta), buyer=bc13nZZqVJN1XnwzzM5FGpdgo8M1d4htruAovvT1Td2
+  // (bid-state PDA, -0.887 SOL delta — the largest decrease, not the bidder).
   {
     sig:               'Fd9Zr1Ah86L9fTSxBskWq864ZhxSrKoo42ge9HbihoZtYHCCTkmCnav8omLLT4QrLAoGEHs2uhqxwfLKdwNgVqA',
     label:             'TComp bid accept (cNFT) — takeBidFullMeta',
     expectOk:          true,
     expectMarketplace: 'tensor',
     expectNftType:     'cnft',
-    expectSeller:      '4JdzLtiv96HEnpmpyN7ZdkupvZpZfSFRV6im7HUnsEXT',
-    expectBuyer:       'bc13nZZqVJN1XnwzzM5FGpdgo8M1d4htruAovvT1Td2',
+    expectSeller:      '8hGxFBBxuAUUx4Y3VshZ9ZfApv66RKZ4iZwD5uRqX6NM',
+    expectBuyer:       'HNXzkeUzhsuBacwQm2V9HMYUxuYxNwT9RAFiSYAeSfwd',
     expectPriceGte:    0.886,
     expectPriceLte:    0.888,
     expectInstruction: 'takeBidFullMeta',
+  },
+  // ── TComp: bid accept (cNFT) — takeBidFullMeta — buyer attribution regression ──
+  // Bug reported 2026-07-11 (asset CaixMh97YuL8jwLYRNqZyDsTckdaCqGgXKgMEFj6cYDC,
+  // sold into a Tensor bid). UI/DB showed AtU1x2k6Tye7hauqEqQcFyGn6osmgVDHn2yNYVWPEdbx
+  // as buyer — confirmed on-chain to be Tensor's TCMP-owned bid-state PDA
+  // (426-byte account, -0.011 SOL delta = the largest decrease in the tx),
+  // not the real bidder. Real buyer F7BDq8Ys... has a 0 SOL delta in THIS
+  // transaction (funds were locked in an earlier place-bid tx) — the exact
+  // reason SOL-balance-delta cannot be used for cNFT party identity.
+  // Seller was also wrong (BNbqc6d85rgtBVSAoEfHkih7H4gZ7UPetHPAiW8y6xp6 —
+  // the Bubblegum tree_authority PDA, same value repeats across every sale
+  // from this tree; sellerAcctIdx=1 was pointing at the wrong account).
+  // Root-caused via the inner Bubblegum `transfer` CPI: accounts[1]=seller,
+  // accounts[3]=buyer, accounts[4]=merkle_tree (independently confirmed
+  // on-chain against getAccountInfo ownership for all four accounts).
+  {
+    sig:               '2zA1R7rpdNZ1W18oLEYyESJvXGsuahUSu8fPfWPEJXxDqgXHQqToqkoUycQLkEq3ftxMNqg4TaLUgBszrGfJZmyT',
+    label:             'TComp bid accept (cNFT) — takeBidFullMeta — buyer attribution regression',
+    expectOk:          true,
+    expectMarketplace: 'tensor',
+    expectNftType:     'cnft',
+    expectMint:        'CaixMh97YuL8jwLYRNqZyDsTckdaCqGgXKgMEFj6cYDC',
+    expectSeller:      '9EvPPjNeSnR6xSNuJvMBTscn7PQrk1h86eW8KrcuwiBt',
+    expectBuyer:       'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectPriceGte:    0.0109,
+    expectPriceLte:    0.0111,
+    expectInstruction: 'takeBidFullMeta',
+  },
+  // ── TComp: bid accept (cNFT) — same bug, different mint ─────────────────────
+  // Second fixture proving the fix generalizes across mints sharing one bid/
+  // tree, not just the one reported asset above — same real buyer/seller pair
+  // (same standing bid filled against a different cNFT from the same tree in
+  // a separate, near-simultaneous transaction), verified independently
+  // on-chain against this signature's own Bubblegum transfer CPI.
+  {
+    sig:               'YrkiUx25KXfsnfJB958Kje4gD6517oFxSNmjyitu7ArFQk9MWK6xNkpvAwd861WZ7YvjVuP1vu6P3PemZMqoMsq',
+    label:             'TComp bid accept (cNFT) — same bug, different mint',
+    expectOk:          true,
+    expectMarketplace: 'tensor',
+    expectNftType:     'cnft',
+    expectMint:        '31baL9RtKArFV4Qn7JA2csVNeXogHihLUt9XkHBP512v',
+    expectSeller:      '9EvPPjNeSnR6xSNuJvMBTscn7PQrk1h86eW8KrcuwiBt',
+    expectBuyer:       'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectPriceGte:    0.0109,
+    expectPriceLte:    0.0111,
+    expectInstruction: 'takeBidFullMeta',
+  },
+  // ── TComp: bid accept (cNFT) — takeBidMetaHash spot-check ───────────────────
+  // Spot-checked 2026-07-11 to confirm the Bubblegum transfer account
+  // mapping (accounts[1]=seller, accounts[3]=buyer) generalizes to the
+  // takeBidMetaHash variant, not just takeBidFullMeta. Confirmed on-chain:
+  // accounts[1]=4osDV9Qi... is the tx signer and receives the sale proceeds
+  // (real seller); accounts[3]=GZCBDaMz... is a real System-owned wallet
+  // with an existing balance (real buyer — receives only a small residual
+  // credit here, the closed bid-state account's rent refund flowing back to
+  // whoever funded it, consistent with the buyer having pre-funded the bid
+  // earlier). The OLD stored buyer (8vLa347c...) is the SOL-delta "largest
+  // decrease" pick — now a closed/deallocated account on-chain (getAccountInfo
+  // returns null), consistent with it being the transient bid-state PDA, not
+  // a wallet. tree_authority (accounts[0]=BNbqc6d85..., same PDA as the
+  // takeBidFullMeta fixtures above) confirmed NOT the seller.
+  {
+    sig:               '5Z2tH8WnUCE3bQ2fFehTx2YGpLm2NJzzrvWKTB9TRFn6Q5VpPxkM6GXf4K9zN3bTPUq1H4tC2uvDjTA2sueZzHff',
+    label:             'TComp bid accept (cNFT) — takeBidMetaHash',
+    expectOk:          true,
+    expectMarketplace: 'tensor',
+    expectNftType:     'cnft',
+    expectMint:        '8MPxmvR76pZCBa2pQu2FG4iRiXZs94jhMP2YnxGjAH5S',
+    expectSeller:      '4osDV9QiKS4RFj3R7uNfHtLoo4GNwryWh9edmzzy8MTJ',
+    expectBuyer:       'GZCBDaMzksdddbQQ3wgQMtNw4mpaBENUnDGK24aiouQc',
+    expectPriceGte:    0.0737,
+    expectPriceLte:    0.0740,
+    expectInstruction: 'takeBidMetaHash',
   },
   // ── TComp: listing buy (Metaplex Core) ──────────────────────────────────────
   // Verified 2026-04-14. Buyer purchases a Core NFT from a fixed-price listing.
@@ -208,6 +288,51 @@ const CASES: TestCase[] = [
   },
 ];
 
+// ─── Synthetic fail-closed checks (no RPC — malformed/missing Bubblegum
+//     transfer must never crash extractCnftAssetId / extractCnftLeafTransferParties) ──
+
+function minimalTx(accountKeys: RawAccountKey[], innerInstructions: RawInnerInstructionGroup[]): RawSolanaTx {
+  return {
+    signature: 'synthetic',
+    blockTime: 1_700_000_000,
+    slot: 1,
+    transaction: {
+      signatures: ['synthetic'],
+      message: { accountKeys, instructions: [] },
+    },
+    meta: {
+      err: null,
+      preBalances: [],
+      postBalances: [],
+      preTokenBalances: [],
+      postTokenBalances: [],
+      innerInstructions,
+    },
+  };
+}
+
+function runSyntheticChecks(): boolean {
+  console.log(`${'─'.repeat(72)}`);
+  console.log('Synthetic fail-closed checks (malformed/missing Bubblegum transfer)');
+  let ok = true;
+
+  // No inner instructions at all.
+  const txNoInner = minimalTx([], []);
+  ok = check('extractCnftAssetId(no inner ix)', extractCnftAssetId(txNoInner), null) && ok;
+  ok = check('extractCnftLeafTransferParties(no inner ix)', extractCnftLeafTransferParties(txNoInner), null) && ok;
+
+  // Bubblegum programId present but data too short to be a `transfer` ix.
+  const txShortData = minimalTx(
+    [{ pubkey: 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY', signer: false, writable: false }],
+    [{ index: 0, instructions: [{ programIdIndex: 0, accounts: [0, 0, 0, 0, 0, 0, 0, 0], data: 'ab' }] }],
+  );
+  ok = check('extractCnftAssetId(malformed data)', extractCnftAssetId(txShortData), null) && ok;
+  ok = check('extractCnftLeafTransferParties(malformed data)', extractCnftLeafTransferParties(txShortData), null) && ok;
+
+  console.log(ok ? '  ✅ all synthetic checks passed\n' : '  ✗ synthetic checks failed\n');
+  return ok;
+}
+
 // ─── Checker ──────────────────────────────────────────────────────────────────
 
 function check(name: string, actual: unknown, expected: unknown): boolean {
@@ -239,6 +364,8 @@ async function main() {
 
   let pass = 0;
   let fail = 0;
+
+  if (!runSyntheticChecks()) fail++; else pass++;
 
   for (const tc of CASES) {
     const tx = await getTx(tc.sig);
