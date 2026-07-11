@@ -17,6 +17,7 @@
     "test:tensor-cnft-price": "ts-node src/ingestion/tensor-raw/__tests__/cnft-price.test.ts",
     "test:tamm-sell-buyer": "ts-node src/ingestion/tensor-raw/__tests__/tamm-sell-buyer.test.ts",
     "test:me-cache-consolidation": "ts-node src/enrichment/me-cache-consolidation.test.ts",
+    "test:floor-depth": "ts-node src/analytics/floor-depth.test.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",
     "backfill:me-logprice": "ts-node src/scripts/backfill-me-v2-logprice.ts",
     "debug:mints:launchpads": "ts-node src/scripts/debug-mints-launchpads.ts",
