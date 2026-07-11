@@ -34,6 +34,7 @@ import { Router, Request, Response } from 'express';
 import { ensureFresh, getByCollection } from './listings-store';
 import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
 import { getMeTokenData } from '../enrichment/me-token-cache';
+import { computeCrossMarketGap } from '../analytics/cross-market';
 
 export interface ArbListing {
   mint:      string;
@@ -103,13 +104,29 @@ export function createMeTensorArbRouter(): Router {
       await ensureFresh(slug);
       const rows = getByCollection(slug);
 
-      const tensorPrices = rows.filter(r => r.source === 'TENSOR').map(r => r.priceSol);
-      if (tensorPrices.length === 0) {
+      // Floor detection now delegates to the shared cross-market analytics
+      // module (src/analytics/cross-market.ts) instead of re-computing
+      // Math.min() inline. `tensorDirectFloorSol` is provably identical to
+      // the old `tensorFloorSol` value in every real case: both are a
+      // scalar minimum over the same TENSOR-source row set, and taking a
+      // minimum is invariant to whether duplicate rows for one mint were
+      // deduped first (dedup only ever removes a NON-minimal duplicate,
+      // never the minimum itself).
+      const gap = computeCrossMarketGap(rows);
+      if (gap.tensorDirectFloorSol === null) {
         res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol: null, tensorListedCount: 0, listings: [] });
         return;
       }
-      const tensorFloorSol = Math.min(...tensorPrices);
+      const tensorFloorSol = gap.tensorDirectFloorSol;
+      const tensorListedCount = rows.filter(r => r.source === 'TENSOR').length;
 
+      // `listings` is deliberately reconstructed from the raw `rows` here,
+      // NOT from `gap.opportunities` — the shared module dedupes by mint
+      // (the more correct behavior, reused by future passive-detection /
+      // Mispriced-NFT consumers), but this endpoint's existing contract
+      // does not dedupe and must not change (a mint listed below Tensor's
+      // floor via BOTH an ME row and a separate MMM row historically shows
+      // up twice here; preserved exactly).
       const listings: ArbListing[] = rows
         .filter(r => r.source !== 'TENSOR' && r.priceSol < tensorFloorSol)
         .sort((a, b) => a.priceSol - b.priceSol)
@@ -125,7 +142,7 @@ export function createMeTensorArbRouter(): Router {
           multiple: tensorFloorSol / r.priceSol,
         }));
 
-      res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol, tensorListedCount: tensorPrices.length, listings });
+      res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol, tensorListedCount, listings });
     } catch (err) {
       console.error('[tools/me-tensor-arb] error', err);
       res.status(500).json({ error: 'internal' });

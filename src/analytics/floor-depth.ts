@@ -106,20 +106,24 @@ type BandPct = (typeof BANDS)[number];
 // is reliably included on the inclusive side of the boundary, matching the
 // documented definition: "depth within X% = valid asks priced
 // <= floorSol * (1 + X)".
-const EPSILON = 1e-9;
+// Exported so sibling analytics modules (e.g. cross-market.ts) reuse the
+// SAME validation/rounding semantics rather than re-implementing them —
+// one source of truth for "what counts as a valid ask" across the
+// analytics layer.
+export const EPSILON = 1e-9;
 
 // Sums of floating-point SOL prices accumulate representation noise over
 // many additions; round to lamport precision (1 lamport = 1e-9 SOL) so
 // output is display-stable and doesn't leak arithmetic artifacts.
-function roundSol(n: number): number {
+export function roundSol(n: number): number {
   return Math.round(n * 1e9) / 1e9;
 }
 
-function isValidPrice(n: unknown): n is number {
+export function isValidPrice(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && n > 0;
 }
 
-function isValidMint(m: unknown): m is string {
+export function isValidMint(m: unknown): m is string {
   return typeof m === 'string' && m.length > 0;
 }
 
