@@ -33,6 +33,7 @@ import { getAsset, getCollectionImage } from './helius-das';
 import { getMetaplexOnchainMetadata } from './metaplex-onchain';
 import { getMeTokenData, getTensorMetadata } from './enrich';
 import { saleEventBus } from '../events/emitter';
+import { getMintedAt } from '../mints/fresh-mint-cache';
 
 const RETRY_DELAYS_MS = [15_000, 60_000, 180_000];
 const RECENTLY_ATTEMPTED_TTL_MS = 20 * 60_000;
@@ -151,6 +152,7 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
           meCollectionSlug:  args.meCollectionSlug,
           floorDelta:        null,
           offerDelta:        null,
+          mintedAtMs:        getMintedAt(mint),
         });
         console.log(
           `[feed/image] patch sig=${sig.slice(0, 12)}… mint=${mint.slice(0, 8)}… ` +
