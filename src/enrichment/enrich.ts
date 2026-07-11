@@ -7,7 +7,7 @@ import { SLUG_BLACKLIST } from '../db/blacklist';
 import { getDerivedFloorLamports, slugForMint, nameForMint } from '../server/listings-store';
 import { getMeStats } from './me-stats';
 import { getPool } from '../db/client';
-import { meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { meCooldownActive } from '../me-api-cooldown';
 import { getMeTokenData, MeTokenData } from './me-token-cache';
 import { getMintedAt } from '../mints/fresh-mint-cache';
 import { checkAndRecordOwnership } from './ownership-loop-cache';
@@ -16,7 +16,6 @@ import { checkAndRecordRepeatFloorBuyer } from './repeat-floor-buyer-cache';
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
 const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
-const OFFER_TTL_MS   = 90 * 1000;       // 90 seconds — offers change faster than floor
 
 // 60s backoff after a complete enrichment failure (DAS + all fallbacks exhausted).
 // Prevents re-running the full fallback chain (Metaplex onchain, Tensor, ME) within
@@ -35,8 +34,6 @@ const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS, 60_000);
 /** Slugs with an in-flight background floor refresh — dedup so concurrent
  *  events don't fan out into duplicate ME/Tensor calls. */
 const floorRefreshInFlight = new Set<string>();
-/** Keyed by ME collection slug → top offer price in lamports. */
-const offerCache   = new TtlCache<string, number>(OFFER_TTL_MS, 60_000);
 
 // ── Tensor collection slug cache ─────────────────────────────────────────────
 // Keyed by ME collection slug (the filter input) → Tensor slugDisplay.
@@ -324,36 +321,6 @@ function kickFloorRefresh(slug: string): void {
       floorRefreshInFlight.delete(slug);
     }
   })().catch(() => { floorRefreshInFlight.delete(slug); });
-}
-
-/**
- * Fetches the highest active collection offer price (in lamports) for a ME collection.
- * Uses the public ME v2 collections/offers API — no key required.
- * The offers endpoint returns prices in SOL; converted to lamports for consistency.
- * Cached for OFFER_TTL_MS (90 seconds). Returns null on any failure; never throws.
- */
-export async function getCollectionTopOfferLamports(slug: string): Promise<number | null> {
-  if (offerCache.has(slug)) return offerCache.get(slug)!;
-  if (meCooldownActive()) return null;
-  try {
-    const res = await fetch(
-      `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/offers?limit=20`,
-      { signal: AbortSignal.timeout(4000) },
-    );
-    if (res.status === 429) { setMeCooldown(60_000); return null; }
-    if (!res.ok) return null;
-    const json = await res.json() as Array<{ price?: number }>;
-    if (!Array.isArray(json) || json.length === 0) return null;
-    const prices = json.map((o) => (typeof o.price === 'number' ? o.price : 0)).filter((p) => p > 0);
-    if (prices.length === 0) return null;
-    const topSol = Math.max(...prices);
-    // ME offers endpoint prices are in SOL (not lamports)
-    const topLamports = Math.round(topSol * 1e9);
-    offerCache.set(slug, topLamports);
-    return topLamports;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -652,11 +619,18 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
   }
 
   const isTensor = enriched.marketplace === 'tensor' || enriched.marketplace === 'tensor_amm';
-  const [floorDelta, offerDelta, tensorCollectionSlug] = await Promise.all([
+  const [floorDelta, tensorCollectionSlug] = await Promise.all([
     computeFloorDelta(slug, event.priceLamports),
-    computeOfferDelta(slug, event.priceLamports),
     isTensor ? resolveTensorCollectionSlug(slug, enriched.collectionAddress) : Promise.resolve(null),
   ]);
+  // offerDelta: permanently null — Stage 4.5 removed the ME collection
+  // offers call (`GET /v2/collections/{slug}/offers`), which has returned
+  // HTTP 400 for every collection with no working replacement (see the
+  // Jul 2026 discovery audit). Field kept on SaleEvent for wire/DB/frontend
+  // compatibility, but nothing computes a value for it anymore. See
+  // src/analytics/normalized-collection-bid.ts for the venues that replace
+  // it in the offer-history / future Mispriced-NFT pipeline.
+  const offerDelta: number | null = null;
 
   // repeatFloorBuyer depends on floorDelta, which is only known here (the end
   // of this async tail) — unlike the ownership-loop check, it can't run
@@ -726,20 +700,6 @@ async function computeFloorDelta(
     );
   }
   return pct;
-}
-
-/**
- * Returns absolute SOL difference: salePrice − topOffer (both in SOL).
- * Positive = sale above best offer. Negative = sale below best offer.
- */
-async function computeOfferDelta(
-  slug: string | null | undefined,
-  priceLamports: bigint,
-): Promise<number | null> {
-  if (!slug) return null;
-  const topOfferLamports = await getCollectionTopOfferLamports(slug);
-  if (topOfferLamports == null) return null;
-  return (Number(priceLamports) - topOfferLamports) / 1e9;  // absolute SOL diff
 }
 
 function applyMetadata(event: SaleEvent, metadata: NftMetadata | null): SaleEvent {

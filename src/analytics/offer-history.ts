@@ -2,83 +2,59 @@
  * Offer History / Diffing — pure snapshot model + pure transition/hysteresis
  * core + a thin I/O wrapper that reuses existing venue fetchers.
  *
- * ── Source audit (verified against live endpoints and source, not assumed) ─
+ * ── Stage 4.5 update (Jul 2026) ─────────────────────────────────────────────
  *
- * ME_COLLECTION (src/enrichment/enrich.ts's `getCollectionTopOfferLamports`,
- * `GET /v2/collections/{slug}/offers?limit=20`):
- *   - STATUS AS OF THIS AUDIT: the endpoint returns HTTP 400 body
- *     "Not Found." for every collection tested (claynosaurz, okay_bears,
- *     mad_lads — with key, without key, several URL variants), routed
- *     through ME's real API gateway (Kong request id + live rate-limit
- *     headers present, so this is a real deprecation, not a network
- *     hiccup). `offerDelta` / the feed's OFFER badge have therefore been
- *     silently returning null in production since this changed. Not fixed
- *     here — out of scope for Stage 4 — but this is why ME_COLLECTION
- *     will show `confidence:'low'` with a warning on every live snapshot
- *     until ME restores or replaces this route.
- *   - Even when live, the existing code only ever read `.price` off each
- *     returned offer and took the max — there is no trait/attribute filter.
- *     If the endpoint's payload includes trait-conditional offers (it does
- *     on ME's own site UI), a collection's "top offer" could be a
- *     trait-specific bid that a plain/common NFT could never fill. This
- *     could not be re-verified live (endpoint is down), so it's flagged as
- *     a standing risk, not a confirmed fact — hence `confidence` never
- *     exceeds 'medium' for this venue even if the endpoint recovers, unless
- *     a future stage adds trait-awareness.
- *   - No funding/expiry visible in the shape this project reads today.
+ * ME_COLLECTION is RETIRED, not merely low-confidence. `GET /v2/collections/
+ * {slug}/offers` returns HTTP 400 for every collection tested, routed through
+ * ME's real API gateway (Kong request id + live rate-limit headers present —
+ * a real deprecation, not a network hiccup), and no working replacement
+ * exists (confirmed via ME's own docs/help articles — see the Jul 2026
+ * discovery audit). `enrich.ts`'s `getCollectionTopOfferLamports` — the only
+ * caller of that dead endpoint — has been deleted; this module no longer
+ * calls it at all. `venues.meCollection` stays in the snapshot shape (wire/
+ * disk-state compatibility — every historical snapshot already has it as
+ * null, since the endpoint has been silently failing all along) but is now
+ * ALWAYS null, permanently, unless a future stage proves a real replacement.
  *
- * MMM (src/server/collection-bids.ts's `fetchMmmTopBid`,
- * `GET /v2/mmm/pools?collectionSymbol={slug}`) — confirmed live and working:
- *   - Field treated as top bid: `spotPrice` (lamports) on the pool with the
- *     highest spot among pools where `poolType` is 'buy'/'two_sided' AND
- *     `buysidePaymentAmount > 0`.
- *   - Pool ALLOWLISTS are not inspected at all — a pool's bid can be
- *     restricted to a subset of the collection (specific traits/mints) via
- *     an FVCA/allowlist this fetcher never reads. A collection-wide "top
- *     MMM bid" may not be fillable by an arbitrary NFT in that collection.
- *     (Project history note: this codebase's OWN prior allowlist-based
- *     block heuristics were later found to be overcautious/wrong for MMM
- *     pool *eligibility* scanning — but that does not make allowlists
- *     disappear; it means "restricted" is a real state this fetcher simply
- *     doesn't check, in either direction.)
- *   - `spotPrice` is a gross, fee-exclusive curve quote — same semantics
- *     floor-depth.ts already documents for MMM pool asks.
- *   - "Funded" here = ME's own indexer reporting `buysidePaymentAmount > 0`
- *     — a real fact, but not an independent RPC balance check (unlike
- *     tools-retardio-offers.ts's per-mint escrow verification, which reads
- *     the buyer's own escrow PDA balance directly via RPC). Exposed as
- *     `funded: boolean` (medium confidence), not RPC-verified.
- *
- * TENSOR (src/server/collection-bids.ts's `fetchTensorTopBid`,
- * `find_collection` stats, `stats.sellNowPrice`) — confirmed live/working
- * when TENSOR_API_KEY is set:
- *   - `sellNowPrice`, per that file's own comment, is "what you'd get
- *     *selling now* into the top collection bid" — phrasing that suggests
- *     an effective/net figure, not necessarily the same gross basis as
- *     MMM's `spotPrice`. Cross-venue amount comparisons should be read as
- *     approximate, not cent-for-cent equivalent, until independently
- *     confirmed.
- *   - Collection-wide by construction (one stats number); no per-NFT/trait
- *     executability signal exists at this endpoint.
- *   - No offer id / owner / expiry / funding exposed at this endpoint.
- *   - API key + caching are already centralized: `resolveTensorMeta()` and
- *     `tensorFetch()` (both in listings-store.ts) are the single shared
- *     slug-resolution cache and the single global ≥1 req/sec gate for
- *     every Tensor call in the project — this module reuses both via
- *     collection-bids.ts, adding no new Tensor traffic pattern.
+ * MMM and TENSOR are now sourced from `src/analytics/normalized-collection-
+ * bid.ts`'s `NormalizedCollectionBid` model instead of raw collection-bids.ts
+ * fetchers directly:
+ *   - MMM: `fetchMmmTopBid`'s old `buysidePaymentAmount > 0` check accepted
+ *     pools that could not pay their own quoted price (mad_lads 57.67 SOL
+ *     quote / 2.30 SOL escrow; okay_bears 6.00 SOL / 0.067 SOL) — fixed in
+ *     collection-bids.ts (`classifyFunding`). Additionally, pool allowlist
+ *     eligibility (collection-wide vs exact-mint-restricted) is now checked
+ *     on-chain (one cached read per candidate pool). A snapshot's `mmm`
+ *     venue may still report an underfunded/ineligible quote as market
+ *     context (`usableForValueSignal: false`) — see `buildCollectionOfferSnapshot`'s
+ *     `best`-selection gate below, which excludes such quotes from ever
+ *     winning `best` (and therefore from ever driving an Offer Jump).
+ *   - TENSOR: `sellNowPrice` confirmed GROSS (a separate `sellNowPriceNetFees`
+ *     net figure exists) — normalized-collection-bid.ts exposes both; this
+ *     module prefers net for the displayed `amountSol` when present. Tensor
+ *     remains collection-wide-by-construction with no per-NFT/trait signal,
+ *     so `eligibility` is always 'unknown' and it can never set
+ *     `usableForValueSignal`. Per the hardening spec, Tensor MAY still win
+ *     `best` (market-context corroboration) — only MMM is gated on
+ *     usability, since MMM's absurd-bid failure mode is the one this stage
+ *     fixes.
  *
  * ── Hard rule shared with floor-depth.ts / cross-market.ts ─────────────────
- * None of these three venues prove a SPECIFIC NFT can fill the reported
- * amount — every value here is collection-level corroboration, never
- * per-NFT proof. See the doc comment on `observeCollectionOffers` and the
- * Mispriced-NFT compatibility notes at the bottom of this file.
+ * None of these venues prove a SPECIFIC NFT can fill the reported amount —
+ * every value here is collection-level corroboration, never per-NFT proof.
+ * See the doc comment on `observeCollectionOffers` and the Mispriced-NFT
+ * compatibility notes at the bottom of this file.
  */
 
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
-import { fetchMmmTopBid, fetchTensorTopBid } from '../server/collection-bids';
-import { getCollectionTopOfferLamports } from '../enrichment/enrich';
+import {
+  getNormalizedMmmBid,
+  getNormalizedTensorBid,
+  type BidEligibility,
+  type BidFunding,
+} from './normalized-collection-bid';
 
 // ─── Normalized snapshot model ───────────────────────────────────────────────
 
@@ -94,7 +70,18 @@ export interface VenueOfferSnapshot {
   poolAddress?: string | null;
   owner?:       string | null;
   expiresAtMs?: number | null;
+  /** @deprecated true iff `funding === 'verified'` — kept for back-compat,
+   *  prefer `funding`/`eligibility`/`usableForValueSignal`. */
   funded?:      boolean | null;
+
+  /** Stage 4.5 normalized-bid fields — optional so existing pure-builder
+   *  tests that never set them keep passing unchanged (undefined is treated
+   *  as "not asserted", never as "usable"). */
+  eligibility?:           BidEligibility;
+  funding?:               BidFunding;
+  usableForValueSignal?:  boolean;
+  grossAmountSol?:        number | null;
+  netAmountSol?:          number | null;
 
   confidence: Confidence;
   warnings:   string[];
@@ -127,7 +114,10 @@ export function buildVenueSnapshot(
   venue: OfferVenue,
   amountSol: number | null | undefined,
   observedAtMs: number,
-  extra: Partial<Pick<VenueOfferSnapshot, 'offerId' | 'poolAddress' | 'owner' | 'expiresAtMs' | 'funded'>> = {},
+  extra: Partial<Pick<VenueOfferSnapshot,
+    'offerId' | 'poolAddress' | 'owner' | 'expiresAtMs' | 'funded'
+    | 'eligibility' | 'funding' | 'usableForValueSignal' | 'grossAmountSol' | 'netAmountSol'
+  >> = {},
   confidence: Confidence = 'medium',
   warnings: string[] = [],
 ): VenueOfferSnapshot | null {
@@ -154,6 +144,15 @@ export function buildCollectionOfferSnapshot(
   let best: { venue: OfferVenue; amountSol: number } | null = null;
   for (const v of [meCollection, mmm, tensor]) {
     if (!v || !isValidAmount(v.amountSol)) continue;
+    // Stage 4.5: an MMM quote explicitly marked NOT usable (underfunded,
+    // exact-mint-restricted, or unparseable allowlist) can never win `best`
+    // — that's exactly the mad_lads/okay_bears absurd-bid failure mode this
+    // stage fixes. Strict `=== false` (not `!== true`) so callers/tests that
+    // never set `usableForValueSignal` (e.g. raw buildVenueSnapshot calls in
+    // offer-history.test.ts) keep their pre-Stage-4.5 behavior unchanged.
+    // Tensor is deliberately NOT gated the same way — it may still win as
+    // market-context corroboration (see module doc).
+    if (v.venue === 'MMM' && v.usableForValueSignal === false) continue;
     if (!best || v.amountSol > best.amountSol) best = { venue: v.venue, amountSol: v.amountSol };
   }
   return {
@@ -532,37 +531,51 @@ export async function observeCollectionOffers(
 ): Promise<ObserveOfferResult> {
   const observedAtMs = Date.now();
 
-  const [meRaw, mmmRaw, tensorRaw] = await Promise.all([
-    getCollectionTopOfferLamports(slug).catch(() => null),
-    fetchMmmTopBid(slug).catch(() => null),
-    fetchTensorTopBid(slug).catch(() => null),
+  const [mmmBid, tensorBid] = await Promise.all([
+    getNormalizedMmmBid(slug).catch(() => null),
+    getNormalizedTensorBid(slug).catch(() => null),
   ]);
 
-  const meCollection = buildVenueSnapshot(
-    'ME_COLLECTION',
-    meRaw != null ? meRaw / 1e9 : null,
-    observedAtMs,
-    {},
-    'medium', // capped at medium even when live — trait-conditionality unverifiable, see module doc
-    meRaw == null ? ['ME collection offers endpoint returned no data (as of this audit, this endpoint returns HTTP 400 for every collection tested — see module doc)'] : [],
-  );
+  // ME_COLLECTION is permanently retired — see module doc. Never fetched;
+  // always null. Kept as an explicit venue slot (not removed from the
+  // shape) purely for wire/disk-state compatibility with historical
+  // snapshots, which already have this as null in every case on record.
+  const meCollection: VenueOfferSnapshot | null = null;
 
   const mmm = buildVenueSnapshot(
     'MMM',
-    mmmRaw?.amountLamports != null ? mmmRaw.amountLamports / 1e9 : null,
+    mmmBid?.grossAmountSol ?? null,
     observedAtMs,
-    { poolAddress: mmmRaw?.poolAddress ?? null, owner: mmmRaw?.owner ?? null, funded: mmmRaw?.funded ?? null },
-    'medium', // pool allowlist eligibility not verified — see module doc
-    mmmRaw ? [] : [],
+    {
+      poolAddress: mmmBid?.poolAddress ?? null,
+      owner:       mmmBid?.owner ?? null,
+      funded:      mmmBid ? mmmBid.funding === 'verified' : null,
+      eligibility: mmmBid?.eligibility,
+      funding:     mmmBid?.funding,
+      usableForValueSignal: mmmBid?.usableForValueSignal,
+      grossAmountSol: mmmBid?.grossAmountSol ?? null,
+      netAmountSol:   mmmBid?.netAmountSol ?? null,
+    },
+    mmmBid?.usableForValueSignal ? 'medium' : 'low', // never 'high' — see module doc
+    mmmBid?.warnings ?? [],
   );
 
+  // Tensor's displayed amountSol prefers the net-of-fees figure when present
+  // (closer to what a seller would actually receive) — falls back to gross.
+  const tensorAmountSol = tensorBid?.netAmountSol ?? tensorBid?.grossAmountSol ?? null;
   const tensor = buildVenueSnapshot(
     'TENSOR',
-    tensorRaw != null ? tensorRaw / 1e9 : null,
+    tensorAmountSol,
     observedAtMs,
-    {},
-    'medium', // sellNowPrice basis (gross vs net) not independently confirmed — see module doc
-    [],
+    {
+      eligibility: tensorBid?.eligibility,
+      funding:     tensorBid?.funding,
+      usableForValueSignal: tensorBid?.usableForValueSignal,
+      grossAmountSol: tensorBid?.grossAmountSol ?? null,
+      netAmountSol:   tensorBid?.netAmountSol ?? null,
+    },
+    'medium',
+    tensorBid?.warnings ?? [],
   );
 
   const snapshot = buildCollectionOfferSnapshot(collectionKey, observedAtMs, meCollection, mmm, tensor);
@@ -578,15 +591,15 @@ export async function observeCollectionOffers(
 //
 // - Collection-level `best` (any venue) is CORROBORATION ONLY for a
 //   Mispriced NFT signal — never proof a specific listed NFT could fill it.
-// - MMM and ME_COLLECTION amounts may be trait/allowlist-restricted in ways
-//   this module cannot see; Tensor's collection-wide stat carries the same
-//   caveat structurally (a single aggregate number, no per-NFT check).
-// - Funding: MMM's `funded` flag is ME's self-reported balance, not RPC-
-//   verified — plausible corroboration, not proof. A future stage that
-//   independently RPC-verifies a specific offer/pool balance (the
-//   tools-retardio-offers.ts pattern, applied per-mint) may justifiably
-//   assign HIGHER confidence than anything this module produces on its own.
+// - Stage 4.5 hard gate: a future scorer must check `usableForValueSignal`
+//   on the MMM venue snapshot (or re-derive it from `eligibility`/`funding`)
+//   before treating an MMM quote as anything more than context — only
+//   `eligibility: 'collection_wide'` AND `funding: 'verified'` may
+//   contribute to VALUE. Tensor's `usableForValueSignal` is always false —
+//   it may corroborate, never independently trigger VALUE (no per-NFT/trait
+//   executability signal exists at its endpoint). ME_COLLECTION no longer
+//   exists as a venue in practice (permanently retired, see module doc).
 // - Do not treat `confidence: 'high'` as availability today — every venue
-//   snapshot here is capped at 'medium' until a future stage adds
-//   trait/allowlist/RPC verification; this module's job is honest
-//   collection-level history, not per-NFT certainty.
+//   snapshot here is capped at 'medium' (or 'low' for a non-usable MMM
+//   quote); this module's job is honest collection-level history, not
+//   per-NFT certainty.

@@ -12,12 +12,11 @@ import 'dotenv/config';
 import { observeCollectionOffers, type CollectionOfferSnapshot } from '../analytics/offer-history';
 
 const COLLECTIONS: Array<{ slug: string; label: string }> = [
-  { slug: 'claynosaurz',       label: 'Blue chip, expected stable offers' },
-  { slug: 'mad_lads',          label: 'Active collection, frequent bid movement expected' },
-  { slug: 'wobots',            label: 'Low-floor collection' },
-  { slug: 'trippin_ape_tribe', label: 'Collection with a real MMM top bid' },
-  { slug: 'okay_bears',        label: 'Collection where Tensor may be best' },
-  { slug: 'pegui',             label: 'Thin collection — may have no offers at all' },
+  { slug: 'mad_lads',          label: 'Stage 4.5 fixture: MMM top pool underfunded (57.67/2.30 SOL) — must NOT be usable' },
+  { slug: 'okay_bears',        label: 'Stage 4.5 fixture: MMM top pool underfunded (6.00/0.067 SOL) — must NOT be usable' },
+  { slug: 'trippin_ape_tribe', label: 'Stage 4.5 fixture: MMM top pool genuinely funded (0.207/4.31 SOL) — should be usable' },
+  { slug: 'wobots',            label: 'Low-floor collection, genuinely funded MMM pool' },
+  { slug: 'claynosaurz',       label: 'No MMM buy-side liquidity at all — clean null case' },
 ];
 
 function fmt(n: number | null | undefined): string {
@@ -25,9 +24,12 @@ function fmt(n: number | null | undefined): string {
 }
 
 function printSnapshot(s: CollectionOfferSnapshot) {
-  console.log(`  ME_COLLECTION: amount=${fmt(s.venues.meCollection?.amountSol)} conf=${s.venues.meCollection?.confidence ?? '—'} warnings=${s.venues.meCollection?.warnings.length ?? 0}`);
-  console.log(`  MMM:           amount=${fmt(s.venues.mmm?.amountSol)} funded=${s.venues.mmm?.funded ?? '—'} pool=${s.venues.mmm?.poolAddress?.slice(0, 8) ?? '—'} conf=${s.venues.mmm?.confidence ?? '—'}`);
-  console.log(`  TENSOR:        amount=${fmt(s.venues.tensor?.amountSol)} conf=${s.venues.tensor?.confidence ?? '—'}`);
+  console.log(`  ME_COLLECTION: retired (permanently null — see module doc)`);
+  const m = s.venues.mmm;
+  console.log(`  MMM:           gross=${fmt(m?.grossAmountSol)} eligibility=${m?.eligibility ?? '—'} funding=${m?.funding ?? '—'} usableForValueSignal=${m?.usableForValueSignal ?? '—'} pool=${m?.poolAddress?.slice(0, 8) ?? '—'} conf=${m?.confidence ?? '—'}`);
+  if (m?.warnings.length) for (const w of m.warnings) console.log(`      ! ${w}`);
+  const t = s.venues.tensor;
+  console.log(`  TENSOR:        gross=${fmt(t?.grossAmountSol)} net=${fmt(t?.netAmountSol)} eligibility=${t?.eligibility ?? '—'} funding=${t?.funding ?? '—'} usableForValueSignal=${t?.usableForValueSignal ?? '—'} conf=${t?.confidence ?? '—'}`);
   console.log(`  BEST:          ${s.best ? `${s.best.venue} @ ${fmt(s.best.amountSol)} SOL` : '— (no offers on any venue)'}`);
 }
 

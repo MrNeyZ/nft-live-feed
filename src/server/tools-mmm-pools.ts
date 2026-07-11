@@ -32,12 +32,12 @@ import fs, { promises as fsp }                       from 'fs';
 import path                                          from 'path';
 import { rateLimit }                                 from './rate-limit';
 import { requireAuth }                               from './runtime';
-import { meCooldownActive, setMeCooldown }           from '../me-api-cooldown';
+import { meCooldownActive, setMeCooldown, meAuthHeaders } from '../me-api-cooldown';
 import { fetchAsset }                                from '../enrichment/helius-das';
 
 const MMM_PROGRAM_ID = new PublicKey('mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc');
 const ESCROW_SEED    = Buffer.from('mmm_buyside_sol_escrow_account');
-const POOL_SIZE      = 849;
+export const POOL_SIZE = 849;
 const RPC_TIMEOUT_MS = 90_000;
 const CHUNK_SIZE     = 100;
 // Dust threshold shared by triage-stream, pool-stream, and collection-scan — pools
@@ -60,14 +60,14 @@ const MMM_FEE_CONSTANT   = new PublicKey('4nGoPfgRW2nkAp6ELx8bYRxLVRrNB3Si8drp4P
 const SOL_FULFILL_BUY_DISC = Buffer.from('5c10e24f1ff23576', 'hex');
 const SELL_STATE_SEED      = Buffer.from('mmm_sell_state');
 
-const ALLOWLIST_TYPE: Record<number, string> = {
+export const ALLOWLIST_TYPE: Record<number, string> = {
   0: 'empty', 1: 'FVCA', 2: 'mint', 3: 'MCC',
   4: 'metadata', 5: 'group', 6: 'core_collection', 255: 'any',
 };
 
 const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-function rpcUrl(): string {
+export function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
     ? `https://mainnet.helius-rpc.com/?api-key=${key}`
@@ -91,7 +91,7 @@ async function rpcPostOnce(method: string, params: unknown[], timeoutMs: number)
   return j.result;
 }
 
-async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<unknown> {
+export async function rpcPost(method: string, params: unknown[], timeoutMs = RPC_TIMEOUT_MS): Promise<unknown> {
   if (!RETRYABLE_RPC_METHODS.has(method)) {
     return rpcPostOnce(method, params, timeoutMs);
   }
@@ -114,9 +114,9 @@ function deriveEscrowPda(poolKey: string): string {
   return pda.toBase58();
 }
 
-interface Allowlist { type: string; pubkey: string; }
+export interface Allowlist { type: string; pubkey: string; }
 
-interface MmmPool {
+export interface MmmPool {
   poolKey:        string;
   escrowPda:      string;
   owner:          string;
@@ -140,7 +140,7 @@ interface MmmPool {
   isMIP1:         boolean;
 }
 
-function parsePool(pubkey: string, dataB64: string): MmmPool | null {
+export function parsePool(pubkey: string, dataB64: string): MmmPool | null {
   const raw = Buffer.from(dataB64, 'base64');
   if (raw.length !== POOL_SIZE) return null;
 
@@ -264,7 +264,7 @@ async function fetchMeCollectionInfo(owner: string): Promise<Map<string, MePoolR
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await fetch(url, {
-        headers: { 'User-Agent': 'VictoryLabs/1.0' },
+        headers: { 'User-Agent': 'VictoryLabs/1.0', ...meAuthHeaders() },
         signal:  AbortSignal.timeout(15_000),
       });
       if (r.status === 429) { setMeCooldown(60_000); return out; }
@@ -613,11 +613,10 @@ async function fetchBidAcceptTx(
       + `&assetAmount=1`
       + `&minPaymentAmount=0`;
 
-    const meApiKey = process.env.ME_API_KEY;
     const r = await fetch(url, {
       headers: {
         'User-Agent': 'VictoryLabs/1.0',
-        ...(meApiKey ? { Authorization: `Bearer ${meApiKey}` } : {}),
+        ...meAuthHeaders(),
       },
       signal:  AbortSignal.timeout(15_000),
     });
@@ -1009,10 +1008,13 @@ function tagNewPools(allScanned: FlatPool[], toReturn: FlatPool[]): Array<FlatPo
   return tagged;
 }
 
-// ME API fetch helper for bulk name/slug resolution (no auth needed for public endpoints).
+// ME API fetch helper for bulk name/slug resolution. These are public
+// endpoints (no auth required to succeed), but attaching the shared key
+// avoids Cloudflare's tighter per-IP limit on keyless calls — same
+// rationale as meAuthHeaders()'s own doc comment.
 async function meFetchBulk(url: string) {
   return fetch(url, {
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...meAuthHeaders() },
     signal: AbortSignal.timeout(8_000),
   });
 }
@@ -1706,7 +1708,7 @@ export function createMmmPoolsRouter(): Router {
       try {
         const now = Math.floor(Date.now() / 1000);
         const meUrl = `https://api-mainnet.magiceden.io/v2/mmm/pools?collectionSymbol=${encodeURIComponent(symbol)}&filterOnSide=1&limit=100`;
-        const meResp = await fetch(meUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8_000) });
+        const meResp = await fetch(meUrl, { headers: { Accept: 'application/json', ...meAuthHeaders() }, signal: AbortSignal.timeout(8_000) });
         if (!meResp.ok) return res.status(502).json({ ok: false, error: 'me_api_error', message: `ME ${meResp.status}` });
         const meData = await meResp.json() as { results?: Array<{ poolKey?: string }> };
         const poolKeys = (meData.results ?? []).map(p => p.poolKey).filter((k): k is string => !!k);
@@ -1884,7 +1886,7 @@ export function createMmmPoolsRouter(): Router {
         if (attempt > 0) await new Promise(r => setTimeout(r, 600 * attempt));
         const meRes = await fetch(
           `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/listings?offset=0&limit=5`,
-          { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8_000) },
+          { headers: { Accept: 'application/json', ...meAuthHeaders() }, signal: AbortSignal.timeout(8_000) },
         );
         if (meRes.status === 404) return res.status(404).json({ ok: false, error: 'collection_not_found' });
         if (!meRes.ok) {

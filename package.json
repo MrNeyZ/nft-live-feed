@@ -21,6 +21,7 @@
     "test:cross-market": "ts-node src/analytics/cross-market.test.ts",
     "test:mint-lifecycle": "ts-node src/analytics/mint-lifecycle.test.ts",
     "test:offer-history": "ts-node src/analytics/offer-history.test.ts",
+    "test:normalized-collection-bid": "ts-node src/analytics/normalized-collection-bid.test.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",
     "backfill:me-logprice": "ts-node src/scripts/backfill-me-v2-logprice.ts",
     "debug:mints:launchpads": "ts-node src/scripts/debug-mints-launchpads.ts",

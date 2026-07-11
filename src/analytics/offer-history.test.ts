@@ -317,5 +317,70 @@ function snap(collectionKey: string, observedAtMs: number, bestAmountSol: number
   check('orderIndependence: best is MMM (highest amount) regardless of param position', s1.best?.venue === 'MMM');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// STAGE 4.5 — normalized best-bid integration (usableForValueSignal gate)
+// ════════════════════════════════════════════════════════════════════════
+
+// 21. An underfunded/ineligible MMM quote (usableForValueSignal explicitly
+// false) can never win `best`, even though its raw amount is far higher
+// than every other venue — this is exactly the mad_lads/okay_bears failure
+// mode Stage 4.5 fixes (57.67 SOL phantom MMM "bid" vs a real 8 SOL Tensor
+// quote must select Tensor, not the phantom MMM number).
+{
+  const mmmPhantom = buildVenueSnapshot('MMM', 57.67, 1000, { usableForValueSignal: false, funding: 'insufficient', eligibility: 'collection_wide' });
+  const tensorReal  = buildVenueSnapshot('TENSOR', 8, 1000, { usableForValueSignal: false, funding: 'reported', eligibility: 'unknown' });
+  const s = buildCollectionOfferSnapshot('phantom1', 1000, null, mmmPhantom, tensorReal);
+  check('phantomMmm: best is TENSOR, not the higher phantom MMM amount', s.best?.venue === 'TENSOR' && s.best?.amountSol === 8);
+}
+
+// 22. A genuinely funded + collection-wide MMM quote CAN win best, including
+// over a lower Tensor number.
+{
+  const mmmFunded = buildVenueSnapshot('MMM', 5, 1000, { usableForValueSignal: true, funding: 'verified', eligibility: 'collection_wide' });
+  const tensorLow  = buildVenueSnapshot('TENSOR', 3, 1000, { usableForValueSignal: false, funding: 'reported', eligibility: 'unknown' });
+  const s = buildCollectionOfferSnapshot('funded1', 1000, null, mmmFunded, tensorLow);
+  check('fundedMmm: best is MMM when usable and higher', s.best?.venue === 'MMM' && s.best?.amountSol === 5);
+}
+
+// 23. Tensor-only snapshot (no MMM liquidity at all) remains valid market
+// context and can still be `best` — Tensor is never gated the way MMM is.
+{
+  const tensorOnly = buildVenueSnapshot('TENSOR', 2.5, 1000, { usableForValueSignal: false, funding: 'reported', eligibility: 'unknown' });
+  const s = buildCollectionOfferSnapshot('tensorOnly', 1000, null, null, tensorOnly);
+  check('tensorOnly: best is TENSOR', s.best?.venue === 'TENSOR' && s.best?.amountSol === 2.5);
+}
+
+// 24. Removal of a phantom (never-usable) MMM quote must not emit a false
+// offer jump / offer_removed transition, because it never contributed to
+// `best` in the first place — `best` doesn't change at all across the
+// "removal".
+{
+  const mmmPhantom = buildVenueSnapshot('MMM', 57.67, 1000, { usableForValueSignal: false, funding: 'insufficient', eligibility: 'collection_wide' });
+  const tensorReal  = buildVenueSnapshot('TENSOR', 8, 1000, { usableForValueSignal: false, funding: 'reported', eligibility: 'unknown' });
+  const before = buildCollectionOfferSnapshot('phantomGone', 1000, null, mmmPhantom, tensorReal);
+
+  const tensorReal2 = buildVenueSnapshot('TENSOR', 8, 2000, { usableForValueSignal: false, funding: 'reported', eligibility: 'unknown' });
+  const after  = buildCollectionOfferSnapshot('phantomGone', 2000, null, null, tensorReal2); // MMM pool vanished entirely
+
+  const t = computeOfferTransition(before, after);
+  check('phantomRemoval: best unchanged (8 SOL both times)', before.best?.amountSol === 8 && after.best?.amountSol === 8);
+  check('phantomRemoval: transition is NOT offer_removed', t.kind !== 'offer_removed');
+  check('phantomRemoval: transition is unchanged', t.kind === 'unchanged');
+}
+
+// 25. Restart/disk-state round trip still works with the new optional
+// venue-snapshot fields present (eligibility/funding/usableForValueSignal
+// survive a JSON serialize/parse cycle same as any other field).
+{
+  const mmmFunded = buildVenueSnapshot('MMM', 5, 1000, { usableForValueSignal: true, funding: 'verified', eligibility: 'collection_wide', poolAddress: 'Pool123' });
+  const snap25 = buildCollectionOfferSnapshot('restart25', 1000, null, mmmFunded, null);
+  const state: OfferHistoryState = { lastStableSnapshot: snap25, pendingCandidate: null, armed: true, lastConfirmedJumpAtMs: null, preJumpBaselineSol: null };
+  const roundTripped = JSON.parse(JSON.stringify(state)) as OfferHistoryState;
+  check('restart: usableForValueSignal survives round trip', roundTripped.lastStableSnapshot?.venues.mmm?.usableForValueSignal === true);
+  check('restart: eligibility survives round trip', roundTripped.lastStableSnapshot?.venues.mmm?.eligibility === 'collection_wide');
+  const r = stepOfferHistory(state, buildCollectionOfferSnapshot('restart25', 2000, null, mmmFunded, null));
+  check('restart: warm state step does not read as first_offer', r.transition.kind !== 'first_offer');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

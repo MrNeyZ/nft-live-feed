@@ -5,10 +5,15 @@
  * Sources:
  *   floor        = ME v2 `/collections/{slug}/stats`         (public)
  *   meBid        = ME v2 `/mmm/pools?collectionSymbol={slug}` top `spotPrice`
- *                  over pools with buy-side SOL and a poolType that can buy.
- *                  This is the top MMM (ME AMM) pool bid — a stable public
- *                  proxy for "best bid on ME". Individual escrowed offers are
- *                  not exposed on the public v2 API.
+ *                  over pools with a poolType that can buy AND whose escrow
+ *                  (`buysidePaymentAmount`) actually covers that spotPrice
+ *                  (Stage 4.5 fix — see classifyFunding doc; previously any
+ *                  pool with SOL > 0 qualified, which surfaced unfillable
+ *                  quotes like mad_lads' 57.67 SOL / okay_bears' 6 SOL bids).
+ *                  This is the top EXECUTABLE MMM (ME AMM) pool bid — a
+ *                  stable public proxy for "best fillable bid on ME".
+ *                  Individual escrowed offers are not exposed on the public
+ *                  v2 API.
  *   tnsrBid      = Tensor `api.mainnet.tensordev.io` top collection bid when
  *                  `TENSOR_API_KEY` is set. Null otherwise (no public Tensor
  *                  bid endpoint exists without a key).
@@ -22,6 +27,7 @@ import { Router, Request, Response } from 'express';
 import { getMeStats } from '../enrichment/me-stats';
 import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
 import { resolveTensorMeta, tensorFetch } from './listings-store';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 const BID_TTL_MS = 60_000;
 // Lowered 80 → 20 per H2: per-request fan-out budget is now bounded
@@ -54,18 +60,52 @@ interface MmmPool {
 }
 interface MmmPoolsResponse { results?: MmmPool[] }
 
+/**
+ * Stage 4.5 fix: a pool is only genuinely fillable at its own quoted price
+ * when its escrowed `buysidePaymentAmount` (bpa) covers that price, not
+ * merely when bpa > 0. Confirmed live (Jul 2026 audit): mad_lads' top-quoted
+ * pool showed spotPrice 57.67 SOL against bpa 2.30 SOL, okay_bears 6.00 SOL
+ * against 0.067 SOL — both pass the old `> 0` check and both are actually
+ * unfillable at the quoted price.
+ *   - bpa >= spotPrice           → 'verified'      (can pay its own quote)
+ *   - 0 <= bpa < spotPrice        → 'insufficient'  (real data, real shortfall)
+ *   - bpa/spotPrice missing/NaN  → 'unknown'        (no usable data either way)
+ */
+export type MmmFundingState = 'verified' | 'insufficient' | 'unknown';
+
+/** Exported for direct regression testing (collection-bids.test.ts) and for
+ *  normalized-collection-bid.ts, should it ever need to reclassify a raw
+ *  bpa/spot pair outside the candidate-fetch path. */
+export function classifyFunding(bpa: unknown, spot: unknown): MmmFundingState {
+  const bpaNum  = typeof bpa  === 'number' && Number.isFinite(bpa)  ? bpa  : null;
+  const spotNum = typeof spot === 'number' && Number.isFinite(spot) && spot > 0 ? spot : null;
+  if (bpaNum == null || spotNum == null) return 'unknown';
+  return bpaNum >= spotNum ? 'verified' : 'insufficient';
+}
+
+/** One MMM buy/two_sided pool candidate, funding-classified. Exported for
+ *  src/analytics/normalized-collection-bid.ts, which additionally needs the
+ *  on-chain allowlist (eligibility) — a check this REST-only shape can't
+ *  answer, hence the separate cached RPC lookup there instead of here. */
+export interface MmmBidCandidate {
+  spotPriceLamports:            number;
+  buysidePaymentAmountLamports: number;
+  poolAddress:                  string;
+  owner:                        string | null;
+  funding:                      MmmFundingState;
+}
+
 /** Richer result for offer-history.ts (src/analytics/offer-history.ts) —
  *  `getBidsForSlug` below only ever reads `.amountLamports` off this, so the
  *  dashboard /bids route's existing response shape is untouched. `funded`
- *  mirrors the SAME `buysidePaymentAmount > 0` check `fetchMmmTopBid`
- *  already made to decide eligibility — just no longer discarded after the
- *  fact. This is ME's own self-reported on-chain balance (from their
- *  indexer), not an independent RPC verification. */
+ *  is now `true` iff `funding === 'verified'` (see classifyFunding) — a
+ *  real, escrow-covers-quote fact, not merely "some SOL is on hand". */
 export interface MmmTopBidResult {
   amountLamports: number;
   poolAddress:    string | null;
   owner:          string | null;
   funded:         boolean;
+  funding:        MmmFundingState;
 }
 
 async function fetchMeStats(slug: string): Promise<MeStatsOut> {
@@ -78,52 +118,118 @@ async function fetchMeStats(slug: string): Promise<MeStatsOut> {
   };
 }
 
-/**
- * Top MMM (ME AMM) pool bid for a collection. Exported (not just used
- * internally) so src/analytics/offer-history.ts can reuse this single
- * fetcher/cache-free call site instead of re-implementing the same request —
- * see that module's own audit notes on pool-allowlist eligibility (NOT
- * checked here — this only confirms poolType + a non-zero buy-side balance,
- * never that a SPECIFIC NFT is eligible for this pool) and on `spotPrice`
- * being a gross, fee-exclusive curve quote (same semantics as
- * floor-depth.ts's MMM handling).
- */
-export async function fetchMmmTopBid(slug: string): Promise<MmmTopBidResult | null> {
+// Candidate list is fetched at most once per slug per TTL window — both
+// fetchMmmTopBid (below) and the Stage 4.5 normalized-bid module need it,
+// and without this cache each observation would double the REST calls.
+const CANDIDATES_TTL_MS = 60_000;
+const candidatesCache = new Map<string, { value: MmmBidCandidate[]; fetchedAt: number }>();
+
+async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> {
+  const hit = candidatesCache.get(slug);
+  const now = Date.now();
+  if (hit && now - hit.fetchedAt < CANDIDATES_TTL_MS) return hit.value;
+
+  let out: MmmBidCandidate[] = [];
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}&limit=50`,
-      { signal: AbortSignal.timeout(5_000) },
+      { headers: meAuthHeaders(), signal: AbortSignal.timeout(5_000) },
     );
-    if (!res.ok) return null;
-    const json = await res.json() as MmmPoolsResponse;
-    const pools = json.results ?? [];
-    let best: MmmPool | null = null;
-    for (const p of pools) {
-      // A pool can take our NFT only if its poolType includes 'buy' and it has
-      // SOL on hand. spotPrice is the current quoted bid in lamports.
-      const canBuy = (p.poolType === 'buy' || p.poolType === 'two_sided')
-        && (p.buysidePaymentAmount ?? 0) > 0;
-      if (!canBuy) continue;
-      if ((p.spotPrice ?? 0) > (best?.spotPrice ?? 0)) best = p;
+    if (res.ok) {
+      const json = await res.json() as MmmPoolsResponse;
+      const pools = json.results ?? [];
+      for (const p of pools) {
+        // A pool can only ever take our NFT if its poolType includes 'buy'
+        // and it quotes a positive spotPrice. Funding is classified, never
+        // filtered out here — an insufficient/unknown pool is still a real
+        // candidate for market-context purposes (see classifyFunding doc).
+        if (p.poolType !== 'buy' && p.poolType !== 'two_sided') continue;
+        if (!p.poolKey || !(typeof p.spotPrice === 'number' && p.spotPrice > 0)) continue;
+        out.push({
+          spotPriceLamports:            p.spotPrice,
+          buysidePaymentAmountLamports: p.buysidePaymentAmount ?? 0,
+          poolAddress:                  p.poolKey,
+          owner:                        p.poolOwner ?? null,
+          funding:                      classifyFunding(p.buysidePaymentAmount, p.spotPrice),
+        });
+      }
     }
-    if (!best || !best.spotPrice || best.spotPrice <= 0) return null;
-    return {
-      amountLamports: best.spotPrice,
-      poolAddress:    best.poolKey   ?? null,
-      owner:          best.poolOwner ?? null,
-      funded:         (best.buysidePaymentAmount ?? 0) > 0,
-    };
-  } catch {
-    return null;
-  }
+  } catch { /* fail soft — empty candidate list */ }
+
+  candidatesCache.set(slug, { value: out, fetchedAt: now });
+  return out;
+}
+
+export interface MmmBidSnapshot {
+  /** Top pool among VERIFIED-funded candidates only — the only one safe to
+   *  call "executable". Null when no pool can actually pay its own quote. */
+  best:       MmmBidCandidate | null;
+  /** Top pool by spotPrice regardless of funding state — for market-context
+   *  display only. May equal `best`, may be underfunded, may be the only
+   *  candidate that exists. Never treat as executable on its own. */
+  topOverall: MmmBidCandidate | null;
+}
+
+/** Exported for src/analytics/normalized-collection-bid.ts — the single
+ *  shared candidate fetch + classification, so the normalized model and
+ *  fetchMmmTopBid's back-compat contract stay consistent with each other. */
+export async function fetchMmmBidSnapshot(slug: string): Promise<MmmBidSnapshot> {
+  const candidates = await fetchMmmPoolCandidates(slug);
+  if (!candidates.length) return { best: null, topOverall: null };
+  const sorted = [...candidates].sort((a, b) => b.spotPriceLamports - a.spotPriceLamports);
+  const topOverall = sorted[0];
+  const best = sorted.find(c => c.funding === 'verified') ?? null;
+  return { best, topOverall };
+}
+
+/**
+ * Top EXECUTABLE MMM (ME AMM) pool bid for a collection — Stage 4.5: only
+ * ever returns a pool whose escrow can actually cover its own quoted price
+ * (`funding === 'verified'`). Underfunded pools (the mad_lads/okay_bears
+ * bug — see classifyFunding doc) never surface here; use
+ * `fetchMmmBidSnapshot`'s `topOverall` for market-context display of an
+ * underfunded quote. Pool ALLOWLIST eligibility (collection-wide vs
+ * exact-mint-restricted) is still NOT checked here — see
+ * src/analytics/normalized-collection-bid.ts for that on-chain check.
+ * `spotPrice` is a gross, fee-exclusive curve quote (same semantics as
+ * floor-depth.ts's MMM handling).
+ */
+export async function fetchMmmTopBid(slug: string): Promise<MmmTopBidResult | null> {
+  const { best } = await fetchMmmBidSnapshot(slug);
+  if (!best) return null;
+  return {
+    amountLamports: best.spotPriceLamports,
+    poolAddress:    best.poolAddress,
+    owner:          best.owner,
+    funded:         true,
+    funding:        'verified',
+  };
 }
 
 interface TensorCollStats {
-  stats?: { priceUnit?: string; buyNowPrice?: string; sellNowPrice?: string };
+  stats?: {
+    priceUnit?:          string;
+    buyNowPrice?:        string;
+    sellNowPrice?:       string;
+    /** Net-of-fees counterpart to sellNowPrice — confirmed live (Jul 2026
+     *  audit): mad_lads returned sellNowPrice 8.0010 SOL (gross) alongside
+     *  sellNowPriceNetFees 7.5049 SOL (net), a ~6.2% gap matching
+     *  sellRoyaltyFeeBPS + Tensor's own cut. `sellNowPrice` is GROSS. */
+    sellNowPriceNetFees?: string;
+  };
 }
 
-/** Exported for offer-history.ts reuse — see fetchMmmTopBid's own doc note. */
-export async function fetchTensorTopBid(slug: string): Promise<number | null> {
+export interface TensorTopBidDetail {
+  grossLamports: number;
+  netLamports:   number | null;
+}
+
+/** Exported for src/analytics/normalized-collection-bid.ts — exposes BOTH
+ *  the gross quote and (when present) the net-of-fees figure, so callers can
+ *  choose the correct basis instead of assuming `sellNowPrice` is net (the
+ *  old comment on fetchTensorTopBid implied "what you'd get", which reads as
+ *  net but is actually gross — see TensorCollStats doc). */
+export async function fetchTensorTopBidDetailed(slug: string): Promise<TensorTopBidDetail | null> {
   if (!process.env.TENSOR_API_KEY) return null;
   try {
     // Reuse the listings-store resolver + alias cache so our ME slug maps to
@@ -138,14 +244,23 @@ export async function fetchTensorTopBid(slug: string): Promise<number | null> {
     );
     if (!res.ok) return null;
     const json = await res.json() as TensorCollStats;
-    // sellNowPrice (lamports) = what you'd get *selling now* into the top
-    // collection bid — i.e. the top Tensor bid.
-    const sell = json?.stats?.sellNowPrice;
-    const n = sell ? Number(sell) : NaN;
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const grossRaw = json?.stats?.sellNowPrice;
+    const gross = grossRaw ? Number(grossRaw) : NaN;
+    if (!Number.isFinite(gross) || gross <= 0) return null;
+    const netRaw = json?.stats?.sellNowPriceNetFees;
+    const net = netRaw ? Number(netRaw) : NaN;
+    return { grossLamports: gross, netLamports: Number.isFinite(net) && net > 0 ? net : null };
   } catch {
     return null;
   }
+}
+
+/** Back-compat: gross lamports only. Exported for offer-history.ts reuse —
+ *  see fetchMmmTopBid's own doc note. Prefer fetchTensorTopBidDetailed for
+ *  any new caller that needs the net-of-fees figure. */
+export async function fetchTensorTopBid(slug: string): Promise<number | null> {
+  const detail = await fetchTensorTopBidDetailed(slug);
+  return detail?.grossLamports ?? null;
 }
 
 async function getBidsForSlug(slug: string): Promise<CachedBids> {
