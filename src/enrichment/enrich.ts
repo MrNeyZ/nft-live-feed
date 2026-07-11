@@ -332,7 +332,7 @@ function kickFloorRefresh(slug: string): void {
  * The offers endpoint returns prices in SOL; converted to lamports for consistency.
  * Cached for OFFER_TTL_MS (90 seconds). Returns null on any failure; never throws.
  */
-async function getCollectionTopOfferLamports(slug: string): Promise<number | null> {
+export async function getCollectionTopOfferLamports(slug: string): Promise<number | null> {
   if (offerCache.has(slug)) return offerCache.get(slug)!;
   if (meCooldownActive()) return null;
   try {

@@ -49,8 +49,24 @@ interface MmmPool {
   spotPrice?: number;
   poolType?: string;           // 'buy' | 'two_sided' | 'sell'
   buysidePaymentAmount?: number;
+  poolKey?: string;
+  poolOwner?: string;
 }
 interface MmmPoolsResponse { results?: MmmPool[] }
+
+/** Richer result for offer-history.ts (src/analytics/offer-history.ts) —
+ *  `getBidsForSlug` below only ever reads `.amountLamports` off this, so the
+ *  dashboard /bids route's existing response shape is untouched. `funded`
+ *  mirrors the SAME `buysidePaymentAmount > 0` check `fetchMmmTopBid`
+ *  already made to decide eligibility — just no longer discarded after the
+ *  fact. This is ME's own self-reported on-chain balance (from their
+ *  indexer), not an independent RPC verification. */
+export interface MmmTopBidResult {
+  amountLamports: number;
+  poolAddress:    string | null;
+  owner:          string | null;
+  funded:         boolean;
+}
 
 async function fetchMeStats(slug: string): Promise<MeStatsOut> {
   const json = await getMeStats(slug);
@@ -62,7 +78,17 @@ async function fetchMeStats(slug: string): Promise<MeStatsOut> {
   };
 }
 
-async function fetchMmmTopBid(slug: string): Promise<number | null> {
+/**
+ * Top MMM (ME AMM) pool bid for a collection. Exported (not just used
+ * internally) so src/analytics/offer-history.ts can reuse this single
+ * fetcher/cache-free call site instead of re-implementing the same request —
+ * see that module's own audit notes on pool-allowlist eligibility (NOT
+ * checked here — this only confirms poolType + a non-zero buy-side balance,
+ * never that a SPECIFIC NFT is eligible for this pool) and on `spotPrice`
+ * being a gross, fee-exclusive curve quote (same semantics as
+ * floor-depth.ts's MMM handling).
+ */
+export async function fetchMmmTopBid(slug: string): Promise<MmmTopBidResult | null> {
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}&limit=50`,
@@ -71,16 +97,22 @@ async function fetchMmmTopBid(slug: string): Promise<number | null> {
     if (!res.ok) return null;
     const json = await res.json() as MmmPoolsResponse;
     const pools = json.results ?? [];
-    let best = 0;
+    let best: MmmPool | null = null;
     for (const p of pools) {
       // A pool can take our NFT only if its poolType includes 'buy' and it has
       // SOL on hand. spotPrice is the current quoted bid in lamports.
       const canBuy = (p.poolType === 'buy' || p.poolType === 'two_sided')
         && (p.buysidePaymentAmount ?? 0) > 0;
       if (!canBuy) continue;
-      if ((p.spotPrice ?? 0) > best) best = p.spotPrice!;
+      if ((p.spotPrice ?? 0) > (best?.spotPrice ?? 0)) best = p;
     }
-    return best > 0 ? best : null;
+    if (!best || !best.spotPrice || best.spotPrice <= 0) return null;
+    return {
+      amountLamports: best.spotPrice,
+      poolAddress:    best.poolKey   ?? null,
+      owner:          best.poolOwner ?? null,
+      funded:         (best.buysidePaymentAmount ?? 0) > 0,
+    };
   } catch {
     return null;
   }
@@ -90,7 +122,8 @@ interface TensorCollStats {
   stats?: { priceUnit?: string; buyNowPrice?: string; sellNowPrice?: string };
 }
 
-async function fetchTensorTopBid(slug: string): Promise<number | null> {
+/** Exported for offer-history.ts reuse — see fetchMmmTopBid's own doc note. */
+export async function fetchTensorTopBid(slug: string): Promise<number | null> {
   if (!process.env.TENSOR_API_KEY) return null;
   try {
     // Reuse the listings-store resolver + alias cache so our ME slug maps to
@@ -120,7 +153,7 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
   const now = Date.now();
   if (hit && now - hit.fetchedAt < BID_TTL_MS) return hit;
 
-  const [stats, meBidLamports, tnsrBidLamports] = await Promise.all([
+  const [stats, mmmBid, tnsrBidLamports] = await Promise.all([
     fetchMeStats(slug),
     fetchMmmTopBid(slug),
     fetchTensorTopBid(slug),
@@ -129,7 +162,10 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
     floorLamports:    stats.floorLamports,
     listedCount:      stats.listedCount,
     volumeAllLamports: stats.volumeAllLamports,
-    meBidLamports,
+    // Route response is unchanged — still a bare lamports number (or null).
+    // `mmmBid`'s richer poolAddress/owner/funded fields are for
+    // offer-history.ts, not this dashboard endpoint.
+    meBidLamports:    mmmBid?.amountLamports ?? null,
     tnsrBidLamports,
     fetchedAt: now,
   };
