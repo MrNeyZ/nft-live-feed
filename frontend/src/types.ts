@@ -61,6 +61,13 @@ export interface FeedEvent {
    *  window, or a cNFT sale from a marketplace parser that doesn't resolve
    *  the real per-asset ID (see src/mints/fresh-mint-cache.ts). */
   mintedAtMs?: number | null;
+  /** AMM classification for the MMM pool involved in this sale (SSE-only —
+   *  never persisted, never present on REST/`fromRow` rows). The AMM badge
+   *  renders ONLY when this is exactly 'two_sided'; 'buy', 'sell', and
+   *  undefined/null (unresolved, not an MMM sale, or a historical read)
+   *  all render the plain BUY/SELL. May arrive after the initial `sale`
+   *  frame via a `pool_type` SSE patch — see mmm-pool-type-resolver.ts. */
+  poolType?: 'buy' | 'sell' | 'two_sided' | null;
 }
 
 /** Shape returned by GET /api/events/latest */
@@ -133,7 +140,13 @@ export function fromRow(row: RestRow): FeedEvent {
     meCollectionSlug:     row.me_collection_slug,
     tensorCollectionSlug: row.tensor_collection_slug ?? null,
     sellerRemainingCount: row.seller_remaining_count ?? null,
-    floorDelta: row.floor_delta ?? null,
+    // Postgres `numeric` columns come back from `pg` as strings (precision-safe),
+    // not JS numbers — unlike the live SSE path where floorDelta is a plain
+    // number straight out of the enrichment computation. FloorChip gates on
+    // `Number.isFinite(delta)`, which is always false for a string, so an
+    // un-coerced value here silently hid the badge on every REST-snapshot
+    // load (page refresh / reconnect refill) even when floor_delta was set.
+    floorDelta: row.floor_delta != null ? Number(row.floor_delta) : null,
     rarityRank:       row.rarity_rank ?? null,
     totalSupply:      row.total_supply ?? null,
     rarityPercentile: row.rarity_percentile ?? null,

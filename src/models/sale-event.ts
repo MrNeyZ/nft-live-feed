@@ -117,6 +117,26 @@ export interface SaleEvent {
    * check didn't run or the ring doesn't yet qualify.
    */
   repeatFloorBuyer?: RepeatFloorBuyerSignal;
+  /**
+   * MMM pool state PDA (the account ME's own API keys by `poolKey`) —
+   * captured directly from the confirmed instruction-accounts index for
+   * MMM fulfill variants (see `src/ingestion/me-raw/programs.ts`'s
+   * `poolAcctIdx`). NOT persisted — sale_events carries no column for it.
+   * Null for non-MMM sales and for any MMM instruction variant whose pool
+   * account position hasn't been independently verified against a live
+   * transaction (fail closed rather than guess).
+   */
+  poolAddress?: string | null;
+  /**
+   * Resolved AMM classification for `poolAddress`, normalized from Magic
+   * Eden's raw `poolType` (`buy_sided`/`sell_sided`/`two_sided`/`invalid`).
+   * NOT persisted — resolved out-of-band by `mmm-pool-type-resolver` and
+   * only ever meaningful for the live SSE frame + its `pool_type` patch.
+   * The AMM badge renders ONLY when this is exactly `'two_sided'`; `'buy'`,
+   * `'sell'`, and `null` (unresolved/unknown/failed lookup) all render the
+   * plain BUY/SELL — see `sale-kind.ts`'s `saleKind()`.
+   */
+  poolType?: 'buy' | 'sell' | 'two_sided' | null;
 }
 
 /**

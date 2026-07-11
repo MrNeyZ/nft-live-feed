@@ -18,6 +18,7 @@ import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
 import { startResizeStatusResolver } from './mints/resize-status-resolver';
+import { startMmmPoolTypeResolver } from './ingestion/mmm-pool-type-resolver';
 import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
 import { startListener } from './ingestion/listener';
@@ -166,6 +167,11 @@ async function main() {
   // 'metaplex_resized_unclaimed' so the Live Feed can render the RESIZE
   // badge after the fact.
   void startResizeStatusResolver();
+  // MMM pool-type resolver: AMM badge classification for live/recent MMM
+  // sales only (bid_sell/pool_buy/pool_sale). No DB migration, no
+  // historical backfill — see mmm-pool-type-resolver.ts header for the
+  // full fail-closed design.
+  startMmmPoolTypeResolver();
   // TRADING-status sweep (Commit 1 — log-only). Periodic (3 min) check of
   // recently-active collections for genuine early secondary-market activity.
   // No accumulator write, no SSE, no UI in this commit — see

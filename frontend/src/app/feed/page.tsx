@@ -653,6 +653,18 @@ export default function FeedPage() {
           }
         } catch { /* malformed frame — skip */ }
       });
+      // AMM pool-type patch — backend mmm-pool-type-resolver emits this on a
+      // successful exact poolKey match. Lights up the ∿ AMM glyph on an
+      // already-rendered card without a reload (see FeedCard / saleKind).
+      es.addEventListener('pool_type', (e: MessageEvent) => {
+        try {
+          const patch = JSON.parse(e.data) as { signature: string; poolAddress: string;
+            poolType: 'buy' | 'sell' | 'two_sided' };
+          if (patch.signature && patch.poolType) {
+            enqueue({ type: 'pool_type', patch });
+          }
+        } catch { /* malformed frame — skip */ }
+      });
       // Late-resolved rarity (sync-miss → async DB resolve). Lights up the
       // rarity badge + Rare Feed without a reload. Reducer sticky-merges by
       // mintAddress and ignores non-finite/non-positive payloads.

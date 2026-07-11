@@ -58,6 +58,10 @@ export interface MetaPatch {
    *  to the existing FeedEvent so the FloorChip can render. */
   floorDelta?:      number | null;
   offerDelta?:      number | null;
+  /** FRESH-badge timestamp — usually already correct on the first `sale`
+   *  frame (backend's fresh-mint cache is a synchronous lookup), repeated
+   *  here so a card painted before the cache had the entry still converges. */
+  mintedAtMs?:      number | null;
 }
 
 export interface RawPatch {
@@ -115,6 +119,16 @@ export interface RarityPatch {
   oneOfOne?:    boolean;
 }
 
+/** AMM pool-type patch — backend `mmm-pool-type-resolver`. Matches by
+ *  originating sale signature, same contract as `ResizeStatusPatch`. Only
+ *  ever emitted with a valid resolved type ('buy'/'sell'/'two_sided') —
+ *  the backend never patches a failed/unresolved lookup. */
+export interface PoolTypePatch {
+  signature:   string;
+  poolAddress: string;
+  poolType:    'buy' | 'sell' | 'two_sided';
+}
+
 export type FeedAction =
   | { type: 'snapshot';      events: FeedEvent[] }
   | { type: 'live';          event:  FeedEvent }
@@ -123,6 +137,7 @@ export type FeedAction =
   | { type: 'seller_count';  patch:  SellerCountPatch }
   | { type: 'resize_status'; patch:  ResizeStatusPatch }
   | { type: 'rarity';        patch:  RarityPatch }
+  | { type: 'pool_type';     patch:  PoolTypePatch }
   | { type: 'remove';        signature: string }
   | { type: 'reset' };
 
@@ -208,6 +223,7 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           // when a later patch arrives without one.
           floorDelta:       patch.floorDelta      ?? ev.floorDelta,
           offerDelta:       patch.offerDelta      ?? ev.offerDelta,
+          mintedAtMs:       patch.mintedAtMs      ?? ev.mintedAtMs,
         };
       };
       // Blacklist boundary on the LATE path: a sale frame often lands with a
@@ -304,6 +320,18 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
         state,
         ev => ev.signature === patch.signature,
         ev => ev.resizeStatus === patch.resizeStatus ? ev : { ...ev, resizeStatus: patch.resizeStatus },
+      );
+    }
+    case 'pool_type': {
+      // Match by originating sale signature — same shape as resize_status.
+      // Lets a card that rendered plain BUY/SELL (poolType unresolved at
+      // emit time) light up the ∿ AMM glyph once the async lookup lands,
+      // WITHOUT a reload. Sticky merge to avoid needless rerender churn.
+      const { patch } = action;
+      return patchWhere(
+        state,
+        ev => ev.signature === patch.signature,
+        ev => ev.poolType === patch.poolType ? ev : { ...ev, poolType: patch.poolType },
       );
     }
     case 'rarity': {

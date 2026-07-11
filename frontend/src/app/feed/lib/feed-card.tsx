@@ -141,9 +141,9 @@ function FreshBadge({ mintedAtMs }: { mintedAtMs: number | null | undefined }) {
         border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
         padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
         fontFamily: "'SF Mono','Fira Code',monospace",
-        textTransform: 'uppercase', flexShrink: 0,
+        flexShrink: 0,
       }}
-    >NEW {formatFreshAge(ageMs)}</span>
+    >{formatFreshAge(ageMs)}</span>
   );
 }
 
@@ -593,7 +593,7 @@ export const FeedCard = memo(function FeedCard({
   // re-mount on a future route return sees the id and stays static.
   const isCached = useState(() => seenFeedEventIds.has(event.id))[0];
   useEffect(() => { rememberSeenEventId(event.id); }, [event.id]);
-  const kind  = saleKind(event.saleTypeRaw, event.isPoolMarketplace);
+  const kind  = saleKind(event.saleTypeRaw, event.isPoolMarketplace, event.poolType);
   const sellerCount = event.sellerRemainingCount;
   const style = KIND_STYLES[kind];
   // Pill appearance: Rare Feed passes an explicit `pillOverride` (a

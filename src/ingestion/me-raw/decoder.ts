@@ -117,6 +117,14 @@ export interface MmmMatch {
    * null for legacy / pNFT — derive mint from SPL token-balance changes.
    */
   coreAssetIdx: number | null;
+  /**
+   * Instruction-accounts index of the MMM pool state PDA (the account
+   * ME's own API keys by `poolKey`) — see `MmmIxDef.poolAcctIdx` in
+   * programs.ts for the verification method. null = not independently
+   * verified for this variant; parser leaves `poolAddress` null (fails
+   * closed rather than guessing).
+   */
+  poolAcctIdx: number | null;
   ix: RawInstruction;
   /** Resolved account pubkeys for this instruction (in order). */
   accounts: string[];
@@ -136,6 +144,7 @@ export function findMmmSaleIx(tx: RawSolanaTx): MmmMatch | null {
           sellerAcctIdx: def.sellerAcctIdx,
           buyerAcctIdx:  def.buyerAcctIdx,
           coreAssetIdx:  def.coreAssetIdx,
+          poolAcctIdx:   def.poolAcctIdx,
           ix,
           accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };

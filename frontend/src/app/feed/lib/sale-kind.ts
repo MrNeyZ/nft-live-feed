@@ -66,22 +66,35 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   unknown: { label: '—',    fg: VLText.muted, bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
+/** AMM classification for the pool a sale routed through, normalized
+ *  backend-side from Magic Eden's raw poolType — see SaleEvent.poolType. */
+export type PoolType = 'buy' | 'sell' | 'two_sided';
+
 /**
  * `isPoolMarketplace` mirrors the same disambiguation `price-mode.ts`'s
  * `displayPrice()` already applies: a pool's `takeBid` (MMM `SolFulfillBuy` /
  * Tensor AMM take-bid) is emitted as `sale_type: 'bid_sell'` — same as a real
  * ME/Tensor collection-bid acceptance from another wallet — but on a pool
- * marketplace (`magic_eden_amm` / `tensor_amm`) it IS an AMM pool sale, not a
- * plain peer-to-peer sell. Without this check it silently renders as a
- * generic SELL with no ∿ AMM marker, indistinguishable from a normal
- * instant sale — that's the bug this parameter fixes.
+ * marketplace (`magic_eden_amm` / `tensor_amm`) it may be an AMM pool sale
+ * rather than a plain peer-to-peer sell.
+ *
+ * Global AMM-badge rule (2026-07-11): the ∿ AMM glyph renders ONLY when
+ * `isPoolMarketplace && poolType === 'two_sided'`. `poolType` is resolved
+ * out-of-band (async, live/recent sales only — see
+ * `src/ingestion/mmm-pool-type-resolver.ts`); `'buy'`, `'sell'`, and
+ * `undefined`/`null` (unresolved, lookup failed, or a historical/REST row
+ * that never carried it) all fall back to the plain BUY/SELL. This applies
+ * uniformly to `bid_sell` (ambiguous — needs both checks), `pool_buy`, and
+ * `pool_sale` (already always pool-marketplace by construction, but gated
+ * the same way for one consistent rule rather than three special cases).
  */
-export function saleKind(saleTypeRaw: string | null, isPoolMarketplace = false): SaleKind {
+export function saleKind(saleTypeRaw: string | null, isPoolMarketplace = false, poolType?: PoolType | null): SaleKind {
+  const showAmm = isPoolMarketplace && poolType === 'two_sided';
   switch (saleTypeRaw) {
     case SALE_TYPE_BUY:      return 'buy';
-    case SALE_TYPE_SELL:     return isPoolMarketplace ? 'sellAmm' : 'sell';
-    case SALE_TYPE_BUY_AMM:  return 'buyAmm';
-    case SALE_TYPE_SELL_AMM: return 'sellAmm';
+    case SALE_TYPE_SELL:     return showAmm ? 'sellAmm' : 'sell';
+    case SALE_TYPE_BUY_AMM:  return showAmm ? 'buyAmm'  : 'buy';
+    case SALE_TYPE_SELL_AMM: return showAmm ? 'sellAmm' : 'sell';
     // Lucky Buy is still a buy from the seller's perspective; the
     // 🍀 marker rendered next to the NFT name communicates the
     // raffle origin separately.

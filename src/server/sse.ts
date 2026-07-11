@@ -533,6 +533,10 @@ saleEventBus.onMetaUpdate(     (update) => enqueue(`event: meta\ndata: ${JSON.st
 saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onResizeStatusPatch((patch) => enqueue(`event: resize_status\ndata: ${JSON.stringify(patch)}\n\n`));
+// AMM pool-type patch — mmm-pool-type-resolver emits this on a successful
+// exact poolKey match. Frontend renders the AMM glyph ONLY when the
+// patched value is 'two_sided' (see sale-kind.ts).
+saleEventBus.onPoolTypePatch(  (patch)  => enqueue(`event: pool_type\ndata: ${JSON.stringify(patch)}\n\n`));
 // Late-resolved rarity (sync-miss → async DB resolve). Forwarded to live
 // clients so the Sales rarity badge + Rare Feed appear without a reload. The
 // producer only fires this with a finite rank + supply>0 (never null/negative).

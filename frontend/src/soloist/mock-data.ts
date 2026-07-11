@@ -85,6 +85,13 @@ export interface FeedEvent {
    *  render consumers must keep this to a plain, non-committal signal. */
   offerDelta?: number | null;
   marketplace: Marketplace;
+  /** True for AMM/MMM pool marketplaces (backend `magic_eden_amm` /
+   *  `tensor_amm`) before they collapse into the coarse `marketplace`
+   *  enum above. `displayPrice()` uses this to treat a pool's `takeBid`
+   *  (saleTypeRaw 'bid_sell') like `pool_sale` — seller-net matters more
+   *  than the pool's nominal bid there — while leaving a direct ME/Tensor
+   *  collection-bid acceptance pinned to gross. */
+  isPoolMarketplace: boolean;
   ts: number;
   /** Wall-clock time (ms) the event arrived on the LIVE SSE path in
    *  this tab. Undefined for snapshot / persisted / replay rows so they
@@ -128,6 +135,12 @@ export interface FeedEvent {
    *  parser that stores the merkle tree instead of the real per-asset ID
    *  in mint_address (ME/MMM cnftFulfillBuy — Tensor cNFT sales do join). */
   mintedAtMs?: number | null;
+  /** AMM classification for the MMM pool this sale routed through — SSE-only,
+   *  never persisted. The AMM badge (saleKind's buyAmm/sellAmm) renders
+   *  ONLY when this is exactly 'two_sided'. 'buy'/'sell'/null/undefined all
+   *  render the plain BUY/SELL — see saleKind() in feed/lib/sale-kind.ts.
+   *  May arrive after the initial event via a `pool_type` SSE patch. */
+  poolType?: 'buy' | 'sell' | 'two_sided' | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [
@@ -255,6 +268,7 @@ export function generateTrade(col?: Collection): FeedEvent {
     grossPrice: price * 1.02,
     floorDelta: rndFloat(-0.25, 0.3),
     marketplace,
+    isPoolMarketplace: false,
     ts: Date.now() - rndFloat(0, 8000),
     side: Math.random() < 0.75 ? 'buy' : 'sell',
     nftType: 'legacy',

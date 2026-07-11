@@ -395,6 +395,12 @@ function parseMmmSale(
     return { ok: false, reason: `mmm(${match.instructionName}): could not determine parties` };
   }
 
+  // ── Pool state PDA (AMM badge classification) ─────────────────────────────
+  // Only extracted for instruction variants with an independently-verified
+  // poolAcctIdx (see programs.ts) — every other variant leaves this null,
+  // failing closed (no AMM badge) rather than guessing an account index.
+  const poolAddress = match.poolAcctIdx !== null ? (accs[match.poolAcctIdx] ?? null) : null;
+
   // ── Individual bid detection (non-Core fulfillBuy only) ───────────────────
   //
   // ME AMM (mmm program) handles two distinct cases under the same fulfillBuy
@@ -526,6 +532,7 @@ function parseMmmSale(
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
     currency:          'SOL',
+    poolAddress,
     rawData:           {
       _parser:      'mmm_raw',
       _instruction: match.instructionName,

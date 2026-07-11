@@ -12,6 +12,8 @@ import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ing
 import { slugForMint, nameForMint } from '../server/listings-store';
 import { getSseClientCount } from '../server/sse';
 import { enqueueResizeLookup, getCachedResizeStatus } from '../mints/resize-status-resolver';
+import { enqueuePoolTypeLookup, getCachedPoolType } from '../ingestion/mmm-pool-type-resolver';
+import { getMintedAt } from '../mints/fresh-mint-cache';
 
 /** Sentinel: an event whose price is below the cNFT floor — used by both
  *  insert and patchSaleEventRaw to gate emission and remove already-emitted
@@ -216,7 +218,13 @@ const UPDATE_META_SQL = `
   UPDATE sale_events
   SET nft_name = $2, image_url = $3, collection_name = $4, collection_address = $5,
       mint_address = $6, me_collection_slug = $7, floor_delta = $8,
-      tensor_collection_slug = $9
+      tensor_collection_slug = $9,
+      -- Freezes the FRESH MINT badge fact at enrichment time (± a few
+      -- seconds of the sale), same permanence contract as floor_delta above.
+      -- Stored in raw_data (no migration) under a reserved '_mintedAtMs' key
+      -- so a later re-read never re-evaluates "is it still <4h old" against
+      -- the CURRENT time — see fresh-mint-cache.ts / events-router.ts.
+      raw_data = raw_data || jsonb_build_object('_mintedAtMs', $10::bigint)
   WHERE signature = $1
 `;
 
@@ -403,6 +411,10 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // resolved this mint. Misses still go out as undefined and are
   // patched later via the `resize_status` SSE event.
   const cachedResize = event.mintAddress ? getCachedResizeStatus(event.mintAddress) : null;
+  // AMM badge classification — fresh cache hit only (stale/missing stays
+  // null and is patched later via the `pool_type` SSE event, same
+  // sync-hit/async-patch shape as resize-status above).
+  const cachedPoolType = event.poolAddress ? getCachedPoolType(event.poolAddress) : null;
 
   // Emits the first `sale` frame. The immediate/timeout paths pass the cached
   // name/slug (often null); the deferred enrich-win path passes the resolved
@@ -421,6 +433,11 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
       magicEdenUrl,
       meCollectionSlug: frameSlug,
       resizeStatus: cachedResize ?? undefined,
+      poolType: cachedPoolType ?? undefined,
+      // FRESH-badge timestamp — a plain in-memory Map lookup (no I/O), so
+      // it's correct on the very first frame rather than waiting for the
+      // async enrich() patch below. See fresh-mint-cache.ts.
+      mintedAtMs: getMintedAt(event.mintAddress),
     });
     trace(event.signature, 'sse:emitted', `blockAge=${blockAgeSec}s`);
   };
@@ -468,6 +485,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         enriched.meCollectionSlug,            // persisted so REST snapshot rows can render collection-page links
         enriched.floorDelta ?? null,          // persisted so FloorChip badge survives page reloads
         enriched.tensorCollectionSlug ?? null,
+        getMintedAt(enriched.mintAddress),    // frozen FRESH MINT fact — see UPDATE_META_SQL comment
       ]);
       checkPricingAlerts(enriched);
       logFrameDebugOnMeta({
@@ -489,6 +507,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         tensorCollectionSlug:  enriched.tensorCollectionSlug  ?? null,
         floorDelta:            enriched.floorDelta             ?? null,
         offerDelta:            enriched.offerDelta             ?? null,
+        mintedAtMs:            enriched.mintedAtMs             ?? null,
       });
       // Late image-resolution path. enrich can leave imageUrl null when DAS
       // hasn't indexed a freshly-minted asset; retries at 15/60/180 s patch
@@ -521,6 +540,18 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   if ((event.nftType === 'legacy' || event.nftType === 'pnft')
       && event.priceLamports <= 30_000_000n) {
     enqueueResizeLookup(event.mintAddress, event.signature);
+  }
+
+  // ── AMM pool-type lookup (Live Feed AMM badge) ────────────────────────────
+  // Only MMM sales carry a poolAddress (captured at parse time for
+  // independently-verified instruction variants only — see programs.ts).
+  // `owner` is whichever party the parser already resolved as the pool
+  // controller for this instruction's direction; a wrong guess here is
+  // harmless (resolver's exact poolKey match just yields "unresolved").
+  if (event.poolAddress) {
+    const direction = (event.rawData as { _direction?: string } | undefined)?._direction;
+    const owner = (direction === 'fulfillBuy' || direction === 'takeBid') ? event.buyer : event.seller;
+    enqueuePoolTypeLookup(event.poolAddress, owner, event.signature);
   }
 
   // Deferral gate: ONLY a never-seen mint (no cached name AND no cached slug)

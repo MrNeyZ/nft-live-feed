@@ -11,6 +11,18 @@ export interface ResizeStatusPatch {
   resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
+/** Per-sale AMM pool-type patch. Emitted by `mmm-pool-type-resolver` after
+ *  an async classification lookup resolves for a pool involved in a recent
+ *  sale. Carries the originating `signature` so the feed reducer can target
+ *  the exact row — same shape/contract as `ResizeStatusPatch`. Only ever
+ *  emitted on a successful exact `poolKey === poolAddress` match; failed /
+ *  unresolved lookups never emit (no patch = no AMM badge, fail closed). */
+export interface PoolTypePatch {
+  signature:   string;
+  poolAddress: string;
+  poolType:    'buy' | 'sell' | 'two_sided';
+}
+
 /** Late-resolved rarity patch. Emitted by the rarity-lookup prime path when
  *  an async provider resolution lands AFTER the live `sale` frame already went
  *  out without rarity (the sync getter is in-process-only and misses while
@@ -49,6 +61,12 @@ export interface MetaUpdate {
   floorDelta:            number | null;
   /** salePrice (SOL) − topOffer (SOL). Null when no active offer. */
   offerDelta:            number | null;
+  /** FRESH-badge timestamp (epoch ms). Already correct on the first `sale`
+   *  frame (see db/insert.ts's emitSaleFrame) — repeated here so a client
+   *  that only applied the initial frame before the cache populated still
+   *  converges on the follow-up patch. Null when the mint isn't in the
+   *  fresh-mint cache (unknown / stale / cNFT mint_address mismatch). */
+  mintedAtMs:            number | null;
 }
 
 // ─── Listings deltas ─────────────────────────────────────────────────────────
@@ -454,6 +472,19 @@ class SaleEventBus extends EventEmitter {
   }
   offResizeStatusPatch(listener: (patch: ResizeStatusPatch) => void): this {
     return this.off('resize_status', listener);
+  }
+
+  /** AMM pool-type resolved (or refreshed) for a pool that was the subject
+   *  of a recent sale. SSE forwards on the `pool_type` channel; the feed
+   *  reducer applies it by `signature`. */
+  emitPoolTypePatch(patch: PoolTypePatch): void {
+    this.emit('pool_type', patch);
+  }
+  onPoolTypePatch(listener: (patch: PoolTypePatch) => void): this {
+    return this.on('pool_type', listener);
+  }
+  offPoolTypePatch(listener: (patch: PoolTypePatch) => void): this {
+    return this.off('pool_type', listener);
   }
 
   /** Rarity resolved asynchronously for a mint whose live `sale` frame went

@@ -176,6 +176,24 @@ export interface MmmIxDef {
    * null for legacy / pNFT — derive the SPL mint from token-balance changes instead.
    */
   coreAssetIdx: number | null;
+  /**
+   * Instruction-accounts index of the MMM **pool state PDA** — the account
+   * ME's own `/mmm/pools` API keys by `poolKey` (NOT the pool owner's
+   * wallet — that's `buyerAcctIdx`/`sellerAcctIdx` above, a different
+   * account). Independently verified 2026-07-11 by fetching a real
+   * confirmed transaction for each instruction and checking which
+   * outer-ix account is owned by the MMM AMM program
+   * (`mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc`) with data length 849
+   * (`POOL_SIZE` in `tools-mmm-pools.ts`) — NOT assumed from the
+   * buyer/seller comments above, several of which mislabel a wallet
+   * account as "pool-state-PDA" (e.g. this file's old solMip1FulfillSell
+   * comment claimed accts[1]; live evidence shows accts[1] is a plain
+   * System-owned wallet and the real pool account is at accts[4]).
+   * null = not independently verified for this variant — the parser
+   * leaves `poolAddress` null rather than guess, so it fails closed
+   * (no AMM badge) instead of risking a wrong classification.
+   */
+  poolAcctIdx: number | null;
 }
 
 export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
@@ -188,6 +206,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 3RfLtZA2g2ecoMT2zLsPP2kNG1ksThQs16mvgmi5hDChTjZXoP2FQ4KaEV9dKeLgtQeh238WvJpJXdJeFRAijT8G
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[13]).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — computed disc matches observed; layout verified on pNFT AMM buy-from-pool
@@ -200,6 +221,11 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 5,    // pool owner wallet — confirmed via raw json encoding + loadedAddresses expansion
     buyerAcctIdx:  0,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 1sr1i1ckSZWgJGfLX2Wrned2CpvmDnq7rsmiL2Xqon4v3pxNUoARowDDzJWoq1gGzEpqCHuRHhVtotf2bwtUJeM
+    // — this file's own "accts[1]=pool-state-PDA" comment above is WRONG: accts[1] is
+    // System-owned/0-byte (a wallet), accts[4] is mmm-program-owned/849B (the real pool
+    // account; a second MMM-owned 344B sell-state account sat at accts[12]).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — discriminator observed in live Core sell-into-pool txs.
@@ -213,6 +239,10 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,    // accs[1] = pool OWNER / bidder wallet (verified: equals pool-state owner@121, System-owned). NOT the pool PDA — the PDA is a separate ix account.
     coreAssetIdx:  null, // use extractCoreAssetFromInnerIx — outer index unreliable for Core
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on the reported regression tx
+    // 63ovbxZ7RBbAh9XRXhk6QGuoUBpbA7LVhRPzj52AvnZxSAqNKeRHrhfRTaKCm7ymF3PtBHaAS9KNufYPN3U69YUc
+    // (accts[4]=J3NNjFntEWw3512jUpXgB6dj9wCWmXmQXfEj3gW5K8dJ, owner=mmm program, dataLen=849).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — discriminator observed in live Core buy-from-pool tx.
@@ -228,6 +258,10 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 5,    // pool owner wallet — confirmed via SOL flow (+largest increase)
     buyerAcctIdx:  0,
     coreAssetIdx:  null, // variable position — extracted from MPL Core inner CPI instead
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 2pwXPPv3DhDEhynVmaCDTLqrKei2vqNHuipJUy3KUo1b3bULQkkBKKavA6yaeGNpcEGjEBtvZ5P7GmwEBiyyMFrL
+    // (accts[4] owner=mmm program, dataLen=849; NOTE this contradicts this entry's own
+    // "accts[1]=pool-state-PDA" comment above, which pre-dates this verification).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — discriminator observed in 2 live Core sell-into-pool txs (2026-04-16)
@@ -241,6 +275,12 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,    // accs[1] = pool OWNER / bidder wallet (mirrors coreFulfillBuy; NOT the pool PDA)
     coreAssetIdx:  null, // variable — extracted from MPL Core inner CPI accounts[0]
+    // ⚠️ NOT independently verified — no live sale of this exact instruction was found
+    // in our own ingested sale_events history to check against (2026-07-11 pass covered
+    // 10 of 12 MMM variants). Left null rather than assumed from the coreFulfillBuy/
+    // coreFulfillBuyV2 layout similarity — poolAddress stays null for this variant
+    // (fail closed, no AMM badge) until confirmed against a real transaction.
+    poolAcctIdx:   null,
   },
   {
     // ✅ SELLER POSITION CONFIRMED 2026-05-29 on
@@ -260,6 +300,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 5,
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig TBgaYDpxVyMAEUxmWGFAeBMio9c1poP8qfmi7V6cPaNyQ81DcuDeL8CDE291hLvtTNnb2KyLZDRgWNiWhsc4pJm
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[12]).
+    poolAcctIdx:   4,
   },
   {
     // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ocp_fulfill_buy = 71e1aa41b5d40a21).
@@ -272,6 +315,10 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 35eU1hNQ3Mi8m9Pu8ZBU9NyVTmDiQ5M6kSFTeQSR6AiVGuRC5kYTU9kcyF5We4ZSjF8Pw4wNJwNeAyxWw7LooWsm
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[12]).
+    // Buyer/seller layout for this instruction remains otherwise unverified (see above).
+    poolAcctIdx:   4,
   },
   {
     // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ocp_fulfill_sell = d5283a63816df593).
@@ -283,6 +330,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: null,
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
+    // ⚠️ NOT independently verified — no live sale of this exact instruction was found
+    // in our own ingested sale_events history (2026-07-11 pass). Left null; fails closed.
+    poolAcctIdx:   null,
   },
   {
     // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ext_fulfill_buy = 9d5a7ad45a795378).
@@ -294,6 +344,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 2FC96Ls1TvERmCZqNm3tjbGJ9xyBjmgE2SBb55oaVaQfWRp6Qw99nJQbnuTyN35p1ucDfH7vKXcjxW7xnBGjwZhD
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[11]).
+    poolAcctIdx:   4,
   },
   {
     // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ext_fulfill_sell = 7913c7be30f0b673).
@@ -304,6 +357,14 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: null,
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 7HZaumrvZzPAT41oqVcFKhMcTYcKG6RFZTQ3dSQVSG7pFGMSf6CpVs93PcBV9RRCyoaKYfJprjfsvK3PHmZhfko
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[9]).
+    // NOTE: sellerAcctIdx is still null/unverified for this variant, so the resolver's
+    // owner lookup falls back to whatever `seller` the token/payment-flow resolved —
+    // the resolver's exact poolKey===poolAddress match makes a wrong owner guess safe
+    // (a mismatched owner's pool list simply won't contain this poolAddress, so
+    // nothing gets cached — never a wrong classification, just an unresolved one).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — discriminator matches computed (ec529e7a0818af91); observed in live tx
@@ -321,6 +382,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,  // accs[1] = pool OWNER / bidder wallet — consistent with solFulfillBuy / coreFulfillBuy (NOT the pool PDA)
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 5gzzR6pyhNDzHSDAvNFBDXKjdR3jaKeQWvPxZDHzEXhtMQ9MvMj8SJUyE3DghhZBWs85yM65gNGhjaR7jEcBZeTr
+    // (takeBid-reclassified fulfillBuy; accts[4] owner=mmm program, dataLen=849).
+    poolAcctIdx:   4,
   },
   {
     // ✅ CONFIRMED — discriminator computed via anchorDisc('cnft_fulfill_buy')
@@ -341,6 +405,9 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     sellerAcctIdx: 0,
     buyerAcctIdx:  1,
     coreAssetIdx:  null,
+    // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig GzD8n1Mvt2rAjLU9xjWBD3eYfGwjnBk81HkHyFqxk7Qopq7n5NkFwEWoq7xrDR3ErbXbshg8dfnWvXEZqxjZjEk
+    // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[11]).
+    poolAcctIdx:   4,
   },
 ];
 

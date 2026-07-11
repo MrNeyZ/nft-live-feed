@@ -102,6 +102,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     floorDelta: b.floorDelta ?? null,
     offerDelta: b.offerDelta ?? null,
     marketplace: mapMarketplace(b.marketplace),
+    isPoolMarketplace: b.marketplace === 'magic_eden_amm' || b.marketplace === 'tensor_amm',
     ts: Date.parse(b.blockTime),
     side,
     nftType: b.nftType ?? 'legacy',
@@ -112,6 +113,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     collectionAddress: b.collectionAddress ?? null,
     resizeStatus:      b.resizeStatus ?? null,
     mintedAtMs:        b.mintedAtMs ?? null,
+    poolType:          b.poolType ?? null,
     // Server-persisted count from the REST snapshot (migration 015). Absent on
     // live SSE sale frames (b.sellerRemainingCount undefined) — those get the
     // count via the async `seller_count` patch — so this is null there and the
