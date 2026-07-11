@@ -48,6 +48,29 @@ export function computeSellerNetLamports(
   return delta > 0n ? delta : null;
 }
 
+/**
+ * Guards a raw seller-net delta against contamination from unrelated
+ * bundled instructions in the same transaction (e.g. an ME `CancelSell`
+ * closing the seller's old listing PDA and refunding its rent in the
+ * same tx as the sale). `computeSellerNetLamports` sums the seller
+ * wallet's whole-transaction balance delta, so any such refund is added
+ * on top of the real sale proceeds.
+ *
+ * A legitimate seller-net can never exceed the canonical sale price
+ * (`priceLamports`, already the authoritative parser-local source —
+ * MMM's own `total_price` log field, ME v2's settlement log, etc.), so
+ * when it does the value is contaminated and is dropped; callers then
+ * fall back to `priceLamports`. Same invariant already proven correct
+ * for the ME v2 fixed-price / coreExecuteSaleV2 path.
+ */
+export function cleanSellerNet(
+  sellerNet: bigint | null,
+  priceLamports: bigint,
+): bigint | null {
+  if (sellerNet == null) return null;
+  return sellerNet > priceLamports ? null : sellerNet;
+}
+
 /** Sampled debug for cross-checking against the Magic Eden UI.
  *
  * Two log streams, both sampled (1st event + every 25th):

@@ -21,7 +21,7 @@
 
 import { RawSolanaTx } from './types';
 import { SaleEvent, NftType } from '../../models/sale-event';
-import { computeSellerNetLamports } from '../seller-net';
+import { computeSellerNetLamports, cleanSellerNet } from '../seller-net';
 import {
   isMeTransaction,
   findMeV2SaleIx,
@@ -517,7 +517,18 @@ function parseMmmSale(
 
   // ── Build event ───────────────────────────────────────────────────────────
 
-  const sellerNet = computeSellerNetLamports(tx, seller);
+  // Rent-refund guard: MMM sales can be bundled in the same tx as an
+  // unrelated ME `CancelSell` (delisting a stale ME v2 listing on the
+  // same NFT) that closes a PDA and refunds its rent to the seller's
+  // wallet. computeSellerNetLamports reads the seller's whole-tx
+  // balance delta, so that refund is added on top of the real MMM sale
+  // proceeds. Confirmed on
+  //   4XtV5LU5zfRkmKavGvrLGfXF9J19P7ZytUfguSovf8XDv2yahefqte9kQ6VmeV6hq3gcir9jy6cnzfjNwE4iEPn3
+  // → seller-net 0.011642646 vs MMM log total_price 0.00826 (bundled
+  // CancelSell refunded ≈0.0056 SOL of closed-PDA rent). Same invariant
+  // as the ME v2 guard above: seller-net can never exceed the canonical
+  // sale price, so a value above priceLamports is contaminated and dropped.
+  const sellerNet = cleanSellerNet(computeSellerNetLamports(tx, seller), priceLamports);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),

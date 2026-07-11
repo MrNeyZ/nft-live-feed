@@ -308,6 +308,30 @@ const CASES: TestCase[] = [
     expectDisplayPriceLte: 0.01401, // before fix: 0.015279685 (gross) → FAIL
     expectInstruction:   'coreExecuteSaleV2',
   },
+  // ── 2026-07-11: MMM bundled CancelSell rent-refund overcount regression ──────
+  // Reported: feed showed ~0.0116 SOL; true MMM sale price (program log
+  // total_price) is 0.00826 SOL. Root cause: an unrelated ME v2 `CancelSell`
+  // (delisting a stale listing on the same NFT) is bundled in the same tx as
+  // the MMM `solFulfillBuy`, closing two PDAs and refunding their rent
+  // (~0.0056 SOL combined) to the seller's wallet. computeSellerNetLamports
+  // read the seller's whole-tx balance delta (0.011642646), which the MMM
+  // parser previously used unclamped. Same rent-refund guard as the
+  // coreExecuteSaleV2 case above (`cleanSellerNet`) now applies here too:
+  // seller-net above the canonical priceLamports (MMM log total_price) is
+  // dropped, so the display falls back to the correct gross price.
+  {
+    sig:                 '4XtV5LU5zfRkmKavGvrLGfXF9J19P7ZytUfguSovf8XDv2yahefqte9kQ6VmeV6hq3gcir9jy6cnzfjNwE4iEPn3',
+    label:               'Legacy bid-sale — bundled CancelSell rent-refund overcount (MMM — solFulfillBuy)',
+    expectOk:            true,
+    expectMarketplace:   'magic_eden_amm',
+    expectNftType:       'legacy',
+    expectSeller:        'HSqg6QEjbK5e2hpAGsC4nBqNZxq4ZRaPc15RVK3ciB3M',
+    expectBuyer:         'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectPriceGte:      0.00825,
+    expectPriceLte:      0.00827,
+    expectDisplayPriceLte: 0.00827, // before fix: 0.011642646 (contaminated seller-net) → FAIL
+    expectInstruction:   'solFulfillBuy',
+  },
 ];
 
 // ─── Checker ──────────────────────────────────────────────────────────────────
