@@ -32,7 +32,7 @@ import { incMplCoreParsedMint } from '../telemetry';
 import { fetchRawTx } from '../me-raw/ingest';
 import type { RawSolanaTx } from '../me-raw/types';
 import { resolveAccountKey } from '../me-raw/types';
-import { SYSTEM_PROGRAM } from '../me-raw/programs';
+import { SYSTEM_PROGRAM, SPL_TOKEN_PROGRAM } from '../me-raw/programs';
 import type { Priority } from '../concurrency';
 import type { GetTxSource } from '../../helius-credit-metrics';
 import { recordMint } from '../../mints/accumulator';
@@ -54,7 +54,19 @@ import {
   CANDY_MACHINE_V3_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
-import { detectCoreCreateV2NftCandidate, detectCoreCandyMachineMint, detectMagicEdenCoreMint, detectGenericCoreLaunchpadMint, detectGenericTokenMetadataLaunchpadMint } from './core-v2-detector';
+import {
+  detectCoreCreateV2NftCandidate,
+  detectCoreCandyMachineMint,
+  detectMagicEdenCoreMint,
+  detectGenericCoreLaunchpadMint,
+  detectGenericTokenMetadataLaunchpadMint,
+  DEFI_PROGRAM_BLACKLIST,
+  nameLooksLikePool,
+  TM_VERIFY_COLLECTION_MINT_IDX,
+  collectTokenMetadataIxs,
+  isFresh,
+  readShape,
+} from './core-v2-detector';
 import { resolveCollectionForMint } from '../../enrichment/seller-collection-count';
 import { scheduleCollectionConfirmation } from '../../mints/collection-confirm';
 import { getLmnftInfoByMint } from '../../enrichment/lmnft';
@@ -361,21 +373,92 @@ const TM_CREATE_INSTRUCTION_NEEDLES: readonly string[] = [
   'IX: Create Metadata Accounts',
 ];
 
-/** Combined list — used as a fast pre-screen by both `hasMintInstructionLog`
- *  and `detectProgramSource`. Note the previous loose `Instruction: Create`
- *  and `Instruction: Mint` needles were removed: they matched
- *  `Instruction: CreateTokenAccount` / `Instruction: CreatePosition` /
- *  `Instruction: MintTo` and let SPL fungible / launchpad / DEX txs through
- *  the prefilter, costing RPC fetches and occasionally polluting /mints. */
-const MINT_LOG_NEEDLES: readonly string[] = [
-  ...CORE_INSTRUCTION_NEEDLES,
-  ...TM_CREATE_INSTRUCTION_NEEDLES,
-];
-
 /** Strict word-boundary regex for the MPL Token Metadata `Mint`
  *  instruction (pNFT mint path). Anchored end-of-token so the SPL
  *  Token `Instruction: MintTo` log line can't substring-match. */
 const TM_MINT_INSTRUCTION_REGEX = /Instruction: Mint(?:\s|$)/;
+
+/** Strict word-boundary regex for mpl-core's bare V1 `Create` (disc 0).
+ *  Same anchoring technique as TM_MINT_INSTRUCTION_REGEX, for the same
+ *  reason: `CORE_INSTRUCTION_NEEDLES` deliberately excludes bare
+ *  `Instruction: Create` (see that list's own comment) because a plain
+ *  substring match would also hit `Instruction: CreateTokenAccount` /
+ *  `Instruction: CreatePosition` / any other CreateXxx op. Anchoring on
+ *  whitespace-or-end makes it exact — matches only the literal bare
+ *  `Create` line and NOT `CreateV2`/`CreateCollection`/etc (those already
+ *  have their own needles). Confirmed live: Claynosaurz's custom mint
+ *  wrapper (`CLAY4M7BD…`, ix `MintCard`) CPIs into mpl-core `Create` and
+ *  logs exactly `Instruction: Create` with no suffix — silently dropped
+ *  by the prefilter before this fix (mint HVVUH31mn3dAyu46ux2v9CSupHeJ47
+ *  d2YgZUresHCVWC, tx 27qdwUWPxGVQnggbH3imLsbxbNdnWNRnBnV9CciT2tL8Vy8t2Pd
+ *  YNqVaWoTm33rpx1VK6qirSfCL4t5NJV6GKGRa). Still gated by `hasNftProgram`
+ *  below (mpl-core program id must already be present in the logs), and
+ *  downstream `detectGenericCoreLaunchpadMint`'s DEFI_PROGRAM_BLACKLIST /
+ *  reward / agent-identity rejects are unaffected — this only widens what
+ *  reaches `fetchRawTx`, not what `/mints` accepts. */
+const CORE_CREATE_INSTRUCTION_REGEX = /Instruction: Create(?:\s|$)/;
+
+/** Strict word-boundary regexes for Token Metadata's MODERN unified
+ *  instruction builder (introduced alongside pNFT support — `Create` /
+ *  `Mint` / `Verify` / etc replace the old per-purpose ix set). These log
+ *  the BARE variant name with an `IX: ` prefix and NO "Metadata Accounts"
+ *  suffix — a third, distinct log format from both the old
+ *  `Instruction: CreateMetadataAccountV3` and the newer-but-still-legacy
+ *  `IX: Create Metadata Accounts v3`. Neither TM_CREATE_INSTRUCTION_NEEDLES
+ *  nor TM_MINT_INSTRUCTION_REGEX matches `IX: Create` / `IX: Mint` — that
+ *  gap silently dropped every mint using this instruction set (confirmed
+ *  live 2026-07-11, tx 5ZZHZZrrAf2hmzCRYZ91JdTxtJwCaZfzt7848Ux9iZqZQ6ofZph
+ *  wALcnMurYntAebw4XrPpTmttvjbStiaqpoMrz, mint HhtWpjA37C3BXiizM3C4oFUFxDh
+ *  PpUzquyL9hRFjYSvD — see docs/audit notes). Anchored on whitespace-or-end
+ *  so `IX: CreateEscrowAccount` (disc 38) / any other `IX: <verb><suffix>`
+ *  variant can't substring-match — same technique as the two regexes above. */
+const TM_UNIFIED_CREATE_REGEX = /IX: Create(?:\s|$)/;
+const TM_UNIFIED_MINT_REGEX   = /IX: Mint(?:\s|$)/;
+
+/** Every mint-instruction "family" this module recognizes, across both
+ *  programs and both Token Metadata eras. This is the SINGLE definition of
+ *  what a given log line / discriminator means — `hasMintInstructionLog`
+ *  (prefilter) and `detectProgramSource` (parser) both read off
+ *  `matchMintLogVariant` below instead of keeping their own copies of the
+ *  needle/regex lists. That duplication is exactly how the `IX: Create` /
+ *  `IX: Mint` gap happened: two independent needle lists, each missing the
+ *  same new format. Extend ONLY here for a future log-format change. */
+export type MintLogVariant =
+  | 'core_create_needle'      // CORE_INSTRUCTION_NEEDLES (CreateV1/V2/CreateCollectionV1/CreateCollection)
+  | 'core_create_bare'        // anchored bare `Instruction: Create` (Core-scoped)
+  | 'tm_legacy_create_needle' // TM_CREATE_INSTRUCTION_NEEDLES (CreateMetadataAccount[V2/V3], both log spellings)
+  | 'tm_legacy_mint_bare'     // anchored bare `Instruction: Mint` (pNFT legacy path)
+  | 'tm_unified_create_bare'  // anchored bare `IX: Create` (modern unified instruction builder)
+  | 'tm_unified_mint_bare';   // anchored bare `IX: Mint` (modern unified instruction builder)
+
+/** Classify ONE log line against every known mint-instruction pattern.
+ *  Returns the first match in a fixed, deliberate priority order (Core
+ *  needles → Core bare → TM legacy needles → TM legacy Mint → TM unified
+ *  Create → TM unified Mint). Callers apply their OWN policy over which
+ *  variants they accept (see `hasMintInstructionLog` / `detectProgramSource`
+ *  below) — this function only answers "what pattern, if any, is present",
+ *  never "should this tx be accepted". */
+function matchMintLogVariant(line: string): { variant: MintLogVariant; needle: string } | null {
+  for (const n of CORE_INSTRUCTION_NEEDLES) {
+    if (line.includes(n)) return { variant: 'core_create_needle', needle: n };
+  }
+  if (CORE_CREATE_INSTRUCTION_REGEX.test(line)) {
+    return { variant: 'core_create_bare', needle: 'Instruction: Create' };
+  }
+  for (const n of TM_CREATE_INSTRUCTION_NEEDLES) {
+    if (line.includes(n)) return { variant: 'tm_legacy_create_needle', needle: n };
+  }
+  if (TM_MINT_INSTRUCTION_REGEX.test(line)) {
+    return { variant: 'tm_legacy_mint_bare', needle: 'Instruction: Mint' };
+  }
+  if (TM_UNIFIED_CREATE_REGEX.test(line)) {
+    return { variant: 'tm_unified_create_bare', needle: 'IX: Create' };
+  }
+  if (TM_UNIFIED_MINT_REGEX.test(line)) {
+    return { variant: 'tm_unified_mint_bare', needle: 'IX: Mint' };
+  }
+  return null;
+}
 
 /** Strict prefilter — requires BOTH:
  *    1. At least one log line contains the TM or Core program ID
@@ -412,15 +495,16 @@ export function hasMintInstructionLog(logs: unknown): boolean {
     // line is the launchpad fingerprint, same idea as the LMNFT branches
     // above. The strict NFT-program + needle pass below would shed Candy
     // Guard mints because their `Program log: Instruction: MintV2` line
-    // doesn't match any MINT_LOG_NEEDLES (deliberately — `MintV2` would
-    // also admit SPL Token-2022's `MintV2`). Admitting on CG presence
-    // alone lets the per-tx detector resolve accept/reject downstream;
-    // CG is unspoofable (only Metaplex holds upgrade authority).
+    // doesn't match any variant `matchMintLogVariant` recognizes
+    // (deliberately — `MintV2` would also admit SPL Token-2022's
+    // `MintV2`). Admitting on CG presence alone lets the per-tx detector
+    // resolve accept/reject downstream; CG is unspoofable (only
+    // Metaplex holds upgrade authority).
     if (line.includes(CANDY_GUARD_PROGRAM)) {
       return true;
     }
     // Core Candy Guard (CMAGAKJ…) emits `Instruction: MintV1` + inner
-    // `Instruction: Create` (bare) — neither matches MINT_LOG_NEEDLES.
+    // `Instruction: Create` (bare) — neither matches a recognized variant.
     // Same single-program-presence shortcut as TM CG above.
     if (line.includes(PRNT_CORE_CANDY_GUARD)) {
       return true;
@@ -435,12 +519,13 @@ export function hasMintInstructionLog(logs: unknown): boolean {
     }
   }
   if (!hasNftProgram) return false;
+  // Accepts ANY recognized variant — identical to the pre-2026-07-11
+  // behavior (all 4 pre-existing variants) plus the two new unified-
+  // instruction bare variants. See `matchMintLogVariant`'s own doc for
+  // why this is now the single source of truth for the pattern list.
   for (const line of logs) {
     if (typeof line !== 'string') continue;
-    for (const needle of MINT_LOG_NEEDLES) {
-      if (line.includes(needle)) return true;
-    }
-    if (TM_MINT_INSTRUCTION_REGEX.test(line)) return true;
+    if (matchMintLogVariant(line)) return true;
   }
   return false;
 }
@@ -450,8 +535,9 @@ export function hasMintInstructionLog(logs: unknown): boolean {
  *  This rejects admin operations (initialize, update, withdraw, freeze, route)
  *  without touching the per-tx parser path used by pollers / reconcilers.
  *
- *  `MintV2` is intentionally NOT in MINT_LOG_NEEDLES (it would match SPL
- *  Token-2022's `MintV2` for the TM/Core path), but it is safe here because
+ *  `MintV2` is intentionally NOT one of the variants `matchMintLogVariant`
+ *  recognizes (it would match SPL Token-2022's `MintV2` for the TM/Core
+ *  path), but it is safe here because
  *  this function is only called when the CG program subscription fires — the
  *  CG program ID already scopes the notification uniquely.
  *  `Instruction: Mint` covers the legacy Candy Guard v1 path (pre-MintV2).
@@ -472,63 +558,79 @@ export function isCandyGuardMintLog(logs: unknown): boolean {
 
 const MIN_PAID_LAMPORTS = 1_000_000;
 
-interface ProgramHit { programSource: MintProgramSource; needle: string; }
+/** `variant` distinguishes AT LEAST: legacy CreateMetadataAccountV2/V3
+ *  (`tm_legacy_create_needle`), the modern unified Token Metadata `Create`
+ *  (`tm_unified_create_bare`), and MPL Core's create variants
+ *  (`core_create_needle`) — plus the two bare-Mint variants for the pNFT /
+ *  unified mint-only signal. `findMintInstruction` uses this to pick the
+ *  correct instruction-account layout instead of inferring it from
+ *  `programSource` alone (which can't tell legacy Create from unified
+ *  Create — both resolve to the same `mpl_token_metadata` program). */
+export interface ProgramHit { programSource: MintProgramSource; needle: string; variant: MintLogVariant; }
 
-/** Identify which mint program shows up in this tx's logs. Needle-driven:
- *  the instruction-name string in the program log is the strongest signal
- *  and uniquely identifies Core vs. Token Metadata for the unambiguous
- *  needles. Falls back to program-address sighting only for the two
- *  ambiguous needles (`Instruction: Create` / `Instruction: Mint`) which
- *  are also emitted by SPL Token (`MintTo`) and ATA (`Create`) and so
- *  need a positive TM-mention to disambiguate.
+/** Identify which mint program (and which instruction variant) shows up in
+ *  this tx's logs. Delegates the per-line pattern match to the SHARED
+ *  `matchMintLogVariant` (see its own doc) — this function only owns the
+ *  ACCEPT POLICY: which variants count, in which priority, and which also
+ *  require the owning program's address to be present in the logs.
  *
- *  Why the previous `sawCore && needle === ...` requirement was wrong:
- *  for inner-CPI mints (launchpad → mpl_core CreateV1), the outer program
- *  is the launchpad and its log lines mention the launchpad's address;
- *  Core's address appears only on the inner `Program CoREENx... invoke [2]`
- *  line. That line IS in `logMessages`, so `sawCore` should be true — but
- *  any condition that gates on log-address sighting is fragile to
- *  truncation / format changes. The needle alone is enough for the two
- *  Core-unique instruction names. */
-function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
+ *  Why the address-presence gate exists: for inner-CPI mints (launchpad →
+ *  mpl_core CreateV1), the outer program is the launchpad and its log lines
+ *  mention the launchpad's address; Core's address appears only on the
+ *  inner `Program CoREENx... invoke [2]` line. That line IS in
+ *  `logMessages`, so `sawMplCore` is still true — but gating on log-address
+ *  sighting (rather than requiring the needle's own line to be Core's
+ *  top-level invoke) is deliberately loose, tolerant of truncation/format
+ *  drift, and unchanged from the pre-2026-07-11 behavior.
+ *
+ *  Priority (unchanged from before, with the two new unified variants
+ *  slotted in alongside their legacy counterparts): Core create needle →
+ *  TM create (legacy needle OR unified bare) → TM Mint (legacy bare OR
+ *  unified bare). Note `core_create_bare` is intentionally NOT accepted
+ *  here (only in `hasMintInstructionLog`) — preserves the pre-existing
+ *  asymmetry where a tx admitted to `fetchRawTx` purely on bare Core
+ *  `Instruction: Create` still needs a stronger signal to be classified by
+ *  this parser; unrelated to the unified-instruction fix and intentionally
+ *  left as-is. */
+export function detectProgramSource(tx: RawSolanaTx): ProgramHit | null {
   const logs = tx.meta?.logMessages;
   if (!Array.isArray(logs)) return null;
   let sawTokenMetadata = false;
   let sawMplCore       = false;
-  let coreNeedle       = '';
-  let tmCreateNeedle   = '';
-  let sawTmMintLine    = false;
+  let coreHit:       { variant: MintLogVariant; needle: string } | null = null;
+  let tmCreateHit:   { variant: MintLogVariant; needle: string } | null = null;
+  let tmMintHit:     { variant: MintLogVariant; needle: string } | null = null;
   for (const line of logs) {
     if (typeof line !== 'string') continue;
     if (line.includes(TOKEN_METADATA_PROGRAM)) sawTokenMetadata = true;
     if (line.includes(MPL_CORE_PROGRAM))       sawMplCore       = true;
-    if (!coreNeedle) {
-      for (const n of CORE_INSTRUCTION_NEEDLES) {
-        if (line.includes(n)) { coreNeedle = n; break; }
-      }
+    const m = matchMintLogVariant(line);
+    if (!m) continue;
+    if (!coreHit && m.variant === 'core_create_needle') {
+      coreHit = m;
     }
-    if (!tmCreateNeedle) {
-      for (const n of TM_CREATE_INSTRUCTION_NEEDLES) {
-        if (line.includes(n)) { tmCreateNeedle = n; break; }
-      }
+    if (!tmCreateHit && (m.variant === 'tm_legacy_create_needle' || m.variant === 'tm_unified_create_bare')) {
+      tmCreateHit = m;
     }
-    if (!sawTmMintLine && TM_MINT_INSTRUCTION_REGEX.test(line)) {
-      sawTmMintLine = true;
+    if (!tmMintHit && (m.variant === 'tm_legacy_mint_bare' || m.variant === 'tm_unified_mint_bare')) {
+      tmMintHit = m;
     }
   }
   // Strict gate: NFT program ID must appear AND a strict instruction
   // needle of the matching family must be present. Reject everything
   // else as `not_metadata_mint` (logged at the call site).
-  if (sawMplCore && coreNeedle) {
-    return { programSource: 'mpl_core', needle: coreNeedle };
+  if (sawMplCore && coreHit) {
+    return { programSource: 'mpl_core', needle: coreHit.needle, variant: coreHit.variant };
   }
-  if (sawTokenMetadata && tmCreateNeedle) {
-    return { programSource: 'mpl_token_metadata', needle: tmCreateNeedle };
+  if (sawTokenMetadata && tmCreateHit) {
+    return { programSource: 'mpl_token_metadata', needle: tmCreateHit.needle, variant: tmCreateHit.variant };
   }
-  // pNFT path: `Instruction: Mint` exact (anchored to exclude MintTo)
-  // is only a valid signal when Token Metadata is also in the logs.
-  if (sawTokenMetadata && sawTmMintLine) {
-    return { programSource: 'mpl_token_metadata', needle: 'Instruction: Mint' };
+  // pNFT / unified mint-only path: a Mint line without a Create line in
+  // the same tx (e.g. minting an additional edition print in a separate
+  // tx from the original creation) — valid signal when Token Metadata is
+  // also in the logs.
+  if (sawTokenMetadata && tmMintHit) {
+    return { programSource: 'mpl_token_metadata', needle: tmMintHit.needle, variant: tmMintHit.variant };
   }
   return null;
 }
@@ -879,9 +981,142 @@ export function classifyMintType(priceLamports: number | null): MintType {
   return 'unknown';
 }
 
-/** First instruction whose `programIdIndex` resolves to one of our two
- *  watched programs. Top-level instructions are checked first; if the
- *  match isn't there, we descend into `tx.meta.innerInstructions[*].instructions`.
+/** Token Metadata is NOT an Anchor program — its instruction discriminator
+ *  is a single leading byte (the borsh enum tag), not an 8-byte Anchor
+ *  sighash. Confirmed against the live unified-Create fixture (disc 42)
+ *  and the vendored mpl-token-metadata IDL (CreateMetadataAccount=0,
+ *  CreateMetadataAccountV2=16, CreateMetadataAccountV3=33, unified
+ *  Create=42, Mint=43, Verify=52). */
+const TM_DISC_CREATE_METADATA_ACCOUNT    = 0;
+const TM_DISC_CREATE_METADATA_ACCOUNT_V2 = 16;
+const TM_DISC_CREATE_METADATA_ACCOUNT_V3 = 33;
+const TM_DISC_UNIFIED_CREATE             = 42;
+const TM_DISC_UNIFIED_MINT               = 43;
+
+/** Legacy Create-family discriminators — CreateMetadataAccount /
+ *  CreateMetadataAccountV2 / CreateMetadataAccountV3 all share the SAME
+ *  account layout (metadata@0, mint@1, mintAuthority@2, payer@3,
+ *  updateAuthority@4, systemProgram@5, rent@6-optional), so no further
+ *  disambiguation between them is needed for extraction purposes. */
+const TM_LEGACY_CREATE_DISCS: ReadonlySet<number> = new Set([
+  TM_DISC_CREATE_METADATA_ACCOUNT,
+  TM_DISC_CREATE_METADATA_ACCOUNT_V2,
+  TM_DISC_CREATE_METADATA_ACCOUNT_V3,
+]);
+
+/** Decode an instruction's leading discriminator byte from its base58
+ *  `data` field. Returns null on empty/malformed data instead of
+ *  throwing — callers must fail closed (skip the instruction), never
+ *  guess. */
+function readTmInstructionDiscriminator(data: string | undefined): number | null {
+  if (!data) return null;
+  try {
+    const raw = bs58.decode(data);
+    return raw.length > 0 ? raw[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+type TmMintLayout = 'tm_legacy_create' | 'tm_unified_create';
+
+export interface UnifiedCreateAssetData {
+  name:          string;
+  /** Off-chain metadata URI. Kept (not discarded) so callers can run the
+   *  same pool/LP-name-pattern hard reject the legacy generic-launchpad
+   *  detector already applies (`nameLooksLikePool`) — see
+   *  `detectDirectUnifiedTokenMetadataMint`. */
+  uri:           string;
+  tokenStandard: number | null;
+  /** Collection mint from the `CreateArgs::V1.collection` field — present
+   *  regardless of whether a later `Verify` ix confirms it on-chain.
+   *  Unverified here by design: the same "collection-level corroboration,
+   *  not per-NFT proof" posture this project already applies to the
+   *  MMM/Tensor collection-bid venues (see analytics/offer-history.ts). */
+  collectionKey: string | null;
+}
+
+/** Borsh-decode the modern unified Create instruction's `CreateArgs`
+ *  payload far enough to recover `tokenStandard` and the (unverified)
+ *  `collection` key. A decode failure never blocks the mint itself —
+ *  `mintAddress` comes from the instruction ACCOUNTS (see
+ *  `findMintInstruction`/the caller below), not this payload; this only
+ *  enriches `collectionAddress` on a best-effort basis. Only
+ *  `CreateArgs::V1` (tag 0) is understood — a future `V2` variant (if
+ *  Metaplex ever ships one) fails soft (returns null) rather than
+ *  misparsing, same as any other malformed/short buffer.
+ *
+ *  Layout confirmed against the live fixture (tx 5ZZHZZrrAf2hmzCRYZ91JdTx
+ *  tJwCaZfzt7848Ux9iZqZQ6ofZphwALcnMurYntAebw4XrPpTmttvjbStiaqpoMrz):
+ *  disc(1) + CreateArgs tag(1) + name(string) + symbol(string) +
+ *  uri(string) + sellerFeeBasisPoints(u16) + creators(Option<Vec<Creator>>)
+ *  + primarySaleHappened(bool) + isMutable(bool) + tokenStandard(u8) +
+ *  collection(Option<{verified:bool, key:Pubkey}>). */
+export function decodeUnifiedCreateArgsV1(data: string): UnifiedCreateAssetData | null {
+  try {
+    const raw = Buffer.from(bs58.decode(data));
+    let off = 0;
+    const need = (n: number): void => { if (off + n > raw.length) throw new Error('short buffer'); };
+    const u8  = (): number => { need(1); return raw[off++]; };
+    const u16 = (): number => { need(2); const v = raw.readUInt16LE(off); off += 2; return v; };
+    const u32 = (): number => { need(4); const v = raw.readUInt32LE(off); off += 4; return v; };
+    const str = (): string => { const n = u32(); need(n); const s = raw.toString('utf8', off, off + n); off += n; return s; };
+    const pubkey = (): string => { need(32); const s = bs58.encode(raw.subarray(off, off + 32)); off += 32; return s; };
+
+    const disc = u8();
+    if (disc !== TM_DISC_UNIFIED_CREATE) return null;
+    const createArgsTag = u8();
+    if (createArgsTag !== 0) return null; // only CreateArgs::V1 understood
+
+    const name = str();
+    str(); // symbol — unused here (DAS-derived name is authoritative downstream)
+    const uri = str();
+    u16();  // sellerFeeBasisPoints
+
+    const creatorsTag = u8();
+    if (creatorsTag === 1) {
+      const n = u32();
+      for (let i = 0; i < n; i++) { pubkey(); u8(); u8(); } // creator address + verified + share
+    }
+    u8(); // primarySaleHappened
+    u8(); // isMutable
+    const tokenStandard = u8();
+
+    const collectionTag = u8();
+    let collectionKey: string | null = null;
+    if (collectionTag === 1) {
+      u8(); // verified
+      collectionKey = pubkey();
+    }
+    return { name, uri, tokenStandard, collectionKey };
+  } catch {
+    return null;
+  }
+}
+
+/** Human-readable label for a decoded `tokenStandard` byte. `0` is
+ *  deliberately labelled "Legacy NonFungible" (not just "NonFungible") —
+ *  it's the SAME on-chain standard the old CreateMetadataAccountV3 path
+ *  produces, just minted via the modern unified instruction builder. */
+export function describeTmTokenStandard(tokenStandard: number | null): string {
+  switch (tokenStandard) {
+    case 0:  return 'Legacy NonFungible';
+    case 1:  return 'FungibleAsset';
+    case 2:  return 'Fungible';
+    case 3:  return 'NonFungibleEdition';
+    case 4:  return 'ProgrammableNonFungible';
+    case 5:  return 'ProgrammableNonFungibleEdition';
+    default: return 'Unknown';
+  }
+}
+
+/** First instruction whose `programIdIndex` resolves to one of our watched
+ *  programs AND — for Token Metadata — whose DISCRIMINATOR identifies it as
+ *  the actual Create instruction (legacy or unified), never blindly "the
+ *  first TM-owned instruction" (which could just as easily be Mint(43) or
+ *  Verify(52) sitting earlier in the same tx as Create). Top-level
+ *  instructions are checked first; if no matching instruction is there, we
+ *  descend into `tx.meta.innerInstructions[*].instructions`.
  *
  *  Why inner CPIs matter: candy-machine / launchpad mints invoke
  *  `mpl_token_metadata.create_metadata_account_v3` (or `mpl_core.create_v1`)
@@ -893,11 +1128,21 @@ export function classifyMintType(priceLamports: number | null): MintType {
  *  message (already merged with loaded addresses by fetchRawTx), so
  *  the existing `accounts[i]` → `accountKeys[a[i]]` indirection works
  *  unchanged. Returns `viaInner` so the caller can sample-log the
- *  inner-path success rate to gauge the fix's impact. */
-function findMintInstruction(
+ *  inner-path success rate to gauge the fix's impact.
+ *
+ *  `hit.variant` drives TM selection:
+ *    - `tm_legacy_create_needle` → require disc ∈ {0,16,33} → layout 'tm_legacy'
+ *    - `tm_unified_create_bare`  → require disc === 42        → layout 'tm_unified'
+ *    - a Mint-only variant (`tm_legacy_mint_bare` / `tm_unified_mint_bare`)
+ *      means detectProgramSource found NO create-family line in this tx at
+ *      all — there is no create instruction to select, so this returns
+ *      null immediately rather than guessing at whatever TM instruction
+ *      happens to be present (previously this silently grabbed the first
+ *      TM-owned instruction regardless of what it actually was). */
+export function findMintInstruction(
   tx: RawSolanaTx,
-  programSource: MintProgramSource,
-): { ix: { accounts: number[] }; accountKeys: string[]; viaInner: boolean } | null {
+  hit: ProgramHit,
+): { ix: { accounts: number[]; data: string }; accountKeys: string[]; viaInner: boolean; layout: TmMintLayout | 'core' } | null {
   const message = tx.transaction?.message;
   if (!message) return null;
   // accountKeys after fetchRawTx's merge are objects with .pubkey.
@@ -905,35 +1150,335 @@ function findMintInstruction(
   const rawKeys = (message as any).accountKeys as Array<string | { pubkey: string }> | undefined;
   if (!Array.isArray(rawKeys)) return null;
   const accountKeys = rawKeys.map(k => typeof k === 'string' ? k : k?.pubkey ?? '');
-  const target = programSource === 'mpl_core' ? MPL_CORE_PROGRAM : TOKEN_METADATA_PROGRAM;
+  const target = hit.programSource === 'mpl_core' ? MPL_CORE_PROGRAM : TOKEN_METADATA_PROGRAM;
 
-  // 1. Top-level instructions — original path, unchanged.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ixs = (message as any).instructions as Array<{ programIdIndex: number; accounts: number[] }> | undefined;
-  if (Array.isArray(ixs)) {
-    for (const ix of ixs) {
-      const programId = accountKeys[ix.programIdIndex];
-      if (programId === target) return { ix, accountKeys, viaInner: false };
+  const ixs = (message as any).instructions as Array<{ programIdIndex: number; accounts: number[]; data: string }> | undefined;
+  const inner = tx.meta?.innerInstructions;
+
+  if (hit.programSource === 'mpl_core') {
+    // Core selection is unchanged — this module's Core account-extraction
+    // (accounts[0]=asset) applies uniformly across the Core create needles
+    // and isn't part of this fix's scope.
+    if (Array.isArray(ixs)) {
+      for (const ix of ixs) {
+        if (accountKeys[ix.programIdIndex] === target) return { ix, accountKeys, viaInner: false, layout: 'core' };
+      }
     }
+    if (Array.isArray(inner)) {
+      for (const grp of inner) {
+        if (!Array.isArray(grp.instructions)) continue;
+        for (const ix of grp.instructions) {
+          if (accountKeys[ix.programIdIndex] === target) return { ix, accountKeys, viaInner: true, layout: 'core' };
+        }
+      }
+    }
+    return null;
   }
 
-  // 2. Inner-instruction CPIs — required to catch launchpad / candy-
-  //    machine wrappers where the outer program isn't TM/Core. Each
-  //    `RawInnerInstructionGroup` belongs to one outer instruction
-  //    (`grp.index`); its `instructions` list contains the CPI calls
-  //    that outer instruction made. We only care about the programId,
-  //    not which outer ix triggered it.
-  const inner = tx.meta?.innerInstructions;
+  // Token Metadata: a Mint-only variant has no create instruction to find.
+  if (hit.variant === 'tm_legacy_mint_bare' || hit.variant === 'tm_unified_mint_bare') {
+    return null;
+  }
+  const acceptedDiscs = hit.variant === 'tm_unified_create_bare'
+    ? new Set([TM_DISC_UNIFIED_CREATE])
+    : TM_LEGACY_CREATE_DISCS;
+  const layout: TmMintLayout = hit.variant === 'tm_unified_create_bare' ? 'tm_unified_create' : 'tm_legacy_create';
+
+  const matches = (ix: { programIdIndex: number; data: string }): boolean => {
+    if (accountKeys[ix.programIdIndex] !== target) return false;
+    const disc = readTmInstructionDiscriminator(ix.data);
+    return disc != null && acceptedDiscs.has(disc);
+  };
+
+  if (Array.isArray(ixs)) {
+    for (const ix of ixs) {
+      if (matches(ix)) return { ix, accountKeys, viaInner: false, layout };
+    }
+  }
   if (Array.isArray(inner)) {
     for (const grp of inner) {
       if (!Array.isArray(grp.instructions)) continue;
       for (const ix of grp.instructions) {
-        const programId = accountKeys[ix.programIdIndex];
-        if (programId === target) return { ix, accountKeys, viaInner: true };
+        if (matches(ix)) return { ix, accountKeys, viaInner: true, layout };
       }
     }
   }
   return null;
+}
+
+export interface ExtractedMintAccounts {
+  mintAddress:       string | null;
+  collectionAddress: string | null;
+  updateAuthority:   string | null;
+  minter:            string | null;
+}
+
+/** Account-layout-aware extraction — Core CreateV1, legacy TM
+ *  CreateMetadataAccount[V2/V3], and the modern unified TM `Create` each
+ *  place the mint at a DIFFERENT fixed account index (never inferred from
+ *  `programSource` alone, which can't distinguish legacy from unified TM —
+ *  both resolve to the same `mpl_token_metadata` programSource; only
+ *  `found.layout`, set by `findMintInstruction` from the matched
+ *  discriminator, can). Indices are read defensively; an out-of-range read
+ *  resolves to null and fails closed at the caller's Tier 0a check rather
+ *  than silently falling back to a different index.
+ *
+ *    Core.CreateV1:               accounts[0] = asset
+ *                                 accounts[2] = collection (optional)
+ *                                 accounts[3] = authority/update_authority
+ *                                 accounts[5] = payer/minter (signer)
+ *    TM.CreateMetadataAccount[V2/V3] (`layout==='tm_legacy_create'`):
+ *                                 accounts[0] = metadata PDA
+ *                                 accounts[1] = mint
+ *                                 accounts[2] = mint authority
+ *                                 accounts[4] = payer (signer)
+ *    TM unified Create (`layout==='tm_unified_create'`, disc 42):
+ *                                 accounts[0] = metadata PDA
+ *                                 accounts[1] = master edition PDA (optional slot)
+ *                                 accounts[2] = mint            ← NOT accounts[1]
+ *                                 accounts[3] = authority (signer)
+ *                                 accounts[4] = payer (signer)
+ *                                 accounts[5] = update authority
+ *  Confirmed against the live fixture (tx 5ZZHZZrrAf2hmzCRYZ91JdTxtJwCaZfz
+ *  t7848Ux9iZqZQ6ofZphwALcnMurYntAebw4XrPpTmttvjbStiaqpoMrz) and the
+ *  vendored mpl-token-metadata IDL's `Create` account list. Mixing up
+ *  these two TM layouts is exactly the "records the Master Edition PDA as
+ *  the mint" regression this function exists to prevent. */
+export function extractMintAccounts(
+  found: { ix: { accounts: number[]; data: string }; accountKeys: string[]; layout: TmMintLayout | 'core' },
+): ExtractedMintAccounts {
+  const { ix, accountKeys, layout } = found;
+  const a = ix.accounts;
+  let mintAddress:       string | null = null;
+  let collectionAddress: string | null = null;
+  let updateAuthority:   string | null = null;
+  let minter:            string | null = null;
+
+  if (layout === 'core') {
+    mintAddress       = accountKeys[a[0]] ?? null;
+    collectionAddress = a.length > 2 ? (accountKeys[a[2]] ?? null) : null;
+    updateAuthority   = a.length > 3 ? (accountKeys[a[3]] ?? null) : null;
+    minter            = a.length > 5 ? (accountKeys[a[5]] ?? null) : null;
+  } else if (layout === 'tm_legacy_create') {
+    // Unchanged from the pre-2026-07-11 behavior — mint is index 1.
+    mintAddress     = a.length > 1 ? (accountKeys[a[1]] ?? null) : null;
+    updateAuthority = a.length > 2 ? (accountKeys[a[2]] ?? null) : null;
+    minter          = a.length > 4 ? (accountKeys[a[4]] ?? null) : null;
+    // Collection address isn't directly in the instruction accounts
+    // for legacy CreateMetadataAccountV3 — it lives in the data payload.
+    // Left null in this MVP (unchanged); falls back to update authority
+    // for grouping. Not extended to parse it here — out of this fix's
+    // scope, which only adds unified-Create support.
+  } else {
+    // 'tm_unified_create' — mint is index 2, NOT index 1 (that's the
+    // optional master-edition slot). Validate index existence before
+    // reading; no silent fallback to a different index on a short/
+    // malformed instruction (mintAddress stays null → Tier 0a in the
+    // caller rejects with 'no_mint_address').
+    mintAddress     = a.length > 2 ? (accountKeys[a[2]] ?? null) : null;
+    minter          = a.length > 4 ? (accountKeys[a[4]] ?? null) : null;
+    updateAuthority = a.length > 5 ? (accountKeys[a[5]] ?? null) : null;
+    // Collection is embedded in the Create instruction's own borsh
+    // payload (CreateArgs::V1.collection) — decode it here rather than
+    // leaving it null like the legacy path, since the fixture this fix
+    // targets needs a real collectionAddress for grouping/dedup. Best-
+    // effort: any decode failure leaves collectionAddress null and falls
+    // back to update-authority grouping, same as the legacy path already
+    // does.
+    const decoded = decodeUnifiedCreateArgsV1(ix.data);
+    if (decoded?.collectionKey) {
+      collectionAddress = decoded.collectionKey;
+    }
+  }
+  return { mintAddress, collectionAddress, updateAuthority, minter };
+}
+
+// ─── Direct unified Token Metadata mint (targeted-mode admission) ──────────
+//
+// `detectGenericTokenMetadataLaunchpadMint` (core-v2-detector.ts) is the
+// targeted-mode fallback for a LEGACY (CreateMetadataAccountV3, disc 33)
+// Token Metadata mint wrapped by an unknown custom launchpad program — it
+// REQUIRES that wrapper by design (see its own doc comment: "without this
+// gate a bare direct TM mint... would be poached"). It also only recognizes
+// disc 33, so it never even reaches that wrapper check for a unified-Create
+// (disc 42) tx — `tmIxs.find(x => x.disc === TM_CREATE_METADATA_V3)` comes
+// back empty and the function returns null immediately.
+//
+// A bare, direct, wrapper-less mint using the MODERN unified instruction
+// builder (confirmed live: tx 5ZZHZZrrAf2hmzCRYZ91JdTxtJwCaZfzt7848Ux9iZqZQ
+// 6ofZphwALcnMurYntAebw4XrPpTmttvjbStiaqpoMrz) is therefore invisible to
+// targeted mode today — rejected as `unknown_launchpad`. This detector is
+// the targeted-mode admission path for exactly that class: a real,
+// standalone NFT mint with no identifiable named launchpad wrapper.
+
+/** Token standards that represent a genuine 1/1-style NFT at Create time.
+ *  Excludes FungibleAsset(1)/Fungible(2) — fungible and semi-fungible
+ *  Token-Metadata creates are real TM activity but not /mints candidates. */
+const UNIFIED_NFT_TOKEN_STANDARDS: ReadonlySet<number> = new Set([0, 4]); // NonFungible, ProgrammableNonFungible
+
+export interface DirectUnifiedTmMintDetection {
+  accept:            boolean;
+  rejectReason:       string | null;
+  mintAddress:       string | null;
+  collectionAddress: string | null;
+  minter:            string | null;
+  updateAuthority:   string | null;
+  name:              string | null;
+  uri:               string | null;
+  tokenStandard:     number | null;
+}
+
+/**
+ * Detects a genuine, freshly-minted NFT via Token Metadata's modern unified
+ * instruction builder (`Create` + `Mint`, optional `Verify`) with NO
+ * requirement of a known — or any — launchpad wrapper. Reuses
+ * `detectProgramSource` / `findMintInstruction` / `extractMintAccounts` /
+ * `decodeUnifiedCreateArgsV1` entirely (same single source of truth as the
+ * legacy-mode fix), adding only the extra accept gates needed to safely
+ * admit a BARE mint that those functions alone don't attempt to justify.
+ *
+ * Returns null when the tx isn't a unified-Create tx at all (no disc-42
+ * instruction present) — the same "not applicable" convention
+ * `detectGenericTokenMetadataLaunchpadMint` uses. Returns a populated,
+ * `accept: false` result with a specific `rejectReason` for every other
+ * failure, so callers can log an informative reject line.
+ *
+ * Accept gates (ALL required — see the module's false-positive audit,
+ * 2026-07-12):
+ *   1. `detectProgramSource` classifies the tx as `tm_unified_create_bare`
+ *      (disc 42 present) — eliminates metadata updates, verify/unverify-
+ *      only, burn, delegate/revoke, lock/unlock, `CreateEscrowAccount`,
+ *      and the unified `Print` (additional-edition) instruction: none of
+ *      those log a `Create`.
+ *   2. `findMintInstruction` selects the actual Create instruction (fails
+ *      closed on a mint-only variant or an unresolvable instruction).
+ *   3. `decodeUnifiedCreateArgsV1` decodes the Create payload cleanly.
+ *   4. `tokenStandard` is NonFungible(0) or ProgrammableNonFungible(4).
+ *   5. `extractMintAccounts` yields a real mint address (accounts[2], never
+ *      the Master Edition PDA at accounts[1]; blacklisted/null → reject).
+ *   6. A unified `Mint` ix (disc 43) exists, targeting THE SAME mint
+ *      (accounts[5] of the Mint ix) — rejects "Create but no Mint"
+ *      (metadata-only / lazy-mint / malformed-incomplete flows).
+ *   7. `postTokenBalances` independently confirms completed supply
+ *      (decimals===0, amount==='1', SPL-Token-owned) for that mint.
+ *   8. Mint account freshly created in this exact tx (`isFresh`).
+ *   9. A real collection resolves — prefers the on-chain-VERIFIED `Verify`
+ *      ix's collection mint (disc 52, via the SAME
+ *      `TM_VERIFY_COLLECTION_MINT_IDX` the legacy sibling uses), falls back
+ *      to the Create ix's own embedded (unverified) collection key; rejects
+ *      if neither resolves to a real, non-placeholder address.
+ *  10. `nameLooksLikePool` hard reject (reused from the legacy sibling).
+ *
+ * Deliberately NOT gated on wrapper presence — unlike the legacy sibling, a
+ * bare direct mint (no launchpad at all) is exactly the case this function
+ * exists to admit. A future custom launchpad that happens to wrap the
+ * unified instruction set would also pass — a strict superset of "bare
+ * direct", not a narrower carve-out, and still safe because gates 1–10 are
+ * about mint REALNESS, not about who invoked it.
+ */
+export function detectDirectUnifiedTokenMetadataMint(tx: RawSolanaTx): DirectUnifiedTmMintDetection | null {
+  const shape = readShape(tx);
+  if (!shape) return null;
+  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM)) return null;
+
+  const rej = (
+    rejectReason: string,
+    extra: Partial<DirectUnifiedTmMintDetection> = {},
+  ): DirectUnifiedTmMintDetection => ({
+    accept: false, rejectReason,
+    mintAddress: null, collectionAddress: null, minter: shape!.signerKeys[0] ?? null,
+    updateAuthority: null, name: null, uri: null, tokenStandard: null,
+    ...extra,
+  });
+
+  // Pool-position / DEX-LP txs occasionally mint via TM (same hard reject
+  // the legacy generic sibling applies) — checked before any decode work.
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return rej('defi_program_present');
+  }
+
+  const hit = detectProgramSource(tx);
+  if (!hit || hit.programSource !== 'mpl_token_metadata' || hit.variant !== 'tm_unified_create_bare') {
+    return null; // not a unified-Create tx — Core / legacy TM / non-mint activity, all handled elsewhere
+  }
+  const found = findMintInstruction(tx, hit);
+  if (!found) return null; // e.g. a Mint-only variant with no matching Create anywhere in the tx
+
+  const decoded = decodeUnifiedCreateArgsV1(found.ix.data);
+  if (!decoded) return rej('borsh_decode_failed');
+
+  if (decoded.tokenStandard == null || !UNIFIED_NFT_TOKEN_STANDARDS.has(decoded.tokenStandard)) {
+    return rej('not_nft_token_standard', { name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  const extracted = extractMintAccounts(found);
+  const mintAddress = extracted.mintAddress;
+  if (!mintAddress) {
+    return rej('no_mint_address', { name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+  if (MINT_ADDRESS_BLACKLIST.has(mintAddress)) {
+    return rej('program_account', { mintAddress, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  // Require a completed unified Mint ix targeting THE SAME mint — rejects
+  // a Create with no matching Mint (metadata-only / malformed-incomplete).
+  const tmIxs = collectTokenMetadataIxs(tx, found.accountKeys);
+  const mintIx = tmIxs.find(x =>
+    x.disc === TM_DISC_UNIFIED_MINT
+    && x.accounts.length > 5
+    && found.accountKeys[x.accounts[5]] === mintAddress,
+  );
+  if (!mintIx) {
+    return rej('no_completed_mint', { mintAddress, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+  const post = tx.meta?.postTokenBalances ?? [];
+  const supplyOk = post.some(b =>
+    b.mint === mintAddress && b.programId === SPL_TOKEN_PROGRAM
+    && b.uiTokenAmount?.decimals === 0 && b.uiTokenAmount?.amount === '1',
+  );
+  if (!supplyOk) {
+    return rej('no_completed_mint', { mintAddress, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  if (!isFresh(shape, mintAddress)) {
+    return rej('asset_not_fresh', { mintAddress, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  // Collection: prefer the on-chain-VERIFIED Verify ix's collection mint
+  // over the Create ix's own (unverified) embedded field.
+  let collection: string | null = extracted.collectionAddress;
+  for (const x of tmIxs) {
+    const idx = TM_VERIFY_COLLECTION_MINT_IDX.get(x.disc);
+    if (idx === undefined) continue;
+    const ai = x.accounts.length > idx ? x.accounts[idx] : -1;
+    const verified = ai >= 0 ? (found.accountKeys[ai] ?? null) : null;
+    if (verified) { collection = verified; break; }
+  }
+  const realCollection = !!collection
+    && collection !== mintAddress
+    && collection !== SYSTEM_PROGRAM
+    && collection !== TOKEN_METADATA_PROGRAM
+    && collection !== SPL_TOKEN_PROGRAM;
+  if (!realCollection) {
+    return rej('no_collection', { mintAddress, collectionAddress: collection, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  if (nameLooksLikePool(decoded.name, decoded.uri)) {
+    return rej('pool_like_name', { mintAddress, collectionAddress: collection, name: decoded.name, uri: decoded.uri, tokenStandard: decoded.tokenStandard });
+  }
+
+  return {
+    accept:            true,
+    rejectReason:      null,
+    mintAddress,
+    collectionAddress: collection,
+    minter:            extracted.minter,
+    updateAuthority:   extracted.updateAuthority,
+    name:              decoded.name,
+    uri:               decoded.uri,
+    tokenStandard:     decoded.tokenStandard,
+  };
 }
 
 // ─── Ingestion entry point ───────────────────────────────────────────────────
@@ -1395,6 +1940,61 @@ export async function ingestMintRaw(
         // singleton) and no_custom_wrapper (direct/candy → not ours) are noise.
         logV2CoreReject(sig, tm.score, tm.rejectReason, tm.reasons);
       }
+      // Direct unified Token Metadata mint — bare Create+Mint(+Verify) with
+      // NO known launchpad wrapper, using the modern unified instruction
+      // builder (disc 42/43/52). `tm` above only ever matches the LEGACY
+      // disc-33 CreateMetadataAccountV3 path AND requires a custom wrapper;
+      // this is the targeted-mode admission path for the previously-
+      // invisible bare/unified class (2026-07-12 audit — reference tx
+      // 5ZZHZZrrAf2hmzCRYZ91JdTxtJwCaZfzt7848Ux9iZqZQ6ofZphwALcnMurYntAebw4
+      // XrPpTmttvjbStiaqpoMrz). Runs last, right before the final
+      // unknown_launchpad reject — every existing detector above has
+      // already had first refusal.
+      const tmUnified = detectDirectUnifiedTokenMetadataMint(tx);
+      if (tmUnified && tmUnified.accept && tmUnified.mintAddress && tmUnified.collectionAddress) {
+        console.log(
+          `[mints/tm-unified] accept mint=${tmUnified.mintAddress} ` +
+          `collection=${tmUnified.collectionAddress} standard=${describeTmTokenStandard(tmUnified.tokenStandard)} ` +
+          `minter=${tmUnified.minter ?? 'null'} sig=${sig}`,
+        );
+        const priceLamports = extractMintPriceLamports(tx);
+        const mintType      = classifyMintType(priceLamports);
+        const groupingKey   = `collection:${tmUnified.collectionAddress}`;
+        const blockTime = tx.blockTime
+          ? new Date((tx.blockTime as number) * 1000).toISOString()
+          : new Date().toISOString();
+        const emitted = rec({
+          signature:         sig,
+          blockTime,
+          programSource:     'mpl_token_metadata',
+          mintAddress:       tmUnified.mintAddress,
+          collectionAddress: tmUnified.collectionAddress,
+          groupingKey,
+          groupingKind:      'collection',
+          mintType,
+          priceLamports,
+          ...paymentFieldsFrom(tx),
+          minter:            tmUnified.minter,
+          // Reuses the SAME generic label the legacy sibling uses (line
+          // ~1926 above) — a real Token Metadata mint with no identifiable
+          // NAMED launchpad, never a false claim of LaunchMyNFT / Candy
+          // Machine / etc.
+          sourceLabel:       'Metaplex',
+        });
+        if (emitted) enqueueMintEnrichment(groupingKey, tmUnified.mintAddress);
+        scheduleCollectionConfirmation(groupingKey, tmUnified.mintAddress, tmUnified.collectionAddress, sig);
+        void enrichLaunchpadCollectionMeta(tmUnified.collectionAddress, groupingKey, {
+          patchName: true,
+          logTag:    'tm-unified-meta',
+        });
+        return;
+      }
+      if (tmUnified && !tmUnified.accept && tmUnified.rejectReason && tmUnified.rejectReason !== 'no_collection') {
+        // no_collection is common/noisy (many fresh disc-42 Creates have no
+        // collection yet, e.g. pre-reveal) — everything else is a genuinely
+        // informative reject worth an audit line.
+        console.log(`[mints/tm-unified-reject] sig=${sig} reason=${tmUnified.rejectReason}`);
+      }
       if (sig === DEBUG_SIG) {
         console.log(`[mints/debug-sig] sig=${sig} decision=reject reason=unknown_launchpad`);
       }
@@ -1670,15 +2270,19 @@ export async function ingestMintRaw(
     return;
   }
 
-  const found = findMintInstruction(tx, hit.programSource);
+  const found = findMintInstruction(tx, hit);
   if (!found) {
-    // Both the top-level scan AND the inner-CPI scan came up empty.
-    // Possible causes (in rough order of likelihood):
+    // Both the top-level scan AND the inner-CPI scan came up empty, OR
+    // (Token Metadata only) `hit.variant` was a Mint-only signal with no
+    // matching Create-family discriminator anywhere in the tx. Possible
+    // causes (in rough order of likelihood):
     //   - prefilter let in a non-mint tx whose log substrings collide
     //     (e.g. SPL `MintTo` or ATA `Create`)
     //   - account-key merge missed an ALT-loaded program (rare; logs
     //     would still show the program address but accountKeys[i]
     //     wouldn't resolve to it)
+    //   - a Mint-only tx (e.g. printing an edition in a separate tx from
+    //     the original Create) — correctly has no create instruction here
     noteParseStep('ix_not_found_anywhere', hit.programSource, sig);
     return;
   }
@@ -1688,41 +2292,8 @@ export async function ingestMintRaw(
     // is firing and how often vs. the top-level path.
     noteParseStep('inner_ix_found', hit.programSource, sig);
   }
-  const { ix, accountKeys } = found;
-
-  // Conservative account extraction. Both Core CreateV1 and Token
-  // Metadata CreateMetadataAccountV3/Mint place the asset/mint at a
-  // low instruction-account index; we read defensively and fall back
-  // to null when the layout isn't what we expect.
-  //
-  //   Core.CreateV1:               accounts[0] = asset
-  //                                accounts[2] = collection (optional)
-  //                                accounts[3] = authority/update_authority
-  //                                accounts[5] = payer/minter (signer)
-  //   TM.CreateMetadataAccountV3:  accounts[0] = metadata PDA
-  //                                accounts[1] = mint
-  //                                accounts[2] = mint authority
-  //                                accounts[4] = payer (signer)
-  const a = ix.accounts;
-  let mintAddress:       string | null = null;
-  let collectionAddress: string | null = null;
-  let updateAuthority:   string | null = null;
-  let minter:            string | null = null;
-
-  if (hit.programSource === 'mpl_core') {
-    mintAddress       = accountKeys[a[0]] ?? null;
-    collectionAddress = a.length > 2 ? (accountKeys[a[2]] ?? null) : null;
-    updateAuthority   = a.length > 3 ? (accountKeys[a[3]] ?? null) : null;
-    minter            = a.length > 5 ? (accountKeys[a[5]] ?? null) : null;
-  } else {
-    // Token Metadata: mint is index 1 across the relevant ixs.
-    mintAddress     = a.length > 1 ? (accountKeys[a[1]] ?? null) : null;
-    updateAuthority = a.length > 2 ? (accountKeys[a[2]] ?? null) : null;
-    minter          = a.length > 4 ? (accountKeys[a[4]] ?? null) : null;
-    // Collection address isn't directly in the instruction accounts
-    // for Token Metadata Create — it lives in the data payload. Left
-    // null in this MVP; falls back to update authority for grouping.
-  }
+  const { accountKeys } = found;
+  let { mintAddress, collectionAddress, updateAuthority, minter } = extractMintAccounts(found);
 
   // Dedup: ignore the "create collection" call itself — that's the
   // collection NFT, not a mint into a collection. We still want to

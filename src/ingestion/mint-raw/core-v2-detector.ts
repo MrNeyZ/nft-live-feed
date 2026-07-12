@@ -37,7 +37,7 @@ import {
 // AMM / LP txs (e.g. when a pool authority happens to mint a position
 // NFT through Core); those are not NFT drops and must not surface in
 // /mints. Curated; extend as new false positives are observed.
-const DEFI_PROGRAM_BLACKLIST: ReadonlySet<string> = new Set([
+export const DEFI_PROGRAM_BLACKLIST: ReadonlySet<string> = new Set([
   // Meteora DLMM
   'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
   // Meteora DAMM v1 (Dynamic Pools)
@@ -171,14 +171,14 @@ export interface CoreV2Detection {
   pluginsCount:      number | null;
 }
 
-interface TxShape {
+export interface TxShape {
   accountKeys: string[];
   signerKeys:  string[];
   preBalances:  number[];
   postBalances: number[];
 }
 
-function readShape(tx: RawSolanaTx): TxShape | null {
+export function readShape(tx: RawSolanaTx): TxShape | null {
   const message = tx.transaction?.message;
   if (!message) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -321,7 +321,7 @@ function uriShapeOk(uri: string): boolean {
   return /^(https?:\/\/|ipfs:\/\/|ar:\/\/)/i.test(uri);
 }
 
-function nameLooksLikePool(name: string, uri: string): boolean {
+export function nameLooksLikePool(name: string, uri: string): boolean {
   const haystack = `${name}\n${uri}`.toLowerCase();
   for (const p of NEGATIVE_NAME_PATTERNS) {
     if (haystack.includes(p)) return true;
@@ -329,7 +329,7 @@ function nameLooksLikePool(name: string, uri: string): boolean {
   return false;
 }
 
-function isFresh(shape: TxShape, address: string): boolean {
+export function isFresh(shape: TxShape, address: string): boolean {
   const idx = shape.accountKeys.indexOf(address);
   if (idx < 0) return false;
   const pre  = shape.preBalances[idx];
@@ -678,7 +678,7 @@ const TM_CREATE_MASTER_EDITION_V3 = 17;
 /** Verify-collection-family ixs → the account index holding the collection
  *  MINT in each variant's account layout. Used to read the on-chain-verified
  *  collection directly from the verify ix. */
-const TM_VERIFY_COLLECTION_MINT_IDX: ReadonlyMap<number, number> = new Map([
+export const TM_VERIFY_COLLECTION_MINT_IDX: ReadonlyMap<number, number> = new Map([
   [18, 3], // VerifyCollection                    [meta, auth, payer, collMint, …]
   [30, 3], // VerifySizedCollectionItem           [meta, auth, payer, collMint, …]
   [25, 4], // SetAndVerifyCollection              [meta, auth, payer, updAuth, collMint, …]
@@ -695,11 +695,11 @@ const TM_VERIFY_COLLECTION_MINT_IDX: ReadonlyMap<number, number> = new Map([
  *  constant is left untouched (out of scope for this change). */
 const ATA_PROGRAM_CANONICAL = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
-interface TmIx { disc: number; accounts: number[]; dataB58: string; }
+export interface TmIx { disc: number; accounts: number[]; dataB58: string; }
 /** Collect every Token Metadata instruction (top + inner), with its
  *  first-byte discriminator and resolved account indices. Single pass so the
  *  detector can locate create/master-edition/verify ixs without re-walking. */
-function collectTokenMetadataIxs(tx: RawSolanaTx, accountKeys: string[]): TmIx[] {
+export function collectTokenMetadataIxs(tx: RawSolanaTx, accountKeys: string[]): TmIx[] {
   const out: TmIx[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const consider = (ix: any): void => {
