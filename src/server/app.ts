@@ -31,6 +31,7 @@ import { createDotlandRouter } from './tools-dotland';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
+import { createBotApiV1Router } from './bot-api/router';
 
 export function createApp() {
   const app = express();
@@ -176,6 +177,12 @@ export function createApp() {
   // Pixel-forge drawing agent — personal use, requireAuth-gated on every
   // route (see tools-pixel-forge.ts header comment).
   app.use('/api', createPixelForgeRouter());
+
+  // VictoryLabs Internal Bot API v1 — private, versioned, read-only market
+  // data for the vl-nft-bots consumer. Bot-auth-gated on every route (see
+  // bot-api/auth.ts); own rate-limit budget, separate from every public
+  // route above. See docs/internal-bot-api-v1.md.
+  app.use('/api/internal/bots/v1', createBotApiV1Router());
 
   const buyMeRouter = createBuyMeRouter();
   // Frontend uses `/api/buy/me` exclusively (see grep: only call site is
