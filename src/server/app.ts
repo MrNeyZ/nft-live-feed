@@ -5,6 +5,7 @@ import { createEventsRouter } from './events-router';
 import { createCollectionBidsRouter } from './collection-bids';
 import { createCollectionRollupsRouter } from './collection-rollups';
 import { createCollectionListingsRouter } from './collection-listings';
+import { createCollectionFloorDepthRouter } from './collection-floor-depth';
 import { createCollectionStatsRouter } from './collection-stats';
 import { createCollectionChartRouter } from './collection-chart';
 import { createCollectionTradeHistoryRouter } from './collection-trade-history';
@@ -82,6 +83,14 @@ export function createApp() {
   app.use('/api/collections', rollupsRouter);
   app.use('/collections',     listingsRouter);
   app.use('/api/collections', listingsRouter);
+
+  // Floor Depth / Liquidity — read-only, reuses listings-store's existing
+  // ME+MMM+Tensor snapshot and the already-tested computeFloorDepth() pure
+  // function (Feature Activation Stage 1 — see collection-floor-depth.ts).
+  // GET /api/collections/floor-depth?slug=<collection slug>
+  const floorDepthRouter = createCollectionFloorDepthRouter();
+  app.use('/collections',     floorDepthRouter);
+  app.use('/api/collections', floorDepthRouter);
   app.use('/collections',     statsRouter);
   app.use('/api/collections', statsRouter);
   app.use('/collections',     chartRouter);
