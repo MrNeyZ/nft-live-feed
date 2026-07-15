@@ -98,6 +98,15 @@ interface TestCase {
    *  Regression guard for the listing-escrow rent-refund overcount — seller-net
    *  must not exceed gross, else it surfaces a price inflated by reclaimed rent. */
   expectDisplayPriceLte?: number;
+  /**
+   * Tri-state AMM-fill regression guard (see parser.ts "Synchronous AMM-fill
+   * classification" + sale-event-adapters.ts ammFillFromRawData):
+   *   true    → rawData._ammFill must be exactly `true`  (confirmed AMM fill, lp_fee>0)
+   *   false   → rawData._ammFill must be exactly `false` (confirmed lp_fee===0 bid accept)
+   *   'absent' → rawData._ammFill key must be MISSING entirely (no lp_fee evidence —
+   *              e.g. fulfillSell direction, or cNFT which never emits an lp_fee log)
+   */
+  expectAmmFill?: true | false | 'absent';
 }
 
 const CASES: TestCase[] = [
@@ -217,6 +226,10 @@ const CASES: TestCase[] = [
     expectPriceGte:    0.054,
     expectPriceLte:    0.056,
     expectInstruction: 'solMip1FulfillSell',
+    // Unaffected fulfillSell variant: _ammFill is only computed for the
+    // fulfillBuy direction (see parser.ts) — fulfillSell must never carry
+    // the key, confirming the AMM-fill fix doesn't touch pool-buy sales.
+    expectAmmFill:     'absent',
   },
   // ── 2026-04-15: coreExecuteSaleV2 — terminal action selection verified ────────
   // These txs contain Deposit + BuyV2 + CoreExecuteSaleV2.
@@ -332,6 +345,78 @@ const CASES: TestCase[] = [
     expectDisplayPriceLte: 0.00827, // before fix: 0.011642646 (contaminated seller-net) → FAIL
     expectInstruction:   'solFulfillBuy',
   },
+  // ── 2026-07-15: false plain-SELL badge on MMM fulfillBuy AMM fills ───────────
+  // Root cause: the AMM badge depended solely on mmm-pool-type-resolver's
+  // async ME `/mmm/pools` lookup (poolType==='two_sided'), which is a) never
+  // exposed to REST/reload reads at all, and b) can be wrong/stale/unknown
+  // even for live SSE. Both signatures below are REAL fulfillBuy AMM pool
+  // fills (lp_fee > 0 on-chain, independently confirmed 2026-07-15 — see
+  // parser.ts) that a plain poolType lookup mis- or under-classified:
+  //   3VYqF8s6… — ME's own API DID classify this pool `two_sided` (so the
+  //               old rule happened to work here, by luck of ME's lookup).
+  //   5G5YJiVf… — ME's API could NOT classify this pool at all (not found /
+  //               invalid / lookup failure) — the old rule would show plain
+  //               SELL despite this being a genuine AMM fill.
+  // Fix: `_ammFill` is derived synchronously from the on-chain lp_fee log at
+  // parse time, independent of whether (or how) ME's API classifies the pool.
+  {
+    sig:               '3VYqF8s6XKK9bSuhFF82A4MztYZAvVwNvat5Z6dG71KfAF3iEAN7MZNK3zWMqp4cmDpDY2madNYauD8DhkNp7mEa',
+    label:             'REPORTED REGRESSION: AMM fill, pool ME classified two_sided (MMM — solMip1FulfillBuy)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'pnft',
+    expectSeller:      'Ft6UZYLKh3AZAUij3sdM4ZTT1ibvxbW23CyhcrsPZFc3',
+    expectBuyer:       '6Fvwa3cPPQPhPBFx5vqr9QJ3qJJ7e1Ai21vDP1FBrDHc',
+    expectInstruction: 'solMip1FulfillBuy',
+    expectAmmFill:     true,
+  },
+  {
+    sig:               '5G5YJiVfFxBzeHNJCNgv5JH3fEajxaf9iPJFvT7iNRobATBrN9CeUqPG3kepmyyL9KoB8RvuyufG9huczHiEQN3P',
+    label:             'REPORTED REGRESSION: AMM fill, pool unresolvable via ME poolType (MMM — coreFulfillBuy)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'core',
+    expectSeller:      'Ft6UZYLKh3AZAUij3sdM4ZTT1ibvxbW23CyhcrsPZFc3',
+    expectBuyer:       'H6B1xriQkPSgpKAfLrTexDWtnuNGga77wGNnuJzwnY3G',
+    expectInstruction: 'coreFulfillBuy',
+    expectAmmFill:     true,
+  },
+  // ── Ordinary bid acceptances (lp_fee===0) — must render plain SELL, never AMM ──
+  {
+    sig:               '57uuQJLbQRZfXoSnueSKEQtR4G4nWTHBN3PCtNajm1PdVjzWQCHa8yn33xQD4ieow3AL996tVoigyYokkNx3kB3s',
+    label:             'Ordinary bid acceptance #1 (MMM — solFulfillBuy, trait-filtered, lp_fee=0)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'legacy',
+    expectBuyer:       'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectInstruction: 'solFulfillBuy',
+    expectAmmFill:     false,
+  },
+  {
+    sig:               '2cdam8rLjxCCAmW53ZTcFU4E9orPstjyP4oJtVhydT3z6anszEwripjf1mf5zUCqPz5HMeViNoEDLfvcow5ULdi5',
+    label:             'Ordinary bid acceptance #2 (MMM — coreFulfillBuy, lp_fee=0)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'core',
+    expectSeller:      'FRNfEknDZekTSMDQXQiLLwPDgx23ywPEx4zsxJXGv2Fu',
+    expectBuyer:       '7VzKwP6CoW6QAhbVaWNjB1NTfgTVefbFAQhsvxVdGB7X',
+    expectInstruction: 'coreFulfillBuy',
+    expectAmmFill:     false,
+  },
+  // ── Malformed/missing lp_fee — fail-closed, never throws ─────────────────────
+  // cnftFulfillBuy never emits an lp_fee log line at all (confirmed live
+  // 2026-07-15) — this is the real-world "missing evidence" case: `_ammFill`
+  // must be entirely absent (not false) so the frontend still allows a
+  // poolType fallback rather than asserting a false negative.
+  {
+    sig:               'GzD8n1Mvt2rAjLU9xjWBD3eYfGwjnBk81HkHyFqxk7Qopq7n5NkFwEWoq7xrDR3ErbXbshg8dfnWvXEZqxjZjEk',
+    label:             'Missing lp_fee evidence — fail-closed (MMM — cnftFulfillBuy)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'cnft',
+    expectInstruction: 'cnftFulfillBuy',
+    expectAmmFill:     'absent',
+  },
 ];
 
 // ─── Checker ──────────────────────────────────────────────────────────────────
@@ -409,6 +494,14 @@ async function main() {
       // Mirror the feed's render value: sellerNetPriceSol ?? priceSol.
       const displayPrice = e.sellerNetPriceSol ?? e.priceSol;
       ok = checkRange('displayPrice', displayPrice, 0, tc.expectDisplayPriceLte) && ok;
+    }
+    if (tc.expectAmmFill !== undefined) {
+      const raw = e.rawData as Record<string, unknown>;
+      if (tc.expectAmmFill === 'absent') {
+        ok = check('_ammFill (absent)', '_ammFill' in raw, false) && ok;
+      } else {
+        ok = check('_ammFill', raw._ammFill, tc.expectAmmFill) && ok;
+      }
     }
 
     if (ok) {

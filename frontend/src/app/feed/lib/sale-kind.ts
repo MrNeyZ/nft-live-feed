@@ -78,18 +78,41 @@ export type PoolType = 'buy' | 'sell' | 'two_sided';
  * marketplace (`magic_eden_amm` / `tensor_amm`) it may be an AMM pool sale
  * rather than a plain peer-to-peer sell.
  *
- * Global AMM-badge rule (2026-07-11): the ∿ AMM glyph renders ONLY when
- * `isPoolMarketplace && poolType === 'two_sided'`. `poolType` is resolved
- * out-of-band (async, live/recent sales only — see
- * `src/ingestion/mmm-pool-type-resolver.ts`); `'buy'`, `'sell'`, and
- * `undefined`/`null` (unresolved, lookup failed, or a historical/REST row
- * that never carried it) all fall back to the plain BUY/SELL. This applies
- * uniformly to `bid_sell` (ambiguous — needs both checks), `pool_buy`, and
- * `pool_sale` (already always pool-marketplace by construction, but gated
- * the same way for one consistent rule rather than three special cases).
+ * Canonical AMM-badge precedence rule (2026-07-15, supersedes the
+ * 2026-07-11 poolType-only rule): the ∿ AMM glyph renders when
+ *
+ *   isPoolMarketplace && (
+ *     ammFill === true ||
+ *     (ammFill == null && poolType === 'two_sided')
+ *   )
+ *
+ * `ammFill` is the authoritative, transaction-time signal — set
+ * synchronously at parse time from the MMM `lp_fee` program log (see
+ * `src/ingestion/me-raw/parser.ts`'s "Synchronous AMM-fill classification"
+ * block) and PERSISTED (survives REST reads / reloads / collection
+ * drill-downs), unlike `poolType`. It is tri-state: `true` (confirmed AMM
+ * fill), `false` (confirmed lp_fee===0 ordinary bid acceptance), or
+ * `undefined`/`null` (no evidence — e.g. non-MMM sale, MMM fulfillSell
+ * direction, an unverified instruction variant, or a pre-existing row).
+ *
+ * `ammFill === false` is NOT the same as "unknown" and must NEVER fall
+ * through to the `poolType` check — that was the exact bug this rule
+ * fixes: a stale/wrong ME `poolType` lookup could contradict evidence
+ * already confirmed on-chain. `poolType` (resolved out-of-band, async,
+ * live/recent sales only — see `src/ingestion/mmm-pool-type-resolver.ts`)
+ * is corroboration/fallback ONLY, used exclusively when `ammFill` carries
+ * no evidence at all. `'buy'`, `'sell'`, and `undefined`/`null` poolType
+ * values (unresolved, lookup failed, or a historical/REST row that never
+ * carried it) all still render the plain BUY/SELL in the fallback branch.
  */
-export function saleKind(saleTypeRaw: string | null, isPoolMarketplace = false, poolType?: PoolType | null): SaleKind {
-  const showAmm = isPoolMarketplace && poolType === 'two_sided';
+export function saleKind(
+  saleTypeRaw: string | null,
+  isPoolMarketplace = false,
+  poolType?: PoolType | null,
+  ammFill?: boolean | null,
+): SaleKind {
+  const showAmm = isPoolMarketplace
+    && (ammFill === true || (ammFill == null && poolType === 'two_sided'));
   switch (saleTypeRaw) {
     case SALE_TYPE_BUY:      return 'buy';
     case SALE_TYPE_SELL:     return showAmm ? 'sellAmm' : 'sell';

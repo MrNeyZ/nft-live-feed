@@ -48,6 +48,30 @@ export interface SaleEventRow {
    *  resolver cache (NOT a DB column — added in the handler). Survives a
    *  page refresh so the RESIZE badge persists across reloads. */
   resize_status?: string | null;
+  /** FRESH MINT fact frozen at enrichment time, stored under raw_data's
+   *  '_mintedAtMs' key (no migration — see insert.ts UPDATE_META_SQL).
+   *  Present (possibly null) once a row has been through the new
+   *  enrichment path; absent for older rows written before this existed,
+   *  which fall back to the live fresh-mint-cache check in stampFromCache. */
+  minted_at_ms?: number | null;
+  /** True when raw_data carries the '_mintedAtMs' key at all — distinguishes
+   *  "checked at sale time, confirmed not fresh" (key present, value null)
+   *  from "never checked" (key absent, pre-fix row) so stampFromCache knows
+   *  whether to trust `minted_at_ms` as-is or still try the live fallback. */
+  minted_at_checked?: boolean;
+  /** Authoritative, transaction-time AMM-fill signal — derived from
+   *  raw_data's '_ammFill' key (set by the parser from the MMM lp_fee log,
+   *  see src/ingestion/me-raw/parser.ts). Unlike `poolType` (SSE-only,
+   *  never persisted), this survives a REST read / page reload / collection
+   *  drill-down because it's stored in raw_data at insert time — see
+   *  ammFillFromRawData in sale-event-adapters.ts.
+   *
+   *  Tri-state: true (confirmed AMM fill) / false (confirmed lp_fee===0
+   *  ordinary bid acceptance — must never fall back to poolType) / null
+   *  (no evidence — key absent, e.g. non-MMM sale, MMM fulfillSell, an
+   *  unverified instruction variant, or a row ingested before this field
+   *  existed — poolType fallback is allowed for null only). */
+  amm_fill: boolean | null;
 }
 
 // Select raw_data extracts (not the full JSONB) so the TS-side `deriveSaleType`
@@ -62,7 +86,17 @@ const SALE_TYPE_EXTRACTS = `
   raw_data->>'_parser'    AS _parser_extract,
   raw_data->>'_direction' AS _direction_extract,
   raw_data->>'_subtype'   AS _subtype_extract,
-  raw_data->'events'->'nft'->>'saleType' AS _helius_sale_type_extract
+  raw_data->'events'->'nft'->>'saleType' AS _helius_sale_type_extract,
+  (raw_data->>'_ammFill')::boolean AS _amm_fill_extract
+`.trim();
+
+// See UPDATE_META_SQL in insert.ts — frozen FRESH MINT fact, stored in
+// raw_data rather than a real column so no migration was needed. The
+// `?` (jsonb "has key") check is what lets stampFromCache tell "checked,
+// not fresh" (key present, null) apart from "never checked" (key absent).
+const MINTED_AT_EXTRACTS = `
+  (raw_data ? '_mintedAtMs')             AS _minted_at_checked_extract,
+  (raw_data->>'_mintedAtMs')::bigint     AS minted_at_ms
 `.trim();
 
 interface SaleEventRowRaw extends SaleEventRow {
@@ -70,6 +104,8 @@ interface SaleEventRowRaw extends SaleEventRow {
   _direction_extract:        string | null;
   _subtype_extract:          string | null;
   _helius_sale_type_extract: string | null;
+  _minted_at_checked_extract: boolean;
+  _amm_fill_extract:         boolean | null;
 }
 
 // Canonical read-side classifier: overwrite each row's `sale_type` with the
@@ -85,11 +121,18 @@ function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
       heliusSaleType: r._helius_sale_type_extract,
       subtype:        r._subtype_extract,
     });
+    r.minted_at_checked = r._minted_at_checked_extract;
+    // Tri-state passthrough — see SaleEventRow.amm_fill. Do NOT collapse
+    // null to false here; that would erase the "no evidence" state a
+    // caller needs to know poolType fallback is still allowed.
+    r.amm_fill = r._amm_fill_extract;
     // Scrub scratch columns before returning to callers.
     delete (r as Partial<SaleEventRowRaw>)._parser_extract;
     delete (r as Partial<SaleEventRowRaw>)._direction_extract;
     delete (r as Partial<SaleEventRowRaw>)._subtype_extract;
     delete (r as Partial<SaleEventRowRaw>)._helius_sale_type_extract;
+    delete (r as Partial<SaleEventRowRaw>)._minted_at_checked_extract;
+    delete (r as Partial<SaleEventRowRaw>)._amm_fill_extract;
     return r;
   });
 }
@@ -101,7 +144,8 @@ const LATEST_SQL = `
          tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
-         ${SALE_TYPE_EXTRACTS}
+         ${SALE_TYPE_EXTRACTS},
+         ${MINTED_AT_EXTRACTS}
   FROM sale_events
   ORDER BY block_time DESC, id DESC
   LIMIT $1
@@ -120,7 +164,8 @@ const BY_COLLECTION_SQL = `
          tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
-         ${SALE_TYPE_EXTRACTS}
+         ${SALE_TYPE_EXTRACTS},
+         ${MINTED_AT_EXTRACTS}
   FROM sale_events
   WHERE me_collection_slug = $1
     AND block_time >= $2
@@ -137,7 +182,8 @@ const BY_COLLECTION_NO_WINDOW_SQL = `
          tensor_collection_slug, ingested_at,
          seller_remaining_count, floor_delta,
          raw_data->>'_parser' AS parser_source,
-         ${SALE_TYPE_EXTRACTS}
+         ${SALE_TYPE_EXTRACTS},
+         ${MINTED_AT_EXTRACTS}
   FROM sale_events
   WHERE me_collection_slug = $1
   ORDER BY block_time DESC, id DESC
@@ -174,6 +220,10 @@ export interface CanonicalSaleMeta {
   sale_type:   string;
   nft_type:    string;
   marketplace: string;
+  /** See SaleEventRow.amm_fill (tri-state). Included so collection-trade-
+   *  history's ME-activity overlay can carry the authoritative AMM signal
+   *  onto shared-signature rows, not just sale_type/nft_type/marketplace. */
+  amm_fill:    boolean | null;
 }
 const SALE_META_BY_SIG_SQL = `
   SELECT signature, nft_type, marketplace, ${SALE_TYPE_EXTRACTS}
@@ -199,6 +249,7 @@ export async function getCanonicalSaleMetaBySignatures(
       sale_type,
       nft_type:    r.nft_type,
       marketplace: r.marketplace,
+      amm_fill:    r._amm_fill_extract,
     });
   }
   return out;

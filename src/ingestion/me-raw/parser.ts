@@ -426,9 +426,50 @@ function parseMmmSale(
   // post_sol_mpl_core_fulfill_buy log, so the signal is portable to
   // them too if needed later — for now the gate stays non-Core to
   // avoid touching the existing Core path's behavior.
+  // ── Synchronous AMM-fill classification (transaction-time, persisted) ────
+  //
+  // Independent of the takeBid reclassification below and of the (async,
+  // non-persisted) mmm-pool-type-resolver: `lp_fee > 0` on a fulfillBuy is
+  // itself the authoritative on-chain evidence that the fill retained the
+  // NFT as sell-side pool inventory (a genuine two-sided/AMM fill) — the
+  // MMM program only charges its LP curve fee when the trade reprices the
+  // pool's bonding curve, which happens exclusively on that path. Audited
+  // live 2026-07-15 against 13 real fulfillBuy transactions spanning
+  // solFulfillBuy / coreFulfillBuy / solMip1FulfillBuy / solOcpFulfillBuy /
+  // solExtFulfillBuy (7 lp_fee=0 bid-acceptance examples, 6 lp_fee>0 pool
+  // fills, no contradictions) — including both regression signatures
+  // reported for this fix (3VYqF8s6…, a pool ME's own API had classified
+  // `two_sided`, and 5G5YJiVf…, a pool ME's API could NOT classify at all)
+  // — both carry lp_fee > 0 on-chain regardless of what (or whether) ME's
+  // poolType lookup resolves, which is exactly why this signal must be the
+  // authoritative one and ME poolType only ever corroboration/fallback.
+  //
+  // Gated on `match.poolAcctIdx !== null` (the same independently-verified
+  // pool-account-position requirement `poolAddress` above uses) so an
+  // instruction variant whose account layout isn't independently confirmed
+  // (e.g. the still-dormant `coreFulfillBuyV2`) can never emit this flag —
+  // fails closed exactly like `poolAddress` does for the same reason.
+  // cNFT fulfillBuy never emits an `lp_fee` log line at all (confirmed live
+  // 2026-07-15 on 2 cnftFulfillBuy fixtures) so `ammFill` is never set for
+  // cNFT sales — also a correct fail-closed outcome, not a gap.
+  //
+  // Tri-state, NOT a plain boolean: `true` (lp_fee>0, confirmed AMM fill),
+  // `false` (lp_fee===0, confirmed ordinary bid acceptance — this is
+  // authoritative and must NEVER be second-guessed by a later ME poolType
+  // lookup), or omitted entirely (lp_fee missing/unverified — no evidence
+  // either way, poolType fallback is allowed). Collapsing `false` and
+  // "omitted" into one value would let a stale/wrong ME `two_sided` lookup
+  // override a transaction we've already confirmed is NOT a pool fill —
+  // exactly the class of bug this fix closes (see the frontend saleKind()
+  // precedence rule in sale-kind.ts).
+  let ammFill: { lpFeeLamports: number; isAmmFill: boolean } | null = null;
+
   let effectiveDirection: string = match.direction;
   if (match.direction === 'fulfillBuy') {
     const lpFee = readLpFeeFromLogs(tx.meta?.logMessages);
+    if (lpFee != null && match.poolAcctIdx !== null) {
+      ammFill = { lpFeeLamports: lpFee, isAmmFill: lpFee > 0 };
+    }
     let promote: boolean;
     if (lpFee != null) {
       promote = lpFee === 0;
@@ -555,6 +596,19 @@ function parseMmmSale(
       // path. Detection is by program presence in the tx account
       // universe (mirrors the lucky-buy approach).
       ...(isPackOpenTx(tx) ? { _subtype: 'pack_open' as const } : {}),
+      // Synchronous, persisted AMM-fill evidence — see the block above.
+      // `_ammFill` key is entirely ABSENT (not `false`) when lp_fee is
+      // missing/unverified — that's the "no evidence either way" state the
+      // frontend fallback checks for. When present it's always an exact
+      // boolean derived from an integer lamport comparison — never a
+      // floating-point value. This is the authoritative signal the
+      // frontend badge reads; mmm-pool-type-resolver's poolType is
+      // fallback/corroboration only (see its module doc).
+      ...(ammFill != null ? {
+        _ammFill:        ammFill.isAmmFill,
+        _ammEvidence:    'lp_fee' as const,
+        _lpFeeLamports:  String(ammFill.lpFeeLamports),
+      } : {}),
     },
     nftName:           null,
     imageUrl:          null,

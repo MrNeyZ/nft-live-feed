@@ -69,6 +69,7 @@ function mkSaleRow(signature: string, mint: string): SaleEventRow {
     ingested_at: '2026-07-14T00:00:00.000Z',
     parser_source: null,
     seller_remaining_count: null,
+    amm_fill: null,
   };
 }
 

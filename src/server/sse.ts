@@ -15,7 +15,7 @@ import {
 } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { rarityForMintSync } from './rarity-lookup';
-import { saleTypeFromEvent } from '../domain/sale-event-adapters';
+import { saleTypeFromEvent, ammFillFromEvent } from '../domain/sale-event-adapters';
 import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../mints/accumulator';
 import { getSellerCollectionCountVerbose, resolveCollectionForMint } from '../enrichment/seller-collection-count';
@@ -265,6 +265,12 @@ function buildSaleFrame(event: SaleEvent): string {
     offerDelta:        event.offerDelta        ?? null,
     resizeStatus:      event.resizeStatus      ?? null,
     mintedAtMs:        event.mintedAtMs         ?? null,
+    // Authoritative, synchronous AMM-fill signal (see sale-event-adapters.ts) —
+    // unlike `poolType` (async, SSE-only, ME-lookup-derived), this is set at
+    // parse time from the on-chain lp_fee log and is present on the very
+    // first `sale` frame. `poolType` remains fallback/corroboration only —
+    // see mmm-pool-type-resolver.ts's module doc and sale-kind.ts's saleKind().
+    ammFill:           ammFillFromEvent(event),
     rarityRank:        rar?.rarityRank        ?? null,
     totalSupply:       rar?.totalSupply       ?? null,
     rarityPercentile:  rar?.rarityPercentile  ?? null,

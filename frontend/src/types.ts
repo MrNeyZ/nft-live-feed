@@ -68,6 +68,17 @@ export interface FeedEvent {
    *  all render the plain BUY/SELL. May arrive after the initial `sale`
    *  frame via a `pool_type` SSE patch — see mmm-pool-type-resolver.ts. */
   poolType?: 'buy' | 'sell' | 'two_sided' | null;
+  /** Authoritative, transaction-time AMM-fill signal (persisted in
+   *  raw_data, set by the parser from the MMM lp_fee log — see
+   *  src/ingestion/me-raw/parser.ts). Present on BOTH the live SSE `sale`
+   *  frame and REST/`fromRow` rows (unlike `poolType`, which is SSE-only).
+   *
+   *  Tri-state: `true` (confirmed AMM/pool-inventory fill) / `false`
+   *  (confirmed lp_fee===0 ordinary bid acceptance — must never fall back
+   *  to `poolType`) / `undefined`/`null` (no evidence — poolType fallback
+   *  allowed). See saleKind() in feed/lib/sale-kind.ts for the precedence
+   *  rule. */
+  ammFill?: boolean | null;
 }
 
 /** Shape returned by GET /api/events/latest */
@@ -117,6 +128,11 @@ export interface RestRow {
    *  Null when never resolved. Makes the SELL badge consistent across
    *  devices/reloads without depending on per-browser localStorage. */
   seller_remaining_count?: number | null;
+  /** See FeedEvent.ammFill / SaleEventRow.amm_fill (backend, tri-state).
+   *  Absent/null on rows ingested before this field existed or on
+   *  ME-activity-derived collection-trade-history rows with no matching
+   *  sale_events signature. */
+  amm_fill?: boolean | null;
 }
 
 export function fromRow(row: RestRow): FeedEvent {
@@ -154,5 +170,6 @@ export function fromRow(row: RestRow): FeedEvent {
     oneOfOne:         row.one_of_one ?? false,
     resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
     mintedAtMs: row.minted_at_ms ?? null,
+    ammFill: row.amm_fill ?? null,
   };
 }

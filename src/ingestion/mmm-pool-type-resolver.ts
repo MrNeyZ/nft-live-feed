@@ -1,5 +1,23 @@
 /**
- * MMM pool-type resolver — AMM badge classification (live/recent sales only).
+ * MMM pool-type resolver — AMM badge FALLBACK/CORROBORATION ONLY
+ * (2026-07-15 — this module is no longer the sole source of truth for the
+ * badge; see below).
+ *
+ * As of 2026-07-15 the primary, authoritative AMM-fill signal is computed
+ * SYNCHRONOUSLY at parse time from the MMM `lp_fee` program log (see
+ * `src/ingestion/me-raw/parser.ts`'s "Synchronous AMM-fill classification"
+ * block) and persisted in `sale_events.raw_data._ammFill` — no ME API
+ * round-trip, no staleness window, and it survives REST reads / reloads
+ * (unlike this module's `poolType`, which remains SSE-live-only per the
+ * SCOPE note below). The frontend's `saleKind()` (feed/lib/sale-kind.ts)
+ * uses THIS module's `poolType` only when `ammFill` carries no evidence
+ * either way (non-MMM sale, MMM fulfillSell direction, an unverified
+ * instruction variant, or a pre-existing row) — `poolType` can corroborate
+ * an unresolved case but can never override a confirmed `ammFill` value,
+ * even a confirmed `false`. This module otherwise still matters: it's the
+ * only signal for instruction variants / directions the lp_fee invariant
+ * doesn't cover, and for debugging/cross-checking a resolved `_ammFill`
+ * against ME's own classification.
  *
  * FLOW
  *   sale ingest (MMM AMM, poolAddress captured at parse time) → insert.ts

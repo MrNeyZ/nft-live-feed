@@ -141,6 +141,20 @@ export interface FeedEvent {
    *  render the plain BUY/SELL — see saleKind() in feed/lib/sale-kind.ts.
    *  May arrive after the initial event via a `pool_type` SSE patch. */
   poolType?: 'buy' | 'sell' | 'two_sided' | null;
+  /** Authoritative, transaction-time AMM-fill signal — persisted server-side
+   *  in raw_data at parse time from the MMM `lp_fee` program log (see
+   *  src/ingestion/me-raw/parser.ts's "Synchronous AMM-fill classification"
+   *  block). Unlike `poolType` above, this is present on the FIRST `sale`
+   *  frame AND survives REST reads / reloads / collection drill-downs — no
+   *  async patch needed.
+   *
+   *  Tri-state: `true` (confirmed AMM/pool-inventory fill) / `false`
+   *  (confirmed lp_fee===0 ordinary bid acceptance — authoritative; must
+   *  NEVER be overridden by poolType) / `undefined`/`null` (no evidence —
+   *  poolType fallback allowed). `saleKind()` in feed/lib/sale-kind.ts
+   *  renders the AMM badge when this is exactly `true`, or falls back to
+   *  `poolType === 'two_sided'` ONLY when this is undefined/null. */
+  ammFill?: boolean | null;
 }
 
 export const COLLECTIONS_DB: Collection[] = [

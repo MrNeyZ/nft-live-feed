@@ -22,3 +22,27 @@ export function saleTypeFromRawData(rawData: Record<string, unknown>): SaleType 
 export function saleTypeFromEvent(event: SaleEvent): SaleType {
   return saleTypeFromRawData(event.rawData as Record<string, unknown>);
 }
+
+/**
+ * Authoritative, transaction-time AMM-fill signal — see the parser.ts
+ * comment ("Synchronous AMM-fill classification") for the on-chain
+ * evidence (`lp_fee > 0` on a verified MMM fulfillBuy).
+ *
+ * Tri-state, NOT a plain boolean:
+ *   true      — lp_fee > 0, confirmed AMM/pool-inventory fill.
+ *   false     — lp_fee === 0, confirmed ordinary bid acceptance. This is
+ *               just as authoritative as `true` and must never be
+ *               second-guessed by a later ME `poolType` lookup.
+ *   undefined — no evidence either way (non-MMM sale, MMM fulfillSell
+ *               direction, an unverified instruction variant, or a row
+ *               ingested before this field existed). Only THIS state may
+ *               fall back to `poolType === 'two_sided'` — see saleKind().
+ */
+export function ammFillFromRawData(rawData: Record<string, unknown>): boolean | undefined {
+  const v = rawData._ammFill;
+  return typeof v === 'boolean' ? v : undefined;
+}
+
+export function ammFillFromEvent(event: SaleEvent): boolean | undefined {
+  return ammFillFromRawData(event.rawData as Record<string, unknown>);
+}

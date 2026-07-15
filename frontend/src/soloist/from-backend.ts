@@ -114,6 +114,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     resizeStatus:      b.resizeStatus ?? null,
     mintedAtMs:        b.mintedAtMs ?? null,
     poolType:          b.poolType ?? null,
+    ammFill:           b.ammFill ?? null,
     // Server-persisted count from the REST snapshot (migration 015). Absent on
     // live SSE sale frames (b.sellerRemainingCount undefined) — those get the
     // count via the async `seller_count` patch — so this is null there and the

@@ -39,6 +39,7 @@
 import { Router, Request, Response } from 'express';
 import { getEventsByCollection, getCanonicalSaleMetaBySignatures } from '../db/queries';
 import { rateLimit, isValidSlug } from './rate-limit';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE        = 500;
@@ -85,6 +86,11 @@ interface RestRow {
   magic_eden_url:     string | null;
   me_collection_slug: string | null;
   parser_source:      string | null;
+  /** See SaleEventRow.amm_fill (tri-state; frontend/src/types.ts
+   *  RestRow.amm_fill). Absent for ME-activity-derived rows (ME's API
+   *  carries no lp_fee) — only backfilled onto a shared signature by the
+   *  canonical overlay below, same as sale_type/nft_type/marketplace. */
+  amm_fill?:          boolean | null;
 }
 
 function marketplaceFor(source: string | undefined): string {
@@ -190,7 +196,7 @@ async function fetchMeActivities(slug: string, cutoffSec: number, limit: number)
     if (allActivities.length >= limit * 4) break; // soft ceiling vs. runaway pages
     const offset = page * PAGE_SIZE;
     const url = `${ME_API}/collections/${encodeURIComponent(slug)}/activities?type=buyNow&offset=${offset}&limit=${PAGE_SIZE}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`ME activities HTTP ${res.status}`);
     const json = await res.json() as MeActivity[];
     if (!Array.isArray(json) || json.length === 0) break;
@@ -290,7 +296,7 @@ export function createCollectionTradeHistoryRouter(): Router {
           const c = canon.get(e.signature);
           if (!c) return e;
           overlaid++;
-          return { ...e, sale_type: c.sale_type, nft_type: c.nft_type, marketplace: c.marketplace };
+          return { ...e, sale_type: c.sale_type, nft_type: c.nft_type, marketplace: c.marketplace, amm_fill: c.amm_fill };
         });
         console.log(`[trade-history] overlay slug=${slug} rows=${events.length} overlaid=${overlaid} me_only=${events.length - overlaid}`);
       } catch (e) {
