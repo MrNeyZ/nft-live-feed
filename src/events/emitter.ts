@@ -205,31 +205,6 @@ export interface MintMetaPatch {
   imageUrl:    string | null;
 }
 
-/** Late-arriving seller-count refresh — used when the active-dumper
- *  exact-count fallback finishes a deep `getAssetsByOwner` walk and
- *  the resolved count needs to fan out to every connected client. */
-export interface SellerCountUpdate {
-  seller:     string;
-  collection: string;
-  count:      number;
-  sells10m:   number;
-  /** Optional dumping-signal hint, mirrors the `signal` field on the
-   *  initial onSale `seller_count` broadcast. The exact-fallback path
-   *  (`seller-count-exact.ts`) does not currently compute this — it
-   *  emits without `signal` so the SSE rebroadcast omits the field
-   *  too, letting the frontend reducer decide whether to clear or
-   *  keep any prior 🔥 state. Reserved for future producers that
-   *  *do* derive a signal late. */
-  signal?:    'multi';
-  /** Signature of the sale that triggered this exact-scan (the trigger
-   *  is deduped per seller+collection, so a burst of sales collapses to
-   *  the one that actually kicked off the scan). Optional — absent for
-   *  any caller that can't correlate a single sale. When present, lets
-   *  the Bot API attach the refined count to that one sale via a
-   *  `sale_patch` instead of only reaching public SSE + DB. */
-  signature?: string;
-}
-
 /**
  * Bot API v1 identity patch — fired once from `applyEnrichment`
  * (src/db/insert.ts) right alongside the existing `emitMetaUpdate`, for
@@ -249,16 +224,15 @@ export interface BotIdentityPatch {
 }
 
 /**
- * Bot API v1 seller-remaining-count patch — fired from the FAST
- * (correlatable-by-signature) seller-count resolution path in
- * src/server/sse.ts, right alongside its existing `event: seller_count`
- * public SSE emission. The LATE exact-scan refinement
- * (`SellerCountUpdate`/`seller_count_update` above) fans out by
- * seller+collection and usually carries no signature — but when the
- * triggering sale's signature is available (`SellerCountUpdate.signature`),
- * `src/server/sse.ts`'s `onSellerCountUpdate` handler emits this same patch
- * for that one sale too. See docs/internal-bot-api-v1.md's Bot API v1
- * "Collection enrichment timing" / limitations notes.
+ * Bot API v1 seller-remaining-count patch — fired from the seller-count
+ * resolution path in src/server/sse.ts, right alongside its existing
+ * `event: seller_count` public SSE emission. Every sell-side sale
+ * resolves through `seller-holdings.ts`'s running counter (scan-once,
+ * then atomic decrement, with bounded reconciliation — see that file),
+ * so this always carries the triggering sale's own signature; there is
+ * no separate late/unsignatured refinement path. See
+ * docs/internal-bot-api-v1.md's Bot API v1 "Collection enrichment
+ * timing" / limitations notes.
  */
 export interface BotSellerCountPatch {
   signature: string;
@@ -661,13 +635,6 @@ class SaleEventBus extends EventEmitter {
   offPaymentTokenMeta(listener: (p: PaymentTokenMeta) => void): this {
     return this.off('payment_token_meta', listener);
   }
-
-  // Late-arriving seller-count update from the active-dumper exact-
-  // fallback path. Independent of any specific sale signature — it
-  // patches every visible row that matches seller+collection.
-  emitSellerCountUpdate(u: SellerCountUpdate): void { this.emit('seller_count_update', u); }
-  onSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.on('seller_count_update', listener); }
-  offSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.off('seller_count_update', listener); }
 
   // Bot API v1 only — see BotIdentityPatch / BotSellerCountPatch doc
   // comments above. Neither has any public SSE consumer.

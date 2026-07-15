@@ -121,41 +121,112 @@ export async function updateSellerRemainingCount(
 }
 
 /**
- * Persist a late exact-scan seller-remaining-count refresh (migration 015's
- * column) by (seller, collection_address) for RECENT rows only. The
- * exact-scan `seller_count_update` carries no signature, so it can't target a
- * single sale by signature like `updateSellerRemainingCount` does — instead it
- * fans the refined count out to that wallet+collection's recent sales so a
- * reload reads the same (more accurate) number the live feed converged to.
+ * Running-holdings counter DB primitives (migration 021, table
+ * `seller_holdings`). All three are atomic single-statement SQL operations
+ * — no read-then-write race window, no explicit transaction/row-lock
+ * needed, and safe even if this backend were ever scaled to multiple
+ * processes (currently it isn't — see CLAUDE.md "Single-process SSE" —
+ * but these don't depend on that fact for correctness).
  *
- * Conservative 24h window keeps the UPDATE bounded (won't rewrite ancient
- * history) and matches how the badge is only meaningful for live/recent dumps.
- *
- * MUST NOT throw or block: callers `void` this and the SSE emit proceeds
- * regardless. DB errors are swallowed with a warn. No-op for non-finite counts
- * or missing seller/collection.
+ * Semantics owned by the caller (`seller-holdings.ts`):
+ *   - `atomicDecrementSellerHolding` is the hot path: one row-locked
+ *     UPDATE, no RPC. Concurrent calls for the SAME (seller, collection)
+ *     are serialized by Postgres at the row level, so concurrent sales
+ *     each get a distinct, correctly-descending `count`.
+ *   - `seedSellerHolding` is used exactly once per (seller, collection) —
+ *     the first sale ever observed for that pair. `ON CONFLICT DO NOTHING`
+ *     means at most one concurrent caller "wins" the seed; everyone else
+ *     gets 0 rows back and must fall through to a real decrement instead
+ *     (see seller-holdings.ts's `firstSightScanAndSeed`) so their sale
+ *     doesn't reuse the winner's exact number.
+ *   - `overwriteSellerHolding` is the reconciliation write: an
+ *     authoritative absolute value from a fresh DAS scan, used to correct
+ *     drift (see seller-holdings.ts's reconciliation policy). Resets
+ *     `decrements_since_scan` to 0.
  */
-export async function updateSellerRemainingCountByCollection(
+export interface SellerHoldingRow {
+  count:               number;
+  decrementsSinceScan: number;
+  /** Timestamp the row carried BEFORE this decrement (i.e. how long it had
+   *  been sitting since its last write) — used for TTL staleness checks.
+   *  NOT the post-decrement `now()` this same statement just set. */
+  prevUpdatedAtMs:      number;
+}
+
+export async function atomicDecrementSellerHolding(
+  seller: string,
+  collection: string,
+): Promise<SellerHoldingRow | null> {
+  try {
+    // The `old` CTE takes the row lock and captures its PRE-update
+    // `updated_at` in the same statement/transaction as the UPDATE that
+    // follows — `RETURNING` on an UPDATE always reflects POST-update
+    // values, so reading `updated_at` directly off the UPDATE (instead of
+    // via this CTE) would return the `now()` this very statement just
+    // wrote, making any TTL-staleness check against it always false.
+    const res = await getPool().query<{ count: number; decrements_since_scan: number; prev_updated_at: Date }>(
+      `WITH old AS (
+         SELECT updated_at FROM seller_holdings
+          WHERE seller = $1 AND collection_address = $2
+          FOR UPDATE
+       )
+       UPDATE seller_holdings AS sh
+          SET count = GREATEST(sh.count - 1, 0),
+              decrements_since_scan = sh.decrements_since_scan + 1,
+              updated_at = now()
+         FROM old
+        WHERE sh.seller = $1 AND sh.collection_address = $2
+        RETURNING sh.count, sh.decrements_since_scan, old.updated_at AS prev_updated_at`,
+      [seller, collection],
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    return {
+      count:               row.count,
+      decrementsSinceScan: row.decrements_since_scan,
+      prevUpdatedAtMs:     row.prev_updated_at.getTime(),
+    };
+  } catch (err) {
+    console.warn(`[seller-holdings-persist] atomic decrement failed seller=${seller.slice(0, 8)}…:`, err);
+    return null;
+  }
+}
+
+export async function seedSellerHolding(
+  seller: string,
+  collection: string,
+  count: number,
+): Promise<number | null> {
+  try {
+    const res = await getPool().query<{ count: number }>(
+      `INSERT INTO seller_holdings (seller, collection_address, count, decrements_since_scan, updated_at)
+       VALUES ($1, $2, $3, 0, now())
+       ON CONFLICT (seller, collection_address) DO NOTHING
+       RETURNING count`,
+      [seller, collection, count],
+    );
+    return res.rows[0]?.count ?? null;
+  } catch (err) {
+    console.warn(`[seller-holdings-persist] seed failed seller=${seller.slice(0, 8)}… count=${count}:`, err);
+    return null;
+  }
+}
+
+export async function overwriteSellerHolding(
   seller: string,
   collection: string,
   count: number,
 ): Promise<void> {
-  if (!seller || !collection || typeof count !== 'number' || !Number.isFinite(count)) return;
   try {
     await getPool().query(
-      `UPDATE sale_events
-          SET seller_remaining_count = $1
-        WHERE seller = $2
-          AND collection_address = $3
-          AND block_time >= NOW() - interval '24 hours'`,
-      [count, seller, collection],
+      `INSERT INTO seller_holdings (seller, collection_address, count, decrements_since_scan, updated_at)
+       VALUES ($1, $2, $3, 0, now())
+       ON CONFLICT (seller, collection_address)
+       DO UPDATE SET count = $3, decrements_since_scan = 0, updated_at = now()`,
+      [seller, collection, count],
     );
   } catch (err) {
-    console.warn(
-      `[seller-count-persist] late UPDATE failed seller=${seller.slice(0, 8)}… ` +
-      `collection=${collection.slice(0, 8)}… count=${count}:`,
-      err,
-    );
+    console.warn(`[seller-holdings-persist] reconcile overwrite failed seller=${seller.slice(0, 8)}… count=${count}:`, err);
   }
 }
 
