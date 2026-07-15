@@ -221,6 +221,13 @@ export interface SellerCountUpdate {
    *  keep any prior 🔥 state. Reserved for future producers that
    *  *do* derive a signal late. */
   signal?:    'multi';
+  /** Signature of the sale that triggered this exact-scan (the trigger
+   *  is deduped per seller+collection, so a burst of sales collapses to
+   *  the one that actually kicked off the scan). Optional — absent for
+   *  any caller that can't correlate a single sale. When present, lets
+   *  the Bot API attach the refined count to that one sale via a
+   *  `sale_patch` instead of only reaching public SSE + DB. */
+  signature?: string;
 }
 
 /**
@@ -246,11 +253,12 @@ export interface BotIdentityPatch {
  * (correlatable-by-signature) seller-count resolution path in
  * src/server/sse.ts, right alongside its existing `event: seller_count`
  * public SSE emission. The LATE exact-scan refinement
- * (`SellerCountUpdate`/`seller_count_update` above) carries no signature —
- * it fans out by seller+collection instead — so it cannot be correlated to
- * a single Bot API sale event and is intentionally NOT wired to this event.
- * See docs/internal-bot-api-v1.md's Bot API v1 "Collection enrichment
- * timing" / limitations notes.
+ * (`SellerCountUpdate`/`seller_count_update` above) fans out by
+ * seller+collection and usually carries no signature — but when the
+ * triggering sale's signature is available (`SellerCountUpdate.signature`),
+ * `src/server/sse.ts`'s `onSellerCountUpdate` handler emits this same patch
+ * for that one sale too. See docs/internal-bot-api-v1.md's Bot API v1
+ * "Collection enrichment timing" / limitations notes.
  */
 export interface BotSellerCountPatch {
   signature: string;

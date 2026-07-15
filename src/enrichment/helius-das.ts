@@ -397,7 +397,14 @@ async function searchAssetsTotal(owner: string, collection: string): Promise<num
             tokenType:    'all',     // include MPL Core / pNFT / legacy
             page:         1,
             limit:        1,
-            burnt:        false,
+            // NB: do NOT add `burnt: false` here. Helius DAS validates
+            // `burnt` as unsupported alongside `token_type` and rejects
+            // the request with `-32000 Validation Error: burnt is not
+            // supported for this token_type` — every call then hit this
+            // branch, silently returned null, and the fast path never
+            // produced a count in production. Omitting `burnt` (DAS
+            // defaults to excluding burnt assets anyway) is valid for
+            // this owner+tokenType combination.
           },
         }),
         signal: AbortSignal.timeout(6_000),
@@ -405,7 +412,10 @@ async function searchAssetsTotal(owner: string, collection: string): Promise<num
     );
     if (!res.ok) return null;
     const json = (await res.json()) as DasSearchResponse;
-    if (json.error) return null;
+    if (json.error) {
+      console.log(`[seller-count-fast-error] dasErr=${json.error.code}:${json.error.message} result=null`);
+      return null;
+    }
     incSearchAssets('seller_count_fast');
     const total = json.result?.total;
     return typeof total === 'number' && total >= 0 ? total : null;

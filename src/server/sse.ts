@@ -428,7 +428,7 @@ saleEventBus.onSale(           (event)  => {
         `seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… ` +
         `sells10m=${sells10m} sellsAny10m=${sellsAny10m}`,
       );
-      scheduleExactSellerCount(seller, collection, sells10m);
+      scheduleExactSellerCount(seller, collection, sells10m, signature);
     }
     // Dumping signal: when DAS reports too few (or nothing) but the
     // wallet is visibly dumping into the same collection ≥2 times in
@@ -604,6 +604,13 @@ saleEventBus.onSellerCountUpdate((u) => {
   // the helper swallows + warns on DB error. Finite counts only.
   if (typeof u.count === 'number' && Number.isFinite(u.count)) {
     void updateSellerRemainingCountByCollection(u.seller, u.collection, u.count);
+  }
+  // Additive: when the triggering sale's signature came through with this
+  // refresh, correlate the refined count back to that one sale for Bot API
+  // consumers too (the fast-path patch for it may have carried null). Purely
+  // additive — no signature means no patch, same as before this change.
+  if (u.signature && typeof u.count === 'number' && Number.isFinite(u.count)) {
+    saleEventBus.emitBotSellerCountPatch({ signature: u.signature, count: u.count });
   }
 });
 

@@ -19,6 +19,7 @@
     "test:tensor-cnft-price": "ts-node src/ingestion/tensor-raw/__tests__/cnft-price.test.ts",
     "test:tamm-sell-buyer": "ts-node src/ingestion/tensor-raw/__tests__/tamm-sell-buyer.test.ts",
     "test:me-cache-consolidation": "ts-node src/enrichment/me-cache-consolidation.test.ts",
+    "test:seller-count-fast": "ts-node src/enrichment/helius-das-seller-count.test.ts",
     "test:floor-depth": "ts-node src/analytics/floor-depth.test.ts",
     "test:floor-depth-route": "ts-node src/server/collection-floor-depth.test.ts",
     "test:cross-market": "ts-node src/analytics/cross-market.test.ts",

@@ -59,6 +59,11 @@ export function scheduleExactSellerCount(
   seller: string,
   collection: string,
   sells10m: number,
+  /** Signature of the sale that triggered this scan. Optional and purely
+   *  additive — passed through to the emitted `seller_count_update` so
+   *  `sse.ts` can correlate the refined count back to a single Bot API
+   *  sale_patch. Does not affect cache/queue/dedup behavior at all. */
+  signature?: string,
 ): void {
   if (!seller || !collection) return;
   const k = key(seller, collection);
@@ -77,7 +82,7 @@ export function scheduleExactSellerCount(
     return;
   }
   pendingKeys.add(k);
-  const task = (): void => { void run(seller, collection, sells10m, k); };
+  const task = (): void => { void run(seller, collection, sells10m, k, signature); };
   if (active < ACTIVE_MAX) {
     task();
   } else {
@@ -95,6 +100,7 @@ async function run(
   collection: string,
   sells10m: number,
   k: string,
+  signature?: string,
 ): Promise<void> {
   active++;
   let timeoutHandle: NodeJS.Timeout | null = null;
@@ -157,7 +163,7 @@ async function run(
       `[seller-count-exact-result] seller=${seller.slice(0, 8)}… collection=${collection.slice(0, 8)}… ` +
       `count=${count} pages=${Math.ceil((scanned || 1) / 1000)} scanned=${scanned}`,
     );
-    saleEventBus.emitSellerCountUpdate({ seller, collection, count, sells10m });
+    saleEventBus.emitSellerCountUpdate({ seller, collection, count, sells10m, signature });
   } finally {
     pendingKeys.delete(k);
     active--;
