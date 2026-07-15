@@ -223,6 +223,40 @@ export interface SellerCountUpdate {
   signal?:    'multi';
 }
 
+/**
+ * Bot API v1 identity patch — fired once from `applyEnrichment`
+ * (src/db/insert.ts) right alongside the existing `emitMetaUpdate`, for
+ * EVERY non-blacklisted sale that has a mintAddress. Deliberately a
+ * SEPARATE bus event (not a re-shape of `MetaUpdate`) so wiring the Bot
+ * API's async collection-identity patch (see docs/internal-bot-api-v1.md)
+ * never touches the public `meta` SSE payload's fields. `collectionAddress`
+ * here has already had the me_cnft_raw merkle-tree placeholder excluded by
+ * the caller (see `isMerkleTreeCollectionAddress` in
+ * src/domain/sale-event-adapters.ts) — consumers do not need to re-check it.
+ */
+export interface BotIdentityPatch {
+  signature:              string;
+  collectionAddress:      string | null;
+  meCollectionSlug:       string | null;
+  tensorCollectionSlug:   string | null;
+}
+
+/**
+ * Bot API v1 seller-remaining-count patch — fired from the FAST
+ * (correlatable-by-signature) seller-count resolution path in
+ * src/server/sse.ts, right alongside its existing `event: seller_count`
+ * public SSE emission. The LATE exact-scan refinement
+ * (`SellerCountUpdate`/`seller_count_update` above) carries no signature —
+ * it fans out by seller+collection instead — so it cannot be correlated to
+ * a single Bot API sale event and is intentionally NOT wired to this event.
+ * See docs/internal-bot-api-v1.md's Bot API v1 "Collection enrichment
+ * timing" / limitations notes.
+ */
+export interface BotSellerCountPatch {
+  signature: string;
+  count:     number | null;
+}
+
 /** Payment token resolved metadata broadcast on the bus once per unique
  *  paymentMint. The DAS lookup is fire-and-forget and cached forever
  *  (token metadata is immutable for the lifetime of a mint), so this
@@ -626,6 +660,16 @@ class SaleEventBus extends EventEmitter {
   emitSellerCountUpdate(u: SellerCountUpdate): void { this.emit('seller_count_update', u); }
   onSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.on('seller_count_update', listener); }
   offSellerCountUpdate(listener: (u: SellerCountUpdate) => void): this { return this.off('seller_count_update', listener); }
+
+  // Bot API v1 only — see BotIdentityPatch / BotSellerCountPatch doc
+  // comments above. Neither has any public SSE consumer.
+  emitBotIdentityPatch(p: BotIdentityPatch): void { this.emit('bot_identity_patch', p); }
+  onBotIdentityPatch(listener: (p: BotIdentityPatch) => void): this { return this.on('bot_identity_patch', listener); }
+  offBotIdentityPatch(listener: (p: BotIdentityPatch) => void): this { return this.off('bot_identity_patch', listener); }
+
+  emitBotSellerCountPatch(p: BotSellerCountPatch): void { this.emit('bot_seller_count_patch', p); }
+  onBotSellerCountPatch(listener: (p: BotSellerCountPatch) => void): this { return this.on('bot_seller_count_patch', listener); }
+  offBotSellerCountPatch(listener: (p: BotSellerCountPatch) => void): this { return this.off('bot_seller_count_patch', listener); }
 }
 
 export const saleEventBus = new SaleEventBus();

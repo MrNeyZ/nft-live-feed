@@ -519,6 +519,11 @@ saleEventBus.onSale(           (event)  => {
     // still computes `signal` internally above to gate the
     // exact-fallback trigger; it just doesn't ship to clients.
     enqueue(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
+    // Bot API v1 patch — see BotSellerCountPatch's doc comment
+    // (src/events/emitter.ts). Only the fast path (this block) carries a
+    // signature to correlate against; the late exact-scan refinement
+    // (onSellerCountUpdate below) does not and is intentionally not wired.
+    saleEventBus.emitBotSellerCountPatch({ signature, count });
     // Durable persistence (migration 015): write the resolved count to
     // sale_events so /api/events/latest returns it on every device/reload —
     // fixing the Mac-shows-it / PC-doesn't divergence where the count lived

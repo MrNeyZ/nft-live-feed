@@ -7,7 +7,7 @@ import { isBlacklistedCollection } from './blacklist';
 import { isMintBlocked, markMintBlocked } from './blocked-mint-cache';
 import { checkPricingAlerts } from '../alerts/alerts';
 import { trace } from '../trace';
-import { saleTypeFromEvent } from '../domain/sale-event-adapters';
+import { saleTypeFromEvent, isMerkleTreeCollectionAddress } from '../domain/sale-event-adapters';
 import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ingestion/seller-net';
 import { slugForMint, nameForMint } from '../server/listings-store';
 import { getSseClientCount } from '../server/sse';
@@ -508,6 +508,16 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         floorDelta:            enriched.floorDelta             ?? null,
         offerDelta:            enriched.offerDelta             ?? null,
         mintedAtMs:            enriched.mintedAtMs             ?? null,
+      });
+      // Bot API v1 identity patch — see BotIdentityPatch's doc comment
+      // (src/events/emitter.ts). Separate from emitMetaUpdate above so the
+      // public `meta` SSE payload is never touched by this. Excludes the
+      // me_cnft_raw merkle-tree placeholder from collectionAddress.
+      saleEventBus.emitBotIdentityPatch({
+        signature:            enriched.signature,
+        collectionAddress:    isMerkleTreeCollectionAddress(enriched) ? null : (enriched.collectionAddress ?? null),
+        meCollectionSlug:     enriched.meCollectionSlug     ?? null,
+        tensorCollectionSlug: enriched.tensorCollectionSlug ?? null,
       });
       // Late image-resolution path. enrich can leave imageUrl null when DAS
       // hasn't indexed a freshly-minted asset; retries at 15/60/180 s patch

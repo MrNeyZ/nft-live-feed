@@ -120,6 +120,18 @@ export interface BotApiCollectionSnapshotResponse extends BotApiEnvelopeMeta {
  *                          Last-Event-ID could not be satisfied from the
  *                          replay buffer; the bot must fetch a fresh
  *                          snapshot rather than assume continuity.
+ *   - 'sale_patch'       — a late-arriving, authoritative correction to a
+ *                          PRIOR `sale` event's identity fields, correlated
+ *                          by `signature`. Fired when async enrichment
+ *                          (collection identity) or the fast seller-count
+ *                          lookup resolves AFTER the initial `sale` event
+ *                          already went out — see docs/internal-bot-api-v1.md
+ *                          "Collection enrichment timing". `payload.patch`
+ *                          carries ONLY the fields that newly resolved
+ *                          (never a full re-send) — a bot should merge it
+ *                          onto its stored copy of the matching `sale`
+ *                          event by `signature`, keeping any field the
+ *                          patch omits unchanged.
  *   - 'signal_reserved'  — NEVER emitted today. Reserved placeholder so
  *                          bots can build a forward-compatible switch/case
  *                          ahead of a future validated signal (e.g. a
@@ -130,6 +142,7 @@ export type BotEventType =
   | 'sale'
   | 'listing_change'
   | 'resync_required'
+  | 'sale_patch'
   | 'signal_reserved';
 
 export interface BotEventEnvelope<T = unknown> {
@@ -154,6 +167,76 @@ export interface BotEventSalePayload {
   marketplace: string;
   saleType:    string;
   blockTime:   string; // ISO 8601
+
+  // ── v1-additive: whale-liquidation-bot identity fields ──────────────────
+  // All added below are purely additive — an old client reading only the
+  // 7 original fields above is unaffected. See docs/internal-bot-api-v1.md
+  // "Stable collection identity" / "Seller identity" sections for full
+  // provenance, precedence, and the known-null cases.
+
+  /** Seller wallet, straight from the parser (see `SaleEvent.seller`).
+   *  Non-null for every wired marketplace/saleType — a sale whose seller
+   *  can't be confidently resolved is dropped upstream (never reaches this
+   *  event) rather than shipped with a guessed/wrong wallet. Kept nullable
+   *  on the wire only for forward-compatibility, not because a known gap
+   *  exists today. */
+  seller: string | null;
+  /** Buyer wallet — same provenance/guarantee as `seller`. */
+  buyer:  string | null;
+
+  /** Precedence-resolved stable collection identifier — verified on-chain
+   *  collection address, else the Magic Eden collection slug, else the
+   *  Tensor collection slug. Null until one of those resolves (collection
+   *  identity requires async enrichment for every marketplace — see
+   *  `collectionIdentitySource`). Never a Bubblegum merkle tree — see
+   *  `isMerkleTreeCollectionAddress` in src/domain/sale-event-adapters.ts. */
+  collectionId: string | null;
+  /** Magic Eden collection slug. Duplicate of the legacy `slug` field above
+   *  (kept for backward compat) exposed under the new-model name too. */
+  collectionSlug: string | null;
+  /** Verified on-chain collection-group address (Helius DAS grouping).
+   *  Null until async enrichment resolves it, or for a source that never
+   *  will (see docs for the per-marketplace coverage table). Never a
+   *  merkle tree. */
+  collectionAddress: string | null;
+  /** Which tier of `resolveCollectionIdentity` produced `collectionId`.
+   *  Null when nothing has resolved yet. */
+  collectionIdentitySource: 'onchain_collection_address' | 'me_slug' | 'tensor_slug' | null;
+
+  /** Tri-state AMM-fill signal, synchronous (available on this SAME event —
+   *  never patched later): `true` = confirmed pool-inventory fill,
+   *  `false` = confirmed ordinary bid acceptance, `null` = no on-chain
+   *  evidence either way (non-MMM sale, MMM fulfillSell direction, an
+   *  unverified instruction variant, or cNFT — MMM never emits an lp_fee
+   *  log for cNFT fulfillBuy). See `ammFillFromEvent` in
+   *  src/domain/sale-event-adapters.ts. */
+  ammFill: boolean | null;
+
+  /** Seller's remaining holdings in the same collection after this sale.
+   *  ALWAYS null on the initial `sale` event — this is resolved by an
+   *  async DAS lookup that only runs for "sell kind" saleTypes
+   *  (bid_sell/pool_sale) with a known seller+collection, so it can never
+   *  be ready in time for the synchronous first frame. Watch for a
+   *  `sale_patch` event with the same `signature` to receive it. */
+  sellerRemainingCount: number | null;
+}
+
+/**
+ * `sale_patch` payload — see `BotEventType`'s doc comment above.
+ * `patch` is intentionally Partial: only fields that newly resolved are
+ * present. A field absent from `patch` means "still unknown", NOT "cleared
+ * back to null" — never overwrite a previously-patched value with an
+ * absent key.
+ */
+export interface BotEventSalePatchPayload {
+  signature: string;
+  patch: {
+    collectionId?:             string | null;
+    collectionSlug?:           string | null;
+    collectionAddress?:        string | null;
+    collectionIdentitySource?: 'onchain_collection_address' | 'me_slug' | 'tensor_slug' | null;
+    sellerRemainingCount?:     number | null;
+  };
 }
 
 export interface BotEventListingChangePayload {

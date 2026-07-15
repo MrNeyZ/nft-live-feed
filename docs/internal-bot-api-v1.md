@@ -231,16 +231,93 @@ data: {"apiVersion":"1","eventId":"bot-482", ...}
 
 | `eventType`        | Wired? | Source                                                              |
 |---------------------|--------|-----------------------------------------------------------------------|
-| `sale`              | ✅ yes | existing `saleEventBus.onSale` — the same feed the public Live Feed reads, field-mapped to an explicit allowlist (`signature`, `mint`, `slug`, `priceSol`, `marketplace`, `saleType`, `blockTime`) |
+| `sale`              | ✅ yes | existing `saleEventBus.onSale` — the same feed the public Live Feed reads, field-mapped to an explicit allowlist (`signature`, `mint`, `slug`, `priceSol`, `marketplace`, `saleType`, `blockTime`, plus the v1-additive identity fields — see below) |
 | `listing_change`    | ✅ yes | existing `listing_snapshot` / `listing_remove` bus events — a **coarse hint** ("this slug's listings may have changed"), never a full listing payload |
 | `resync_required`   | ✅ yes | sent to a single reconnecting client when its `Last-Event-ID` can't be satisfied from the replay buffer |
+| `sale_patch`        | ✅ yes | dedicated `bot_identity_patch` / `bot_seller_count_patch` bus events (Bot-API-only, no public SSE consumer) — async corrections to a prior `sale` event's collection identity / seller-remaining-count, correlated by `signature`. See "`sale_patch` — async identity correction" below. |
 | `signal_reserved`   | ❌ never emitted today | reserved placeholder type so bots can build a forward-compatible `switch`/`case` ahead of a future validated signal. **Do not build logic that expects this to arrive** — there is no whale-liquidation detector or similar behind this today. |
 
 `sale` payload:
 
 ```json
-{ "signature": "5wkb...", "mint": "6mVv...", "slug": "mad_lads", "priceSol": 1.25, "marketplace": "magic_eden", "saleType": "normal_sale", "blockTime": "2026-07-14T11:58:00.000Z" }
+{
+  "signature": "5wkb...", "mint": "6mVv...", "slug": "mad_lads", "priceSol": 1.25,
+  "marketplace": "magic_eden", "saleType": "normal_sale", "blockTime": "2026-07-14T11:58:00.000Z",
+  "seller": "Sel1er...", "buyer": "Buyer1...",
+  "collectionId": "mad_lads", "collectionSlug": "mad_lads", "collectionAddress": null,
+  "collectionIdentitySource": "me_slug",
+  "ammFill": null, "sellerRemainingCount": null
+}
 ```
+
+**v1-additive fields (whale-liquidation bot support, added 2026-07-15):**
+old clients that only read the original 7 fields above are unaffected —
+these are pure additions, never a change to an existing field's type or
+meaning.
+
+| Field | Type | Availability |
+|---|---|---|
+| `seller` | `string \| null` | Synchronous, same event. Non-null for every wired marketplace/saleType — a sale whose seller can't be confidently resolved never reaches this event at all (dropped upstream at parse time), so this is never a silently-wrong wallet. |
+| `buyer` | `string \| null` | Same guarantee as `seller`. |
+| `collectionId` | `string \| null` | Precedence-resolved stable identifier — see "Stable collection identity" below. Async-only for every marketplace; null on the very first frame, arrives via `sale_patch` (see below) shortly after for most rows. |
+| `collectionSlug` | `string \| null` | The Magic Eden collection slug. Duplicate of `slug` under the new-model name (kept for symmetry with `collectionAddress`/`collectionId`) — `slug` itself is unchanged, kept for backward compat. |
+| `collectionAddress` | `string \| null` | Verified on-chain collection-group address (Helius DAS grouping). Async-only. **Never a Bubblegum merkle tree** — see the cNFT note below. |
+| `collectionIdentitySource` | `'onchain_collection_address' \| 'me_slug' \| 'tensor_slug' \| null` | Which tier produced `collectionId`. |
+| `ammFill` | `boolean \| null` | Synchronous, same event, MMM (`magic_eden_amm`) sales only. `true` = confirmed AMM/pool-inventory fill, `false` = confirmed ordinary bid acceptance, `null` = no on-chain evidence either way (any non-MMM sale, an MMM `fulfillSell`/pool-buy direction, an unverified instruction variant, or a cNFT fulfillBuy — MMM never logs `lp_fee` for those). `false` is just as authoritative as `true` — never treat it as "unknown." |
+| `sellerRemainingCount` | `number \| null` | **Always `null` on the initial `sale` event.** Resolved by an async DAS lookup that only runs for "sell kind" saleTypes (`bid_sell`, `pool_sale`) with a known seller + collection — structurally can never be ready in time for the synchronous first frame. Arrives via `sale_patch` when it resolves; frequently never resolves at all (best-effort DAS lookup, ~40-65% hit rate on sell-kind rows in production — see Coverage below). |
+
+### Stable collection identity — precedence
+
+```
+1. onchain_collection_address  — Helius DAS collection-group address (async-only, every marketplace)
+2. me_slug                     — Magic Eden collection slug (often known synchronously — mint→slug cache)
+3. tensor_slug                 — Tensor-native slug (async-only, requires TENSOR_API_KEY)
+4. null                        — nothing resolved yet (or ever)
+```
+
+`collectionId` is whichever tier wins; `collectionSlug`/`collectionAddress`
+are independently populated whenever known regardless of which tier won.
+
+**No merkle-tree misattribution:** Magic Eden's standalone cNFT marketplace
+parser (`me_cnft_raw`) stores the Bubblegum merkle tree in both `mint` and,
+internally, a legacy `collectionAddress` slot — a stable per-sale
+placeholder, correct for dedup/display, but never a real collection group.
+The Bot API explicitly excludes it: a `magic_eden` cNFT sale from this
+parser always reports `collectionAddress: null` / `collectionId: null`
+(unless/until an `me_slug` tier resolves instead), never the tree address.
+See `isMerkleTreeCollectionAddress` in `src/domain/sale-event-adapters.ts`.
+
+### `sale_patch` — async identity correction
+
+```json
+{ "signature": "5wkb...", "patch": { "collectionAddress": "9xQe...", "collectionId": "9xQe...", "collectionIdentitySource": "onchain_collection_address" } }
+```
+
+Fired when a field that was `null` on a prior `sale` event resolves
+afterward — collection identity (from background DAS/Tensor enrichment) or
+`sellerRemainingCount` (from the fast, signature-correlatable seller-count
+lookup). Correlate by `signature` against a previously-seen `sale` event.
+
+- `patch` is a **partial object** — only the fields that newly resolved are
+  present. A field absent from `patch` means "still unknown," not "cleared
+  back to null." Merge onto your stored copy of the matching `sale` event;
+  never overwrite a previously-patched field with an absent key.
+- Never published as a no-op: if nothing authoritative resolved (e.g. DAS
+  found no collection grouping at all, or the seller-count lookup returned
+  `null`), no `sale_patch` is sent for that resolution — silence, not a
+  wasted frame.
+- At most one patch source per event today: the collection-identity patch
+  (`collectionId`/`collectionSlug`/`collectionAddress`/
+  `collectionIdentitySource`) and the seller-count patch
+  (`sellerRemainingCount`) are independent and may each arrive separately,
+  0–2 times per signature, whenever their respective async resolution
+  completes. Neither is guaranteed to arrive.
+- **Known gap:** the seller-count *fast* path (above) is signature-
+  correlatable; a rarer *exact-scan* refinement (active-dumper deep walk)
+  fans out by seller+collection instead and carries no signature — it
+  updates the public Live Feed but has **no Bot API equivalent**. A bot
+  that needs the most precise possible count should treat `sale_patch`'s
+  `sellerRemainingCount` as a good-enough estimate, not the final word.
 
 `listing_change` payload:
 
@@ -349,6 +426,18 @@ Bots consuming this API **must**:
 - Single-process only — no Redis fanout, no multi-instance event
   consistency (same limitation the rest of this backend's SSE
   infrastructure already has, see `CLAUDE.md`).
+- **Collection identity is async for every marketplace.** `collectionId` /
+  `collectionSlug` / `collectionAddress` are null on essentially every
+  initial `sale` event (the parsers never know it synchronously) and
+  resolve — for most rows, but not all — via a `sale_patch` shortly after.
+  A bot that needs identity for its very first decision on a sale must wait
+  for the patch or accept it may never arrive.
+- **`sellerRemainingCount` coverage is partial by design.** Only computed
+  for `bid_sell`/`pool_sale` saleTypes, and even there the underlying DAS
+  lookup is best-effort (~40-65% resolve in production, see this repo's
+  discovery notes from 2026-07-15). A `null` value is normal, not a bug.
+  The rarer exact-scan refinement of this count has no Bot API path at all
+  (see "`sale_patch`" above) — the public Live Feed alone gets that upgrade.
 
 ## Next step for connecting `vl-nft-bots`
 

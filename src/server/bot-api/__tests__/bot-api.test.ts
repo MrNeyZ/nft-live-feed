@@ -27,6 +27,8 @@ import {
 import type { Listing, ListingSource, ListingType } from '../../listings-store';
 import type { SaleEventRow } from '../../../db/queries';
 import type { CollectionBidPair } from '../../../analytics/normalized-collection-bid';
+import { saleEventBus } from '../../../events/emitter';
+import type { SaleEvent } from '../../../models/sale-event';
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail?: string): void {
@@ -74,6 +76,32 @@ function mkSaleRow(signature: string, mint: string): SaleEventRow {
 }
 
 const EMPTY_BIDS: CollectionBidPair = { bestContextBid: null, bestUsableForValueBid: null };
+
+/** Real SaleEvent fixture builder — same shape the parsers in
+ *  src/ingestion/*-raw/parser.ts produce and hand to saleEventBus.emitSale.
+ *  Used to drive the actual toSalePayload() mapper (not a hand-rolled
+ *  stand-in), so these tests catch a real mapping regression. */
+function mkSaleFixture(overrides: Partial<SaleEvent> & { signature: string }): SaleEvent {
+  return {
+    blockTime: new Date('2026-07-15T00:00:00.000Z'),
+    marketplace: 'magic_eden',
+    nftType: 'legacy',
+    mintAddress: 'Mint11111111111111111111111111111111111',
+    collectionAddress: null,
+    seller: 'Seller1111111111111111111111111111111111',
+    buyer: 'Buyer111111111111111111111111111111111111',
+    priceLamports: 1_000_000_000n,
+    priceSol: 1,
+    currency: 'SOL',
+    rawData: { _parser: 'me_v2_raw' },
+    nftName: null,
+    imageUrl: null,
+    collectionName: null,
+    magicEdenUrl: null,
+    meCollectionSlug: null,
+    ...overrides,
+  };
+}
 
 function fakeDeps(overrides: Partial<SnapshotDeps> = {}): SnapshotDeps {
   return {
@@ -365,6 +393,144 @@ async function main() {
     check('SSE: resync_required payload carries the requested (unresolvable) id', (resync ?? '').includes('bot-999999'));
     c4.cancel();
 
+    // ── 12b. v1-additive identity fields (whale-liquidation bot support) ──
+    // Reuses this block's still-open server/bus wiring (wireBotEventSources()
+    // was called once above) — a fresh client just for these checks.
+    const c5 = sseClient(url, auth());
+    await c5.waitFor((f) => f.includes('event: heartbeat'), 2000);
+
+    type SalePayload = {
+      signature: string; mint: string; slug: string | null; priceSol: number;
+      marketplace: string; saleType: string; blockTime: string;
+      seller: string | null; buyer: string | null;
+      collectionId: string | null; collectionSlug: string | null;
+      collectionAddress: string | null; collectionIdentitySource: string | null;
+      ammFill: boolean | null; sellerRemainingCount: number | null;
+    };
+    type PatchPayload = { signature: string; patch: Record<string, unknown> };
+
+    async function emitAndCapture(event: SaleEvent): Promise<SalePayload> {
+      saleEventBus.emitSale(event);
+      // 'event: sale\n' (not just 'event: sale') — 'sale_patch' frames would
+      // otherwise also match the bare substring.
+      const frame = await c5.waitFor((f) => f.includes('event: sale\n') && f.includes(event.signature), 2000);
+      check(`fixture ${event.signature}: sale frame delivered`, frame !== null);
+      const envelope = JSON.parse((frame ?? '').split('\ndata: ')[1] ?? '{}') as { payload: SalePayload };
+      return envelope.payload;
+    }
+
+    // Tensor bid_sell with seller.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigTensorBidSell', marketplace: 'tensor',
+        rawData: { _parser: 'tensor_raw', _direction: 'takeBid' },
+        seller: 'TSeller1111111111111111111111111111111111', buyer: 'TBuyer111111111111111111111111111111111111',
+      }));
+      check('Tensor bid_sell: saleType is bid_sell', p.saleType === 'bid_sell', p.saleType);
+      check('Tensor bid_sell: seller exposed', p.seller === 'TSeller1111111111111111111111111111111111');
+      check('Tensor bid_sell: buyer exposed', p.buyer === 'TBuyer111111111111111111111111111111111111');
+      check('Tensor bid_sell: collection unresolved on initial frame (async-only)', p.collectionId === null && p.collectionIdentitySource === null);
+    }
+
+    // Tensor Core / cNFT — seller/buyer still resolved, no merkle placeholder involved.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigTensorCnft', marketplace: 'tensor', nftType: 'cnft',
+        mintAddress: 'RealCnftAssetId111111111111111111111111111',
+        rawData: { _parser: 'tensor_raw', _direction: 'buy' },
+      }));
+      check('Tensor cNFT: seller/buyer resolved', p.seller !== null && p.buyer !== null);
+      check('Tensor cNFT: mint is the real asset id, not a placeholder collection', p.mint === 'RealCnftAssetId111111111111111111111111111');
+    }
+
+    // MMM bid_sell with ammFill=false (confirmed ordinary bid acceptance).
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigMmmBidSell', marketplace: 'magic_eden_amm',
+        rawData: { _parser: 'mmm_raw', _direction: 'takeBid', _ammFill: false, _ammEvidence: 'lp_fee', _lpFeeLamports: '0' },
+      }));
+      check('MMM bid_sell: saleType is bid_sell', p.saleType === 'bid_sell', p.saleType);
+      check('MMM bid_sell: ammFill is exactly false (not null)', p.ammFill === false);
+    }
+
+    // MMM AMM pool_sale with ammFill=true (confirmed pool-inventory fill).
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigMmmPoolSale', marketplace: 'magic_eden_amm',
+        rawData: { _parser: 'mmm_raw', _direction: 'fulfillBuy', _ammFill: true, _ammEvidence: 'lp_fee', _lpFeeLamports: '50000' },
+      }));
+      check('MMM pool_sale: saleType is pool_sale', p.saleType === 'pool_sale', p.saleType);
+      check('MMM AMM pool_sale: ammFill is exactly true', p.ammFill === true);
+    }
+
+    // Normal ME sale, slug already known synchronously (mint→slug cache hit) —
+    // exercises the me_slug identity tier, and doubles as the "old client
+    // reading only the original 7 fields" compatibility check.
+    let normalMeSig = 'sigNormalMe';
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: normalMeSig, meCollectionSlug: 'test_collection',
+      }));
+      check('normal ME sale: saleType is normal_sale', p.saleType === 'normal_sale', p.saleType);
+      check('normal ME sale: collectionId resolves via me_slug tier (no address known yet)',
+        p.collectionId === 'test_collection' && p.collectionIdentitySource === 'me_slug');
+      check('normal ME sale: collectionAddress still null (never fabricated)', p.collectionAddress === null);
+      const legacyOk = typeof p.signature === 'string' && typeof p.mint === 'string'
+        && (typeof p.slug === 'string' || p.slug === null) && typeof p.priceSol === 'number'
+        && typeof p.marketplace === 'string' && typeof p.saleType === 'string' && typeof p.blockTime === 'string';
+      check('old-client compat: all 7 original v1 fields still present with original types', legacyOk);
+    }
+
+    // Initial event followed by an identity patch (async enrichment resolves
+    // an on-chain collection address after the sale frame already went out).
+    {
+      saleEventBus.emitBotIdentityPatch({
+        signature: normalMeSig, collectionAddress: 'CollAddr1111111111111111111111111111111111',
+        meCollectionSlug: 'test_collection', tensorCollectionSlug: null,
+      });
+      const frame = await c5.waitFor((f) => f.includes('event: sale_patch') && f.includes(normalMeSig), 2000);
+      check('identity patch: sale_patch frame delivered, correlated by signature', frame !== null);
+      const envelope = JSON.parse((frame ?? '').split('\ndata: ')[1] ?? '{}') as { eventType: string; payload: PatchPayload };
+      check('identity patch: eventType is sale_patch', envelope.eventType === 'sale_patch');
+      check('identity patch: address wins over slug (onchain_collection_address precedence)',
+        envelope.payload?.patch?.collectionAddress === 'CollAddr1111111111111111111111111111111111'
+        && envelope.payload?.patch?.collectionIdentitySource === 'onchain_collection_address'
+        && envelope.payload?.patch?.collectionId === 'CollAddr1111111111111111111111111111111111');
+    }
+
+    // Seller-remaining-count patch (fast, signature-correlatable path).
+    {
+      saleEventBus.emitBotSellerCountPatch({ signature: normalMeSig, count: 7 });
+      const frame = await c5.waitFor((f) => f.includes('event: sale_patch') && f.includes('sellerRemainingCount'), 2000);
+      check('seller-count patch: delivered with correct count', frame !== null && frame.includes('"sellerRemainingCount":7'));
+    }
+
+    // Genuinely unresolved identity — no address/slug resolved at all.
+    // Must NOT publish a no-op sale_patch (would waste a bot's bandwidth /
+    // falsely imply something changed).
+    {
+      const before = /"sequence":(\d+)/.exec(c5.frames[c5.frames.length - 1] ?? '')?.[1];
+      saleEventBus.emitBotIdentityPatch({ signature: 'sigNeverResolved', collectionAddress: null, meCollectionSlug: null, tensorCollectionSlug: null });
+      saleEventBus.emitBotSellerCountPatch({ signature: 'sigNeverResolved', count: null });
+      const frame = await c5.waitFor((f) => f.includes('sigNeverResolved'), 500);
+      check('genuinely unresolved identity: no sale_patch published for an all-null resolution', frame === null, `before seq=${before}`);
+    }
+
+    // No merkle-tree misattribution — me_cnft_raw's collectionAddress is a
+    // Bubblegum tree, not a real collection group, and must never surface.
+    {
+      const merkleTree = 'MerkleTree11111111111111111111111111111111';
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigMeCnftMerkle', nftType: 'cnft',
+        mintAddress: merkleTree, collectionAddress: merkleTree,
+        rawData: { _parser: 'me_cnft_raw', _instruction: 'buy_now' },
+      }));
+      check('no merkle-tree misattribution: collectionAddress excluded despite event.collectionAddress being set',
+        p.collectionAddress === null);
+      check('no merkle-tree misattribution: collectionId excluded too', p.collectionId === null);
+    }
+
+    c5.cancel();
     await close();
     __resetForTest();
   }

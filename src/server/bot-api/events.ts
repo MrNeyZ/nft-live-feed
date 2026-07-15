@@ -16,10 +16,17 @@ import type {
   BotEventEnvelope,
   BotEventType,
   BotEventSalePayload,
+  BotEventSalePatchPayload,
   BotEventListingChangePayload,
 } from '../../domain/bot-api-types';
-import { saleTypeFromEvent } from '../../domain/sale-event-adapters';
+import {
+  saleTypeFromEvent,
+  ammFillFromEvent,
+  isMerkleTreeCollectionAddress,
+  resolveCollectionIdentity,
+} from '../../domain/sale-event-adapters';
 import type { SaleEvent } from '../../models/sale-event';
+import type { BotIdentityPatch, BotSellerCountPatch } from '../../events/emitter';
 
 /** Bounded so a burst of sales/listing changes can never grow memory
  *  without limit — same "small bounded ring" shape as the mint_meta replay
@@ -126,6 +133,17 @@ export function subscriberCount(): number { return listeners.size; }
 // ─── Bus → Bot API mapping ──────────────────────────────────────────────
 
 function toSalePayload(event: SaleEvent): BotEventSalePayload {
+  // Merkle-tree guard: me_cnft_raw stores the Bubblegum tree in
+  // collectionAddress as a stable per-sale placeholder — never a real
+  // collection identity (see isMerkleTreeCollectionAddress's doc comment).
+  const trustedCollectionAddress = isMerkleTreeCollectionAddress(event)
+    ? null
+    : (event.collectionAddress ?? null);
+  const identity = resolveCollectionIdentity(
+    trustedCollectionAddress,
+    event.meCollectionSlug ?? null,
+    event.tensorCollectionSlug ?? null,
+  );
   return {
     signature:   event.signature,
     mint:        event.mintAddress,
@@ -134,7 +152,45 @@ function toSalePayload(event: SaleEvent): BotEventSalePayload {
     marketplace: event.marketplace,
     saleType:    saleTypeFromEvent(event),
     blockTime:   event.blockTime.toISOString(),
+    seller: event.seller ?? null,
+    buyer:  event.buyer  ?? null,
+    collectionId:              identity.collectionId,
+    collectionSlug:            identity.collectionSlug,
+    collectionAddress:         identity.collectionAddress,
+    collectionIdentitySource:  identity.collectionIdentitySource,
+    ammFill: ammFillFromEvent(event) ?? null,
+    // Always null on the initial frame — see the field's doc comment on
+    // BotEventSalePayload. Resolved later via a `sale_patch` event.
+    sellerRemainingCount: null,
   };
+}
+
+/** Builds a `sale_patch` from a resolved collection identity. Returns null
+ *  (never published) when nothing authoritative resolved — avoids sending
+ *  an empty/no-op patch for the common case where enrichment simply found
+ *  no collection identity for this sale. */
+function toIdentityPatchPayload(p: BotIdentityPatch): BotEventSalePatchPayload | null {
+  const identity = resolveCollectionIdentity(p.collectionAddress, p.meCollectionSlug, p.tensorCollectionSlug);
+  if (identity.collectionId === null) return null;
+  return {
+    signature: p.signature,
+    patch: {
+      collectionId:             identity.collectionId,
+      collectionSlug:           identity.collectionSlug,
+      collectionAddress:        identity.collectionAddress,
+      collectionIdentitySource: identity.collectionIdentitySource,
+    },
+  };
+}
+
+/** Builds a `sale_patch` from a resolved seller-remaining-count. Returns
+ *  null (never published) when the lookup came back with no count — a
+ *  null count means "genuinely unresolved", not "zero holdings left", and
+ *  publishing it would let a bot wrongly treat "unknown" as "confirmed
+ *  zero". */
+function toSellerCountPatchPayload(p: BotSellerCountPatch): BotEventSalePatchPayload | null {
+  if (p.count === null) return null;
+  return { signature: p.signature, patch: { sellerRemainingCount: p.count } };
 }
 
 let wired = false;
@@ -158,6 +214,22 @@ export function wireBotEventSources(): void {
 
   saleEventBus.onListingRemove(({ slug, id }) => {
     publish<BotEventListingChangePayload>('listing_change', { slug, kind: 'remove', id });
+  });
+
+  // Collection-identity patch — fires once per non-blacklisted, mint-bearing
+  // sale, right alongside the existing (public, untouched) `meta` update.
+  // See BotIdentityPatch's doc comment in src/events/emitter.ts.
+  saleEventBus.onBotIdentityPatch((p) => {
+    const payload = toIdentityPatchPayload(p);
+    if (payload) publish<BotEventSalePatchPayload>('sale_patch', payload);
+  });
+
+  // Seller-remaining-count patch — fast (signature-correlatable) path only.
+  // The late exact-scan refinement has no signature and is intentionally
+  // not wired here — see BotSellerCountPatch's doc comment.
+  saleEventBus.onBotSellerCountPatch((p) => {
+    const payload = toSellerCountPatchPayload(p);
+    if (payload) publish<BotEventSalePatchPayload>('sale_patch', payload);
   });
 }
 
