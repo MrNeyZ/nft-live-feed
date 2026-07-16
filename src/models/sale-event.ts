@@ -137,6 +137,17 @@ export interface SaleEvent {
    * plain BUY/SELL — see `sale-kind.ts`'s `saleKind()`.
    */
   poolType?: 'buy' | 'sell' | 'two_sided' | null;
+  /**
+   * Timestamp the me-raw parser (`parseRawMeTransaction`) received the raw
+   * transaction to process — captured once, synchronously (`Date.now()`,
+   * zero I/O), before dispatching to whichever sale-family sub-parser
+   * matches. Measures OUR pipeline's ingestion latency (WS/poll →
+   * getTransaction → parse), NOT on-chain time — never use `blockTime` as
+   * a substitute for this. Undefined for any sale that didn't go through
+   * `me-raw/parser.ts` (tensor-raw, mint-raw, historical/pre-existing
+   * rows) — callers must expose null rather than fabricate one.
+   */
+  parserReceivedAt?: Date;
 }
 
 /**

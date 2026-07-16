@@ -16,7 +16,7 @@
 import http from 'http';
 import express from 'express';
 import { createBotApiV1Router } from '../router';
-import type { SnapshotDeps } from '../snapshot';
+import { withTimeout, DependencyTimeoutError, type SnapshotDeps } from '../snapshot';
 import { sanitizeForJson } from '../json-safe';
 import {
   wireBotEventSources,
@@ -320,6 +320,47 @@ async function main() {
     check('partial failure: warns bids_lookup_failed', b.warnings.some((w) => w.code === 'bids_lookup_failed'));
   }
 
+  // ── 6b. Timeout cannot occur — a dependency that NEVER resolves still yields a bounded response ──
+  // Regression test for the 2026-07-15 hang fix: authenticated snapshot requests used to hang
+  // indefinitely because ensureFresh/getBestCollectionBids transitively share unbounded-latency
+  // infrastructure (listings-store.ts's global tensorFetch queue; a 90s+2-retry MMM eligibility
+  // RPC read). withTimeout() now bounds every dependency individually.
+  {
+    // withTimeout() unit-level: rejects with DependencyTimeoutError once the deadline passes,
+    // resolves normally when the real promise settles first — no false positive on the fast path.
+    const neverResolves = new Promise<void>(() => {});
+    const timeoutErr = await withTimeout(neverResolves, 30, 'test-dep').catch((e) => e);
+    check('withTimeout: a never-resolving promise rejects with DependencyTimeoutError', timeoutErr instanceof DependencyTimeoutError);
+    check('withTimeout: error message names the dependency and the deadline', (timeoutErr as Error).message.includes('test-dep') && (timeoutErr as Error).message.includes('30ms'));
+
+    const fastResolve = withTimeout(Promise.resolve('ok'), 5_000, 'fast-dep');
+    check('withTimeout: a promise that settles before the deadline resolves normally (no false-positive timeout)', await fastResolve === 'ok');
+
+    // End-to-end through the REAL router: getEventsByCollection (cheapest budget, 8s) never
+    // resolves. The whole HTTP response must still land well under that deadline plus overhead —
+    // proving the fix is wired all the way from buildCollectionSnapshot up through the route
+    // handler, not just reachable in isolation.
+    process.env.BOT_API_KEY = 'test-bot-key';
+    const listings = [mkListing('a', 1)];
+    const deps = fakeDeps({
+      getByCollection: () => listings,
+      getEventsByCollection: () => new Promise(() => { /* never resolves — the bug's shape */ }),
+    });
+    const { base, close } = await startServer(deps);
+    const start = Date.now();
+    const { status, body } = await jget(`${base}/api/internal/bots/v1/collections/hung_dependency/snapshot`, auth());
+    const elapsed = Date.now() - start;
+    await close();
+    const b = body as { stale: boolean; collection: { floorDepth: { floorSol: number | null } } }; const warnings = (body as { warnings: Array<{ code: string }> }).warnings;
+    check('timeout: request still returns 200 (never hangs the connection)', status === 200, `got ${status}`);
+    check('timeout: bounded well under the 8s recentSales deadline + overhead (elapsed < 12000ms)', elapsed < 12_000, `elapsed=${elapsed}ms`);
+    check('timeout: other sections (floorDepth from the still-fast getByCollection) are unaffected', b.collection.floorDepth.floorSol === 1);
+    // recentSales failures never flip `stale` (pre-existing behavior, unchanged by this fix) —
+    // it's supplementary data, not core to the snapshot's primary floorDepth/crossMarket purpose.
+    check('timeout: stale stays false (recentSales alone is supplementary, matches pre-existing non-timeout failure behavior)', b.stale === false);
+    check('timeout: recent_sales_timeout code is present', warnings.some((w) => w.code === 'recent_sales_timeout'));
+  }
+
   // ── 7. No NaN/Infinity / bigint serialization (json-safe.ts unit tests) ──
   {
     const dirty = { a: NaN, b: Infinity, c: -Infinity, d: 1.5, e: null, f: [NaN, 2, Infinity] };
@@ -406,6 +447,8 @@ async function main() {
       collectionId: string | null; collectionSlug: string | null;
       collectionAddress: string | null; collectionIdentitySource: string | null;
       ammFill: boolean | null; sellerRemainingCount: number | null;
+      poolAddress: string | null; priceLamports: string; nftType: string | null;
+      resizeStatus: string | null; parserReceivedAt: string | null; emittedAt: string;
     };
     type PatchPayload = { signature: string; patch: Record<string, unknown> };
 
@@ -528,6 +571,142 @@ async function main() {
       check('no merkle-tree misattribution: collectionAddress excluded despite event.collectionAddress being set',
         p.collectionAddress === null);
       check('no merkle-tree misattribution: collectionId excluded too', p.collectionId === null);
+    }
+
+    // ── MMM pool sniper fields (2026-07-16) ─────────────────────────────
+    // verified solFulfillBuy with poolAddress.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigSolFulfillBuyPool', marketplace: 'magic_eden_amm',
+        buyer: 'PoolOwner11111111111111111111111111111111',
+        poolAddress: 'PoolAccount111111111111111111111111111111',
+        rawData: { _parser: 'mmm_raw', _instruction: 'solFulfillBuy', _direction: 'fulfillBuy' },
+      }));
+      check('solFulfillBuy: poolAddress passed through', p.poolAddress === 'PoolAccount111111111111111111111111111111');
+    }
+
+    // verified solMip1FulfillBuy with poolAddress.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigSolMip1FulfillBuyPool', marketplace: 'magic_eden_amm', nftType: 'pnft',
+        poolAddress: 'PoolAccount222222222222222222222222222222',
+        rawData: { _parser: 'mmm_raw', _instruction: 'solMip1FulfillBuy', _direction: 'fulfillBuy' },
+      }));
+      check('solMip1FulfillBuy: poolAddress passed through', p.poolAddress === 'PoolAccount222222222222222222222222222222');
+    }
+
+    // verified coreFulfillBuy with poolAddress.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigCoreFulfillBuyPool', marketplace: 'magic_eden_amm', nftType: 'core',
+        poolAddress: 'PoolAccount333333333333333333333333333333',
+        rawData: { _parser: 'mmm_raw', _instruction: 'coreFulfillBuy', _direction: 'fulfillBuy' },
+      }));
+      check('coreFulfillBuy: poolAddress passed through', p.poolAddress === 'PoolAccount333333333333333333333333333333');
+    }
+
+    // unsupported coreFulfillBuyV2 — parser leaves SaleEvent.poolAddress
+    // null/undefined for this variant (see pool-address-coverage.test.ts
+    // for why); this checks the MAPPER doesn't fabricate one either, and
+    // critically that it does NOT fall back to buyer even though buyer is
+    // a real, non-null value on this same event.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigCoreFulfillBuyV2NoPool', marketplace: 'magic_eden_amm', nftType: 'core',
+        buyer: 'PoolOwner44444444444444444444444444444444',
+        poolAddress: null,
+        rawData: { _parser: 'mmm_raw', _instruction: 'coreFulfillBuyV2', _direction: 'fulfillBuy' },
+      }));
+      check('coreFulfillBuyV2 (unsupported): poolAddress is null', p.poolAddress === null);
+      check('no buyer→poolAddress fallback: poolAddress is NOT the buyer wallet even though buyer is set',
+        p.poolAddress !== 'PoolOwner44444444444444444444444444444444' && p.buyer === 'PoolOwner44444444444444444444444444444444');
+    }
+
+    // exact priceLamports string, including a value unsafe for JS integer
+    // precision (> Number.MAX_SAFE_INTEGER).
+    {
+      const unsafeLamports = 9_007_199_254_740_993n; // MAX_SAFE_INTEGER + 2, odd (float would round it)
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigUnsafeLamports',
+        priceLamports: unsafeLamports, priceSol: Number(unsafeLamports) / 1e9,
+      }));
+      check('priceLamports: exact bigint decimal string', p.priceLamports === '9007199254740993', p.priceLamports);
+      check('priceLamports: precision survives beyond Number.MAX_SAFE_INTEGER (would corrupt as a JS number)',
+        p.priceLamports === unsafeLamports.toString());
+    }
+
+    // nftType mapping — exact wire casing for each SaleEvent.nftType value.
+    {
+      for (const nftType of ['legacy', 'pnft', 'core', 'metaplex_core', 'cnft'] as const) {
+        const p = await emitAndCapture(mkSaleFixture({ signature: `sigNftType_${nftType}`, nftType }));
+        check(`nftType mapping: '${nftType}' passed through verbatim`, p.nftType === nftType, p.nftType ?? 'null');
+      }
+    }
+
+    // resizeStatus — initial frame already resolved (synchronous cache hit,
+    // e.g. second sale of the same mint — see insert.ts's getCachedResizeStatus).
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigResizeKnown', resizeStatus: 'metaplex_resized_unclaimed',
+      }));
+      check('resizeStatus: already-known value included on the initial frame', p.resizeStatus === 'metaplex_resized_unclaimed');
+    }
+
+    // resizeStatus — unresolved on the initial frame, arrives later via
+    // sale_patch (existing signature-correlated architecture, reusing the
+    // same ResizeStatusPatch bus event the public resize_status SSE uses).
+    {
+      const p = await emitAndCapture(mkSaleFixture({ signature: 'sigResizePending' }));
+      check('resizeStatus: null on initial frame when unresolved', p.resizeStatus === null);
+      saleEventBus.emitResizeStatusPatch({
+        signature: 'sigResizePending', mint: 'Mint11111111111111111111111111111111111',
+        resizeStatus: 'metaplex_resized_unclaimed',
+      });
+      const frame = await c5.waitFor((f) => f.includes('event: sale_patch') && f.includes('sigResizePending'), 2000);
+      check('resizeStatus patch: sale_patch frame delivered, correlated by signature', frame !== null);
+      check('resizeStatus patch: carries the resolved value', (frame ?? '').includes('"resizeStatus":"metaplex_resized_unclaimed"'));
+    }
+
+    // Timestamps — ISO strings, and emittedAt is not earlier than
+    // parserReceivedAt when both exist (parserReceivedAt happens strictly
+    // before the Bot API mapper runs, which is where emittedAt is stamped).
+    {
+      const parserReceivedAt = new Date(Date.now() - 1500); // simulate 1.5s parse-to-emit gap
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigTimestamps', parserReceivedAt,
+        rawData: { _parser: 'mmm_raw', _instruction: 'solFulfillBuy', _direction: 'fulfillBuy' },
+      }));
+      const parserReceivedAtValid = p.parserReceivedAt !== null && !Number.isNaN(Date.parse(p.parserReceivedAt));
+      const emittedAtValid = !Number.isNaN(Date.parse(p.emittedAt));
+      check('parserReceivedAt is a valid ISO string', parserReceivedAtValid, p.parserReceivedAt ?? 'null');
+      check('emittedAt is a valid ISO string', emittedAtValid, p.emittedAt);
+      check('emittedAt is not earlier than parserReceivedAt',
+        parserReceivedAtValid && emittedAtValid && Date.parse(p.emittedAt) >= Date.parse(p.parserReceivedAt as string));
+    }
+
+    // parserReceivedAt null for a sale that never went through me-raw/parser.ts.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigNoParserTimestamp', marketplace: 'tensor',
+        rawData: { _parser: 'tensor_raw', _direction: 'buy' },
+      }));
+      check('parserReceivedAt is null for a non-me-raw sale', p.parserReceivedAt === null);
+    }
+
+    // old clients reading only the original fields remain compatible — the
+    // 6 new fields are pure additions, verified by re-checking the exact
+    // same 7-field legacy contract this suite already asserts above still
+    // holds on an event that ALSO carries every new field.
+    {
+      const p = await emitAndCapture(mkSaleFixture({
+        signature: 'sigOldClientCompatV2', poolAddress: 'PoolAccount555555555555555555555555555555',
+        resizeStatus: 'none',
+        rawData: { _parser: 'mmm_raw', _instruction: 'solFulfillBuy', _direction: 'fulfillBuy' },
+      }));
+      const legacyOk = typeof p.signature === 'string' && typeof p.mint === 'string'
+        && (typeof p.slug === 'string' || p.slug === null) && typeof p.priceSol === 'number'
+        && typeof p.marketplace === 'string' && typeof p.saleType === 'string' && typeof p.blockTime === 'string';
+      check('old-client compat (v2 fields present): original 7 fields unaffected', legacyOk);
     }
 
     c5.cancel();

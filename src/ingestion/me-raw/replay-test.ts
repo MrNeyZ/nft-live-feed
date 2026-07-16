@@ -107,6 +107,13 @@ interface TestCase {
    *              e.g. fulfillSell direction, or cNFT which never emits an lp_fee log)
    */
   expectAmmFill?: true | false | 'absent';
+  /**
+   * MMM pool sniper regression guard (2026-07-16): the exact MMM pool
+   * state PDA (`programs.ts`'s `poolAcctIdx`), or `null` for a non-MMM
+   * sale / an unverified instruction variant. Must come straight from the
+   * verified parser output — never derived from `buyer`.
+   */
+  expectPoolAddress?: string | null;
 }
 
 const CASES: TestCase[] = [
@@ -160,8 +167,15 @@ const CASES: TestCase[] = [
     // of the first MPL Core inner CPI — the actual on-chain Core asset ID.
     expectMint:        '275SXu4SBhvn7a1L12imggsD9UaMDbUrUvp2yG5g9vyE',
     expectSeller:      '7VzKwP6CoW6QAhbVaWNjB1NTfgTVefbFAQhsvxVdGB7X',
-    // Buyer = pool state PDA (accs[1]) — best available pool identifier
+    // Buyer = accts[1] = pool OWNER wallet (verified — System-owned,
+    // equals the pool-state account's own `owner` field), NOT the pool
+    // PDA itself — see programs.ts's MmmIxDef.buyerAcctIdx doc comment.
+    // Corrects this comment's prior "pool state PDA" claim (2026-07-16) —
+    // that was exactly the buyer/pool-account conflation the MMM pool
+    // sniper audit flagged. The actual pool account is `expectPoolAddress`
+    // below (accts[4], independently verified live 2026-07-11).
     expectBuyer:       'G9PjBZyNh7KfeYP8cQK3CTLWLZoWFqTC4UnwFimrxB21',
+    expectPoolAddress: '6iJacFapFHHEs9KZAwwRYhJuyztrN5XE8qqhBq9X8TjH',
     expectPriceGte:    0.013,
     expectPriceLte:    0.016,
     expectInstruction: 'coreFulfillBuy',
@@ -175,6 +189,7 @@ const CASES: TestCase[] = [
     expectMint:        '4juWhaivqQdvL5BzVqXGxZydUb2Ey7ceFAxHH5uciTHF',
     expectSeller:      'Gzbr5P6sJo5HtQzgdjMnNNfaTv2bervcTHFNQ8Yjjjsa',
     expectBuyer:       'K7eHUegTXSjMdyKX5E4DWJsbQgNccHjZVSXECZfYiTR',
+    expectPoolAddress: 'MubTKw97Ez5qzASEfLqQSaSMEJSX4rYskYLDaSJyQs4',
     expectPriceGte:    0.80,
     expectPriceLte:    0.85,
     expectInstruction: 'solFulfillBuy',
@@ -367,6 +382,7 @@ const CASES: TestCase[] = [
     expectNftType:     'pnft',
     expectSeller:      'Ft6UZYLKh3AZAUij3sdM4ZTT1ibvxbW23CyhcrsPZFc3',
     expectBuyer:       '6Fvwa3cPPQPhPBFx5vqr9QJ3qJJ7e1Ai21vDP1FBrDHc',
+    expectPoolAddress: '83Suja4NhNANKdYy3F47yuyV7V5TuGv7NByQ23dvbMCx',
     expectInstruction: 'solMip1FulfillBuy',
     expectAmmFill:     true,
   },
@@ -503,6 +519,14 @@ async function main() {
         ok = check('_ammFill', raw._ammFill, tc.expectAmmFill) && ok;
       }
     }
+    if (tc.expectPoolAddress !== undefined) {
+      ok = check('poolAddress', e.poolAddress ?? null, tc.expectPoolAddress) && ok;
+    }
+    // Universal regression guard (2026-07-16): every successfully parsed
+    // event must carry parserReceivedAt — see parseRawMeTransaction's
+    // `stamp()` helper. Not gated behind a per-case flag since it applies
+    // unconditionally, unlike the sale-family-specific fields above.
+    ok = check('parserReceivedAt is set', e.parserReceivedAt instanceof Date, true) && ok;
 
     if (ok) {
       console.log(`   marketplace: ${e.marketplace}  nftType: ${e.nftType}`);
@@ -511,6 +535,7 @@ async function main() {
       console.log(`   buyer:  ${e.buyer}`);
       console.log(`   price:  ${e.priceSol.toFixed(6)} SOL (${e.priceLamports} lamports)`);
       console.log(`   ix:     ${(e.rawData as Record<string,unknown>)._instruction}`);
+      console.log(`   pool:   ${e.poolAddress ?? 'null'}`);
       pass++;
     } else {
       fail++;

@@ -137,6 +137,16 @@ export type ParseResult =
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 export function parseRawMeTransaction(tx: RawSolanaTx): ParseResult {
+  // Captured once, up front, before any instruction matching/parsing work —
+  // this is `SaleEvent.parserReceivedAt`: "when did the parser receive this
+  // raw tx." Single `Date.now()` call, no I/O, applies uniformly to every
+  // sale family below (ME v2 / MMM / cNFT) via the shared `stamp()` helper.
+  const parserReceivedAt = new Date();
+  const stamp = (result: ParseResult): ParseResult => {
+    if (result.ok) result.event.parserReceivedAt = parserReceivedAt;
+    return result;
+  };
+
   if (tx.meta?.err !== null && tx.meta?.err !== undefined) {
     return { ok: false, reason: 'transaction failed on-chain' };
   }
@@ -154,18 +164,18 @@ export function parseRawMeTransaction(tx: RawSolanaTx): ParseResult {
     // Observability-only: capture dormant coreFulfillBuyV2 occurrences. No-op
     // for every other instruction; never alters the returned result.
     noteMmmV2Disc(tx.signature, mmmMatch.instructionName, mmmResult);
-    return mmmResult;
+    return stamp(mmmResult);
   }
 
   // Try ME v2 fixed-price.
   const meV2Match = findMeV2SaleIx(tx);
-  if (meV2Match) return parseMeV2Sale(tx, meV2Match);
+  if (meV2Match) return stamp(parseMeV2Sale(tx, meV2Match));
 
   // ME cNFT marketplace (`M3mxk5W2…`). Distinct program from ME v2,
   // single confirmed sale instruction (`buy_now`). Closes the coverage
   // gap surfaced by the `wegens` audit (7/8 missing sales).
   const meCnftMatch = findMeCnftSaleIx(tx);
-  if (meCnftMatch) return parseMeCnftSale(tx, meCnftMatch);
+  if (meCnftMatch) return stamp(parseMeCnftSale(tx, meCnftMatch));
 
   return { ok: false, reason: 'no recognised ME sale instruction' };
 }
@@ -201,8 +211,14 @@ function parseMeV2Sale(
   }
 
   // Parties for ME v2:
-  //   SOL-flow (payment.seller) is the primary seller source — the real seller wallet always
-  //   receives the largest net SOL increase in the transaction (buyer pays minus ME fee/royalties).
+  //   SOL-flow (payment.seller) is the primary seller source here — the real seller wallet
+  //   receives the largest net SOL increase (buyer pays minus ME fee/royalties). This is safe
+  //   for ME v2 specifically because every ME v2 sale is a direct single-listing settlement:
+  //   there is exactly one seller and the payment always lands directly in their wallet, with
+  //   no intermediate pool. Do NOT assume this generalizes to MMM (see parseMmmSale below) —
+  //   in a shared AMM pool the largest SOL recipient is the pool's payout wallet, which is a
+  //   DIFFERENT account from whoever deposited the specific NFT that sold (confirmed 2026-07-15,
+  //   see programs.ts's coreFulfillSell/solFulfillSell/solMip1FulfillSell/solExtFulfillSell docs).
   //   Token-flow (tkSeller = preTokenBalance.owner) is unreliable here: for pNFT/mip1 listings
   //   ME V2 holds the NFT in a program-controlled escrow whose token-account owner is a fixed
   //   program address (not the seller's wallet), causing consistent misattribution.
@@ -538,10 +554,17 @@ function parseMmmSale(
   //
   // The MMM `post_sol_fulfill_sell` event log emits the canonical
   //   `total_price` (= curve price the buyer agreed to). Empirically this
-  // equals the largest positive SOL delta in the tx — the pool wallet
-  // / pool state PDA receiving the curve proceeds. Royalty + LP fee
-  // are always smaller fractions of the price, so the largest gainer
-  // is the correct disambiguation without parsing the program log.
+  // equals the largest positive SOL delta in the tx — the pool's payout
+  // wallet receiving the curve proceeds. Royalty + LP fee are always
+  // smaller fractions of the price, so the largest gainer is the correct
+  // disambiguation for the PRICE without parsing the program log.
+  //
+  // NB: this is a PRICE heuristic only — do not read anything about seller
+  // IDENTITY into it. The account that happens to be the largest gainer
+  // (the pool's payout wallet) is confirmed NOT to be the human depositor
+  // in general (see programs.ts's per-instruction sellerAcctIdx docs,
+  // corrected 2026-07-15); `seller` above is assigned from the verified
+  // `sellerAcctIdx` account, entirely independently of this price calc.
   //
   // Scope: ONLY `fulfillSell` (= pool_buy). All other MMM directions
   // (`fulfillBuy` = pool_sale, `takeBid` = bid_sell) keep the existing

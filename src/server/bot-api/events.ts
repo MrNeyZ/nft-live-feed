@@ -26,7 +26,7 @@ import {
   resolveCollectionIdentity,
 } from '../../domain/sale-event-adapters';
 import type { SaleEvent } from '../../models/sale-event';
-import type { BotIdentityPatch, BotSellerCountPatch } from '../../events/emitter';
+import type { BotIdentityPatch, BotSellerCountPatch, ResizeStatusPatch } from '../../events/emitter';
 
 /** Bounded so a burst of sales/listing changes can never grow memory
  *  without limit — same "small bounded ring" shape as the mint_meta replay
@@ -162,6 +162,23 @@ function toSalePayload(event: SaleEvent): BotEventSalePayload {
     // Always null on the initial frame — see the field's doc comment on
     // BotEventSalePayload. Resolved later via a `sale_patch` event.
     sellerRemainingCount: null,
+    // MMM pool sniper fields (2026-07-16) — direct passthroughs of the
+    // verified parser output. `poolAddress` in particular must NEVER fall
+    // back to `buyer` — a pool owner wallet can run multiple pools, so
+    // guessing would silently point a bot at the wrong pool. `event
+    // .poolAddress` is already exactly "verified parser output or null,
+    // never guessed" (see its doc comment on SaleEvent) — passed through
+    // unchanged, not re-derived here.
+    poolAddress:       event.poolAddress ?? null,
+    priceLamports:     event.priceLamports.toString(),
+    nftType:           event.nftType ?? null,
+    resizeStatus:      event.resizeStatus ?? null,
+    parserReceivedAt:  event.parserReceivedAt ? event.parserReceivedAt.toISOString() : null,
+    // Generated here, immediately before this payload is handed to
+    // publish() for envelope/frame serialization (see the field's doc
+    // comment on BotEventSalePayload) — no work happens on this payload
+    // between this line and JSON.stringify in events.ts's frameFor().
+    emittedAt:         new Date().toISOString(),
   };
 }
 
@@ -191,6 +208,17 @@ function toIdentityPatchPayload(p: BotIdentityPatch): BotEventSalePatchPayload |
 function toSellerCountPatchPayload(p: BotSellerCountPatch): BotEventSalePatchPayload | null {
   if (p.count === null) return null;
   return { signature: p.signature, patch: { sellerRemainingCount: p.count } };
+}
+
+/** Builds a `sale_patch` from a resolved resize-status lookup. Reuses the
+ *  EXISTING `ResizeStatusPatch` bus event (`resize-status-resolver.ts`) —
+ *  the same one the public `resize_status` SSE channel already consumes —
+ *  no new resolver, no new bus event. Always carries a signature (the
+ *  resolver only enqueues a lookup when one is known — see
+ *  `enqueueResizeLookup`'s call site in insert.ts), so unlike the seller-
+ *  count "fast path" caveat, there's no unsignatured variant to omit here. */
+function toResizeStatusPatchPayload(p: ResizeStatusPatch): BotEventSalePatchPayload {
+  return { signature: p.signature, patch: { resizeStatus: p.resizeStatus } };
 }
 
 let wired = false;
@@ -230,6 +258,14 @@ export function wireBotEventSources(): void {
   saleEventBus.onBotSellerCountPatch((p) => {
     const payload = toSellerCountPatchPayload(p);
     if (payload) publish<BotEventSalePatchPayload>('sale_patch', payload);
+  });
+
+  // Resize-status patch — reuses the existing public ResizeStatusPatch bus
+  // event (resize-status-resolver.ts) directly; no Bot-API-specific patch
+  // type needed since it's already signature-correlated and carries no
+  // fields that need filtering/guarding the way collection identity does.
+  saleEventBus.onResizeStatusPatch((p: ResizeStatusPatch) => {
+    publish<BotEventSalePatchPayload>('sale_patch', toResizeStatusPatchPayload(p));
   });
 }
 
