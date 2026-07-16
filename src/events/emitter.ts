@@ -439,6 +439,7 @@ class SaleEventBus extends EventEmitter {
   }
 
   emitMetaUpdate(update: MetaUpdate): void {
+    rememberRecentSaleMeta(update);
     this.emit('meta', update);
   }
   onMetaUpdate(listener: (update: MetaUpdate) => void): this {
@@ -708,6 +709,45 @@ export function recentMintMetaSnapshot(): MintMetaPatch[] {
  *  events even right after a backend restart. */
 export function hydrateRecentMintMeta(patches: MintMetaPatch[]): void {
   for (const p of patches) rememberRecentMintMeta(p);
+}
+
+// ─── Recent `meta` (sale enrichment) replay buffer ──────────────────────
+// Same rationale and shape as the mint_meta buffer above, for sale-side
+// enrichment patches (nftName/imageUrl/collectionName/floorDelta/
+// offerDelta/mintedAtMs). `enrich()` resolves these asynchronously AFTER
+// the initial `sale` frame — floorDelta in particular can miss its own
+// short-TTL cache on a collection that just went from quiet to a heavy
+// dump, needing a live Magic Eden round trip that a few near-simultaneous
+// sales can race past. A client whose snapshot + SSE connect landed in
+// that gap never saw the live `meta` patch and the badge stayed missing
+// for that page load. Replaying recent patches on connect closes it,
+// exactly like the mint_meta / seller_count buffers already do for their
+// own async-patch gaps.
+const SALE_META_REPLAY_MAX = 250;
+const recentSaleMeta: MetaUpdate[] = [];
+const recentSaleMetaIndex = new Map<string, number>();
+
+function rememberRecentSaleMeta(u: MetaUpdate): void {
+  const existing = recentSaleMetaIndex.get(u.signature);
+  if (existing != null && existing < recentSaleMeta.length && recentSaleMeta[existing]?.signature === u.signature) {
+    recentSaleMeta[existing] = u;
+    return;
+  }
+  recentSaleMeta.push(u);
+  recentSaleMetaIndex.set(u.signature, recentSaleMeta.length - 1);
+  if (recentSaleMeta.length > SALE_META_REPLAY_MAX) {
+    const dropped = recentSaleMeta.shift();
+    if (dropped) recentSaleMetaIndex.delete(dropped.signature);
+    recentSaleMetaIndex.clear();
+    for (let i = 0; i < recentSaleMeta.length; i++) {
+      recentSaleMetaIndex.set(recentSaleMeta[i].signature, i);
+    }
+  }
+}
+
+/** Snapshot for SSE handlers — shallow copy in emit order. */
+export function recentSaleMetaSnapshot(): MetaUpdate[] {
+  return recentSaleMeta.slice();
 }
 
 // ─── Payment-token meta cache + replay ──────────────────────────────

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import {
   saleEventBus,
   recentMintMetaSnapshot,
+  recentSaleMetaSnapshot,
   MetaUpdate,
   RawPatch,
   ListingRemoveDelta,
@@ -301,6 +302,9 @@ function buildMintMetaFrame(p: MintMetaPatch): string {
 function buildPaymentTokenMetaFrame(p: PaymentTokenMeta): string {
   return `event: payment_token_meta\ndata: ${JSON.stringify(p)}\n\n`;
 }
+function buildMetaFrame(u: MetaUpdate): string {
+  return `event: meta\ndata: ${JSON.stringify(u)}\n\n`;
+}
 
 // Sell-type sale_types we surface a "seller still holds N" badge for.
 // Authoritative list comes from `deriveSaleType` (src/domain/sale-type.ts):
@@ -539,7 +543,7 @@ saleEventBus.onSale(           (event)  => {
     void signal;
   })();
 });
-saleEventBus.onMetaUpdate(     (update) => enqueue(`event: meta\ndata: ${JSON.stringify(update)}\n\n`));
+saleEventBus.onMetaUpdate(     (update) => enqueue(buildMetaFrame(update)));
 saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onResizeStatusPatch((patch) => enqueue(`event: resize_status\ndata: ${JSON.stringify(patch)}\n\n`));
@@ -680,6 +684,23 @@ export function createSseRouter(): Router {
       } catch { /* client gone */ break; }
     }
     if (sellerCountReplayed > 0) console.log(`[seller-count-sse] replayed=${sellerCountReplayed}`);
+    // Replay recent sale `meta` enrichment patches (nftName/imageUrl/
+    // collectionName/floorDelta/offerDelta/mintedAtMs) — same rationale as
+    // the mint_meta / seller_count replays above. floorDelta in particular
+    // can miss its own short-TTL floor cache on a collection that just
+    // went from quiet to a heavy dump (a few near-simultaneous sales can
+    // race past a cold cache before the first live Magic Eden lookup
+    // lands), leaving the FloorChip permanently missing for a client that
+    // connected in that gap. Frontend's `meta` handler matches by
+    // signature/mintAddress and is idempotent, so replaying is safe.
+    let saleMetaReplayed = 0;
+    for (const u of recentSaleMetaSnapshot()) {
+      try {
+        res.write(buildMetaFrame(u));
+        saleMetaReplayed++;
+      } catch { /* client gone */ break; }
+    }
+    if (saleMetaReplayed > 0) console.log(`[sale-meta-sse] replayed=${saleMetaReplayed}`);
 
     sseClients.add(res);
     clientsByIp.set(ip, ipCount + 1);
