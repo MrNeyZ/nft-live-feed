@@ -28,6 +28,7 @@ import { createHoldersRouter } from './tools-holders';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createMeTensorArbRouter } from './tools-me-tensor-arb';
 import { createDotlandRouter } from './tools-dotland';
+import { createMeBidsRouter } from './tools-me-bids';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
@@ -173,6 +174,12 @@ export function createApp() {
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
   app.use('/api', createDotlandRouter());
+
+  // Magic Eden item-level bid tool — personal use, requireAuth-gated on
+  // every route (see tools-me-bids.ts header comment). Never handles a
+  // private key; build-only until the client signs via Phantom and submits
+  // through the existing /api/tools/mmm-pools/send-tx proxy.
+  app.use('/api', createMeBidsRouter());
 
   // Pixel-forge drawing agent — personal use, requireAuth-gated on every
   // route (see tools-pixel-forge.ts header comment).

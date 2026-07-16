@@ -28,6 +28,7 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
   { href: '/tools/mmm-collection-scanner',title: 'MMM Collection Scanner',desc: 'Triage underfunded MMM pools across a collection.' },
   { href: '/tools/dotland',               title: 'DotLand',               desc: 'Direct-mint tool (personal use).' },
+  { href: '/tools/me-bids',               title: 'ME Bids',               desc: 'Create/change/cancel item-level Magic Eden offers directly (bypasses disabled web UI).' },
   { href: '/tools/pixel-forge',           title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
 ];
 
