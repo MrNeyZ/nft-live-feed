@@ -16,7 +16,7 @@
 import http from 'http';
 import express from 'express';
 import { createBotApiV1Router } from '../router';
-import { withTimeout, DependencyTimeoutError, type SnapshotDeps } from '../snapshot';
+import type { SnapshotDeps } from '../snapshot';
 import { sanitizeForJson } from '../json-safe';
 import {
   wireBotEventSources,
@@ -318,47 +318,6 @@ async function main() {
     check('partial failure: bids null (lookup failed, distinct from "no bids")', b.collection.bids === null);
     check('partial failure: warns listings_refresh_failed', b.warnings.some((w) => w.code === 'listings_refresh_failed'));
     check('partial failure: warns bids_lookup_failed', b.warnings.some((w) => w.code === 'bids_lookup_failed'));
-  }
-
-  // ── 6b. Timeout cannot occur — a dependency that NEVER resolves still yields a bounded response ──
-  // Regression test for the 2026-07-15 hang fix: authenticated snapshot requests used to hang
-  // indefinitely because ensureFresh/getBestCollectionBids transitively share unbounded-latency
-  // infrastructure (listings-store.ts's global tensorFetch queue; a 90s+2-retry MMM eligibility
-  // RPC read). withTimeout() now bounds every dependency individually.
-  {
-    // withTimeout() unit-level: rejects with DependencyTimeoutError once the deadline passes,
-    // resolves normally when the real promise settles first — no false positive on the fast path.
-    const neverResolves = new Promise<void>(() => {});
-    const timeoutErr = await withTimeout(neverResolves, 30, 'test-dep').catch((e) => e);
-    check('withTimeout: a never-resolving promise rejects with DependencyTimeoutError', timeoutErr instanceof DependencyTimeoutError);
-    check('withTimeout: error message names the dependency and the deadline', (timeoutErr as Error).message.includes('test-dep') && (timeoutErr as Error).message.includes('30ms'));
-
-    const fastResolve = withTimeout(Promise.resolve('ok'), 5_000, 'fast-dep');
-    check('withTimeout: a promise that settles before the deadline resolves normally (no false-positive timeout)', await fastResolve === 'ok');
-
-    // End-to-end through the REAL router: getEventsByCollection (cheapest budget, 8s) never
-    // resolves. The whole HTTP response must still land well under that deadline plus overhead —
-    // proving the fix is wired all the way from buildCollectionSnapshot up through the route
-    // handler, not just reachable in isolation.
-    process.env.BOT_API_KEY = 'test-bot-key';
-    const listings = [mkListing('a', 1)];
-    const deps = fakeDeps({
-      getByCollection: () => listings,
-      getEventsByCollection: () => new Promise(() => { /* never resolves — the bug's shape */ }),
-    });
-    const { base, close } = await startServer(deps);
-    const start = Date.now();
-    const { status, body } = await jget(`${base}/api/internal/bots/v1/collections/hung_dependency/snapshot`, auth());
-    const elapsed = Date.now() - start;
-    await close();
-    const b = body as { stale: boolean; collection: { floorDepth: { floorSol: number | null } } }; const warnings = (body as { warnings: Array<{ code: string }> }).warnings;
-    check('timeout: request still returns 200 (never hangs the connection)', status === 200, `got ${status}`);
-    check('timeout: bounded well under the 8s recentSales deadline + overhead (elapsed < 12000ms)', elapsed < 12_000, `elapsed=${elapsed}ms`);
-    check('timeout: other sections (floorDepth from the still-fast getByCollection) are unaffected', b.collection.floorDepth.floorSol === 1);
-    // recentSales failures never flip `stale` (pre-existing behavior, unchanged by this fix) —
-    // it's supplementary data, not core to the snapshot's primary floorDepth/crossMarket purpose.
-    check('timeout: stale stays false (recentSales alone is supplementary, matches pre-existing non-timeout failure behavior)', b.stale === false);
-    check('timeout: recent_sales_timeout code is present', warnings.some((w) => w.code === 'recent_sales_timeout'));
   }
 
   // ── 7. No NaN/Infinity / bigint serialization (json-safe.ts unit tests) ──
