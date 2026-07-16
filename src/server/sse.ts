@@ -311,6 +311,30 @@ function buildPaymentTokenMetaFrame(p: PaymentTokenMeta): string {
 // they're harmless extras here.
 const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'pool_sale', 'pool_sell', 'amm_sell']);
 
+// ── Recent seller_count replay buffer ───────────────────────────────────
+// The SELL-badge count is resolved asynchronously AFTER the `sale` frame
+// already went out (first-sight scan / reconciliation can take a real
+// Helius round trip — up to a few seconds, longer than the old flawed
+// fast path this replaced). A client that loads the snapshot (REST) and
+// opens its SSE connection in that gap gets `sellerRemainingCount: null`
+// from the snapshot AND never sees the live `seller_count` patch either
+// (it fires before their connection opens) — the badge then never
+// appears for that page load, "randomly" depending on timing, and stays
+// wrong until a LATER sale for the same seller+collection happens to
+// re-patch it. Mirrors the existing `recentMintMetaSnapshot` replay
+// pattern (see events/emitter.ts) — bounded in-memory ring buffer,
+// replayed to every newly-connecting client so a reconnect shortly after
+// a patch fired still picks it up.
+interface SellerCountWirePayload {
+  signature?: string; seller: string; collection: string; count: number | null; sells10m?: number;
+}
+const SELLER_COUNT_REPLAY_MAX = 250;
+const recentSellerCountPatches: SellerCountWirePayload[] = [];
+function rememberSellerCountPatch(p: SellerCountWirePayload): void {
+  recentSellerCountPatches.push(p);
+  if (recentSellerCountPatches.length > SELLER_COUNT_REPLAY_MAX) recentSellerCountPatches.shift();
+}
+
 /** Per-sale seller-count log gate. The fast/signal lines were unsampled
  *  per sale; under load that's noisy without telling the operator anything
  *  the audit/result/skip lines don't already say. Set `SELLER_COUNT_DEBUG=1`
@@ -491,6 +515,12 @@ saleEventBus.onSale(           (event)  => {
     // from the wire — frontend no longer renders the 🔥 multi-sell hint;
     // it shows only the numeric remaining count when count >= 3.
     enqueue(`event: seller_count\ndata: ${JSON.stringify({ signature, seller, collection, count, sells10m })}\n\n`);
+    // Only finite counts are worth replaying to a late-connecting client —
+    // a null broadcast has nothing to recover (see the replay buffer's
+    // doc comment above).
+    if (typeof count === 'number' && Number.isFinite(count)) {
+      rememberSellerCountPatch({ signature, seller, collection, count, sells10m });
+    }
     // Bot API v1 patch — see BotSellerCountPatch's doc comment
     // (src/events/emitter.ts).
     saleEventBus.emitBotSellerCountPatch({ signature, count });
@@ -634,6 +664,22 @@ export function createSseRouter(): Router {
     for (const p of paymentTokenMetaSnapshot()) {
       try { res.write(buildPaymentTokenMetaFrame(p)); } catch { break; }
     }
+    // Replay recent seller_count patches (SELL badge) — closes the race
+    // where a sale's badge resolves (first-sight scan / reconciliation,
+    // can take a real Helius round trip) shortly AFTER this client's
+    // snapshot fetch ran but BEFORE this connection opened. Without this
+    // replay the badge would never appear for that page load at all (see
+    // the buffer's doc comment near SELL_TYPES_FOR_BADGE). Frontend's
+    // `seller_count` handler already matches by seller+collection and is
+    // idempotent, so replaying entries the client may already have is safe.
+    let sellerCountReplayed = 0;
+    for (const p of recentSellerCountPatches) {
+      try {
+        res.write(`event: seller_count\ndata: ${JSON.stringify(p)}\n\n`);
+        sellerCountReplayed++;
+      } catch { /* client gone */ break; }
+    }
+    if (sellerCountReplayed > 0) console.log(`[seller-count-sse] replayed=${sellerCountReplayed}`);
 
     sseClients.add(res);
     clientsByIp.set(ip, ipCount + 1);
