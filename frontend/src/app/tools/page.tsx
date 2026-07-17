@@ -29,6 +29,8 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/mmm-collection-scanner',title: 'MMM Collection Scanner',desc: 'Triage underfunded MMM pools across a collection.' },
   { href: '/tools/dotland',               title: 'DotLand',               desc: 'Direct-mint tool (personal use).' },
   { href: '/tools/me-bids',               title: 'ME Bids',               desc: 'Create/change/cancel item-level Magic Eden offers directly (bypasses disabled web UI).' },
+  { href: '/tools/mmm-collection-bids',   title: 'MMM Collection Bids',   desc: 'Create/manage collection-level MMM buy-side pools (raw on-chain, dedicated cosigner).' },
+  { href: '/tools/dexbull-airdrop',       title: 'DEXBULL Airdrop',       desc: 'DotLand × DEXBULL airdrop eligibility estimate — strict vs relaxed.' },
   { href: '/tools/pixel-forge',           title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
 ];
 

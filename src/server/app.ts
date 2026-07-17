@@ -29,7 +29,17 @@ import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createMeTensorArbRouter } from './tools-me-tensor-arb';
 import { createDotlandRouter } from './tools-dotland';
 import { createMeBidsRouter } from './tools-me-bids';
+import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
+import { createDexbullAirdropRouter } from './tools-dexbull-airdrop';
 import { createPixelForgeRouter } from './tools-pixel-forge';
+import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
+import { createPixelForgeGenerateSourceRouter } from './tools-pixel-forge-generate-source';
+import { createPixelForgeGeneratedSourcesRouter } from './tools-pixel-forge-generated-sources';
+import { createPixelForgeExportRouter } from './tools-pixel-forge-export';
+import { createPixelForgeCollectionFitRouter } from './tools-pixel-forge-collection-fit';
+import { createPixelForgeImportTraitSheetRouter } from './tools-pixel-forge-import-trait-sheet';
+import { createPixelForgeComposeTraitsRouter } from './tools-pixel-forge-compose-traits';
+import { createPixelForgeValidateTraitSheetRouter } from './tools-pixel-forge-validate-trait-sheet';
 import { corsMiddleware } from './cors';
 import { createMintsBlockedDeployersRouter } from './mints-blocked-deployers';
 import { createBotApiV1Router } from './bot-api/router';
@@ -181,9 +191,67 @@ export function createApp() {
   // through the existing /api/tools/mmm-pools/send-tx proxy.
   app.use('/api', createMeBidsRouter());
 
+  // DotLand x DEXBULL airdrop estimator — read-only analytics, public.
+  // GET /api/tools/dexbull-airdrop/report
+  app.use('/api', createDexbullAirdropRouter());
+
   // Pixel-forge drawing agent — personal use, requireAuth-gated on every
   // route (see tools-pixel-forge.ts header comment).
   app.use('/api', createPixelForgeRouter());
+
+  // Pixel Forge Image-to-Traits Stage 1 (raster normalize/import) — same
+  // gating, separate file (see tools-pixel-forge-raster.ts header comment
+  // and docs/pixel-forge-image-to-traits-pipeline-mvp.md).
+  app.use('/api', createPixelForgeRasterRouter());
+
+  // Pixel Forge Image-to-Traits Stage 6 (OpenAI Image Source) — same
+  // gating, separate file (see tools-pixel-forge-generate-source.ts header
+  // comment). The only route in this whole area that spends real money.
+  app.use('/api', createPixelForgeGenerateSourceRouter());
+
+  // Pixel Forge Generated Sources Library — read/delete over the storage
+  // Stage 6 already writes. Same gating, separate file (see
+  // tools-pixel-forge-generated-sources.ts header comment). No OpenAI
+  // call, no generation, no TraitAsset creation.
+  app.use('/api', createPixelForgeGeneratedSourcesRouter());
+
+  // Pixel Forge Image-to-Traits Stage 7 (48x48 -> 384x384 upscaled export)
+  // — same gating, separate file (see tools-pixel-forge-export.ts header
+  // comment). Read-only, no AI, no data mutation.
+  app.use('/api', createPixelForgeExportRouter());
+
+  // Pixel Forge Image-to-Traits Stage 8 (Collection DNA Lock / Fit Check)
+  // — same gating, separate file (see
+  // tools-pixel-forge-collection-fit.ts header comment). Deterministic
+  // geometry/style scoring only, no AI, no TraitAsset mutation, advisory-
+  // only (never blocks import).
+  app.use('/api', createPixelForgeCollectionFitRouter());
+
+  // Pixel Forge Stage 9.2 (Trait Sheet import + real PNG compose) — same
+  // gating, separate files (see tools-pixel-forge-import-trait-sheet.ts /
+  // tools-pixel-forge-compose-traits.ts header comments). No OpenAI call,
+  // no Anthropic call, no generation — crops/normalizes/composes
+  // already-supplied images only. Import creates candidate TraitAssets
+  // (never auto-approved, never overwrites); compose never mutates
+  // anything.
+  app.use('/api', createPixelForgeImportTraitSheetRouter());
+  app.use('/api', createPixelForgeComposeTraitsRouter());
+
+  // Pixel Forge Stage 9.4 (Trait Sheet validation) — same gating, separate
+  // file (see tools-pixel-forge-validate-trait-sheet.ts header comment).
+  // No OpenAI call, no Anthropic call, no generation — pure read +
+  // measurement over an already-generated sheet image. Never creates or
+  // mutates a TraitAsset, never writes meta.json.
+  app.use('/api', createPixelForgeValidateTraitSheetRouter());
+
+  // Magic Eden MMM collection-bid tool — personal use, requireAuth-gated on
+  // every route (see tools-mmm-collection-bids.ts header comment). Fully
+  // isolated from tools-me-bids.ts (item-level offers) and tools-mmm-pools.ts
+  // (read-only scanner) — builds raw on-chain MMM instructions, never uses
+  // the item-level tool's submit path or any generic tx proxy. Never handles
+  // the owner's private key; only a narrowly-scoped server-held cosigner
+  // keypair that cannot move funds or act alone.
+  app.use('/api', createMmmCollectionBidsRouter());
 
   // VictoryLabs Internal Bot API v1 — private, versioned, read-only market
   // data for the vl-nft-bots consumer. Bot-auth-gated on every route (see
