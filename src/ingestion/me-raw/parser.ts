@@ -592,7 +592,18 @@ function parseMmmSale(
   // CancelSell refunded ≈0.0056 SOL of closed-PDA rent). Same invariant
   // as the ME v2 guard above: seller-net can never exceed the canonical
   // sale price, so a value above priceLamports is contaminated and dropped.
-  const sellerNet = cleanSellerNet(computeSellerNetLamports(tx, seller), priceLamports);
+  //
+  // `fulfillSell` is excluded entirely: the `seller` account there is the
+  // pool depositor (sellerAcctIdx), a verified IDENTITY only — per the price
+  // heuristic comment above, the actual sale proceeds land on the pool's
+  // payout wallet, NOT the depositor's own wallet. Reading the depositor's
+  // balance delta as "net price" massively UNDERSTATES it (e.g. 0.0105 SOL
+  // of rent-refund + lp_fee dust vs a real 0.18 SOL sale — confirmed on
+  //   4URg4bwcJrJQ6SgVkVEChd5eCchq8mVnDCvrjcTzmc6iqxsWa6wraf1rtXwLYCNbR1TodE8GNXFmVGG3aUgMEMdf
+  // ), and the >priceLamports guard only catches overstatement, not this.
+  const sellerNet = effectiveDirection === 'fulfillSell'
+    ? null
+    : cleanSellerNet(computeSellerNetLamports(tx, seller), priceLamports);
   const event: SaleEvent = {
     signature:         tx.signature,
     blockTime:         new Date(tx.blockTime! * 1000),
