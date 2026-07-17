@@ -31,14 +31,12 @@ interface Command {
   run: () => void;
 }
 
-// Order mirrors TopNav's own tab order (BOARD, MULTI, MINTS, TOOLS, FEED),
-// with DotLand inserted right after Tools since it's a tool sub-page.
+// Order mirrors TopNav's own tab order (BOARD, MULTI, MINTS, TOOLS, FEED).
 const NAV_ITEMS: { key: string; label: string; href: string; match: (p: string) => boolean }[] = [
   { key: 'dashboard', label: 'Open Dashboard', href: '/dashboard',      match: p => p.startsWith('/dashboard') },
   { key: 'multi',     label: 'Open Multi',     href: '/multi',          match: p => p.startsWith('/multi') },
   { key: 'mints',     label: 'Open Mints',     href: '/mints',          match: p => p.startsWith('/mints') },
   { key: 'tools',     label: 'Open Tools',     href: '/tools',          match: p => p.startsWith('/tools') },
-  { key: 'dotland',   label: 'Open DotLand',   href: '/tools/dotland',  match: p => p.startsWith('/tools/dotland') },
   { key: 'feed',      label: 'Open Feed',      href: '/feed',           match: p => p.startsWith('/feed') },
 ];
 

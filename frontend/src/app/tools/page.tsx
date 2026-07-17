@@ -27,7 +27,6 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/mmm-pools',             title: 'MMM Dormant Scanner',   desc: 'On-chain escrow audit for a wallet’s MMM pools.' },
   { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
   { href: '/tools/mmm-collection-scanner',title: 'MMM Collection Scanner',desc: 'Triage underfunded MMM pools across a collection.' },
-  { href: '/tools/dotland',               title: 'DotLand',               desc: 'Direct-mint tool (personal use).' },
   { href: '/tools/me-bids',               title: 'ME Bids',               desc: 'Create/change/cancel item-level Magic Eden offers directly (bypasses disabled web UI).' },
   { href: '/tools/mmm-collection-bids',   title: 'MMM Collection Bids',   desc: 'Create/manage collection-level MMM buy-side pools (raw on-chain, dedicated cosigner).' },
   { href: '/tools/dexbull-airdrop',       title: 'DEXBULL Airdrop',       desc: 'DotLand × DEXBULL airdrop eligibility estimate — strict vs relaxed.' },
