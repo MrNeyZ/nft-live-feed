@@ -41,17 +41,24 @@ import {
 // pass an explicit `size` hint so the proxy URL matches their target.
 //
 // GIFs are forced to static PNG via wsrv's `output=png` flag to prevent
-// animation + scroll jank. irys.xyz hosts are bypassed (wsrv returns HTTP
-// 400 "Domain or TLD blocked by policy" for them — the raw URL renders
-// better than a broken proxy response). Non-http URLs (data URIs, relative
-// paths) pass through untouched.
+// animation + scroll jank. Non-http URLs (data URIs, relative paths) pass
+// through untouched.
+//
+// irys.xyz used to be bypassed here (wsrv returns HTTP 400 "Domain or TLD
+// blocked by policy" for the raw gateway.irys.xyz host), which meant every
+// irys-hosted PFP loaded at full original size — commonly 2 000×2 000 —
+// straight into a 56 px card. `/thumb` (src/app/thumb/route.ts) has since
+// grown a smart Irys resolver that rewrites gateway.irys.xyz to a
+// wsrv-fetchable target (arweave.net for settled/Bundlr-era txids,
+// datasprite CDN for the newer ones) BEFORE handing off to wsrv, so the
+// 400 no longer applies and irys images should route through the proxy
+// like everything else. audit July 2026.
 export function compressImage(
   url: string | null | undefined,
   size: number = 128,
 ): string | null {
   if (!url) return null;
   if (!(url.startsWith('http://') || url.startsWith('https://'))) return url;
-  if (url.includes('irys.xyz')) return url;
   // Always force `output=png`. The proxy / wsrv decodes animated inputs
   // (GIF, animated WebP/AVIF) and emits only the first frame as PNG, so
   // every NFT thumbnail renders as a static image with no animation
