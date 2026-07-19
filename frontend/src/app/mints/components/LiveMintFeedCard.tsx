@@ -13,7 +13,7 @@ import type { MintEvent, MintStatus, PaymentTokenInfo } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb200, isNewCollection } from '../lib/format';
+import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb200, isNewCollection } from '../lib/format';
 import { sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -446,15 +446,21 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
     : perNftLamports <= 0 ? rgb(VL.green) : (embedded ? '#ffffff' : VLText.primary);
   // Custom-token payment ("10 USDC"). When the mint was priced in an SPL /
   // Token-2022 token, `priceLamports` is only the SOL rent on the new asset,
-  // NOT the real price (same as the Mint Tracker table). Show the token
-  // amount as the primary figure, with the SOL rent as a small muted line
-  // beneath it. Symbol comes from the resolved `payment_token_meta` map;
-  // until it resolves we fall back to the shortened token address.
+  // NOT the real price (same as the Mint Tracker table). The SOL rent is the
+  // figure that's actually comparable across cards (every mint pays it,
+  // token-priced or not), so it's the primary figure here — same size/weight
+  // as a normal SOL-priced card's price. The token amount is the secondary
+  // line, with its symbol shown as a logo (not text) to stay compact; falls
+  // back to the symbol/short-address text only until the logo resolves.
   const tokenAmountText = (!isCollectionCreate && ev.paymentMint && ev.paymentAmount != null && ev.paymentDecimals != null)
     ? formatTokenAmount(ev.paymentAmount, ev.paymentDecimals)
     : null;
   const tokenPayment    = tokenAmountText != null && ev.paymentMint
-    ? { label: paymentTokens?.get(ev.paymentMint)?.symbol?.trim() || shortKey(ev.paymentMint), amount: tokenAmountText }
+    ? {
+        label: paymentTokens?.get(ev.paymentMint)?.symbol?.trim() || shortKey(ev.paymentMint),
+        amount: tokenAmountText,
+        image: paymentTokens?.get(ev.paymentMint)?.image ?? null,
+      }
     : null;
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
@@ -831,7 +837,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
           is only asset rent there, not the real price). */}
       {tokenPayment ? (
         <span
-          title={`Mint paid in ${tokenPayment.label}. SOL shown is rent on the new asset, not the price.`}
+          title={`Mint paid in ${tokenPayment.label}. SOL shown is network rent on the new asset, not the price.`}
           style={{
             minWidth: 56, flexShrink: 0, transform: 'translateX(8px)',
             display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end',
@@ -842,14 +848,39 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
             fontSize: 14, fontWeight: 800, color: embedded ? '#ffffff' : VLText.primary,
             fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
             letterSpacing: '-0.2px', whiteSpace: 'nowrap',
-          }}>{tokenPayment.amount} {tokenPayment.label}</span>
-          {perNftLamports != null && perNftLamports > 0 && (
-            <span style={{
-              fontSize: 10, fontWeight: 600, color: VLText.muted,
-              fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
-              whiteSpace: 'nowrap',
-            }}>{fmtMintPrice(perNftLamports)} ◎ rent</span>
-          )}
+          }}>{perNftLamports != null && perNftLamports > 0 ? `${fmtMintPrice(perNftLamports)} ◎` : '—'}</span>
+          {/* Capped at the SAME 56px the plain (non-token) price span uses as
+              its minWidth floor — without this cap a long token amount/symbol
+              can render wider than the fee line above it, stretching this
+              whole column past 56px and knocking it out of alignment with
+              every plain-fee row's price column (they stay at the 56px
+              floor). Clamped here instead so token rows keep the identical
+              column width and right edge as plain rows. */}
+          <span style={{
+            fontSize: 10, fontWeight: 600, color: VLText.muted,
+            fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
+            display: 'inline-flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end',
+            maxWidth: 56, overflow: 'hidden',
+          }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tokenPayment.amount}
+            </span>
+            {tokenPayment.image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumb64(tokenPayment.image) ?? tokenPayment.image}
+                alt={tokenPayment.label}
+                width={12}
+                height={12}
+                draggable={false}
+                style={{ borderRadius: '50%', display: 'block', flexShrink: 0 }}
+              />
+            ) : (
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {tokenPayment.label}
+              </span>
+            )}
+          </span>
         </span>
       ) : (
       <span title={isCollectionCreate ? undefined : priceTitle} style={{
