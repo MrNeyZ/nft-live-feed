@@ -3047,6 +3047,7 @@ export default function MintsPage() {
                   event={ev}
                   group={rows.get(ev.groupingKey)}
                   now={now}
+                  paymentTokens={paymentTokens}
                   dimmed={dimmed}
                   embedded={embedded}
                   onPauseEnter={enterPauseZone}

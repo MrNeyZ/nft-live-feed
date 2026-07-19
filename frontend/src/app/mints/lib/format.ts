@@ -97,6 +97,20 @@ export function fmtSol(lamports: number | null): string {
  *        0.2 → 0.2 · 0.55 → 0.55 · 0.553 → 0.55 · 0.6 → 0.6 · 1.822 → 1.82
  *  A sub-0.001 SOL paid mint can't be shown in 3 dp, so it falls back to the
  *  rounded `formatSol` rather than reading as a bare 0. DB/raw value unchanged. */
+/** Format a raw u64 token amount (as a decimal string) into a human amount
+ *  using the token's decimals. Trims to 4 fractional digits, then drops
+ *  trailing zeros. Returns null for a non-numeric input. Mirrors the
+ *  Mint Tracker table's own formatter so the Live Mint Feed reads the same. */
+export function formatTokenAmount(raw: string, decimals: number): string | null {
+  if (!/^\d+$/.test(raw)) return null;
+  if (decimals <= 0) return raw;
+  const padded = raw.padStart(decimals + 1, '0');
+  const intPart  = padded.slice(0, padded.length - decimals);
+  const fracPart = padded.slice(padded.length - decimals);
+  const fracTrunc = fracPart.slice(0, 4).replace(/0+$/, '');
+  return fracTrunc.length > 0 ? `${intPart}.${fracTrunc}` : intPart;
+}
+
 export function fmtMintPrice(lamports: number | null): string {
   if (lamports == null) return '—';
   if (lamports <= 0)    return 'FREE';

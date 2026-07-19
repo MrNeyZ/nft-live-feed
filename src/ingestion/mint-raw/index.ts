@@ -88,6 +88,23 @@ import { patchAccumulatorLmnft, patchAccumulatorMeta, setMintMaxSupply, patchAcc
  *  launchpad collections seen by the process. */
 const launchpadCollectionMetaCache = new Map<string, { name: string | null; imageUrl: string | null }>();
 
+// A freshly-deployed collection asset (CreateCollection[V1/V2] in the very
+// tx being parsed) is frequently not yet in DAS's index on the first
+// lookup — same index-lag DAS has for a brand-new mint, just applied to
+// the collection account instead. Without a retry, that one-shot failure
+// used to be cached as a PERMANENT null (see the old comment on the catch
+// block below), leaving a deploy card's name/image empty for the rest of
+// the backend process's life. Three retries at increasing spacing gives
+// DAS time to catch up without hammering it during a hot drop.
+const COLLECTION_META_RETRY_DELAYS_MS = [20_000, 60_000, 180_000];
+// Collection addresses with a retry chain currently in flight. Guards
+// against a burst of concurrent mints from the same drop (each of which
+// calls this function) each starting their own parallel retry chain —
+// only the first caller's chain runs; later callers no-op until it
+// resolves (cache hit) or a subsequent mint re-triggers a request after
+// negative caching's TTL-less expiry (never, by design — see catch).
+const launchpadCollectionMetaPending = new Set<string>();
+
 /** Patch the accumulator with collection-asset name + image fetched
  *  from DAS. `patchName` defaults to true (CG: DAS is the only name
  *  source); LMNFT-Core callers pass `false` because the LMNFT
@@ -99,10 +116,11 @@ const launchpadCollectionMetaCache = new Map<string, { name: string | null; imag
 async function enrichLaunchpadCollectionMeta(
   collectionAddress: string,
   groupingKey: string,
-  opts: { patchName?: boolean; logTag?: string } = {},
+  opts: { patchName?: boolean; logTag?: string; attempt?: number } = {},
 ): Promise<void> {
   const patchName = opts.patchName ?? true;
   const logTag   = opts.logTag    ?? 'launchpad-meta';
+  const attempt  = opts.attempt   ?? 0;
   const cached = launchpadCollectionMetaCache.get(collectionAddress);
   if (cached) {
     // RE-PATCH on every cache hit so a new groupingKey (different mint
@@ -121,11 +139,17 @@ async function enrichLaunchpadCollectionMeta(
     }
     return;
   }
+  // A retry chain already owns this collection — later concurrent callers
+  // (other mints in the same drop) just wait for it to resolve rather than
+  // starting a parallel chain. Only applies to the FIRST attempt of a new
+  // caller; the chain's own reschedule always carries attempt > 0.
+  if (attempt === 0 && launchpadCollectionMetaPending.has(collectionAddress)) return;
+  launchpadCollectionMetaPending.add(collectionAddress);
   // Pre-DAS marker so we always see when this path was reached, even
   // when a transient infra failure makes the try/catch block exit early
   // before either log line below would fire.
   console.log(
-    `[mints/${logTag}] collection=${collectionAddress} status=fetching`,
+    `[mints/${logTag}] collection=${collectionAddress} status=fetching attempt=${attempt + 1}`,
   );
   try {
     // For a collection asset, `nftName` IS the collection name (the
@@ -133,6 +157,7 @@ async function enrichLaunchpadCollectionMeta(
     // surfaces when the asset is a child of a higher-order collection.
     const meta = await getAsset(collectionAddress, 'launchpad_collection_meta');
     const entry = { name: meta.nftName, imageUrl: meta.imageUrl };
+    launchpadCollectionMetaPending.delete(collectionAddress);
     launchpadCollectionMetaCache.set(collectionAddress, entry);
     if (entry.imageUrl || (patchName && entry.name)) {
       patchAccumulatorMeta(groupingKey, {
@@ -146,13 +171,33 @@ async function enrichLaunchpadCollectionMeta(
       `${patchName ? '' : ' nameSkipped=scraper-owned'}`,
     );
   } catch (e) {
-    // Cache a null entry so we don't hammer DAS on every subsequent
-    // mint in the same drop while it's still indexing. The next
-    // process restart re-attempts; per-mint enrichment retries continue
-    // independently in collection-confirm.ts.
+    // Not-yet-indexed is the common case for a collection created in the
+    // very tx just parsed — retry a few times before giving up, instead
+    // of caching a permanent null on the first miss.
+    if (attempt < COLLECTION_META_RETRY_DELAYS_MS.length) {
+      const delay = COLLECTION_META_RETRY_DELAYS_MS[attempt];
+      console.log(
+        `[mints/${logTag}] collection=${collectionAddress} status=retry ` +
+        `attempt=${attempt + 1} delayMs=${delay} ` +
+        `error=${e instanceof Error ? e.message : String(e)}`,
+      );
+      const timer = setTimeout(() => {
+        launchpadCollectionMetaPending.delete(collectionAddress);
+        void enrichLaunchpadCollectionMeta(collectionAddress, groupingKey, {
+          patchName, logTag, attempt: attempt + 1,
+        });
+      }, delay);
+      if (typeof timer.unref === 'function') timer.unref();
+      return;
+    }
+    // Retries exhausted — cache a null entry so we don't hammer DAS on
+    // every subsequent mint in the same drop. The next process restart
+    // re-attempts; per-mint enrichment retries continue independently in
+    // collection-confirm.ts.
+    launchpadCollectionMetaPending.delete(collectionAddress);
     launchpadCollectionMetaCache.set(collectionAddress, { name: null, imageUrl: null });
     console.log(
-      `[mints/${logTag}] collection=${collectionAddress} ` +
+      `[mints/${logTag}] collection=${collectionAddress} exhausted=true ` +
       `error=${e instanceof Error ? e.message : String(e)}`,
     );
   }

@@ -9,11 +9,11 @@ import type { CSSProperties } from 'react';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ItemThumb } from '@/soloist/shared';
-import type { MintEvent, MintStatus } from '../lib/types';
+import type { MintEvent, MintStatus, PaymentTokenInfo } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, fmtMintPrice, shortMint, thumb200, isNewCollection } from '../lib/format';
+import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb200, isNewCollection } from '../lib/format';
 import { sourceHref } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -54,6 +54,10 @@ interface Props {
    *  table yet (typical for the first event of a brand-new drop). */
   group: MintStatus | undefined;
   now:   number;
+  /** Resolved symbol/logo per custom-token mint (SSE `payment_token_meta`).
+   *  Keyed by token mint. Used to label a token-priced mint ("10 USDC")
+   *  instead of showing the misleading SOL rent as the price. */
+  paymentTokens?: Map<string, PaymentTokenInfo>;
   /** Hover-scope dim. When the operator hovers a collection row, mints NOT in
    *  that collection fade to ~0.15 (matching mints stay full opacity and
    *  cluster to the top). Pure paint — no layout change. Default false. */
@@ -226,7 +230,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
   );
 }
 
-export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedded = false, onPauseEnter, onPauseLeave }: Props) {
+export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed = false, embedded = false, onPauseEnter, onPauseLeave }: Props) {
   // NFT name vs. collection name. Per the targeted-mode spec, these
   // are distinct lines on the card: the NFT's own name is the
   // prominent first line; the collection name (when known) sits
@@ -283,7 +287,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   // layout-mode toggle.
   const isPc        = typeof document !== 'undefined' && document.documentElement.dataset.layout === 'pc';
   const titleLimit  = isPc ? 17 : 13;
-  const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit) : null;
+  const titleShort  = hasRealNftName ? shortenNftName(displayName, titleLimit, 13, embedded ? 700 : 600) : null;
   const titleText   = titleShort ? (titleShort.shortName ?? titleShort.fullName) : displayName;
   const titleFull   = titleShort ? titleShort.fullName : displayName;
   const isBulkMint  = !!(ev.nftCount && ev.nftCount > 1);
@@ -440,6 +444,18 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
   const priceColor     = perNftLamports == null
     ? VLText.muted
     : perNftLamports <= 0 ? rgb(VL.green) : (embedded ? '#ffffff' : VLText.primary);
+  // Custom-token payment ("10 USDC"). When the mint was priced in an SPL /
+  // Token-2022 token, `priceLamports` is only the SOL rent on the new asset,
+  // NOT the real price (same as the Mint Tracker table). Show the token
+  // amount as the primary figure, with the SOL rent as a small muted line
+  // beneath it. Symbol comes from the resolved `payment_token_meta` map;
+  // until it resolves we fall back to the shortened token address.
+  const tokenAmountText = (!isCollectionCreate && ev.paymentMint && ev.paymentAmount != null && ev.paymentDecimals != null)
+    ? formatTokenAmount(ev.paymentAmount, ev.paymentDecimals)
+    : null;
+  const tokenPayment    = tokenAmountText != null && ev.paymentMint
+    ? { label: paymentTokens?.get(ev.paymentMint)?.symbol?.trim() || shortKey(ev.paymentMint), amount: tokenAmountText }
+    : null;
   // NFT-type pill. We only know `programSource` on the wire (no
   // separate nftType today), so Core → CORE; everything else
   // collapses to the spec's "NFT" fallback. Candy Machine rows
@@ -806,19 +822,43 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
       })()}
       </div>
       </div>
-      {/* Deploy events have no price, and the DEPLOY marker now lives in the
-          type-badge slot above (1:1 with a mint's CORE/CANDY badge), so the
-          price element is simply omitted for them — no blank reserved column.
-          The age span (flexShrink:0, last child) stays pinned to the card's
-          right edge in both cases, so deploy and mint rows align. */}
-      {!isCollectionCreate && (
-      <span title={priceTitle} style={{
+      {/* Deploy events have no price — the DEPLOY marker lives in the
+          type-badge slot above (1:1 with a mint's CORE/CANDY badge), so this
+          slot renders the literal word "deploy" in the same price typography
+          instead of a SOL amount, muted since it's a label, not a value.
+          Token-priced mints ("10 USDC") show the token amount as the primary
+          figure with the SOL rent as a small muted line under it (priceLamports
+          is only asset rent there, not the real price). */}
+      {tokenPayment ? (
+        <span
+          title={`Mint paid in ${tokenPayment.label}. SOL shown is rent on the new asset, not the price.`}
+          style={{
+            minWidth: 56, flexShrink: 0, transform: 'translateX(8px)',
+            display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end',
+            lineHeight: 1.15,
+          }}
+        >
+          <span style={{
+            fontSize: 14, fontWeight: 800, color: embedded ? '#ffffff' : VLText.primary,
+            fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
+            letterSpacing: '-0.2px', whiteSpace: 'nowrap',
+          }}>{tokenPayment.amount} {tokenPayment.label}</span>
+          {perNftLamports != null && perNftLamports > 0 && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, color: VLText.muted,
+              fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
+              whiteSpace: 'nowrap',
+            }}>{fmtMintPrice(perNftLamports)} ◎ rent</span>
+          )}
+        </span>
+      ) : (
+      <span title={isCollectionCreate ? undefined : priceTitle} style={{
         minWidth: 56, textAlign: 'right',
         // Strong hierarchy pass: price is the focal data on the card.
         // Bumped fontSize 13 → 14 and fontWeight 700 → 800 — single
         // element, no card resize, but the price now clearly outranks
         // the muted collection/wallet lines per the polish brief.
-        fontSize: 14, fontWeight: 800, color: priceColor,
+        fontSize: 14, fontWeight: 800, color: isCollectionCreate ? VLText.muted : priceColor,
         fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
         flexShrink: 0,
@@ -828,7 +868,7 @@ export function LiveMintFeedCard({ event: ev, group, now, dimmed = false, embedd
         // Visual-only nudge ~8px right (closer to the timer) — does not
         // affect flex layout, so timer / badges / text column stay put.
         transform: 'translateX(8px)',
-      }}>{priceText}</span>
+      }}>{isCollectionCreate ? 'deploy' : priceText}</span>
       )}
       {(() => {
         // Age tier coloring — mirrors /feed's TimeAgo tiers (pink
