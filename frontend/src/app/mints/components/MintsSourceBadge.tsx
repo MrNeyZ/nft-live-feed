@@ -13,6 +13,7 @@
 
 import type { MintStatus } from '../lib/types';
 import { sourceBadge, sourceHref } from '../lib/source';
+import { VLText } from '@/lib/palette';
 
 /** `size` is opt-in: 'sm' (default) is the original 9px pill used by the Live
  *  Mint Feed card (left byte-identical). 'lg' is the ~25%-larger table variant
@@ -54,6 +55,28 @@ const SRCCHIP_W = 66;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   void size; // sizing is fixed by the chip primitive; prop kept for callers
+  // Deploy-only collection — the accumulator returns early on a
+  // collection-CREATE event and never increments `observedMints`
+  // (see accumulator.ts), so `observedMints === 0` is an exact signal
+  // for "collection created, no mints observed yet" — not a heuristic.
+  // Mirrors the Live Mint Feed card's DPLY chip 1:1 so a deploy reads
+  // the same in both places. The moment the first real mint lands,
+  // `observedMints` becomes ≥1 and this row falls through to the
+  // normal launchpad-source badge below on its own — no extra state.
+  if (row.observedMints === 0) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: SRCCHIP_W, position: 'relative', zIndex: 3 }}>
+        <span
+          className="vl-srcchip"
+          title="Collection deployed — no mints yet"
+          style={{ '--c': VLText.muted, width: SRCCHIP_W } as React.CSSProperties}
+        >
+          <span className="vl-srcchip-dot" />
+          <span className="vl-srcchip-lbl">DPLY</span>
+        </span>
+      </span>
+    );
+  }
   const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
   const href = sourceHref(row);
   // Restore the original per-source VictoryLabs accent (sb.fg): CORE purple

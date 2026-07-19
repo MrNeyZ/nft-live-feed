@@ -794,6 +794,21 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             > 0 lamports    → fmtSol value (default muted-bright,
                               mirrors SUPPLY column tone) */}
       {(() => {
+        // Deploy-only collection (collection-CREATE observed, no mints yet —
+        // see the matching `observedMints === 0` check in MintsSourceBadge).
+        // There is no mint price to show; render the same "deploy" label the
+        // Live Mint Feed card shows in its price slot for a deploy event,
+        // instead of the bare unpriced "—".
+        if (r.observedMints === 0) {
+          return (
+            <td
+              title="Collection deployed — no mints yet"
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: VLText.muted, letterSpacing: '-0.1px', whiteSpace: 'nowrap' }}
+            >
+              deploy
+            </td>
+          );
+        }
         const price     = lastPriceByKey.get(r.groupingKey);
         const solDisplay = (typeof price === 'number') ? fmtMintPrice(price) : '—';
         const isUnknown = solDisplay === '—';
