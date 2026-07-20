@@ -927,6 +927,22 @@ function extractCoreCreateDepositLamports(tx: RawSolanaTx): number | null {
  *  signer's net SOL outflow is just the rent slippage between burned and created
  *  accounts. Surfacing them as a price (e.g. "0.000019 SOL") is misleading. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
+  const raw = extractRawMintPriceLamports(tx);
+  if (raw == null || raw <= 0) return raw;
+  // Sub-threshold clamp: a positive price below MIN_PAID_LAMPORTS is rent
+  // slippage, not a real price — e.g. burn-N-mint-1 fusion txes where the
+  // burned assets' reclaimed rent almost covers the new asset's rent, leaving a
+  // tiny positive residual. Applied to the RESULT regardless of which path
+  // produced it (escrow / repeated-transfer / relayer-transfer / signer-delta /
+  // Core-create-deposit all funnel through here) — only the signer-delta path
+  // used to get this clamp, so dust values from the other paths (e.g. a
+  // burn+mint fusion priced via the relayer-transfer or Core-deposit path)
+  // leaked through as misleading prices like "0.0000938 SOL". Return 0 (FREE)
+  // so the UI shows FREE, not a micro-SOL.
+  return raw >= MIN_PAID_LAMPORTS ? raw : 0;
+}
+
+function extractRawMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromEscrow = extractEscrowSettlementPrice(tx);
   if (fromEscrow != null && fromEscrow > 0) return fromEscrow;
   const fromTransfers = extractMintPriceFromTransfers(tx);
@@ -934,14 +950,7 @@ export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromRelayer = extractRelayerSingleMintPrice(tx);
   if (fromRelayer != null && fromRelayer > 0) return fromRelayer;
   const fromSigner = extractSignerLamportsPaid(tx);
-  // Sub-threshold clamp: a positive signer delta below MIN_PAID_LAMPORTS is
-  // rent slippage, not a real price — e.g. burn-N-mint-1 fusion txes where the
-  // burned assets' reclaimed rent almost covers the new asset's rent, leaving a
-  // tiny positive residual. Surfacing that as a price produces misleading values
-  // like "0.000019 SOL". Return 0 (FREE) so the UI shows FREE, not a micro-SOL.
-  if (fromSigner != null && fromSigner > 0) {
-    return fromSigner >= MIN_PAID_LAMPORTS ? fromSigner : 0;
-  }
+  if (fromSigner != null && fromSigner > 0) return fromSigner;
   const fromCoreDeposit = extractCoreCreateDepositLamports(tx);
   if (fromCoreDeposit != null && fromCoreDeposit > 0) return fromCoreDeposit;
   return fromSigner;
