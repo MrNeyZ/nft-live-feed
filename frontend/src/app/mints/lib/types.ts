@@ -39,7 +39,7 @@ export type ProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
 export type MintRollupType = 'free' | 'paid' | 'unknown' | 'mixed';
 export type SourceLabel =
   | 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'ME'
-  | 'Metaplex Candy Machine' | 'Metaplex Core' | 'Metaplex'
+  | 'Metaplex Candy Machine' | 'Core Candy Machine' | 'Metaplex Core' | 'Candy Labs' | 'Metaplex'
   | 'Bubblegum' | 'nfts.gay' | 'PRNT' | 'SFT' | 'Unknown';
 
 export interface MintStatus {

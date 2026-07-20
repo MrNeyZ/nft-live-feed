@@ -21,7 +21,7 @@ import { playDeepDiscountAlert } from '@/soloist/use-ui-sound';
 import { shouldPlayBelowFloorAlert } from './lib/below-floor-alert';
 import type { Density, FilterKey } from './lib/types';
 import { FeedCard } from './lib/feed-card';
-import { VL, VLText, rgb, alpha, ALPHA } from '@/lib/palette';
+import { VL, VLText, rgb, alpha, ALPHA, hex } from '@/lib/palette';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_EVENTS = 200;
@@ -91,7 +91,7 @@ const DENSITY_COLORS: Record<Density, string> = {
   tape:    '#5fa8e6', // blue   — dense/fast
 };
 const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
-  me:     '#e58aa3', // pink — MagicEden
+  me:     hex(VL.pink), // pink — MagicEden
   tensor: '#a0a0a8', // gray — Tensor
   orbis:  '#5fa8e6', // blue — Orbis
 };

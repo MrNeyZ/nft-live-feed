@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
 import { API_BASE, MONO, PANEL, fmtSol, short } from '@/app/tools/mmm-shared';
+import { VL, rgb } from '@/lib/palette';
 
 // GridState: "occupancy bitmap for all 10_000 blocks" (program's own IDL
 // docstring) — 100x100. Mirrors GRID_SIZE in src/server/tools-dotland.ts.
@@ -343,7 +344,7 @@ function DisconnectLink({ onClick }: { onClick: () => void }) {
 
 const btnStyle: React.CSSProperties = {
   padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  background: '#6a48f0', color: '#fff', border: 'none', borderRadius: 6,
+  background: rgb(VL.violet), color: '#fff', border: 'none', borderRadius: 6,
 };
 const labelStyle: React.CSSProperties = { fontSize: 11, color: '#b0aac8', display: 'flex', flexDirection: 'column', gap: 4 };
 const inputStyle: React.CSSProperties = {

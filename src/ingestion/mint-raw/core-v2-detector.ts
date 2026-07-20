@@ -169,6 +169,11 @@ export interface CoreV2Detection {
   name:              string | null;
   uri:               string | null;
   pluginsCount:      number | null;
+  /** Set only by `detectGenericCoreLaunchpadMint` — the non-primitive custom
+   *  wrapper program that CPI'd into mpl-core Create. Lets the caller
+   *  special-case a known-but-unenumerated wrapper's display label (e.g.
+   *  Candy Labs → 'LABS') without a dedicated tx-shape detector. */
+  wrapperProgramId?: string | null;
 }
 
 export interface TxShape {
@@ -658,6 +663,7 @@ export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection
     rejectReason: null,
     mintAddress: asset, collectionAddress: collection, minter,
     name: null, uri: null, pluginsCount: null,
+    wrapperProgramId: wrapper,
   };
 }
 

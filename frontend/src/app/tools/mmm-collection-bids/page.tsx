@@ -32,6 +32,7 @@ import { Transaction } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom } from '@/wallet/phantom';
 import { API_BASE, MONO, PANEL, ADDR_RE, short } from '@/app/tools/mmm-shared';
+import { VL, rgb } from '@/lib/palette';
 
 const LIVE_MODE_KEY = 'vl.mmmCollectionBids.liveMode';
 const LAST_POOL_KEY = 'vl.mmmCollectionBids.lastPool';
@@ -504,7 +505,7 @@ export default function MmmCollectionBidsPage() {
       )}
 
       {tab === 'close' && (
-        <div style={{ ...PANEL, padding: 10, fontSize: 10.5, color: '#c9b8ff', marginBottom: 12 }}>
+        <div style={{ ...PANEL, padding: 10, fontSize: 10.5, color: rgb(VL.violetLight), marginBottom: 12 }}>
           Closing requires the escrow to be empty (withdraw first) and no NFT inventory in the pool.
           Reclaims the pool account&apos;s rent to the owner.
         </div>
@@ -550,7 +551,7 @@ export default function MmmCollectionBidsPage() {
           above), so an explicit client-triggered re-simulate is optional
           extra verification, not a hard prerequisite to sign. */}
       {built && !liveAvailable && (
-        <div style={{ ...PANEL, padding: 12, fontSize: 11.5, color: '#c9b8ff' }}>
+        <div style={{ ...PANEL, padding: 12, fontSize: 11.5, color: rgb(VL.violetLight) }}>
           DRY RUN mode — no signature has been requested.
           {serverLiveEnabled ? ' Switch to LIVE mode above to sign & submit.' : ' LIVE mode is disabled on the server.'}
         </div>
@@ -756,6 +757,6 @@ function DisconnectLink({ onClick, children }: { onClick: () => void; children?:
   );
 }
 
-const btnStyle: React.CSSProperties = { padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: '#6a48f0', color: '#fff', border: 'none', borderRadius: 6 };
+const btnStyle: React.CSSProperties = { padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: rgb(VL.violet), color: '#fff', border: 'none', borderRadius: 6 };
 const labelStyle: React.CSSProperties = { fontSize: 11, color: '#b0aac8', display: 'flex', flexDirection: 'column', gap: 4 };
 const inputStyle: React.CSSProperties = { padding: '6px 8px', fontSize: 13, background: '#111', color: '#fff', border: '1px solid #333', borderRadius: 4 };

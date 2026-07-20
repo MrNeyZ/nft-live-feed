@@ -52,6 +52,7 @@ import {
   CANDY_GUARD_PROGRAM,
   PRNT_CORE_CANDY_GUARD,
   CANDY_MACHINE_V3_PROGRAM,
+  CANDY_LABS_WRAPPER_PROGRAM,
   type LaunchpadSource,
 } from './launchpad-detector';
 import {
@@ -1793,10 +1794,12 @@ export async function ingestMintRaw(
           priceLamports,
           ...paymentFieldsFrom(tx),
           minter:            cm.minter,
-          // Reuse the existing `Metaplex Core` label → frontend renders CORE.
-          sourceLabel:       'Metaplex Core',
-          // Visual subtype only: Core Candy Machine v3 launchpad mint. Keeps
-          // source=core semantics; the frontend tints the CORE badge pink.
+          // Distinct from generic 'Metaplex Core': this detector requires
+          // CORE_CANDY_MACHINE_PROGRAM to actually be invoked, so it's a
+          // real Core Candy Machine v3 mint (Candy Guard), not a bare Core
+          // create or an unenumerated custom wrapper. Own badge (CCDY) so
+          // it doesn't read as either generic CORE or legacy CNDY.
+          sourceLabel:       'Core Candy Machine',
           coreLaunchpad:     true,
         });
         // Per-NFT DAS enrichment only when the card was emitted into the
@@ -1846,6 +1849,13 @@ export async function ingestMintRaw(
         const blockTime = tx.blockTime
           ? new Date((tx.blockTime as number) * 1000).toISOString()
           : new Date().toISOString();
+        // Candy Labs (`foRGE…`) is a known, named wrapper despite having no
+        // dedicated tx-shape detector — its name coincidentally collides
+        // with Metaplex's "Candy Machine" but the two are unrelated
+        // programs/teams. Label it distinctly (LABS) instead of the
+        // generic pink-tinted CORE badge every other unenumerated wrapper
+        // gets, so it doesn't read as a real Candy Guard mint.
+        const isCandyLabs = gen.wrapperProgramId === CANDY_LABS_WRAPPER_PROGRAM;
         const emitted = rec({
           signature:         sig,
           blockTime,
@@ -1858,9 +1868,10 @@ export async function ingestMintRaw(
           priceLamports,
           ...paymentFieldsFrom(tx),
           minter:            gen.minter,
-          // Reuse the existing `Metaplex Core` label → frontend renders CORE.
-          sourceLabel:       'Metaplex Core',
-          // Visual subtype only: Core launchpad mint (pink-tinted CORE badge).
+          sourceLabel:       isCandyLabs ? 'Candy Labs' : 'Metaplex Core',
+          // Visual subtype only: Core launchpad mint (pink-tinted badge).
+          // Candy Labs reuses the same pink tint via its own sourceBadge
+          // case (frontend source.ts), so this stays true either way.
           coreLaunchpad:     true,
         });
         if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress);

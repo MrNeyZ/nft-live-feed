@@ -20,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
 import { API_BASE, MONO, PANEL, ADDR_RE, short } from '@/app/tools/mmm-shared';
+import { VL, rgb } from '@/lib/palette';
 
 const LIVE_MODE_KEY = 'vl.meBids.liveMode';
 
@@ -294,7 +295,7 @@ export default function MeBidsPage() {
           )}
 
           {simulated && !liveMode && (
-            <div style={{ ...PANEL, padding: 12, fontSize: 11.5, color: '#c9b8ff' }}>
+            <div style={{ ...PANEL, padding: 12, fontSize: 11.5, color: rgb(VL.violetLight) }}>
               DRY RUN mode — no signature has been requested. Switch to LIVE mode above to sign &amp; submit.
             </div>
           )}
@@ -514,7 +515,7 @@ function DisconnectLink({ onClick, children }: { onClick: () => void; children?:
 
 const btnStyle: React.CSSProperties = {
   padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  background: '#6a48f0', color: '#fff', border: 'none', borderRadius: 6,
+  background: rgb(VL.violet), color: '#fff', border: 'none', borderRadius: 6,
 };
 const labelStyle: React.CSSProperties = { fontSize: 11, color: '#b0aac8', display: 'flex', flexDirection: 'column', gap: 4 };
 const inputStyle: React.CSSProperties = {

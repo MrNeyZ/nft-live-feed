@@ -42,6 +42,25 @@ export const VL = {
   // 🟡 gold — LMNFT / rarity / special only
   gold:        [199, 180, 121] as RGB,  // #C7B479 base
   goldBright:  [224, 196, 92] as RGB,   // #E0C45C highlight
+
+  // 🩷 pink — the "candy" family accent (CANDY/CANDY-CORE mint badges, ME
+  // brand pink in the feed). Was hand-copied as raw #e58aa3 across 4 files
+  // (2 of them literally commented "no VL token yet") before this entry.
+  pink:        [229, 138, 163] as RGB,  // #E58AA3 base
+
+  // 🔵 blue — VVV launchpad badge only, previously untokenized
+  blue:        [95, 168, 230] as RGB,   // #5FA8E6 base
+
+  // 🟪 violet — the personal /tools pages' shared CTA-button colour. Was a
+  // hand-copied `btnStyle` block (background + hover-text companion) across
+  // 4 tool pages before this entry.
+  violet:      [106, 72, 240] as RGB,   // #6A48F0 CTA button background
+  violetLight: [201, 184, 255] as RGB,  // #C9B8FF advisory/notice text
+
+  // ⚪ gray — GRAVE launchpad badge only, previously untokenized. Distinct
+  // from VLText.muted below (a text tone, not a hue-family accent) even
+  // though the two are visually close.
+  gray:        [160, 160, 168] as RGB,  // #A0A0A8 base
 } as const;
 
 // Neutral text tones (hex — no alpha composition needed in practice).
@@ -68,4 +87,11 @@ export function rgb(c: RGB): string {
 
 export function alpha(c: RGB, a: number): string {
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+
+/** `#RRGGBB` form — for the handful of call sites that concatenate an alpha
+ *  suffix directly onto the string (`${hex(c)}${aa}`) and can't take the
+ *  `rgb(...)` function form `rgb()` produces. */
+export function hex(c: RGB): string {
+  return `#${c.map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 }

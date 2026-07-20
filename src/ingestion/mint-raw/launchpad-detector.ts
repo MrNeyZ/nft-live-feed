@@ -197,6 +197,14 @@ export const CANDY_MACHINE_V3_PROGRAM    = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefb
  *  Reference tx:
  *    2h7fHRPup2eqSJhwB6EQqTPCNKFHdjA1NnE1txSJ3vVzA1P28uDkKbv1Bcyh8g8NHtyxwFrR2Nc49tvT4bWZeSjM
  *    (asset 4NXCz5sT…, collection 5eY82RX1…, minter 4Y742UF…) */
+// Candy Labs — a custom Core-minting launchpad program. Name is a pure
+// coincidence with Metaplex's "Candy Machine"; unrelated program, unrelated
+// team. Vanity address literally spells "forge". Caught by the generic
+// unknown-wrapper Core detector (no dedicated tx-shape detector needed);
+// this constant only exists so the generic-fallback caller in index.ts can
+// special-case its `sourceLabel` to 'Candy Labs' (frontend renders LABS)
+// instead of the generic 'Metaplex Core' — see CandyMint tool investigation.
+export const CANDY_LABS_WRAPPER_PROGRAM  = 'foRGEL4EUjeQMd8U2QL5Rx8je75ZFpmtLoWRyyAxxr7';
 export const PRNT_VESTING_PROGRAM        = 'SPL722x7RdCpb2WEDtkHmzfTypqXp92Ft5qkYWfMcBg';
 export const PRNT_CORE_CANDY_GUARD       = 'CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ';
 export const PRNT_CORE_CANDY_MACHINE     = 'CMACYFENjoBMHzapRXyo1JZkVS6EtaDDzkjMrmQLvr4J';

@@ -29,7 +29,9 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/mmm-collection-scanner',title: 'MMM Collection Scanner',desc: 'Triage underfunded MMM pools across a collection.' },
   { href: '/tools/mmm-collection-bids',   title: 'MMM Collection Bids',   desc: 'Create/manage collection-level MMM buy-side pools (raw on-chain, dedicated cosigner).' },
   { href: '/tools/dexbull-airdrop',       title: 'DEXBULL Airdrop',       desc: 'DotLand × DEXBULL airdrop eligibility estimate — strict vs relaxed.' },
-  { href: '/tools/pixel-forge',           title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
+  // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
+  // { href: '/tools/pixel-forge',        title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
+  { href: '/tools/candy-mint',            title: 'Candy Mint',            desc: 'Reconstruct a Core Candy Guard mint from a signature and mint directly, if still alive.' },
 ];
 
 export default function ToolsIndexPage() {

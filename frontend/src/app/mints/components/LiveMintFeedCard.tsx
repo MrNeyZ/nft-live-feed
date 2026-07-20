@@ -14,26 +14,32 @@ import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
 import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb200, isNewCollection } from '../lib/format';
-import { sourceHref } from '../lib/source';
+import { sourceHref, sourceBadge } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 // Approved source-chip primitive — ported 1:1 from the /mints table chip
-// (MintsSourceBadge + `.vl-srcchip` in globals.css, commit b207346). The table
-// files are intentionally not touched here; these two values mirror the table's
-// `SRCCHIP_W` / `CHIP_LABEL` so the feed chip is pixel-identical. The chip
-// material/colours/dot live in the shared `.vl-srcchip` CSS class — reused, not
-// re-implemented; only the per-source accent (`--c`) and the (normalized) label
+// (MintsSourceBadge + `.vl-srcchip` in globals.css, commit b207346). The
+// chip material/colours/dot live in the shared `.vl-srcchip` CSS class —
+// reused, not re-implemented; only the width and the (normalized) label
 // vary per card.
+//
+// Label/color themselves now come straight from the table's own
+// `sourceBadge()` helper (../lib/source.ts) — this used to be a second,
+// hand-maintained copy of the same source→label/color mapping (a
+// `programSource`-keyed ternary chain here vs `sourceLabel`-keyed here vs
+// `sourceLabel`-keyed there), which drifted at least once in practice (a
+// new source needed updating in both places, was only added to one). One
+// mapping, one place to extend.
 const SRCCHIP_W = 66;
-/** Display-only label normalization — same map the table chip uses. On the feed
- *  only CANDY (→CNDY) can actually occur (nftTypeLabel emits CORE/cNFT/CANDY/
- *  NFT); the rest are kept for parity. Source logic / tooltips unchanged. */
+/** Display-only label normalization on top of `sourceBadge()`'s text —
+ *  this chip is narrower than the table's, so labels over 4 chars get
+ *  abbreviated for the packed feed. LMNFT is deliberately NOT here: the
+ *  chip width was already sized to fit it (see MintsSourceBadge.tsx). */
 const CHIP_LABEL: Record<string, string> = {
   CANDY:   'CNDY',
   GRAVE:   'GRAV',
-  LEGACY:  'LGCY',
   UNKNOWN: 'UNK',
 };
 
@@ -462,17 +468,12 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         image: paymentTokens?.get(ev.paymentMint)?.image ?? null,
       }
     : null;
-  // NFT-type pill. We only know `programSource` on the wire (no
-  // separate nftType today), so Core → CORE; everything else
-  // collapses to the spec's "NFT" fallback. Candy Machine rows
-  // override the generic "NFT" label so the type pill reads CANDY,
-  // matching the adjacent source pill — paired pinks read as one
-  // colour family at a glance, and "NFT" was uninformative there.
-  const nftTypeLabel: string =
-    ev.programSource === 'mpl_core'              ? 'CORE'  :
-    ev.programSource === 'bubblegum'             ? 'cNFT'  :
-    ev.sourceLabel   === 'Metaplex Candy Machine' ? 'CANDY' :
-    'NFT';
+  // NFT-type pill — label + color both come from the shared `sourceBadge()`
+  // (same helper the table uses), so this chip and the table's are always
+  // in sync by construction. See the CHIP_LABEL comment above for the
+  // width-driven abbreviation applied on top for this narrower chip.
+  const badge = sourceBadge(ev.sourceLabel, ev.coreLaunchpad);
+  const nftTypeLabel = badge.label;
   // Two-tier freshness on the right Live Mint Feed:
   //   • `mints-feed-row-fresh`  (< 2.5 s) — one-shot slide-in +
   //     green flash for brand-new SSE arrivals (cache-restored
@@ -788,16 +789,8 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         </span>
       ) : (() => {
         // Per-source accent (`--c`) for the shared `.vl-srcchip` material —
-        // the original VictoryLabs source fg's, identical to the table chip:
-        // CORE purple / LMNFT gold / CANDY pink / VVV blue / GRAVE gray. Only
-        // the accent varies; the capsule/dot/label material is the shared CSS.
-        const accent =
-          ev.coreLaunchpad                            ? '#e58aa3' :
-          ev.sourceLabel === 'LaunchMyNFT'            ? rgb(VL.gold) :
-          ev.sourceLabel === 'VVV'                    ? '#5fa8e6' :
-          ev.sourceLabel === 'GRAVE'                  ? '#a0a0a8' :
-          ev.sourceLabel === 'Metaplex Candy Machine' ? '#e58aa3' :
-                                                        rgb(VL.purpleTint);
+        // `badge.fg` IS the table chip's accent (same `sourceBadge()` call).
+        const accent = badge.fg;
         // Normalized label (display only — source/type logic untouched).
         const label = CHIP_LABEL[nftTypeLabel] ?? nftTypeLabel;
         const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;

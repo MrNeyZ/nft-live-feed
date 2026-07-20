@@ -28,6 +28,7 @@ import { createHoldersRouter } from './tools-holders';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createMeTensorArbRouter } from './tools-me-tensor-arb';
 import { createDotlandRouter } from './tools-dotland';
+import { createCandyMintRouter } from './tools-candy-mint';
 import { createMeBidsRouter } from './tools-me-bids';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
 import { createDexbullAirdropRouter } from './tools-dexbull-airdrop';
@@ -184,6 +185,11 @@ export function createApp() {
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
   app.use('/api', createDotlandRouter());
+
+  // Candy Mint tool — personal use, requireAuth-gated on every route (see
+  // tools-candy-mint.ts header comment). Reconstructs a Core Candy Guard
+  // mint from a landed signature or raw candyMachine/candyGuard addresses.
+  app.use('/api', createCandyMintRouter());
 
   // Magic Eden item-level bid tool — personal use, requireAuth-gated on
   // every route (see tools-me-bids.ts header comment). Never handles a

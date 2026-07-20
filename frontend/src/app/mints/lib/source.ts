@@ -85,10 +85,14 @@ export function sourceHref(row: MintStatus): string | null {
       if (/^(authority|program|owner|pool):/.test(c)) return null;
       return `https://gravemint.io/mint/${c}`;
     }
-    case 'Metaplex Core': {
-      // Magic Eden item-details. Prefer stableMintAddress (>= 3 min old,
-      // metadata already indexed) so the user lands on a loaded page.
-      // Falls back to lastMintAddress when stable isn't populated yet.
+    case 'Metaplex Core':
+    case 'Core Candy Machine':
+    case 'Candy Labs': {
+      // Magic Eden item-details. Prefer stableMintAddress (a mid-collection
+      // mint, aged ~1h / ~15min for brand-new collections) so the user
+      // lands on a loaded page. Falls back to lastMintAddress when stable
+      // isn't populated yet. Candy Labs mints are still plain MPL Core
+      // assets underneath, so the same ME deep link works.
       const addr = row.stableMintAddress ?? row.lastMintAddress;
       if (!isSolPubkey(addr)) return null;
       return `https://magiceden.io/item-details/${addr}`;
@@ -98,25 +102,65 @@ export function sourceHref(row: MintStatus): string | null {
   }
 }
 
+// Badge scheme (operator spec, 2026-07-20):
+//   pink   CORE — real Core Candy Machine / Candy Guard mint only
+//   pink   NFT  — real legacy (Token Metadata) Candy Machine mint only
+//   purple CORE — bare/direct Core mint, no candy machine, no known wrapper
+//   purple NFT  — bare/direct legacy Token Metadata mint, ditto
+//   CANDY       — Candy Labs (`foRGE…`) specifically — named for the actual
+//                 project ("Candy Labs"), NOT for Metaplex Candy Machine;
+//                 muted red so it reads close-but-distinct from the pinks
+//   CORE (3rd)  — any OTHER unenumerated custom wrapper CPI-ing into
+//                 mpl-core Create (the generic-fallback detector) — gets
+//                 its own mid-saturation red so it's never confused with
+//                 either a real Candy Guard mint (pink) or a bare one
+//                 (purple)
+const PINK = rgb(VL.pink); // CANDY-family pink — real Candy Machine only now
 export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: string; bg: string; fg: string } {
-  // Core Candy Machine v3 launchpad mints keep the CORE label + semantics but
-  // borrow the CANDY pink palette so launchpad Core reads differently from raw
-  // Core ecosystem activity. Colours only — exact CANDY bg/fg.
+  // By elimination: 'Core Candy Machine' and 'Candy Labs' both carry their
+  // own sourceLabel now, so the only thing left hitting 'Metaplex Core' +
+  // coreLaunchpad===true is a genuinely unenumerated custom wrapper (no
+  // dedicated tx-shape detector) — the generic Core-launchpad fallback.
+  // VL.red — a project-palette red not used by any other mint badge,
+  // mid-saturation (not dull, not bright) so an unidentified wrapper
+  // reads as its own thing, distinct from a real Candy Guard mint (pink)
+  // or a bare direct mint (purple).
   if (coreLaunchpad && s === 'Metaplex Core') {
-    return { label: 'CORE', bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
+    return { label: 'CORE', bg: alpha(VL.red, ALPHA.tint), fg: rgb(VL.red) };
   }
   switch (s) {
+    // Real Core Candy Machine v3 (Candy Guard) mint — CORE_CANDY_MACHINE_PROGRAM
+    // confirmed invoked, not just an inner mpl-core Create some other wrapper
+    // drove. Pink — paired with the legacy Candy Machine's pink NFT badge
+    // below so "this is a real Candy Machine mint" reads as one colour
+    // family regardless of NFT standard; CORE vs NFT text is the only
+    // differentiator between the two candy machine flavours.
+    case 'Core Candy Machine':     return { label: 'CORE',     bg: alpha(VL.pink, 0.15), fg: PINK };
+    // Candy Labs (`foRGE…`) — unrelated program/team despite the name
+    // coincidence with Metaplex Candy Machine; CANDY is the more honest name
+    // for it since it's the literal project name, whereas real Candy
+    // Machine mints are now labelled by NFT standard (CORE/NFT) instead.
+    // VL.redMuted — a dim, close-to-pink red so it still reads as "candy
+    // family" at a glance, but distinct enough not to be mistaken for a
+    // real Candy Guard mint.
+    case 'Candy Labs':             return { label: 'CANDY',    bg: alpha(VL.redMuted, ALPHA.tint), fg: rgb(VL.redMuted) };
     case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
-    case 'VVV':                    return { label: 'VVV',      bg: 'rgba(95,168,230,0.15)',  fg: '#5fa8e6' };
-    case 'GRAVE':                  return { label: 'GRAVE',    bg: 'rgba(160,160,168,0.15)', fg: '#a0a0a8' };
+    case 'VVV':                    return { label: 'VVV',      bg: alpha(VL.blue, 0.15),     fg: rgb(VL.blue) };
+    case 'GRAVE':                  return { label: 'GRAVE',    bg: alpha(VL.gray, 0.15),     fg: rgb(VL.gray) };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: VLText.muted };
-    case 'Metaplex Candy Machine': return { label: 'CANDY',    bg: 'rgba(229,138,163,0.15)', fg: '#e58aa3' };
+    // Real legacy (Token Metadata) Candy Machine mint — pink NFT, pairs
+    // with 'Core Candy Machine' → pink CORE above (same family = real
+    // Candy Machine mint; text is the only thing distinguishing standard).
+    case 'Metaplex Candy Machine': return { label: 'NFT',      bg: alpha(VL.pink, 0.15), fg: PINK };
     // CORE polish: slight saturation + alpha lift on bg (0.15 → 0.20)
     // and a brighter fg (#a890e8 → #a890e8) so the badge reads as a
     // legible launchpad pill rather than disabled. Border via the
     // pill's existing bg-tint frame (no glow added).
     case 'Metaplex Core':          return { label: 'CORE',     bg: alpha(VL.purpleTint, ALPHA.border), fg: rgb(VL.purpleTint) };
-    case 'Metaplex':               return { label: 'LEGACY',   bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
+    // Bare/direct legacy Token Metadata mint (no candy machine involved) —
+    // NFT text pairs with bare Core's purple NFT-standard-only meaning;
+    // purple (not pink) marks it as NOT a Candy Machine mint.
+    case 'Metaplex':               return { label: 'NFT',      bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
     case 'SFT':                    return { label: 'SFT',      bg: alpha(VL.purpleTint, 0.15), fg: rgb(VL.purpleTint) };
     case 'Bubblegum':              return { label: 'cNFT',     bg: alpha(VL.greenGlow, 0.15),  fg: rgb(VL.green) };
     // nfts.gay — Candy Guard mint with a top-level fee transfer to the

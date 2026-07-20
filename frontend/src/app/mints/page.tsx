@@ -679,16 +679,16 @@ const SOURCE_KEYS_UI: ReadonlyArray<SourceKey> = SOURCE_KEYS.filter(k => k !== '
 // Pill colors taken directly from sourceBadge fg values (source.ts) so they
 // match the card badges exactly.
 const TYPE_COLORS: Record<string, string> = {
-  cnft:  '#43b984', // VL.green      — Bubblegum / cNFT — hex: settingsPillActive/Pill concat `${color}NN` alpha suffixes, rgb() breaks that
-  core:  '#a890e8', // VL.purpleTint — MPL Core
-  candy: '#e58aa3', // Candy Machine (CANDY badge pink) — no VL token yet
+  cnft:  hex(VL.green),      // hex: settingsPillActive/Pill concat `${color}NN` alpha suffixes, rgb() breaks that
+  core:  hex(VL.purpleTint), // MPL Core
+  candy: hex(VL.pink),       // Candy Machine (CANDY badge pink)
 };
 const SOURCE_COLORS: Record<SourceKey, string> = {
-  LMNFT: '#c7b479', // VL.gold       — LaunchMyNFT — hex only, see TYPE_COLORS note above
-  VVV:   '#5fa8e6', // VVV.so (card badge light blue) — no VL token yet
-  GRAVE: '#a0a0a8', // GraveMint (card badge gray) — no VL token yet
-  CANDY: '#e58aa3', // Candy Guard (same as candy type) — no VL token yet
-  CORE:  '#a890e8', // VL.purpleTint — Core (hidden from UI)
+  LMNFT: hex(VL.gold),  // LaunchMyNFT — hex only, see TYPE_COLORS note above
+  VVV:   hex(VL.blue),  // VVV.so (card badge light blue)
+  GRAVE: hex(VL.gray),  // GraveMint (card badge gray)
+  CANDY: hex(VL.pink),  // Candy Guard (same as candy type)
+  CORE:  hex(VL.purpleTint), // Core (hidden from UI)
 };
 const STATUS_COLORS: Record<string, string> = {
   active: '#43b984', // VL.green
@@ -711,7 +711,7 @@ function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string }
 }
 
 import { colorForCollection, isSolPubkey } from './lib/palette';
-import { VL, VLText, rgb, alpha } from '@/lib/palette';
+import { VL, VLText, rgb, alpha, hex } from '@/lib/palette';
 
 // Filter keys + predicates are shared with the table via ./lib/filters
 // (FeedTypeKey / SourceKey / StatusKey, matchesType / matchesSource / …) so the
