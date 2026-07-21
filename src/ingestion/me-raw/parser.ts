@@ -34,6 +34,8 @@ import {
   extractNftMint,
   extractPartiesFromTokenFlow,
   balanceDeltas,
+  detectSaleCurrency,
+  currencyDecimals,
 } from './price';
 import { LUCKY_BUY_PROGRAM, ME_PACKS_PROGRAM } from './programs';
 import { noteMmmV2Disc } from './v2-disc-watch';
@@ -243,6 +245,10 @@ function parseMeV2Sale(
 
   const sellerNet = computeSellerNetLamports(tx, seller);
 
+  // USDC-priced ME v2 sale (Deposit → BuyV2 → ExecuteSaleV2 SPL path) —
+  // see detectSaleCurrency's doc for how this differs from the SOL default.
+  const currency = detectSaleCurrency(tx);
+
   // Lucky Buy override. The default price extraction picks the largest
   // SOL decrease as the buyer's spend, but on a lucky-buy raffle the
   // largest decrease is the raffle escrow (~entry-fee + reshuffles),
@@ -283,9 +289,15 @@ function parseMeV2Sale(
   // economic sale price, rather than the fee-inflated buyer gross. Skipped for
   // lucky-buy, where gross IS the raffle-escrow spend (unreliable) and
   // sellerNet is the intended price source.
-  const sellerNetClean = !luckyBuy && sellerNet != null && sellerNet > priceLamports
+  // sellerNet is computed purely from the seller's NATIVE SOL balance delta
+  // (computeSellerNetLamports) — meaningless for a USDC-priced sale, where
+  // the real proceeds land in a USDC token account and the SOL delta is just
+  // rent/fee dust. Drop it for non-SOL currencies rather than surface a
+  // misleading micro-SOL "net" figure; the UI falls back to priceSol, which
+  // IS correct (see detectSaleCurrency/currencyDecimals above).
+  const sellerNetClean = currency === 'SOL' && !luckyBuy && sellerNet != null && sellerNet > priceLamports
     ? null
-    : sellerNet;
+    : currency === 'SOL' ? sellerNet : null;
 
   const event: SaleEvent = {
     signature:         tx.signature,
@@ -297,10 +309,10 @@ function parseMeV2Sale(
     seller,
     buyer,
     priceLamports,
-    priceSol:          Number(priceLamports) / 1e9,
+    priceSol:          Number(priceLamports) / 10 ** currencyDecimals(currency),
     sellerNetLamports: sellerNetClean,
     sellerNetPriceSol: sellerNetClean != null ? Number(sellerNetClean) / 1e9 : null,
-    currency:          'SOL',
+    currency,
     rawData:           {
       _parser:     'me_v2_raw',
       _instruction: match.instructionName,
@@ -410,6 +422,11 @@ function parseMmmSale(
   if (!seller || !buyer) {
     return { ok: false, reason: `mmm(${match.instructionName}): could not determine parties` };
   }
+
+  // MMM sale currency — see detectSaleCurrency's doc. MMM pools are
+  // overwhelmingly SOL-denominated; this stays SOL unless a USDC leg is
+  // actually present in the tx.
+  const currency = detectSaleCurrency(tx);
 
   // ── Pool state PDA (AMM badge classification) ─────────────────────────────
   // Only extracted for instruction variants with an independently-verified
@@ -601,7 +618,9 @@ function parseMmmSale(
   // of rent-refund + lp_fee dust vs a real 0.18 SOL sale — confirmed on
   //   4URg4bwcJrJQ6SgVkVEChd5eCchq8mVnDCvrjcTzmc6iqxsWa6wraf1rtXwLYCNbR1TodE8GNXFmVGG3aUgMEMdf
   // ), and the >priceLamports guard only catches overstatement, not this.
-  const sellerNet = effectiveDirection === 'fulfillSell'
+  // sellerNet reads the seller's native SOL balance delta — meaningless for
+  // a USDC-priced fill (see the ME v2 path's identical guard above).
+  const sellerNet = currency !== 'SOL' || effectiveDirection === 'fulfillSell'
     ? null
     : cleanSellerNet(computeSellerNetLamports(tx, seller), priceLamports);
   const event: SaleEvent = {
@@ -614,10 +633,10 @@ function parseMmmSale(
     seller,
     buyer,
     priceLamports:     priceLamports,
-    priceSol:          Number(priceLamports) / 1e9,
+    priceSol:          Number(priceLamports) / 10 ** currencyDecimals(currency),
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
-    currency:          'SOL',
+    currency,
     poolAddress,
     rawData:           {
       _parser:      'mmm_raw',
@@ -698,7 +717,9 @@ function parseMeCnftSale(
   // sellerNet for cNFTs falls through to `computeSellerNetLamports`
   // which reads the seller's lamport delta from balanceDeltas — that's
   // the same authoritative source the ME V2 / MMM paths use.
-  const sellerNet = computeSellerNetLamports(tx, seller);
+  // Currency + sellerNet: same USDC-vs-SOL split as the ME v2 / MMM paths.
+  const currency   = detectSaleCurrency(tx);
+  const sellerNet  = currency === 'SOL' ? computeSellerNetLamports(tx, seller) : null;
 
   const event: SaleEvent = {
     signature:         tx.signature,
@@ -714,10 +735,10 @@ function parseMeCnftSale(
     seller,
     buyer,
     priceLamports,
-    priceSol:          Number(priceLamports) / 1e9,
+    priceSol:          Number(priceLamports) / 10 ** currencyDecimals(currency),
     sellerNetLamports: sellerNet,
     sellerNetPriceSol: sellerNet != null ? Number(sellerNet) / 1e9 : null,
-    currency:          'SOL',
+    currency,
     rawData:           {
       _parser:      'me_cnft_raw',
       _instruction: match.instructionName,

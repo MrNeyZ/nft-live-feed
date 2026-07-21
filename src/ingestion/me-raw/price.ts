@@ -1,4 +1,5 @@
 import { RawSolanaTx, RawTokenBalance } from './types';
+import { Currency } from '../../models/sale-event';
 import {
   ME_V2_PROGRAM,
   ME_AMM_PROGRAM,
@@ -71,9 +72,21 @@ export interface PaymentInfo {
  *
  * Limitations:
  * - Cannot distinguish ME fee + royalty breakdown (fine for v1)
- * - For AMM trades, the "seller" may be the pool escrow rather than the
- *   human owner — verify in live testing and override at the call site
- *   if account positions are known for a specific instruction.
+ * - CONFIRMED 2026-07-15 (not just theoretical): for MMM AMM `fulfillSell`
+ *   trades (buyer pulls an NFT from a sell-side pool), the largest SOL
+ *   recipient is the pool's SOL-payout wallet, NOT the human who deposited
+ *   the specific NFT that sold — those are different accounts whenever the
+ *   pool aggregates listings from more than one depositor. Verified against
+ *   Magic Eden's own `/v2/tokens/{mint}/activities` API across 10+ live
+ *   transactions spanning coreFulfillSell / solFulfillSell /
+ *   solMip1FulfillSell / solExtFulfillSell — the real seller was always at
+ *   a fixed instruction-account index (accounts[1]), never the largest SOL
+ *   gainer. See the `sellerAcctIdx` overrides + comments on those four
+ *   instructions in programs.ts. This function's `seller` field must NOT be
+ *   used as a fallback for MMM `fulfillSell` — parser.ts's
+ *   `poolSellAmbiguous` guard enforces that for any variant that hasn't had
+ *   its seller position independently confirmed this way (currently just
+ *   `solOcpFulfillSell`).
  */
 export function extractPaymentInfo(tx: RawSolanaTx): PaymentInfo | null {
   const deltas = balanceDeltas(tx).filter((d) => isUserAccount(d.pubkey));
@@ -160,6 +173,46 @@ export function extractNftMint(tx: RawSolanaTx): string | null {
  * More precise than SOL flow for identifying parties, but requires `owner`
  * to be present in token balance entries (it is when using confirmed commitment).
  */
+// ─── Currency detection ───────────────────────────────────────────────────────
+
+/** USDC mint on Solana mainnet. */
+export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+/**
+ * Detect whether an ME sale was priced in USDC rather than native SOL.
+ *
+ * ME v2's M2mx93ekt1fm… program supports SPL-token-denominated fixed-price
+ * sales (`Deposit` → `BuyV2` → `ExecuteSaleV2`) alongside the far more common
+ * SOL path — those carry a USDC token-balance leg instead of a System
+ * transfer for the price. Detected by: any USDC entry present in
+ * pre/postTokenBalances at all (the NFT itself never uses the USDC mint, so
+ * no exclusion needed).
+ *
+ * The parser's `priceLamports` is read from the program's own settlement log
+ * (`readMeV2PriceFromLogs`) regardless of currency — it's already the correct
+ * raw base-unit amount, it just needs the right decimal count to display
+ * (`currencyDecimals` below). Ported from the equivalent Helius-enhanced-path
+ * check in `ingestion/helius/parser.ts`'s `detectCurrency`, which only the
+ * (currently standby) webhook path had.
+ *
+ * Verified on sig 4XZCKv11yiP8ZStvK3UsiUg7xA5Zdr5UWo5ETgUTq8BTke9guYs2wQD6zNZQbeZJqZasjbVzoZVdcg7Wqmem9BLk:
+ * 99_800_000 raw ÷ 10^6 = 99.8 USDC (was showing as 0.0998 SOL — wrong
+ * currency AND ~150x off).
+ */
+export function detectSaleCurrency(tx: RawSolanaTx): Currency {
+  const entries = [
+    ...(tx.meta?.preTokenBalances  ?? []),
+    ...(tx.meta?.postTokenBalances ?? []),
+  ];
+  return entries.some((b) => b.mint === USDC_MINT) ? 'USDC' : 'SOL';
+}
+
+/** Decimal count for converting a currency's raw base-unit amount to its
+ *  display value. SOL/lamports = 9, USDC = 6. */
+export function currencyDecimals(currency: Currency): number {
+  return currency === 'USDC' ? 6 : 9;
+}
+
 export function extractPartiesFromTokenFlow(
   tx: RawSolanaTx,
   mint: string

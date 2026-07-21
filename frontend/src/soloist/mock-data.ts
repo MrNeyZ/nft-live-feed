@@ -73,6 +73,11 @@ export interface FeedEvent {
   /** Server-computed net the seller actually received. Null when the
    *  backend couldn't extract it (e.g. cNFT, missing balance delta). */
   sellerNetPrice?: number | null;
+  /** Sale currency — almost always 'SOL'; ME v2's Deposit→BuyV2→ExecuteSaleV2
+   *  SPL path can price a sale in 'USDC' instead (see backend
+   *  me-raw/price.ts's detectSaleCurrency). `price`/`grossPrice`/
+   *  `sellerNetPrice` are already scaled to this currency's decimals. */
+  currency?: string;
   /** Sale price vs. collection floor as a fractional ratio
    *  (+0.12 = +12% above floor, -0.08 = 8% below floor). `null` when
    *  the backend couldn't resolve a floor for this collection — render

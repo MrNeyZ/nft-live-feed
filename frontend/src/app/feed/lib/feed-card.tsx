@@ -895,10 +895,16 @@ export const FeedCard = memo(function FeedCard({
               // counted — only the number itself drives the step.
               const priceStr = safePrice == null ? '—' : formatFeedPrice(safePrice);
               const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
+              // Currency suffix follows the event — almost always SOL, but ME
+              // v2's Deposit→BuyV2→ExecuteSaleV2 SPL path prices some sales
+              // in USDC (backend sets `event.currency` accordingly and scales
+              // priceSol/sellerNetPriceSol by the right decimals already —
+              // see me-raw/price.ts's detectSaleCurrency).
+              const currencyLabel = event.currency || 'SOL';
               return (
                 <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
                   {priceStr}{' '}
-                  <span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
+                  <span style={FC_PRICE_SUFFIX_STYLE}>{currencyLabel}</span>
                 </span>
               );
             })()}

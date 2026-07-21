@@ -95,6 +95,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     price: (b.sellerNetPriceSol ?? null) != null ? (b.sellerNetPriceSol as number) : b.priceSol,
     grossPrice: b.priceSol,
     sellerNetPrice: b.sellerNetPriceSol ?? null,
+    currency: b.currency || 'SOL',
     // Pass null through when the backend couldn't compute a floor delta
     // (no slug, blacklisted collection, ME/Tensor floor lookup failed).
     // The Live Feed hides the indicator on null; rendering 0 would be
