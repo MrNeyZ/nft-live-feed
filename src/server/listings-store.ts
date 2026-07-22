@@ -28,7 +28,9 @@ import { saleEventBus } from '../events/emitter';
 import { SaleEvent } from '../models/sale-event';
 import { getPool } from '../db/client';
 import { isSlugHot } from './subscribers';
+import { meAuthHeaders } from '../me-api-cooldown';
 import { recordFirstListedAtObservation, type ListingTimeQuality } from '../analytics/mint-lifecycle';
+import { TtlCache } from '../enrichment/cache';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -610,7 +612,7 @@ async function fetchMeBuyNowMap(slug: string): Promise<Map<string, number>> {
     for (let page = 0; page < MAX_PAGES; page++) {
       const offset = page * PAGE_SIZE;
       const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=buyNow&offset=${offset}&limit=${PAGE_SIZE}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
       if (!res.ok) break;
       const json = await res.json() as MeListActivity[];
       if (!Array.isArray(json) || json.length === 0) break;
@@ -643,7 +645,7 @@ async function fetchMeListedAtMap(slug: string): Promise<Map<string, number>> {
     for (let page = 0; page < MAX_PAGES; page++) {
       const offset = page * PAGE_SIZE;
       const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=list&offset=${offset}&limit=${PAGE_SIZE}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
       if (!res.ok) break;
       const json = await res.json() as MeListActivity[];
       if (!Array.isArray(json) || json.length === 0) break;
@@ -716,7 +718,7 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
     for (let page = 0; page < ME_MAX_PAGES; page++) {
       const offset = page * ME_PAGE_SIZE;
       const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/listings?offset=${offset}&limit=${ME_PAGE_SIZE}`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
       if (!res.ok) break;
       const json = await res.json() as MeRawListing[];
       if (!Array.isArray(json) || json.length === 0) break;
@@ -810,7 +812,7 @@ function mmmPriceLamports(spot: number, curveType: string | undefined, delta: nu
 async function fetchMmmPools(slug: string): Promise<Listing[]> {
   try {
     const url = `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}&limit=100`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+    const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
     if (!res.ok) return [];
     const json = await res.json() as { results?: MmmPoolRaw[] };
     const pools = Array.isArray(json.results) ? json.results : [];
@@ -879,12 +881,27 @@ export interface TensorCollMeta {
   symbol:      string | null;
 }
 
-/** slug/alias → Tensor meta cache. collIds are stable, so both hits and
- *  misses (null — a slug Tensor doesn't recognize) are cached for the life
- *  of the process. Populated under the queried slug AND every known alias
- *  (slugMe / slugDisplay / symbol) so a later query by any of them is a hit
- *  with zero requests. */
-const tensorCollMetaCache = new Map<string, TensorCollMeta | null>();
+/** slug/alias → Tensor meta. collIds are stable once found, so a HIT is
+ *  cached for the life of the process (permanent Map) — populated under the
+ *  queried slug AND every known alias (slugMe / slugDisplay / symbol) so a
+ *  later query by any of them is a hit with zero requests.
+ *
+ *  A MISS is a different story: it used to be cached permanently too (same
+ *  Map, `null` value), on the theory that Tensor genuinely doesn't track
+ *  every ME collection. In practice a single transient failure — a network
+ *  blip or timeout on ANY of the up-to-4 candidate probes — looked
+ *  identical to a genuine "Tensor doesn't have this" miss, permanently
+ *  locking that collection out of ME BID / TNSR BID / Tensor-sourced
+ *  LISTED for the rest of the process's uptime (confirmed live: a
+ *  resolution that had worked minutes earlier came back null after no
+ *  code/data change, just process time passing). TTL'd instead — long
+ *  enough that a genuinely-untracked collection isn't re-probed on every
+ *  request (still respects the shared 1 req/sec gate), short enough that a
+ *  one-off blip recovers within a few dashboard polls instead of needing a
+ *  backend restart. */
+const TENSOR_MISS_TTL_MS = 5 * 60_000;
+const tensorCollMetaCache = new Map<string, TensorCollMeta>();
+const tensorCollMetaMissCache = new TtlCache<string, true>(TENSOR_MISS_TTL_MS, 60_000);
 
 /** Sequential gate over all tensordev requests, enforcing ≥1 req/sec. Each
  *  request waits for the previous to settle, then a 1 s spacer. */
@@ -933,16 +950,21 @@ function tensorSlugCandidates(appSlug: string): string[] {
 /** Resolve our app slug to Tensor's collId, trying a few generic slug-shape
  *  candidates (NOT hardcoded per collection). Caches the result under the
  *  queried slug plus every alias so ME slug and Tensor slugDisplay both
- *  resolve to the same collId. Returns null (cached) on a clean miss. */
+ *  resolve to the same collId. Returns null on a miss (TTL'd — see
+ *  tensorCollMetaMissCache's doc). */
 export async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta | null> {
   const cached = tensorCollMetaCache.get(appSlug);
   if (cached !== undefined) return cached;
+  if (tensorCollMetaMissCache.has(appSlug)) return null;
 
   let meta: TensorCollMeta | null = null;
   for (const candidate of tensorSlugCandidates(appSlug)) {
     // A prior resolution may already have cached this candidate as a hit.
     const pre = tensorCollMetaCache.get(candidate);
     if (pre) { meta = pre; break; }
+    // Skip a candidate another slug already probed to a miss within the
+    // TTL window — saves a round-trip through the shared rate gate.
+    if (tensorCollMetaMissCache.has(candidate)) continue;
     try {
       const res = await tensorFetch(
         `https://api.mainnet.tensordev.io/api/v1/collections/find_collection?filter=${encodeURIComponent(candidate)}`,
@@ -966,17 +988,20 @@ export async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta
     } catch {
       // network/timeout → try the next candidate.
     }
+    tensorCollMetaMissCache.set(candidate, true);
   }
 
-  // Cache the queried slug (hit or miss) + every alias on a hit. Symbols are
-  // aliased only when ≥4 chars, to avoid short tickers colliding with an
-  // unrelated collection's slug.
-  tensorCollMetaCache.set(appSlug, meta);
+  // Cache the queried slug (hit permanent, miss TTL'd) + every alias on a
+  // hit. Symbols are aliased only when ≥4 chars, to avoid short tickers
+  // colliding with an unrelated collection's slug.
   if (meta) {
+    tensorCollMetaCache.set(appSlug, meta);
     if (meta.slugMe)                            tensorCollMetaCache.set(meta.slugMe, meta);
     if (meta.slugDisplay)                       tensorCollMetaCache.set(meta.slugDisplay, meta);
     if (meta.slugAtlas3)                        tensorCollMetaCache.set(meta.slugAtlas3, meta);
     if (meta.symbol && meta.symbol.length >= 4) tensorCollMetaCache.set(meta.symbol, meta);
+  } else {
+    tensorCollMetaMissCache.set(appSlug, true);
   }
   return meta;
 }
@@ -1123,10 +1148,17 @@ export function getDerivedFloorLamports(slug: string): number | null {
   // for the discount-vs-floor metric. Falls back to whatever non-
   // pool listing exists; if there are NO non-pool listings, returns
   // null so callers move on to the ME-API floor cache instead.
+  //
+  // ME-only: the FloorChip's whole point is "vs Magic Eden floor" —
+  // mixing in Tensor's own listings here made a Tensor sale's % look
+  // like it was measured against ME when it was actually measured
+  // against a blended, marketplace-varying floor (same collection,
+  // two sales seconds apart, silently different reference floors).
   for (const id of ids) {
     const l = byId.get(id);
     if (!l) continue;
     if (l.type === 'pool') continue;
+    if (l.source !== 'ME') continue;
     if (l.priceSol > 0 && l.priceSol < minSol) minSol = l.priceSol;
   }
   if (!Number.isFinite(minSol)) return null;
