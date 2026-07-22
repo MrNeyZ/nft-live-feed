@@ -39,7 +39,13 @@ interface CachedBids {
   floorLamports:    number | null;
   meBidLamports:    number | null;
   tnsrBidLamports:  number | null;
+  /** Tensor's numListed when available (Tensor exposes a real supply
+   *  denominator; ME's own /stats doesn't), falling back to ME's own
+   *  listedCount only when Tensor has no data for this slug. */
   listedCount:      number | null;
+  /** Tensor's numMints. No ME fallback exists — ME's /collections/{slug}/stats
+   *  doesn't return a supply field at all. */
+  totalSupply:      number | null;
   volumeAllLamports: number | null;
   fetchedAt:        number;
 }
@@ -244,6 +250,15 @@ interface TensorCollStats {
      *  sellNowPriceNetFees 7.5049 SOL (net), a ~6.2% gap matching
      *  sellRoyaltyFeeBPS + Tensor's own cut. `sellNowPrice` is GROSS. */
     sellNowPriceNetFees?: string;
+    /** Currently-listed count. Confirmed live (Jul 2026): mad_lads
+     *  numListed=324, numMints=9968 — ME's own `/collections/{slug}/stats`
+     *  (used elsewhere in this file for `floorLamports`) exposes
+     *  `listedCount` but no supply denominator at all, so it can't answer
+     *  "listed %" on its own; Tensor is the only source we have wired for
+     *  a genuine listed/supply pair. */
+    numListed?: number;
+    /** Total supply / mint count. */
+    numMints?:  number;
   };
 }
 
@@ -252,35 +267,72 @@ export interface TensorTopBidDetail {
   netLamports:   number | null;
 }
 
-/** Exported for src/analytics/normalized-collection-bid.ts — exposes BOTH
- *  the gross quote and (when present) the net-of-fees figure, so callers can
- *  choose the correct basis instead of assuming `sellNowPrice` is net (the
- *  old comment on fetchTensorTopBid implied "what you'd get", which reads as
- *  net but is actually gross — see TensorCollStats doc). */
-export async function fetchTensorTopBidDetailed(slug: string): Promise<TensorTopBidDetail | null> {
+/** Richer than TensorTopBidDetail — also carries listed/supply, which have
+ *  no bid-price precondition (a collection can have zero active bids and
+ *  still have perfectly good listed data). Cached per-slug so the two
+ *  read paths below (bid-only vs bid+listed) never double the real Tensor
+ *  HTTP call for the same slug within a TTL window. */
+interface TensorCollectionStatsFull {
+  grossLamports: number | null;
+  netLamports:   number | null;
+  listedCount:   number | null;
+  totalSupply:   number | null;
+}
+const TENSOR_STATS_TTL_MS = 60_000;
+const tensorStatsCache = new Map<string, { value: TensorCollectionStatsFull | null; fetchedAt: number }>();
+
+async function fetchTensorCollectionStats(slug: string): Promise<TensorCollectionStatsFull | null> {
   if (!process.env.TENSOR_API_KEY) return null;
+  const hit = tensorStatsCache.get(slug);
+  const now = Date.now();
+  if (hit && now - hit.fetchedAt < TENSOR_STATS_TTL_MS) return hit.value;
+
+  let out: TensorCollectionStatsFull | null = null;
   try {
     // Reuse the listings-store resolver + alias cache so our ME slug maps to
     // Tensor's collId once (cached for the process), then fetch live stats by
     // collId. Both calls go through the shared `tensorFetch` gate, so dashboard
     // bids and listings share one global 1 req/sec limit (no request storm).
     const meta = await resolveTensorMeta(slug);
-    if (!meta) return null;
-    const res = await tensorFetch(
-      `https://api.mainnet.tensordev.io/api/v1/collections/find_collection`
-      + `?filter=${encodeURIComponent(meta.collId)}`,
-    );
-    if (!res.ok) return null;
-    const json = await res.json() as TensorCollStats;
-    const grossRaw = json?.stats?.sellNowPrice;
-    const gross = grossRaw ? Number(grossRaw) : NaN;
-    if (!Number.isFinite(gross) || gross <= 0) return null;
-    const netRaw = json?.stats?.sellNowPriceNetFees;
-    const net = netRaw ? Number(netRaw) : NaN;
-    return { grossLamports: gross, netLamports: Number.isFinite(net) && net > 0 ? net : null };
-  } catch {
-    return null;
-  }
+    if (meta) {
+      const res = await tensorFetch(
+        `https://api.mainnet.tensordev.io/api/v1/collections/find_collection`
+        + `?filter=${encodeURIComponent(meta.collId)}`,
+      );
+      if (res.ok) {
+        const json = await res.json() as TensorCollStats;
+        const grossRaw   = json?.stats?.sellNowPrice;
+        const gross      = grossRaw ? Number(grossRaw) : NaN;
+        const netRaw     = json?.stats?.sellNowPriceNetFees;
+        const net        = netRaw ? Number(netRaw) : NaN;
+        const listedRaw  = json?.stats?.numListed;
+        const supplyRaw  = json?.stats?.numMints;
+        out = {
+          grossLamports: Number.isFinite(gross) && gross > 0 ? gross : null,
+          netLamports:   Number.isFinite(net) && net > 0 ? net : null,
+          listedCount:   typeof listedRaw === 'number' && Number.isFinite(listedRaw) && listedRaw >= 0 ? listedRaw : null,
+          totalSupply:   typeof supplyRaw === 'number' && Number.isFinite(supplyRaw) && supplyRaw > 0 ? supplyRaw : null,
+        };
+      }
+    }
+  } catch { out = null; }
+
+  tensorStatsCache.set(slug, { value: out, fetchedAt: now });
+  return out;
+}
+
+/** Exported for src/analytics/normalized-collection-bid.ts — exposes BOTH
+ *  the gross quote and (when present) the net-of-fees figure, so callers can
+ *  choose the correct basis instead of assuming `sellNowPrice` is net (the
+ *  old comment on fetchTensorTopBid implied "what you'd get", which reads as
+ *  net but is actually gross — see TensorCollStats doc). Preserves its
+ *  original contract (null unless a genuine bid price exists) — callers
+ *  needing listed/supply regardless of bid presence should call
+ *  fetchTensorCollectionStats directly instead. */
+export async function fetchTensorTopBidDetailed(slug: string): Promise<TensorTopBidDetail | null> {
+  const stats = await fetchTensorCollectionStats(slug);
+  if (!stats || stats.grossLamports == null) return null;
+  return { grossLamports: stats.grossLamports, netLamports: stats.netLamports };
 }
 
 /** Back-compat: gross lamports only. Exported for offer-history.ts reuse —
@@ -296,20 +348,21 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
   const now = Date.now();
   if (hit && now - hit.fetchedAt < BID_TTL_MS) return hit;
 
-  const [stats, mmmBid, tnsrBidLamports] = await Promise.all([
+  const [stats, mmmBid, tensorStats] = await Promise.all([
     fetchMeStats(slug),
     fetchMmmTopBid(slug),
-    fetchTensorTopBid(slug),
+    fetchTensorCollectionStats(slug),
   ]);
   const entry: CachedBids = {
     floorLamports:    stats.floorLamports,
-    listedCount:      stats.listedCount,
+    listedCount:      tensorStats?.listedCount ?? stats.listedCount,
+    totalSupply:      tensorStats?.totalSupply ?? null,
     volumeAllLamports: stats.volumeAllLamports,
     // Route response is unchanged — still a bare lamports number (or null).
     // `mmmBid`'s richer poolAddress/owner/funded fields are for
     // offer-history.ts, not this dashboard endpoint.
     meBidLamports:    mmmBid?.amountLamports ?? null,
-    tnsrBidLamports,
+    tnsrBidLamports:  tensorStats?.grossLamports ?? null,
     fetchedAt: now,
   };
   cache.set(slug, entry);
@@ -384,6 +437,7 @@ export function createCollectionBidsRouter(): Router {
           meBidLamports:    b.meBidLamports,
           tnsrBidLamports:  b.tnsrBidLamports,
           listedCount:      b.listedCount,
+          totalSupply:      b.totalSupply,
           volumeAllLamports: b.volumeAllLamports,
         }] as const;
       }));

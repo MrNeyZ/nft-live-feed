@@ -240,7 +240,17 @@ function aggregateLive(events: FeedEvent[], range: Range, now: number): Map<stri
 }
 
 /** Per-slug bid snapshot from /api/collections/bids. */
-interface BidSnap { floorSol: number | null; meBidSol: number | null; tnsrBidSol: number | null }
+interface BidSnap {
+  floorSol: number | null;
+  meBidSol: number | null;
+  tnsrBidSol: number | null;
+  /** Tensor's numListed/numMints — ME's own /collections/{slug}/stats has
+   *  no supply denominator at all, so Tensor is the only source with a
+   *  genuine listed/supply pair. Falls back to the ME-trending-sourced
+   *  listedCount/totalSupply on the base row only when Tensor has none. */
+  listedCount: number | null;
+  totalSupply: number | null;
+}
 
 function isPlausibleBid(bid: number, floor: number): boolean {
   return bid > 0 && floor > 0 && bid <= floor * BID_OUTLIER_RATIO;
@@ -283,7 +293,11 @@ function sortValueFor(r: MergedRow, key: SortKey): number | string {
     case 'floorPct':   return r.floorPctChange ?? 0;
     case 'volume':     return r.volumeSol ?? 0;
     case 'sales':      return r.salesCount ?? 0;
-    case 'listedPct':  return r.listedPct ?? 0;
+    case 'listedPct': {
+      const count  = r.bid?.listedCount ?? r.listedCount;
+      const supply = r.bid?.totalSupply ?? r.totalSupply;
+      return count != null && supply != null && supply > 0 ? count / supply : 0;
+    }
     case 'me_bid':     return r.bid?.meBidSol ?? 0;
     case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
   }
@@ -352,6 +366,15 @@ interface RowProps {
 
 function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
   const displayFloor = row.bid?.floorSol ?? row.floorSol;
+  // Tensor (via /collections/bids) over the ME-trending base row — ME's own
+  // /stats has no supply denominator at all, so Tensor is the only source
+  // with a genuine listed/supply pair; recompute the pct from whichever
+  // pair actually won rather than reusing row.listedPct (ME-only ratio).
+  const displayListedCount = row.bid?.listedCount ?? row.listedCount;
+  const displayTotalSupply = row.bid?.totalSupply ?? row.totalSupply;
+  const displayListedPct = displayListedCount != null && displayTotalSupply != null && displayTotalSupply > 0
+    ? displayListedCount / displayTotalSupply
+    : null;
   const hasMomentum = row.live != null && row.live.newerFloor > row.live.prevFloor * MOMENTUM_THRESHOLD;
   const imbalance = hasBidImbalance(row.floorSol ?? 0, row.bid);
   const pDir = variant === 'active' && row.live ? pressureDir(row.live.buyCount, row.live.sellCount) : null;
@@ -445,10 +468,10 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5 }}>
         <div style={{ fontWeight: 700, color: VLText.primary }}>
-          {row.listedPct != null ? `${(row.listedPct * 100).toFixed(1)}%` : '—'}
+          {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
         </div>
         <div style={{ fontSize: 10, fontWeight: 500, color: VLText.muted, marginTop: 1 }}>
-          {fmtInt(row.listedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(row.totalSupply)}
+          {fmtInt(displayListedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(displayTotalSupply)}
         </div>
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
@@ -673,7 +696,10 @@ export default function Dashboard() {
           const res = await fetch(`${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(chunk.join(','))}`);
           if (!res.ok) return null;
           return await res.json() as {
-            bids: Record<string, { floorLamports: number | null; meBidLamports: number | null; tnsrBidLamports: number | null }>;
+            bids: Record<string, {
+              floorLamports: number | null; meBidLamports: number | null; tnsrBidLamports: number | null;
+              listedCount: number | null; totalSupply: number | null;
+            }>;
           };
         } catch { return null; }
       }));
@@ -684,9 +710,11 @@ export default function Dashboard() {
         if (!json) continue;
         for (const [slug, v] of Object.entries(json.bids ?? {})) {
           next[slug] = {
-            floorSol:   v.floorLamports   == null ? null : v.floorLamports   / 1e9,
-            meBidSol:   v.meBidLamports   == null ? null : v.meBidLamports   / 1e9,
-            tnsrBidSol: v.tnsrBidLamports == null ? null : v.tnsrBidLamports / 1e9,
+            floorSol:    v.floorLamports   == null ? null : v.floorLamports   / 1e9,
+            meBidSol:    v.meBidLamports   == null ? null : v.meBidLamports   / 1e9,
+            tnsrBidSol:  v.tnsrBidLamports == null ? null : v.tnsrBidLamports / 1e9,
+            listedCount: v.listedCount,
+            totalSupply: v.totalSupply,
           };
         }
       }
