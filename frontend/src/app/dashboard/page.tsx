@@ -646,21 +646,42 @@ export default function Dashboard() {
   }, [rows, mkt]);
 
   // ── Live ME/Tensor bid snapshots ──────────────────────────────────────────
+  // Backend caps /api/collections/bids at 20 slugs per request (silent
+  // truncation past that — src/server/collection-bids.ts's
+  // MAX_SLUGS_PER_REQUEST) as an upstream-fanout guard. A single request
+  // with every visible slug meant collections past the 20th (alphabetical,
+  // since slugKey used to be one sorted, un-chunked string) never got bid
+  // data at all — and which 20 "won" shifted as the visible row set
+  // changed, reading as "sometimes shows, sometimes doesn't". Chunk into
+  // ≤20-slug requests instead so every visible row is actually queried;
+  // the backend's per-slug 60s cache means chunking costs nothing extra
+  // for slugs any other chunk/tab already warmed.
+  const BIDS_CHUNK_SIZE = 20;
   const [bids, setBids] = useState<Record<string, BidSnap>>({});
-  const slugKey = useMemo(() => visibleRows.map(r => r.slug).sort().join(','), [visibleRows]);
+  const slugList = useMemo(() => visibleRows.map(r => r.slug).sort(), [visibleRows]);
+  const slugKey = slugList.join(',');
 
   useEffect(() => {
-    if (!slugKey) return;
+    if (slugList.length === 0) return;
     let cancelled = false;
     const doLoad = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(slugKey)}`);
-        if (!res.ok) return;
-        const json = await res.json() as {
-          bids: Record<string, { floorLamports: number | null; meBidLamports: number | null; tnsrBidLamports: number | null }>;
-        };
-        if (cancelled) return;
-        const next: Record<string, BidSnap> = {};
+      const chunks: string[][] = [];
+      for (let i = 0; i < slugList.length; i += BIDS_CHUNK_SIZE) chunks.push(slugList.slice(i, i + BIDS_CHUNK_SIZE));
+
+      const results = await Promise.all(chunks.map(async (chunk) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(chunk.join(','))}`);
+          if (!res.ok) return null;
+          return await res.json() as {
+            bids: Record<string, { floorLamports: number | null; meBidLamports: number | null; tnsrBidLamports: number | null }>;
+          };
+        } catch { return null; }
+      }));
+      if (cancelled) return;
+
+      const next: Record<string, BidSnap> = {};
+      for (const json of results) {
+        if (!json) continue;
         for (const [slug, v] of Object.entries(json.bids ?? {})) {
           next[slug] = {
             floorSol:   v.floorLamports   == null ? null : v.floorLamports   / 1e9,
@@ -668,12 +689,13 @@ export default function Dashboard() {
             tnsrBidSol: v.tnsrBidLamports == null ? null : v.tnsrBidLamports / 1e9,
           };
         }
-        setBids(prev => ({ ...prev, ...next }));
-      } catch { /* transient — retry on next interval */ }
+      }
+      if (Object.keys(next).length > 0) setBids(prev => ({ ...prev, ...next }));
     };
     doLoad();
     const id = setInterval(doLoad, BIDS_REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slugKey]);
 
   // ── Official artwork fallback — internal-source rows only. ME-sourced rows
