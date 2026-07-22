@@ -2,7 +2,7 @@
  * Trending Collections Tool — read API.
  *
  *   GET /api/tools/trending-collections
- *     ?range=10m|1h|6h|1d|7d|30d   (default 1d)
+ *     ?range=5m|10m|1h|6h|1d|7d|30d (default 1d)
  *     &sort=<ME sort enum>          (default volume)
  *     &direction=asc|desc           (default desc)
  *     &limit=<1..200>               (default 100)
@@ -10,7 +10,7 @@
  *     &chain=solana                 (default solana)
  *
  *   GET /api/tools/trending-collections/:slug/sales
- *     ?range=10m|1h|6h|1d|7d|30d   (default 1d)
+ *     ?range=5m|10m|1h|6h|1d|7d|30d (default 1d)
  *     &limit=<1..10>                (default 10, hard-capped at 10)
  *
  * Thin proxy over Magic Eden's pre-aggregated collection_stats endpoint.
@@ -18,6 +18,12 @@
  * round-trip), then returns our normalized DTO — ME's raw shape never leaves
  * the backend. Read-only: no DB writes, no RPC. Cache + in-flight dedup live
  * in the adapter (me-trending-stats.ts).
+ *
+ * `range=5m` is NOT an ME window (ME stops at 10m) — it borrows ME's 10m
+ * metadata (artwork, listed%, marketCap, verified) and overrides just the
+ * window-scoped activity fields (salesCount/volumeSol) with a true 5-minute
+ * recompute from our own sale_events (internal-trending-stats.ts). '5m' is
+ * never forwarded to getTrendingCollections/ME.
  *
  * The /:slug/sales sub-route powers the trending page's hover preview. It
  * reads ONLY from the existing `sale_events` table (via getEventsByCollection)
@@ -41,7 +47,12 @@ import {
   type TrendingChain,
   type TrendingDirection,
 } from '../enrichment/me-trending-stats';
-import { getInternalTrendingStats } from '../enrichment/internal-trending-stats';
+import { getInternalTrendingStats, FIVE_MIN_MS } from '../enrichment/internal-trending-stats';
+
+/** Route-level range enum — ME's own TRENDING_RANGES plus the '5m' pseudo-
+ *  range this router synthesizes itself. Never pass '5m' where a
+ *  TrendingRange is expected (i.e. into TrendingQuery/getTrendingCollections). */
+const EXTENDED_RANGES = ['5m', ...TRENDING_RANGES] as const;
 
 const DEFAULT_RANGE: TrendingRange         = '1d';
 const DEFAULT_SORT: TrendingSort           = 'volume';
@@ -85,11 +96,15 @@ export function createTrendingCollectionsRouter(): Router {
   router.get('/tools/trending-collections', limit, async (req: Request, res: Response) => {
     // ── Param validation (invalid → 400, never forwarded upstream) ──────────
     const rangeRaw = String(req.query.range ?? DEFAULT_RANGE).trim();
-    if (!inEnum(rangeRaw, TRENDING_RANGES)) {
+    if (!inEnum(rangeRaw, EXTENDED_RANGES)) {
       return res.status(400).json({
-        ok: false, error: 'invalid_range', allowed: TRENDING_RANGES,
+        ok: false, error: 'invalid_range', allowed: EXTENDED_RANGES,
       });
     }
+    const is5m = rangeRaw === '5m';
+    // '5m' borrows ME's 10m response for metadata; the activity fields get
+    // overridden below with a true 5-minute recompute.
+    const meRange: TrendingRange = is5m ? '10m' : rangeRaw;
 
     const sortRaw = String(req.query.sort ?? DEFAULT_SORT).trim();
     if (!inEnum(sortRaw, TRENDING_SORTS)) {
@@ -136,7 +151,7 @@ export function createTrendingCollectionsRouter(): Router {
 
     const query: TrendingQuery = {
       chain: chainRaw,
-      range: rangeRaw,
+      range: meRange,
       sort: sortRaw,
       direction: directionRaw,
       limit: limitNum,
@@ -156,9 +171,26 @@ export function createTrendingCollectionsRouter(): Router {
       let collections = meCollections;
       try {
         const meSlugs = new Set(meCollections.map(c => c.slug));
-        const internal = await getInternalTrendingStats(query.range);
-        const supplement = internal.filter(c => !meSlugs.has(c.slug));
-        if (supplement.length > 0) collections = [...meCollections, ...supplement];
+        const internal = await getInternalTrendingStats(is5m ? '5m' : query.range);
+
+        if (is5m) {
+          // Override the window-scoped activity fields with a true 5-minute
+          // recompute; 0 (not null) when nothing traded in 5m — that's real
+          // information, distinct from "unknown". Floor is a point-in-time
+          // snapshot, not window-scoped, so ME's own value stays as-is (the
+          // frontend already overlays the real floor from /collections/bids
+          // regardless of range).
+          const internalBySlug = new Map(internal.map(c => [c.slug, c]));
+          collections = meCollections.map(c => {
+            const i = internalBySlug.get(c.slug);
+            return { ...c, salesCount: i?.salesCount ?? 0, volumeSol: i?.volumeSol ?? 0, range: '5m' };
+          });
+          const supplement = internal.filter(c => !meSlugs.has(c.slug));
+          if (supplement.length > 0) collections = [...collections, ...supplement];
+        } else {
+          const supplement = internal.filter(c => !meSlugs.has(c.slug));
+          if (supplement.length > 0) collections = [...meCollections, ...supplement];
+        }
       } catch (err) {
         console.warn('[tools/trending-collections] internal supplement failed', err);
       }
@@ -167,7 +199,7 @@ export function createTrendingCollectionsRouter(): Router {
         ok: true,
         source: 'magic_eden',
         chain: query.chain,
-        range: query.range,
+        range: rangeRaw,
         sort: query.sort,
         direction: query.direction,
         limit: query.limit,
@@ -179,7 +211,7 @@ export function createTrendingCollectionsRouter(): Router {
       if (err instanceof MeTrendingUpstreamError) {
         console.warn(
           `[tools/trending-collections] upstream ${err.upstreamStatus} ` +
-          `range=${query.range} sort=${query.sort}`,
+          `range=${rangeRaw} sort=${query.sort}`,
         );
         return res.status(502).json({
           ok: false,
@@ -213,8 +245,8 @@ export function createTrendingCollectionsRouter(): Router {
     }
 
     const rangeRaw = String(req.query.range ?? DEFAULT_RANGE).trim();
-    if (!inEnum(rangeRaw, TRENDING_RANGES)) {
-      return res.status(400).json({ ok: false, error: 'invalid_range', allowed: TRENDING_RANGES });
+    if (!inEnum(rangeRaw, EXTENDED_RANGES)) {
+      return res.status(400).json({ ok: false, error: 'invalid_range', allowed: EXTENDED_RANGES });
     }
 
     // limit: 1..10, default 10, hard-capped at 10. NaN/<1 → 400.
@@ -238,7 +270,8 @@ export function createTrendingCollectionsRouter(): Router {
     }
 
     try {
-      const since = new Date(now - RANGE_WINDOW_MS[rangeRaw]);
+      const windowMs = rangeRaw === '5m' ? FIVE_MIN_MS : RANGE_WINDOW_MS[rangeRaw];
+      const since = new Date(now - windowMs);
       const rows = await getEventsByCollection(slug, since, limitNum);
       const sales: TrendingSaleDTO[] = rows.map(r => ({
         signature:   r.signature,

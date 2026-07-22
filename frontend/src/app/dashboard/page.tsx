@@ -68,8 +68,13 @@ interface TrendingResponse {
   message?: string;
 }
 
-type Range = '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
+// '5m' isn't an ME window (ME stops at 10m) — the backend synthesizes it by
+// borrowing ME's 10m metadata and overriding salesCount/volumeSol with a
+// true 5-minute recompute from our own sale_events. See
+// tools-trending-collections.ts's is5m branch.
+type Range = '5m' | '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
 const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
+  { key: '5m',  label: '5M'  },
   { key: '10m', label: '10M' },
   { key: '1h',  label: '1H'  },
   { key: '6h',  label: '6H'  },
@@ -104,6 +109,7 @@ function saveRange(r: Range): void {
  *  independent of the backend's own RANGE_WINDOW_MS (same values, different
  *  side of the wire). */
 const RANGE_MS: Record<Range, number> = {
+  '5m':        5 * 60_000,
   '10m':      10 * 60_000,
   '1h':       60 * 60_000,
   '6h':   6 * 60 * 60_000,
@@ -113,10 +119,11 @@ const RANGE_MS: Record<Range, number> = {
 };
 /** The live SSE overlay (flash/pulse/flow-tint/momentum/ACTIVE-RECENT) only
  *  drives decoration for these — the client's rolling event buffer has
- *  genuinely complete coverage at these windows. Longer ranges show ME's
- *  own pre-aggregated numbers undecorated rather than a silently-partial
- *  live signal. */
-const LIVE_OVERLAY_RANGES = new Set<Range>(['10m', '1h', '6h']);
+ *  genuinely complete coverage at these windows (5m is in fact the most
+ *  reliable of all — the shortest window). Longer ranges show ME's own
+ *  pre-aggregated numbers undecorated rather than a silently-partial live
+ *  signal. */
+const LIVE_OVERLAY_RANGES = new Set<Range>(['5m', '10m', '1h', '6h']);
 
 const MOMENTUM_THRESHOLD = 1.005;
 const FRESH_SALE_WINDOW_MS = 6_000;

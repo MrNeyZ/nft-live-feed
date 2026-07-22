@@ -14,10 +14,24 @@
  * intentional: we have no ME-side historical baseline or collection
  * metadata for these rows. Every consumer of TrendingCollection already
  * renders `null` as a placeholder, so this needs no downstream changes.
+ *
+ * Also doubles as the engine behind the "5m" pseudo-range — ME has no 5m
+ * window (TRENDING_RANGES stops at 10m), so `'5m'` is deliberately NOT a
+ * TrendingRange member; it only exists at this module + the router's 5m
+ * branch, and must never be forwarded to getTrendingCollections/ME.
  */
 
 import { getPool } from '../db/client';
 import { RANGE_WINDOW_MS, type TrendingCollection, type TrendingRange } from './me-trending-stats';
+
+/** The one window ME doesn't offer. Kept separate from RANGE_WINDOW_MS
+ *  (which mirrors ME's own accepted enum) so nothing can accidentally pass
+ *  '5m' upstream. */
+export const FIVE_MIN_MS = 5 * 60_000;
+export type InternalRange = TrendingRange | '5m';
+function windowMsFor(range: InternalRange): number {
+  return range === '5m' ? FIVE_MIN_MS : RANGE_WINDOW_MS[range];
+}
 
 const CACHE_TTL_MS = 30_000;
 
@@ -58,7 +72,7 @@ function num(v: string | null): number | null {
 /** Aggregate sale_events into TrendingCollection rows for one range. Cached
  *  + in-flight-deduped the same way me-trending-stats.ts caches ME's own
  *  response, so concurrent requests for the same range share one query. */
-export async function getInternalTrendingStats(range: TrendingRange): Promise<TrendingCollection[]> {
+export async function getInternalTrendingStats(range: InternalRange): Promise<TrendingCollection[]> {
   const now = Date.now();
   const hit = cache.get(range);
   if (hit && now - hit.fetchedAt < CACHE_TTL_MS) return hit.data;
@@ -67,7 +81,7 @@ export async function getInternalTrendingStats(range: TrendingRange): Promise<Tr
   if (pending) return pending;
 
   const task = (async (): Promise<TrendingCollection[]> => {
-    const since = new Date(now - RANGE_WINDOW_MS[range]);
+    const since = new Date(now - windowMsFor(range));
     const pool = getPool();
     const { rows } = await pool.query<InternalRow>(INTERNAL_TRENDING_SQL, [since]);
 

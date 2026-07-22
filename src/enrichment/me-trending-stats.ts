@@ -136,7 +136,10 @@ export interface TrendingCollection {
    *  assuming the two slug systems always match. */
   tensorSlug: string | null;
   source: 'magic_eden' | 'internal';
-  range: TrendingRange;
+  /** Echoed back for the client, not validated against TrendingRange here —
+   *  the router's 5m branch (internal-trending-stats.ts) stamps `'5m'`,
+   *  a window ME itself doesn't offer. */
+  range: string;
 }
 
 export interface TrendingQuery {
