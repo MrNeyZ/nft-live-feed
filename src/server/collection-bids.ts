@@ -124,12 +124,39 @@ async function fetchMeStats(slug: string): Promise<MeStatsOut> {
 const CANDIDATES_TTL_MS = 60_000;
 const candidatesCache = new Map<string, { value: MmmBidCandidate[]; fetchedAt: number }>();
 
+// ── MMM pools concurrency gate ──────────────────────────────────────────────
+// Unlike Tensor (tensorFetch — a shared 1 req/sec serial gate), this ME
+// endpoint had no ceiling at all: every caller (dashboard's /bids batch,
+// offer-history.ts, normalized-collection-bid.ts) fires one `mmm/pools`
+// fetch per uncached slug, all concurrently within a batch. A single
+// /bids request already fanned out to up to 20 at once; once the dashboard
+// started chunking past 20 visible slugs (instead of silently truncating),
+// a cold cache (e.g. right after a restart) could burst to ~100 concurrent
+// hits. Bounded here — global to the process, so it protects every caller,
+// not just the dashboard — rather than left to each call site to pace
+// itself. 5 concurrent is generous headroom over Tensor's serial 1/sec
+// while still capping the worst-case burst by 20x.
+const MMM_MAX_CONCURRENT = 5;
+let mmmActive = 0;
+const mmmQueue: Array<() => void> = [];
+
+function acquireMmmSlot(): Promise<void> {
+  if (mmmActive < MMM_MAX_CONCURRENT) { mmmActive++; return Promise.resolve(); }
+  return new Promise<void>((resolve) => { mmmQueue.push(() => { mmmActive++; resolve(); }); });
+}
+function releaseMmmSlot(): void {
+  mmmActive--;
+  const next = mmmQueue.shift();
+  if (next) next();
+}
+
 async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> {
   const hit = candidatesCache.get(slug);
   const now = Date.now();
   if (hit && now - hit.fetchedAt < CANDIDATES_TTL_MS) return hit.value;
 
   let out: MmmBidCandidate[] = [];
+  await acquireMmmSlot();
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}&limit=50`,
@@ -155,6 +182,7 @@ async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> 
       }
     }
   } catch { /* fail soft — empty candidate list */ }
+  finally { releaseMmmSlot(); }
 
   candidatesCache.set(slug, { value: out, fetchedAt: now });
   return out;
