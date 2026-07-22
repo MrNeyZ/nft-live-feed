@@ -534,7 +534,7 @@ export const FeedCard = memo(function FeedCard({
   // overridden in CSS for TAPE so the inner img doesn't sit inside
   // a 56 px box with transparent margin.
   const thumbSize = density === 'tape' ? 40 : 56;
-  const renderPrice = displayPrice(event, inclusiveFees);
+  const renderPrice = displayPrice(event, inclusiveFees, slugFloor);
   // Display-only guard — keeps the formatter from producing "NaN" /
   // "Infinity" text if a malformed event slips past upstream validation.
   // Backend remains the source of truth for valid prices; this is the
