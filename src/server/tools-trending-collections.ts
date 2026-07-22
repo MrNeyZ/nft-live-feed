@@ -175,16 +175,22 @@ export function createTrendingCollectionsRouter(): Router {
 
         if (is5m) {
           // Override the window-scoped activity fields with a true 5-minute
-          // recompute; 0 (not null) when nothing traded in 5m — that's real
-          // information, distinct from "unknown". Floor is a point-in-time
-          // snapshot, not window-scoped, so ME's own value stays as-is (the
-          // frontend already overlays the real floor from /collections/bids
-          // regardless of range).
+          // recompute, then DROP any row that recomputes to zero — ME's 10m
+          // list carries rows whose only sale was in minutes 5-10, which
+          // have nothing to show inside the true 5m window and would
+          // otherwise linger in the list forever with a permanent "0"
+          // (they only age out of ME's own 10m response after a full 10
+          // minutes, not 5). Floor is a point-in-time snapshot, not
+          // window-scoped, so ME's own value stays as-is on the rows that
+          // do survive (the frontend already overlays the real floor from
+          // /collections/bids regardless of range).
           const internalBySlug = new Map(internal.map(c => [c.slug, c]));
-          collections = meCollections.map(c => {
-            const i = internalBySlug.get(c.slug);
-            return { ...c, salesCount: i?.salesCount ?? 0, volumeSol: i?.volumeSol ?? 0, range: '5m' };
-          });
+          collections = meCollections
+            .map(c => {
+              const i = internalBySlug.get(c.slug);
+              return { ...c, salesCount: i?.salesCount ?? 0, volumeSol: i?.volumeSol ?? 0, range: '5m' };
+            })
+            .filter(c => (c.salesCount ?? 0) > 0);
           const supplement = internal.filter(c => !meSlugs.has(c.slug));
           if (supplement.length > 0) collections = [...collections, ...supplement];
         } else {
