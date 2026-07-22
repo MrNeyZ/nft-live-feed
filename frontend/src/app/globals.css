@@ -47,7 +47,7 @@
   --page-x:            16px;
   /* Content (per route) */
   --feed-max:           660px;
-  --dashboard-max:     1000px;
+  --dashboard-max:     1200px;
   --tools-max:         1100px;
   --mints-max:         1400px;
   /* ── VictoryLabs final design tokens (approved palette) ──────────────
@@ -167,7 +167,7 @@ html[data-layout="pc"] {
      → 840/1140/1280/1460) so dense monitors feel like a trading terminal
      instead of an airy showcase. Laptop / phone unchanged. */
   --feed-max:           840px;
-  --dashboard-max:     1140px;
+  --dashboard-max:     1300px;
   --tools-max:         1280px;
   --mints-max:         1560px;
   /* PC-only: widen the left collections table cap 942 → 1015 (+73). Because
@@ -504,11 +504,15 @@ html[data-layout="phone"] .collections-table th:nth-child(5),
 html[data-layout="phone"] .collections-table th:nth-child(6),
 html[data-layout="phone"] .collections-table th:nth-child(7),
 html[data-layout="phone"] .collections-table th:nth-child(8),
+html[data-layout="phone"] .collections-table th:nth-child(9),
+html[data-layout="phone"] .collections-table th:nth-child(10),
 html[data-layout="phone"] .collections-table td:nth-child(4),
 html[data-layout="phone"] .collections-table td:nth-child(5),
 html[data-layout="phone"] .collections-table td:nth-child(6),
 html[data-layout="phone"] .collections-table td:nth-child(7),
-html[data-layout="phone"] .collections-table td:nth-child(8) { display: none !important; }
+html[data-layout="phone"] .collections-table td:nth-child(8),
+html[data-layout="phone"] .collections-table td:nth-child(9),
+html[data-layout="phone"] .collections-table td:nth-child(10) { display: none !important; }
 html[data-layout="phone"] .collections-table {
   width: 100% !important;
   max-width: 100% !important;
@@ -552,17 +556,34 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   white-space: nowrap !important;
 }
 
+/* small_laptop tier (769–1024px): the 768px collapse below doesn't fire yet,
+   so trim only the least-essential columns — both 7D sparkline/volbar
+   columns and the secondary TNSR BID — while FLOOR %, VOLUME, LISTED and
+   ME BID stay visible. */
+@media (max-width: 1024px) {
+  .collections-table th:nth-child(8),
+  .collections-table th:nth-child(9),
+  .collections-table th:nth-child(10),
+  .collections-table td:nth-child(8),
+  .collections-table td:nth-child(9),
+  .collections-table td:nth-child(10) { display: none !important; }
+}
+
 @media (max-width: 768px) {
   .collections-table th:nth-child(4),
   .collections-table th:nth-child(5),
   .collections-table th:nth-child(6),
   .collections-table th:nth-child(7),
   .collections-table th:nth-child(8),
+  .collections-table th:nth-child(9),
+  .collections-table th:nth-child(10),
   .collections-table td:nth-child(4),
   .collections-table td:nth-child(5),
   .collections-table td:nth-child(6),
   .collections-table td:nth-child(7),
-  .collections-table td:nth-child(8) { display: none !important; }
+  .collections-table td:nth-child(8),
+  .collections-table td:nth-child(9),
+  .collections-table td:nth-child(10) { display: none !important; }
   .collections-table {
     width: 100% !important;
     max-width: 100% !important;

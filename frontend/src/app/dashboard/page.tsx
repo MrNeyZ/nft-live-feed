@@ -1,259 +1,183 @@
 'use client';
 
-// Soloist — Dashboard.
-// Real data via the existing SSE feed (/api/events/stream). Events are stored
-// in a rolling buffer, grouped by collection, and aggregated per selected
-// timeframe on each render. Mock jiggle is gone; signals are derived from the
-// event stream where possible, with a deterministic fallback for bid imbalance.
+// VictoryLabs — Dashboard (BOARD) · merged Trending + Dashboard.
+//
+// Data model: Magic Eden's own pre-aggregated collection_stats (real
+// official artwork, floor/volume/sales + %-changes, listed/owner/marketCap)
+// via GET /api/tools/trending-collections?range=<r>, supplemented by our own
+// sale_events aggregation for whatever ME's endpoint structurally misses —
+// principally Tensor-only activity, which ME's own stats never count even
+// for collections it otherwise recognizes (source: 'internal' rows).
+//
+// On top of that base, a live SSE overlay (/api/events/stream, our own
+// ingestion) drives the "alive" decorations this page inherited from the
+// old /dashboard: buy/sell flow tint, row-flash on new sale, live-rank
+// pulse, momentum arrow, ACTIVE/RECENT tabs. That overlay is ONLY trusted
+// for 10m/1h/6h — the client's rolling event buffer has genuinely complete
+// coverage at those windows; for 1d/7d/30d it would silently under-count,
+// so the overlay is suppressed there and ME's own pre-aggregated numbers
+// stand alone (no flash/pulse/tab pair).
+//
+// /tools/trending is retired (redirects here) — see internal-trending-stats.ts
+// for the backend supplement and tools-trending-collections.ts for the merge.
 
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  COLLECTIONS_DB, Collection, FeedEvent,
-  formatSol, timeAgo,
-} from '@/soloist/mock-data';
-import { fromBackend, fromRow } from '@/soloist/from-backend';
+  CollectionIcon, ItemThumb, LiveDot, Pill, SETTINGS_PILL_INACTIVE,
+  SettingsToggle, compressImage, rowLinkHandlers, RowLinkOverlay, settingsPillActive,
+} from '@/soloist/shared';
+import { collectionMeta, fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { CollectionIcon, LiveDot, Pill, compressImage, rowLinkHandlers, RowLinkOverlay, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
-import { PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
+import { FeedEvent, formatSol, timeAgo } from '@/soloist/mock-data';
 import { useCollectionIcons } from '@/soloist/collection-icons';
-import { isCnftDust } from '@/soloist/cnft-filter';
+import { playUiConfirm } from '@/soloist/use-ui-sound';
+import { PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
+import { authHeaders } from '@/runtime/auth';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_STORED_EVENTS = 2000;
 const INITIAL_FETCH_LIMIT = 500;
-const TF_REFRESH_MS = 30_000;
-/**
- * Snapshot-intake grace window for rows with null `collection_name`.
- * Rows older than this AND still unnamed are treated as legacy pre-fix noise
- * (they'll never receive a meta patch in this session) and skipped so the
- * rolling buffer prioritises post-fix usable rows. Anything newer is kept —
- * enrichment may still complete mid-session and meta-patch it into place.
- */
+const NOW_TICK_MS = 30_000;
+/** Same grace window as the old Dashboard: unnamed rows older than this
+ *  never get a late meta-patch, so they're dropped rather than left as
+ *  permanent "Unknown" noise in the rolling buffer. */
 const LEGACY_NULL_NAME_CUTOFF_MS = 15 * 60_000;
 
-const TIMEFRAMES = ['5M', '10M', '15M', '30M', '1H', '4H', '1D'] as const;
-type Timeframe = typeof TIMEFRAMES[number];
-type Tab = 'active' | 'recent';
-type MktFilter = 'all' | 'me' | 'tensor';
-
-interface LiveCollection extends Collection {
-  _flash: 'up' | 'down' | null;
-  _flashKey: number;
-  /** Timestamp of the most recent sale inside the current timeframe window. */
-  _latestTs: number;
-  /** Floor (min price) in the OLDER half of the timeframe window. */
-  _prevFloor: number;
-  /** True when newer-half of the window has significantly more trades than older-half. */
-  _spike: boolean;
-  /** Mean sale price in the timeframe window. */
-  _avgPrice: number;
-  /** Most frequent ME slug among this collection's sales — key for the /bids lookup. */
-  _meSlug: string | null;
-  /** Reserved for the async collection-icon resolver (useCollectionIcons).
-   *  Filled in at render time in the Dashboard component, not inside
-   *  aggregate() — NFT item images must never be used as the collection icon. */
-  _iconUrl: string | null;
-  /** Buy-side sale count inside the timeframe window. Drives the FlowDots
-   *  indicator + SALES-cell text tint. Cheap derivation: counted in the
-   *  existing aggregate() loop using `event.side` which is already on
-   *  every FeedEvent (no backend change). */
-  _buyCount:  number;
-  /** Sell-side sale count inside the timeframe window. */
-  _sellCount: number;
-  /** True when the most-recent sale is within DASHBOARD_LIVE_PULSE_MS of
-   *  `now` — drives the subtle lilac pulse on the rank number. Slightly
-   *  longer than the 30 s aggregate cadence so a row doesn't flicker on/
-   *  off as it crosses the boundary between two aggregates. */
-  _isLive:    boolean;
+// ── ME trending DTO (mirror of src/enrichment/me-trending-stats.ts) ─────────
+interface TrendingCollection {
+  slug: string;
+  name: string | null;
+  image: string | null;
+  floorSol: number | null;
+  volumeSol: number | null;
+  salesCount: number | null;
+  floorPctChange: number | null;
+  listedCount: number | null;
+  totalSupply: number | null;
+  listedPct: number | null;
+  isCompressed: boolean | null;
+  isVerified: boolean | null;
+  tensorSlug: string | null;
+  source: 'magic_eden' | 'internal';
+}
+interface TrendingResponse {
+  ok: boolean;
+  collections?: TrendingCollection[];
+  error?: string;
+  message?: string;
 }
 
-/** Per-slug bid snapshot returned by /api/collections/bids. All values in SOL or null. */
-interface BidSnap {
-  floorSol:   number | null;
-  meBidSol:   number | null;
-  tnsrBidSol: number | null;
-}
-/**
- * Bid-imbalance triggers when the best available bid is close to (or above)
- * the floor — a signal that the collection is trading at near-floor bid
- * support. 0.97 = within 3% below floor.
- */
-const BID_IMBALANCE_RATIO = 0.97;
-/** Cadence for refreshing bid snapshots for currently visible slugs. */
-const BIDS_REFRESH_MS = 60_000;
+type Range = '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
+const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
+  { key: '10m', label: '10M' },
+  { key: '1h',  label: '1H'  },
+  { key: '6h',  label: '6H'  },
+  { key: '1d',  label: '1D'  },
+  { key: '7d',  label: '7D'  },
+  { key: '30d', label: '30D' },
+];
+const DEFAULT_RANGE: Range = '1h';
+const FETCH_LIMIT = 100;
+/** ME's own collection_stats cache is a 45s-TTL upstream fetch — polling
+ *  faster than that just re-reads a stale cache. */
+const TRENDING_POLL_MS = 45_000;
 
-/** Timeframe window → ms. */
-const TF_MS: Record<Timeframe, number> = {
-  '5M':      5 * 60_000,
-  '10M':    10 * 60_000,
-  '15M':    15 * 60_000,
-  '30M':    30 * 60_000,
-  '1H':     60 * 60_000,
-  '4H':  4 * 60 * 60_000,
-  '1D': 24 * 60 * 60_000,
+const RANGE_STORAGE_KEY = 'vl.dashboard.range';
+const TAB_STORAGE_KEY = 'vl.dashboard.tab';
+const VALID_RANGES = new Set<Range>(RANGES.map(r => r.key));
+
+function loadSavedRange(): Range {
+  if (typeof window === 'undefined') return DEFAULT_RANGE;
+  try {
+    const v = window.localStorage.getItem(RANGE_STORAGE_KEY);
+    if (v && VALID_RANGES.has(v as Range)) return v as Range;
+  } catch { /* private mode */ }
+  return DEFAULT_RANGE;
+}
+function saveRange(r: Range): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(RANGE_STORAGE_KEY, r); } catch { /* ignore */ }
+}
+
+/** Window length (ms) per range, for the client-side live-overlay join —
+ *  independent of the backend's own RANGE_WINDOW_MS (same values, different
+ *  side of the wire). */
+const RANGE_MS: Record<Range, number> = {
+  '10m':      10 * 60_000,
+  '1h':       60 * 60_000,
+  '6h':   6 * 60 * 60_000,
+  '1d':  24 * 60 * 60_000,
+  '7d':  7 * 24 * 60 * 60_000,
+  '30d': 30 * 24 * 60 * 60_000,
 };
+/** The live SSE overlay (flash/pulse/flow-tint/momentum/ACTIVE-RECENT) only
+ *  drives decoration for these — the client's rolling event buffer has
+ *  genuinely complete coverage at these windows. Longer ranges show ME's
+ *  own pre-aggregated numbers undecorated rather than a silently-partial
+ *  live signal. */
+const LIVE_OVERLAY_RANGES = new Set<Range>(['10m', '1h', '6h']);
 
-/** Floor must rise by at least this fraction to show the momentum arrow. */
 const MOMENTUM_THRESHOLD = 1.005;
-/**
- * Any collection whose latest sale landed within this window is considered
- * "fresh" — drives the green row pulse, same visual signal the feed uses for
- * new sales. Window is short enough that the pulse feels tied to an arrival,
- * not to generic recency.
- */
 const FRESH_SALE_WINDOW_MS = 6_000;
-/** Spike fires when newer-half count exceeds older-half by this factor … */
 const SPIKE_RATIO = 1.5;
-/** … and the newer-half has at least this many events (noise floor). */
 const SPIKE_MIN_NEWER = 3;
-/** Window in which a collection is treated as "live" — drives the lilac
- *  rank-pulse. Slightly larger than the 30 s aggregate cadence so rows
- *  don't flicker the pulse on/off at the boundary. */
-const DASHBOARD_LIVE_PULSE_MS = 45_000;
-/** Sales-cell text tint thresholds: ratio of buy / (buy+sell). Mixed
- *  flows (between these bounds) stay neutral white — the tint only
- *  fires when one side is at least 3× the other (75 % / 25 %). */
+const LIVE_PULSE_MS = 45_000;
 const FLOW_TINT_BUY_LEAN  = 0.75;
 const FLOW_TINT_SELL_LEAN = 0.25;
-
-/** Cadence for refreshing per-collection 7D rollups (floor sparkline + volume bars). */
+const BID_IMBALANCE_RATIO = 0.97;
+const BID_OUTLIER_RATIO = 2;
+const BIDS_REFRESH_MS = 60_000;
 const ROLLUPS_REFRESH_MS = 5 * 60_000;
+/** source==='internal' rows have no ME editorial judgment behind them — a
+ *  cNFT-dust collection dumping near-zero sales on Tensor would otherwise
+ *  show up as a legitimate-looking row. Same threshold Dashboard already
+ *  used (CNFT_MIN_VISIBLE_FLOOR_SOL). ME-sourced rows are never gated —
+ *  that's ME's own editorial call, not ours to second-guess. */
+const INTERNAL_DUST_FLOOR_SOL = 0.005;
 
-/** Render a bid value or em-dash when unavailable. */
-function fmtBid(sol: number | null): string {
-  if (sol == null) return '—';
-  return formatSol(sol);
+const DASHBOARD_NAME_BLACKLIST = new Set<string>(['collector crypt']);
+const DASHBOARD_SLUG_BLACKLIST = new Set<string>(['staratlascrew']);
+
+const SALES_TINT_BUY     = '#5EF0B0';
+const SALES_TINT_SELL    = '#FF6B7A';
+const SALES_TINT_NEUTRAL = VLText.primary;
+function salesTint(buy: number, sell: number): string {
+  const total = buy + sell;
+  if (total === 0) return SALES_TINT_NEUTRAL;
+  const buyRatio = buy / total;
+  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return SALES_TINT_BUY;
+  if (buyRatio <= FLOW_TINT_SELL_LEAN) return SALES_TINT_SELL;
+  return SALES_TINT_NEUTRAL;
+}
+function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null {
+  const total = buy + sell;
+  if (total === 0) return null;
+  const buyRatio = buy / total;
+  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return 'buy';
+  if (buyRatio <= FLOW_TINT_SELL_LEAN) return 'sell';
+  return 'mixed';
 }
 
-/**
- * Lowercased collection-name blacklist; mirrors NAME_BLACKLIST in
- * src/db/blacklist.ts. The dashboard ignores the `remove` SSE event, so we
- * also need to filter blacklisted names client-side once enrichment / meta
- * fills the name in (the backend deletes the row, but a card may have
- * already been added to the rolling buffer via the immediate `sale` frame).
- */
-const DASHBOARD_NAME_BLACKLIST = new Set<string>([
-  'collector crypt',
-]);
-/** Frontend-only slug blacklist — hide specific collections from the
- *  Dashboard without touching ingestion. Applied before aggregation so the
- *  slug never contributes to a row's stats. */
-const DASHBOARD_SLUG_BLACKLIST = new Set<string>([
-  'staratlascrew',
-]);
+const MONO = "'SF Mono','Fira Code',monospace";
+function fmtSol(n: number | null): string { return n == null ? '—' : formatSol(n); }
+function fmtInt(n: number | null): string { return n == null ? '—' : Math.round(n).toLocaleString(); }
+function fmtBid(sol: number | null): string { return sol == null ? '—' : formatSol(sol); }
+function fmtAgo(ms: number): string { return timeAgo(ms); }
 
-/**
- * Group events by collection and derive tf-scoped stats.
- * Events older than the tf window are filtered out. Events with no
- * collectionName (or `'Unknown'`) are skipped to avoid a garbage bucket.
- */
-function aggregate(events: FeedEvent[], tf: Timeframe, now: number): LiveCollection[] {
-  const windowMs  = TF_MS[tf];
-  const cutoff     = now - windowMs;
-  const halfCutoff = now - windowMs / 2;
-
-  const groups = new Map<string, FeedEvent[]>();
-  for (const e of events) {
-    if (!e.collectionName || e.collectionName === 'Unknown') continue;
-    if (DASHBOARD_NAME_BLACKLIST.has(e.collectionName.toLowerCase())) continue;
-    if (e.meCollectionSlug && DASHBOARD_SLUG_BLACKLIST.has(e.meCollectionSlug)) continue;
-    if (e.ts < cutoff) continue;
-    const arr = groups.get(e.collectionName);
-    if (arr) arr.push(e);
-    else groups.set(e.collectionName, [e]);
-  }
-
-  /** Pick the most common non-null ME slug across a collection's events. */
-  function dominantSlug(evs: FeedEvent[]): string | null {
-    const counts = new Map<string, number>();
-    for (const e of evs) {
-      const s = e.meCollectionSlug;
-      if (!s) continue;
-      counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-    let best: string | null = null, bestN = 0;
-    for (const [s, n] of counts) if (n > bestN) { best = s; bestN = n; }
-    return best;
-  }
-
-  const out: LiveCollection[] = [];
-  for (const [name, evs] of groups) {
-    let sum = 0, latestTs = 0;
-    let overallMin = Infinity, newerMin = Infinity, olderMin = Infinity;
-    let newerCount = 0, olderCount = 0;
-    let buyCount   = 0, sellCount = 0;
-    let latestEv: FeedEvent = evs[0];
-    for (const e of evs) {
-      sum += e.price;
-      if (e.ts > latestTs) { latestTs = e.ts; latestEv = e; }
-      if (e.price < overallMin) overallMin = e.price;
-      if (e.ts >= halfCutoff) {
-        newerCount++;
-        if (e.price < newerMin) newerMin = e.price;
-      } else {
-        olderCount++;
-        if (e.price < olderMin) olderMin = e.price;
-      }
-      // Flow split: side is mapped by fromBackend.ts via mapSide(saleType)
-      // — 'buy' or 'sell'. No third state at this layer; mixed flow is
-      // expressed at the row level via buy/sell ratio.
-      if (e.side === 'sell') sellCount++; else buyCount++;
-    }
-    const count     = evs.length;
-    const avg       = sum / count;
-    const floor     = newerCount > 0 ? newerMin : overallMin;
-    const prevFloor = olderCount > 0 ? olderMin : floor;
-    const spike     = newerCount >= SPIKE_MIN_NEWER && newerCount > olderCount * SPIKE_RATIO;
-
-    // Prefer the curated entry when available (carries supply / royalty / 7D arrays);
-    // otherwise synthesize a stub so unknown collections still render with the
-    // abbr/color the mapper already computed.
-    const known = COLLECTIONS_DB.find(c => c.name === name);
-    const base: Collection = known ?? {
-      name,
-      abbr:  latestEv.abbr,
-      color: latestEv.color,
-      floor,
-      supply: 0,
-      royalty: '—',
-      trades1d: count, trades1h: count, trades10m: count,
-      volume: 0, holders: 0, listings: 0,
-      vol7d: [], floor7d: [],
-    };
-
-    // Fresh-sale pulse: if the latest sale in this window is very recent,
-    // tag the row with _flash + a latestTs-keyed _flashKey. The parent uses
-    // `col.name + ':' + col._flashKey` as the React key, so a new sale forces
-    // a remount and the existing `.row-flash-up` CSS animation replays once.
-    const isFresh = (now - latestTs) < FRESH_SALE_WINDOW_MS;
-    out.push({
-      ...base,
-      trades1d: count,   // "SALES" column shows tf-scoped count
-      floor,             // live floor (newer half) overrides the static seed
-      _flash: isFresh ? 'up' : null,
-      _flashKey: latestTs,
-      _latestTs: latestTs,
-      _prevFloor: prevFloor,
-      _spike: spike,
-      _avgPrice: avg,
-      _meSlug: dominantSlug(evs),
-      _iconUrl: null,                           // resolved at render time via useCollectionIcons
-      _buyCount:  buyCount,
-      _sellCount: sellCount,
-      _isLive:    (now - latestTs) < DASHBOARD_LIVE_PULSE_MS,
-    });
-  }
-  return out;
+function pctMeta(n: number | null): { text: string; color: string } {
+  if (n == null || !Number.isFinite(n)) return { text: '—', color: VLText.muted };
+  const rounded = Math.abs(n) < 0.05 ? 0 : n;
+  if (rounded === 0) return { text: '0%', color: VLText.muted };
+  const sign = rounded > 0 ? '+' : '';
+  return { text: `${sign}${rounded.toFixed(1)}%`, color: rounded > 0 ? rgb(VL.green) : rgb(VL.red) };
+}
+function PctCell({ value }: { value: number | null }) {
+  const m = pctMeta(value);
+  return <span style={{ color: m.color, fontWeight: 700 }}>{m.text}</span>;
 }
 
 // ── Trend color (7d floor direction) ────────────────────────────────────────
-// Sparkline/VolBars previously took `col.color` (the collection's own
-// identity color — same one used on its avatar), so the chart's hue carried
-// no trend signal at all. Compares the series' first vs last finite point —
-// green when the floor rose over the window, red when it fell, muted for
-// flat/insufficient/malformed data. Reuses the same VL.green/VL.red pair
-// Sparkline/VolBars already declare as their own default color.
 function trendColor(data: number[] | undefined): string {
   if (!Array.isArray(data) || data.length < 2) return VLText.muted;
   const first = data[0];
@@ -264,14 +188,6 @@ function trendColor(data: number[] | undefined): string {
   return VLText.muted;
 }
 
-// ── Sparkline SVG ────────────────────────────────────────────────────────────
-
-/**
- * Build a smooth path using Catmull-Rom-ish midpoint cubic Béziers — each
- * segment's control points are the midpoint between neighbours, which is
- * cheap, library-free, and never overshoots the data envelope (no fake
- * peaks/troughs).
- */
 function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
   if (pts.length < 2) return '';
   if (pts.length === 2) {
@@ -287,10 +203,8 @@ function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
   return d;
 }
 
-function Sparkline({ data, color = rgb(VL.green), w = 80, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
+function Sparkline({ data, color = rgb(VL.green), w = 64, h = 18 }: { data: number[]; color?: string; w?: number; h?: number }) {
   if (!Array.isArray(data) || data.length < 2) return <svg width={w} height={h} />;
-  // Guard the spread: a malformed (non-array / huge) `data` makes
-  // `Math.min(...data)` throw and blanks the whole dashboard. Fold instead.
   let min = Infinity, max = -Infinity;
   for (const v of data) { if (v < min) min = v; if (v > max) max = v; }
   if (!Number.isFinite(min) || !Number.isFinite(max)) return <svg width={w} height={h} />;
@@ -303,26 +217,19 @@ function Sparkline({ data, color = rgb(VL.green), w = 80, h = 20 }: { data: numb
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-spark">
       <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map((p, i) => (
-        <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} />
-      ))}
+      {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} />)}
     </svg>
   );
 }
 
-// ── Volume Bars SVG ──────────────────────────────────────────────────────────
-
-function VolBars({ data, color = rgb(VL.green), w = 52, h = 20 }: { data: number[]; color?: string; w?: number; h?: number }) {
+function VolBars({ data, color = rgb(VL.green), w = 64, h = 18 }: { data: number[]; color?: string; w?: number; h?: number }) {
   if (!data || data.length === 0) return <svg width={w} height={h} />;
   const max = Math.max(...data);
   const sum = data.reduce((a, b) => a + b, 0);
   const barW = (w - (data.length - 1) * 2) / data.length;
-  // Σ label rendered via overflow:visible above the bar canvas — keeps the
-  // SVG's reserved layout box at exactly w × h so column heights don't grow,
-  // while a small total drifts up into the cell's existing top padding.
   return (
     <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-volbars">
-      <text x={w} y={-2} fontSize="8" textAnchor="end" fill={VLText.muted} opacity="0.72" style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
+      <text x={w} y={-2} fontSize="8" textAnchor="end" fill={VLText.muted} opacity="0.72" style={{ fontFamily: MONO }}>
         Σ {sum >= 100 ? sum.toFixed(0) : sum.toFixed(sum >= 10 ? 1 : 2)}
       </text>
       {data.map((v, i) => {
@@ -335,168 +242,206 @@ function VolBars({ data, color = rgb(VL.green), w = 52, h = 20 }: { data: number
   );
 }
 
-// ── Sales-cell directional tint (typography-only) ────────────────────────────
-// The SALES count itself is the ONLY thing carrying flow signal — no
-// dots, bars, capsules, borders, backgrounds, or wrapper spans. The
-// number's color shifts to bright mint at ≥ 75 % buys, bright coral at
-// ≥ 75 % sells, and stays near-white otherwise. Intensity matches the
-// /mints RATE column — strong enough to read at peripheral vision,
-// no chrome around it. Same single threshold either direction.
-const SALES_TINT_BUY     = '#5EF0B0';   // rgb(94, 240, 176)  — bright mint
-const SALES_TINT_SELL    = '#FF6B7A';   // rgb(255, 107, 122) — bright coral
-const SALES_TINT_NEUTRAL = VLText.primary;
-
-function salesTint(buy: number, sell: number): string {
-  const total = buy + sell;
-  if (total === 0) return SALES_TINT_NEUTRAL;
-  const buyRatio = buy / total;
-  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return SALES_TINT_BUY;
-  if (buyRatio <= FLOW_TINT_SELL_LEAN) return SALES_TINT_SELL;
-  return SALES_TINT_NEUTRAL;
+// ── Live overlay (event-sourced decoration, short ranges only) ─────────────
+interface LiveOverlay {
+  buyCount: number;
+  sellCount: number;
+  spike: boolean;
+  isLive: boolean;
+  flash: 'up' | null;
+  flashKey: number;
+  latestTs: number;
+  newerFloor: number;
+  prevFloor: number;
 }
 
-/** Direction of pressure inside the timeframe window — drives the 2 px
- *  left-edge strip on ACTIVE rows. 'buy' / 'sell' share the same
- *  75 % / 25 % threshold as salesTint so the SALES number's tint and
- *  the strip fire together; 'mixed' is the in-between band where the
- *  strip stays present but neutral so a row with traffic but no
- *  direction is visually distinct from a row with no data at all
- *  ('none' → no strip). */
-function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null {
-  const total = buy + sell;
-  if (total === 0) return null;
-  const buyRatio = buy / total;
-  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return 'buy';
-  if (buyRatio <= FLOW_TINT_SELL_LEAN) return 'sell';
-  return 'mixed';
+function aggregateLive(events: FeedEvent[], range: Range, now: number): Map<string, LiveOverlay> {
+  const out = new Map<string, LiveOverlay>();
+  if (!LIVE_OVERLAY_RANGES.has(range)) return out;
+
+  const windowMs = RANGE_MS[range];
+  const cutoff = now - windowMs;
+  const halfCutoff = now - windowMs / 2;
+
+  const groups = new Map<string, FeedEvent[]>();
+  for (const e of events) {
+    const slug = e.meCollectionSlug;
+    if (!slug) continue;
+    if (e.ts < cutoff) continue;
+    const arr = groups.get(slug);
+    if (arr) arr.push(e); else groups.set(slug, [e]);
+  }
+
+  for (const [slug, evs] of groups) {
+    let latestTs = 0, buyCount = 0, sellCount = 0;
+    let overallMin = Infinity, newerMin = Infinity, olderMin = Infinity;
+    let newerCount = 0, olderCount = 0;
+    for (const e of evs) {
+      if (e.ts > latestTs) latestTs = e.ts;
+      if (e.price < overallMin) overallMin = e.price;
+      if (e.ts >= halfCutoff) { newerCount++; if (e.price < newerMin) newerMin = e.price; }
+      else { olderCount++; if (e.price < olderMin) olderMin = e.price; }
+      if (e.side === 'sell') sellCount++; else buyCount++;
+    }
+    const newerFloor = newerCount > 0 ? newerMin : overallMin;
+    const prevFloor  = olderCount > 0 ? olderMin : newerFloor;
+    const spike = newerCount >= SPIKE_MIN_NEWER && newerCount > olderCount * SPIKE_RATIO;
+    const isFresh = (now - latestTs) < FRESH_SALE_WINDOW_MS;
+    out.set(slug, {
+      buyCount, sellCount, spike,
+      isLive: (now - latestTs) < LIVE_PULSE_MS,
+      flash: isFresh ? 'up' : null,
+      flashKey: latestTs,
+      latestTs, newerFloor, prevFloor,
+    });
+  }
+  return out;
 }
 
-// ── Filter pill ──────────────────────────────────────────────────────────────
+/** Per-slug bid snapshot from /api/collections/bids. */
+interface BidSnap { floorSol: number | null; meBidSol: number | null; tnsrBidSol: number | null }
 
-function FilterPill({ label }: { label: string }) {
-  const [active, setActive] = useState(false);
-  // Canonical settings-pill styling (shared with Live Feed / Mint Tracker).
-  // Behavior unchanged — still a self-contained cosmetic toggle.
+function isPlausibleBid(bid: number, floor: number): boolean {
+  return bid > 0 && floor > 0 && bid <= floor * BID_OUTLIER_RATIO;
+}
+function hasBidImbalance(floor: number, bid: BidSnap | null): boolean {
+  if (!bid || floor <= 0) return false;
+  const me   = bid.meBidSol   ?? 0;
+  const tnsr = bid.tnsrBidSol ?? 0;
+  const top = Math.max(isPlausibleBid(me, floor) ? me : 0, isPlausibleBid(tnsr, floor) ? tnsr : 0);
+  if (top <= 0) return false;
+  return top >= floor * BID_IMBALANCE_RATIO;
+}
+
+// ── Hover sales preview types (mirror backend TrendingSaleDTO) ──────────────
+interface TrendingSale {
+  signature: string; blockTime: string; priceSol: number | null;
+  nftName: string | null; imageUrl: string | null;
+}
+interface SalesResponse { ok: boolean; sales?: TrendingSale[] }
+const PREVIEW_MAX = 10;
+const PREVIEW_WIDTH = 320;
+const SALES_CACHE_TTL_MS = 60_000;
+
+// ── Merged row (ME/internal DTO + live overlay + resolved artwork/bid) ─────
+interface MergedRow extends TrendingCollection {
+  live: LiveOverlay | null;
+  bid: BidSnap | null;
+  avatarUrl: string | null;
+  floor7d: number[];
+  vol7d: number[];
+}
+
+type SortKey = 'collection' | 'floor' | 'floorPct' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'floor_7d' | 'vol_7d';
+type SortDir = 'asc' | 'desc';
+type Tab = 'active' | 'recent';
+type MktFilter = 'all' | 'me' | 'tensor';
+
+function sortValueFor(r: MergedRow, key: SortKey): number | string {
+  switch (key) {
+    case 'collection': return (r.name ?? r.slug).toLowerCase();
+    case 'floor':      return r.bid?.floorSol ?? r.floorSol ?? 0;
+    case 'floorPct':   return r.floorPctChange ?? 0;
+    case 'volume':     return r.volumeSol ?? 0;
+    case 'sales':      return r.salesCount ?? 0;
+    case 'listedPct':  return r.listedPct ?? 0;
+    case 'me_bid':     return r.bid?.meBidSol ?? 0;
+    case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
+    case 'floor_7d':   return r.floor7d.length ? (r.floor7d[r.floor7d.length - 1] ?? 0) : 0;
+    case 'vol_7d':     return r.vol7d.length ? r.vol7d.reduce((a, b) => a + b, 0) : 0;
+  }
+}
+
+function numCmp(a: number, b: number): number {
+  const da = Number.isFinite(a) ? a : 0;
+  const db = Number.isFinite(b) ? b : 0;
+  if (da < db) return -1;
+  if (da > db) return 1;
+  return 0;
+}
+
+function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
+  label: string; col: SortKey; sortKey: SortKey | null; sortDir: SortDir;
+  onSort: (k: SortKey) => void; align?: 'left' | 'right' | 'center';
+}) {
+  const active = sortKey === col;
   return (
-    <Pill active={active} onClick={() => setActive(a => !a)} label={label} size="sm"
-      style={active ? settingsPillActive() : SETTINGS_PILL_INACTIVE} />
+    <th onClick={() => onSort(col)} style={{
+      padding: '13px 10px', fontSize: 11, fontWeight: active ? 800 : 600,
+      color: active ? VLText.primary : `var(--th-label-color, ${VLText.muted})`,
+      letterSpacing: '0.8px', textAlign: align, cursor: 'pointer',
+      borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
+      background: '#1a1530', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
+    }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start' }}>
+        {label}
+        {active && <span style={{ color: rgb(VL.purple) }}>{sortDir === 'desc' ? '↓' : '↑'}</span>}
+      </span>
+    </th>
   );
 }
 
-// ── Timeframe pills ──────────────────────────────────────────────────────────
-
-function TimeframePills({ active, onChange }: { active: Timeframe; onChange: (t: Timeframe) => void }) {
+function TimeframePills({ active, onChange }: { active: Range; onChange: (t: Range) => void }) {
   return (
     <div style={{ display: 'flex', gap: 2, background: 'rgba(10,7,20,0.6)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, padding: 2 }}>
-      {TIMEFRAMES.map(t => (
+      {RANGES.map(({ key, label }) => (
         <Pill
-          key={t}
-          active={active === t}
-          onClick={() => onChange(t)}
-          label={t}
+          key={key}
+          active={active === key}
+          onClick={() => onChange(key)}
+          label={label}
           size="sm"
-          style={{ border: active === t ? `1px solid ${alpha(VL.purpleTint,0.55)}` : '1px solid transparent',
-                   background: active === t ? alpha(VL.purpleTint,0.22) : 'transparent' }}
+          style={{
+            border: active === key ? `1px solid ${alpha(VL.purpleTint, 0.55)}` : '1px solid transparent',
+            background: active === key ? alpha(VL.purpleTint, 0.22) : 'transparent',
+          }}
         />
       ))}
     </div>
   );
 }
 
-// ── Row variants ─────────────────────────────────────────────────────────────
+// ── Row ──────────────────────────────────────────────────────────────────────
 
 interface RowProps {
-  col: LiveCollection;
+  row: MergedRow;
   rank: number;
-  onClick: (col: LiveCollection) => void;
+  variant: Tab;
   isSelected: boolean;
-  bid: BidSnap | null;
-  /** Link target for the collection page. `null` when the collection has no
-   *  `_meSlug` — row still highlights on click but cannot be opened. */
-  href: string | null;
+  onClick: (row: MergedRow) => void;
+  onHoverEnter: (row: MergedRow, el: HTMLElement) => void;
+  onHoverLeave: () => void;
 }
 
-/**
- * Bids more than BID_OUTLIER_RATIO × floor are dropped from the imbalance
- * check — they're typically stale single-pool quotes or attribute-traited
- * pools that don't reflect the broader collection bid. The cell still shows
- * the raw value; only the imbalance dot is suppressed.
- */
-const BID_OUTLIER_RATIO = 2;
+function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
+  const trend = trendColor(row.floor7d);
+  const displayFloor = row.bid?.floorSol ?? row.floorSol;
+  const hasMomentum = row.live != null && row.live.newerFloor > row.live.prevFloor * MOMENTUM_THRESHOLD;
+  const imbalance = hasBidImbalance(row.floorSol ?? 0, row.bid);
+  const pDir = variant === 'active' && row.live ? pressureDir(row.live.buyCount, row.live.sellCount) : null;
+  const name = row.name ?? row.slug;
+  const abbr = collectionMeta(name).abbr;
+  const color = collectionMeta(name).color;
+  const href = `/collection/${encodeURIComponent(row.slug)}`;
+  const meUrl = `https://magiceden.io/marketplace/${row.slug}`;
+  const tensorUrl = `https://www.tensor.trade/trade/${row.tensorSlug ?? row.slug}`;
+  const rowHandlers = rowLinkHandlers(href, () => onClick(row));
 
-function isPlausibleBid(bid: number, floor: number): boolean {
-  return bid > 0 && floor > 0 && bid <= floor * BID_OUTLIER_RATIO;
-}
-
-/** Max plausible bid triggers imbalance dot when it's within BID_IMBALANCE_RATIO of floor. */
-function hasBidImbalance(col: LiveCollection, bid: BidSnap | null): boolean {
-  if (!bid || col.floor <= 0) return false;
-  const me   = bid.meBidSol   ?? 0;
-  const tnsr = bid.tnsrBidSol ?? 0;
-  const top = Math.max(
-    isPlausibleBid(me,   col.floor) ? me   : 0,
-    isPlausibleBid(tnsr, col.floor) ? tnsr : 0,
-  );
-  if (top <= 0) return false;
-  return top >= col.floor * BID_IMBALANCE_RATIO;
-}
-
-function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
-  // Hover lift + resting tint come from the shared `.tools-offer-row`
-  // + `.mints-tracker-row` classes (globals.css) — same design
-  // language as the /mints tracker rows. Selected state lives on a
-  // dedicated class so .tools-offer-row:hover (specificity 2) still
-  // wins on hover. No more local `hovered` state — CSS `:hover`
-  // handles the fill, scale, and glow.
-  const volData   = col.vol7d   ?? [];
-  const floorData = col.floor7d ?? [];
-  const trend     = trendColor(floorData);
-  // Displayed floor is the REAL marketplace floor from /api/collections/bids.
-  // `col.floor` (aggregated min sale price in tf) only serves as a fallback
-  // during the brief first-render window before bids resolve. Momentum arrow
-  // still compares against the tf-scoped sale-price trajectory — that's the
-  // "sale price rising" signal and remains useful independent of listings.
-  const displayFloor = bid?.floorSol ?? col.floor;
-  const hasMomentum = col.floor > col._prevFloor * MOMENTUM_THRESHOLD;
-  const imbalance = hasBidImbalance(col, bid);
-  // When we have a link, delegate middle/Cmd/Ctrl/Shift-click to the browser's
-  // native new-tab behavior via `rowLinkHandlers`. The plain-left-click path
-  // still routes through `onClick(col)` so selection + sessionStorage icon
-  // handoff fire exactly as before.
-  const rowHandlers = href
-    ? rowLinkHandlers(href, () => onClick(col))
-    : { onClick: () => onClick(col) };
-
-  const pDir = pressureDir(col._buyCount, col._sellCount);
   return (
     <tr
       {...rowHandlers}
+      onMouseEnter={e => onHoverEnter(row, e.currentTarget)}
+      onMouseLeave={onHoverLeave}
       className={
         'dash-row mints-tracker-row tools-offer-row' +
         (isSelected ? ' mints-tracker-row-selected' : '') +
-        (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
+        (row.live?.flash === 'up' ? ' row-flash-up' : '')
       }
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
-      {/* First cell hosts the link-overlay <a>. `<tr position: relative>` is
-       *  unreliable across browsers as a containing block — if it loses
-       *  effect, an `inset: 0` overlay escapes to the nearest positioned
-       *  ancestor and swallows clicks on the timeframe / tab buttons, which
-       *  would then route to the row onClick and navigate away. Anchoring on
-       *  the <td> keeps the overlay strictly within the first cell. Whole-row
-       *  middle / Cmd+click still works via the row-level rowLinkHandlers.
-       */}
       <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         {pDir && (
-          // 2 px left-edge pressure strip — peripheral mirror of the SALES
-          // signal. ACTIVE rows only. Buy / sell rows tint the strip
-          // green / coral at α 0.32; mixed rows use a neutral white at
-          // α 0.18 so vertical scanning still picks up the row as
-          // "has-traffic-but-no-clear-direction" instead of letting it
-          // visually disappear (white α 0.32 would read brighter than
-          // the colored strips because white has full per-channel
-          // luminance — 0.18 lands at perceptual parity).
           <span style={{
             position: 'absolute', left: 0, top: 0, bottom: 0, width: 2,
             background:
@@ -506,205 +451,156 @@ function CollectionRow({ col, rank, onClick, isSelected, bid, href }: RowProps) 
             pointerEvents: 'none',
           }} />
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span
-            className={col._isLive ? 'dashboard-live-rank' : undefined}
-            style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
+            className={row.live?.isLive ? 'dashboard-live-rank' : undefined}
+            style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 18, textAlign: 'right', flexShrink: 0 }}
           >{rank}</span>
-          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
-          <span style={{ fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px' }}>{col.name}</span>
-        </div>
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
-        {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
-        {col.trades1d.toLocaleString()}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
-        {formatSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green), opacity: 0.9 }}>↑</span>}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {formatSol(col._avgPrice)}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
-        {fmtBid(bid?.meBidSol ?? null)}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {fmtBid(bid?.tnsrBidSol ?? null)}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}>
-          <Sparkline data={floorData} color={trend} w={64} h={18} />
-        </div>
-      </td>
-      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}>
-          <VolBars data={volData} color={trend} w={64} h={18} />
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function RecentRow({ col, rank, onClick, isSelected, bid, href }: RowProps) {
-  // See CollectionRow above — hover lift + resting tint come from the
-  // shared `.tools-offer-row` + `.mints-tracker-row` classes. Selected
-  // state lives on `.mints-tracker-row-selected`. No local hover state.
-  // "ago" reflects the real latest sale; the Dashboard's nowTick (30s)
-  // forces re-aggregation which re-renders this row, refreshing the label.
-  const ago = timeAgo(col._latestTs);
-  const volData   = col.vol7d   ?? [];
-  const floorData = col.floor7d ?? [];
-  const trend     = trendColor(floorData);
-  // See CollectionRow — real floor from /api/collections/bids, sale-min is fallback.
-  const displayFloor = bid?.floorSol ?? col.floor;
-  const hasMomentum = col.floor > col._prevFloor * MOMENTUM_THRESHOLD;
-  const imbalance = hasBidImbalance(col, bid);
-  const rowHandlers = href
-    ? rowLinkHandlers(href, () => onClick(col))
-    : { onClick: () => onClick(col) };
-
-  return (
-    <tr
-      {...rowHandlers}
-      className={
-        'dash-row mints-tracker-row tools-offer-row' +
-        (isSelected ? ' mints-tracker-row-selected' : '') +
-        (col._flash === 'up' ? ' row-flash-up' : col._flash === 'down' ? ' row-flash-down' : '')
-      }
-      style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-    >
-      {/* See CollectionRow: overlay is anchored to the first <td>, not <tr>.
-       *  RecentRow intentionally has NO pressure strip — the RECENT tab is
-       *  a "last seen" view, not a current-pressure view, so the strip
-       *  would imply directional context that doesn't apply. */}
-      <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
-        <RowLinkOverlay href={href} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span
-            className={col._isLive ? 'dashboard-live-rank' : undefined}
-            style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", minWidth: 18, textAlign: 'right' }}
-          >{rank}</span>
-          <CollectionIcon imageUrl={col._iconUrl} color={col.color} abbr={col.abbr} size={42} />
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px' }}>{col.name}</div>
-            <div style={{ fontSize: 10.5, color: '#877496', marginTop: 1 }}>{ago}</div>
+          <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={40} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+              {row.isVerified && (
+                <span title="Verified collection" style={{
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 13, height: 13, borderRadius: '50%', fontSize: 8.5, fontWeight: 900, lineHeight: 1,
+                  color: '#08060c', background: '#7ea8d9',
+                }}>✓</span>
+              )}
+              {row.isCompressed && (
+                <span title="Compressed NFT (cNFT)" style={{
+                  flexShrink: 0, padding: '1px 5px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
+                  borderRadius: 3, lineHeight: 1.2, color: rgb(VL.purpleTint),
+                  background: alpha(VL.purpleTint, 0.12), border: `1px solid ${alpha(VL.purpleTint, 0.40)}`,
+                }}>cNFT</span>
+              )}
+              <a href={meUrl} target="_blank" rel="noopener noreferrer" title="Open on Magic Eden"
+                 onClick={e => e.stopPropagation()}
+                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+              </a>
+              <a href={tensorUrl} target="_blank" rel="noopener noreferrer" title="Open on Tensor"
+                 onClick={e => e.stopPropagation()}
+                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+              </a>
+            </div>
+            {variant === 'recent' && row.live && (
+              <div style={{ fontSize: 10.5, color: '#877496', marginTop: 1 }}>{fmtAgo(row.live.latestTs)} ago</div>
+            )}
           </div>
         </div>
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: salesTint(col._buyCount, col._sellCount), letterSpacing: '-0.2px' }}>
-        {col._spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle', opacity: 1 }}>🔥</span>}
-        {col.trades1d.toLocaleString()}
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL, letterSpacing: '-0.2px' }}>
+        {row.live?.spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle' }}>🔥</span>}
+        {fmtInt(row.salesCount)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
-        {formatSol(displayFloor)}
+        {fmtSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green), opacity: 0.9 }}>↑</span>}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {formatSol(col._avgPrice)}
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 12.5 }}>
+        <PctCell value={row.floorPctChange} />
+      </td>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
+        {fmtSol(row.volumeSol)}
+      </td>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5 }}>
+        <div style={{ fontWeight: 700, color: VLText.primary }}>
+          {row.listedPct != null ? `${(row.listedPct * 100).toFixed(1)}%` : '—'}
+        </div>
+        <div style={{ fontSize: 10, fontWeight: 500, color: VLText.muted, marginTop: 1 }}>
+          {fmtInt(row.listedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(row.totalSupply)}
+        </div>
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
-        {fmtBid(bid?.meBidSol ?? null)}
+        {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {fmtBid(bid?.tnsrBidSol ?? null)}
+        {fmtBid(row.bid?.tnsrBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}>
-          <Sparkline data={floorData} color={trend} w={64} h={18} />
-        </div>
+        <div style={{ display: 'inline-block' }}><Sparkline data={row.floor7d} color={trend} /></div>
       </td>
       <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}>
-          <VolBars data={volData} color={trend} w={64} h={18} />
-        </div>
+        <div style={{ display: 'inline-block' }}><VolBars data={row.vol7d} color={trend} /></div>
       </td>
     </tr>
   );
 }
 
-// ── Dashboard Page ───────────────────────────────────────────────────────────
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  // Read query directly off window.location to stay compatible with
-  // Next's static prerender (useSearchParams would force a Suspense
-  // boundary). Defaults to false on server, hydrates to the real value.
-  const [embedded, setEmbedded] = useState(false);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
-  }, []);
   useEffect(() => { document.title = 'Dashboard | VictoryLabs'; }, []);
-  const [tf, setTf] = useState<Timeframe>('1H');
+
+  const [range, setRange] = useState<Range>(loadSavedRange);
   const [tab, setTab] = useState<Tab>('active');
+  const [mkt, setMkt] = useState<MktFilter>('all');
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [mkt, setMkt] = useState<MktFilter>('all');
-  // Command palette (⌘K) delegates Settings here — see CommandPalette.tsx.
+
+  useEffect(() => {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY);
+    if (saved === 'active' || saved === 'recent') setTab(saved);
+  }, []);
+  useEffect(() => { try { localStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* ignore */ } }, [tab]);
+
+  // RECENT / ACTIVE only means something while the live overlay is active —
+  // for 1d/7d/30d there's no _latestTs to sort RECENT by, so fall back.
+  useEffect(() => {
+    if (!LIVE_OVERLAY_RANGES.has(range) && tab === 'recent') setTab('active');
+  }, [range, tab]);
+
   useEffect(() => {
     const onSettings = () => setFiltersOpen(o => !o);
     window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
   }, []);
 
-  // Subtle fade on timeframe change — signals the table "snapped" to a new
-  // view without layout shift. clearTimeout prevents animation stacking when
-  // the user switches timeframes rapidly.
-  const [tfFading, setTfFading] = useState(false);
-  const tfFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleTfChange = (next: Timeframe) => {
-    setTf(next);
-    if (tfFadeTimerRef.current) clearTimeout(tfFadeTimerRef.current);
-    setTfFading(true);
-    tfFadeTimerRef.current = setTimeout(() => setTfFading(false), 140);
-  };
-  useEffect(() => () => {
-    if (tfFadeTimerRef.current) clearTimeout(tfFadeTimerRef.current);
-  }, []);
+  // ── ME-sourced (+ internal-supplement) rows ──────────────────────────────
+  const [rows, setRows] = useState<TrendingCollection[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const inFlightRef = useRef(false);
 
-  // Hydrate persisted timeframe after mount (avoids SSR/localStorage divergence).
-  useEffect(() => {
-    const saved = localStorage.getItem('sol-tf');
-    if (saved && (TIMEFRAMES as readonly string[]).includes(saved)) setTf(saved as Timeframe);
-  }, []);
-  // Skip the first run of the write effect — otherwise it would fire with the
-  // initial default tf ('1H') and overwrite whatever value the hydrate effect
-  // just read, defeating persistence. Subsequent tf changes persist normally.
-  const tfFirstWriteSkippedRef = useRef(false);
-  useEffect(() => {
-    if (!tfFirstWriteSkippedRef.current) {
-      tfFirstWriteSkippedRef.current = true;
-      return;
+  const load = useCallback(async (r: Range, opts?: { fromClick?: boolean; background?: boolean }) => {
+    const { fromClick = false, background = false } = opts ?? {};
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (fromClick) playUiConfirm();
+    if (!background) setBusy(true);
+    setError(null);
+    try {
+      const url = `${API_BASE}/api/tools/trending-collections?range=${encodeURIComponent(r)}&sort=volume&direction=desc&limit=${FETCH_LIMIT}`;
+      const res = await fetch(url, { headers: { ...authHeaders() } });
+      if (res.status === 429) { setError('Rate limited — wait a moment and try again.'); return; }
+      if (res.status === 502) { setError('Magic Eden stats temporarily unavailable. Try again shortly.'); return; }
+      if (!res.ok) { setError(`Failed to load — HTTP ${res.status}.`); return; }
+      const body = await res.json() as TrendingResponse;
+      if (!body.ok || !Array.isArray(body.collections)) { setError(body.message ?? body.error ?? 'Unexpected response.'); return; }
+      setRows(body.collections);
+      setLoaded(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      inFlightRef.current = false;
+      if (!background) setBusy(false);
     }
-    try { localStorage.setItem('sol-tf', tf); } catch {}
-  }, [tf]);
-
-  // Persist ACTIVE / RECENT tab with the same pattern as `tf`. Without this,
-  // every refresh dropped the user back to 'active' regardless of prior pick.
-  useEffect(() => {
-    const saved = localStorage.getItem('sol-tab');
-    if (saved === 'active' || saved === 'recent') setTab(saved);
   }, []);
-  const tabFirstWriteSkippedRef = useRef(false);
-  useEffect(() => {
-    if (!tabFirstWriteSkippedRef.current) {
-      tabFirstWriteSkippedRef.current = true;
-      return;
-    }
-    try { localStorage.setItem('sol-tab', tab); } catch {}
-  }, [tab]);
 
-  // ── Real event stream ────────────────────────────────────────────────────
-  // Rolling buffer of recent sales. On each render we aggregate into per-
-  // collection stats scoped to the selected timeframe. Initial snapshot comes
-  // from /api/events/latest; live deltas via SSE /api/events/stream.
+  useEffect(() => { void load(range); }, [range, load]);
+  useEffect(() => {
+    const id = setInterval(() => void load(range, { background: true }), TRENDING_POLL_MS);
+    return () => clearInterval(id);
+  }, [range, load]);
+
+  // ── Live SSE overlay ──────────────────────────────────────────────────────
   const [events, setEvents] = useState<FeedEvent[]>([]);
-  // True once the initial /api/events/latest snapshot fetch has settled
-  // (success or failure) — distinguishes "still loading" from "genuinely
-  // zero collections in this timeframe" for the table body below, since
-  // both states otherwise render an identical empty <tbody>.
   const [snapshotDone, setSnapshotDone] = useState(false);
   const seenRef = useRef<Set<string>>(new Set());
 
@@ -714,11 +610,8 @@ export default function Dashboard() {
     setEvents(prev => {
       const next = [ev, ...prev];
       if (next.length <= MAX_STORED_EVENTS) return next;
-      // Drop oldest beyond cap; also evict from seenRef so it doesn't grow unbounded.
       const trimmed = next.slice(0, MAX_STORED_EVENTS);
-      for (let i = MAX_STORED_EVENTS; i < next.length; i++) {
-        seenRef.current.delete(next[i].signature);
-      }
+      for (let i = MAX_STORED_EVENTS; i < next.length; i++) seenRef.current.delete(next[i].signature);
       return trimmed;
     });
   }
@@ -727,9 +620,6 @@ export default function Dashboard() {
     let es: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
-    // Exponential backoff with jitter on reconnect — caps the herd-thunder
-    // pattern when the backend restarts (every connected tab would
-    // otherwise hammer the just-rebooted backend on a 3 s grid).
     let attempt = 0;
     const scheduleReconnect = () => {
       if (cancelled || document.hidden) return;
@@ -743,49 +633,33 @@ export default function Dashboard() {
       if (cancelled) return;
       es?.close();
       es = new EventSource(`${API_BASE}/api/events/stream`);
-      // Reset backoff once the connection lands so the next disconnect
-      // starts from 1 s again instead of inheriting the prior cap.
       es.addEventListener('open', () => { attempt = 0; });
       es.addEventListener('sale', (e: MessageEvent) => {
         try { addEvent(fromBackend(JSON.parse(e.data) as BackendEvent)); }
         catch { /* malformed frame — skip */ }
       });
-      // Enrichment patches: fill in nftName / collectionName / meCollectionSlug
-      // for events that landed with null metadata. Without this, freshly-ingested
-      // sales would stay "Unknown" and never get grouped by the aggregator.
       es.addEventListener('meta', (e: MessageEvent) => {
         try {
           const m = JSON.parse(e.data) as {
             mintAddress: string; signature: string;
-            nftName: string | null; collectionName: string | null;
-            meCollectionSlug: string | null;
+            nftName: string | null; collectionName: string | null; meCollectionSlug: string | null;
           };
           setEvents(prev => {
-            // Bail-out before allocating: most meta frames target a
-            // signature that has already aged out of this 2 000-event
-            // rolling buffer. Without this, every meta frame allocated
-            // a fresh 2 000-element array and iterated it for nothing.
-            const hit = prev.some(ev =>
-              ev.signature === m.signature || ev.mintAddress === m.mintAddress);
+            const hit = prev.some(ev => ev.signature === m.signature || ev.mintAddress === m.mintAddress);
             if (!hit) return prev;
             return prev.map(ev => {
               if (ev.signature !== m.signature && ev.mintAddress !== m.mintAddress) return ev;
               return {
                 ...ev,
-                mintAddress:      m.mintAddress     || ev.mintAddress,
-                nftName:          m.nftName         ?? ev.nftName,
-                collectionName:   m.collectionName  ?? ev.collectionName,
+                mintAddress: m.mintAddress || ev.mintAddress,
+                nftName: m.nftName ?? ev.nftName,
+                collectionName: m.collectionName ?? ev.collectionName,
                 meCollectionSlug: m.meCollectionSlug ?? ev.meCollectionSlug,
               };
             });
           });
         } catch { /* malformed frame — skip */ }
       });
-      // Backend fires `remove` for rows deleted after enrichment (blacklisted
-      // collections, late cNFT floor-gate). Without this listener an event
-      // that landed via the earlier `sale` frame would stay in the rolling
-      // buffer — blacklist filtering in aggregate() never catches it because
-      // collectionName is null at sale time and no `meta` frame follows.
       es.addEventListener('remove', (e: MessageEvent) => {
         try {
           const { signature } = JSON.parse(e.data) as { signature: string };
@@ -794,16 +668,9 @@ export default function Dashboard() {
           setEvents(prev => prev.filter(ev => ev.signature !== signature));
         } catch { /* malformed frame — skip */ }
       });
-      es.addEventListener('error', () => {
-        es?.close();
-        scheduleReconnect();
-      });
+      es.addEventListener('error', () => { es?.close(); scheduleReconnect(); });
     };
 
-    // Snapshot first so we have history for longer timeframes; SSE takes over after.
-    // Filter out legacy pre-fix rows (null collection_name AND older than the
-    // enrichment-grace cutoff) so the rolling buffer isn't dominated by rows
-    // that can never be grouped. Live SSE (sale + meta) path is untouched.
     fetch(`${API_BASE}/api/events/latest?limit=${INITIAL_FETCH_LIMIT}`)
       .then(r => r.json())
       .then((data: LatestApiResponse) => {
@@ -828,49 +695,34 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Periodic "now" tick so the tf window slides even when no new events arrive —
-  // otherwise stale events would linger in the window until the next sale.
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNowTick(Date.now()), TF_REFRESH_MS);
+    const id = setInterval(() => setNowTick(Date.now()), NOW_TICK_MS);
     return () => clearInterval(id);
   }, []);
 
-  // ── Live bid snapshots (ME MMM pool bid + Tensor top bid) ───────────────
-  // Fetch for the slugs of currently aggregated collections. Backend caches
-  // per-slug for 60s so repeated polls are cheap and dashboards with identical
-  // slug sets share the same origin cache.
-  // Declared above `filteredEvents` because the cNFT dust gate reads
-  // `bids[slug].floorSol` — TDZ if this lived at its original spot.
-  const [bids, setBids] = useState<Record<string, BidSnap>>({});
+  const liveBySlug = useMemo(() => aggregateLive(events, range, nowTick), [events, range, nowTick]);
 
-  const filteredEvents = useMemo(() => {
-    // cNFT dust gate — shared predicate with Live Feed. Hide cNFT low-floor
-    // noise by collection floor, not sale price. Applied pre-aggregate so
-    // collections whose floor is at or below 0.005 SOL drop out of the
-    // Dashboard entirely (no row, no slug, no bids fetch). Lookup pulls
-    // floor from the `bids` map that's already populated for every aggregated
-    // slug; first pass may include a cNFT row until its floor lands, then the
-    // next render filters it. Unknown floor ⇒ fail-safe, event passes.
-    return events.filter(e => {
-      if (isCnftDust(e, s => bids[s]?.floorSol)) return false;
-      if (mkt !== 'all' && e.marketplace !== mkt) return false;
+  // ── Filter (dust / blacklist / market source) ────────────────────────────
+  const visibleRows = useMemo(() => {
+    return rows.filter(r => {
+      if (r.source === 'internal' && r.floorSol != null && r.floorSol <= INTERNAL_DUST_FLOOR_SOL) return false;
+      if (r.name && DASHBOARD_NAME_BLACKLIST.has(r.name.toLowerCase())) return false;
+      if (DASHBOARD_SLUG_BLACKLIST.has(r.slug)) return false;
+      if (mkt === 'me' && r.source !== 'magic_eden') return false;
+      if (mkt === 'tensor' && r.source !== 'internal') return false;
       return true;
     });
-  }, [events, mkt, bids]);
+  }, [rows, mkt]);
 
-  const aggregated = useMemo(() => aggregate(filteredEvents, tf, nowTick), [filteredEvents, tf, nowTick]);
-  const slugList = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of aggregated) if (c._meSlug) set.add(c._meSlug);
-    return Array.from(set).sort();   // sorted so the fetch key is stable
-  }, [aggregated]);
-  const slugKey = slugList.join(',');
+  // ── Live ME/Tensor bid snapshots ──────────────────────────────────────────
+  const [bids, setBids] = useState<Record<string, BidSnap>>({});
+  const slugKey = useMemo(() => visibleRows.map(r => r.slug).sort().join(','), [visibleRows]);
 
   useEffect(() => {
     if (!slugKey) return;
     let cancelled = false;
-    const load = async () => {
+    const doLoad = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(slugKey)}`);
         if (!res.ok) return;
@@ -889,307 +741,251 @@ export default function Dashboard() {
         setBids(prev => ({ ...prev, ...next }));
       } catch { /* transient — retry on next interval */ }
     };
-    load();
-    const id = setInterval(load, BIDS_REFRESH_MS);
+    doLoad();
+    const id = setInterval(doLoad, BIDS_REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };
   }, [slugKey]);
 
-  // ── 7D rollups (floor sparkline + volume bars) ──────────────────────────
-  // Keyed by collection name (not slug — rollups come from local sale_events,
-  // which groups by name). Backend caches per-name for 5 min; client refreshes
-  // on the same cadence. Sparse/no-history collections return empty arrays.
+  // ── 7D rollups ─────────────────────────────────────────────────────────────
   const [rollups, setRollups] = useState<Record<string, { floor7d: number[]; vol7d: number[] }>>({});
-  const nameList = useMemo(() => {
-    const set = new Set<string>();
-    for (const c of aggregated) if (c.name) set.add(c.name);
-    return Array.from(set).sort();
-  }, [aggregated]);
-  const nameKey = nameList.join('\u0001');
+  const nameList = useMemo(() => Array.from(new Set(visibleRows.map(r => r.name).filter((n): n is string => !!n))).sort(), [visibleRows]);
+  const nameKey = nameList.join('|');
 
   useEffect(() => {
     if (nameList.length === 0) return;
     let cancelled = false;
-    const load = async () => {
+    const doLoad = async () => {
       try {
         const qs = nameList.map(n => `names=${encodeURIComponent(n)}`).join('&');
         const res = await fetch(`${API_BASE}/api/collections/rollups?${qs}`);
         if (!res.ok) return;
-        const json = await res.json() as {
-          rollups: Record<string, { floor7d: number[]; vol7d: number[] }>;
-        };
+        const json = await res.json() as { rollups: Record<string, { floor7d: number[]; vol7d: number[] }> };
         if (cancelled) return;
         setRollups(prev => ({ ...prev, ...(json.rollups ?? {}) }));
       } catch { /* transient — retry on next interval */ }
     };
-    load();
-    const id = setInterval(load, ROLLUPS_REFRESH_MS);
+    doLoad();
+    const id = setInterval(doLoad, ROLLUPS_REFRESH_MS);
     return () => { cancelled = true; clearInterval(id); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nameKey]);
 
-  // Resolve official collection icons (marketplace logos, NOT recent NFT item
-  // images) for every slug in the current aggregation. Module-scoped cache in
-  // the hook keeps repeated pulls cheap across re-renders.
-  const iconBySlug = useCollectionIcons(slugList);
+  // ── Official artwork fallback — internal-source rows only. ME-sourced rows
+  // always keep ME's own real image; we never substitute a last-sale image
+  // for a row that already has the official one. ──────────────────────────
+  const internalSlugsNeedingIcon = useMemo(
+    () => visibleRows.filter(r => r.source === 'internal' && !r.image).map(r => r.slug),
+    [visibleRows],
+  );
+  const iconBySlug = useCollectionIcons(internalSlugsNeedingIcon);
 
-  // Merge rollups and resolved icons onto aggregated rows so sort + row
-  // render see real history and the correct collection avatar.
-  const aggregatedWithRollups = useMemo(() =>
-    aggregated.map(c => {
-      const r = rollups[c.name];
-      const icon = c._meSlug ? iconBySlug[c._meSlug] ?? null : null;
-      const withIcon = { ...c, _iconUrl: compressImage(icon) };
-      if (!r) return withIcon;
-      return { ...withIcon, floor7d: r.floor7d, vol7d: r.vol7d };
-    }),
-  [aggregated, rollups, iconBySlug]);
+  const merged: MergedRow[] = useMemo(() => visibleRows.map(r => {
+    const roll = r.name ? rollups[r.name] : undefined;
+    return {
+      ...r,
+      live: liveBySlug.get(r.slug) ?? null,
+      bid: bids[r.slug] ?? null,
+      avatarUrl: r.image ?? (r.source === 'internal' ? iconBySlug[r.slug] ?? null : null),
+      floor7d: roll?.floor7d ?? [],
+      vol7d: roll?.vol7d ?? [],
+    };
+  }), [visibleRows, liveBySlug, bids, iconBySlug, rollups]);
 
-  // ── User-driven column sort ──────────────────────────────────────────────
-  // When `sortCol` is null, fall back to the tab's default key (SALES for
-  // ACTIVE, latestTs for RECENT). Once the user clicks any header we honour
-  // their pick, preserving the current tab. First click → desc, then toggle.
-  type SortKey = 'collection' | 'sales' | 'floor' | 'avg' | 'me_bid' | 'tnsr_bid' | 'floor_7d' | 'vol_7d';
+  // ── Sort ───────────────────────────────────────────────────────────────────
   const [sortCol, setSortCol] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const handleSortClick = (col: SortKey) => {
     if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortCol(col); setSortDir('desc'); }
   };
-  /** Comparable value for a row in a given column. Numeric except for COLLECTION.
-   *  Missing bid data sorts as 0 → ends up last on desc and first on asc. */
-  const sortValueFor = (col: LiveCollection, key: SortKey): number | string => {
-    const bid = col._meSlug ? bids[col._meSlug] : null;
-    switch (key) {
-      case 'collection': return col.name.toLowerCase();
-      case 'sales':      return col.trades1d;
-      case 'floor':      return bid?.floorSol ?? col.floor;  // real marketplace floor, sale-min fallback
-      case 'avg':        return col._avgPrice;
-      case 'me_bid':     return bid?.meBidSol   ?? 0;
-      case 'tnsr_bid':   return bid?.tnsrBidSol ?? 0;
-      case 'floor_7d': {
-        // Last bucket = today's floor; sort value is 0 when no history exists
-        // so sparse collections land at the bottom on desc (same convention
-        // as me_bid / tnsr_bid).
-        const arr = col.floor7d;
-        return Array.isArray(arr) && arr.length ? (arr[arr.length - 1] ?? 0) : 0;
+
+  const liveActive = LIVE_OVERLAY_RANGES.has(range);
+  const sortedRows = useMemo(() => {
+    return [...merged].sort((a, b) => {
+      let primary = 0;
+      if (sortCol === null) {
+        if (liveActive && tab === 'recent') primary = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
+        else if (liveActive && tab === 'active') primary = numCmp(b.salesCount ?? 0, a.salesCount ?? 0);
+        else primary = numCmp(b.volumeSol ?? 0, a.volumeSol ?? 0);
+      } else {
+        const sign = sortDir === 'asc' ? 1 : -1;
+        const va = sortValueFor(a, sortCol);
+        const vb = sortValueFor(b, sortCol);
+        primary = typeof va === 'string' ? sign * va.localeCompare(vb as string) : sign * numCmp(va as number, vb as number);
       }
-      case 'vol_7d': {
-        const arr = col.vol7d;
-        return Array.isArray(arr) && arr.length ? arr.reduce((a, b) => a + b, 0) : 0;
+      if (primary !== 0) return primary;
+      const tsCmp = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
+      if (tsCmp !== 0) return tsCmp;
+      return (a.name ?? a.slug).localeCompare(b.name ?? b.slug);
+    });
+  }, [merged, sortCol, sortDir, tab, liveActive]);
+
+  const handleRowClick = (row: MergedRow) => {
+    setSelected(row.slug);
+    if (row.avatarUrl) {
+      try { sessionStorage.setItem(`cp-preview:${row.slug}`, row.avatarUrl); } catch { /* quota/private-mode: ignore */ }
+    }
+    window.location.href = `/collection/${encodeURIComponent(row.slug)}`;
+  };
+
+  // ── Hover sales preview ────────────────────────────────────────────────────
+  type PreviewStatus = 'loading' | 'ready' | 'error' | 'empty';
+  interface Preview {
+    slug: string; name: string; salesCount: number | null;
+    top: number; left: number; status: PreviewStatus; sales: TrendingSale[];
+  }
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const salesCacheRef = useRef<Map<string, { sales: TrendingSale[]; fetchedAt: number }>>(new Map());
+  const salesInFlightRef = useRef<Set<string>>(new Set());
+  const hoverSlugRef = useRef<string | null>(null);
+
+  const anchorFor = useCallback((el: HTMLElement): { top: number; left: number } => {
+    const r = el.getBoundingClientRect();
+    const fitsRight = window.innerWidth - r.right >= PREVIEW_WIDTH + 16;
+    const left = fitsRight ? r.right + 8 : Math.max(8, window.innerWidth - PREVIEW_WIDTH - 8);
+    const top = Math.min(Math.max(8, r.top), Math.max(8, window.innerHeight - 438));
+    return { top, left };
+  }, []);
+
+  const onRowEnter = useCallback((row: MergedRow, el: HTMLElement) => {
+    hoverSlugRef.current = row.slug;
+    const { top, left } = anchorFor(el);
+    const name = row.name ?? row.slug;
+    const want = row.salesCount == null ? PREVIEW_MAX : Math.min(Math.max(row.salesCount, 0), PREVIEW_MAX);
+
+    if (want === 0) {
+      setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left, status: 'empty', sales: [] });
+      return;
+    }
+    const key = `${row.slug}|${range}`;
+    const cached = salesCacheRef.current.get(key);
+    if (cached && Date.now() - cached.fetchedAt < SALES_CACHE_TTL_MS) {
+      setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left,
+        status: cached.sales.length ? 'ready' : 'empty', sales: cached.sales.slice(0, want) });
+      return;
+    }
+    setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left, status: 'loading', sales: [] });
+    if (salesInFlightRef.current.has(key)) return;
+    salesInFlightRef.current.add(key);
+    void (async () => {
+      try {
+        const url = `${API_BASE}/api/tools/trending-collections/${encodeURIComponent(row.slug)}/sales?range=${encodeURIComponent(range)}&limit=${want}`;
+        const res = await fetch(url, { headers: { ...authHeaders() } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json() as SalesResponse;
+        if (!body.ok || !Array.isArray(body.sales)) throw new Error('bad payload');
+        salesCacheRef.current.set(key, { sales: body.sales, fetchedAt: Date.now() });
+        if (hoverSlugRef.current !== row.slug) return;
+        setPreview(p => (p && p.slug === row.slug
+          ? { ...p, status: body.sales!.length ? 'ready' : 'empty', sales: body.sales!.slice(0, want) }
+          : p));
+      } catch {
+        if (hoverSlugRef.current !== row.slug) return;
+        setPreview(p => (p && p.slug === row.slug ? { ...p, status: 'error', sales: [] } : p));
+      } finally {
+        salesInFlightRef.current.delete(key);
       }
-    }
-  };
+    })();
+  }, [range, anchorFor]);
 
-  // ACTIVE: sort by tf-scoped trade count (desc).
-  // RECENT: sort by most recent in-window sale timestamp (desc).
-  // User column pick (sortCol !== null) overrides the tab default.
-  //
-  // Stability: numeric comparisons are NaN-coerced to 0 so a stray NaN can
-  // never short-circuit the tiebreaker chain; ties cascade to _latestTs then
-  // collection name (unique) — guarantees a deterministic order that doesn't
-  // flicker when two rows share the primary column value.
-  const numCmp = (a: number, b: number): number => {
-    const da = Number.isFinite(a) ? a : 0;
-    const db = Number.isFinite(b) ? b : 0;
-    if (da < db) return -1;
-    if (da > db) return  1;
-    return 0;
-  };
+  const onRowLeave = useCallback(() => { hoverSlugRef.current = null; setPreview(null); }, []);
+  useEffect(() => { hoverSlugRef.current = null; setPreview(null); }, [range]);
 
-  const sortedCols = [...aggregatedWithRollups].sort((a, b) => {
-    let primary = 0;
-    if (sortCol === null) {
-      primary = tab === 'recent' ? numCmp(b._latestTs, a._latestTs) : numCmp(b.trades1d, a.trades1d);
-    } else {
-      const sign = sortDir === 'asc' ? 1 : -1;
-      const va = sortValueFor(a, sortCol);
-      const vb = sortValueFor(b, sortCol);
-      primary = typeof va === 'string'
-        ? sign * va.localeCompare(vb as string)
-        : sign * numCmp(va as number, vb as number);
-    }
-    if (primary !== 0) return primary;
-    const tsCmp = numCmp(b._latestTs, a._latestTs);
-    if (tsCmp !== 0) return tsCmp;
-    return a.name.localeCompare(b.name);
-  });
-
-  /** Arrow indicator for a header — appears only on the actively-sorted column. */
-  const sortArrow = (col: SortKey): string => {
-    if (sortCol === col) return sortDir === 'desc' ? '↓' : '↑';
-    // When no user pick, keep the existing ↓ on SALES for ACTIVE tab as visual anchor.
-    if (sortCol === null && tab === 'active' && col === 'sales') return '↓';
-    return '';
-  };
-
-  const handleRowClick = (col: LiveCollection) => {
-    setSelected(col.name);
-    // Slug is the only stable key for the dynamic /collection/[slug] route.
-    // Without it (collection never enriched into ME's index) we can't open
-    // the page meaningfully — keep selection for the row highlight, no nav.
-    if (!col._meSlug) return;
-    // Stash the currently-rendered preview image so the Collection page header
-    // can show the SAME avatar on first paint — no visual jump to a different
-    // NFT or initials while the page's own icon resolver warms up.
-    const rawIcon = iconBySlug[col._meSlug] ?? null;
-    if (rawIcon) {
-      try { sessionStorage.setItem(`cp-preview:${col._meSlug}`, rawIcon); } catch { /* quota/private-mode: ignore */ }
-    }
-    window.location.href = `/collection/${encodeURIComponent(col._meSlug)}`;
-  };
-
-  // Comfortable density baseline shared with /mints (mirrors the
-  // `thStyle` constant near the bottom of mints/page.tsx). /multi
-  // inherits via iframe + ?embed=1, so updating this in lockstep with
-  // mints/page.tsx keeps the three pages aligned without a CSS-class
-  // round-trip. Live Sale Feed (.feed-card) and Live Mint Feed
-  // (.mints-feed-row) use distinct classes and stay denser by design.
-  const thStyle: React.CSSProperties = {
-    padding: '13px 8px', fontSize: 11, fontWeight: 600, color: `var(--th-label-color, ${VLText.muted})`,
-    letterSpacing: '0.8px', textAlign: 'right', borderBottom: `1px solid ${alpha(VL.purpleTint,0.12)}`,
-    whiteSpace: 'nowrap', background: '#1a1530', position: 'sticky', top: 0, zIndex: 1,
-  };
+  const hasInternalRows = rows.some(r => r.source === 'internal');
 
   return (
-    <div
-      className="feed-root page-transition"
-      data-page="dashboard"
-      data-embedded={embedded ? '1' : undefined}
-    >
+    <div className="feed-root page-transition" data-page="dashboard">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
-
-      {/* Header — hidden in multi-tab embed mode so the iframe can fit
-          more collection rows in the same vertical space. */}
-      {!embedded && (
-        <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--dashboard-max, 1000px)', margin: '0 auto', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>
-                Trending collections
-              </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                <LiveDot />
-                <span style={{ fontSize: 11, color: rgb(VL.green) }}>Feed is live</span>
-              </div>
+      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>Trending Collections</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: VLText.muted, flexWrap: 'wrap', rowGap: 2 }}>
+              <LiveDot />
+              <span>live · auto-refresh 45s</span>
+              {loaded && !error && (
+                <>
+                  <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
+                  <span>{sortedRows.length.toLocaleString()} collections</span>
+                </>
+              )}
+              <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
+              <span>Source: <span style={{ color: rgb(VL.purpleTint) }}>Magic Eden</span>{hasInternalRows && <span> + internal</span>}</span>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => load(range, { fromClick: true })}
+            disabled={busy}
+            style={{
+              padding: '7px 16px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
+              borderRadius: 5, cursor: busy ? 'not-allowed' : 'pointer',
+              border: `1px solid ${alpha(VL.purpleTint, 0.55)}`,
+              background: busy ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
+              color: busy ? VLText.muted : VLText.primary,
+              boxShadow: busy ? 'none' : '0 0 12px rgba(128,104,216,0.18)', transition: 'all 0.15s',
+            }}
+          >{busy ? 'Loading…' : 'Refresh'}</button>
         </div>
-      )}
+        {error && (
+          <div style={{ marginTop: 12, padding: '8px 12px', fontSize: 12, color: rgb(VL.red), background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5 }}>
+            {error}
+          </div>
+        )}
+      </div>
 
-      {/* Promoted table card. In embed mode the maxWidth cap is removed
-          so the card fills the iframe symmetrically (no auto-margin
-          gutters that the iframe scrollbar would make look uneven). */}
       <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-        width: '100%',
-        maxWidth: embedded ? 'none' : 'var(--dashboard-max, 1000px)',
-        margin: '0 auto',
+        flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%',
+        maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto',
         background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-        border: `1px solid ${alpha(VL.purpleTint,0.65)}`,
-        borderRadius: 12,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px ${alpha(VL.purpleDeep,0.06)}`,
-        overflow: 'hidden',
-        // No bottom margin in embed mode so the card sits flush with
-        // the iframe edge — multi-tab pane chrome owns the spacing.
-        marginBottom: embedded ? 0 : 16,
+        border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px ${alpha(VL.purpleDeep, 0.06)}`,
+        overflow: 'hidden', marginBottom: 16,
       }}>
-
-        {/* Card header: tabs + filters + timeframe */}
         <div style={{
-          padding: '7px 12px', borderBottom: `1px solid ${alpha(VL.purpleTint,0.12)}`, flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: alpha(VL.purpleTint,0.04),
+          padding: '7px 12px', borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: alpha(VL.purpleTint, 0.04),
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            {(['active', 'recent'] as const).map(t => (
+            {liveActive && (['active', 'recent'] as const).map(t => (
               <Pill
-                key={t}
-                active={tab === t}
-                onClick={() => setTab(t)}
-                label={t}
-                // Small contextual dot — green for ACTIVE (matches the
-                // LiveDot semantics in the rest of the site), muted grey
-                // for RECENT. 4 px circle, 0.75 opacity — peripheral
-                // hint about what each tab represents without turning
-                // the tab pills into badges.
-                icon={
-                  <span style={{
-                    display: 'inline-block', width: 4, height: 4, borderRadius: '50%',
-                    background: t === 'active' ? rgb(VL.green) : VLText.muted,
-                    opacity: 0.75,
-                  }} />
-                }
-                style={{ padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
-                         textTransform: 'uppercase',
-                         border: tab === t ? `1px solid ${alpha(VL.purpleTint,0.5)}` : '1px solid transparent',
-                         background: tab === t ? alpha(VL.purpleTint,0.18) : 'transparent' }}
+                key={t} active={tab === t} onClick={() => setTab(t)} label={t}
+                icon={<span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: t === 'active' ? rgb(VL.green) : VLText.muted, opacity: 0.75 }} />}
+                style={{
+                  padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
+                  border: tab === t ? `1px solid ${alpha(VL.purpleTint, 0.5)}` : '1px solid transparent',
+                  background: tab === t ? alpha(VL.purpleTint, 0.18) : 'transparent',
+                }}
               />
             ))}
-            <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />
+            {liveActive && <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />}
             <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, letterSpacing: '0.5px' }}>
-              {sortedCols.length.toLocaleString()} <span style={{ color: '#4d4d6e', fontWeight: 500 }}>collections</span>
+              {sortedRows.length.toLocaleString()} <span style={{ color: '#4d4d6e', fontWeight: 500 }}>collections</span>
             </span>
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {/* Canonical shared Settings toggle — same control as Live Feed and
-                Mint Tracker. Toggles the embedded filter panel inline. The
-                "Timeframe:" text label is dropped to match the other pages
-                (the segmented control is self-evident). */}
-            <SettingsToggle
-              active={filtersOpen}
-              onClick={() => setFiltersOpen(o => !o)}
-              
-            />
-            <TimeframePills active={tf} onChange={handleTfChange} />
+            <SettingsToggle active={filtersOpen} onClick={() => setFiltersOpen(o => !o)} />
+            <TimeframePills active={range} onChange={r => { setRange(r); saveRange(r); }} />
           </div>
         </div>
 
-        {/* Collapsible filters — canonical VictoryLabs settings surface
-            (.feed-filters-panel) with two semantic groups (Market | Volume) on
-            the shared two-column grid + divider. Same control language as Live
-            Feed / Mint Tracker. State + (cosmetic) behavior unchanged. */}
         {filtersOpen && (
-          <div className="feed-filters-panel feed-filters-panel-open"
-            style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
+          <div className="feed-filters-panel feed-filters-panel-open" style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
             <div className="feed-settings">
               <div className="feed-set-group feed-set-group--content">
-                <div className="feed-set-group-hd">Market</div>
+                <div className="feed-set-group-hd">Source</div>
                 <div className="feed-srow">
-                  <span className="feed-srow-lbl">Source</span>
+                  <span className="feed-srow-lbl">Market</span>
                   <div className="feed-srow-ctl feed-seg">
                     {([
-                      { k: 'all',    l: 'All',        c: rgb(VL.purpleTint) },
-                      { k: 'me',     l: 'Magic Eden', c: VLText.muted },
-                      { k: 'tensor', l: 'Tensor',     c: rgb(VL.purpleTint) },
-                    ] as const).map(f => (
-                      <Pill
-                        key={f.k}
-                        active={mkt === f.k}
-                        color={f.c}
-                        onClick={() => setMkt(f.k)}
-                        label={f.l}
-                        size="sm"
-                        style={mkt === f.k ? settingsPillActive(f.c) : SETTINGS_PILL_INACTIVE}
-                      />
+                      { k: 'all' as const,    l: 'All' },
+                      { k: 'me' as const,     l: 'Magic Eden' },
+                      { k: 'tensor' as const, l: 'Tensor' },
+                    ]).map(f => (
+                      <Pill key={f.k} active={mkt === f.k} onClick={() => setMkt(f.k)} label={f.l} size="sm"
+                        style={mkt === f.k ? settingsPillActive(rgb(VL.purpleTint)) : SETTINGS_PILL_INACTIVE} />
                     ))}
-                  </div>
-                </div>
-              </div>
-              <div className="feed-set-group feed-set-group--display">
-                <div className="feed-set-group-hd">Volume</div>
-                <div className="feed-srow">
-                  <span className="feed-srow-lbl">Min</span>
-                  <div className="feed-srow-ctl feed-seg">
-                    <FilterPill label="any" />
-                    <FilterPill label="100 SOL" />
-                    <FilterPill label="1K SOL" />
-                    <FilterPill label="10K SOL" />
-                    <button style={{
-                      padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-                      border: `1px solid ${alpha(VL.greenGlow,0.4)}`, background: alpha(VL.greenGlow,0.12),
-                      color: rgb(VL.green), cursor: 'pointer', marginLeft: 4,
-                    }}>+ Watchlist</button>
                   </div>
                 </div>
               </div>
@@ -1197,97 +993,94 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Table */}
-        <div className="scroll-area collection-table-scroll" style={{
-          // Drop the prior 10 px horizontal inset so the table runs
-          // flush to the card edges like /mints' tracker (which has
-          // no scroll-area horizontal padding). The right gutter is
-          // owned by the last cell's terminal padding (18 px) plus
-          // the symmetric scrollbar gutter; left gutter is owned by
-          // the first cell's 12 px. Bottom 8 stays as a soft buffer.
-          flex: 1, overflow: 'auto', padding: '0 0 8px',
-          opacity: tfFading ? 0.6 : 1, transition: 'opacity 140ms ease',
-        }}>
+        <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '41%' }} />
+              <col style={{ width: '26%' }} />
               <col style={{ width: '7%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '7%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '10%' }} />
-              <col style={{ width: '12%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
             </colgroup>
             <thead>
               <tr>
-                <th onClick={() => handleSortClick('collection')} style={{ ...thStyle, textAlign: 'left', paddingLeft: 8, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    COLLECTION {sortArrow('collection') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('collection')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('sales')} style={{ ...thStyle, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    SALES {sortArrow('sales') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('sales')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('floor')} style={{ ...thStyle, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    FLOOR {sortArrow('floor') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('floor')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('avg')} style={{ ...thStyle, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    AVG {sortArrow('avg') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('avg')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('me_bid')} style={{ ...thStyle, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    ME BID {sortArrow('me_bid') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('me_bid')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('tnsr_bid')} style={{ ...thStyle, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    TNSR BID {sortArrow('tnsr_bid') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('tnsr_bid')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('floor_7d')} style={{ ...thStyle, textAlign: 'center', cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    7D FLOOR {sortArrow('floor_7d') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('floor_7d')}</span>}
-                  </span>
-                </th>
-                <th onClick={() => handleSortClick('vol_7d')} style={{ ...thStyle, textAlign: 'center', paddingRight: 18, cursor: 'pointer' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    7D VOLUME {sortArrow('vol_7d') && <span style={{ color: rgb(VL.purple) }}>{sortArrow('vol_7d')}</span>}
-                  </span>
-                </th>
+                <SortTh label="Collection" col="collection" sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="left" />
+                <SortTh label="Sales"      col="sales"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Floor"      col="floor"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Floor %"    col="floorPct"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Volume"     col="volume"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="7D Floor"   col="floor_7d"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="center" />
+                <SortTh label="7D Volume"  col="vol_7d"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="center" />
               </tr>
             </thead>
             <tbody>
-              {/* Loading placeholder — only before the initial snapshot fetch
-                  settles. Once snapshotDone is true, a zero-row result falls
-                  through to the existing (unchanged) empty <tbody>, so the
-                  genuine "no collections" state is untouched. Reuses the same
-                  row background as the real rows (.mints-tracker-row) so
-                  nothing new is introduced visually. */}
-              {!snapshotDone && sortedCols.length === 0 && Array.from({ length: 5 }).map((_, i) => (
+              {!snapshotDone && !loaded && sortedRows.length === 0 && Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="mints-tracker-row" aria-hidden="true">
-                  <td colSpan={8} style={{ padding: '14px 12px' }}>
+                  <td colSpan={10} style={{ padding: '14px 12px' }}>
                     <div style={{ height: 14, width: `${62 - i * 7}%`, borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
                   </td>
                 </tr>
               ))}
-              {sortedCols.map((col, i) => {
-                const href = col._meSlug ? `/collection/${encodeURIComponent(col._meSlug)}` : null;
-                const bid  = col._meSlug ? bids[col._meSlug] ?? null : null;
-                return tab === 'active'
-                  ? <CollectionRow key={col.name + ':' + col._flashKey} col={col} rank={i + 1} onClick={handleRowClick} isSelected={selected === col.name} bid={bid} href={href} />
-                  : <RecentRow     key={col.name + ':' + col._flashKey} col={col} rank={i + 1} onClick={handleRowClick} isSelected={selected === col.name} bid={bid} href={href} />;
-              })}
+              {loaded && sortedRows.length === 0 && !busy && (
+                <tr><td colSpan={10} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
+              )}
+              {sortedRows.map((row, i) => (
+                <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
+                     row={row} rank={i + 1} variant={liveActive ? tab : 'active'}
+                     isSelected={selected === row.slug} onClick={handleRowClick}
+                     onHoverEnter={onRowEnter} onHoverLeave={onRowLeave} />
+              ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {preview && (
+        <div style={{
+          position: 'fixed', top: preview.top, left: preview.left, width: PREVIEW_WIDTH, zIndex: 50, pointerEvents: 'none',
+          background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)', border: `1px solid ${alpha(VL.purpleTint, 0.32)}`,
+          borderRadius: 10, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.65), 0 0 24px ${alpha(VL.purpleDeep, 0.12)}`,
+          maxHeight: 430, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ padding: '9px 11px', borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: VLText.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: VLText.muted }}>
+              <span style={{ color: rgb(VL.purpleTint), fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
+              <span style={{ color: '#241f3b' }}>·</span>
+              <span>showing {preview.sales.length} / {preview.salesCount ?? '—'}</span>
+            </div>
+          </div>
+          <div className="scroll-area" style={{ overflowY: 'auto' }}>
+            {preview.status === 'loading' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: VLText.muted }}>Loading recent sales…</div>}
+            {preview.status === 'error' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: rgb(VL.red) }}>Couldn’t load sales.</div>}
+            {preview.status === 'empty' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: VLText.muted }}>No sales in this timeframe.</div>}
+            {preview.status === 'ready' && preview.sales.map(s => {
+              const sname = s.nftName ?? '—';
+              const sabbr = (sname[0] ?? '?').toUpperCase() + (sname[1] ?? '').toUpperCase();
+              return (
+                <div key={s.signature} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.022)' }}>
+                  <div style={{ flexShrink: 0, width: 30, height: 30 }}>
+                    <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color={rgb(VL.purple)} abbr={sabbr} size={30} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: VLText.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
+                    <div style={{ fontSize: 9.5, color: VLText.muted, fontFamily: MONO }}>{fmtAgo(Date.parse(s.blockTime))} ago</div>
+                  </div>
+                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: rgb(VL.green), fontFamily: MONO }}>{fmtSol(s.priceSol)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
