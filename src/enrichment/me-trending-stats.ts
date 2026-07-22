@@ -32,6 +32,19 @@ const BROWSER_UA =
 export const TRENDING_RANGES = ['10m', '1h', '6h', '1d', '7d', '30d'] as const;
 export type TrendingRange = (typeof TRENDING_RANGES)[number];
 
+/** Window length (ms) for each range — single source of truth shared by the
+ *  hover-sales-preview query, the internal (sale_events) aggregator, and the
+ *  frontend's live-overlay windowing, so a range string maps to one window
+ *  everywhere instead of several ad-hoc copies. */
+export const RANGE_WINDOW_MS: Record<TrendingRange, number> = {
+  '10m': 10 * 60_000,
+  '1h':  60 * 60_000,
+  '6h':  6 * 60 * 60_000,
+  '1d':  24 * 60 * 60_000,
+  '7d':  7 * 24 * 60 * 60_000,
+  '30d': 30 * 24 * 60 * 60_000,
+};
+
 /** Exact `sort` enum ME exposed (captured from its own invalid-enum error
  *  payload). Whitelisting these means we forward only values ME will accept,
  *  so a bad `sort` is a local 400 — never an upstream round-trip. */
@@ -90,7 +103,14 @@ interface MeTrendingRaw {
   [k: string]: unknown;
 }
 
-/** Our normalized DTO — the ONLY trending shape that leaves the backend. */
+/** Our normalized DTO — the ONLY trending shape that leaves the backend.
+ *  `source: 'internal'` rows are our own sale_events aggregation, appended
+ *  by the router to cover collections ME's own stats endpoint misses
+ *  (notably Tensor-only activity — ME's collection_stats only counts
+ *  ME-native volume). Internal rows carry `null` for every ME-only field
+ *  (topOfferSol, all three *PctChange, listedCount/totalSupply/listedPct,
+ *  ownerCount, uniqueOwnerRatio, isCompressed, isVerified, marketCapSol/Usd,
+ *  image) — every consumer already renders `null` as `—`/placeholder. */
 export interface TrendingCollection {
   slug: string;
   name: string | null;
@@ -111,7 +131,11 @@ export interface TrendingCollection {
   isVerified: boolean | null;
   marketCapSol: number | null;
   marketCapUsd: number | null;
-  source: 'magic_eden';
+  /** Tensor's collection slug when known — may differ from `slug` (the ME
+   *  slug). Used to build a correct Tensor external link instead of
+   *  assuming the two slug systems always match. */
+  tensorSlug: string | null;
+  source: 'magic_eden' | 'internal';
   range: TrendingRange;
 }
 
@@ -190,6 +214,7 @@ function adaptItem(raw: MeTrendingRaw, range: TrendingRange): TrendingCollection
     isVerified: bool(raw.isVerified),
     marketCapSol: num(raw.marketCap),
     marketCapUsd: num(raw.marketCapUsd),
+    tensorSlug: null,
     source: 'magic_eden',
     range,
   };

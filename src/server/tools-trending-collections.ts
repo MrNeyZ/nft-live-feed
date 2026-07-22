@@ -31,6 +31,7 @@ import {
   getTrendingCollections,
   MeTrendingUpstreamError,
   MeTrendingSchemaError,
+  RANGE_WINDOW_MS,
   TRENDING_RANGES,
   TRENDING_SORTS,
   TRENDING_CHAINS,
@@ -40,6 +41,7 @@ import {
   type TrendingChain,
   type TrendingDirection,
 } from '../enrichment/me-trending-stats';
+import { getInternalTrendingStats } from '../enrichment/internal-trending-stats';
 
 const DEFAULT_RANGE: TrendingRange         = '1d';
 const DEFAULT_SORT: TrendingSort           = 'volume';
@@ -50,16 +52,6 @@ const MAX_LIMIT     = 200;
 
 /** Hover-preview sales: hard ceiling of 10 rows regardless of request. */
 const SALES_MAX_LIMIT = 10;
-/** Window length (ms) for each timeframe — maps the range pill to a
- *  `block_time >= now-window` cutoff for the sale_events query. */
-const RANGE_WINDOW_MS: Record<TrendingRange, number> = {
-  '10m': 10 * 60_000,
-  '1h':  60 * 60_000,
-  '6h':  6 * 60 * 60_000,
-  '1d':  24 * 60 * 60_000,
-  '7d':  7 * 24 * 60 * 60_000,
-  '30d': 30 * 24 * 60 * 60_000,
-};
 
 /** Compact sale row the hover panel renders — a normalized subset of
  *  SaleEventRow; the full DB row never leaves the backend. */
@@ -152,7 +144,25 @@ export function createTrendingCollectionsRouter(): Router {
     };
 
     try {
-      const collections = await getTrendingCollections(query);
+      const meCollections = await getTrendingCollections(query);
+
+      // Supplement with our own ingestion for whatever ME's own stats miss —
+      // notably Tensor-only activity, which ME's collection_stats endpoint
+      // never counts even for collections it otherwise recognizes. ME's own
+      // number always wins for a slug it already returned; internal rows
+      // only fill genuine gaps. Failure here is non-fatal — the ME-sourced
+      // response is still useful on its own, so a broken supplement degrades
+      // to "ME only" rather than a 500.
+      let collections = meCollections;
+      try {
+        const meSlugs = new Set(meCollections.map(c => c.slug));
+        const internal = await getInternalTrendingStats(query.range);
+        const supplement = internal.filter(c => !meSlugs.has(c.slug));
+        if (supplement.length > 0) collections = [...meCollections, ...supplement];
+      } catch (err) {
+        console.warn('[tools/trending-collections] internal supplement failed', err);
+      }
+
       return res.json({
         ok: true,
         source: 'magic_eden',
