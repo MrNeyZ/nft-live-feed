@@ -135,7 +135,6 @@ const FLOW_TINT_SELL_LEAN = 0.25;
 const BID_IMBALANCE_RATIO = 0.97;
 const BID_OUTLIER_RATIO = 2;
 const BIDS_REFRESH_MS = 60_000;
-const ROLLUPS_REFRESH_MS = 5 * 60_000;
 /** source==='internal' rows have no ME editorial judgment behind them — a
  *  cNFT-dust collection dumping near-zero sales on Tensor would otherwise
  *  show up as a legitimate-looking row. Same threshold Dashboard already
@@ -182,71 +181,6 @@ function pctMeta(n: number | null): { text: string; color: string } {
 function PctCell({ value }: { value: number | null }) {
   const m = pctMeta(value);
   return <span style={{ color: m.color, fontWeight: 700 }}>{m.text}</span>;
-}
-
-// ── Trend color (7d floor direction) ────────────────────────────────────────
-function trendColor(data: number[] | undefined): string {
-  if (!Array.isArray(data) || data.length < 2) return VLText.muted;
-  const first = data[0];
-  const last = data[data.length - 1];
-  if (!Number.isFinite(first) || !Number.isFinite(last)) return VLText.muted;
-  if (last > first) return rgb(VL.green);
-  if (last < first) return rgb(VL.red);
-  return VLText.muted;
-}
-
-function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
-  if (pts.length < 2) return '';
-  if (pts.length === 2) {
-    return `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)} L${pts[1][0].toFixed(1)},${pts[1][1].toFixed(1)}`;
-  }
-  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const prev = pts[i - 1];
-    const curr = pts[i];
-    const cx = (prev[0] + curr[0]) / 2;
-    d += ` C${cx.toFixed(1)},${prev[1].toFixed(1)} ${cx.toFixed(1)},${curr[1].toFixed(1)} ${curr[0].toFixed(1)},${curr[1].toFixed(1)}`;
-  }
-  return d;
-}
-
-function Sparkline({ data, color = rgb(VL.green), w = 64, h = 18 }: { data: number[]; color?: string; w?: number; h?: number }) {
-  if (!Array.isArray(data) || data.length < 2) return <svg width={w} height={h} />;
-  let min = Infinity, max = -Infinity;
-  for (const v of data) { if (v < min) min = v; if (v > max) max = v; }
-  if (!Number.isFinite(min) || !Number.isFinite(max)) return <svg width={w} height={h} />;
-  const range = max - min || 1;
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (w - 6) + 3;
-    const y = h - 4 - ((v - min) / range) * (h - 8);
-    return [x, y] as const;
-  });
-  return (
-    <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-spark">
-      <path d={smoothPath(pts)} fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={2} fill={color} />)}
-    </svg>
-  );
-}
-
-function VolBars({ data, color = rgb(VL.green), w = 64, h = 18 }: { data: number[]; color?: string; w?: number; h?: number }) {
-  if (!data || data.length === 0) return <svg width={w} height={h} />;
-  const max = Math.max(...data);
-  const sum = data.reduce((a, b) => a + b, 0);
-  const barW = (w - (data.length - 1) * 2) / data.length;
-  return (
-    <svg width={w} height={h} style={{ overflow: 'visible' }} className="dashboard-volbars">
-      <text x={w} y={-2} fontSize="8" textAnchor="end" fill={VLText.muted} opacity="0.72" style={{ fontFamily: MONO }}>
-        Σ {sum >= 100 ? sum.toFixed(0) : sum.toFixed(sum >= 10 ? 1 : 2)}
-      </text>
-      {data.map((v, i) => {
-        const bh = Math.max(2, (v / max) * (h - 2));
-        const x = i * (barW + 2);
-        const y = h - bh;
-        return <rect key={i} x={x} y={y} width={barW} height={bh} rx="1" fill={color} />;
-      })}
-    </svg>
-  );
 }
 
 // ── Live overlay (event-sourced decoration, short ranges only) ─────────────
@@ -335,11 +269,9 @@ interface MergedRow extends TrendingCollection {
   live: LiveOverlay | null;
   bid: BidSnap | null;
   avatarUrl: string | null;
-  floor7d: number[];
-  vol7d: number[];
 }
 
-type SortKey = 'collection' | 'floor' | 'floorPct' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'floor_7d' | 'vol_7d';
+type SortKey = 'collection' | 'floor' | 'floorPct' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid';
 type SortDir = 'asc' | 'desc';
 type Tab = 'active' | 'recent';
 type MktFilter = 'all' | 'me' | 'tensor';
@@ -354,8 +286,6 @@ function sortValueFor(r: MergedRow, key: SortKey): number | string {
     case 'listedPct':  return r.listedPct ?? 0;
     case 'me_bid':     return r.bid?.meBidSol ?? 0;
     case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
-    case 'floor_7d':   return r.floor7d.length ? (r.floor7d[r.floor7d.length - 1] ?? 0) : 0;
-    case 'vol_7d':     return r.vol7d.length ? r.vol7d.reduce((a, b) => a + b, 0) : 0;
   }
 }
 
@@ -421,7 +351,6 @@ interface RowProps {
 }
 
 function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
-  const trend = trendColor(row.floor7d);
   const displayFloor = row.bid?.floorSol ?? row.floorSol;
   const hasMomentum = row.live != null && row.live.newerFloor > row.live.prevFloor * MOMENTUM_THRESHOLD;
   const imbalance = hasBidImbalance(row.floorSol ?? 0, row.bid);
@@ -526,14 +455,8 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
         {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
+      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.tnsrBidSol ?? null)}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}><Sparkline data={row.floor7d} color={trend} /></div>
-      </td>
-      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'center' }}>
-        <div style={{ display: 'inline-block' }}><VolBars data={row.vol7d} color={trend} /></div>
       </td>
     </tr>
   );
@@ -753,30 +676,6 @@ export default function Dashboard() {
     return () => { cancelled = true; clearInterval(id); };
   }, [slugKey]);
 
-  // ── 7D rollups ─────────────────────────────────────────────────────────────
-  const [rollups, setRollups] = useState<Record<string, { floor7d: number[]; vol7d: number[] }>>({});
-  const nameList = useMemo(() => Array.from(new Set(visibleRows.map(r => r.name).filter((n): n is string => !!n))).sort(), [visibleRows]);
-  const nameKey = nameList.join('|');
-
-  useEffect(() => {
-    if (nameList.length === 0) return;
-    let cancelled = false;
-    const doLoad = async () => {
-      try {
-        const qs = nameList.map(n => `names=${encodeURIComponent(n)}`).join('&');
-        const res = await fetch(`${API_BASE}/api/collections/rollups?${qs}`);
-        if (!res.ok) return;
-        const json = await res.json() as { rollups: Record<string, { floor7d: number[]; vol7d: number[] }> };
-        if (cancelled) return;
-        setRollups(prev => ({ ...prev, ...(json.rollups ?? {}) }));
-      } catch { /* transient — retry on next interval */ }
-    };
-    doLoad();
-    const id = setInterval(doLoad, ROLLUPS_REFRESH_MS);
-    return () => { cancelled = true; clearInterval(id); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nameKey]);
-
   // ── Official artwork fallback — internal-source rows only. ME-sourced rows
   // always keep ME's own real image; we never substitute a last-sale image
   // for a row that already has the official one. ──────────────────────────
@@ -786,17 +685,12 @@ export default function Dashboard() {
   );
   const iconBySlug = useCollectionIcons(internalSlugsNeedingIcon);
 
-  const merged: MergedRow[] = useMemo(() => visibleRows.map(r => {
-    const roll = r.name ? rollups[r.name] : undefined;
-    return {
-      ...r,
-      live: liveBySlug.get(r.slug) ?? null,
-      bid: bids[r.slug] ?? null,
-      avatarUrl: r.image ?? (r.source === 'internal' ? iconBySlug[r.slug] ?? null : null),
-      floor7d: roll?.floor7d ?? [],
-      vol7d: roll?.vol7d ?? [],
-    };
-  }), [visibleRows, liveBySlug, bids, iconBySlug, rollups]);
+  const merged: MergedRow[] = useMemo(() => visibleRows.map(r => ({
+    ...r,
+    live: liveBySlug.get(r.slug) ?? null,
+    bid: bids[r.slug] ?? null,
+    avatarUrl: r.image ?? (r.source === 'internal' ? iconBySlug[r.slug] ?? null : null),
+  })), [visibleRows, liveBySlug, bids, iconBySlug]);
 
   // ── Sort ───────────────────────────────────────────────────────────────────
   const [sortCol, setSortCol] = useState<SortKey | null>(null);
@@ -1003,16 +897,14 @@ export default function Dashboard() {
         <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '26%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '9%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '9%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '12%' }} />
               <col style={{ width: '10%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '8%' }} />
+              <col style={{ width: '10%' }} />
             </colgroup>
             <thead>
               <tr>
@@ -1024,20 +916,18 @@ export default function Dashboard() {
                 <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
-                <SortTh label="7D Floor"   col="floor_7d"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="center" />
-                <SortTh label="7D Volume"  col="vol_7d"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="center" />
               </tr>
             </thead>
             <tbody>
               {!snapshotDone && !loaded && sortedRows.length === 0 && Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="mints-tracker-row" aria-hidden="true">
-                  <td colSpan={10} style={{ padding: '14px 12px' }}>
+                  <td colSpan={8} style={{ padding: '14px 12px' }}>
                     <div style={{ height: 14, width: `${62 - i * 7}%`, borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
                   </td>
                 </tr>
               ))}
               {loaded && sortedRows.length === 0 && !busy && (
-                <tr><td colSpan={10} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
               )}
               {sortedRows.map((row, i) => (
                 <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
