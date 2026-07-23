@@ -1877,6 +1877,11 @@ body[data-bottombar="1"] .feed-root {
   background: rgba(168,144,232,0.045);
   pointer-events: none;
 }
+/* Dashboard dropped the left-edge rail (read as a stray colorless strip
+   once the per-row pressure-strip was removed) — /mints keeps it. */
+[data-page="dashboard"] .collection-table-scroll::before {
+  display: none;
+}
 .mints-tracker-row {
   background: rgba(255,255,255,0.030);
   /* Faint top-highlight rim — borrows the .mints-feed-row inset-rim language
