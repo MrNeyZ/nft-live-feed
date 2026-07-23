@@ -315,7 +315,7 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
           <span style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 16, textAlign: 'right', flexShrink: 0 }}>{rank}</span>
           <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={34} />
           <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span title={name} style={{ fontSize: 15, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
+            <span title={name} style={{ width: 95, flexShrink: 0, fontSize: 15, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
             {row.isCompressed && (
               <span title="Compressed NFT (cNFT)" style={{
                 flexShrink: 0, padding: '1px 5px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
