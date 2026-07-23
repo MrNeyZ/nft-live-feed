@@ -699,7 +699,6 @@ const STATUS_COLORS: Record<string, string> = {
 type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
 type SortDir = 'asc' | 'desc';
 const SORT_KEYS: readonly SortKey[] = ['collection', 'mints', 'supply', 'last', 'price', 'created'];
-type MintTab = 'active' | 'recent';
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
@@ -1015,10 +1014,9 @@ export default function MintsPage() {
     } catch { return 'desc'; }
   });
   // Has the user manually clicked a column header (as opposed to relying on
-  // the tab's own default: ACTIVE → CREATED desc, RECENT → LAST MINT desc)?
-  // Persisted like sortKey/sortDir so a manual choice survives both tab
-  // switches and reloads — it no longer resets on tab switch (see the
-  // mintTab effect below).
+  // the default LAST MINT desc — was per-tab before ACTIVE/RECENT was
+  // removed; RECENT's default is now the only one)? Persisted like
+  // sortKey/sortDir so a manual choice survives reloads.
   const [hasManualSort, setHasManualSort] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try { return window.localStorage.getItem('vl.mints.hasManualSort') === '1'; } catch { return false; }
@@ -1030,9 +1028,7 @@ export default function MintsPage() {
     // Compare against the *effective* key so a click on the currently-
     // visible column flips direction, while a click on a different
     // column resets to desc.
-    const currentEffective = hasManualSort
-      ? sortKey
-      : (mintTab === 'recent' ? 'last' : 'created');
+    const currentEffective = hasManualSort ? sortKey : 'last';
     if (k === currentEffective) {
       const currentDir = hasManualSort ? sortDir : 'desc';
       setSortKey(k);
@@ -1051,21 +1047,6 @@ export default function MintsPage() {
   // but rows show 56m ago" bug.
   const [tick, setTick]       = useState(0);
 
-  // ACTIVE / RECENT tab — mirrors the dashboard pattern. ACTIVE keeps
-  // the existing two-tier sort (shown rows first, watch rows after);
-  // RECENT flattens to "any row with a mint inside the selected
-  // timeframe window, sorted by most-recent mint", ignoring the
-  // shown/watch promotion gate so freshly-mintted but not-yet-promoted
-  // collections surface immediately. Tab + timeframe + filters-open
-  // are persisted in localStorage with the same key prefix as the rest
-  // of /mints state.
-  const [mintTab, setMintTab] = useState<MintTab>(() => {
-    if (typeof window === 'undefined') return 'active';
-    try {
-      const v = window.localStorage.getItem('vl.mints.tab');
-      return v === 'recent' ? 'recent' : 'active';
-    } catch { return 'active'; }
-  });
   const [mintTf, setMintTf] = useState<MintTimeframe>(() => {
     if (typeof window === 'undefined') return '1H';
     try {
@@ -1128,13 +1109,6 @@ export default function MintsPage() {
     window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
   }, []);
-  useEffect(() => {
-    try { window.localStorage.setItem('vl.mints.tab', mintTab); } catch { /* noop */ }
-    // A manual sort choice now persists across tab switches (and reloads,
-    // via the localStorage-backed initializers above) instead of resetting
-    // to each tab's default ordering — matches every other /mints
-    // preference (tab, timeframe, filters) already surviving a tab switch.
-  }, [mintTab]);
   useEffect(() => {
     try { window.localStorage.setItem('vl.mints.tf', mintTf); } catch { /* noop */ }
   }, [mintTf]);
@@ -2159,13 +2133,13 @@ export default function MintsPage() {
   //  cluster-compactness back, the formula is `tfMinutes / activeMin`
   //  using `tfStatsByKey.get(key).{firstTs,lastTs}`.)
 
-  // Effective sort = manual override when set, else per-tab default.
-  // ACTIVE defaults to CREATED desc; RECENT defaults to LAST MINT desc so
-  // the table reads as recent activity until the user opts into a
-  // different ordering by clicking a header.
-  const effectiveSortKey: SortKey = hasManualSort
-    ? sortKey
-    : (mintTab === 'recent' ? 'last' : 'created');
+  // Effective sort = manual override when set, else LAST MINT desc — the
+  // table reads as recent activity until the user opts into a different
+  // ordering by clicking a header. Was ACTIVE/RECENT's per-tab default
+  // before the tab switcher was removed; RECENT's default is now the only
+  // one (ACTIVE's two-tier shown/watch sort and CREATED-desc default are
+  // both retired with it).
+  const effectiveSortKey: SortKey = hasManualSort ? sortKey : 'last';
   const effectiveSortDir: SortDir = hasManualSort ? sortDir : 'desc';
 
   const sorted = useMemo(() => {
@@ -2264,28 +2238,16 @@ export default function MintsPage() {
     const tiebreak = (a: MintStatus, b: MintStatus): number =>
       (b.lastMintAt - a.lastMintAt) || (b.v60 - a.v60);
 
-    if (mintTab === 'recent') {
-      // RECENT view — flatten the shown/watch tiering. Apply the
-      // effective sort + direction, falling back to recency when equal.
-      arr.sort((a, b) => cmpAsc(a, b) * dir || tiebreak(a, b));
-      return arr;
-    }
-
-    // ACTIVE — preserve the two-tier sort (shown first, then watch),
-    // but apply the effective sort + direction within each tier so
-    // every column header is honoured.
-    arr.sort((a, b) => {
-      const aShown = a.displayState === 'shown' ? 0 : 1;
-      const bShown = b.displayState === 'shown' ? 0 : 1;
-      if (aShown !== bShown) return aShown - bShown;
-      return cmpAsc(a, b) * dir || tiebreak(a, b);
-    });
+    // Flattened sort (was RECENT's behavior; ACTIVE's two-tier shown/watch
+    // split is retired with the tab switcher). Effective sort + direction,
+    // falling back to recency when equal.
+    arr.sort((a, b) => cmpAsc(a, b) * dir || tiebreak(a, b));
     return arr;
   // computeCoef closes over `mintTf` and `tfStatsByKey`, both already
   // listed below. `tick` re-evaluates the timeframe cutoff every 5 s
   // so rows that age past the window drop out promptly.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, effectiveSortKey, effectiveSortDir, mintTab, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick, blacklistSet]);
+  }, [rows, effectiveSortKey, effectiveSortDir, mintTf, showCnft, selectedTypes, selectedSources, selectedStatuses, tfStatsByKey, lastPriceByKey, tick, blacklistSet]);
 
   // Aggregate Mint Stats — collection counts for the active timeframe.
   // Observed = any collection whose lastMintAt is within the TF window
@@ -2299,7 +2261,7 @@ export default function MintsPage() {
   // the snapshot immediately (filterSortKey diff), so the freeze never
   // hides a UX action. Cleared the moment pause ends.
   const filterSortKey =
-    `${effectiveSortKey}|${effectiveSortDir}|${mintTab}|${mintTf}|${showCnft}|${showBulkMints}|` +
+    `${effectiveSortKey}|${effectiveSortDir}|${mintTf}|${showCnft}|${showBulkMints}|` +
     `${[...selectedTypes].sort().join(',')}|${[...selectedSources].sort().join(',')}|${[...selectedStatuses].sort().join(',')}|` +
     `${[...blacklistSet].sort().join(',')}`;
   interface MintsDisplaySnap {
@@ -2437,20 +2399,7 @@ export default function MintsPage() {
           background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {(['active', 'recent'] as const).map(t => (
-              <Pill
-                key={t}
-                active={mintTab === t}
-                onClick={() => setMintTab(t)}
-                label={t}
-                style={{ padding: '3px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
-                         textTransform: 'uppercase',
-                         border: mintTab === t ? `1px solid ${alpha(VL.purpleTint,0.44)}` : '1px solid transparent',
-                         background: mintTab === t ? alpha(VL.purpleTint,0.20) : 'transparent',
-                         color: mintTab === t ? VLText.primary : VLText.muted, boxShadow: 'none' }}
-              />
-            ))}
-            <span style={{ marginLeft: 6 }}><LiveDot /></span>
+            <LiveDot />
             {/* Shared PAUSED chip — same hoverPaused state as the Live
                 Mint Feed header; appears here so the tracker table also
                 reflects the freeze. */}

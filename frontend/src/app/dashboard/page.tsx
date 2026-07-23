@@ -87,7 +87,6 @@ const FETCH_LIMIT = 100;
 const TRENDING_POLL_MS = 45_000;
 
 const RANGE_STORAGE_KEY = 'vl.dashboard.range';
-const TAB_STORAGE_KEY = 'vl.dashboard.tab';
 const VALID_RANGES = new Set<Range>(RANGES.map(r => r.key));
 
 function loadSavedRange(): Range {
@@ -259,7 +258,6 @@ interface MergedRow extends TrendingCollection {
 
 type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'last';
 type SortDir = 'asc' | 'desc';
-type Tab = 'active' | 'recent';
 
 function sortValueFor(r: MergedRow, key: SortKey): number | string {
   switch (key) {
@@ -348,14 +346,13 @@ function TimeframePills({ active, onChange }: { active: Range; onChange: (t: Ran
 interface RowProps {
   row: MergedRow;
   rank: number;
-  variant: Tab;
   isSelected: boolean;
   onClick: (row: MergedRow) => void;
   onHoverEnter: (row: MergedRow, el: HTMLElement) => void;
   onHoverLeave: () => void;
 }
 
-function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
+function Row({ row, rank, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
   const displayFloor = row.bid?.floorSol ?? row.floorSol;
   // Tensor (via /collections/bids) over the ME-trending base row — ME's own
   // /stats has no supply denominator at all, so Tensor is the only source
@@ -417,8 +414,8 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
                 <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             </div>
-            {variant === 'recent' && row.live && (
-              <div style={{ fontSize: 10.5, color: '#877496', marginTop: 1 }}>{fmtAgo(row.live.latestTs)} ago</div>
+            {row.live && (
+              <div style={{ fontSize: 10.5, color: '#877496', marginTop: 1 }}>{fmtAgo(row.live.latestTs)}</div>
             )}
           </div>
         </div>
@@ -468,20 +465,7 @@ export default function Dashboard() {
   useEffect(() => { document.title = 'Dashboard | VictoryLabs'; }, []);
 
   const [range, setRange] = useState<Range>(loadSavedRange);
-  const [tab, setTab] = useState<Tab>('active');
   const [selected, setSelected] = useState<string | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(TAB_STORAGE_KEY);
-    if (saved === 'active' || saved === 'recent') setTab(saved);
-  }, []);
-  useEffect(() => { try { localStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* ignore */ } }, [tab]);
-
-  // RECENT / ACTIVE only means something while the live overlay is active —
-  // for 1d/7d/30d there's no _latestTs to sort RECENT by, so fall back.
-  useEffect(() => {
-    if (!LIVE_OVERLAY_RANGES.has(range) && tab === 'recent') setTab('active');
-  }, [range, tab]);
 
   // ── ME-sourced (+ internal-supplement) rows ──────────────────────────────
   const [rows, setRows] = useState<TrendingCollection[]>([]);
@@ -739,8 +723,12 @@ export default function Dashboard() {
     return [...merged].sort((a, b) => {
       let primary = 0;
       if (sortCol === null) {
-        if (liveActive && tab === 'recent') primary = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
-        else if (liveActive && tab === 'active') primary = numCmp(b.salesCount ?? 0, a.salesCount ?? 0);
+        // Default (unsorted) order always favors most-recent activity when
+        // the live overlay has data to sort by — this used to be gated
+        // behind a RECENT tab; ACTIVE/RECENT was removed (column sort
+        // covers "most active by count" via the Sales column instead), so
+        // RECENT's behavior is now just the permanent default.
+        if (liveActive) primary = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
         else primary = numCmp(b.volumeSol ?? 0, a.volumeSol ?? 0);
       } else {
         const sign = sortDir === 'asc' ? 1 : -1;
@@ -753,7 +741,7 @@ export default function Dashboard() {
       if (tsCmp !== 0) return tsCmp;
       return (a.name ?? a.slug).localeCompare(b.name ?? b.slug);
     });
-  }, [merged, sortCol, sortDir, tab, liveActive]);
+  }, [merged, sortCol, sortDir, liveActive]);
 
   const handleRowClick = (row: MergedRow) => {
     setSelected(row.slug);
@@ -851,18 +839,6 @@ export default function Dashboard() {
             <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
               {loaded && !error ? `(${sortedRows.length.toLocaleString()})` : 'Loading…'}
             </span>
-            {liveActive && <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />}
-            {liveActive && (['active', 'recent'] as const).map(t => (
-              <Pill
-                key={t} active={tab === t} onClick={() => setTab(t)} label={t}
-                style={{
-                  padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-                  border: tab === t ? `1px solid ${alpha(VL.purpleTint, 0.5)}` : '1px solid transparent',
-                  background: tab === t ? alpha(VL.purpleTint, 0.18) : 'transparent',
-                  color: tab === t ? VLText.primary : VLText.muted,
-                }}
-              />
-            ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <TimeframePills active={range} onChange={r => { setRange(r); saveRange(r); }} />
@@ -912,7 +888,7 @@ export default function Dashboard() {
               )}
               {sortedRows.map((row, i) => (
                 <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
-                     row={row} rank={i + 1} variant={liveActive ? tab : 'active'}
+                     row={row} rank={i + 1}
                      isSelected={selected === row.slug} onClick={handleRowClick}
                      onHoverEnter={onRowEnter} onHoverLeave={onRowLeave} />
               ))}
