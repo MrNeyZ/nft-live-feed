@@ -1900,6 +1900,13 @@ body[data-bottombar="1"] .feed-root {
 [data-page="dashboard"] .collection-table-scroll::before {
   display: none;
 }
+/* /multi's DashboardCollectionsPanel drops it too — same rationale as
+   dashboard above. A dedicated class (not [data-embedded="1"]) because
+   /mints itself sets data-embedded="1" in its own legacy iframe-embed
+   mode, which must keep the rail. */
+.multi-collections-scroll::before {
+  display: none;
+}
 .mints-tracker-row {
   background: rgba(255,255,255,0.030);
   /* Faint top-highlight rim — borrows the .mints-feed-row inset-rim language

@@ -57,8 +57,12 @@ interface TrendingResponse {
   message?: string;
 }
 
-type Range = '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
+// '5m' isn't an ME window (ME stops at 10m) — the backend synthesizes it
+// from our own sale_events (see tools-trending-collections.ts's is5m
+// branch), same as /dashboard.
+type Range = '5m' | '10m' | '1h' | '6h' | '1d' | '7d' | '30d';
 const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
+  { key: '5m',  label: '5M'  },
   { key: '10m', label: '10M' },
   { key: '1h',  label: '1H'  },
   { key: '6h',  label: '6H'  },
@@ -72,6 +76,7 @@ const FETCH_LIMIT = 60;
 const TRENDING_POLL_MS = 45_000;
 
 const RANGE_MS: Record<Range, number> = {
+  '5m':        5 * 60_000,
   '10m':      10 * 60_000,
   '1h':       60 * 60_000,
   '6h':   6 * 60 * 60_000,
@@ -79,7 +84,7 @@ const RANGE_MS: Record<Range, number> = {
   '7d':  7 * 24 * 60 * 60_000,
   '30d': 30 * 24 * 60 * 60_000,
 };
-const LIVE_OVERLAY_RANGES = new Set<Range>(['10m', '1h', '6h']);
+const LIVE_OVERLAY_RANGES = new Set<Range>(['5m', '10m', '1h', '6h']);
 
 const MOMENTUM_THRESHOLD = 1.005;
 const FRESH_SALE_WINDOW_MS = 6_000;
@@ -239,8 +244,8 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
   const active = sortKey === col;
   return (
     <th onClick={() => onSort(col)} style={{
-      padding: '10px 10px', fontSize: 11, fontWeight: active ? 800 : 600,
-      color: active ? VLText.primary : VLText.muted,
+      padding: '10px 10px', fontSize: 11, fontWeight: 700,
+      color: VLText.muted,
       letterSpacing: '0.6px', textAlign: align, cursor: 'pointer',
       borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
       background: '#1a1530', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
@@ -527,7 +532,7 @@ export function DashboardCollectionsPanel() {
         </div>
       )}
 
-      <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div className="scroll-area collection-table-scroll multi-collections-scroll" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         <table className="collections-table" style={{ width: '100%', minWidth: 480, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <colgroup>
             <col style={{ width: '28%' }} />

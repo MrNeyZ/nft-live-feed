@@ -309,8 +309,8 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
   const active = sortKey === col;
   return (
     <th onClick={() => onSort(col)} style={{
-      padding: '13px 10px', fontSize: 11, fontWeight: active ? 800 : 600,
-      color: active ? VLText.primary : `var(--th-label-color, ${VLText.muted})`,
+      padding: '13px 10px', fontSize: 11, fontWeight: 700,
+      color: `var(--th-label-color, ${VLText.muted})`,
       letterSpacing: '0.8px', textAlign: align, cursor: 'pointer',
       borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
       background: '#1a1530', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
@@ -828,52 +828,30 @@ export default function Dashboard() {
 
   return (
     <div className="feed-root page-transition" data-page="dashboard">
-      {/* TopNav rendered persistently by Gate (anti-flash). */}
-      <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>Trending Collections</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <LiveDot />
-              <span style={{ fontSize: 11, color: rgb(VL.green) }}>
-                {loaded && !error ? `${sortedRows.length.toLocaleString()} collections` : 'Loading…'}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => load(range, { fromClick: true })}
-            disabled={busy}
-            style={{
-              padding: '7px 16px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase',
-              borderRadius: 5, cursor: busy ? 'not-allowed' : 'pointer',
-              border: `1px solid ${alpha(VL.purpleTint, 0.55)}`,
-              background: busy ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: busy ? VLText.muted : VLText.primary,
-              boxShadow: busy ? 'none' : '0 0 12px rgba(128,104,216,0.18)', transition: 'all 0.15s',
-            }}
-          >{busy ? 'Loading…' : 'Refresh'}</button>
-        </div>
-        {error && (
-          <div style={{ marginTop: 12, padding: '8px 12px', fontSize: 12, color: rgb(VL.red), background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5 }}>
-            {error}
-          </div>
-        )}
-      </div>
-
+      {/* TopNav rendered persistently by Gate (anti-flash). Single-card
+          structure matching /feed and /multi's DashboardCollectionsPanel —
+          no separate outer page title/subtitle block; the card's own
+          header bar carries the title + live count + tabs + timeframe. */}
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%',
-        maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto',
+        maxWidth: 'var(--dashboard-max, 1200px)', margin: '14px auto 16px',
         background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
         border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4), 0 0 14px ${alpha(VL.purpleDeep, 0.06)}`,
-        overflow: 'hidden', marginBottom: 16,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
+        overflow: 'hidden',
       }}>
         <div style={{
-          padding: '7px 12px', borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: alpha(VL.purpleTint, 0.04),
+          padding: '10px 14px', borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap',
+          background: alpha(VL.purpleTint, 0.04),
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, rowGap: 4, minWidth: 0 }}>
+            <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Trending Collections</h1>
+            <LiveDot />
+            <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
+              {loaded && !error ? `(${sortedRows.length.toLocaleString()})` : 'Loading…'}
+            </span>
+            {liveActive && <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />}
             {liveActive && (['active', 'recent'] as const).map(t => (
               <Pill
                 key={t} active={tab === t} onClick={() => setTab(t)} label={t}
@@ -885,16 +863,17 @@ export default function Dashboard() {
                 }}
               />
             ))}
-            {liveActive && <span style={{ width: 1, height: 14, background: 'rgba(255,255,255,0.08)', margin: '0 8px' }} />}
-            <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, letterSpacing: '0.5px' }}>
-              {sortedRows.length.toLocaleString()} <span style={{ color: '#4d4d6e', fontWeight: 500 }}>collections</span>
-            </span>
-            <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <TimeframePills active={range} onChange={r => { setRange(r); saveRange(r); }} />
           </div>
         </div>
+
+        {error && (
+          <div style={{ margin: '8px 14px 0', padding: '8px 12px', fontSize: 12, color: rgb(VL.red), background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5, flexShrink: 0 }}>
+            {error}
+          </div>
+        )}
 
         <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
