@@ -270,7 +270,7 @@ interface MergedRow extends TrendingCollection {
   avatarUrl: string | null;
 }
 
-type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid';
+type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'last';
 type SortDir = 'asc' | 'desc';
 type Tab = 'active' | 'recent';
 
@@ -287,7 +287,24 @@ function sortValueFor(r: MergedRow, key: SortKey): number | string {
     }
     case 'me_bid':     return r.bid?.meBidSol ?? 0;
     case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
+    case 'last':       return r.live?.latestTs ?? 0;
   }
+}
+
+/** Short "time since last sale" — same tiering as mints' fmtAgeShort
+ *  (MintsTableRow.tsx / lib/format.ts), no "ago" suffix. Only meaningful
+ *  while the live overlay is active (10m/1h/6h); '—' otherwise. */
+function fmtLastAge(ts: number | null | undefined): string {
+  if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 5_000)      return 'now';
+  if (diff < 60_000)     return `${Math.floor(diff / 1_000)}s`;
+  if (diff < 3_600_000)  return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 14) return `${days}d`;
+  if (days < 30) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 30)}mo`;
 }
 
 function numCmp(a: number, b: number): number {
@@ -452,6 +469,9 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
             </div>
           )}
         </div>
+      </td>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 12.5, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
+        {fmtLastAge(row.live?.latestTs)}
       </td>
     </tr>
   );
@@ -877,13 +897,14 @@ export default function Dashboard() {
         <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '32%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '10%' }} />
               <col style={{ width: '9%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '11%' }} />
+              <col style={{ width: '9%' }} />
             </colgroup>
             <thead>
               <tr>
@@ -894,18 +915,19 @@ export default function Dashboard() {
                 <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Last"       col="last"       sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               </tr>
             </thead>
             <tbody>
               {!snapshotDone && !loaded && sortedRows.length === 0 && Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="mints-tracker-row" aria-hidden="true">
-                  <td colSpan={7} style={{ padding: '14px 12px' }}>
+                  <td colSpan={8} style={{ padding: '14px 12px' }}>
                     <div style={{ height: 14, width: `${62 - i * 7}%`, borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
                   </td>
                 </tr>
               ))}
               {loaded && sortedRows.length === 0 && !busy && (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
               )}
               {sortedRows.map((row, i) => (
                 <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
