@@ -322,7 +322,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
     }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start' }}>
         {label}
-        {active && <span style={{ color: rgb(VL.purple) }}>{sortDir === 'desc' ? '↓' : '↑'}</span>}
+        {active && <span style={{ color: rgb(VL.purpleTint) }}>{sortDir === 'desc' ? '↓' : '↑'}</span>}
       </span>
     </th>
   );
@@ -408,7 +408,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span
-            className={row.live?.isLive ? 'dashboard-live-rank' : undefined}
             style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 18, textAlign: 'right', flexShrink: 0 }}
           >{rank}</span>
           <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={40} />
@@ -825,8 +824,6 @@ export default function Dashboard() {
   const onRowLeave = useCallback(() => { hoverSlugRef.current = null; setPreview(null); }, []);
   useEffect(() => { hoverSlugRef.current = null; setPreview(null); }, [range]);
 
-  const hasInternalRows = rows.some(r => r.source === 'internal');
-
   return (
     <div className="feed-root page-transition" data-page="dashboard">
       {/* TopNav rendered persistently by Gate (anti-flash). */}
@@ -834,17 +831,11 @@ export default function Dashboard() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>Trending Collections</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: VLText.muted, flexWrap: 'wrap', rowGap: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <LiveDot />
-              <span>live · auto-refresh 45s</span>
-              {loaded && !error && (
-                <>
-                  <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
-                  <span>{sortedRows.length.toLocaleString()} collections</span>
-                </>
-              )}
-              <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
-              <span>Source: <span style={{ color: rgb(VL.purpleTint) }}>Magic Eden</span>{hasInternalRows && <span> + internal</span>}</span>
+              <span style={{ fontSize: 11, color: rgb(VL.green) }}>
+                {loaded && !error ? `${sortedRows.length.toLocaleString()} collections` : 'Loading…'}
+              </span>
             </div>
           </div>
           <button
@@ -884,7 +875,6 @@ export default function Dashboard() {
             {liveActive && (['active', 'recent'] as const).map(t => (
               <Pill
                 key={t} active={tab === t} onClick={() => setTab(t)} label={t}
-                icon={<span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: t === 'active' ? rgb(VL.green) : VLText.muted, opacity: 0.75 }} />}
                 style={{
                   padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
                   border: tab === t ? `1px solid ${alpha(VL.purpleTint, 0.5)}` : '1px solid transparent',

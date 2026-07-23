@@ -858,11 +858,11 @@ export const FeedCard = memo(function FeedCard({
                 aria-label="Unclaimed Metaplex resize rent"
                 style={{
                   display: 'inline-flex', alignItems: 'center',
-                  height: 18, padding: '0 7px', borderRadius: 9,
-                  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', lineHeight: 1,
+                  height: 15, padding: '0 6px', borderRadius: 7,
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.4px', lineHeight: 1,
                   color: VLText.muted,
-                  background: 'rgba(154,154,180,0.12)',
-                  border: '1px solid rgba(154,154,180,0.42)',
+                  background: 'rgba(154,154,180,0.07)',
+                  border: '1px solid rgba(154,154,180,0.24)',
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   textTransform: 'uppercase', flexShrink: 0,
                 }}
