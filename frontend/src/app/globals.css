@@ -503,12 +503,10 @@ html[data-layout="phone"] .collections-table th:nth-child(4),
 html[data-layout="phone"] .collections-table th:nth-child(5),
 html[data-layout="phone"] .collections-table th:nth-child(6),
 html[data-layout="phone"] .collections-table th:nth-child(7),
-html[data-layout="phone"] .collections-table th:nth-child(8),
 html[data-layout="phone"] .collections-table td:nth-child(4),
 html[data-layout="phone"] .collections-table td:nth-child(5),
 html[data-layout="phone"] .collections-table td:nth-child(6),
-html[data-layout="phone"] .collections-table td:nth-child(7),
-html[data-layout="phone"] .collections-table td:nth-child(8) { display: none !important; }
+html[data-layout="phone"] .collections-table td:nth-child(7) { display: none !important; }
 html[data-layout="phone"] .collections-table {
   width: 100% !important;
   max-width: 100% !important;
@@ -554,10 +552,13 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
 
 /* small_laptop tier (769–1024px): the 768px collapse below doesn't fire yet,
    so trim only the least-essential column — the secondary TNSR BID —
-   while FLOOR %, VOLUME, LISTED and ME BID stay visible. */
+   while VOLUME, LISTED and ME BID stay visible. Table is 7 columns now
+   (FLOOR % removed — it never actually varied with the selected
+   timeframe, ME returns the same figure regardless of `window`, so the
+   column was actively misleading), TNSR BID is the last one. */
 @media (max-width: 1024px) {
-  .collections-table th:nth-child(8),
-  .collections-table td:nth-child(8) { display: none !important; }
+  .collections-table th:nth-child(7),
+  .collections-table td:nth-child(7) { display: none !important; }
 }
 
 @media (max-width: 768px) {
@@ -565,12 +566,10 @@ html[data-layout="phone"] .collections-table td:first-child > div > span:last-ch
   .collections-table th:nth-child(5),
   .collections-table th:nth-child(6),
   .collections-table th:nth-child(7),
-  .collections-table th:nth-child(8),
   .collections-table td:nth-child(4),
   .collections-table td:nth-child(5),
   .collections-table td:nth-child(6),
-  .collections-table td:nth-child(7),
-  .collections-table td:nth-child(8) { display: none !important; }
+  .collections-table td:nth-child(7) { display: none !important; }
   .collections-table {
     width: 100% !important;
     max-width: 100% !important;

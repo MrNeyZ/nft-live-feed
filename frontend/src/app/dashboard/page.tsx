@@ -52,7 +52,6 @@ interface TrendingCollection {
   floorSol: number | null;
   volumeSol: number | null;
   salesCount: number | null;
-  floorPctChange: number | null;
   listedCount: number | null;
   totalSupply: number | null;
   listedPct: number | null;
@@ -171,18 +170,6 @@ function fmtInt(n: number | null): string { return n == null ? '—' : Math.roun
 function fmtBid(sol: number | null): string { return sol == null ? '—' : formatSol(sol); }
 function fmtAgo(ms: number): string { return timeAgo(ms); }
 
-function pctMeta(n: number | null): { text: string; color: string } {
-  if (n == null || !Number.isFinite(n)) return { text: '—', color: VLText.muted };
-  const rounded = Math.abs(n) < 0.05 ? 0 : n;
-  if (rounded === 0) return { text: '0%', color: VLText.muted };
-  const sign = rounded > 0 ? '+' : '';
-  return { text: `${sign}${rounded.toFixed(1)}%`, color: rounded > 0 ? rgb(VL.green) : rgb(VL.red) };
-}
-function PctCell({ value }: { value: number | null }) {
-  const m = pctMeta(value);
-  return <span style={{ color: m.color, fontWeight: 700 }}>{m.text}</span>;
-}
-
 // ── Live overlay (event-sourced decoration, short ranges only) ─────────────
 interface LiveOverlay {
   buyCount: number;
@@ -281,7 +268,7 @@ interface MergedRow extends TrendingCollection {
   avatarUrl: string | null;
 }
 
-type SortKey = 'collection' | 'floor' | 'floorPct' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid';
+type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid';
 type SortDir = 'asc' | 'desc';
 type Tab = 'active' | 'recent';
 type MktFilter = 'all' | 'me' | 'tensor';
@@ -290,7 +277,6 @@ function sortValueFor(r: MergedRow, key: SortKey): number | string {
   switch (key) {
     case 'collection': return (r.name ?? r.slug).toLowerCase();
     case 'floor':      return r.bid?.floorSol ?? r.floorSol ?? 0;
-    case 'floorPct':   return r.floorPctChange ?? 0;
     case 'volume':     return r.volumeSol ?? 0;
     case 'sales':      return r.salesCount ?? 0;
     case 'listedPct': {
@@ -459,9 +445,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
         {fmtSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green), opacity: 0.9 }}>↑</span>}
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 12.5 }}>
-        <PctCell value={row.floorPctChange} />
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
         {fmtSol(row.volumeSol)}
@@ -947,21 +930,19 @@ export default function Dashboard() {
         <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '30%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '11%' }} />
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '9%' }} />
               <col style={{ width: '12%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '10%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '11%' }} />
             </colgroup>
             <thead>
               <tr>
                 <SortTh label="Collection" col="collection" sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="left" />
                 <SortTh label="Sales"      col="sales"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Floor"      col="floor"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
-                <SortTh label="Floor %"    col="floorPct"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Volume"     col="volume"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
@@ -971,13 +952,13 @@ export default function Dashboard() {
             <tbody>
               {!snapshotDone && !loaded && sortedRows.length === 0 && Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="mints-tracker-row" aria-hidden="true">
-                  <td colSpan={8} style={{ padding: '14px 12px' }}>
+                  <td colSpan={7} style={{ padding: '14px 12px' }}>
                     <div style={{ height: 14, width: `${62 - i * 7}%`, borderRadius: 4, background: 'rgba(255,255,255,0.05)' }} />
                   </td>
                 </tr>
               ))}
               {loaded && sortedRows.length === 0 && !busy && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: VLText.muted, padding: '64px 24px', fontSize: 13 }}>No collections for this timeframe.</td></tr>
               )}
               {sortedRows.map((row, i) => (
                 <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
