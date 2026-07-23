@@ -417,6 +417,9 @@ function Row({ row, rank, isSelected, onClick }: RowProps) {
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
         {fmtSol(row.volumeSol)}
       </td>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 12.5, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
+        {fmtLastAge(row.live?.latestTs)}
+      </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
@@ -437,9 +440,6 @@ function Row({ row, rank, isSelected, onClick }: RowProps) {
             </div>
           )}
         </div>
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 12.5, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
-        {fmtLastAge(row.live?.latestTs)}
       </td>
     </tr>
   );
@@ -792,10 +792,10 @@ export default function Dashboard() {
                 <SortTh label="Sales"      col="sales"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Floor"      col="floor"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Volume"     col="volume"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Last"       col="last"       sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
-                <SortTh label="Last"       col="last"       sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               </tr>
             </thead>
             <tbody>
