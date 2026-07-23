@@ -3,7 +3,7 @@
 // VictoryLabs — Tools index.
 // Plain directory of every manual, on-demand tool under /tools/<name>.
 // This route used to BE the Retardio Offers scanner (moved to
-// /tools/retardio); this page is now just a card grid linking out — no
+// /tools/offers); this page is now just a card grid linking out — no
 // data fetching, no state, matches the TOOLS dropdown in soloist/shared.tsx
 // (which stays the primary nav path — this page is the browsable index).
 
@@ -19,7 +19,8 @@ interface ToolCard {
 
 const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/me-tensor-arb',         title: 'ME vs Tensor Arb',       desc: 'Find ME/MMM listings priced below Tensor’s cheapest active listing for a collection.' },
-  { href: '/tools/retardio',              title: 'Retardio Offers',       desc: 'Retardio-family listings against Magic Eden personal offers.' },
+  { href: '/tools/offers',                title: 'Retardio Offers',       desc: 'Retardio-family listings against Magic Eden personal offers.' },
+  { href: '/tools/spl20',                 title: 'SPL20',                 desc: 'Resolve a ticker’s CA + unredeemed NFT inventory on-chain, spread it against an ME floor.' },
   { href: '/tools/rare-feed',             title: 'Rare Feed',             desc: 'Rarity-scored value sales feed.' },
   { href: '/tools/mint-analyzer',         title: 'Mint Analyzer',         desc: 'Decode a mint transaction — primitive, wrapper, reconstruction verdict.' },
   { href: '/tools/holders',               title: 'Holders',               desc: 'Raw distinct on-chain owner count for a collection (Helius DAS).' },
@@ -28,7 +29,6 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
   { href: '/tools/mmm-collection-scanner',title: 'MMM Collection Scanner',desc: 'Triage underfunded MMM pools across a collection.' },
   { href: '/tools/mmm-collection-bids',   title: 'MMM Collection Bids',   desc: 'Create/manage collection-level MMM buy-side pools (raw on-chain, dedicated cosigner).' },
-  { href: '/tools/dexbull-airdrop',       title: 'DEXBULL Airdrop',       desc: 'DotLand × DEXBULL airdrop eligibility estimate — strict vs relaxed.' },
   // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
   // { href: '/tools/pixel-forge',        title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
   { href: '/tools/candy-mint',            title: 'Candy Mint',            desc: 'Reconstruct a Core Candy Guard mint from a signature and mint directly, if still alive.' },

@@ -700,7 +700,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/retardio', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/holders', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/mmm-collection-bids', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/holders', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
@@ -1199,15 +1199,15 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     </a>
                     <Link
                       role="menuitem"
-                      href="/tools/retardio"
+                      href="/tools/offers"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/retardio'); }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/offers'); }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
                       onClick={() => {
                         if (typeof window !== 'undefined') {
                           (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/retardio');
+                          console.log('[nav-perf] click /tools/offers');
                         }
                         setToolsOpen(false);
                       }}
@@ -1354,6 +1354,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     </Link>
                     <Link
                       role="menuitem"
+                      href="/tools/spl20"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/spl20'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/spl20');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      SPL20
+                    </Link>
+                    <Link
+                      role="menuitem"
                       href="/tools/mmm-collection-bids"
                       prefetch
                       style={DROPDOWN_ITEM_STYLE}
@@ -1385,17 +1402,17 @@ export function TopNav({ active }: { active?: Page } = {}) {
             data-tab="other"
             onClick={() => {
               // The idle-prefetch pump above (HREFS) already covers /mints
-              // and /tools/retardio in the common case, but it's staggered
+              // and /tools/offers in the common case, but it's staggered
               // one route per idle tick — on iOS Safari (no
               // requestIdleCallback at all, falls back to a 200ms
               // setTimeout per tick) that puts /mints ~600ms and
-              // /tools/retardio ~1000ms after mount. This menu is
+              // /tools/offers ~1000ms after mount. This menu is
               // mobile-only, i.e. exactly that audience, so a user who
               // taps OTHER fast on a fresh load can still beat the pump.
               // Explicit prefetch here is a no-op once the pump already
               // covered it (Next dedupes per path) and costs nothing.
               router.prefetch('/mints');
-              router.prefetch('/tools/retardio');
+              router.prefetch('/tools/offers');
               setOtherOpen(true);
             }}
             aria-haspopup="dialog"
@@ -2073,7 +2090,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
           onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
           onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-          onClick={() => goInternal('/tools/retardio')}
+          onClick={() => goInternal('/tools/offers')}
         >
           <span style={ITEM_LABEL}>Offers</span>
         </button>

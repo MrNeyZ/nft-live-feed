@@ -3,7 +3,7 @@
 // VictoryLabs — Tools › Retardio Offers.
 // Manual, on-demand scanner: Retardio-family listings with Magic Eden
 // personal offers. Formerly mounted at the bare /tools route; moved to
-// /tools/retardio so /tools can be a real index of every tool (see
+// /tools/offers so /tools can be a real index of every tool (see
 // tools/page.tsx), matching the /tools/<name> convention every other
 // tool already follows.
 
@@ -14,6 +14,12 @@ import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
+
+/** Bound on silent auto-retries when ME rate-limits a scan. Each retry
+ *  waits the backend-published `retryAfterSec` (usually 30-60s), so 5
+ *  retries is already several minutes of patience before we give up and
+ *  show the error banner. */
+const MAX_AUTO_RETRIES = 5;
 
 /** Collections the scanner can target. Order here drives the dropdown
  *  order; first entry is the default selection. */
@@ -280,6 +286,13 @@ export default function ToolsPage() {
   // enabled (no rate-limit cooldown applies — ME's outage is the cause,
   // not our request rate) so the user can immediately retry.
   const [isUpstreamErr, setIsUpstreamErr]     = useState(false);
+  // ME's per-IP limit gets tripped occasionally by background pollers
+  // sharing this server's IP (rare-feed rarity, floor stats, enrichment —
+  // see me-api-cooldown.ts) even when the scan itself is well-paced. Instead
+  // of surfacing that as a user-facing error, retry silently in the
+  // background: the operator explicitly doesn't mind a slower scan, just
+  // not a scary red/amber banner every time ME hiccups.
+  const [retryInfo, setRetryInfo]             = useState<{ attempt: number; waitSec: number } | null>(null);
   const [nowMs, setNowMs]                     = useState<number>(() => Date.now());
   useEffect(() => {
     if (cooldownUntilMs == null) return;
@@ -421,62 +434,77 @@ export default function ToolsPage() {
     setError(null);
     setIs429(false);
     setIsUpstreamErr(false);
+    setRetryInfo(null);
     try {
       const body: Record<string, unknown> = { slug: selectedSlug };
-      const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body:    JSON.stringify(body),
-      });
-      if (r.status === 429) {
-        // Our backend's own per-IP rate limiter fired (6 scans/min).
-        // Soft path: surface a non-fatal warning, keep cached rows in
-        // place, and start a 45 s cooldown so the operator can't
-        // hammer the endpoint right back into another rate-limit.
-        setIs429(true);
-        setError('Rate limited — showing cached results. Try again in ~45s.');
-        setCooldownUntilMs(Date.now() + 45_000);
-        return;
-      }
-      if (!r.ok) {
-        // Try to parse the structured error envelope first — the
-        // backend returns `{ok:false, errorCode, message, ...}` for
-        // known failure modes. Falls back to the raw-text message for
-        // unknown shapes.
-        const errBody = await r.json().catch(() => null) as
-          | { ok?: boolean; errorCode?: string; message?: string; error?: string; retryAfterSec?: number }
-          | null;
-        // ME's per-IP rate-limit has tripped — this is shared across
-        // every collection (ME rate-limits per-IP, not per-slug), so
-        // we lock the Scan button across the entire tool until the
-        // backend-published `retryAfterSec` window elapses. Cached rows
-        // for the currently-selected slug stay visible since we don't
-        // touch `result`.
-        if (errBody && errBody.errorCode === 'ME_RATE_LIMITED') {
-          const sec = typeof errBody.retryAfterSec === 'number' && errBody.retryAfterSec > 0
-            ? Math.min(300, Math.ceil(errBody.retryAfterSec))
-            : 60;
+      let attempt = 0;
+      let data: ScanResult;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const r = await fetch(`${API_BASE}/api/tools/retardio-me-offer-scan`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body:    JSON.stringify(body),
+        });
+        if (r.status === 429) {
+          // Our backend's own per-IP rate limiter fired (6 scans/min).
+          // Soft path: surface a non-fatal warning, keep cached rows in
+          // place, and start a 45 s cooldown so the operator can't
+          // hammer the endpoint right back into another rate-limit.
           setIs429(true);
-          setError(errBody.message ?? `Magic Eden rate limited — retry in ${sec}s`);
-          setCooldownUntilMs(Date.now() + sec * 1000);
+          setError('Rate limited — showing cached results. Try again in ~45s.');
+          setCooldownUntilMs(Date.now() + 45_000);
           return;
         }
-        if (errBody && errBody.errorCode === 'ME_LISTINGS_UPSTREAM') {
-          // Soft warning — keep existing `result` (and its localStorage
-          // copy) intact so cached rows stay visible. Scan button stays
-          // enabled (no cooldown) so the user can retry as soon as ME
-          // recovers — there's no rate-limit involved here, just a 5xx
-          // / timeout. The backend message already distinguishes the
-          // two sub-cases.
-          setIsUpstreamErr(true);
-          setError(errBody.message ?? 'Magic Eden listings API temporarily unavailable. Try again in a minute.');
-          return;
+        if (!r.ok) {
+          // Try to parse the structured error envelope first — the
+          // backend returns `{ok:false, errorCode, message, ...}` for
+          // known failure modes. Falls back to the raw-text message for
+          // unknown shapes.
+          const errBody = await r.json().catch(() => null) as
+            | { ok?: boolean; errorCode?: string; message?: string; error?: string; retryAfterSec?: number }
+            | null;
+          // ME's per-IP rate-limit has tripped — shared across every
+          // collection (ME rate-limits per-IP, not per-slug) and across
+          // this server's other background ME callers (rare-feed rarity,
+          // floor stats, enrichment). Rather than surfacing this as an
+          // error, wait out the published `retryAfterSec` and retry the
+          // same scan silently — bounded by MAX_AUTO_RETRIES so a
+          // persistently-down ME still eventually reports a real error.
+          if (errBody && errBody.errorCode === 'ME_RATE_LIMITED') {
+            const sec = typeof errBody.retryAfterSec === 'number' && errBody.retryAfterSec > 0
+              ? Math.min(300, Math.ceil(errBody.retryAfterSec))
+              : 60;
+            if (attempt < MAX_AUTO_RETRIES) {
+              attempt++;
+              setRetryInfo({ attempt, waitSec: sec });
+              await new Promise(res => setTimeout(res, sec * 1000 + 500));
+              setRetryInfo(null);
+              continue;
+            }
+            setIs429(true);
+            setError(errBody.message ?? `Magic Eden rate limited — retry in ${sec}s`);
+            setCooldownUntilMs(Date.now() + sec * 1000);
+            return;
+          }
+          if (errBody && errBody.errorCode === 'ME_LISTINGS_UPSTREAM') {
+            // Soft warning — keep existing `result` (and its localStorage
+            // copy) intact so cached rows stay visible. Scan button stays
+            // enabled (no cooldown) so the user can retry as soon as ME
+            // recovers — there's no rate-limit involved here, just a 5xx
+            // / timeout. The backend message already distinguishes the
+            // two sub-cases.
+            setIsUpstreamErr(true);
+            setError(errBody.message ?? 'Magic Eden listings API temporarily unavailable. Try again in a minute.');
+            return;
+          }
+          const fallback = errBody?.message ?? errBody?.error
+            ?? `HTTP ${r.status}`;
+          throw new Error(fallback.slice(0, 200));
         }
-        const fallback = errBody?.message ?? errBody?.error
-          ?? `HTTP ${r.status}`;
-        throw new Error(fallback.slice(0, 200));
+        data = await r.json() as ScanResult;
+        break;
       }
-      const data = await r.json() as ScanResult;
       // Surface backend partial-failure warnings (DAS skipped, N holder
       // fetches errored, etc.) in the browser console so the operator
       // can tell when a "0 unlisted offers found" result is genuine vs.
@@ -519,6 +547,7 @@ export default function ToolsPage() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setRetryInfo(null);
     }
   };
 
@@ -602,10 +631,24 @@ export default function ToolsPage() {
                 transition: 'all 0.15s',
               }}
             >
-              {busy ? 'Scanning…' : inCooldown ? `Wait ${cooldownLeftSec}s` : 'Scan ME Offers'}
+              {retryInfo
+                ? `Retrying ${retryInfo.waitSec}s…`
+                : busy ? 'Scanning…' : inCooldown ? `Wait ${cooldownLeftSec}s` : 'Scan ME Offers'}
             </button>
           </div>
         </div>
+        {retryInfo && (
+          // Calm, non-error status while we silently ride out a ME 429 —
+          // distinct from the amber/red banners below, which only appear
+          // once retries are exhausted. Auto-clears on the next attempt.
+          <div style={{
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#9a9ab4',
+            background: 'rgba(154,154,180,0.08)', border: '1px solid rgba(154,154,180,0.28)',
+            borderRadius: 5,
+          }}>
+            Magic Eden is briefly rate-limited — retrying automatically in {retryInfo.waitSec}s (attempt {retryInfo.attempt}/{MAX_AUTO_RETRIES})…
+          </div>
+        )}
         {error && (
           // Soft amber banner for 429 OR transient ME upstream-listings
           // outage (cached rows still visible, button still usable on
