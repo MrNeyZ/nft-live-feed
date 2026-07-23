@@ -113,17 +113,46 @@ function formatFreshAge(ageMs: number): string {
   return `${Math.floor(mins / 60)}h`;
 }
 
-// Same age-progression language as the TimeAgo timer above, reusing its
-// exact color tokens (TIMER_FRESH_PINK / VL.gold / VLText.muted) — just a
-// different set of thresholds tuned to the FRESH badge's own (much longer)
-// 4h window instead of TimeAgo's 15s/3min tiers.
-const FRESH_PINK_MAX_MS = 30 * 60 * 1000;      // 0–30 min
-const FRESH_GOLD_MAX_MS = 2 * 60 * 60 * 1000;  // 31 min–2h
+// handoff-badges design (Jul 2026): 3 tiers scaled into the existing 4h
+// visibility window (the mock's own 4th "older, muted" tier implied a
+// window past 6h — dropped rather than widened, so this stays a pure
+// presentation change, not a change to when the badge shows at all).
+const FRESH_GREEN_MAX_MS = 15 * 60 * 1000;  // 0–15 min
+const FRESH_GOLD_MAX_MS  = 60 * 60 * 1000;  // 16 min–1h
+// 1h–4h (FRESH_WINDOW_MS) → purple.
 
-function freshBadgeColor(ageMs: number): string {
-  if (ageMs <= FRESH_PINK_MAX_MS) return TIMER_FRESH_PINK;
-  if (ageMs <= FRESH_GOLD_MAX_MS) return rgb(VL.gold);
-  return VLText.muted; // 2h–4h
+function freshBadgeRgb(ageMs: number): readonly [number, number, number] {
+  if (ageMs <= FRESH_GREEN_MAX_MS) return VL.greenStrong;
+  if (ageMs <= FRESH_GOLD_MAX_MS)  return VL.goldBright;
+  return VL.purpleTint;
+}
+
+/** Spark glyph — handoff-badges design. 4-pointed sparkle, drawn in the
+ *  badge's own tier color so it reads as one unit with the age text. */
+function SparkGlyph({ color }: { color: string }) {
+  return (
+    <svg width="9" height="9" viewBox="0 0 10 10" style={{ flexShrink: 0 }} aria-hidden>
+      <path d="M5 0 L6 4 L10 5 L6 6 L5 10 L4 6 L0 5 L4 4 Z" fill={color} />
+    </svg>
+  );
+}
+
+/** cNFT marker — handoff-badges design. Gold atom glyph (2 softened
+ *  orbits), rendered immediately after the NFT name, only for compressed
+ *  NFTs. Plain glyph, no chip/glow, per spec. */
+function CnftGlyph() {
+  const gold = rgb(VL.goldBright);
+  return (
+    <span title="cNFT" style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, marginLeft: -8 }}>
+      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden>
+        <circle cx="12" cy="12" r="2.3" fill={gold} />
+        <g fill="none" stroke={gold} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="12" cy="12" rx="9.2" ry="4.6" transform="rotate(45 12 12)" />
+          <ellipse cx="12" cy="12" rx="9.2" ry="4.6" transform="rotate(135 12 12)" />
+        </g>
+      </svg>
+    </span>
+  );
 }
 
 function FreshBadge({ mintedAtMs }: { mintedAtMs: number | null | undefined }) {
@@ -132,18 +161,21 @@ function FreshBadge({ mintedAtMs }: { mintedAtMs: number | null | undefined }) {
   const liveNow = now > 0 ? now : mintedAtMs; // SSR-safe, mirrors TimeAgo above
   const ageMs = liveNow - mintedAtMs;
   if (ageMs < 0 || ageMs > FRESH_WINDOW_MS) return null;
+  const tierRgb = freshBadgeRgb(ageMs);
+  const color = rgb(tierRgb);
   return (
     <span
       aria-label="Minted recently, now trading on secondary"
       style={{
-        fontSize: 9, fontWeight: 700, letterSpacing: '0.4px',
-        color: freshBadgeColor(ageMs), background: 'transparent',
-        border: `1px solid ${alpha(VL.purpleTint, ALPHA.borderStrong)}`,
-        padding: '0 4px', borderRadius: 3, lineHeight: 1.25,
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        height: 18, padding: '0 7px', borderRadius: 9,
+        fontSize: 10.5, fontWeight: 700, lineHeight: 1,
+        color, background: alpha(tierRgb, 0.12),
+        border: `1px solid ${alpha(tierRgb, 0.42)}`,
         fontFamily: "'SF Mono','Fira Code',monospace",
         flexShrink: 0,
       }}
-    >{formatFreshAge(ageMs)}</span>
+    ><SparkGlyph color={color} />{formatFreshAge(ageMs)}</span>
   );
 }
 
@@ -710,6 +742,7 @@ export const FeedCard = memo(function FeedCard({
                 style={{ flexShrink: 0, fontSize: 12, lineHeight: 1, userSelect: 'none', marginLeft: -8 }}
               >🃏</span>
             )}
+            {event.nftType === 'cnft' && <CnftGlyph />}
             {/* Rare Feed only — compact rarity chip after the NFT name.
                 /feed never passes `nameChip`, so this renders nothing
                 there and the name row is byte-identical to before. */}
