@@ -926,7 +926,11 @@ a { color: inherit; text-decoration: none; }
   contain: layout style;
 }
 
-.feed-card:hover {
+.feed-card:hover,
+.feed-card.cross-hl {
+  /* .cross-hl (dashboard trending-table -> feed collection link) shares
+     this exact block with :hover on purpose — the highlight must be
+     byte-identical to a real mouse hover, not a separate approximation. */
   /* Subtle terminal-row hover: 1 px vertical lift + scale 1.005 +
      bumped bg lift (0.06 → 0.07, ~17 % stronger) for better
      mouse-tracking readability while scanning. The translateY(-1px)
@@ -2174,16 +2178,14 @@ body[data-bottombar="1"] .feed-root {
 }
 
 /* ── /multi embed performance band-aid ────────────────────────────────
-   In /multi three card feeds paint side-by-side (mints + rare + sales),
-   so burst-time entrance/flash animations and per-card glow blur stack
-   up across all three columns. Scoped to `data-embedded="1"` ONLY: drop
-   those costs while keeping the solid accent bars, base hairline borders,
-   and hover ring (one card at a time, cheap) so the look stays close.
-   Normal /feed, /mints, /tools/rare-feed are untouched. */
-[data-embedded="1"] .feed-row-wrap,
-[data-embedded="1"] .new-buy .feed-card,
-[data-embedded="1"] .new-sell .feed-card,
-[data-embedded="1"] .new-listing .feed-card,
+   Was written when /multi stacked THREE card feeds side-by-side (mints +
+   rare + sales, all sharing data-embedded="1"), so burst-time entrance/
+   flash animations stacked up across all three columns. Native /multi
+   (MultiNativeView) has dropped Rare Feed and the mint-events panel —
+   SalesFeedPanel is the only card-feed column left — so slideDown/flash
+   no longer stack and suppressing them just killed the "new sale" glow
+   /feed has (no perf reason left). Kept for `.mints-feed-row-fresh`,
+   which still matters for /mints' own legacy `?embed=1` iframe mode. */
 [data-embedded="1"] .mints-feed-row-fresh {
   animation: none !important;
 }

@@ -1,26 +1,19 @@
-// Per-user "Inclusive fees" toggle. Affects only AMM_SELL display.
+// Per-user "Inclusive fees" toggle.
 //
-//   Inclusive fees ON  → AMM_SELL shows gross / pool price (always,
-//                        overrides the floor-based rule below)
-//   Inclusive fees OFF → AMM_SELL shows gross above FLOOR_NET_THRESHOLD_SOL,
-//                        seller-net (actual proceeds) at/under it
+// Two sale categories, one fixed rule each:
+//   - Instant sells (pool takeBid / direct bid acceptance — `pool_sale` and
+//     `bid_sell`): the buyer's bid includes fees/royalty the seller doesn't
+//     keep, so default to what the seller actually received. "Inclusive
+//     fees" ON shows the full bid amount instead.
+//   - Normal sales (by listing — everything else): always the full listed
+//     price. No fee ambiguity here, so the toggle doesn't apply.
 //
-// All other saleTypes (LIST_BUY / AMM_BUY) keep their current
-// behaviour, and BID_SELL is hard-pinned to gross regardless of the
-// toggle (per spec — bid acceptances always show full bid amount).
-//
-// Why floor-gated: seller-net is only ever available for the split
-// second a tab is live-connected via SSE at the exact moment of the
-// sale (it's never persisted — see src/models/sale-event.ts) — so
-// showing it unconditionally means the SAME historical sale can render
-// two different prices depending on pure browser-reconnect luck, with
-// no way to tell which one is "right" after the fact. Above the
-// threshold, fee/royalty deductions are a small fraction of a
-// meaningful price, so pinning to the always-available, always-
-// reproducible gross price removes that flakiness entirely. Below the
-// threshold the deduction is proportionally large enough that net is
-// worth showing despite the flakiness — this is a deliberate trade
-// the user chose, not an oversight.
+// Previously this branched further on a collection-floor threshold to
+// avoid the SAME sale rendering two different prices depending on whether
+// seller-net (SSE-only, never persisted) happened to be available at
+// render time. That flakiness is real, but the user chose consistency
+// (always net for instant sells, always gross for listing sells) over the
+// floor-gated compromise — see conversation 2026-07-23.
 //
 // Storage:
 //   localStorage['vl.priceMode.inclusiveFees'] = '1' | '0'
@@ -28,10 +21,6 @@
 //
 // Cross-component sync via a custom 'vl:priceMode' event so multiple
 // instances of useInclusiveFees() stay in step without prop drilling.
-
-/** Collection floor (SOL) at/under which the OFF state prefers seller-net
- *  over gross for a pool-sell. Above this, gross wins unconditionally. */
-export const FLOOR_NET_THRESHOLD_SOL = 0.05;
 
 import { useEffect, useState } from 'react';
 import type { FeedEvent } from './mock-data';
@@ -69,24 +58,14 @@ export function useInclusiveFees(): [boolean, (on: boolean) => void] {
 }
 
 /** Resolve the single price to render for a feed event, given the current
- *  toggle and (when known) the collection's floor. The only saleType that
- *  branches on either is AMM_SELL (`pool_sale`); BID_SELL is pinned to
- *  gross; other types keep the existing `event.price` behaviour
- *  (sellerNet ?? gross).
- *
- *  `slugFloor` is optional/nullable (fallback-cache sourced, same as the
- *  FloorChip's own fallback) — when unknown, falls back to the pre-floor-
- *  rule behaviour (net preferred when available) rather than guessing. */
-export function displayPrice(event: FeedEvent, inclusiveFees: boolean, slugFloor?: number | null): number {
+ *  "Inclusive fees" toggle. Instant sells (`pool_sale`, `bid_sell` — pool
+ *  takeBid or a direct bid acceptance) default to seller-net; every other
+ *  saleType (normal sale by listing) always shows the full gross price. */
+export function displayPrice(event: FeedEvent, inclusiveFees: boolean): number {
   const saleType = event.saleTypeRaw;
-  if (saleType === 'pool_sale') {
+  if (saleType === 'pool_sale' || saleType === 'bid_sell') {
     if (inclusiveFees) return event.grossPrice;
-    const floorAboveThreshold = slugFloor != null && slugFloor > FLOOR_NET_THRESHOLD_SOL;
-    if (floorAboveThreshold) return event.grossPrice;
-    return event.sellerNetPrice ?? event.price;
+    return event.sellerNetPrice ?? event.grossPrice;
   }
-  if (saleType === 'bid_sell') {
-    return event.grossPrice;
-  }
-  return event.price;
+  return event.grossPrice;
 }

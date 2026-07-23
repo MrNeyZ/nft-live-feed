@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LiveDot, Pill, SettingsToggle, settingsPillActive, SETTINGS_PILL_INACTIVE } from '@/soloist/shared';
 import { useInclusiveFees } from '@/soloist/price-mode';
+import { useFloorBySlug } from '@/soloist/floor-cache';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
@@ -51,6 +52,11 @@ export function SalesFeedPanel() {
   const { events } = useMultiSales();
   const [inclusiveFees] = useInclusiveFees();
   const connected = useSaleStreamConnected();
+  // Shared floor cache (soloist/floor-cache.ts) — same module-scope cache
+  // /feed reads, so the FloorChip fallback (used whenever the backend's
+  // per-event floorDelta is null) is finally available here too, and
+  // consistent with whatever /feed has already resolved for the same slug.
+  const floorBySlug = useFloorBySlug(events);
 
   const [paused, setPaused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -203,12 +209,13 @@ export function SalesFeedPanel() {
             const focusing = !!hoverMint && visible.some(e => e.mintAddress === hoverMint);
             // Dashboard -> feed collection highlight: deliberately NOT the
             // same treatment as the Rare bridge above — no dimming of the
-            // rest of the feed, just the same lift/scale/glow a real mouse
-            // hover already gives a card (see .feed-card:hover in
-            // globals.css), applied to every visible match for the hovered
-            // collection. Capped to the top COLLECTION_HIGHLIGHT_WINDOW
-            // cards ("visible without scrolling") — no auto-scroll, a match
-            // further down just doesn't light up.
+            // rest of the feed, just the literal `.feed-card:hover` styling
+            // (via the `cross-hl` class FeedCard applies to its own root —
+            // see crossHighlighted prop) applied to every visible match for
+            // the hovered collection. Capped to the top
+            // COLLECTION_HIGHLIGHT_WINDOW cards ("visible without
+            // scrolling") — no auto-scroll, a match further down just
+            // doesn't light up.
             const hoveredSlug = dashHl?.hoveredSlug ?? null;
             return visible.map((e, idx) => {
               const isHover    = focusing && e.mintAddress === hoverMint;
@@ -228,11 +235,6 @@ export function SalesFeedPanel() {
                       outlineOffset: -2,
                       background: alpha(VL.purpleTint, 0.10),
                     } : {}),
-                    ...(collMatch ? {
-                      transform: 'translateY(-1px) scale(1.005)',
-                      background: 'rgba(255, 255, 255, 0.12)',
-                      boxShadow: '0 0 0 1px rgba(168, 144, 232, 0.40) inset, 0 0 18px rgba(128, 104, 216, 0.22)',
-                    } : {}),
                     ...(dimmed ? { opacity: 0.32, filter: 'brightness(0.65)' } : { opacity: 1 }),
                   }}
                 >
@@ -240,9 +242,11 @@ export function SalesFeedPanel() {
                     event={e}
                     onPreview={onPreview}
                     inclusiveFees={inclusiveFees}
+                    slugFloor={e.meCollectionSlug ? floorBySlug[e.meCollectionSlug] ?? null : null}
                     sellerSellCountInFeed={0}
                     isNewestSellForSellerColl={false}
                     density={density}
+                    crossHighlighted={collMatch}
                   />
                 </div>
               );

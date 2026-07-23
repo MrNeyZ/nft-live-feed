@@ -139,11 +139,19 @@ function SparkGlyph({ color }: { color: string }) {
 
 /** cNFT marker — handoff-badges design. Gold atom glyph (2 softened
  *  orbits), rendered immediately after the NFT name, only for compressed
- *  NFTs. Plain glyph, no chip/glow, per spec. */
+ *  NFTs. Plain glyph, no chip/glow, per spec.
+ *
+ *  `alignSelf: 'center'` overrides the parent name row's
+ *  `alignItems: 'baseline'` for this one flex child. `baseline` works for
+ *  the emoji badges next to it (🍀/🃏 are real text glyphs with a normal
+ *  font baseline) but an `<svg>` is a replaced element with no text
+ *  baseline — the browser falls back to aligning its bottom edge, which
+ *  read as "floating below the name, not on the same line" instead of
+ *  sitting inline with the text like Tensor's icon does. */
 function CnftGlyph() {
   const gold = rgb(VL.goldBright);
   return (
-    <span title="cNFT" style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, marginLeft: -8 }}>
+    <span title="cNFT" style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'center', flexShrink: 0, marginLeft: -8 }}>
       <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden>
         <circle cx="12" cy="12" r="2.3" fill={gold} />
         <g fill="none" stroke={gold} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -558,6 +566,7 @@ export const FeedCard = memo(function FeedCard({
   pillOverride,
   nameChip,
   snsDomainAuto = false,
+  crossHighlighted = false,
 }: FeedCardProps) {
   // Thumb size is the only density-driven inline value — every other
   // delta lives in CSS via the `.feed-density-X` parent class. TAPE
@@ -566,7 +575,7 @@ export const FeedCard = memo(function FeedCard({
   // overridden in CSS for TAPE so the inner img doesn't sit inside
   // a 56 px box with transparent margin.
   const thumbSize = density === 'tape' ? 40 : 56;
-  const renderPrice = displayPrice(event, inclusiveFees, slugFloor);
+  const renderPrice = displayPrice(event, inclusiveFees);
   // Display-only guard — keeps the formatter from producing "NaN" /
   // "Infinity" text if a malformed event slips past upstream validation.
   // Backend remains the source of truth for valid prices; this is the
@@ -618,7 +627,7 @@ export const FeedCard = memo(function FeedCard({
   const borderClass =
     style.borderTone === 'sell' ? 'sell-card' :
     style.borderTone === 'buy'  ? 'buy-card'  : 'buy-card';
-  const cardClass = `feed-card ${borderClass}`;
+  const cardClass = `feed-card ${borderClass}${crossHighlighted ? ' cross-hl' : ''}`;
   // Age-bucket at mount: fresh (<2min) / mid (<5min) / old (≥5min).
   // A single global setInterval in FeedApp walks `.feed-card[data-event-ts]`
   // every 30 s and only updates this attribute if it changed — no React

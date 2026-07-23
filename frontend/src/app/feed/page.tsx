@@ -12,6 +12,7 @@ import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { LiveDot, Pill, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
 import { PALETTE_TOGGLE_PAUSE_EVENT, PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { useInclusiveFees } from '@/soloist/price-mode';
+import { useFloorBySlug } from '@/soloist/floor-cache';
 import {
   feedReducer, initFeedState, orderedEvents,
   type MetaPatch, type FeedAction,
@@ -815,158 +816,22 @@ export default function FeedPage() {
   }, [feedState]);
 
   // ── Collection-floor lookup ─────────────────────────────────────────────
-  // Dual-purpose cache populated from /api/collections/bids:
+  // Dual-purpose cache (ME-slug + slug-less cNFT-by-address), module-scope
+  // shared with /multi's SalesFeedPanel — see soloist/floor-cache.ts for the
+  // full rationale (used to be page-local state here, invisible to /multi,
+  // which is exactly why the FloorChip badge behaved differently per page):
   //   1. cNFT dust filter — hide cNFT low-floor noise by collection floor,
-  //      not sale price. Hides cNFT collections whose CURRENT FLOOR is at or
-  //      below 0.005 SOL via the shared `isCnftDust` predicate (Dashboard
-  //      uses the same predicate so the two surfaces stay in lockstep).
+  //      not sale price, via the shared `isCnftDust` predicate.
   //   2. % floor fallback — when the backend didn't compute `floorDelta`
   //      for an event but its slug landed in this cache, FeedCard derives
   //      the chip locally from price/floor.
-  // Floor is fetched once per newly-seen slug, batched with a small
-  // debounce so bursts don't turn into 1-per-event calls. Backend caches
-  // per slug for 60 s, frontend bounds with a 500-entry cap and a 5-min
-  // per-slug request TTL.
-  const [floorBySlug, setFloorBySlug] = useState<Record<string, number | null>>({});
-  // Mirror of `floorBySlug` for the SSE listeners — they install once
-  // (deps `[]`) and would otherwise capture an empty initial map.
-  // Used by the deep-discount alert path so a sale whose backend
-  // `floorDelta` is null can still trip the alert when we have a
-  // cached floor for the slug.
+  const floorBySlug = useFloorBySlug(events);
+  // Mirror for the SSE listeners — they install once (deps `[]`) and would
+  // otherwise capture a stale closure value. Used by the deep-discount
+  // alert path so a sale whose backend `floorDelta` is null can still trip
+  // the alert when we have a cached floor for the slug.
   const floorBySlugRef = useRef(floorBySlug);
   useEffect(() => { floorBySlugRef.current = floorBySlug; }, [floorBySlug]);
-  // Slug → timestamp of last request. After FLOOR_REQUEST_TTL_MS the slug is
-  // eligible for a refresh so a long-running tab doesn't keep stale floors.
-  const requestedFloorRef = useRef<Map<string, number>>(new Map());
-  const pendingFloorRef   = useRef<Set<string>>(new Set());
-  const floorFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Keep the cNFT floor map bounded — avoids unbounded growth across long
-   *  sessions without changing filter behavior. Insertion-order eviction. */
-  const FLOOR_BY_SLUG_MAX = 500;
-  /** How long a fetched floor is considered fresh enough to skip a refresh. */
-  const FLOOR_REQUEST_TTL_MS = 5 * 60_000;
-  /** Retry TTL when floor fetch returns null (ME 429 / miss) — much shorter. */
-  const FLOOR_MISS_TTL_MS = 60_000;
-
-  useEffect(() => {
-    const now = Date.now();
-    for (const e of events) {
-      if (!e.meCollectionSlug) continue;
-      const last = requestedFloorRef.current.get(e.meCollectionSlug);
-      if (last != null && now - last < FLOOR_REQUEST_TTL_MS) continue;
-      pendingFloorRef.current.add(e.meCollectionSlug);
-    }
-    if (pendingFloorRef.current.size === 0 || floorFetchTimerRef.current) return;
-    floorFetchTimerRef.current = setTimeout(async () => {
-      floorFetchTimerRef.current = null;
-      const batch = Array.from(pendingFloorRef.current).slice(0, 80);
-      pendingFloorRef.current.clear();
-      try {
-        const res = await fetch(
-          `${API_BASE}/api/collections/bids?slugs=${encodeURIComponent(batch.join(','))}`,
-        );
-        if (!res.ok) {
-          // HTTP error (e.g. 429) — short retry so a transient ME rate-limit
-          // doesn't create a 5-minute badge blackout.
-          const t = Date.now() - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS);
-          for (const s of batch) requestedFloorRef.current.set(s, t);
-          return;
-        }
-        const data = await res.json() as {
-          bids?: Record<string, { floorLamports: number | null }>;
-        };
-        if (!data.bids) return;
-        const bids = data.bids;
-        const now = Date.now();
-        // Set throttle per-slug AFTER knowing the result:
-        // success (non-null floor) → 5 min; null (ME miss/429) → 60 s retry.
-        for (const s of batch) {
-          const v = bids[s];
-          const hasFloor = v != null && typeof v.floorLamports === 'number';
-          requestedFloorRef.current.set(
-            s,
-            hasFloor ? now : now - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS),
-          );
-        }
-        setFloorBySlug(prev => {
-          const next = { ...prev };
-          for (const [slug, v] of Object.entries(bids)) {
-            next[slug] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
-          }
-          // Bound the map. Object iteration is insertion-order in modern
-          // engines; drop the oldest keys until under the cap. Cheap because
-          // it only runs when we've genuinely overflowed.
-          const keys = Object.keys(next);
-          if (keys.length > FLOOR_BY_SLUG_MAX) {
-            const drop = keys.length - FLOOR_BY_SLUG_MAX;
-            for (let i = 0; i < drop; i++) delete next[keys[i]];
-          }
-          return next;
-        });
-      } catch {
-        // Network error — short retry TTL, same logic as HTTP error path.
-        const t = Date.now() - (FLOOR_REQUEST_TTL_MS - FLOOR_MISS_TTL_MS);
-        for (const s of batch) requestedFloorRef.current.set(s, t);
-      }
-    }, 500);
-  }, [events]);
-  useEffect(() => () => {
-    if (floorFetchTimerRef.current) clearTimeout(floorFetchTimerRef.current);
-  }, []);
-
-  // ── Slug-less cNFT floor (DRiP / Tensor) ────────────────────────────────────
-  // The /bids fetch above is ME-slug-keyed; cNFT collections without an ME slug
-  // (DRiP, Tensor-native) never get a floor there, so `isCnftDust` failed open.
-  // Resolve their floor by ON-CHAIN COLLECTION ADDRESS via /cnft-floor and merge
-  // into the SAME `floorBySlug` map (keyed by address — `isCnftDust` looks up
-  // `meCollectionSlug ?? collectionAddress`). Mirrors the slug path's debounce /
-  // TTL / cap; the ME-slug flow is untouched.
-  const requestedCnftAddrRef = useRef<Map<string, number>>(new Map());
-  const pendingCnftAddrRef    = useRef<Set<string>>(new Set());
-  const cnftFloorTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const now = Date.now();
-    for (const e of events) {
-      if (e.nftType !== 'cnft' || e.meCollectionSlug || !e.collectionAddress) continue;
-      const addr = e.collectionAddress;
-      const last = requestedCnftAddrRef.current.get(addr);
-      if (last != null && now - last < FLOOR_REQUEST_TTL_MS) continue;
-      pendingCnftAddrRef.current.add(addr);
-    }
-    if (pendingCnftAddrRef.current.size === 0 || cnftFloorTimerRef.current) return;
-    cnftFloorTimerRef.current = setTimeout(async () => {
-      cnftFloorTimerRef.current = null;
-      const batch = Array.from(pendingCnftAddrRef.current).slice(0, 20);
-      pendingCnftAddrRef.current.clear();
-      const fetchedAt = Date.now();
-      for (const a of batch) requestedCnftAddrRef.current.set(a, fetchedAt);
-      try {
-        const res = await fetch(
-          `${API_BASE}/api/collections/cnft-floor?addresses=${encodeURIComponent(batch.join(','))}`,
-        );
-        if (!res.ok) return;
-        const data = await res.json() as {
-          floors?: Record<string, { floorLamports: number | null }>;
-        };
-        if (!data.floors) return;
-        setFloorBySlug(prev => {
-          const next = { ...prev };
-          for (const [addr, v] of Object.entries(data.floors!)) {
-            next[addr] = typeof v.floorLamports === 'number' ? v.floorLamports / 1e9 : null;
-          }
-          const keys = Object.keys(next);
-          if (keys.length > FLOOR_BY_SLUG_MAX) {
-            const drop = keys.length - FLOOR_BY_SLUG_MAX;
-            for (let i = 0; i < drop; i++) delete next[keys[i]];
-          }
-          return next;
-        });
-      } catch { /* transient — retried on the next unseen slug-less cNFT */ }
-    }, 500);
-  }, [events]);
-  useEffect(() => () => {
-    if (cnftFloorTimerRef.current) clearTimeout(cnftFloorTimerRef.current);
-  }, []);
 
   const filtered = useMemo(() => events.filter(e => {
     // Collection-floor gate for cNFTs (replaces the old sale-price guard):

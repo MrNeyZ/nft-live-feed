@@ -81,4 +81,10 @@ export interface FeedCardProps {
    *  wallet address. When false (default), domain only shows after the user
    *  clicks the SNS badge. */
   snsDomainAuto?: boolean;
+  /** True while this card's collection is hovered in a linked panel
+   *  (e.g. the dashboard trending table on /multi). Adds the `cross-hl`
+   *  class, which shares its declaration block with `.feed-card:hover`
+   *  in globals.css — the highlight is byte-identical to a real mouse
+   *  hover, not a separate approximation. */
+  crossHighlighted?: boolean;
 }

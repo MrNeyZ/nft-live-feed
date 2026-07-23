@@ -22,11 +22,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CollectionIcon, LiveDot, Pill,
+  ItemThumb, LiveDot, Pill,
   compressImage, rowLinkHandlers, RowLinkOverlay,
 } from '@/soloist/shared';
 import { collectionMeta } from '@/soloist/from-backend';
-import { FeedEvent, formatSol, timeAgo } from '@/soloist/mock-data';
+import { FeedEvent, timeAgo } from '@/soloist/mock-data';
+import { formatFeedPrice } from '@/app/feed/lib/format';
+import { useCollectionIcons } from '@/soloist/collection-icons';
 import { authHeaders } from '@/runtime/auth';
 import { useMultiSales } from './lib/multi-sales';
 import { useSaleStreamConnected } from './lib/sale-event-stream';
@@ -120,9 +122,12 @@ function shortDashboardName(name: string): string {
   return clean.slice(0, 12).trimEnd() + '…';
 }
 
-function fmtSol(n: number | null): string { return n == null ? '—' : formatSol(n); }
+// formatFeedPrice (not the bare formatSol) — caps small values at 3
+// decimals (0.0034 -> "0.003") instead of formatSol's 4, matching how
+// prices already render in the Live Feed cards.
+function fmtSol(n: number | null): string { return n == null ? '—' : formatFeedPrice(n); }
 function fmtInt(n: number | null): string { return n == null ? '—' : Math.round(n).toLocaleString(); }
-function fmtBid(sol: number | null): string { return sol == null ? '—' : formatSol(sol); }
+function fmtBid(sol: number | null): string { return sol == null ? '—' : formatFeedPrice(sol); }
 
 function fmtLastAge(ts: number | null | undefined): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return '—';
@@ -306,7 +311,7 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
       className={'dash-row mints-tracker-row tools-offer-row' + (row.live?.flash === 'up' ? ' row-flash-up' : '')}
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
-      <td style={{ padding: '12px 10px', position: 'relative' }}>
+      <td style={{ padding: '11px 10px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         {/* Per-collection accent spine — same structure as /mints'
             MintsTableRow (soft bleed + base rail + solid 3px marker) so the
@@ -317,9 +322,13 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, boxShadow: `0 0 5px ${color}59`, pointerEvents: 'none' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <span style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 16, textAlign: 'right', flexShrink: 0 }}>{rank}</span>
-          <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={34} />
+          {/* Rounded-square avatar (ItemThumb, borderRadius:4) — same
+              component /mints' MintsTableRow uses, same 42px size. Was a
+              CollectionIcon circle at 34px, which read as an inconsistent
+              shape/scale next to every other table in the app. */}
+          <ItemThumb imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={42} />
           <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span title={name} style={{ width: 95, flexShrink: 0, fontSize: 15, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
+            <span title={name} style={{ width: 100, flexShrink: 0, fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
             {row.isCompressed && (
               <span title="Compressed NFT (cNFT)" style={{
                 flexShrink: 0, padding: '1px 5px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
@@ -331,41 +340,41 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
                onClick={e => e.stopPropagation()}
                style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/me.png" alt="ME" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
+              <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
             </a>
             <a href={tensorUrl} target="_blank" rel="noopener noreferrer" title="Open on Tensor"
                onClick={e => e.stopPropagation()}
                style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/tensor.png" alt="Tensor" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
+              <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
             </a>
           </div>
         </div>
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL }}>
         {row.live?.spike && <span style={{ fontSize: 10, marginRight: 4 }}>🔥</span>}
         {fmtInt(row.salesCount)}
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff' }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff' }}>
         {fmtSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green) }}>↑</span>}
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
         {fmtSol(row.volumeSol)}
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 12, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
+        {fmtLastAge(row.live?.latestTs)}
+      </td>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5 }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 11.5 }}>
         <span style={{ fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
           {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
         </span>
-      </td>
-      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 12, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
-        {fmtLastAge(row.live?.latestTs)}
       </td>
     </tr>
   );
@@ -476,12 +485,23 @@ export function DashboardCollectionsPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slugKey]);
 
+  // Official artwork fallback — internal-source rows only. ME-sourced rows
+  // always keep ME's own real image. Ported from dashboard/page.tsx — this
+  // panel previously dropped it (see the top-of-file "Dropped vs. /dashboard"
+  // list), which left ~half of collections (anything internal-source with
+  // no ME artwork) showing only the abbreviation placeholder.
+  const internalSlugsNeedingIcon = useMemo(
+    () => visibleRows.filter(r => r.source === 'internal' && !r.image).map(r => r.slug),
+    [visibleRows],
+  );
+  const iconBySlug = useCollectionIcons(internalSlugsNeedingIcon);
+
   const merged: MergedRow[] = useMemo(() => visibleRows.map(r => ({
     ...r,
     live: liveBySlug.get(r.slug) ?? null,
     bid: bids[r.slug] ?? null,
-    avatarUrl: r.image ?? null,
-  })), [visibleRows, liveBySlug, bids]);
+    avatarUrl: r.image ?? (r.source === 'internal' ? iconBySlug[r.slug] ?? null : null),
+  })), [visibleRows, liveBySlug, bids, iconBySlug]);
 
   const [sortCol, setSortCol] = useState<SortKey | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -524,15 +544,22 @@ export function DashboardCollectionsPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
+      // Same detuned "table panel" identity as /mints' left collections
+      // table (mints/page.tsx's mints-collections-panel — border 0.65 →
+      // 0.32, inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10). This panel
+      // is the same table-panel category, not the louder live-feed-card
+      // style (SalesFeedPanel / mints' Live Mint Feed keep 0.65) — it was
+      // still on the old loud values, which read as a bright purple ring
+      // instead of the darker, more matte border /mints has.
       background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-      border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
+      border: `1px solid ${alpha(VL.purpleTint, 0.32)}`, borderRadius: 12,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.10)}`,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 14px', flexShrink: 0, gap: 10, flexWrap: 'wrap',
-        borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`,
-        background: alpha(VL.purpleTint, 0.04),
+        padding: '6px 12px', flexShrink: 0, gap: 10, flexWrap: 'wrap',
+        borderBottom: `1px solid ${alpha(VL.purpleTint, 0.08)}`,
+        background: alpha(VL.purpleTint, 0.025),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, rowGap: 4, minWidth: 0 }}>
           <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Trending Collections</h1>
@@ -557,21 +584,24 @@ export function DashboardCollectionsPanel() {
             <col style={{ width: '10%' }} />
             <col style={{ width: '12%' }} />
             <col style={{ width: '12%' }} />
+            <col style={{ width: '9%' }} />
             <col style={{ width: '12%' }} />
             <col style={{ width: '11%' }} />
             <col style={{ width: '8%' }} />
-            <col style={{ width: '9%' }} />
           </colgroup>
           <thead>
             <tr>
+              {/* Order matches /dashboard's table (LAST moved between VOLUME
+                  and ME BID, see dashboard/page.tsx's Row/thead) — this panel
+                  had never picked that reorder up. */}
               <SortTh label="Collection" col="collection" sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} align="left" />
               <SortTh label="Sales"      col="sales"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               <SortTh label="Floor"      col="floor"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               <SortTh label="Volume"     col="volume"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+              <SortTh label="Last"       col="last"       sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
-              <SortTh label="Last"       col="last"       sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
             </tr>
           </thead>
           <tbody>
