@@ -59,7 +59,7 @@ interface MeStatsOut {
 }
 interface MmmPool {
   spotPrice?: number;
-  poolType?: string;           // 'buy' | 'two_sided' | 'sell'
+  poolType?: string;           // ME's raw values: 'buy_sided' | 'two_sided' | 'sell_sided' | 'invalid'
   buysidePaymentAmount?: number;
   poolKey?: string;
   poolOwner?: string;
@@ -176,7 +176,10 @@ async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> 
         // and it quotes a positive spotPrice. Funding is classified, never
         // filtered out here — an insufficient/unknown pool is still a real
         // candidate for market-context purposes (see classifyFunding doc).
-        if (p.poolType !== 'buy' && p.poolType !== 'two_sided') continue;
+        // ME's raw API returns 'buy_sided'/'two_sided' (never bare 'buy') —
+        // confirmed live against /v2/mmm/pools; comparing against 'buy'
+        // silently dropped every pure buy-side pool (e.g. The Bullpen).
+        if (p.poolType !== 'buy_sided' && p.poolType !== 'two_sided') continue;
         if (!p.poolKey || !(typeof p.spotPrice === 'number' && p.spotPrice > 0)) continue;
         out.push({
           spotPriceLamports:            p.spotPrice,

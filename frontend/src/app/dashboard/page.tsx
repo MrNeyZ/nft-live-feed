@@ -725,8 +725,25 @@ export default function Dashboard() {
   })), [visibleRows, liveBySlug, bids, iconBySlug]);
 
   // ── Sort ───────────────────────────────────────────────────────────────────
-  const [sortCol, setSortCol] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const SORT_KEYS = ['collection', 'floor', 'volume', 'sales', 'listedPct', 'me_bid', 'tnsr_bid', 'last'] as const;
+  const [sortCol, setSortCol] = useState<SortKey | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const v = window.localStorage.getItem('vl.dashboard.sortCol');
+      return (SORT_KEYS as readonly string[]).includes(v ?? '') ? (v as SortKey) : null;
+    } catch { return null; }
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    if (typeof window === 'undefined') return 'desc';
+    try { return window.localStorage.getItem('vl.dashboard.sortDir') === 'asc' ? 'asc' : 'desc'; } catch { return 'desc'; }
+  });
+  useEffect(() => {
+    try {
+      if (sortCol) window.localStorage.setItem('vl.dashboard.sortCol', sortCol);
+      else window.localStorage.removeItem('vl.dashboard.sortCol');
+    } catch { /* noop */ }
+  }, [sortCol]);
+  useEffect(() => { try { window.localStorage.setItem('vl.dashboard.sortDir', sortDir); } catch { /* noop */ } }, [sortDir]);
   const handleSortClick = (col: SortKey) => {
     if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortCol(col); setSortDir('desc'); }
