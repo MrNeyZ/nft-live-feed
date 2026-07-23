@@ -449,20 +449,20 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
         {fmtSol(row.volumeSol)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5 }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
+        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
+        {fmtBid(row.bid?.meBidSol ?? null)}
+      </td>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
+        {fmtBid(row.bid?.tnsrBidSol ?? null)}
+      </td>
+      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'right', fontSize: 11.5 }}>
         <div style={{ fontWeight: 700, color: VLText.primary }}>
           {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
         </div>
         <div style={{ fontSize: 10, fontWeight: 500, color: VLText.muted, marginTop: 1 }}>
           {fmtInt(displayListedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(displayTotalSupply)}
         </div>
-      </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
-        {fmtBid(row.bid?.meBidSol ?? null)}
-      </td>
-      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {fmtBid(row.bid?.tnsrBidSol ?? null)}
       </td>
     </tr>
   );
@@ -944,9 +944,9 @@ export default function Dashboard() {
                 <SortTh label="Sales"      col="sales"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Floor"      col="floor"      sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Volume"     col="volume"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
-                <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="ME Bid"     col="me_bid"     sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
                 <SortTh label="Tnsr Bid"   col="tnsr_bid"   sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
+                <SortTh label="Listed"     col="listedPct"  sortKey={sortCol} sortDir={sortDir} onSort={handleSortClick} />
               </tr>
             </thead>
             <tbody>
