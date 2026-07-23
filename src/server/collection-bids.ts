@@ -203,9 +203,16 @@ async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> 
   let out: MmmBidCandidate[] = [];
   await acquireMmmSlot();
   try {
+    // Params match ME's OWN frontend call (captured live from magiceden.io's
+    // Collection Offers tab network traffic) — critically `limit=150` (was
+    // 50) and `showInvalid=false`. Confirmed live on The Bullpen: with
+    // limit=50 our result set never included the collection's one genuinely-
+    // funded pool at all (it sorted outside the first 50), always returning
+    // null for ME BID despite a real, fillable 1.53 SOL offer existing.
     const res = await fetch(
-      `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}&limit=50`,
-      { headers: meAuthHeaders(), signal: AbortSignal.timeout(5_000) },
+      `https://api-mainnet.magiceden.dev/v2/mmm/pools?collectionSymbol=${encodeURIComponent(slug)}`
+      + `&showInvalid=false&limit=150&offset=0&filterOnSide=1&hideExpired=true&fundingMode=0`,
+      { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) },
     );
     if (res.ok) {
       const json = await res.json() as MmmPoolsResponse;
