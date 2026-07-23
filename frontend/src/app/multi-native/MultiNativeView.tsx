@@ -42,10 +42,15 @@ export function MultiNativeView() {
         <div style={{
           flex: 1,
           display: 'grid',
-          // 2-way split mirroring /mints ([table] | [live feed]): the
-          // collections table gets slightly less width than the sales feed,
-          // whose cards need more horizontal room.
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)',
+          // FeedCard's content (thumb + seller/buyer block + price/badge
+          // cluster) has a fairly fixed natural width — stretching its
+          // column to an even ~50/50 split just opened a dead gap between
+          // the seller/buyer text and the price, since flex:1 fills the
+          // column but the card's actual content doesn't grow with it.
+          // Capping the feed column near that natural width (~520px)
+          // removes the gap, and the table column (flexible remainder)
+          // absorbs the freed space instead.
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(460px, 560px)',
           gridTemplateRows: '1fr',
           gap: 12,
           // Outer horizontal gutter = the responsive page gutter (--page-x),

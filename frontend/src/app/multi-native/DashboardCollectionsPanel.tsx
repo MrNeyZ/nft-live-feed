@@ -238,7 +238,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
   const active = sortKey === col;
   return (
     <th onClick={() => onSort(col)} style={{
-      padding: '8px 8px', fontSize: 10, fontWeight: active ? 800 : 600,
+      padding: '10px 10px', fontSize: 11, fontWeight: active ? 800 : 600,
       color: active ? VLText.primary : VLText.muted,
       letterSpacing: '0.6px', textAlign: align, cursor: 'pointer',
       borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
@@ -294,23 +294,23 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
       className={'dash-row mints-tracker-row tools-offer-row' + (row.live?.flash === 'up' ? ' row-flash-up' : '')}
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
-      <td style={{ padding: '9px 8px', position: 'relative' }}>
+      <td style={{ padding: '12px 10px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
         {/* Per-collection accent spine — same structure as /mints'
             MintsTableRow (soft bleed + base rail + solid 3px marker) so the
             two tables read as one visual family instead of /mints looking
             "thicker"/more organized than this panel. */}
-        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 100, background: `linear-gradient(90deg, ${color}08 0%, transparent 100%)`, pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 130, background: `linear-gradient(90deg, ${color}08 0%, transparent 100%)`, pointerEvents: 'none' }} />
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: alpha(VL.purpleTint, 0.045), pointerEvents: 'none' }} />
         <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, boxShadow: `0 0 5px ${color}59`, pointerEvents: 'none' }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <span style={{ color: VLText.muted, fontSize: 11, fontWeight: 500, fontFamily: MONO, minWidth: 14, textAlign: 'right', flexShrink: 0 }}>{rank}</span>
-          <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={28} />
-          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span title={name} style={{ fontSize: 13, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 16, textAlign: 'right', flexShrink: 0 }}>{rank}</span>
+          <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={34} />
+          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span title={name} style={{ fontSize: 15, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
             {row.isCompressed && (
               <span title="Compressed NFT (cNFT)" style={{
-                flexShrink: 0, padding: '1px 4px', fontSize: 7.5, fontWeight: 800, letterSpacing: '0.3px',
+                flexShrink: 0, padding: '1px 5px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
                 borderRadius: 3, lineHeight: 1.2, color: rgb(VL.purpleTint),
                 background: alpha(VL.purpleTint, 0.12), border: `1px solid ${alpha(VL.purpleTint, 0.40)}`,
               }}>cNFT</span>
@@ -318,29 +318,29 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
           </div>
         </div>
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 12.5, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL }}>
-        {row.live?.spike && <span style={{ fontSize: 9, marginRight: 3 }}>🔥</span>}
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL }}>
+        {row.live?.spike && <span style={{ fontSize: 10, marginRight: 4 }}>🔥</span>}
         {fmtInt(row.salesCount)}
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: '#ffffff' }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff' }}>
         {fmtSol(displayFloor)}
-        {hasMomentum && <span style={{ marginLeft: 3, fontSize: 10, fontWeight: 700, color: rgb(VL.green) }}>↑</span>}
+        {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green) }}>↑</span>}
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 11.5, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
         {fmtSol(row.volumeSol)}
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 10.5, color: VLText.muted, fontWeight: 500 }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 10.5, color: VLText.muted, fontWeight: 500 }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 10.5 }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 11.5 }}>
         <span style={{ fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
           {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
         </span>
       </td>
-      <td style={{ padding: '9px 8px', textAlign: 'right', fontSize: 11, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
+      <td style={{ padding: '12px 10px', textAlign: 'right', fontSize: 12, color: VLText.muted, fontWeight: 600, fontFamily: MONO }}>
         {fmtLastAge(row.live?.latestTs)}
       </td>
     </tr>
