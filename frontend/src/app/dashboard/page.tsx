@@ -23,15 +23,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CollectionIcon, ItemThumb, LiveDot, Pill, SETTINGS_PILL_INACTIVE,
-  SettingsToggle, compressImage, rowLinkHandlers, RowLinkOverlay, settingsPillActive,
+  CollectionIcon, ItemThumb, LiveDot, Pill,
+  compressImage, rowLinkHandlers, RowLinkOverlay,
 } from '@/soloist/shared';
 import { collectionMeta, fromBackend, fromRow } from '@/soloist/from-backend';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
 import { FeedEvent, formatSol, timeAgo } from '@/soloist/mock-data';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
-import { PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { authHeaders } from '@/runtime/auth';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
@@ -165,6 +164,18 @@ function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null
 }
 
 const MONO = "'SF Mono','Fira Code',monospace";
+
+/** Fixed-width collection-name truncation, mirroring shortCollectionName in
+ *  MintsTableRow.tsx (12-char pass-through / 11-char slice), scaled ~15%
+ *  longer for this page's wider name column. Full name always kept in the
+ *  cell's `title` attribute. Pairs with a fixed 140px slot so the verified/
+ *  ME/Tensor badges sit at a constant x-position regardless of name length. */
+function shortDashboardName(name: string): string {
+  const clean = name.trim();
+  if (clean.length <= 14) return clean;
+  return clean.slice(0, 13).trimEnd() + '…';
+}
+
 function fmtSol(n: number | null): string { return n == null ? '—' : formatSol(n); }
 function fmtInt(n: number | null): string { return n == null ? '—' : Math.round(n).toLocaleString(); }
 function fmtBid(sol: number | null): string { return sol == null ? '—' : formatSol(sol); }
@@ -271,7 +282,6 @@ interface MergedRow extends TrendingCollection {
 type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid';
 type SortDir = 'asc' | 'desc';
 type Tab = 'active' | 'recent';
-type MktFilter = 'all' | 'me' | 'tensor';
 
 function sortValueFor(r: MergedRow, key: SortKey): number | string {
   switch (key) {
@@ -404,7 +414,7 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
           <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={40} />
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+              <span title={name} style={{ width: 140, flexShrink: 0, fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
               {row.isVerified && (
                 <span title="Verified collection" style={{
                   flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -456,12 +466,19 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
         {fmtBid(row.bid?.tnsrBidSol ?? null)}
       </td>
-      <td style={{ padding: '14px 18px 14px 10px', textAlign: 'right', fontSize: 11.5 }}>
-        <div style={{ fontWeight: 700, color: VLText.primary }}>
-          {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
-        </div>
-        <div style={{ fontSize: 10, fontWeight: 500, color: VLText.muted, marginTop: 1 }}>
-          {fmtInt(displayListedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(displayTotalSupply)}
+      <td
+        title={displayListedCount != null && displayTotalSupply != null ? `${fmtInt(displayListedCount)} / ${fmtInt(displayTotalSupply)} listed` : undefined}
+        style={{ padding: '14px 18px 14px 10px', textAlign: 'right', fontSize: 11.5 }}
+      >
+        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <span style={{ fontWeight: 700, color: VLText.primary, fontFamily: MONO }}>
+            {displayListedPct != null ? `${(displayListedPct * 100).toFixed(1)}%` : '—'}
+          </span>
+          {displayListedPct != null && (
+            <div style={{ width: 58, height: 4, borderRadius: 2, background: alpha(VL.purpleTint, 0.14), overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, displayListedPct * 100)}%`, height: '100%', background: `linear-gradient(90deg, ${rgb(VL.purpleDeep)}, ${rgb(VL.purpleTint)})` }} />
+            </div>
+          )}
         </div>
       </td>
     </tr>
@@ -475,9 +492,7 @@ export default function Dashboard() {
 
   const [range, setRange] = useState<Range>(loadSavedRange);
   const [tab, setTab] = useState<Tab>('active');
-  const [mkt, setMkt] = useState<MktFilter>('all');
   const [selected, setSelected] = useState<string | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(TAB_STORAGE_KEY);
@@ -490,12 +505,6 @@ export default function Dashboard() {
   useEffect(() => {
     if (!LIVE_OVERLAY_RANGES.has(range) && tab === 'recent') setTab('active');
   }, [range, tab]);
-
-  useEffect(() => {
-    const onSettings = () => setFiltersOpen(o => !o);
-    window.addEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
-    return () => window.removeEventListener(PALETTE_TOGGLE_SETTINGS_EVENT, onSettings);
-  }, []);
 
   // ── ME-sourced (+ internal-supplement) rows ──────────────────────────────
   const [rows, setRows] = useState<TrendingCollection[]>([]);
@@ -639,17 +648,15 @@ export default function Dashboard() {
 
   const liveBySlug = useMemo(() => aggregateLive(events, range, nowTick), [events, range, nowTick]);
 
-  // ── Filter (dust / blacklist / market source) ────────────────────────────
+  // ── Filter (dust / blacklist) ──────────────────────────────────────────────
   const visibleRows = useMemo(() => {
     return rows.filter(r => {
       if (r.source === 'internal' && r.floorSol != null && r.floorSol <= INTERNAL_DUST_FLOOR_SOL) return false;
       if (r.name && DASHBOARD_NAME_BLACKLIST.has(r.name.toLowerCase())) return false;
       if (DASHBOARD_SLUG_BLACKLIST.has(r.slug)) return false;
-      if (mkt === 'me' && r.source !== 'magic_eden') return false;
-      if (mkt === 'tensor' && r.source !== 'internal') return false;
       return true;
     });
-  }, [rows, mkt]);
+  }, [rows]);
 
   // ── Live ME/Tensor bid snapshots ──────────────────────────────────────────
   // Backend caps /api/collections/bids at 20 slugs per request (silent
@@ -899,33 +906,9 @@ export default function Dashboard() {
             <span style={{ marginLeft: 8 }}><LiveDot /></span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <SettingsToggle active={filtersOpen} onClick={() => setFiltersOpen(o => !o)} />
             <TimeframePills active={range} onChange={r => { setRange(r); saveRange(r); }} />
           </div>
         </div>
-
-        {filtersOpen && (
-          <div className="feed-filters-panel feed-filters-panel-open" style={{ borderTop: 'none', borderRadius: 0, padding: '7px 12px 8px' }}>
-            <div className="feed-settings">
-              <div className="feed-set-group feed-set-group--content">
-                <div className="feed-set-group-hd">Source</div>
-                <div className="feed-srow">
-                  <span className="feed-srow-lbl">Market</span>
-                  <div className="feed-srow-ctl feed-seg">
-                    {([
-                      { k: 'all' as const,    l: 'All' },
-                      { k: 'me' as const,     l: 'Magic Eden' },
-                      { k: 'tensor' as const, l: 'Tensor' },
-                    ]).map(f => (
-                      <Pill key={f.k} active={mkt === f.k} onClick={() => setMkt(f.k)} label={f.l} size="sm"
-                        style={mkt === f.k ? settingsPillActive(rgb(VL.purpleTint)) : SETTINGS_PILL_INACTIVE} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="scroll-area collection-table-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 0 8px' }}>
           <table className="collections-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
