@@ -31,6 +31,7 @@ import { isSlugHot } from './subscribers';
 import { meAuthHeaders } from '../me-api-cooldown';
 import { recordFirstListedAtObservation, type ListingTimeQuality } from '../analytics/mint-lifecycle';
 import { TtlCache } from '../enrichment/cache';
+import { getCatalogEntry } from './collection-catalog';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -957,8 +958,22 @@ export async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta
   if (cached !== undefined) return cached;
   if (tensorCollMetaMissCache.has(appSlug)) return null;
 
+  // ME slugs are sometimes a straight concatenation of the display name
+  // (`sagamonkes`) while Tensor's real slug keeps word separators
+  // (`saga_monkes`) — confirmed live: find_collection?filter=sagamonkes
+  // 404s, filter=saga_monkes resolves. tensorSlugCandidates can only
+  // strip/swap EXISTING separators, so it can never bridge a fully-
+  // concatenated slug; deriving one straight from the catalog's display
+  // name (spaces -> underscores) covers that case generically.
+  const catalogName = getCatalogEntry(appSlug)?.name;
+  const nameCandidate = catalogName
+    ? catalogName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+    : null;
+  const candidates = tensorSlugCandidates(appSlug);
+  if (nameCandidate && !candidates.includes(nameCandidate)) candidates.push(nameCandidate);
+
   let meta: TensorCollMeta | null = null;
-  for (const candidate of tensorSlugCandidates(appSlug)) {
+  for (const candidate of candidates) {
     // A prior resolution may already have cached this candidate as a hit.
     const pre = tensorCollMetaCache.get(candidate);
     if (pre) { meta = pre; break; }
