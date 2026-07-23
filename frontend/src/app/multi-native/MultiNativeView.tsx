@@ -50,7 +50,10 @@ export function MultiNativeView() {
           // Capping the feed column near that natural width (~520px)
           // removes the gap, and the table column (flexible remainder)
           // absorbs the freed space instead.
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(460px, 560px)',
+          // Feed column cap widens/narrows via --multi-feed-col-max
+          // (laptop 560px default, PC 480px) so PC mode nets a WIDER
+          // table than laptop, same convention as --mints-table-max.
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(460px, var(--multi-feed-col-max, 560px))',
           gridTemplateRows: '1fr',
           gap: 12,
           // Outer horizontal gutter = the responsive page gutter (--page-x),

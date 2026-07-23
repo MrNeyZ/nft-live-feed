@@ -50,6 +50,12 @@
   --dashboard-max:     1000px;
   --tools-max:         1100px;
   --mints-max:         1400px;
+  /* /multi's feed column caps near its card's natural width; PC mode
+     narrows this cap further (like --mints-table-max widens on PC) so
+     the freed width goes to the trending-collections column instead —
+     PC ends up with a WIDER table than laptop, matching every other
+     page's PC-vs-laptop convention. */
+  --multi-feed-col-max: 560px;
   /* ── VictoryLabs final design tokens (approved palette) ──────────────
      Single source of truth for chrome colors. Marketplace-icon brand
      colors, dashboard chart series, and artwork are intentionally NOT
@@ -170,6 +176,12 @@ html[data-layout="pc"] {
   --dashboard-max:     1100px;
   --tools-max:         1280px;
   --mints-max:         1560px;
+  /* PC-only: narrow /multi's feed column cap 560 -> 480 (-80). The table
+     is the grid's `fr` track, so shrinking this hands the freed width
+     straight to it — without this, PC's only effect on /multi was a
+     bigger --page-x gutter, netting the table NARROWER on PC than
+     laptop (backwards from every other page's convention). */
+  --multi-feed-col-max: 480px;
   /* PC-only: widen the left collections table cap 942 → 1015 (+73). Because
      the right Live Mint Feed is the grid's `fr` track, growing this cap
      shrinks that panel by the same 73px (~12% of its ~608px PC width) and
