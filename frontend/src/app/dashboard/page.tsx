@@ -130,8 +130,6 @@ const SPIKE_MIN_NEWER = 3;
 const LIVE_PULSE_MS = 45_000;
 const FLOW_TINT_BUY_LEAN  = 0.75;
 const FLOW_TINT_SELL_LEAN = 0.25;
-const BID_IMBALANCE_RATIO = 0.97;
-const BID_OUTLIER_RATIO = 2;
 const BIDS_REFRESH_MS = 60_000;
 /** source==='internal' rows have no ME editorial judgment behind them — a
  *  cNFT-dust collection dumping near-zero sales on Tensor would otherwise
@@ -241,17 +239,6 @@ interface BidSnap {
   totalSupply: number | null;
 }
 
-function isPlausibleBid(bid: number, floor: number): boolean {
-  return bid > 0 && floor > 0 && bid <= floor * BID_OUTLIER_RATIO;
-}
-function hasBidImbalance(floor: number, bid: BidSnap | null): boolean {
-  if (!bid || floor <= 0) return false;
-  const me   = bid.meBidSol   ?? 0;
-  const tnsr = bid.tnsrBidSol ?? 0;
-  const top = Math.max(isPlausibleBid(me, floor) ? me : 0, isPlausibleBid(tnsr, floor) ? tnsr : 0);
-  if (top <= 0) return false;
-  return top >= floor * BID_IMBALANCE_RATIO;
-}
 
 // ── Hover sales preview types (mirror backend TrendingSaleDTO) ──────────────
 interface TrendingSale {
@@ -380,7 +367,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
     ? displayListedCount / displayTotalSupply
     : null;
   const hasMomentum = row.live != null && row.live.newerFloor > row.live.prevFloor * MOMENTUM_THRESHOLD;
-  const imbalance = hasBidImbalance(row.floorSol ?? 0, row.bid);
   const name = row.name ?? row.slug;
   const abbr = collectionMeta(name).abbr;
   const color = collectionMeta(name).color;
@@ -449,7 +435,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
         {fmtSol(row.volumeSol)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>
-        {imbalance && <span style={{ marginRight: 4, fontSize: 8, color: rgb(VL.gold), opacity: 0.85, verticalAlign: 'middle' }}>●</span>}
         {fmtBid(row.bid?.meBidSol ?? null)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 11.5, color: VLText.muted, fontWeight: 500 }}>

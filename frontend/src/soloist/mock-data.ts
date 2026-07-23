@@ -214,15 +214,23 @@ export function timeAgo(ms: number): string {
  * price formatting only; it has no relationship to the cNFT low-floor
  * visibility filter (see `cnft-filter.ts`), which keys on collection floor.
  */
+// Strips redundant trailing zeros left by a tier's fixed decimal count
+// (0.0030 -> 0.003, 10.0 -> 10) without touching precision/rounding —
+// the value itself is unchanged, only the noise character(s) are gone.
+function trimTrailingZeros(s: string): string {
+  if (!s.includes('.')) return s;
+  return s.replace(/0+$/, '').replace(/\.$/, '');
+}
+
 export function formatSol(n: number): string {
-  if (n >= 1000)   return `${(n / 1000).toFixed(1)}K`;
+  if (n >= 1000)   return `${trimTrailingZeros((n / 1000).toFixed(1))}K`;
   if (n >= 100)    return `${n.toFixed(0)}`;
-  if (n >= 10)     return `${n.toFixed(1)}`;
-  if (n >= 0.1)    return `${n.toFixed(2)}`;
-  if (n >= 0.01)   return `${n.toFixed(3)}`;
-  if (n >= 0.001)  return `${n.toFixed(4)}`;
-  if (n >= 0.0001) return `${n.toFixed(5)}`;
-  return `${n.toFixed(6)}`;
+  if (n >= 10)     return trimTrailingZeros(n.toFixed(1));
+  if (n >= 0.1)    return trimTrailingZeros(n.toFixed(2));
+  if (n >= 0.01)   return trimTrailingZeros(n.toFixed(3));
+  if (n >= 0.001)  return trimTrailingZeros(n.toFixed(4));
+  if (n >= 0.0001) return trimTrailingZeros(n.toFixed(5));
+  return trimTrailingZeros(n.toFixed(6));
 }
 
 // ── Collection mock data ─────────────────────────────────────────────────────
