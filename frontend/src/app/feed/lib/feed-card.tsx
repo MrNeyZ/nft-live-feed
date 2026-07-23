@@ -851,17 +851,18 @@ export const FeedCard = memo(function FeedCard({
                 only. cNFT / Core never schedule, so never qualify. */}
             {event.resizeStatus === 'metaplex_resized_unclaimed' && (
               // Same filled-pill treatment as the redesigned FreshBadge
-              // (handoff-badges design) — no spark glyph, just the text,
-              // same purple hue its border already used.
+              // (handoff-badges design) — no spark glyph, just the text.
+              // Stays gray/muted (unchanged color) — only the shape
+              // (transparent+border → filled pill) changed.
               <span
                 aria-label="Unclaimed Metaplex resize rent"
                 style={{
                   display: 'inline-flex', alignItems: 'center',
                   height: 18, padding: '0 7px', borderRadius: 9,
                   fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', lineHeight: 1,
-                  color: rgb(VL.purpleTint),
-                  background: alpha(VL.purpleTint, 0.12),
-                  border: `1px solid ${alpha(VL.purpleTint, 0.42)}`,
+                  color: VLText.muted,
+                  background: 'rgba(154,154,180,0.12)',
+                  border: '1px solid rgba(154,154,180,0.42)',
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   textTransform: 'uppercase', flexShrink: 0,
                 }}

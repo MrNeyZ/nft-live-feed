@@ -415,13 +415,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
               <span title={name} style={{ width: 140, flexShrink: 0, fontSize: 16, fontWeight: 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortDashboardName(name)}</span>
-              {row.isVerified && (
-                <span title="Verified collection" style={{
-                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: 13, height: 13, borderRadius: '50%', fontSize: 8.5, fontWeight: 900, lineHeight: 1,
-                  color: '#08060c', background: '#7ea8d9',
-                }}>✓</span>
-              )}
               {row.isCompressed && (
                 <span title="Compressed NFT (cNFT)" style={{
                   flexShrink: 0, padding: '1px 5px', fontSize: 8, fontWeight: 800, letterSpacing: '0.3px',
