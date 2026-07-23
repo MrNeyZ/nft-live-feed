@@ -889,6 +889,7 @@ export default function Dashboard() {
                   padding: '4px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
                   border: tab === t ? `1px solid ${alpha(VL.purpleTint, 0.5)}` : '1px solid transparent',
                   background: tab === t ? alpha(VL.purpleTint, 0.18) : 'transparent',
+                  color: tab === t ? VLText.primary : VLText.muted,
                 }}
               />
             ))}
