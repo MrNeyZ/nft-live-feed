@@ -23,7 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  CollectionIcon, ItemThumb, LiveDot, Pill,
+  CollectionIcon, LiveDot, Pill,
   compressImage, rowLinkHandlers, RowLinkOverlay,
 } from '@/soloist/shared';
 import { collectionMeta, fromBackend, fromRow } from '@/soloist/from-backend';
@@ -239,16 +239,6 @@ interface BidSnap {
 }
 
 
-// ── Hover sales preview types (mirror backend TrendingSaleDTO) ──────────────
-interface TrendingSale {
-  signature: string; blockTime: string; priceSol: number | null;
-  nftName: string | null; imageUrl: string | null;
-}
-interface SalesResponse { ok: boolean; sales?: TrendingSale[] }
-const PREVIEW_MAX = 10;
-const PREVIEW_WIDTH = 320;
-const SALES_CACHE_TTL_MS = 60_000;
-
 // ── Merged row (ME/internal DTO + live overlay + resolved artwork/bid) ─────
 interface MergedRow extends TrendingCollection {
   live: LiveOverlay | null;
@@ -348,11 +338,9 @@ interface RowProps {
   rank: number;
   isSelected: boolean;
   onClick: (row: MergedRow) => void;
-  onHoverEnter: (row: MergedRow, el: HTMLElement) => void;
-  onHoverLeave: () => void;
 }
 
-function Row({ row, rank, isSelected, onClick, onHoverEnter, onHoverLeave }: RowProps) {
+function Row({ row, rank, isSelected, onClick }: RowProps) {
   const displayFloor = row.bid?.floorSol ?? row.floorSol;
   // Tensor (via /collections/bids) over the ME-trending base row — ME's own
   // /stats has no supply denominator at all, so Tensor is the only source
@@ -375,8 +363,6 @@ function Row({ row, rank, isSelected, onClick, onHoverEnter, onHoverLeave }: Row
   return (
     <tr
       {...rowHandlers}
-      onMouseEnter={e => onHoverEnter(row, e.currentTarget)}
-      onMouseLeave={onHoverLeave}
       className={
         'dash-row mints-tracker-row tools-offer-row' +
         (isSelected ? ' mints-tracker-row-selected' : '') +
@@ -751,69 +737,6 @@ export default function Dashboard() {
     window.location.href = `/collection/${encodeURIComponent(row.slug)}`;
   };
 
-  // ── Hover sales preview ────────────────────────────────────────────────────
-  type PreviewStatus = 'loading' | 'ready' | 'error' | 'empty';
-  interface Preview {
-    slug: string; name: string; salesCount: number | null;
-    top: number; left: number; status: PreviewStatus; sales: TrendingSale[];
-  }
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const salesCacheRef = useRef<Map<string, { sales: TrendingSale[]; fetchedAt: number }>>(new Map());
-  const salesInFlightRef = useRef<Set<string>>(new Set());
-  const hoverSlugRef = useRef<string | null>(null);
-
-  const anchorFor = useCallback((el: HTMLElement): { top: number; left: number } => {
-    const r = el.getBoundingClientRect();
-    const fitsRight = window.innerWidth - r.right >= PREVIEW_WIDTH + 16;
-    const left = fitsRight ? r.right + 8 : Math.max(8, window.innerWidth - PREVIEW_WIDTH - 8);
-    const top = Math.min(Math.max(8, r.top), Math.max(8, window.innerHeight - 438));
-    return { top, left };
-  }, []);
-
-  const onRowEnter = useCallback((row: MergedRow, el: HTMLElement) => {
-    hoverSlugRef.current = row.slug;
-    const { top, left } = anchorFor(el);
-    const name = row.name ?? row.slug;
-    const want = row.salesCount == null ? PREVIEW_MAX : Math.min(Math.max(row.salesCount, 0), PREVIEW_MAX);
-
-    if (want === 0) {
-      setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left, status: 'empty', sales: [] });
-      return;
-    }
-    const key = `${row.slug}|${range}`;
-    const cached = salesCacheRef.current.get(key);
-    if (cached && Date.now() - cached.fetchedAt < SALES_CACHE_TTL_MS) {
-      setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left,
-        status: cached.sales.length ? 'ready' : 'empty', sales: cached.sales.slice(0, want) });
-      return;
-    }
-    setPreview({ slug: row.slug, name, salesCount: row.salesCount, top, left, status: 'loading', sales: [] });
-    if (salesInFlightRef.current.has(key)) return;
-    salesInFlightRef.current.add(key);
-    void (async () => {
-      try {
-        const url = `${API_BASE}/api/tools/trending-collections/${encodeURIComponent(row.slug)}/sales?range=${encodeURIComponent(range)}&limit=${want}`;
-        const res = await fetch(url, { headers: { ...authHeaders() } });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = await res.json() as SalesResponse;
-        if (!body.ok || !Array.isArray(body.sales)) throw new Error('bad payload');
-        salesCacheRef.current.set(key, { sales: body.sales, fetchedAt: Date.now() });
-        if (hoverSlugRef.current !== row.slug) return;
-        setPreview(p => (p && p.slug === row.slug
-          ? { ...p, status: body.sales!.length ? 'ready' : 'empty', sales: body.sales!.slice(0, want) }
-          : p));
-      } catch {
-        if (hoverSlugRef.current !== row.slug) return;
-        setPreview(p => (p && p.slug === row.slug ? { ...p, status: 'error', sales: [] } : p));
-      } finally {
-        salesInFlightRef.current.delete(key);
-      }
-    })();
-  }, [range, anchorFor]);
-
-  const onRowLeave = useCallback(() => { hoverSlugRef.current = null; setPreview(null); }, []);
-  useEffect(() => { hoverSlugRef.current = null; setPreview(null); }, [range]);
-
   return (
     <div className="feed-root page-transition" data-page="dashboard">
       {/* TopNav rendered persistently by Gate (anti-flash). Single-card
@@ -889,52 +812,12 @@ export default function Dashboard() {
               {sortedRows.map((row, i) => (
                 <Row key={row.slug + ':' + (row.live?.flashKey ?? 0)}
                      row={row} rank={i + 1}
-                     isSelected={selected === row.slug} onClick={handleRowClick}
-                     onHoverEnter={onRowEnter} onHoverLeave={onRowLeave} />
+                     isSelected={selected === row.slug} onClick={handleRowClick} />
               ))}
             </tbody>
           </table>
         </div>
       </div>
-
-      {preview && (
-        <div style={{
-          position: 'fixed', top: preview.top, left: preview.left, width: PREVIEW_WIDTH, zIndex: 50, pointerEvents: 'none',
-          background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)', border: `1px solid ${alpha(VL.purpleTint, 0.32)}`,
-          borderRadius: 10, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.65), 0 0 24px ${alpha(VL.purpleDeep, 0.12)}`,
-          maxHeight: 430, overflow: 'hidden', display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{ padding: '9px 11px', borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}` }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: VLText.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview.name}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: VLText.muted }}>
-              <span style={{ color: rgb(VL.purpleTint), fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
-              <span style={{ color: '#241f3b' }}>·</span>
-              <span>showing {preview.sales.length} / {preview.salesCount ?? '—'}</span>
-            </div>
-          </div>
-          <div className="scroll-area" style={{ overflowY: 'auto' }}>
-            {preview.status === 'loading' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: VLText.muted }}>Loading recent sales…</div>}
-            {preview.status === 'error' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: rgb(VL.red) }}>Couldn’t load sales.</div>}
-            {preview.status === 'empty' && <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: VLText.muted }}>No sales in this timeframe.</div>}
-            {preview.status === 'ready' && preview.sales.map(s => {
-              const sname = s.nftName ?? '—';
-              const sabbr = (sname[0] ?? '?').toUpperCase() + (sname[1] ?? '').toUpperCase();
-              return (
-                <div key={s.signature} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.022)' }}>
-                  <div style={{ flexShrink: 0, width: 30, height: 30 }}>
-                    <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color={rgb(VL.purple)} abbr={sabbr} size={30} />
-                  </div>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: VLText.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
-                    <div style={{ fontSize: 9.5, color: VLText.muted, fontFamily: MONO }}>{fmtAgo(Date.parse(s.blockTime))} ago</div>
-                  </div>
-                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: rgb(VL.green), fontFamily: MONO }}>{fmtSol(s.priceSol)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
