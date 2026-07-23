@@ -154,15 +154,6 @@ function salesTint(buy: number, sell: number): string {
   if (buyRatio <= FLOW_TINT_SELL_LEAN) return SALES_TINT_SELL;
   return SALES_TINT_NEUTRAL;
 }
-function pressureDir(buy: number, sell: number): 'buy' | 'sell' | 'mixed' | null {
-  const total = buy + sell;
-  if (total === 0) return null;
-  const buyRatio = buy / total;
-  if (buyRatio >= FLOW_TINT_BUY_LEAN)  return 'buy';
-  if (buyRatio <= FLOW_TINT_SELL_LEAN) return 'sell';
-  return 'mixed';
-}
-
 const MONO = "'SF Mono','Fira Code',monospace";
 
 /** Fixed-width collection-name truncation, mirroring shortCollectionName in
@@ -373,7 +364,6 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
     : null;
   const hasMomentum = row.live != null && row.live.newerFloor > row.live.prevFloor * MOMENTUM_THRESHOLD;
   const imbalance = hasBidImbalance(row.floorSol ?? 0, row.bid);
-  const pDir = variant === 'active' && row.live ? pressureDir(row.live.buyCount, row.live.sellCount) : null;
   const name = row.name ?? row.slug;
   const abbr = collectionMeta(name).abbr;
   const color = collectionMeta(name).color;
@@ -394,18 +384,8 @@ function Row({ row, rank, variant, isSelected, onClick, onHoverEnter, onHoverLea
       }
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >
-      <td style={{ padding: '14px 8px 14px 12px', position: 'relative' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', position: 'relative' }}>
         <RowLinkOverlay href={href} />
-        {pDir && (
-          <span style={{
-            position: 'absolute', left: 0, top: 0, bottom: 0, width: 2,
-            background:
-              pDir === 'buy'   ? 'rgba(94, 240, 176, 0.32)'  :
-              pDir === 'sell'  ? 'rgba(255, 107, 122, 0.32)' :
-                                 'rgba(255, 255, 255, 0.18)',
-            pointerEvents: 'none',
-          }} />
-        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span
             style={{ color: VLText.muted, fontSize: 12, fontWeight: 500, fontFamily: MONO, minWidth: 18, textAlign: 'right', flexShrink: 0 }}
