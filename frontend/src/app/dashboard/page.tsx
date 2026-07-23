@@ -391,13 +391,13 @@ function Row({ row, rank, isSelected, onClick }: RowProps) {
                  onClick={e => e.stopPropagation()}
                  style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                <img src="/brand/me.png" alt="ME" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
               </a>
               <a href={tensorUrl} target="_blank" rel="noopener noreferrer" title="Open on Tensor"
                  onClick={e => e.stopPropagation()}
                  style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                <img src="/brand/tensor.png" alt="Tensor" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
               </a>
             </div>
             {row.live && (

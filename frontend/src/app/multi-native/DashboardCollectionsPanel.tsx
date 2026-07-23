@@ -292,6 +292,8 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
   const abbr = collectionMeta(name).abbr;
   const color = collectionMeta(name).color;
   const href = `/collection/${encodeURIComponent(row.slug)}`;
+  const meUrl = `https://magiceden.io/marketplace/${row.slug}`;
+  const tensorUrl = `https://www.tensor.trade/trade/${row.tensorSlug ?? row.slug}`;
   const rowHandlers = rowLinkHandlers(href, () => { window.location.href = href; });
 
   return (
@@ -321,6 +323,18 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
                 background: alpha(VL.purpleTint, 0.12), border: `1px solid ${alpha(VL.purpleTint, 0.40)}`,
               }}>cNFT</span>
             )}
+            <a href={meUrl} target="_blank" rel="noopener noreferrer" title="Open on Magic Eden"
+               onClick={e => e.stopPropagation()}
+               style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/me.png" alt="ME" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
+            </a>
+            <a href={tensorUrl} target="_blank" rel="noopener noreferrer" title="Open on Tensor"
+               onClick={e => e.stopPropagation()}
+               style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/tensor.png" alt="Tensor" width={18} height={18} draggable={false} style={{ display: 'block', borderRadius: 3 }} />
+            </a>
           </div>
         </div>
       </td>
