@@ -400,6 +400,16 @@ export async function fetchTensorTopBid(slug: string): Promise<number | null> {
   return detail?.grossLamports ?? null;
 }
 
+/** True when every upstream value came back null — the signature of a
+ *  failed round (ME's `me-stats.ts` cooldown is GLOBAL: one unrelated
+ *  slug's 429 elsewhere blocks every OTHER slug's stats fetch for 60s,
+ *  `meCooldownActive()` short-circuiting straight to null with no real
+ *  attempt), not "this collection genuinely has no data". */
+function isAllNull(e: Pick<CachedBids, 'floorLamports' | 'meBidLamports' | 'tnsrBidLamports' | 'listedCount' | 'volumeAllLamports'>): boolean {
+  return e.floorLamports == null && e.meBidLamports == null && e.tnsrBidLamports == null
+    && e.listedCount == null && e.volumeAllLamports == null;
+}
+
 async function refreshBidsForSlug(slug: string): Promise<CachedBids> {
   const now = Date.now();
   const [stats, mmmBid, tensorStats] = await Promise.all([
@@ -419,6 +429,17 @@ async function refreshBidsForSlug(slug: string): Promise<CachedBids> {
     tnsrBidLamports:  tensorStats?.grossLamports ?? null,
     fetchedAt: now,
   };
+  // Don't let a failed round (all-null) clobber a previously-good cached
+  // value — confirmed live: a global me-stats cooldown triggered by an
+  // UNRELATED slug's 429 elsewhere made every OTHER slug's background
+  // refresh return null for a full BID_TTL_MS cycle, since the null result
+  // was cached as "fresh" just like a real one. Keep serving the old data
+  // and leave fetchedAt untouched so the very next request retries again
+  // instead of waiting out a full stale cycle on bad data.
+  const prev = cache.get(slug);
+  if (isAllNull(entry) && prev && !isAllNull(prev)) {
+    return prev;
+  }
   cache.set(slug, entry);
   saveBidsCacheDebounced();
   return entry;
