@@ -296,6 +296,13 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
     >
       <td style={{ padding: '9px 8px', position: 'relative' }}>
         <RowLinkOverlay href={href} />
+        {/* Per-collection accent spine — same structure as /mints'
+            MintsTableRow (soft bleed + base rail + solid 3px marker) so the
+            two tables read as one visual family instead of /mints looking
+            "thicker"/more organized than this panel. */}
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 100, background: `linear-gradient(90deg, ${color}08 0%, transparent 100%)`, pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: alpha(VL.purpleTint, 0.045), pointerEvents: 'none' }} />
+        <span aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, boxShadow: `0 0 5px ${color}59`, pointerEvents: 'none' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span style={{ color: VLText.muted, fontSize: 11, fontWeight: 500, fontFamily: MONO, minWidth: 14, textAlign: 'right', flexShrink: 0 }}>{rank}</span>
           <CollectionIcon imageUrl={compressImage(row.avatarUrl)} color={color} abbr={abbr} size={28} />
