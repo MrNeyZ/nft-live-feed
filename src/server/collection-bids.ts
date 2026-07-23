@@ -64,6 +64,14 @@ interface MmmPool {
   poolKey?: string;
   poolOwner?: string;
   expiry?: number;             // unix seconds; 0 = no expiry
+  // When present, this pool draws from a wallet shared across many pools/
+  // collections — `buysidePaymentAmount` above is a stale mirror of the
+  // escrow's total and does NOT reflect what's actually left. The real
+  // current balance is sharedEscrowBuysidePaymentAmount. Confirmed live on
+  // dumpstr_bags: three pools quoting 0.81–1.07 SOL all pointed at the same
+  // shared escrow sitting at an ACTUAL 0 SOL balance, while their own
+  // buysidePaymentAmount still read 4.79 SOL — none of them are fillable.
+  sharedEscrowInfo?: { sharedEscrowBuysidePaymentAmount?: number };
 }
 interface MmmPoolsResponse { results?: MmmPool[] }
 
@@ -187,12 +195,15 @@ async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> 
         // "top bid" at 0.036 SOL over the real live pools' ~0.005 SOL,
         // because nothing here ever looked at `expiry`. 0 = no expiry.
         if (typeof p.expiry === 'number' && p.expiry > 0 && p.expiry * 1000 < Date.now()) continue;
+        const effectiveBpa = p.sharedEscrowInfo
+          ? p.sharedEscrowInfo.sharedEscrowBuysidePaymentAmount ?? 0
+          : p.buysidePaymentAmount;
         out.push({
           spotPriceLamports:            p.spotPrice,
-          buysidePaymentAmountLamports: p.buysidePaymentAmount ?? 0,
+          buysidePaymentAmountLamports: effectiveBpa ?? 0,
           poolAddress:                  p.poolKey,
           owner:                        p.poolOwner ?? null,
-          funding:                      classifyFunding(p.buysidePaymentAmount, p.spotPrice),
+          funding:                      classifyFunding(effectiveBpa, p.spotPrice),
         });
       }
     }
