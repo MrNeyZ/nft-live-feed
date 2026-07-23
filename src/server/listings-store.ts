@@ -32,6 +32,9 @@ import { meAuthHeaders } from '../me-api-cooldown';
 import { recordFirstListedAtObservation, type ListingTimeQuality } from '../analytics/mint-lifecycle';
 import { TtlCache } from '../enrichment/cache';
 import { getCatalogEntry } from './collection-catalog';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import * as path from 'path';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -904,6 +907,32 @@ const TENSOR_MISS_TTL_MS = 5 * 60_000;
 const tensorCollMetaCache = new Map<string, TensorCollMeta>();
 const tensorCollMetaMissCache = new TtlCache<string, true>(TENSOR_MISS_TTL_MS, 60_000);
 
+// Disk-backed so a pm2 restart doesn't wipe every ME-slug → Tensor-collId
+// resolution — same pattern as tools-mmm-pools.ts's fvcaInfoCache. Without
+// this, EVERY collection needs to re-walk the shared 1 req/sec tensorFetch
+// gate from scratch after every restart, which is most of why ME BID/TNSR
+// BID feel slow right after a deploy — this is a pure lookup-table (collId
+// is permanent once found), never live price data, so it's safe to persist
+// forever with no staleness concern.
+const TENSOR_META_CACHE_FILE = path.join(__dirname, '../../data/tensor-coll-meta-cache.json');
+(function loadTensorCollMetaCacheFromDisk(): void {
+  try {
+    const raw = fs.readFileSync(TENSOR_META_CACHE_FILE, 'utf8');
+    const entries = JSON.parse(raw) as Array<[string, TensorCollMeta]>;
+    for (const [k, v] of entries) tensorCollMetaCache.set(k, v);
+    console.log(`[listings-store] loaded ${tensorCollMetaCache.size} cached Tensor slug resolutions from disk`);
+  } catch { /* first boot or corrupt file — start empty, non-fatal */ }
+})();
+let tensorMetaCacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveTensorCollMetaCacheDebounced(): void {
+  if (tensorMetaCacheSaveTimer) return;
+  tensorMetaCacheSaveTimer = setTimeout(() => {
+    tensorMetaCacheSaveTimer = null;
+    const entries = [...tensorCollMetaCache.entries()];
+    fsp.writeFile(TENSOR_META_CACHE_FILE, JSON.stringify(entries), 'utf8').catch(() => { /* non-fatal */ });
+  }, 2_000);
+}
+
 /** Sequential gate over all tensordev requests, enforcing ≥1 req/sec. Each
  *  request waits for the previous to settle, then a 1 s spacer. */
 let tensorFetchChain: Promise<unknown> = Promise.resolve();
@@ -1015,6 +1044,7 @@ export async function resolveTensorMeta(appSlug: string): Promise<TensorCollMeta
     if (meta.slugDisplay)                       tensorCollMetaCache.set(meta.slugDisplay, meta);
     if (meta.slugAtlas3)                        tensorCollMetaCache.set(meta.slugAtlas3, meta);
     if (meta.symbol && meta.symbol.length >= 4) tensorCollMetaCache.set(meta.symbol, meta);
+    saveTensorCollMetaCacheDebounced();
   } else {
     tensorCollMetaMissCache.set(appSlug, true);
   }

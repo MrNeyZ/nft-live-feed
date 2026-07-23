@@ -28,6 +28,9 @@ import { getMeStats } from '../enrichment/me-stats';
 import { rateLimit, isValidSlug, isValidMint } from './rate-limit';
 import { resolveTensorMeta, tensorFetch } from './listings-store';
 import { meAuthHeaders } from '../me-api-cooldown';
+import * as fs from 'fs';
+import * as fsp from 'fs/promises';
+import * as path from 'path';
 
 const BID_TTL_MS = 60_000;
 // Lowered 80 → 20 per H2: per-request fan-out budget is now bounded
@@ -51,6 +54,33 @@ interface CachedBids {
 }
 
 const cache = new Map<string, CachedBids>();
+
+// Disk-backed so a pm2 restart doesn't drop every last-known bid snapshot
+// back to blank "—" while it re-warms — same pattern as tools-mmm-pools.ts's
+// fvcaInfoCache / listings-store.ts's tensorCollMetaCache.
+const BIDS_CACHE_FILE = path.join(__dirname, '../../data/collection-bids-cache.json');
+(function loadBidsCacheFromDisk(): void {
+  try {
+    const raw = fs.readFileSync(BIDS_CACHE_FILE, 'utf8');
+    const entries = JSON.parse(raw) as Array<[string, CachedBids]>;
+    for (const [k, v] of entries) cache.set(k, v);
+    console.log(`[collection-bids] loaded ${cache.size} cached bid snapshots from disk`);
+  } catch { /* first boot or corrupt file — start empty, non-fatal */ }
+})();
+let bidsCacheSaveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveBidsCacheDebounced(): void {
+  if (bidsCacheSaveTimer) return;
+  bidsCacheSaveTimer = setTimeout(() => {
+    bidsCacheSaveTimer = null;
+    const entries = [...cache.entries()];
+    fsp.writeFile(BIDS_CACHE_FILE, JSON.stringify(entries), 'utf8').catch(() => { /* non-fatal */ });
+  }, 2_000);
+}
+
+// Slugs currently being background-refreshed — caps it at one in-flight
+// refresh per slug regardless of how many stale requests land in the
+// meantime (see getBidsForSlug's stale-while-revalidate).
+const inFlightRefresh = new Set<string>();
 
 interface MeStatsOut {
   floorLamports:     number | null;
@@ -363,11 +393,8 @@ export async function fetchTensorTopBid(slug: string): Promise<number | null> {
   return detail?.grossLamports ?? null;
 }
 
-async function getBidsForSlug(slug: string): Promise<CachedBids> {
-  const hit = cache.get(slug);
+async function refreshBidsForSlug(slug: string): Promise<CachedBids> {
   const now = Date.now();
-  if (hit && now - hit.fetchedAt < BID_TTL_MS) return hit;
-
   const [stats, mmmBid, tensorStats] = await Promise.all([
     fetchMeStats(slug),
     fetchMmmTopBid(slug),
@@ -386,7 +413,35 @@ async function getBidsForSlug(slug: string): Promise<CachedBids> {
     fetchedAt: now,
   };
   cache.set(slug, entry);
+  saveBidsCacheDebounced();
   return entry;
+}
+
+/** Stale-while-revalidate: a stale hit is returned immediately (never blocks
+ *  the client on a live fetch) while a background refresh brings the cache
+ *  current for the NEXT request. This — plus the disk-persisted cache above
+ *  — is the actual fix for ME BID / TNSR BID feeling slow: Tensor's shared
+ *  1 req/sec gate serializes across every visible slug, and they all expire
+ *  in the same BID_TTL_MS lockstep, so a blocking re-fetch on every 60s poll
+ *  used to make the client wait up to (visible slug count) seconds. Only a
+ *  slug with NO cached value at all (true first-ever request, or nothing
+ *  survived from disk) still blocks. */
+async function getBidsForSlug(slug: string): Promise<CachedBids> {
+  const hit = cache.get(slug);
+  const now = Date.now();
+  if (hit) {
+    if (now - hit.fetchedAt >= BID_TTL_MS && !inFlightRefresh.has(slug)) {
+      inFlightRefresh.add(slug);
+      refreshBidsForSlug(slug).catch(() => { /* keep serving the stale hit */ }).finally(() => inFlightRefresh.delete(slug));
+    }
+    return hit;
+  }
+  inFlightRefresh.add(slug);
+  try {
+    return await refreshBidsForSlug(slug);
+  } finally {
+    inFlightRefresh.delete(slug);
+  }
 }
 
 // ── cNFT collection floor by on-chain collection ADDRESS ────────────────────
