@@ -204,6 +204,7 @@ interface MergedRow extends TrendingCollection {
 }
 
 type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'last';
+const SORT_KEYS = ['collection', 'floor', 'volume', 'sales', 'listedPct', 'me_bid', 'tnsr_bid', 'last'] as const;
 type SortDir = 'asc' | 'desc';
 
 function sortValueFor(r: MergedRow, key: SortKey): number | string {
@@ -459,8 +460,24 @@ export function DashboardCollectionsPanel() {
     avatarUrl: r.image ?? null,
   })), [visibleRows, liveBySlug, bids]);
 
-  const [sortCol, setSortCol] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [sortCol, setSortCol] = useState<SortKey | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const v = window.localStorage.getItem('vl.multi.sortCol');
+      return (SORT_KEYS as readonly string[]).includes(v ?? '') ? (v as SortKey) : null;
+    } catch { return null; }
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    if (typeof window === 'undefined') return 'desc';
+    try { return window.localStorage.getItem('vl.multi.sortDir') === 'asc' ? 'asc' : 'desc'; } catch { return 'desc'; }
+  });
+  useEffect(() => {
+    try {
+      if (sortCol) window.localStorage.setItem('vl.multi.sortCol', sortCol);
+      else window.localStorage.removeItem('vl.multi.sortCol');
+    } catch { /* noop */ }
+  }, [sortCol]);
+  useEffect(() => { try { window.localStorage.setItem('vl.multi.sortDir', sortDir); } catch { /* noop */ } }, [sortDir]);
   const handleSortClick = (col: SortKey) => {
     if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     else { setSortCol(col); setSortDir('desc'); }
