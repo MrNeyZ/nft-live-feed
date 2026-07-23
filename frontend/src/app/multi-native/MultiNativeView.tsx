@@ -10,10 +10,14 @@
 //
 // Rare Feed (RareFeedCompactPanel) and the mint-events-only MintFeedPanel
 // have been REMOVED from this layout (confirmed with the user — Rare Feed is
-// being dropped from /multi altogether, not relocated). RareHighlightProvider
-// only existed to bridge Rare-row hover/click to the Sales panel, so it goes
-// with it; <SalesFeedPanel>'s own `useRareHighlight()` call returns null
-// outside a provider (its documented fallback), so it needs no edit here.
+// being dropped from /multi altogether, not relocated). The old
+// RareHighlightProvider bridge went with it.
+//
+// DashboardHighlightProvider is its replacement bridge, LEFT -> RIGHT this
+// time: hovering a collection row in DashboardCollectionsPanel highlights
+// matching cards in SalesFeedPanel. Deliberately conservative vs. the old
+// Rare bridge — hover-only, no click/select, no scroll, and no dimming of
+// the rest of the feed (see dashboard-highlight.tsx doc).
 //
 // data-embedded="1" applies the embed performance CSS (zero feed-root
 // horizontal gutter + the card paint band-aid). Gate hides the BottomStatusBar
@@ -24,6 +28,7 @@ import { DashboardCollectionsPanel } from './DashboardCollectionsPanel';
 import { SalesFeedPanel } from '@/app/feed/SalesFeedPanel';
 import { SaleStreamProvider } from './lib/sale-event-stream';
 import { MultiSalesProvider } from './lib/multi-sales';
+import { DashboardHighlightProvider } from './lib/dashboard-highlight';
 
 // Frameless grid cell — flex column so each panel's `flex: 1` fills the cell
 // height cross-browser. NO border/background/shadow (panels carry their own
@@ -38,6 +43,7 @@ export function MultiNativeView() {
     // register their handlers on it instead of opening a connection each.
     <SaleStreamProvider>
      <MultiSalesProvider>
+     <DashboardHighlightProvider>
       <div className="feed-root page-transition" data-embedded="1">
         <div style={{
           flex: 1,
@@ -65,6 +71,7 @@ export function MultiNativeView() {
           <div style={CELL}><SalesFeedPanel /></div>
         </div>
       </div>
+     </DashboardHighlightProvider>
      </MultiSalesProvider>
     </SaleStreamProvider>
   );

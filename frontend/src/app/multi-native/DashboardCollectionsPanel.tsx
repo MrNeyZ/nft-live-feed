@@ -30,6 +30,7 @@ import { FeedEvent, formatSol, timeAgo } from '@/soloist/mock-data';
 import { authHeaders } from '@/runtime/auth';
 import { useMultiSales } from './lib/multi-sales';
 import { useSaleStreamConnected } from './lib/sale-event-stream';
+import { useDashboardHighlight } from './lib/dashboard-highlight';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -295,10 +296,13 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
   const meUrl = `https://magiceden.io/marketplace/${row.slug}`;
   const tensorUrl = `https://www.tensor.trade/trade/${row.tensorSlug ?? row.slug}`;
   const rowHandlers = rowLinkHandlers(href, () => { window.location.href = href; });
+  const dashHl = useDashboardHighlight();
 
   return (
     <tr
       {...rowHandlers}
+      onMouseEnter={() => dashHl?.hoverSlug(row.slug)}
+      onMouseLeave={() => dashHl?.hoverSlug(null)}
       className={'dash-row mints-tracker-row tools-offer-row' + (row.live?.flash === 'up' ? ' row-flash-up' : '')}
       style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
     >

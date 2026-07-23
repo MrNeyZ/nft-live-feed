@@ -13,6 +13,7 @@ import { useInclusiveFees } from '@/soloist/price-mode';
 import type { FeedEvent } from '@/soloist/mock-data';
 import type { Density } from './lib/types';
 import { useRareHighlight } from '@/app/multi-native/lib/rare-highlight';
+import { useDashboardHighlight } from '@/app/multi-native/lib/dashboard-highlight';
 import { useMultiSales } from '@/app/multi-native/lib/multi-sales';
 import { useSaleStreamConnected } from '@/app/multi-native/lib/sale-event-stream';
 import { FeedCard, SlowTimeTickContext } from './lib/feed-card';
@@ -20,6 +21,12 @@ import { VL, VLText, rgb, alpha } from '@/lib/palette';
 
 const RENDER_CAP = 40;
 const DENSITIES: ReadonlyArray<Density> = ['comfy', 'compact', 'tape'];
+/** Dashboard-hover collection highlight only ever matches within this many
+ *  of the newest visible cards — "visible" meaning without scrolling, not
+ *  RENDER_CAP's full off-screen buffer. No auto-scroll either way (see
+ *  dashboard-highlight.tsx doc): a match further down the list just doesn't
+ *  light up until it scrolls into this window on its own. */
+const COLLECTION_HIGHLIGHT_WINDOW = 20;
 
 /** UX audit H3 — reconnecting status chip. Same shape as MintFeedPanel's
  *  local StatusChip (that file's comment explains why these are copied
@@ -72,6 +79,9 @@ export function SalesFeedPanel() {
   // /multi only: the compact Rare Feed publishes hovered/selected mints here.
   // Null on /feed (no provider).
   const hl = useRareHighlight();
+  // /multi only: the LEFT DashboardCollectionsPanel publishes a hovered
+  // collection slug here. Null on /feed (no provider).
+  const dashHl = useDashboardHighlight();
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -191,22 +201,37 @@ export function SalesFeedPanel() {
             const hoverMint    = hl?.hoveredMint ?? null;
             const selectedMint = hl?.selectedMint ?? null;
             const focusing = !!hoverMint && visible.some(e => e.mintAddress === hoverMint);
-            return visible.map(e => {
+            // Dashboard -> feed collection highlight: deliberately NOT the
+            // same treatment as the Rare bridge above — no dimming of the
+            // rest of the feed, just the same lift/scale/glow a real mouse
+            // hover already gives a card (see .feed-card:hover in
+            // globals.css), applied to every visible match for the hovered
+            // collection. Capped to the top COLLECTION_HIGHLIGHT_WINDOW
+            // cards ("visible without scrolling") — no auto-scroll, a match
+            // further down just doesn't light up.
+            const hoveredSlug = dashHl?.hoveredSlug ?? null;
+            return visible.map((e, idx) => {
               const isHover    = focusing && e.mintAddress === hoverMint;
               const isSelected = !!selectedMint && e.mintAddress === selectedMint;
               const dimmed     = focusing && !isHover;          // only while hovering
               const ringed     = isHover || isSelected;          // hover OR persistent click
+              const collMatch  = !!hoveredSlug && idx < COLLECTION_HIGHLIGHT_WINDOW && e.meCollectionSlug === hoveredSlug;
               return (
                 <div
                   key={e.id}
                   ref={(el) => { if (el && e.mintAddress) cardRefs.current.set(e.mintAddress, el); }}
                   style={{
                     borderRadius: 10,
-                    transition: 'opacity 120ms ease, filter 120ms ease',
+                    transition: 'opacity 120ms ease, filter 120ms ease, transform 200ms ease-out, background 200ms ease-out, box-shadow 200ms ease-out',
                     ...(ringed ? {
                       outline: `2px solid ${alpha(VL.purpleTint, 0.85)}`,
                       outlineOffset: -2,
                       background: alpha(VL.purpleTint, 0.10),
+                    } : {}),
+                    ...(collMatch ? {
+                      transform: 'translateY(-1px) scale(1.005)',
+                      background: 'rgba(255, 255, 255, 0.12)',
+                      boxShadow: '0 0 0 1px rgba(168, 144, 232, 0.40) inset, 0 0 18px rgba(128, 104, 216, 0.22)',
                     } : {}),
                     ...(dimmed ? { opacity: 0.32, filter: 'brightness(0.65)' } : { opacity: 1 }),
                   }}
