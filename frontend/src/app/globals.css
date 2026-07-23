@@ -1907,6 +1907,21 @@ body[data-bottombar="1"] .feed-root {
 .multi-collections-scroll::before {
   display: none;
 }
+/* Match the scrollbar thumb to /multi's right-side .feed-list panel —
+   both used the same purpleTint hue but .scroll-area's global idle alpha
+   (0.18) never got updated when .feed-list was dimmed to 0.12 in a later
+   contrast pass, so the two /multi panels' scrollbars read as slightly
+   different colors side by side. Scoped to this dedicated class, not the
+   global .scroll-area rule shared by /dashboard, /mints, /tools. */
+.multi-collections-scroll {
+  scrollbar-color: rgba(168, 144, 232, 0.12) transparent;
+}
+.multi-collections-scroll::-webkit-scrollbar-thumb {
+  background: rgba(168, 144, 232, 0.12);
+}
+.multi-collections-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 144, 232, 0.32);
+}
 .mints-tracker-row {
   background: rgba(255,255,255,0.030);
   /* Faint top-highlight rim — borrows the .mints-feed-row inset-rim language
