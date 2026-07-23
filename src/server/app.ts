@@ -27,11 +27,11 @@ import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createMeTensorArbRouter } from './tools-me-tensor-arb';
+import { createSpl20Router } from './tools-spl20';
 import { createDotlandRouter } from './tools-dotland';
 import { createCandyMintRouter } from './tools-candy-mint';
 import { createMeBidsRouter } from './tools-me-bids';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
-import { createDexbullAirdropRouter } from './tools-dexbull-airdrop';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
 import { createPixelForgeGenerateSourceRouter } from './tools-pixel-forge-generate-source';
@@ -182,6 +182,10 @@ export function createApp() {
   // GET /api/tools/me-tensor-arb?slug=<collection slug>
   app.use('/api', createMeTensorArbRouter());
 
+  // SPL-20 NFT⇄token arb scanner — read-only (see tools-spl20.ts header
+  // comment). GET /api/tools/spl20/tickers, /api/tools/spl20/resolve
+  app.use('/api', createSpl20Router());
+
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
   app.use('/api', createDotlandRouter());
@@ -196,10 +200,6 @@ export function createApp() {
   // private key; build-only until the client signs via Phantom and submits
   // through the existing /api/tools/mmm-pools/send-tx proxy.
   app.use('/api', createMeBidsRouter());
-
-  // DotLand x DEXBULL airdrop estimator — read-only analytics, public.
-  // GET /api/tools/dexbull-airdrop/report
-  app.use('/api', createDexbullAirdropRouter());
 
   // Pixel-forge drawing agent — personal use, requireAuth-gated on every
   // route (see tools-pixel-forge.ts header comment).
