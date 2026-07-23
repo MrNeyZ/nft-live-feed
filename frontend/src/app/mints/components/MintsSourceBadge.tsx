@@ -33,17 +33,26 @@ const SOURCE_SLOT_W_SM = 44; // sm: fontSize 9, padding 1×6 — minWidth (grows
 // VVV, ME, GAY); a rare UNKNOWN fallback may clip — accepted, not optimized for.
 const SOURCE_PILL_W_LG = 60;
 
-/** Display-only label normalization for the fixed-width table chip. Keeps
- *  labels short so they center cleanly in the fixed slot; only abbreviates
- *  where it stays readable (LMNFT/PRNT/VVV/CORE/cNFT/ME/GAY left as-is).
- *  Source logic and `sourceBadge()` labels are unchanged — this affects the
- *  rendered text only; tooltips still use the full source name. */
+/** Display-only label normalization for the fixed-width table chip. CANDY
+ *  and GRAVE render full-length now (paired with the `vl-srcchip--long`
+ *  smaller font-size below, same treatment LMNFT already got) — only
+ *  UNKNOWN (rare fallback) still abbreviates to fit the slot. Source logic
+ *  and `sourceBadge()` labels are unchanged — this affects the rendered
+ *  text only; tooltips still use the full source name. */
 const CHIP_LABEL: Record<string, string> = {
-  CANDY:   'CNDY',
-  GRAVE:   'GRAV',
-  LEGACY:  'LGCY',
   UNKNOWN: 'UNK',
 };
+/** Labels long enough (5+ chars) to read cramped at the base chip font-size
+ *  — see `.vl-srcchip--long` in globals.css. */
+const LONG_LABELS = new Set(['LMNFT', 'CANDY', 'GRAVE']);
+/** 3-char labels — widened letter-spacing instead of a bigger font-size
+ *  (see `.vl-srcchip--short` in globals.css). */
+const SHORT_LABELS = new Set(['NFT', 'VVV']);
+function srcChipClassName(label: string): string {
+  if (LONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--long';
+  if (SHORT_LABELS.has(label)) return 'vl-srcchip vl-srcchip--short';
+  return 'vl-srcchip';
+}
 
 /** Fixed chip width — sized to fit the widest kept label (LMNFT) with the dot
  *  + reference padding, so every source chip is the same width and the
@@ -55,59 +64,59 @@ const SRCCHIP_W = 66;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   void size; // sizing is fixed by the chip primitive; prop kept for callers
+  const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
+  const href = sourceHref(row);
   // Deploy-only collection — the accumulator returns early on a
   // collection-CREATE event and never increments `observedMints`
   // (see accumulator.ts), so `observedMints === 0` is an exact signal
   // for "collection created, no mints observed yet" — not a heuristic.
-  // Mirrors the Live Mint Feed card's DPLY chip 1:1 so a deploy reads
-  // the same in both places. The moment the first real mint lands,
-  // `observedMints` becomes ≥1 and this row falls through to the
-  // normal launchpad-source badge below on its own — no extra state.
-  if (row.observedMints === 0) {
-    return (
-      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: SRCCHIP_W, position: 'relative', zIndex: 3 }}>
-        <span
-          className="vl-srcchip"
-          title="Collection deployed — no mints yet"
-          style={{ '--c': VLText.muted, width: SRCCHIP_W } as React.CSSProperties}
-        >
-          <span className="vl-srcchip-dot" />
-          <span className="vl-srcchip-lbl">DPLY</span>
-        </span>
-      </span>
-    );
-  }
-  const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
-  const href = sourceHref(row);
+  // The moment the first real mint lands, `observedMints` becomes ≥1 and
+  // this row falls through to the normal per-source accent below on its
+  // own — no extra state.
+  //
+  // Still shows the real launchpad label (LMNFT/CORE/VVV/…) rather than a
+  // generic "DPLY" — the PRICE cell already carries the "this is a
+  // deploy, not a mint" signal (renders "deploy" — see MintsTableRow.tsx),
+  // so a separate generic badge text here was a redundant second way of
+  // saying the same thing. Forcing the accent to muted gray instead of the
+  // source's normal color is what actually distinguishes a deploy row from
+  // a real mint at a glance, while still answering "which launchpad".
+  const isDeployOnly = row.observedMints === 0;
   // Restore the original per-source VictoryLabs accent (sb.fg): CORE purple
   // (#a890e8), LMNFT gold (#c7b479), CANDY pink (#e58aa3), and GRAVE / VVV /
   // LEGACY / cNFT / PRNT / GAY / ME unchanged. No invented shades.
-  const accent = sb.fg;
+  const accent = isDeployOnly ? VLText.muted : sb.fg;
   const label  = CHIP_LABEL[sb.label] ?? sb.label;
+  const chipClassName = srcChipClassName(label);
   // flexShrink:0 so the anchor keeps its full SRCCHIP_W box as a flex child of
   // the wrapper / icon group — without it the default flex-shrink:1 lets row
   // pressure collapse the <a> toward its content width, so only the dot/label
   // area stayed clickable. boxSizing is border-box via `.vl-srcchip`; the inline
   // width is the full capsule, so the anchor itself owns the entire 66px hitbox.
   const chipStyle = { '--c': accent, width: SRCCHIP_W, flexShrink: 0 } as React.CSSProperties;
-  const plainTitle = row.sourceLabel === 'LaunchMyNFT'
-    ? 'LaunchMyNFT mint page unavailable'
-    : row.sourceLabel;
+  const plainTitle = isDeployOnly
+    ? `Collection deployed via ${row.sourceLabel} — no mints yet`
+    : row.sourceLabel === 'LaunchMyNFT'
+      ? 'LaunchMyNFT mint page unavailable'
+      : row.sourceLabel;
   // Linked-pill tooltip: VVV / GRAVE get an explicit "Open on …" hint
   // per the per-collection deep-link UX so users know clicking opens
   // the launchpad's page. Other sources keep the raw label as the
-  // hover hint.
-  const linkTitle = row.sourceLabel === 'VVV'
-    ? 'Open on VVV'
-    : row.sourceLabel === 'GRAVE'
-      ? 'Open on gravemint.io'
-      : row.sourceLabel;
+  // hover hint. Deploy rows get the same deploy-specific hint as the
+  // plain (unlinked) pill above.
+  const linkTitle = isDeployOnly
+    ? `Collection deployed via ${row.sourceLabel} — no mints yet`
+    : row.sourceLabel === 'VVV'
+      ? 'Open on VVV'
+      : row.sourceLabel === 'GRAVE'
+        ? 'Open on gravemint.io'
+        : row.sourceLabel;
   const chip = href ? (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="vl-srcchip"
+      className={chipClassName}
       style={chipStyle}
       title={linkTitle}
       onClick={(e) => e.stopPropagation()}
@@ -116,7 +125,7 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
       <span className="vl-srcchip-lbl">{label}</span>
     </a>
   ) : (
-    <span className="vl-srcchip" style={chipStyle} title={plainTitle}>
+    <span className={chipClassName} style={chipStyle} title={plainTitle}>
       <span className="vl-srcchip-dot" />
       <span className="vl-srcchip-lbl">{label}</span>
     </span>

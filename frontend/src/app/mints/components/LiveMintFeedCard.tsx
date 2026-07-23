@@ -33,15 +33,24 @@ import { VL, VLText, rgb, alpha } from '@/lib/palette';
 // new source needed updating in both places, was only added to one). One
 // mapping, one place to extend.
 const SRCCHIP_W = 66;
-/** Display-only label normalization on top of `sourceBadge()`'s text —
- *  this chip is narrower than the table's, so labels over 4 chars get
- *  abbreviated for the packed feed. LMNFT is deliberately NOT here: the
- *  chip width was already sized to fit it (see MintsSourceBadge.tsx). */
+/** Display-only label normalization on top of `sourceBadge()`'s text — only
+ *  UNKNOWN (rare fallback) still abbreviates. CANDY/GRAVE render full-length,
+ *  same as the table (`MintsSourceBadge.tsx`), paired with the smaller
+ *  `vl-srcchip--long` font-size below so 5-char labels still fit the chip. */
 const CHIP_LABEL: Record<string, string> = {
-  CANDY:   'CNDY',
-  GRAVE:   'GRAV',
   UNKNOWN: 'UNK',
 };
+/** Labels long enough (5+ chars) to read cramped at the base chip font-size
+ *  — see `.vl-srcchip--long` in globals.css. */
+const LONG_LABELS = new Set(['LMNFT', 'CANDY', 'GRAVE']);
+/** 3-char labels — widened letter-spacing instead of a bigger font-size
+ *  (see `.vl-srcchip--short` in globals.css). */
+const SHORT_LABELS = new Set(['NFT', 'VVV']);
+function srcChipClassName(label: string): string {
+  if (LONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--long';
+  if (SHORT_LABELS.has(label)) return 'vl-srcchip vl-srcchip--short';
+  return 'vl-srcchip';
+}
 
 /** Trim + treat empty-string as "no value". `??` only catches null /
  *  undefined, so a localStorage payload from an earlier reducer regime
@@ -445,7 +454,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   // Tooltip shows the tx total when we divided, so the raw on-chain number is
   // still discoverable on hover. Null for single mints (no title).
   const priceTitle     = totalText != null
-    ? `${priceText} ◎ each · ${totalText} ◎ total · ${ev.nftCount} NFTs`
+    ? `${priceText} each · ${totalText} total · ${ev.nftCount} NFTs`
     : undefined;
   const priceColor     = perNftLamports == null
     ? VLText.muted
@@ -793,6 +802,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         const accent = badge.fg;
         // Normalized label (display only — source/type logic untouched).
         const label = CHIP_LABEL[nftTypeLabel] ?? nftTypeLabel;
+        const chipClassName = srcChipClassName(label);
         const chipStyle = { '--c': accent, width: SRCCHIP_W } as React.CSSProperties;
         // Derive the link via the same helper the mints table uses.
         // `group` is the per-collection rollup pre-looked-up by the
@@ -805,7 +815,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="vl-srcchip"
+            className={chipClassName}
             style={chipStyle}
             onClick={(e) => e.stopPropagation()}
           >
@@ -813,7 +823,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
             <span className="vl-srcchip-lbl">{label}</span>
           </a>
         ) : (
-          <span className="vl-srcchip" style={chipStyle}>
+          <span className={chipClassName} style={chipStyle}>
             <span className="vl-srcchip-dot" />
             <span className="vl-srcchip-lbl">{label}</span>
           </span>
@@ -841,7 +851,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
             fontSize: 14, fontWeight: 800, color: embedded ? '#ffffff' : VLText.primary,
             fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
             letterSpacing: '-0.2px', whiteSpace: 'nowrap',
-          }}>{perNftLamports != null && perNftLamports > 0 ? `${fmtMintPrice(perNftLamports)} ◎` : '—'}</span>
+          }}>{perNftLamports != null && perNftLamports > 0 ? fmtMintPrice(perNftLamports) : '—'}</span>
           {/* Capped at the SAME 56px the plain (non-token) price span uses as
               its minWidth floor — without this cap a long token amount/symbol
               can render wider than the fee line above it, stretching this

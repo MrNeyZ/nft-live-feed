@@ -65,9 +65,26 @@ const BURST_V60           = envInt('MINT_BURST_V60', 8);
 const BURST_V5M           = envInt('MINT_BURST_V5M', 25);
 /** Demote burst-shown collections that go quiet for this long. */
 const COOLDOWN_MS         = envInt('MINT_IDLE_COOLDOWN_MS', 30 * 60_000);
-/** Minimum age (ms) before a lastMintAddress is promoted to stableMintAddress.
- *  3 minutes gives marketplaces time to index the NFT metadata. */
-const STABLE_MINT_DELAY_MS = 3 * 60_000;
+/** Mint position (1-indexed observedMints count) captured as the
+ *  marketplace-link candidate. Skips the collection's earliest mints,
+ *  which are often test mints / 1-of-1s and not representative of
+ *  the drop. */
+const STABLE_MINT_SAMPLE_INDEX = envInt('STABLE_MINT_SAMPLE_INDEX', 20);
+/** Time-based fallback trigger for the same capture (age of the
+ *  COLLECTION, not the candidate mint) so slow collections that never
+ *  reach STABLE_MINT_SAMPLE_INDEX mints still get a candidate. Never
+ *  fires on the collection's literal first mint. */
+const STABLE_MINT_SAMPLE_MIN_AGE_MS = 10 * 60_000;
+/** Minimum age (ms) of the CANDIDATE mint itself before it's surfaced
+ *  as stableMintAddress — gives marketplaces (ME/Tensor) time to
+ *  index the NFT's metadata. Applies once the collection has been
+ *  alive for at least this long. */
+const STABLE_MINT_MIN_AGE_MS = 60 * 60_000;
+/** Relaxed candidate-age requirement used while the COLLECTION itself
+ *  is younger than STABLE_MINT_MIN_AGE_MS — a brand-new collection
+ *  can't have a candidate that's a full hour old yet, so accept
+ *  something ~10-15 min old instead of never surfacing a link. */
+const STABLE_MINT_FRESH_MIN_AGE_MS = 15 * 60_000;
 
 console.log(
   `[mints/config] thresholds: BURST_V60=${BURST_V60} BURST_V5M=${BURST_V5M}` +
@@ -95,10 +112,15 @@ interface Accum {
    *  link target that points at an actual NFT (never the collection
    *  / authority / merkle-tree pubkey used as the groupingKey). */
   lastMintAddress:   string | null;
-  /** A mint address that is at least STABLE_MINT_DELAY_MS old. Promoted
-   *  from lastMintAddress once enough time has passed so marketplace
-   *  metadata is loaded by the time the user follows the link. */
-  stableMintAddress?: string | null;
+  /** A representative mint captured once the collection is past its
+   *  earliest (often test / 1-of-1) mints — see STABLE_MINT_SAMPLE_INDEX
+   *  / STABLE_MINT_SAMPLE_MIN_AGE_MS. Write-once (sticky): stays the
+   *  marketplace-link target for the collection's lifetime rather than
+   *  drifting to whatever minted most recently. Only surfaced on the
+   *  wire (as `stableMintAddress`, see buildStatus()) once old enough. */
+  candidateMintAddress?: string | null;
+  /** Wall-clock ms candidateMintAddress was captured. */
+  candidateMintAt?:      number | null;
   sourceLabel:       MintSourceLabel;
   /** Visual subtype: sticky-true once any Core Candy Machine v3 mint is seen
    *  for this collection. Surfaced in MintStatusWire for the pink CORE badge. */
@@ -151,6 +173,12 @@ interface Accum {
    *  unaffected — a shared placeholder is still a valid
    *  collection-level image for that row. */
   sharedPlaceholderImageUrl?: string;
+  /** Provisional collection image — see the matching doc on
+   *  `MintStatusWire.provisionalImageUrl` (events/emitter.ts). Sticky
+   *  write-once; set on the very first per-NFT image seen, without
+   *  waiting for the 2-distinct-image variety gate `representativeImageUrl`
+   *  requires. */
+  provisionalImageUrl?: string;
   /** Max planned supply (LMNFT `max_items`, MPL Core master-edition
    *  `maxSupply`). Distinct from `observedMints`. Populated lazily by
    *  `setMintMaxSupply()` once a launchpad-specific resolver decodes
@@ -475,13 +503,23 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
   const median = recentPrices.length > 0
     ? recentPrices[Math.floor(recentPrices.length / 2)]
     : null;
+  // Relax the candidate-age requirement while the collection itself is
+  // younger than STABLE_MINT_MIN_AGE_MS — see STABLE_MINT_FRESH_MIN_AGE_MS.
+  const stableMinAgeMs = (now - a.firstObservedAt) < STABLE_MINT_MIN_AGE_MS
+    ? STABLE_MINT_FRESH_MIN_AGE_MS
+    : STABLE_MINT_MIN_AGE_MS;
+  const stableMintAddress =
+    a.candidateMintAddress != null
+      && (now - (a.candidateMintAt ?? now)) >= stableMinAgeMs
+      ? a.candidateMintAddress
+      : null;
   return {
     groupingKey:       a.groupingKey,
     groupingKind:      a.groupingKind,
     programSource:     a.programSource,
     collectionAddress: a.collectionAddress,
     lastMintAddress:   a.lastMintAddress,
-    stableMintAddress: a.stableMintAddress ?? null,
+    stableMintAddress,
     displayState:      a.displayState,
     shownReason:       a.shownReason,
     observedMints:     a.observedMints,
@@ -501,6 +539,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     imageUrl:          a.imageUrl,
     representativeImageUrl:    a.representativeImageUrl,
     sharedPlaceholderImageUrl: a.sharedPlaceholderImageUrl,
+    provisionalImageUrl:       a.provisionalImageUrl,
     maxSupply:         a.maxSupply ?? null,
     mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
@@ -673,7 +712,6 @@ export function recordMint(ev: MintEventWire): boolean {
       programSource:     ev.programSource,
       collectionAddress: ev.collectionAddress,
       lastMintAddress:   ev.mintAddress,
-      stableMintAddress: null,
       sourceLabel:       ev.sourceLabel,
       coreLaunchpad:     ev.coreLaunchpad === true,
       observedMints:     0,
@@ -696,14 +734,8 @@ export function recordMint(ev: MintEventWire): boolean {
   }
   // Track the most-recent valid mintAddress so the frontend has
   // something safe to link to (collectionAddress / groupingKey can
-  // be a non-NFT pubkey). Also maintain stableMintAddress: promote
-  // the current lastMintAddress to stable once it is old enough
-  // (STABLE_MINT_DELAY_MS) so marketplace links land on an NFT
-  // whose metadata is already indexed, not a brand-new mint.
+  // be a non-NFT pubkey).
   if (ev.mintAddress) {
-    if (a.lastMintAddress && (now - a.lastMintAt) >= STABLE_MINT_DELAY_MS) {
-      a.stableMintAddress = a.lastMintAddress;
-    }
     a.lastMintAddress = ev.mintAddress;
   }
   // Sticky-true: once any Core Candy Machine v3 mint is seen for this
@@ -730,6 +762,22 @@ export function recordMint(ev: MintEventWire): boolean {
   a.observedMints++;
   a.supplyMintedLocal++;
   a.lastMintAt = now;
+  // Capture a representative mint for marketplace links once the
+  // collection is past its earliest (often test / 1-of-1) mints:
+  // either STABLE_MINT_SAMPLE_INDEX total mints observed, or
+  // STABLE_MINT_SAMPLE_MIN_AGE_MS has passed since the collection's
+  // first mint (covers slow collections that never reach the count
+  // threshold) — but never the collection's literal first mint.
+  // Write-once so the link target doesn't drift to newer mints.
+  if (a.candidateMintAddress == null && ev.mintAddress) {
+    const countReady = a.observedMints >= STABLE_MINT_SAMPLE_INDEX;
+    const ageReady = a.observedMints >= 2
+      && (now - a.firstObservedAt) >= STABLE_MINT_SAMPLE_MIN_AGE_MS;
+    if (countReady || ageReady) {
+      a.candidateMintAddress = ev.mintAddress;
+      a.candidateMintAt = now;
+    }
+  }
   const mk = Math.floor(now / 60_000);
   a.mintMinutes.set(mk, (a.mintMinutes.get(mk) ?? 0) + 1);
   const item: RingItem = { ts: now, priceLamports: ev.priceLamports };
@@ -1063,6 +1111,34 @@ export function patchAccumulatorRepresentativeImage(
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
+/** Sticky write of the FIRST per-NFT image observed for this collection,
+ *  regardless of whether variety has been confirmed yet. Called by
+ *  `collection-confirm.ts` on the very first resolved mint image (before
+ *  `representativeImageUrl`'s 2-distinct-image gate can possibly pass).
+ *  Closes the gap where a collection's own DAS asset has no image (common
+ *  on LaunchMyNFT) and only one mint has happened — without this, the
+ *  tracker table row shows initials right through the collection's first
+ *  real mint even though a genuine per-NFT image already resolved.
+ *
+ *  Deliberately NOT promoted to `representativeImageUrl` here — that field
+ *  stays reserved for variety-confirmed images so a pre-reveal drop (one
+ *  shared placeholder repeated on every mint) never gets it locked in as
+ *  "the" collection art. The tracker table ranks this field below both
+ *  `representativeImageUrl` and `sharedPlaceholderImageUrl` (see
+ *  MintsTableRow.tsx) so it's naturally superseded once real evidence
+ *  exists either way — no explicit clearing needed. */
+export function patchAccumulatorProvisionalImage(
+  groupingKey: string,
+  imageUrl: string | null | undefined,
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  if (a.provisionalImageUrl) return;                // sticky — write-once
+  if (!isUsableImageUrl(imageUrl)) return;
+  a.provisionalImageUrl = imageUrl;
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 /** Mark a URL as the collection's shared-placeholder image. Called
  *  by `collection-confirm.ts` once the same image URL has been
  *  observed on >=2 distinct mints in this drop — strong evidence
@@ -1329,7 +1405,12 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       programSource:     r.programSource,
       collectionAddress: r.collectionAddress,
       lastMintAddress:   r.lastMintAddress ?? null,
-      stableMintAddress: r.stableMintAddress ?? null,
+      // Carry the old stable address forward as the new candidate, but
+      // re-stamp its capture time to "now" rather than fabricating a
+      // pre-restart timestamp — it re-ages under the new (stricter)
+      // rules instead of risking an under-aged link surfacing early.
+      candidateMintAddress: r.stableMintAddress ?? null,
+      candidateMintAt:      r.stableMintAddress != null ? Date.now() : null,
       sourceLabel:       r.sourceLabel,
       coreLaunchpad:     r.coreLaunchpad === true,
       observedMints:     r.observedMints,

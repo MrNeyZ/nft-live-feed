@@ -51,10 +51,11 @@ export interface MintStatus {
    *  link target. May be null until the first event arrives or for
    *  cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress?:  string | null;
-  /** A mint address that is at least ~3 minutes old — used for ME/Tensor
+  /** A mid-collection mint (never the first mint, never the newest),
+   *  aged ~1h (~15min for brand-new collections) — used for ME/Tensor
    *  marketplace badge links so metadata is already indexed by the time
    *  the user lands on the page. Falls back to lastMintAddress when null
-   *  (collection too new or backend hasn't promoted yet). */
+   *  (collection too new / too few mints). */
   stableMintAddress?: string | null;
   /** Max planned supply for the collection (e.g. LMNFT `max_items`,
    *  MPL Core master-edition `maxSupply`). Distinct from
@@ -131,6 +132,17 @@ export interface MintStatus {
    *  on every mint. Tracker table ignores this field; a shared
    *  placeholder is fine as a collection-row image. */
   sharedPlaceholderImageUrl?: string;
+  /** Provisional collection image — the very first per-NFT image seen for
+   *  this collection, set backend-side without waiting for the 2-distinct-
+   *  image variety gate `representativeImageUrl` requires. Closes the gap
+   *  where a brand-new LaunchMyNFT collection has no hero image on its own
+   *  DAS asset and only one mint has happened, which otherwise leaves the
+   *  tracker table row on initials through the whole first mint. Ranked
+   *  below representativeImageUrl/sharedPlaceholderImageUrl in the tracker
+   *  table's image priority — those are evidence-confirmed, this is a
+   *  single unconfirmed sighting. Live-feed card doesn't use this field —
+   *  it already has the per-mint image directly via `nftImageUrl`. */
+  provisionalImageUrl?: string;
 }
 
 /** Per-collection rollup of mint events that fell inside the user's

@@ -29,6 +29,7 @@ import {
   patchAccumulatorLmnft,
   patchAccumulatorRepresentativeImage,
   patchAccumulatorSharedPlaceholderImage,
+  patchAccumulatorProvisionalImage,
   getAccumulatorName,
 } from './accumulator';
 import { saleEventBus } from '../events/emitter';
@@ -487,6 +488,16 @@ async function runAttempt(entry: Pending): Promise<void> {
       } else if (imageUrl && usesInCollection === 1
                  && countDistinctImages(dasCollection) >= 2) {
         patchAccumulatorRepresentativeImage(entry.groupingKey, imageUrl);
+      }
+      // Provisional: patch on the FIRST-ever resolved image regardless of
+      // the variety gate above, so a collection with exactly one mint so
+      // far (and no collection-hero image from DAS — common on LaunchMyNFT)
+      // isn't stuck on initials in the tracker table until a 2nd mint
+      // lands. Sticky write-once and ranked below representative/shared-
+      // placeholder on the frontend, so it's a no-op once either of those
+      // resolves.
+      if (imageUrl && usesInCollection === 1) {
+        patchAccumulatorProvisionalImage(entry.groupingKey, imageUrl);
       }
       saleEventBus.emitMintMeta({
         signature:   entry.signature,

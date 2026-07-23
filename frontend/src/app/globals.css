@@ -2322,6 +2322,16 @@ body[data-bottombar="1"] .feed-root {
   border:1px solid #38325a; background:linear-gradient(180deg,#211b3a,#1a1531);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.30),0 1px 2px rgba(0,0,0,.4);
 }
+/* 5-char labels (LMNFT, CANDY, GRAVE) read cramped at the base 10.5px in the
+   fixed-width chip — dial down a notch so they breathe the same as the
+   4-char labels (CORE, VVV, cNFT…) without needing a wider chip. */
+.vl-srcchip.vl-srcchip--long{ font-size:9.5px; }
+/* 3-char labels (NFT, VVV) leave the widest dead space in the fixed-width
+   chip — bumping their font-size to compensate would make them louder
+   than every other badge, drawing the eye instead of reading as one flat
+   set. Wider letter-spacing instead: same glyph size, but the word spreads
+   to fill the box like the longer labels do. */
+.vl-srcchip.vl-srcchip--short{ letter-spacing:.16em; }
 /* (1) left source-accent zone — smooth multi-stop dissolve, no 2px rail */
 .vl-srcchip::before{
   content:''; position:absolute; left:0; top:0; bottom:0; z-index:1; pointer-events:none; width:36%;

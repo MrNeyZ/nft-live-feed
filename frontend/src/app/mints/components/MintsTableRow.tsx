@@ -245,6 +245,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   //   2. representative per-NFT image (first confidently-unique one seen)
   //   3. shared pre-reveal placeholder — a real, successfully-observed NFT
   //      image; better than initials when no hero/representative exists.
+  //   4. provisional — the very first per-NFT image seen, before either of
+  //      the two above has enough evidence to set (closes the "collection
+  //      has exactly one mint, DAS collection asset has no image" gap
+  //      right after a deploy's first real mint). Ranked last since it's
+  //      an unconfirmed single sighting; naturally superseded once tier 2
+  //      or 3 resolves.
   // CRITICAL: ItemThumb renders initials immediately when its PRIMARY url
   // is null (it only advances to fallbackImageUrl via an <img> onError, so
   // a null primary never reaches the fallback). Earlier this passed the
@@ -253,7 +259,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   // to initials. Collapse to the first non-null candidate as primary —
   // mirrors the live-feed card's first-non-null selection.
   const imgCandidates = Array.from(new Set(
-    [r.imageUrl, r.representativeImageUrl, r.sharedPlaceholderImageUrl]
+    [r.imageUrl, r.representativeImageUrl, r.sharedPlaceholderImageUrl, r.provisionalImageUrl]
       .map((u) => (typeof u === 'string' && u.trim().length > 0 ? u : null))
       .filter((u): u is string => u !== null),
   ));
@@ -467,10 +473,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 (/feed wallet rows, /tools). */}
             {/* ME `/item-details/{X}` only renders a real page when
                 X is a SPECIFIC NFT mint, not a collection address.
-                Prefer stableMintAddress (>= 3 min old, metadata already
-                indexed) over lastMintAddress (brand-new, may show as
-                "unknown" on ME). Falls back to lastMintAddress when
-                stable isn't populated yet (collection too new). */}
+                Prefer stableMintAddress (a mid-collection mint, aged
+                ~1h / ~15min for brand-new collections — see
+                accumulator.ts) over lastMintAddress (brand-new, may
+                show as "unknown" on ME). Falls back to lastMintAddress
+                when stable isn't populated yet (collection too new /
+                too few mints). */}
             {isSolPubkey(r.stableMintAddress ?? r.lastMintAddress) && (
               <a
                 href={`https://magiceden.io/item-details/${r.stableMintAddress ?? r.lastMintAddress}`}

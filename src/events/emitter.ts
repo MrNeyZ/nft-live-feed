@@ -420,6 +420,21 @@ export interface MintStatusWire {
    *  shared placeholder, which erases the "this NFT just minted"
    *  signal the live feed exists to convey. */
   sharedPlaceholderImageUrl?: string;
+  /** Provisional collection image — the very first per-NFT image observed
+   *  for this collection, patched by `collection-confirm.ts` the moment it
+   *  resolves, WITHOUT waiting for the >=2-distinct-image variety gate that
+   *  `representativeImageUrl` requires. Exists to close the gap where a
+   *  brand-new collection's own DAS asset has no image (common on
+   *  LaunchMyNFT — the collection master is deployed image-less) and only
+   *  one mint has happened so far, so both `imageUrl` and
+   *  `representativeImageUrl` are still empty and the tracker table row
+   *  shows initials right after the collection's first real mint. Sticky
+   *  write-once, same as representative; ranked BELOW representativeImageUrl
+   *  and sharedPlaceholderImageUrl on the tracker table since those two are
+   *  evidence-confirmed (variety or repetition observed) while this is a
+   *  single, unconfirmed sighting. Live-feed card does not use this — it
+   *  already has the per-mint `nftImageUrl` directly on the wire. */
+  provisionalImageUrl?: string;
 }
 
 /**
