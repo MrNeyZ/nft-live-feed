@@ -63,6 +63,7 @@ interface MmmPool {
   buysidePaymentAmount?: number;
   poolKey?: string;
   poolOwner?: string;
+  expiry?: number;             // unix seconds; 0 = no expiry
 }
 interface MmmPoolsResponse { results?: MmmPool[] }
 
@@ -181,6 +182,11 @@ async function fetchMmmPoolCandidates(slug: string): Promise<MmmBidCandidate[]> 
         // silently dropped every pure buy-side pool (e.g. The Bullpen).
         if (p.poolType !== 'buy_sided' && p.poolType !== 'two_sided') continue;
         if (!p.poolKey || !(typeof p.spotPrice === 'number' && p.spotPrice > 0)) continue;
+        // Expiry was never checked — confirmed live on project_kuma: a pool
+        // that expired 2025-08-17 (11+ months stale) was still winning as
+        // "top bid" at 0.036 SOL over the real live pools' ~0.005 SOL,
+        // because nothing here ever looked at `expiry`. 0 = no expiry.
+        if (typeof p.expiry === 'number' && p.expiry > 0 && p.expiry * 1000 < Date.now()) continue;
         out.push({
           spotPriceLamports:            p.spotPrice,
           buysidePaymentAmountLamports: p.buysidePaymentAmount ?? 0,
