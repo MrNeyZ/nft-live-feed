@@ -194,8 +194,26 @@ export function createTrendingCollectionsRouter(): Router {
           const supplement = internal.filter(c => !meSlugs.has(c.slug));
           if (supplement.length > 0) collections = [...collections, ...supplement];
         } else {
+          // ME's collection_stats only counts ME-native volume (ME
+          // marketplace + ME AMM/MMM pools) — Tensor and other pool
+          // activity our own listener sees never gets attributed there,
+          // even for a slug ME otherwise recognizes. Previously ME's
+          // number won unconditionally for any slug it returned, so a
+          // collection trading heavily off-ME (e.g. mostly on Tensor)
+          // showed a near-zero table count while the Live Feed (raw
+          // sale_events, all marketplaces) showed the real volume.
+          // Internal is a strict superset of what ME can see, so take
+          // whichever count is higher per slug instead of ME-always-wins.
+          const internalBySlug = new Map(internal.map(c => [c.slug, c]));
+          collections = meCollections.map(c => {
+            const i = internalBySlug.get(c.slug);
+            if (i && (i.salesCount ?? 0) > (c.salesCount ?? 0)) {
+              return { ...c, salesCount: i.salesCount, volumeSol: i.volumeSol };
+            }
+            return c;
+          });
           const supplement = internal.filter(c => !meSlugs.has(c.slug));
-          if (supplement.length > 0) collections = [...meCollections, ...supplement];
+          if (supplement.length > 0) collections = [...collections, ...supplement];
         }
       } catch (err) {
         console.warn('[tools/trending-collections] internal supplement failed', err);

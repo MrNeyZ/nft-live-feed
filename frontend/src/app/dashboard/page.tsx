@@ -407,7 +407,6 @@ function Row({ row, rank, isSelected, onClick }: RowProps) {
         </div>
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL, letterSpacing: '-0.2px' }}>
-        {row.live?.spike && <span style={{ fontSize: 10, marginRight: 4, verticalAlign: 'middle' }}>🔥</span>}
         {fmtInt(row.salesCount)}
       </td>
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
