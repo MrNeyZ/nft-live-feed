@@ -817,7 +817,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             </td>
           );
         }
-        const price     = lastPriceByKey.get(r.groupingKey);
+        // Live-feed ring buffer is capped at LIVE_FEED_MAX (150) events
+        // shared across every collection on the platform — a collection
+        // idle since before the buffer rolled over misses here even
+        // though the backend still knows its price. Fall back to the
+        // row's own backend-truthed priceLamports (buildStatus()'s
+        // sticky lastPriceLamports) so PRICE doesn't go blank just
+        // because other collections minted a lot in the meantime.
+        const price      = lastPriceByKey.get(r.groupingKey) ?? r.priceLamports;
         const solDisplay = (typeof price === 'number') ? fmtMintPrice(price) : '—';
         const isUnknown = solDisplay === '—';
         const isFree    = solDisplay === 'FREE';

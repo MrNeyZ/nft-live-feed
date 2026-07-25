@@ -112,6 +112,12 @@ interface Accum {
    *  link target that points at an actual NFT (never the collection
    *  / authority / merkle-tree pubkey used as the groupingKey). */
   lastMintAddress:   string | null;
+  /** Sticky last observed non-null priceLamports for this collection.
+   *  Unlike the 5-minute `events5m` median, this never window-prunes —
+   *  updated on every recordMint with a non-null price, held forever
+   *  after. Used as buildStatus()'s fallback so PRICE doesn't go blank
+   *  once a collection has been idle for >5 min (mirrors lastMintAddress). */
+  lastPriceLamports: number | null;
   /** A representative mint captured once the collection is past its
    *  earliest (often test / 1-of-1) mints — see STABLE_MINT_SAMPLE_INDEX
    *  / STABLE_MINT_SAMPLE_MIN_AGE_MS. Write-once (sticky): stays the
@@ -532,7 +538,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     firstSeenAt:       a.firstObservedAt,
     collectionCreatedAt: a.collectionCreatedAt,
     mintType:          rollupType(a),
-    priceLamports:     median,
+    priceLamports:     median ?? a.lastPriceLamports,
     sourceLabel:       a.sourceLabel,
     coreLaunchpad:     a.coreLaunchpad,
     name:              a.name,
@@ -712,6 +718,7 @@ export function recordMint(ev: MintEventWire): boolean {
       programSource:     ev.programSource,
       collectionAddress: ev.collectionAddress,
       lastMintAddress:   ev.mintAddress,
+      lastPriceLamports: ev.priceLamports ?? null,
       sourceLabel:       ev.sourceLabel,
       coreLaunchpad:     ev.coreLaunchpad === true,
       observedMints:     0,
@@ -737,6 +744,9 @@ export function recordMint(ev: MintEventWire): boolean {
   // be a non-NFT pubkey).
   if (ev.mintAddress) {
     a.lastMintAddress = ev.mintAddress;
+  }
+  if (ev.priceLamports != null) {
+    a.lastPriceLamports = ev.priceLamports;
   }
   // Sticky-true: once any Core Candy Machine v3 mint is seen for this
   // collection, the row stays marked as a Core launchpad (pink CORE badge).
@@ -1405,6 +1415,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       programSource:     r.programSource,
       collectionAddress: r.collectionAddress,
       lastMintAddress:   r.lastMintAddress ?? null,
+      lastPriceLamports: typeof r.priceLamports === 'number' ? r.priceLamports : null,
       // Carry the old stable address forward as the new candidate, but
       // re-stamp its capture time to "now" rather than fabricating a
       // pre-restart timestamp — it re-ages under the new (stricter)
