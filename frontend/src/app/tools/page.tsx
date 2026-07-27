@@ -24,6 +24,7 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   { href: '/tools/rare-feed',             title: 'Rare Feed',             desc: 'Rarity-scored value sales feed.' },
   { href: '/tools/mint-analyzer',         title: 'Mint Analyzer',         desc: 'Decode a mint transaction — primitive, wrapper, reconstruction verdict.' },
   { href: '/tools/holders',               title: 'Holders',               desc: 'Raw distinct on-chain owner count for a collection (Helius DAS).' },
+  { href: '/tools/collection-analyzer',   title: 'Collection Analyzer',   desc: 'Collection/mint/marketplace URL → asset + trait attribute preview (Helius DAS).' },
   { href: '/tools/trending-legacy',       title: 'Trending (legacy)',     desc: 'Pre-merge Trending, preserved as-is for side-by-side comparison against /dashboard.' },
   { href: '/tools/mmm-pools',             title: 'MMM Dormant Scanner',   desc: 'On-chain escrow audit for a wallet’s MMM pools.' },
   { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
