@@ -85,13 +85,15 @@ export function createBundleJob(scanId: string, options: BundleOptions, totalAss
     successfulImages: 0, failedImages: 0,
     successfulOriginalMetadata: 0, failedOriginalMetadata: 0,
     bytesDownloaded: 0, archiveBytesWritten: null,
-    elapsedMs: 0,
+    elapsedMs: 0, totalParts: 1, currentPartNumber: 1,
   };
   const record: BundleJobRecord = {
     jobId, scanId, status: 'queued', options,
     createdAt: Date.now(), terminalAt: null,
     progress, failures: [], error: null,
     workDir: jobWorkDir(jobId), zipPath: null,
+    collectionDisplayName: '', totalParts: 1, currentPartNumber: 1, parts: [],
+    manifestStatus: 'pending', manifestPath: null,
     abortController: new AbortController(), ttlTimer: null,
   };
   jobs.set(jobId, record);

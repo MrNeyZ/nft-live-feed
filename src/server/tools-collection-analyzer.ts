@@ -71,11 +71,11 @@ import {
   tryAcquireJobSlot,
 } from '../tools-collection-analyzer/bundle/bundle-state-store';
 import { DEFAULT_BUNDLE_OPTIONS, isEmptySelection } from '../tools-collection-analyzer/bundle/bundle-types';
-import type { BundleJobRecord, BundleOptions, BundleStatusResponse } from '../tools-collection-analyzer/bundle/bundle-types';
+import type { BundleJobRecord, BundleOptions, BundlePartStatusWire, BundleStatusResponse } from '../tools-collection-analyzer/bundle/bundle-types';
 import {
   BUNDLE_ESTIMATED_BYTES_PER_ASSET,
-  BUNDLE_MAX_ASSET_COUNT,
-  BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES,
+  BUNDLE_MAX_JOB_DOWNLOAD_BYTES,
+  BUNDLE_MAX_TOTAL_ASSETS,
 } from '../tools-collection-analyzer/bundle/bundle-limits';
 
 // Orphaned per-job temp directories from a prior process crash have no
@@ -298,6 +298,23 @@ export function createCollectionAnalyzerRouter(): Router {
   const bundleCreateLimit = rateLimit({ limit: 5, windowMs: 10 * 60_000, label: 'tools/collection-analyzer-bundle-create' });
 
   function bundleStatusResponse(record: BundleJobRecord): BundleStatusResponse {
+    const parts: BundlePartStatusWire[] = record.parts.map((p) => ({
+      partNumber: p.partNumber,
+      status: p.status,
+      assetCount: p.range.assetCount,
+      firstMint: p.range.firstMint,
+      lastMint: p.range.lastMint,
+      successfulImages: p.successfulImages,
+      failedImages: p.failedImages,
+      successfulOriginalMetadata: p.successfulOriginalMetadata,
+      failedOriginalMetadata: p.failedOriginalMetadata,
+      bytesDownloaded: p.bytesDownloaded,
+      archiveBytesWritten: p.archiveBytesWritten,
+      sha256: p.sha256,
+      filename: p.zipFilename,
+      downloadAvailable: p.status === 'completed' && !!p.zipPath,
+      error: p.error ?? undefined,
+    }));
     return {
       jobId: record.jobId,
       scanId: record.scanId,
@@ -306,7 +323,44 @@ export function createCollectionAnalyzerRouter(): Router {
       progress: record.progress,
       failures: record.failures,
       error: record.error ?? undefined,
+      collectionDisplayName: record.collectionDisplayName,
+      totalParts: record.totalParts,
+      currentPartNumber: record.currentPartNumber,
+      parts,
+      manifestStatus: record.manifestStatus,
+      manifestAvailable: record.manifestStatus === 'completed' && !!record.manifestPath,
     };
+  }
+
+  /** Shared path-traversal guard: `absPath` must resolve to somewhere
+   *  strictly inside this job's own temp directory. Every file-serving
+   *  route below (single-part legacy download, per-part download,
+   *  manifest download) uses this — none of them ever accept a
+   *  client-supplied filesystem path. */
+  function isWithinJobDir(jobId: string, absPath: string): boolean {
+    const expectedDir = path.resolve(bundleTempRoot(), jobId);
+    return path.resolve(absPath).startsWith(expectedDir + path.sep);
+  }
+
+  function streamFileDownload(res: Response, jobId: string, absPath: string, contentType: string, downloadFilename: string): void {
+    if (!isWithinJobDir(jobId, absPath)) {
+      console.error('[tools/collection-analyzer] refusing to serve a path outside its job directory', jobId);
+      res.status(500).json({ ok: false, error: 'internal_error' });
+      return;
+    }
+    let size: number;
+    try {
+      size = fs.statSync(absPath).size;
+    } catch {
+      res.status(404).json({ ok: false, error: 'bundle_file_missing' });
+      return;
+    }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
+    res.setHeader('Content-Length', String(size));
+    const stream = fs.createReadStream(absPath);
+    stream.on('error', () => { try { res.destroy(); } catch { /* already closed */ } });
+    stream.pipe(res);
   }
 
   router.post('/tools/collection-analyzer/scans/:scanId/bundles', bundleCreateLimit, async (req: Request, res: Response) => {
@@ -329,13 +383,16 @@ export function createCollectionAnalyzerRouter(): Router {
     if (isEmptySelection(options)) {
       return res.status(400).json({ ok: false, error: 'empty_selection' });
     }
-    if (scan.assets.length > BUNDLE_MAX_ASSET_COUNT) {
-      return res.status(413).json({ ok: false, error: 'collection_too_large', maxAssetCount: BUNDLE_MAX_ASSET_COUNT });
+    // Stage 4: collections beyond the per-part cap are automatically split
+    // into multiple parts (see bundle-part-plan.ts) — only collections
+    // beyond the TOTAL job cap are rejected outright.
+    if (scan.assets.length > BUNDLE_MAX_TOTAL_ASSETS) {
+      return res.status(413).json({ ok: false, error: 'collection_too_large', maxAssetCount: BUNDLE_MAX_TOTAL_ASSETS });
     }
 
     const needsNetwork = options.images || options.originalMetadata;
     const estimatedBytes = needsNetwork ? scan.assets.length * BUNDLE_ESTIMATED_BYTES_PER_ASSET : 0;
-    if (estimatedBytes > BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES) {
+    if (estimatedBytes > BUNDLE_MAX_JOB_DOWNLOAD_BYTES) {
       return res.status(413).json({ ok: false, error: 'collection_too_large' });
     }
 
@@ -440,39 +497,54 @@ export function createCollectionAnalyzerRouter(): Router {
     return res.status(202).json({ ok: true, status: record.status });
   });
 
+  // Legacy single-part download — unchanged behavior for a single-part job.
+  // For a MULTI-part job this returns a structured explanation instead of
+  // arbitrarily picking one part's archive (spec-required — never silently
+  // return "a" ZIP when there are several).
   router.get('/tools/collection-analyzer/bundles/:jobId/download', (req: Request, res: Response) => {
     const record = getBundleJob(req.params.jobId);
     if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+    if (record.totalParts > 1) {
+      return res.status(409).json({
+        ok: false,
+        error: 'multipart_bundle',
+        message: 'This bundle has multiple parts — download each part individually or fetch the manifest.',
+        totalParts: record.totalParts,
+        partsUrl: `/api/tools/collection-analyzer/bundles/${record.jobId}/parts/:partNumber/download`,
+        manifestUrl: `/api/tools/collection-analyzer/bundles/${record.jobId}/manifest`,
+      });
+    }
     if (record.status !== 'completed' || !record.zipPath) {
       return res.status(409).json({ ok: false, error: 'bundle_not_completed', status: record.status });
     }
+    const filename = record.parts[0]?.zipFilename ?? `collection-bundle-${record.jobId.slice(0, 8)}.zip`;
+    streamFileDownload(res, record.jobId, record.zipPath, 'application/zip', filename);
+  });
 
-    // Defense in depth: the path is entirely server-generated (never
-    // derived from client input), but we verify the invariant before ever
-    // touching the filesystem, so a future regression can't turn into a
-    // path-traversal read.
-    const expectedDir = path.resolve(bundleTempRoot(), record.jobId);
-    const resolvedZip = path.resolve(record.zipPath);
-    if (!resolvedZip.startsWith(expectedDir + path.sep)) {
-      console.error('[tools/collection-analyzer] refusing to serve a zip path outside its job directory', record.jobId);
-      return res.status(500).json({ ok: false, error: 'internal_error' });
+  // Stage 4: individual part download.
+  router.get('/tools/collection-analyzer/bundles/:jobId/parts/:partNumber/download', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+
+    const partNumber = Number(req.params.partNumber);
+    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > record.parts.length) {
+      return res.status(400).json({ ok: false, error: 'invalid_part_number' });
     }
-
-    let size: number;
-    try {
-      size = fs.statSync(resolvedZip).size;
-    } catch {
-      return res.status(404).json({ ok: false, error: 'bundle_file_missing' });
+    const part = record.parts[partNumber - 1];
+    if (part.status !== 'completed' || !part.zipPath) {
+      return res.status(409).json({ ok: false, error: 'part_not_completed', status: part.status });
     }
+    streamFileDownload(res, record.jobId, part.zipPath, 'application/zip', part.zipFilename ?? `part-${partNumber}.zip`);
+  });
 
-    const safeFilename = `collection-bundle-${record.jobId.slice(0, 8)}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
-    res.setHeader('Content-Length', String(size));
-
-    const stream = fs.createReadStream(resolvedZip);
-    stream.on('error', () => { try { res.destroy(); } catch { /* already closed */ } });
-    stream.pipe(res);
+  // Stage 4: top-level manifest download.
+  router.get('/tools/collection-analyzer/bundles/:jobId/manifest', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+    if (record.manifestStatus !== 'completed' || !record.manifestPath) {
+      return res.status(409).json({ ok: false, error: 'manifest_not_available', status: record.manifestStatus });
+    }
+    streamFileDownload(res, record.jobId, record.manifestPath, 'application/json', `${record.collectionDisplayName}-manifest.json`);
   });
 
   return router;

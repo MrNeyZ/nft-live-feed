@@ -11,6 +11,10 @@
  *     assets.csv                   (if selected)
  *     trait-counts.json            (if selected)
  *     failed-downloads.json        (if selected)
+ *     part-manifest.json           (Stage 4 — always present, describes
+ *                                    this part's place in the whole job;
+ *                                    trivial single-part-of-1 for Stage 3
+ *                                    style single-ZIP jobs)
  *     images/<mint>.<ext>          (if selected, sorted by mint)
  *     metadata/<mint>.json         (if selected, sorted by mint)
  *     original-metadata/<mint>.json (if selected, sorted by mint)
@@ -32,6 +36,7 @@ export interface BundleZipInputs {
   assetsCsv?: string;
   traitCountsJson?: string;
   failedDownloadsJson?: string;
+  partManifestJson: string;
   /** Normalized metadata is generated in-memory from Stage 2 data (never
    *  downloaded), so it's passed as ready-made JSON strings, not file paths. */
   normalizedMetadataEntries?: Array<{ mint: string; json: string }>;
@@ -72,6 +77,7 @@ export function buildBundleZip(inputs: BundleZipInputs, outputZipPath: string, s
     if (inputs.failedDownloadsJson !== undefined) {
       zip.addBuffer(Buffer.from(inputs.failedDownloadsJson, 'utf8'), `${root}/failed-downloads.json`);
     }
+    zip.addBuffer(Buffer.from(inputs.partManifestJson, 'utf8'), `${root}/part-manifest.json`);
 
     for (const img of [...(inputs.imageFiles ?? [])].sort(byMint)) {
       zip.addFile(img.filePath, `${root}/images/${img.mint}.${img.ext ?? 'bin'}`);

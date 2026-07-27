@@ -30,13 +30,25 @@ export const BUNDLE_PER_RESOURCE_TIMEOUT_MS = envInt('BUNDLE_PER_RESOURCE_TIMEOU
 export const BUNDLE_MAX_IMAGE_BYTES = envInt('BUNDLE_MAX_IMAGE_BYTES', 8 * 1024 * 1024);
 export const BUNDLE_MAX_METADATA_BYTES = envInt('BUNDLE_MAX_METADATA_BYTES', 1 * 1024 * 1024);
 
-/** Total downloaded-byte budget for one bundle job (images + original
- *  metadata combined). Exceeding this is a terminal job failure. */
-export const BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES = envInt('BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES', 750 * 1024 * 1024);
+/** Total downloaded-byte budget for ONE PART (images + original metadata
+ *  combined within that part). Exceeded mid-download -> the part closes
+ *  early and any not-yet-started assets in its planned range carry
+ *  forward into the next part (see bundle-run.ts) rather than failing the
+ *  job. Stage 3 named this BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES when a "job"
+ *  was always exactly one part; Stage 4 repoints it at the per-part
+ *  budget and adds a separate overall-job aggregate below. */
+export const BUNDLE_MAX_PART_DOWNLOAD_BYTES = envInt('BUNDLE_MAX_PART_DOWNLOAD_BYTES', 750 * 1024 * 1024);
 
-/** Informational/enforced ceiling on the final ZIP size — the download
- *  budget above already bounds the INPUT bytes, this is a defensive
- *  post-hoc check on the actual written archive. */
+/** Overall job-wide downloaded-byte budget across ALL parts combined.
+ *  Exceeding this IS a terminal job failure (unlike a single part's
+ *  budget, which just closes that part early) — it means the job as a
+ *  whole has grown beyond what this process should spend on one request. */
+export const BUNDLE_MAX_JOB_DOWNLOAD_BYTES = envInt('BUNDLE_MAX_JOB_DOWNLOAD_BYTES', 6 * 1024 * 1024 * 1024);
+
+/** Informational/enforced ceiling on ONE PART's final ZIP size — the
+ *  per-part download budget above already bounds the INPUT bytes, this is
+ *  a defensive post-hoc check on the actual written archive. A part whose
+ *  archive would exceed this is never left downloadable. */
 export const BUNDLE_MAX_ZIP_BYTES = envInt('BUNDLE_MAX_ZIP_BYTES', 900 * 1024 * 1024);
 
 /** Overall wall-clock cap per bundle job (download phase + archive phase). */
@@ -55,10 +67,16 @@ export const BUNDLE_MAX_REDIRECTS = envInt('BUNDLE_MAX_REDIRECTS', 3);
  *  downloadable/queryable before being swept. */
 export const BUNDLE_STATE_TTL_MS = envInt('BUNDLE_STATE_TTL_MS', 30 * 60_000);
 
-/** Hard cap on assets eligible for a single bundle job. Collections larger
- *  than this are rejected up front — chunked/paginated bundles are a
- *  candidate for a later stage, not this one. */
-export const BUNDLE_MAX_ASSET_COUNT = envInt('BUNDLE_MAX_ASSET_COUNT', 5_000);
+/** Maximum assets in a single ZIP part. Collections larger than this are
+ *  automatically split into multiple parts rather than rejected (Stage 4) —
+ *  see bundle-part-plan.ts. */
+export const BUNDLE_MAX_ASSETS_PER_PART = envInt('BUNDLE_MAX_ASSETS_PER_PART', 5_000);
+
+/** Hard cap on TOTAL assets eligible for a bundle job (across every part
+ *  combined). Collections larger than this are rejected up front with a
+ *  structured `collection_too_large` error — there is no unbounded
+ *  multi-part support. */
+export const BUNDLE_MAX_TOTAL_ASSETS = envInt('BUNDLE_MAX_TOTAL_ASSETS', 25_000);
 
 /** Crude per-asset byte estimate used ONLY for the early-rejection sizing
  *  check (before any network call) — deliberately generous so it rarely

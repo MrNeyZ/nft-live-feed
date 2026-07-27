@@ -1,8 +1,15 @@
 /**
- * Collection Analyzer — Stage 3 bundle-generation shared types.
+ * Collection Analyzer — Stage 3/4 bundle-generation shared types.
+ *
+ * Stage 4 note: a "job" now always has >=1 "part". A single-part job is
+ * the Stage 3 behavior (one ZIP, `totalParts === 1`) — nothing about its
+ * wire shape or endpoint behavior changes. `BundleJobRecord.zipPath` /
+ * top-level `failures` remain populated (mirrored from the single part)
+ * so old single-part call sites keep working unmodified.
  */
 
 export type BundleJobStatus = 'queued' | 'downloading' | 'archiving' | 'completed' | 'failed' | 'cancelled' | 'expired';
+export type BundlePartStatus = 'queued' | 'downloading' | 'archiving' | 'completed' | 'failed' | 'cancelled';
 
 export interface BundleOptions {
   images: boolean;
@@ -76,6 +83,9 @@ export interface FailedDownloadEntry {
 
 export type BundlePhase = 'queued' | 'downloading' | 'archiving' | 'completed' | 'failed' | 'cancelled' | 'expired';
 
+/** Overall (job-wide, aggregated-across-parts) progress. Shape unchanged
+ *  from Stage 3 for single-part jobs; `totalParts`/`currentPartNumber` are
+ *  additive fields multi-part consumers can read (default 1/1). */
 export interface BundleProgressSnapshot {
   jobId: string;
   scanId: string;
@@ -91,6 +101,8 @@ export interface BundleProgressSnapshot {
   archiveBytesWritten: number | null;
   elapsedMs: number;
   warning?: string;
+  totalParts: number;
+  currentPartNumber: number;
 }
 
 export interface BundleErrorInfo {
@@ -101,6 +113,96 @@ export interface BundleErrorInfo {
   message: string;
 }
 
+/** One part's asset range within the mint-sorted asset list — see
+ *  bundle-part-plan.ts for how this is derived. */
+export interface BundlePartRange {
+  partNumber: number;
+  startIndex: number;
+  endIndex: number;
+  assetCount: number;
+  firstMint: string;
+  lastMint: string;
+}
+
+/** Internal, server-side record for one part. */
+export interface BundlePartRecord {
+  partNumber: number;
+  status: BundlePartStatus;
+  range: BundlePartRange;
+  successfulImages: number;
+  failedImages: number;
+  successfulOriginalMetadata: number;
+  failedOriginalMetadata: number;
+  bytesDownloaded: number;
+  archiveBytesWritten: number | null;
+  sha256: string | null;
+  failures: FailedDownloadEntry[];
+  /** Server-owned absolute path — never serialized to the client. */
+  zipPath: string | null;
+  zipFilename: string | null;
+  error: BundleErrorInfo | null;
+}
+
+/** What a part looks like over the wire (status/manifest responses) — no
+ *  filesystem path, ever. */
+export interface BundlePartStatusWire {
+  partNumber: number;
+  status: BundlePartStatus;
+  assetCount: number;
+  firstMint: string;
+  lastMint: string;
+  successfulImages: number;
+  failedImages: number;
+  successfulOriginalMetadata: number;
+  failedOriginalMetadata: number;
+  bytesDownloaded: number;
+  archiveBytesWritten: number | null;
+  sha256: string | null;
+  filename: string | null;
+  downloadAvailable: boolean;
+  error?: BundleErrorInfo;
+}
+
+export interface BundleManifestPartEntry {
+  filename: string;
+  partNumber: number;
+  assetCount: number;
+  firstMint: string;
+  lastMint: string;
+  archiveBytes: number | null;
+  sha256: string | null;
+  status: BundlePartStatus;
+  downloadAvailable: boolean;
+}
+
+/** The downloadable top-level manifest (`<collection>-manifest.json`). */
+export interface BundleManifest {
+  jobId: string;
+  scanId: string;
+  collectionAddress: string;
+  collectionDisplayName: string;
+  generatedAt: string;
+  exactAssetCount: number;
+  totalParts: number;
+  options: BundleOptions;
+  parts: BundleManifestPartEntry[];
+}
+
+/** Written as `part-manifest.json` INSIDE each part's ZIP. */
+export interface PartManifestEntry {
+  collectionAddress: string;
+  collectionDisplayName: string;
+  jobId: string;
+  partNumber: number;
+  totalParts: number;
+  firstMint: string;
+  lastMint: string;
+  assetsInPart: number;
+  exactCollectionCount: number;
+  options: BundleOptions;
+  generatedAt: string;
+}
+
 export interface BundleJobRecord {
   jobId: string;
   scanId: string;
@@ -109,13 +211,23 @@ export interface BundleJobRecord {
   createdAt: number;
   terminalAt: number | null;
   progress: BundleProgressSnapshot;
+  /** Aggregate across every part — kept for Stage 3 backward compatibility
+   *  (single-part jobs: identical to that one part's failures). */
   failures: FailedDownloadEntry[];
   error: BundleErrorInfo | null;
   /** Server-owned working directory for this job, under os.tmpdir(). Never
    *  exposed to the client. */
   workDir: string;
-  /** Absolute path to the finished ZIP, set only once archiving succeeds. */
+  /** Single-part convenience mirror of parts[0].zipPath — kept so Stage 3
+   *  code (and the legacy /download endpoint for single-part jobs) needs
+   *  no changes. Null for multi-part jobs. */
   zipPath: string | null;
+  collectionDisplayName: string;
+  totalParts: number;
+  currentPartNumber: number;
+  parts: BundlePartRecord[];
+  manifestStatus: 'pending' | 'completed' | 'failed';
+  manifestPath: string | null;
   abortController: AbortController;
   ttlTimer: NodeJS.Timeout | null;
 }
@@ -130,4 +242,10 @@ export interface BundleStatusResponse {
   progress: BundleProgressSnapshot;
   failures: FailedDownloadEntry[];
   error?: BundleErrorInfo;
+  collectionDisplayName: string;
+  totalParts: number;
+  currentPartNumber: number;
+  parts: BundlePartStatusWire[];
+  manifestStatus: 'pending' | 'completed' | 'failed';
+  manifestAvailable: boolean;
 }
