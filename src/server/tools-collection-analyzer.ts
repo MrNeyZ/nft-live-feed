@@ -23,6 +23,18 @@
  * Holder Count tool uses (`tools-holders/resolve-slug.ts`) — a public ME API
  * call maps slug -> a representative mint -> on-chain collection via DAS.
  * Marketplace HTML is never scraped.
+ *
+ * Stage 3 (additive — collection bundle downloads):
+ *   POST /api/tools/collection-analyzer/scans/:scanId/bundles
+ *   GET  /api/tools/collection-analyzer/bundles/:jobId/stream    (SSE, subscriber-only)
+ *   GET  /api/tools/collection-analyzer/bundles/:jobId           (status)
+ *   POST /api/tools/collection-analyzer/bundles/:jobId/cancel
+ *   GET  /api/tools/collection-analyzer/bundles/:jobId/download
+ * Generates a ZIP of images + metadata + analysis exports from an already-
+ * completed Stage 2 scan — never re-scans. See
+ * `tools-collection-analyzer/bundle/` for the SSRF-safe downloader, ZIP
+ * builder, and in-memory job registry (same "single process, no Redis"
+ * architecture, own TTL, own temp-dir lifecycle under os.tmpdir()).
  */
 import { Router, Request, Response } from 'express';
 import { rateLimit } from './rate-limit';
@@ -43,6 +55,33 @@ import {
 import { buildAssetsCsv } from '../tools-collection-analyzer/scan-csv';
 import { SCAN_ASSETS_PAGE_DEFAULT, SCAN_ASSETS_PAGE_MAX } from '../tools-collection-analyzer/scan-limits';
 import type { ScanStatusResponse } from '../tools-collection-analyzer/scan-types';
+import * as fs from 'fs';
+import * as path from 'path';
+import { executeBundleJob } from '../tools-collection-analyzer/bundle/bundle-run';
+import {
+  activeJobSlots,
+  bundleTempRoot,
+  checkDiskSpace,
+  createBundleJob,
+  finalizeBundleJob,
+  getBundleJob,
+  publishBundleProgress,
+  subscribeToBundleProgress,
+  sweepOrphanedBundleTempDirs,
+  tryAcquireJobSlot,
+} from '../tools-collection-analyzer/bundle/bundle-state-store';
+import { DEFAULT_BUNDLE_OPTIONS, isEmptySelection } from '../tools-collection-analyzer/bundle/bundle-types';
+import type { BundleJobRecord, BundleOptions, BundleStatusResponse } from '../tools-collection-analyzer/bundle/bundle-types';
+import {
+  BUNDLE_ESTIMATED_BYTES_PER_ASSET,
+  BUNDLE_MAX_ASSET_COUNT,
+  BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES,
+} from '../tools-collection-analyzer/bundle/bundle-limits';
+
+// Orphaned per-job temp directories from a prior process crash have no
+// surviving in-memory record — the only place that can ever clean them up
+// is a startup sweep. Fire-and-forget; never blocks router construction.
+void sweepOrphanedBundleTempDirs();
 
 function scanStatusResponse(record: ReturnType<typeof getScan>): ScanStatusResponse | null {
   if (!record) return null;
@@ -240,6 +279,200 @@ export function createCollectionAnalyzerRouter(): Router {
       default:
         return res.status(404).json({ ok: false, error: 'unknown_export_file' });
     }
+  });
+
+  // ── Stage 3: bundle generation ──────────────────────────────────────────
+  // POST /api/tools/collection-analyzer/scans/:scanId/bundles
+  // GET  /api/tools/collection-analyzer/bundles/:jobId/stream   (SSE, subscriber-only)
+  // GET  /api/tools/collection-analyzer/bundles/:jobId          (status)
+  // POST /api/tools/collection-analyzer/bundles/:jobId/cancel
+  // GET  /api/tools/collection-analyzer/bundles/:jobId/download
+  //
+  // A bundle job runs DETACHED from the request that created it — unlike
+  // Stage 2's scan-stream (which IS the scan), here POST just kicks the job
+  // off and returns a jobId immediately; the job keeps running even if every
+  // SSE subscriber disconnects (explicit Stage 3 requirement — the user may
+  // navigate away and come back). Only the dedicated /cancel endpoint stops
+  // it. See tools-collection-analyzer/bundle/bundle-run.ts for the pipeline
+  // and bundle-state-store.ts for the job registry + TTL + temp-dir lifecycle.
+  const bundleCreateLimit = rateLimit({ limit: 5, windowMs: 10 * 60_000, label: 'tools/collection-analyzer-bundle-create' });
+
+  function bundleStatusResponse(record: BundleJobRecord): BundleStatusResponse {
+    return {
+      jobId: record.jobId,
+      scanId: record.scanId,
+      status: record.status,
+      options: record.options,
+      progress: record.progress,
+      failures: record.failures,
+      error: record.error ?? undefined,
+    };
+  }
+
+  router.post('/tools/collection-analyzer/scans/:scanId/bundles', bundleCreateLimit, async (req: Request, res: Response) => {
+    const scan = getScan(req.params.scanId);
+    if (!scan) return res.status(404).json({ ok: false, error: 'scan_not_found' });
+    if (scan.status !== 'completed' || !scan.assets || !scan.summary) {
+      return res.status(409).json({ ok: false, error: 'scan_not_completed', status: scan.status });
+    }
+
+    const rawOptions = (req.body && typeof req.body === 'object' ? (req.body as { options?: unknown }).options : undefined) as
+      | Partial<Record<keyof BundleOptions, unknown>>
+      | undefined;
+    const options: BundleOptions = { ...DEFAULT_BUNDLE_OPTIONS };
+    if (rawOptions && typeof rawOptions === 'object') {
+      for (const key of Object.keys(DEFAULT_BUNDLE_OPTIONS) as Array<keyof BundleOptions>) {
+        if (key in rawOptions) options[key] = Boolean(rawOptions[key]);
+      }
+    }
+
+    if (isEmptySelection(options)) {
+      return res.status(400).json({ ok: false, error: 'empty_selection' });
+    }
+    if (scan.assets.length > BUNDLE_MAX_ASSET_COUNT) {
+      return res.status(413).json({ ok: false, error: 'collection_too_large', maxAssetCount: BUNDLE_MAX_ASSET_COUNT });
+    }
+
+    const needsNetwork = options.images || options.originalMetadata;
+    const estimatedBytes = needsNetwork ? scan.assets.length * BUNDLE_ESTIMATED_BYTES_PER_ASSET : 0;
+    if (estimatedBytes > BUNDLE_MAX_TOTAL_DOWNLOAD_BYTES) {
+      return res.status(413).json({ ok: false, error: 'collection_too_large' });
+    }
+
+    const diskCheck = await checkDiskSpace(estimatedBytes);
+    if (!diskCheck.ok) {
+      return res.status(507).json({ ok: false, error: 'insufficient_disk_space' });
+    }
+
+    if (!tryAcquireJobSlot()) {
+      const { active, max } = activeJobSlots();
+      console.warn(`[tools/collection-analyzer] bundle rejected reason=capacity active=${active}/${max}`);
+      res.setHeader('Retry-After', '30');
+      return res.status(429).json({ ok: false, error: 'bundle_capacity' });
+    }
+
+    const record = createBundleJob(scan.scanId, options, scan.assets.length);
+    const assets = scan.assets;
+    const summary = scan.summary;
+    // Fire-and-forget — the job MUST outlive this request/response cycle.
+    // The outer catch is a last-resort safety net; executeBundleJob already
+    // finalizes on every internal error path (see its own doc comment).
+    void executeBundleJob({
+      record, assets, summary,
+      onProgress: (p) => publishBundleProgress(record.jobId, p),
+    }).catch((err) => {
+      console.error('[tools/collection-analyzer] bundle job crashed outside executeBundleJob', err);
+      finalizeBundleJob(record, 'failed', { error: { code: 'archive_creation_failed', message: 'Unexpected internal error.' } });
+      publishBundleProgress(record.jobId, record.progress);
+    });
+
+    return res.status(202).json({ ok: true, jobId: record.jobId, status: record.status });
+  });
+
+  router.get('/tools/collection-analyzer/bundles/:jobId/stream', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const emit = (payload: Record<string, unknown>) => {
+      try { res.write(`data: ${JSON.stringify(payload)}\n\n`); }
+      catch { /* client disconnected */ }
+    };
+    const frameType = (status: string): string =>
+      status === 'completed' ? 'result' : status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'error' : 'progress';
+    const sendTick = (p: BundleJobRecord['progress']) => {
+      emit({ type: frameType(p.status), ...p, failures: record.failures, error: record.error ?? undefined });
+    };
+
+    // Replay current state immediately — a client attaching mid-job (or
+    // reconnecting after navigating away) must see where things stand
+    // without waiting for the next tick.
+    sendTick(record.progress);
+
+    const isTerminal = record.status === 'completed' || record.status === 'failed' || record.status === 'cancelled' || record.status === 'expired';
+    if (isTerminal) { res.end(); return; }
+
+    const heartbeat = setInterval(() => {
+      try { res.write(': heartbeat\n\n'); } catch { /* client gone */ }
+    }, 20_000);
+    if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+    const unsubscribe = subscribeToBundleProgress(record.jobId, (p) => {
+      sendTick(p);
+      if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled') {
+        try { res.end(); } catch { /* already closed */ }
+      }
+    });
+
+    // IMPORTANT: disconnecting here does NOT cancel the job (explicit Stage
+    // 3 requirement) — it only detaches THIS subscriber. The job keeps
+    // running; reconnect or poll GET .../:jobId to see where it ended up.
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    req.on('close', cleanup);
+    req.on('error', cleanup);
+    req.on('aborted', cleanup);
+  });
+
+  router.get('/tools/collection-analyzer/bundles/:jobId', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+    return res.json({ ok: true, ...bundleStatusResponse(record) });
+  });
+
+  router.post('/tools/collection-analyzer/bundles/:jobId/cancel', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+    if (record.status !== 'queued' && record.status !== 'downloading' && record.status !== 'archiving') {
+      return res.status(409).json({ ok: false, error: 'bundle_not_cancellable', status: record.status });
+    }
+    record.abortController.abort();
+    return res.status(202).json({ ok: true, status: record.status });
+  });
+
+  router.get('/tools/collection-analyzer/bundles/:jobId/download', (req: Request, res: Response) => {
+    const record = getBundleJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'bundle_not_found' });
+    if (record.status !== 'completed' || !record.zipPath) {
+      return res.status(409).json({ ok: false, error: 'bundle_not_completed', status: record.status });
+    }
+
+    // Defense in depth: the path is entirely server-generated (never
+    // derived from client input), but we verify the invariant before ever
+    // touching the filesystem, so a future regression can't turn into a
+    // path-traversal read.
+    const expectedDir = path.resolve(bundleTempRoot(), record.jobId);
+    const resolvedZip = path.resolve(record.zipPath);
+    if (!resolvedZip.startsWith(expectedDir + path.sep)) {
+      console.error('[tools/collection-analyzer] refusing to serve a zip path outside its job directory', record.jobId);
+      return res.status(500).json({ ok: false, error: 'internal_error' });
+    }
+
+    let size: number;
+    try {
+      size = fs.statSync(resolvedZip).size;
+    } catch {
+      return res.status(404).json({ ok: false, error: 'bundle_file_missing' });
+    }
+
+    const safeFilename = `collection-bundle-${record.jobId.slice(0, 8)}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+    res.setHeader('Content-Length', String(size));
+
+    const stream = fs.createReadStream(resolvedZip);
+    stream.on('error', () => { try { res.destroy(); } catch { /* already closed */ } });
+    stream.pipe(res);
   });
 
   return router;

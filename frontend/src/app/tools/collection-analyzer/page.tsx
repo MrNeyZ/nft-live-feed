@@ -104,6 +104,54 @@ interface ScanResultSummary {
 const SCAN_ASSETS_PAGE_SIZE = 24;
 const EXPORT_FILES = ['collection-summary.json', 'assets.json', 'assets.csv', 'trait-counts.json'] as const;
 
+// ── Mirror of backend Stage 3 bundle types (src/tools-collection-analyzer/bundle/bundle-types.ts)
+type BundleJobStatus = 'queued' | 'downloading' | 'archiving' | 'completed' | 'failed' | 'cancelled' | 'expired';
+interface BundleOptions {
+  images: boolean;
+  normalizedMetadata: boolean;
+  originalMetadata: boolean;
+  collectionSummary: boolean;
+  assetsJson: boolean;
+  assetsCsv: boolean;
+  traitCounts: boolean;
+  failureReport: boolean;
+}
+const DEFAULT_BUNDLE_OPTIONS: BundleOptions = {
+  images: true, normalizedMetadata: true, originalMetadata: false,
+  collectionSummary: true, assetsJson: true, assetsCsv: true, traitCounts: true, failureReport: true,
+};
+const BUNDLE_OPTION_LABEL: Record<keyof BundleOptions, string> = {
+  images: 'Images',
+  normalizedMetadata: 'Normalized metadata (per-NFT JSON)',
+  originalMetadata: 'Original off-chain metadata JSON',
+  collectionSummary: 'Collection summary',
+  assetsJson: 'Assets JSON',
+  assetsCsv: 'Assets CSV',
+  traitCounts: 'Trait counts',
+  failureReport: 'Failure report',
+};
+interface BundleProgressSnapshot {
+  jobId: string;
+  scanId: string;
+  status: BundleJobStatus;
+  phase: BundleJobStatus;
+  totalAssets: number;
+  processedAssets: number;
+  successfulImages: number;
+  failedImages: number;
+  successfulOriginalMetadata: number;
+  failedOriginalMetadata: number;
+  bytesDownloaded: number;
+  archiveBytesWritten: number | null;
+  elapsedMs: number;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 const INPUT_KIND_LABEL: Record<InputKind, string> = {
   collection: 'Collection Address',
   mint: 'NFT Mint (resolved to collection)',
@@ -170,7 +218,16 @@ export default function CollectionAnalyzerPage() {
 
   const [traitSearch, setTraitSearch] = useState('');
 
-  useEffect(() => () => { scanEsRef.current?.close(); }, []);
+  // ── Stage 3: collection bundle (download) state ──────────────────────
+  const [bundleOptions, setBundleOptions] = useState<BundleOptions>({ ...DEFAULT_BUNDLE_OPTIONS });
+  const [bundleStatus, setBundleStatus] = useState<BundleJobStatus | 'idle' | 'expired'>('idle');
+  const [bundleJobId, setBundleJobId] = useState<string | null>(null);
+  const [bundleProgress, setBundleProgress] = useState<BundleProgressSnapshot | null>(null);
+  const [bundleFailures, setBundleFailures] = useState<Array<{ mint: string; name: string | null; resourceType: string; message: string }>>([]);
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const bundleEsRef = useRef<EventSource | null>(null);
+
+  useEffect(() => () => { scanEsRef.current?.close(); bundleEsRef.current?.close(); }, []);
 
   const loadScanAssetsPage = async (id: string, offset: number) => {
     setScanAssetsBusy(true);
@@ -185,6 +242,74 @@ export default function CollectionAnalyzerPage() {
       setScanAssetsTotal(body.total);
     } catch { /* transient — leave current page displayed */ }
     finally { setScanAssetsBusy(false); }
+  };
+
+  const toggleBundleOption = (key: keyof BundleOptions) => {
+    setBundleOptions((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const clearBundleState = () => {
+    bundleEsRef.current?.close();
+    bundleEsRef.current = null;
+    setBundleStatus('idle');
+    setBundleJobId(null);
+    setBundleProgress(null);
+    setBundleFailures([]);
+    setBundleError(null);
+  };
+
+  const attachBundleStream = (jobId: string) => {
+    bundleEsRef.current?.close();
+    const es = new EventSource(`${API_BASE}/api/tools/collection-analyzer/bundles/${jobId}/stream`);
+    bundleEsRef.current = es;
+    es.onmessage = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data as string) as { type: string; failures?: typeof bundleFailures; error?: { message?: string } } & Partial<BundleProgressSnapshot>;
+        if (data.status) setBundleProgress(data as BundleProgressSnapshot);
+        if (data.failures) setBundleFailures(data.failures);
+        if (data.type === 'result') { setBundleStatus('completed'); es.close(); }
+        else if (data.type === 'cancelled') { setBundleStatus('cancelled'); setBundleError(data.error?.message ?? 'Bundle cancelled.'); es.close(); }
+        else if (data.type === 'error') { setBundleStatus('failed'); setBundleError(data.error?.message ?? 'Bundle generation failed.'); es.close(); }
+        else if (data.status) setBundleStatus(data.status);
+      } catch { /* ignore malformed frame */ }
+    };
+    es.onerror = () => { /* connection hiccup only — job keeps running server-side; poll status separately if needed */ };
+  };
+
+  const startBundle = async () => {
+    if (!scanId || bundleStatus === 'queued' || bundleStatus === 'downloading' || bundleStatus === 'archiving') return;
+    if (!Object.values(bundleOptions).some(Boolean)) { setBundleError('Select at least one bundle option.'); return; }
+    playUiConfirm();
+    setBundleStatus('queued');
+    setBundleJobId(null);
+    setBundleProgress(null);
+    setBundleFailures([]);
+    setBundleError(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/tools/collection-analyzer/scans/${scanId}/bundles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ options: bundleOptions }),
+      });
+      const body = await r.json() as { ok: boolean; jobId?: string; error?: string };
+      if (!body.ok || !body.jobId) {
+        setBundleStatus('failed');
+        setBundleError(body.error === 'empty_selection' ? 'Select at least one bundle option.' : `Could not start bundle generation (${body.error ?? r.status}).`);
+        return;
+      }
+      setBundleJobId(body.jobId);
+      attachBundleStream(body.jobId);
+    } catch (e) {
+      setBundleStatus('failed');
+      setBundleError((e as Error).message);
+    }
+  };
+
+  const cancelBundle = async () => {
+    if (!bundleJobId) return;
+    try {
+      await fetch(`${API_BASE}/api/tools/collection-analyzer/bundles/${bundleJobId}/cancel`, { method: 'POST' });
+    } catch { /* the stream will reflect the eventual state regardless */ }
   };
 
   const clearScanState = () => {
@@ -694,6 +819,96 @@ export default function CollectionAnalyzerPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ── Stage 3: collection bundle download ───────────────────────── */}
+      {scanStatus === 'completed' && scanSummary && (
+        <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '0 4px 24px' }}>
+          <div style={PANEL}>
+            <div style={SECTION_LABEL}>Download collection</div>
+            <div style={{ fontSize: 11, color: '#c7b479', marginBottom: 10 }}>
+              Downloads final rendered NFT images and metadata from their public off-chain hosts — some may fail if a host is slow or gone.
+              This does NOT recover the project&apos;s original layered/source artwork files.
+            </div>
+
+            {(bundleStatus === 'idle' || bundleStatus === 'expired') && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6, marginBottom: 10 }}>
+                  {(Object.keys(BUNDLE_OPTION_LABEL) as Array<keyof BundleOptions>).map((key) => (
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#c8c8dc', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={bundleOptions[key]} onChange={() => toggleBundleOption(key)} />
+                      {BUNDLE_OPTION_LABEL[key]}
+                    </label>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 10 }}>
+                  Estimated file count: ~{scanSummary.exactAssetCount * ((bundleOptions.images ? 1 : 0) + (bundleOptions.normalizedMetadata ? 1 : 0) + (bundleOptions.originalMetadata ? 1 : 0)) + 1}
+                  {bundleStatus === 'expired' && <span style={{ color: '#d96867' }}> · Previous bundle expired — generate a new one.</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={startBundle}
+                  data-uisnd="skip"
+                  style={{
+                    padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
+                    cursor: 'pointer', border: '1px solid rgba(126,168,217,0.55)',
+                    background: 'linear-gradient(180deg, rgba(126,168,217,0.28) 0%, rgba(126,168,217,0.14) 100%)', color: '#f0eef8',
+                  }}
+                >
+                  Generate ZIP
+                </button>
+              </>
+            )}
+
+            {(bundleStatus === 'queued' || bundleStatus === 'downloading' || bundleStatus === 'archiving') && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', textTransform: 'uppercase' }}>{bundleProgress?.phase ?? bundleStatus}…</div>
+                  <button type="button" onClick={cancelBundle} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(217,104,103,0.5)', background: 'rgba(217,104,103,0.10)', color: '#d96867' }}>
+                    Cancel
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11.5, fontFamily: MONO }}>
+                  <div><span style={{ color: '#9a9ab4' }}>processed </span><span style={{ color: '#f0eef8' }}>{bundleProgress?.processedAssets ?? 0}/{bundleProgress?.totalAssets ?? scanSummary.exactAssetCount}</span></div>
+                  <div><span style={{ color: '#9a9ab4' }}>images </span><span style={{ color: '#43b984' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: '#d96867' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
+                  <div><span style={{ color: '#9a9ab4' }}>downloaded </span><span style={{ color: '#f0eef8' }}>{formatBytes(bundleProgress?.bytesDownloaded ?? 0)}</span></div>
+                </div>
+              </div>
+            )}
+
+            {bundleStatus === 'completed' && bundleJobId && (
+              <div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11.5, fontFamily: MONO, marginBottom: 10 }}>
+                  <div><span style={{ color: '#9a9ab4' }}>images </span><span style={{ color: '#43b984' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: '#d96867' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
+                  <div><span style={{ color: '#9a9ab4' }}>archive size </span><span style={{ color: '#f0eef8' }}>{formatBytes(bundleProgress?.archiveBytesWritten ?? 0)}</span></div>
+                </div>
+                {bundleFailures.length > 0 && (
+                  <div style={{ fontSize: 10.5, color: '#c7b479', marginBottom: 10 }}>{bundleFailures.length} download(s) failed — see failed-downloads.json in the archive.</div>
+                )}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <a
+                    href={`${API_BASE}/api/tools/collection-analyzer/bundles/${bundleJobId}/download`}
+                    style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: '#43b984' }}
+                  >
+                    Download ZIP
+                  </a>
+                  <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '7px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}>
+                    Start over
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {(bundleStatus === 'failed' || bundleStatus === 'cancelled') && (
+              <div>
+                <div style={{ fontSize: 12, color: '#d96867', marginBottom: 8 }}>{bundleError ?? (bundleStatus === 'cancelled' ? 'Bundle cancelled.' : 'Bundle generation failed.')}</div>
+                <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '6px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}>
+                  Retry
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
       </div>
