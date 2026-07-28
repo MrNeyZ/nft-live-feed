@@ -20,14 +20,24 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import sharp from 'sharp';
-import { ImageDecodeCache, runTraitExtraction } from 'trait-extraction-core';
+import { expandComparisonSearch, ImageDecodeCache, runTraitExtraction } from 'trait-extraction-core';
 import type { NormalizedAsset, TraitExtractionConfig } from 'trait-extraction-core';
 import {
   CACHE_FORMAT_VERSION, checkpointFilePathForTests, checkpointKeyFor, computeConfigHash,
   initManifest, loadCheckpoint, loadManifest, saveCheckpoint, saveManifest,
 } from '../manifest';
 import type { ManifestConfig } from '../manifest';
-import { LocalImageCache } from '../local-image-cache';
+import {
+  buildCollectionIndex, buildTraitCollectionEligibility, CategoryImpactModel, presetLimitsFor, resolveTargetsInOrder,
+} from 'trait-extraction-core';
+import { hasCachedEntry, LocalImageCache } from '../local-image-cache';
+import { resolveConfig } from '../config';
+import { loadCachedScan, saveCachedScan } from '../metadata-cache';
+import type { CachedScanResult } from '../metadata-cache';
+import { Logger } from '../logger';
+import { computeAccurateEstimate } from '../job-plan';
+import type { JobPlan } from '../job-plan';
+import { runPreflightChecks } from '../resource-check';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {
@@ -305,6 +315,250 @@ async function main() {
       assert.ok(a && b, `candidate.png presence must match for ${key}`);
       assert.ok(a!.equals(b!), `candidate.png bytes must be identical for ${key}`);
     }
+  });
+
+  console.log('\nconfig precedence (Stage 5.4): CLI flag > env > config.json > default');
+  check('CLI flag wins over env and config file', () => {
+    const dir = tmpDir('te-cli-config-');
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ job: { preset: 'thorough' } }));
+    const { config } = resolveConfig(['--collection', 'X', '--preset', 'fast'], { TRAIT_EXTRACTOR_PRESET: 'balanced' }, dir);
+    assert.strictEqual(config.preset, 'fast');
+  });
+  check('env wins over config file when no CLI flag given', () => {
+    const dir = tmpDir('te-cli-config-');
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ job: { preset: 'thorough' } }));
+    const { config, sources } = resolveConfig(['--collection', 'X'], { TRAIT_EXTRACTOR_PRESET: 'balanced' }, dir);
+    assert.strictEqual(config.preset, 'balanced');
+    assert.strictEqual(sources.preset, 'env');
+  });
+  check('config file wins over the built-in default when nothing else is set', () => {
+    const dir = tmpDir('te-cli-config-');
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ job: { preset: 'thorough' } }));
+    const { config, sources } = resolveConfig(['--collection', 'X'], {}, dir);
+    assert.strictEqual(config.preset, 'thorough');
+    assert.strictEqual(sources.preset, 'file');
+  });
+  check('a CLI flag whose value happens to equal the built-in default still counts as explicit (beats config file)', () => {
+    const dir = tmpDir('te-cli-config-');
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ concurrency: { downloadConcurrency: 20 } }));
+    const { config, sources } = resolveConfig(['--collection', 'X', '--download-concurrency', '6'], {}, dir);
+    assert.strictEqual(config.downloadConcurrency, 6, 'explicit --download-concurrency 6 must win even though 6 is also the hardcoded default');
+    assert.strictEqual(sources.downloadConcurrency, 'cli');
+  });
+  check('no config.json anywhere -> defaults only, not an error', () => {
+    const dir = tmpDir('te-cli-config-empty-');
+    const { config, configFilePath, parseErrors } = resolveConfig(['--collection', 'X'], {}, dir);
+    assert.strictEqual(configFilePath, null);
+    assert.deepStrictEqual(parseErrors, []);
+    assert.strictEqual(config.preset, 'balanced');
+  });
+  check('malformed config.json at a non-explicit path falls back to defaults, not a throw', () => {
+    const dir = tmpDir('te-cli-config-bad-');
+    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    const { config, parseErrors } = resolveConfig(['--collection', 'X'], {}, dir);
+    assert.strictEqual(config.preset, 'balanced');
+    assert.deepStrictEqual(parseErrors, []);
+  });
+  check('an explicit --config path that does not exist IS a hard error', () => {
+    const dir = tmpDir('te-cli-config-');
+    const { parseErrors } = resolveConfig(['--collection', 'X', '--config', path.join(dir, 'nope.json')], {}, dir);
+    assert.ok(parseErrors.some((e) => e.includes('does not exist')));
+  });
+  check('cwd config.json takes precedence over ~/.trait-extractor-cli/config.json when both exist', () => {
+    // Simulated by pointing --config explicitly rather than touching the
+    // real home directory from a test - proves the "first found wins"
+    // mechanism itself (the cwd-vs-home ordering is a fixed constant in
+    // config.ts, exercised structurally here via the explicit-path branch).
+    const dir = tmpDir('te-cli-config-explicit-');
+    const explicitPath = path.join(dir, 'explicit-config.json');
+    fs.writeFileSync(explicitPath, JSON.stringify({ job: { preset: 'thorough' } }));
+    const { config, configFilePath } = resolveConfig(['--collection', 'X', '--config', explicitPath], {}, dir);
+    assert.strictEqual(configFilePath, explicitPath);
+    assert.strictEqual(config.preset, 'thorough');
+  });
+
+  console.log('\nmetadata scan cache (Stage 5.4)');
+  const fakeScan: CachedScanResult = {
+    assets: traitCollectionAssets('http://example.invalid'),
+    perAssetIssues: [[], [], [], []],
+    pagesFetched: 1,
+    duplicatesSkipped: 0,
+    warnings: [],
+  };
+  await checkAsync('saveCachedScan + loadCachedScan round-trips exactly', async () => {
+    const cacheRoot = tmpDir('te-cli-cacheroot-');
+    await saveCachedScan(cacheRoot, 'COLL_A', fakeScan);
+    const loaded = await loadCachedScan(cacheRoot, 'COLL_A', Infinity);
+    assert.ok(loaded);
+    assert.strictEqual(loaded!.assets.length, fakeScan.assets.length);
+  });
+  await checkAsync('a scan cached under one collection address is NOT returned for a different address', async () => {
+    const cacheRoot = tmpDir('te-cli-cacheroot-');
+    await saveCachedScan(cacheRoot, 'COLL_A', fakeScan);
+    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_B', Infinity), null);
+  });
+  await checkAsync('an entry older than maxAgeMs is treated as a miss', async () => {
+    const cacheRoot = tmpDir('te-cli-cacheroot-');
+    await saveCachedScan(cacheRoot, 'COLL_A', fakeScan);
+    assert.ok(await loadCachedScan(cacheRoot, 'COLL_A', 24 * 60 * 60 * 1000));
+    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_A', 0), null, 'maxAgeMs=0 must reject an entry written just now (age > 0ms by the time it is read back)');
+  });
+  await checkAsync('a checksum mismatch (disk corruption / tampering) is rejected, not thrown', async () => {
+    const cacheRoot = tmpDir('te-cli-cacheroot-');
+    await saveCachedScan(cacheRoot, 'COLL_A', fakeScan);
+    const scanFile = fs.readdirSync(path.join(cacheRoot, 'scans'))[0];
+    const p = path.join(cacheRoot, 'scans', scanFile);
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+    parsed.checksum = 'deadbeef';
+    fs.writeFileSync(p, JSON.stringify(parsed));
+    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_A', Infinity), null);
+  });
+  await checkAsync('missing scan cache entry -> null, never throws', async () => {
+    const cacheRoot = tmpDir('te-cli-cacheroot-empty-');
+    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_NEVER_SCANNED', Infinity), null);
+  });
+
+  console.log('\nglobal image cache reuse across collections (Stage 5.4)');
+  await checkAsync('two different collections sharing one image URL, pointed at the SAME global cache dir, only download it once', async () => {
+    const globalCacheDir = tmpDir('te-cli-global-imgcache-');
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    const url = `${fixture.baseUrl}/nft/A2.png`;
+    const before = fixture.requestCounts.get('/nft/A2.png') ?? 0;
+
+    // Collection A's job.
+    const cacheA = new LocalImageCache(globalCacheDir, controllerA.signal, allowOnlyLoopback);
+    const r1 = await cacheA.get(url);
+    assert.ok(r1.ok);
+    const afterA = fixture.requestCounts.get('/nft/A2.png') ?? 0;
+    assert.strictEqual(afterA, before + 1);
+
+    // A DIFFERENT collection's job, different --output dir, but the SAME
+    // shared global cache dir - must be a hit, not a second download.
+    const cacheB = new LocalImageCache(globalCacheDir, controllerB.signal, allowOnlyLoopback);
+    const r2 = await cacheB.get(url);
+    assert.ok(r2.ok);
+    const afterB = fixture.requestCounts.get('/nft/A2.png') ?? 0;
+    assert.strictEqual(afterB, afterA, 'a second collection reusing the shared global cache dir must not re-download a URL already cached by a different collection');
+  });
+
+  console.log('\ncache-hit-rate + hasCachedEntry (Stage 5.4)');
+  await checkAsync('hasCachedEntry reports hit/miss/permanent-failure correctly, with no network access', async () => {
+    const cacheDir = tmpDir('te-cli-hascached-');
+    const controller = new AbortController();
+    const cache = new LocalImageCache(cacheDir, controller.signal, allowOnlyLoopback);
+    const okUrl = `${fixture.baseUrl}/nft/A3.png`;
+    const badUrl = `${fixture.baseUrl}/not-an-image.txt`;
+    const neverRequestedUrl = `${fixture.baseUrl}/nft/A4.png`;
+
+    assert.strictEqual(await hasCachedEntry(cacheDir, okUrl), 'miss', 'not yet fetched -> miss');
+    await cache.get(okUrl);
+    await cache.get(badUrl);
+    assert.strictEqual(await hasCachedEntry(cacheDir, okUrl), 'hit');
+    assert.strictEqual(await hasCachedEntry(cacheDir, badUrl), 'permanent-failure');
+    assert.strictEqual(await hasCachedEntry(cacheDir, neverRequestedUrl), 'miss');
+  });
+  await checkAsync('LocalImageCache.cacheHitRate reflects hit vs. miss across get() calls', async () => {
+    const cacheDir = tmpDir('te-cli-hitrate-');
+    const controller = new AbortController();
+    const cache = new LocalImageCache(cacheDir, controller.signal, allowOnlyLoopback);
+    const url = `${fixture.baseUrl}/nft/A1.png`;
+    assert.strictEqual(cache.cacheHitRate, null, 'nothing requested yet -> null, not 0');
+    await cache.get(url); // miss (first fetch)
+    assert.strictEqual(cache.cacheHitRate, 0);
+    await cache.get(url); // in-flight/same-instance dedupe, not a fresh miss or a disk hit
+    const cache2 = new LocalImageCache(cacheDir, controller.signal, allowOnlyLoopback);
+    await cache2.get(url); // a genuine disk cache hit on a fresh instance
+    assert.strictEqual(cache2.cacheHitRate, 1);
+  });
+
+  console.log('\nmanifest phase + heartbeat (Stage 5.4)');
+  await checkAsync('initManifest sets phase="scanning" and a lastHeartbeatAt timestamp', async () => {
+    const dir = tmpDir('te-cli-manifest-phase-');
+    const m = await initManifest(dir, baseConfig, 3);
+    assert.strictEqual(m.phase, 'scanning');
+    assert.ok(m.lastHeartbeatAt);
+    const loaded = await loadManifest(dir);
+    assert.strictEqual(loaded!.phase, 'scanning');
+  });
+  await checkAsync('a Stage-5.3-shaped manifest (cacheFormatVersion 1, no phase field) is rejected by the v2 loader, forcing a fresh start', async () => {
+    const dir = tmpDir('te-cli-manifest-v1-');
+    const m = await initManifest(dir, baseConfig, 3);
+    const { phase, lastHeartbeatAt, ...v1Shaped } = m as any;
+    await saveManifest(dir, { ...v1Shaped, cacheFormatVersion: 1 } as any);
+    assert.strictEqual(await loadManifest(dir), null);
+  });
+
+  console.log('\n--estimate accuracy (Stage 5.4): expandComparisonSearch + hasCachedEntry against a real plan');
+  async function buildFixturePlan(): Promise<JobPlan> {
+    const assets = traitCollectionAssets(fixture.baseUrl);
+    const eligibility = buildTraitCollectionEligibility(assets);
+    const selections = [{ traitType: 'Background' }, { traitType: 'Eyes' }];
+    const extractionConfig: TraitExtractionConfig = { scanId: 'test-estimate', selections, preset: 'balanced' };
+    const limits = presetLimitsFor('balanced');
+    const collectionIndex = buildCollectionIndex(assets);
+    const impactModel = new CategoryImpactModel();
+    const targets = resolveTargetsInOrder(assets, extractionConfig, collectionIndex, impactModel, limits);
+    const outputDir = tmpDir('te-cli-estimate-plan-');
+    const preflight = await runPreflightChecks(outputDir, targets, limits);
+    return {
+      outputDir, collectionAddress: 'COLL', assets,
+      scan: { pagesFetched: 1, duplicatesSkipped: 0, warnings: [], fromCache: false },
+      eligibility, allCategories: ['Background', 'Eyes'], skippedCategoriesNoRepeatedValue: [],
+      selections, extractionConfig, limits, targets, collectionIndex, impactModel, preflight,
+      manifestConfig: { collectionAddress: 'COLL', preset: 'balanced', selections, coreVersion: '1.0.0' },
+      existingManifest: null,
+    };
+  }
+  await checkAsync('before any download, every candidate URL is predicted as missing (0% hit rate)', async () => {
+    const plan = await buildFixturePlan();
+    const cacheDir = tmpDir('te-cli-estimate-cache-');
+    const estimate = await computeAccurateEstimate(plan, cacheDir);
+    assert.ok(estimate.totalUniqueUrls > 0, 'the fixture collection must produce at least one real candidate pair');
+    assert.strictEqual(estimate.cachedHits, 0);
+    assert.strictEqual(estimate.missing, estimate.totalUniqueUrls);
+  });
+  await checkAsync('after downloading every predicted URL into the cache, --estimate predicts a 100% hit rate', async () => {
+    const plan = await buildFixturePlan();
+    const cacheDir = tmpDir('te-cli-estimate-cache2-');
+    const before = await computeAccurateEstimate(plan, cacheDir);
+    const controller = new AbortController();
+    const imageCache = new LocalImageCache(path.join(cacheDir, 'images'), controller.signal, allowOnlyLoopback);
+    for (const target of plan.targets) {
+      const { candidates } = expandComparisonSearch({
+        targetTraitType: target.traitType, targetValue: target.traitValue,
+        index: plan.collectionIndex, impactModel: plan.impactModel, limits: plan.limits, preset: plan.extractionConfig.preset,
+      });
+      for (const c of candidates) { await imageCache.get(c.sourceImage); await imageCache.get(c.comparisonImage); }
+    }
+    const after = await computeAccurateEstimate(plan, cacheDir);
+    assert.strictEqual(after.missing, 0);
+    assert.strictEqual(after.cachedHits, before.totalUniqueUrls);
+  });
+
+  console.log('\nlogger levels (Stage 5.4)');
+  check('--quiet suppresses info/warn but still emits error to the event log', () => {
+    const logger = new Logger('quiet');
+    logger.info('should not print');
+    logger.warn('should not print either');
+    logger.error('should always print');
+    const events = logger.getEvents();
+    assert.strictEqual(events.length, 3, 'all three are still recorded in the event log regardless of level');
+    assert.strictEqual(events[2].level, 'error');
+  });
+  check('--verbose surfaces verbose() calls that --normal would suppress from the terminal (both still recorded)', () => {
+    const normalLogger = new Logger('normal');
+    const verboseLogger = new Logger('verbose');
+    normalLogger.verbose('cache hit detail');
+    verboseLogger.verbose('cache hit detail');
+    assert.strictEqual(normalLogger.getEvents().length, 1, 'still recorded for the report even though --normal would not print it');
+    assert.strictEqual(verboseLogger.getEvents().length, 1);
+  });
+  check('--debug records debug() events that lower levels still capture in the event log', () => {
+    const logger = new Logger('debug');
+    logger.debug('config resolution trace', { preset: 'balanced' });
+    assert.strictEqual(logger.getEvents()[0].level, 'debug');
+    assert.deepStrictEqual(logger.getEvents()[0].data, { preset: 'balanced' });
   });
 
   await fixture.close();

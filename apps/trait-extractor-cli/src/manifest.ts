@@ -27,14 +27,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { ProcessValueResult } from 'trait-extraction-core';
 import type { CliSelection } from './args';
+import { writeAtomic } from './fs-atomic';
 
 /** Bumped whenever the on-disk checkpoint/manifest SHAPE changes in a way
  *  that makes old files unreadable by a newer CLI build - never silently
  *  reused; a mismatch forces a fresh run instead of misinterpreting
  *  stale data. Independent of the extraction ALGORITHM's own behavior
  *  (that's covered by the config hash below, since a different core
- *  package version changes results, not just the file shape). */
-export const CACHE_FORMAT_VERSION = 1;
+ *  package version changes results, not just the file shape).
+ *  v2 (Stage 5.4): added `phase` + `lastHeartbeatAt` to JobManifest. */
+export const CACHE_FORMAT_VERSION = 2;
+
+/** Coarse point in the job's own pipeline, independent of per-value
+ *  checkpoint completion - lets a resumed run report "you were in phase X"
+ *  and, combined with the metadata scan cache, makes a completed scan
+ *  step effectively skippable on resume without any core-side change. */
+export type JobPhase = 'scanning' | 'resolving_targets' | 'processing' | 'archiving' | 'completed';
 
 export interface ManifestConfig {
   collectionAddress: string;
@@ -53,6 +61,8 @@ export interface JobManifest {
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   totalTargets: number;
   completedTargetKeys: string[]; // traitValueDirKey-derived checkpoint keys already settled
+  phase: JobPhase;
+  lastHeartbeatAt: string;
 }
 
 function stableStringify(value: unknown): string {
@@ -101,13 +111,6 @@ export function checkpointFilePathForTests(outputDir: string, key: string): stri
   return checkpointPath(outputDir, key);
 }
 
-async function writeAtomic(destPath: string, content: string): Promise<void> {
-  await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-  const tmp = path.join(path.dirname(destPath), `.tmp-${crypto.randomBytes(6).toString('hex')}-${path.basename(destPath)}`);
-  await fs.promises.writeFile(tmp, content, 'utf8');
-  await fs.promises.rename(tmp, destPath);
-}
-
 export async function initManifest(outputDir: string, config: ManifestConfig, totalTargets: number): Promise<JobManifest> {
   const configHash = computeConfigHash(config);
   const now = new Date().toISOString();
@@ -121,6 +124,8 @@ export async function initManifest(outputDir: string, config: ManifestConfig, to
     status: 'running',
     totalTargets,
     completedTargetKeys: [],
+    phase: 'scanning',
+    lastHeartbeatAt: now,
   };
   await fs.promises.mkdir(checkpointDir(outputDir), { recursive: true });
   await writeAtomic(manifestPath(outputDir), JSON.stringify(manifest, null, 2));
@@ -136,6 +141,7 @@ export async function loadManifest(outputDir: string): Promise<JobManifest | nul
     const parsed = JSON.parse(raw) as JobManifest;
     if (parsed.cacheFormatVersion !== CACHE_FORMAT_VERSION) return null;
     if (typeof parsed.configHash !== 'string' || !Array.isArray(parsed.completedTargetKeys)) return null;
+    if (typeof parsed.phase !== 'string' || typeof parsed.lastHeartbeatAt !== 'string') return null;
     return parsed;
   } catch {
     return null;
@@ -149,6 +155,23 @@ export async function saveManifest(outputDir: string, manifest: JobManifest): Pr
 
 export async function markTargetCompleted(outputDir: string, manifest: JobManifest, key: string): Promise<void> {
   if (!manifest.completedTargetKeys.includes(key)) manifest.completedTargetKeys.push(key);
+  await saveManifest(outputDir, manifest);
+}
+
+/** Records which coarse pipeline phase the job is in - purely informational
+ *  (surfaced on resume / in the execution report), independent of
+ *  per-value checkpoint completion. */
+export async function updatePhase(outputDir: string, manifest: JobManifest, phase: JobPhase): Promise<void> {
+  manifest.phase = phase;
+  await saveManifest(outputDir, manifest);
+}
+
+/** Liveness signal only - "is this job still alive or hung?" - not a
+ *  finer-grained resumability unit. Callers re-invoke this on an interval
+ *  (see cli.ts's heartbeat timer) so an external monitor (or a human
+ *  checking job.json) can tell a slow-but-alive job apart from a hung one. */
+export async function touchHeartbeat(outputDir: string, manifest: JobManifest): Promise<void> {
+  manifest.lastHeartbeatAt = new Date().toISOString();
   await saveManifest(outputDir, manifest);
 }
 
