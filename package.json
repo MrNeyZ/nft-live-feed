@@ -35,6 +35,7 @@
     "test:collection-analyzer-te-diversity": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-diversity.test.ts",
     "test:collection-analyzer-te-impact": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-impact.test.ts",
     "test:collection-analyzer-te-ranking": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-ranking.test.ts",
+    "test:collection-analyzer-te-limits": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-limits.test.ts",
     "test:prnt-detector": "ts-node src/ingestion/mint-raw/__tests__/prnt-detector.test.ts",
     "test:mint-unified-create": "ts-node src/ingestion/mint-raw/__tests__/unified-create.test.ts",
     "test:targeted-unified-create": "ts-node src/ingestion/mint-raw/__tests__/targeted-mode-unified-create.test.ts",

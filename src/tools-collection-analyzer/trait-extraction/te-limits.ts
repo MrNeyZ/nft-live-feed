@@ -28,7 +28,15 @@ export const TE_MAX_SELECTED_VALUES = envInt('TE_MAX_SELECTED_VALUES', 40);
 
 export const TE_MAX_IMAGE_WIDTH = envInt('TE_MAX_IMAGE_WIDTH', 4096);
 export const TE_MAX_IMAGE_HEIGHT = envInt('TE_MAX_IMAGE_HEIGHT', 4096);
-export const TE_MAX_IMAGE_PIXELS = envInt('TE_MAX_IMAGE_PIXELS', 8_000_000); // ~2828x2828
+// Stage 5.2 fix: this used to be a fixed 8,000,000 (~2828x2828) - LOWER
+// than TE_MAX_IMAGE_WIDTH*HEIGHT (4096x4096=16,777,216), so a perfectly
+// valid, individually-within-bounds image (e.g. a common 3000x3000 PNG -
+// confirmed on Cets on Creck, collection-agnostic: any collection
+// rendering above ~2828px square hit this) was silently rejected as
+// "oversized_dimensions" even though neither dimension exceeded its own
+// cap. The pixel cap must never be tighter than what the width/height
+// caps already allow - derive it from them so they can't drift apart.
+export const TE_MAX_IMAGE_PIXELS = envInt('TE_MAX_IMAGE_PIXELS', TE_MAX_IMAGE_WIDTH * TE_MAX_IMAGE_HEIGHT);
 export const TE_MAX_DECODED_BYTES_PER_IMAGE = envInt('TE_MAX_DECODED_BYTES_PER_IMAGE', TE_MAX_IMAGE_PIXELS * 4);
 export const TE_MAX_TOTAL_DECODED_BYTES = envInt('TE_MAX_TOTAL_DECODED_BYTES', 1.5 * 1024 * 1024 * 1024);
 
