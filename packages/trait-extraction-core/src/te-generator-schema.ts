@@ -5,8 +5,8 @@
  * present on every scanned asset is "mandatory"; anything less is
  * "optional". No layer order is claimed or invented (spec section 12).
  */
-import type { NormalizedAsset } from '../types';
-import type { GeneratorSchema, GeneratorSchemaCategory, TraitValueEvidence, TraitExtractionJobRecord } from './te-types';
+import type { NormalizedAsset } from './asset-types';
+import type { GeneratorSchema, GeneratorSchemaCategory, TraitValueEvidence, UnresolvedValueEntry } from './te-types';
 
 export function buildGeneratorSchema(args: {
   collectionAddress: string;
@@ -14,7 +14,7 @@ export function buildGeneratorSchema(args: {
   assets: NormalizedAsset[];
   selectedCategories: string[];
   evidence: TraitValueEvidence[];
-  unresolvedValues: TraitExtractionJobRecord['unresolvedValues'];
+  unresolvedValues: UnresolvedValueEntry[];
   generatedAt: string;
 }): GeneratorSchema {
   const { assets, selectedCategories, evidence, unresolvedValues } = args;

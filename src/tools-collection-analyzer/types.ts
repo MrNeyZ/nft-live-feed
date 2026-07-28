@@ -13,24 +13,15 @@
  *  (a mint's DAS grouping points at a DIFFERENT collection address). */
 export type CollectionAnalyzerInputKind = 'collection' | 'mint' | 'tensor_url' | 'magiceden_url';
 
-export interface NormalizedAttribute {
-  trait_type: string;
-  value: string;
-}
-
-/** One NFT asset normalized from a Helius DAS `getAssetsByGroup` item. */
-export interface NormalizedAsset {
-  mint: string;
-  name: string | null;
-  image: string | null;
-  jsonUri: string | null;
-  collectionAddress: string | null;
-  /** True for compressed (Bubblegum) assets, false for regular (Core/pNFT/legacy). */
-  compressed: boolean;
-  /** Coarse asset-standard bucket, distinct from `compressed`. */
-  standard: 'core' | 'pnft' | 'legacy' | 'compressed' | 'unknown';
-  attributes: NormalizedAttribute[];
-}
+// Stage 5.3: NormalizedAttribute/NormalizedAsset now live in
+// trait-extraction-core (packages/trait-extraction-core/src/asset-types.ts)
+// so the runtime-independent extraction core doesn't depend on this app's
+// module tree. Re-exported here so every existing import of
+// `NormalizedAsset`/`NormalizedAttribute` from './types' keeps working
+// unchanged - this file is the single place that couples the app to the
+// core's asset shape.
+import type { NormalizedAttribute, NormalizedAsset } from 'trait-extraction-core';
+export type { NormalizedAttribute, NormalizedAsset };
 
 /** Distinct trait values seen within the fetched preview, with counts. */
 export interface TraitCategorySummary {

@@ -22,7 +22,7 @@
  * No category name is ever hardcoded - diversity is derived purely from
  * whatever categories exist in the collection's own metadata.
  */
-import type { NormalizedAsset } from '../types';
+import type { NormalizedAsset } from './asset-types';
 import type { CollectionIndex } from './te-index';
 import { categoryValueKey, sortedAttrEntries } from './te-index';
 import type { SourceSelectionDiagnostics } from './te-types';

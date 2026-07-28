@@ -24,7 +24,7 @@ import type { CollectionIndex } from './te-index';
 import { CategoryImpactModel } from './te-impact';
 import { expandComparisonSearch } from './te-ranking';
 import type { ComparisonCandidate, ExtractionPreset, ExtractionPresetLimits, ValueSearchDiagnostics } from './te-types';
-import type { NormalizedAsset } from '../types';
+import type { NormalizedAsset } from './asset-types';
 
 export {
   buildSignatureExcluding, computeComparisonLevel,

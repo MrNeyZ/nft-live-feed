@@ -14,7 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
-import { downloadToFile, type AddressValidator } from './ssrf-guard';
+import { downloadToFile, type AddressValidator } from 'trait-extraction-core';
 import { extensionForFormat, SUPPORTED_IMAGE_FORMATS } from './bundle-filenames';
 import { BUNDLE_MAX_IMAGE_BYTES } from './bundle-limits';
 import type { DownloadFailureCode } from './bundle-types';

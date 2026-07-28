@@ -4,7 +4,7 @@
  */
 import assert from 'assert';
 import { buildTraitCollectionEligibility } from '../te-eligibility';
-import type { NormalizedAsset } from '../../types';
+import type { NormalizedAsset } from '../asset-types';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {

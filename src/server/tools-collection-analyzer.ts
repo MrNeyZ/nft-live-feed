@@ -77,7 +77,7 @@ import {
   BUNDLE_MAX_JOB_DOWNLOAD_BYTES,
   BUNDLE_MAX_TOTAL_ASSETS,
 } from '../tools-collection-analyzer/bundle/bundle-limits';
-import { buildTraitCollectionEligibility } from '../tools-collection-analyzer/trait-extraction/te-eligibility';
+import { buildTraitCollectionEligibility, TE_MAX_SELECTED_CATEGORIES, TE_MAX_SELECTED_VALUES, extractZipEntryBySuffix, sanitizeTraitName } from 'trait-extraction-core';
 import { executeTraitExtractionJob } from '../tools-collection-analyzer/trait-extraction/te-run';
 import {
   activeJobSlots as teActiveJobSlots,
@@ -91,12 +91,10 @@ import {
   traitExtractionTempRoot,
   tryAcquireJobSlot as teTryAcquireJobSlot,
 } from '../tools-collection-analyzer/trait-extraction/te-state-store';
-import { TE_MAX_SELECTED_CATEGORIES, TE_MAX_SELECTED_VALUES } from '../tools-collection-analyzer/trait-extraction/te-limits';
-import { extractZipEntryBySuffix } from '../tools-collection-analyzer/trait-extraction/te-zip-read';
-import { sanitizeTraitName } from '../tools-collection-analyzer/trait-extraction/te-filenames';
 import type {
-  ExtractionPreset, TraitExtractionConfig, TraitExtractionJobRecord, TraitExtractionSelection, TraitExtractionStatusResponse,
-} from '../tools-collection-analyzer/trait-extraction/te-types';
+  ExtractionPreset, TraitExtractionConfig, TraitExtractionSelection,
+} from 'trait-extraction-core';
+import type { TraitExtractionJobRecord, TraitExtractionStatusResponse } from '../tools-collection-analyzer/trait-extraction/te-server-types';
 
 // Orphaned per-job temp directories from a prior process crash have no
 // surviving in-memory record — the only place that can ever clean them up

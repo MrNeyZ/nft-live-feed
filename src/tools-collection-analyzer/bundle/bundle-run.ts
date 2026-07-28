@@ -50,7 +50,7 @@ import type {
   DownloadFailureCode, FailedDownloadEntry,
 } from './bundle-types';
 import { FAILURE_MESSAGE } from './bundle-types';
-import type { AddressValidator } from './ssrf-guard';
+import type { AddressValidator } from 'trait-extraction-core';
 import type { NormalizedAsset } from '../types';
 import type { ScanResultSummary } from '../scan-types';
 

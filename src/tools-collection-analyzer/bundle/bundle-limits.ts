@@ -22,8 +22,14 @@ export const BUNDLE_MAX_CONCURRENT_JOBS = envInt('BUNDLE_MAX_CONCURRENT_JOBS', 2
 /** Per-job download concurrency (images + original-metadata combined). */
 export const BUNDLE_DOWNLOAD_CONCURRENCY = envInt('BUNDLE_DOWNLOAD_CONCURRENCY', 6);
 
-/** Per-resource (single image or metadata fetch) timeout, one attempt. */
-export const BUNDLE_PER_RESOURCE_TIMEOUT_MS = envInt('BUNDLE_PER_RESOURCE_TIMEOUT_MS', 20_000);
+// Stage 5.3: the per-resource timeout/redirect/retry DEFAULTS formerly
+// defined here (BUNDLE_PER_RESOURCE_TIMEOUT_MS, BUNDLE_MAX_REDIRECTS,
+// BUNDLE_MAX_RETRIES, BUNDLE_RETRY_BASE_MS, BUNDLE_RETRY_MAX_WAIT_MS) moved
+// to ssrf-guard.ts's own DOWNLOAD_DEFAULT_* constants when that module
+// moved into trait-extraction-core - no bundle call site ever overrode
+// them, so they were pure fallback values belonging to the downloader
+// itself, not bundle-specific policy. Env var names are unchanged
+// (DOWNLOAD_DEFAULT_TIMEOUT_MS etc replace the BUNDLE_* names).
 
 /** Per-image / per-metadata-file max size. Oversized responses are aborted
  *  mid-stream, never buffered fully first. */
@@ -53,15 +59,6 @@ export const BUNDLE_MAX_ZIP_BYTES = envInt('BUNDLE_MAX_ZIP_BYTES', 900 * 1024 * 
 
 /** Overall wall-clock cap per bundle job (download phase + archive phase). */
 export const BUNDLE_JOB_TIMEOUT_MS = envInt('BUNDLE_JOB_TIMEOUT_MS', 20 * 60_000);
-
-/** Bounded retry — 429 and transient 5xx only, exponential backoff. */
-export const BUNDLE_MAX_RETRIES = envInt('BUNDLE_MAX_RETRIES', 3);
-export const BUNDLE_RETRY_BASE_MS = envInt('BUNDLE_RETRY_BASE_MS', 500);
-export const BUNDLE_RETRY_MAX_WAIT_MS = envInt('BUNDLE_RETRY_MAX_WAIT_MS', 8_000);
-
-/** Redirect hops permitted per resource fetch — each hop is re-validated
- *  against the SSRF blocklist before being followed. */
-export const BUNDLE_MAX_REDIRECTS = envInt('BUNDLE_MAX_REDIRECTS', 3);
 
 /** How long a completed/failed/cancelled bundle job's ZIP + state stays
  *  downloadable/queryable before being swept. */

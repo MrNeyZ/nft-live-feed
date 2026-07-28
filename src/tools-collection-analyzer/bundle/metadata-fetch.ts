@@ -13,7 +13,7 @@
  * is written independently by `bundle-zip.ts`.
  */
 import * as fs from 'fs';
-import { downloadToFile, type AddressValidator } from './ssrf-guard';
+import { downloadToFile, type AddressValidator } from 'trait-extraction-core';
 import { BUNDLE_MAX_METADATA_BYTES } from './bundle-limits';
 import type { DownloadFailureCode } from './bundle-types';
 

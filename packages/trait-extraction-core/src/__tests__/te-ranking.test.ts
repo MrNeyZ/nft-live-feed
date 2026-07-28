@@ -10,7 +10,7 @@ import { CategoryImpactModel } from '../te-impact';
 import { rankAndFilterCandidates, expandComparisonSearch, computePairEvidenceWeight } from '../te-ranking';
 import { presetLimitsFor } from '../te-limits';
 import type { ComparisonCandidate } from '../te-types';
-import type { NormalizedAsset } from '../../types';
+import type { NormalizedAsset } from '../asset-types';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {
