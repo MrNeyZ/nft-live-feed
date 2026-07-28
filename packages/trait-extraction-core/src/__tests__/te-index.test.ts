@@ -11,7 +11,7 @@ import assert from 'assert';
 import {
   buildCollectionIndex, exactCandidatesFor, shortlistNearCandidates, buildSignatureExcluding,
 } from '../te-index';
-import type { NormalizedAsset } from '../../types';
+import type { NormalizedAsset } from '../asset-types';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {

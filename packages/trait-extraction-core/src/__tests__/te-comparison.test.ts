@@ -12,7 +12,7 @@
 import assert from 'assert';
 import { buildSignatureExcluding, computeComparisonLevel, selectComparisonCandidates } from '../te-comparison';
 import { presetLimitsFor } from '../te-limits';
-import type { NormalizedAsset } from '../../types';
+import type { NormalizedAsset } from '../asset-types';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {

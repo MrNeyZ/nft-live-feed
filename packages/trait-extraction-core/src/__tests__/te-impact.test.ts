@@ -13,7 +13,7 @@ import { computeDiffMask, cleanPairMask } from '../te-pixel-diff';
 import { CategoryImpactModel, weightFromMedianPercent } from '../te-impact';
 import { buildCollectionIndex } from '../te-index';
 import type { DecodedImage } from '../te-image-io';
-import type { NormalizedAsset } from '../../types';
+import type { NormalizedAsset } from '../asset-types';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {

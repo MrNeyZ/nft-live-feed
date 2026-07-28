@@ -17,7 +17,7 @@
  * from `exact_evidence_sufficient` (Level 0 alone was already enough, no
  * expansion needed at all).
  */
-import type { NormalizedAsset } from '../types';
+import type { NormalizedAsset } from './asset-types';
 import {
   buildSignatureExcluding, computeComparisonLevel, exactCandidatesFor, shortlistNearCandidates,
 } from './te-index';

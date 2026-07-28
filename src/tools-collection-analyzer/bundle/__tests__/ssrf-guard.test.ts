@@ -14,7 +14,7 @@ import assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { isPublicAddress, downloadToFile } from '../ssrf-guard';
+import { isPublicAddress, downloadToFile } from 'trait-extraction-core';
 import { startTestServer, allowOnlyLoopback, type TestServerHandle } from './test-server';
 
 let failures = 0;

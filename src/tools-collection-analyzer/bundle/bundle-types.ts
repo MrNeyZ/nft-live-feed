@@ -39,21 +39,12 @@ export function isEmptySelection(opts: BundleOptions): boolean {
 
 export type DownloadResourceType = 'image' | 'original_metadata';
 
-/** Machine-readable, never a raw provider/error message. */
-export type DownloadFailureCode =
-  | 'no_source_url'
-  | 'invalid_url'
-  | 'blocked_destination'
-  | 'unsupported_protocol'
-  | 'too_many_redirects'
-  | 'http_error'
-  | 'unsupported_content_type'
-  | 'oversized'
-  | 'timeout'
-  | 'malformed_json'
-  | 'network_error'
-  | 'cancelled'
-  | 'retries_exhausted';
+// Stage 5.3: canonical definition moved to ssrf-guard.ts (the module that
+// actually produces these codes), which now lives in trait-extraction-core
+// alongside the downloader itself. Re-exported here so every existing
+// import from './bundle-types' keeps working unchanged.
+import type { DownloadFailureCode } from 'trait-extraction-core';
+export type { DownloadFailureCode };
 
 export const FAILURE_MESSAGE: Record<DownloadFailureCode, string> = {
   no_source_url: 'No source URL available for this resource.',

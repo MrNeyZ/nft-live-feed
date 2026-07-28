@@ -1,0 +1,20 @@
+{
+  "name": "trait-extractor-cli",
+  "version": "1.0.0",
+  "description": "Local full-collection trait extraction worker (Stage 5.3) - runs trait-extraction-core with a persistent on-disk cache and resumable job manifest.",
+  "private": true,
+  "scripts": {
+    "start": "ts-node --transpile-only src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "trait-extraction-core": "*",
+    "yauzl": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/yauzl": "^3.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  }
+}

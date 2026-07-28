@@ -10,7 +10,7 @@
  * so a future "Download 1/1 Collection" mode can be added without
  * reshaping this one.
  */
-import type { NormalizedAsset } from '../types';
+import type { NormalizedAsset } from './asset-types';
 
 export type DownloadMode = 'trait_collection' | 'one_of_one_collection';
 
@@ -252,36 +252,15 @@ export interface TraitExtractionErrorInfo {
   message: string;
 }
 
-export interface TraitExtractionJobRecord {
-  jobId: string;
-  scanId: string;
-  status: TraitExtractionJobStatus;
-  config: TraitExtractionConfig;
-  createdAt: number;
-  terminalAt: number | null;
-  progress: TraitExtractionProgressSnapshot;
-  evidence: TraitValueEvidence[];
-  unresolvedValues: Array<{ traitType: string; traitValue: string; reason: string }>;
-  error: TraitExtractionErrorInfo | null;
-  workDir: string;
-  zipPath: string | null;
-  collectionDisplayName: string;
-  abortController: AbortController;
-  ttlTimer: NodeJS.Timeout | null;
-}
-
-export interface TraitExtractionStatusResponse {
-  jobId: string;
-  scanId: string;
-  status: TraitExtractionJobStatus;
-  config: TraitExtractionConfig;
-  progress: TraitExtractionProgressSnapshot;
-  evidenceSummary: Array<{ traitType: string; traitValue: string; status: ConfidenceStatus; score: number; outputDirKey: string; searchDiagnostics: ValueSearchDiagnostics }>;
-  unresolvedValues: TraitExtractionJobRecord['unresolvedValues'];
-  error?: TraitExtractionErrorInfo;
-  collectionDisplayName: string;
-  downloadAvailable: boolean;
-}
+// Stage 5.3: TraitExtractionJobRecord / TraitExtractionStatusResponse moved
+// OUT of this package - they describe a SERVER job-registry record
+// (AbortController tied to an HTTP request lifecycle, TTL timer, temp
+// workDir) and an HTTP wire response shape. Neither belongs in a
+// runtime-independent core; both now live in the website backend
+// (te-server-types.ts) and the CLI defines its own equivalent local job
+// state. `UnresolvedValueEntry` is the one small shared shape both sides
+// still need.
+export interface UnresolvedValueEntry { traitType: string; traitValue: string; reason: string }
 
 export interface GeneratorSchemaCategoryValue {
   value: string;
@@ -305,7 +284,7 @@ export interface GeneratorSchema {
   categories: GeneratorSchemaCategory[];
   selectedCategories: string[];
   extractedFileCount: number;
-  unresolvedValues: TraitExtractionJobRecord['unresolvedValues'];
+  unresolvedValues: UnresolvedValueEntry[];
   generatedAt: string;
   note: string;
 }

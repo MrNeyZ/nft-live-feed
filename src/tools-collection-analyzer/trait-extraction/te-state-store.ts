@@ -9,8 +9,9 @@ import crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { TE_MAX_CONCURRENT_JOBS, TE_MIN_FREE_DISK_BYTES, TE_STATE_TTL_MS, TE_TEMP_DIR_MAX_AGE_MS } from './te-limits';
-import type { TraitExtractionConfig, TraitExtractionErrorInfo, TraitExtractionJobRecord, TraitExtractionJobStatus, TraitExtractionProgressSnapshot, TraitValueEvidence } from './te-types';
+import { TE_MAX_CONCURRENT_JOBS, TE_MIN_FREE_DISK_BYTES, TE_STATE_TTL_MS, TE_TEMP_DIR_MAX_AGE_MS } from 'trait-extraction-core';
+import type { TraitExtractionConfig, TraitExtractionErrorInfo, TraitExtractionJobStatus, TraitExtractionProgressSnapshot, TraitValueEvidence } from 'trait-extraction-core';
+import type { TraitExtractionJobRecord } from './te-server-types';
 
 const jobs = new Map<string, TraitExtractionJobRecord>();
 let activeJobCount = 0;

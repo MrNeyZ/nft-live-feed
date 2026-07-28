@@ -1,0 +1,22 @@
+{
+  "name": "trait-extraction-core",
+  "version": "1.0.0",
+  "description": "Runtime-independent core: metadata indexing, diversity-aware source selection, Level 0/1/2 comparison discovery, visual-impact learning, weighted consensus, candidate/mask generation, confidence scoring, eligibility classification, and evidence/summary generation for generative-NFT trait extraction. No Express/PM2/SSE/server-job-registry/frontend dependency - consumed by both the website backend and the local CLI worker.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "ipaddr.js": "^1.9.1",
+    "sharp": "^0.35.3",
+    "yazl": "^2.5.1",
+    "yauzl": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
+    "typescript": "^5.5.2"
+  }
+}

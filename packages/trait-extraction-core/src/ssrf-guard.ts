@@ -1,5 +1,12 @@
 /**
- * Collection Analyzer — Stage 3 SSRF-safe resource download.
+ * Trait Extraction Core — SSRF-safe resource download.
+ *
+ * Moved here from the app's Stage 3/4 bundle feature (Stage 5.3) - the
+ * same downloader is this package's default `ImageAcquirer` implementation
+ * AND still backs the app's raw bundle export (which now imports it back
+ * from `trait-extraction-core` - see bundle/image-fetch.ts,
+ * bundle/metadata-fetch.ts, bundle/bundle-run.ts). Single implementation,
+ * no duplication; this package has zero import in the other direction.
  *
  * Every bundle download (image or original off-chain metadata) goes through
  * `downloadToFile`. Two layers of protection, both required:
@@ -34,14 +41,43 @@ import * as https from 'https';
 import * as dns from 'dns';
 import * as fs from 'fs';
 import ipaddr from 'ipaddr.js';
-import {
-  BUNDLE_MAX_REDIRECTS,
-  BUNDLE_MAX_RETRIES,
-  BUNDLE_PER_RESOURCE_TIMEOUT_MS,
-  BUNDLE_RETRY_BASE_MS,
-  BUNDLE_RETRY_MAX_WAIT_MS,
-} from './bundle-limits';
-import type { DownloadFailureCode } from './bundle-types';
+
+function envInt(name: string, fallback: number): number {
+  const raw = (process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Generic download defaults - callers (both the app's bundle feature and
+ *  this package's own image-io) normally override timeout/redirects
+ *  per-call; these are the fallback when they don't. Same values Stage 3
+ *  originally shipped as DOWNLOAD_DEFAULT_MAX_REDIRECTS etc - renamed neutrally
+ *  since this module no longer belongs to the bundle feature. */
+const DOWNLOAD_DEFAULT_MAX_REDIRECTS = envInt('DOWNLOAD_DEFAULT_MAX_REDIRECTS', 3);
+const DOWNLOAD_DEFAULT_TIMEOUT_MS = envInt('DOWNLOAD_DEFAULT_TIMEOUT_MS', 20_000);
+const DOWNLOAD_DEFAULT_MAX_RETRIES = envInt('DOWNLOAD_DEFAULT_MAX_RETRIES', 3);
+const DOWNLOAD_DEFAULT_RETRY_BASE_MS = envInt('DOWNLOAD_DEFAULT_RETRY_BASE_MS', 500);
+const DOWNLOAD_DEFAULT_RETRY_MAX_WAIT_MS = envInt('DOWNLOAD_DEFAULT_RETRY_MAX_WAIT_MS', 8_000);
+
+/** Machine-readable, never a raw provider/error message. Canonical
+ *  definition lives here (the module that actually produces these codes);
+ *  the app's bundle/bundle-types.ts re-exports this type rather than
+ *  redefining it. */
+export type DownloadFailureCode =
+  | 'no_source_url'
+  | 'invalid_url'
+  | 'blocked_destination'
+  | 'unsupported_protocol'
+  | 'too_many_redirects'
+  | 'http_error'
+  | 'unsupported_content_type'
+  | 'oversized'
+  | 'timeout'
+  | 'malformed_json'
+  | 'network_error'
+  | 'cancelled'
+  | 'retries_exhausted';
 
 /** Allowlist check: ONLY globally-routable unicast addresses pass. Every
  *  other ipaddr.js range (private, loopback, linkLocal, uniqueLocal,
@@ -132,7 +168,7 @@ async function unlinkQuiet(path: string): Promise<void> {
 
 /** Single attempt (no retry) — one full redirect chain. Never throws. */
 async function attemptDownload(url: string, opts: DownloadOptions): Promise<DownloadOutcome> {
-  const maxRedirects = opts.maxRedirects ?? BUNDLE_MAX_REDIRECTS;
+  const maxRedirects = opts.maxRedirects ?? DOWNLOAD_DEFAULT_MAX_REDIRECTS;
   let currentUrl = url;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
@@ -167,7 +203,7 @@ async function attemptDownload(url: string, opts: DownloadOptions): Promise<Down
         resolve(v);
       };
 
-      const timeoutMs = opts.timeoutMs ?? BUNDLE_PER_RESOURCE_TIMEOUT_MS;
+      const timeoutMs = opts.timeoutMs ?? DOWNLOAD_DEFAULT_TIMEOUT_MS;
       const timeoutSignal = AbortSignal.timeout(timeoutMs);
       const combinedSignal = AbortSignal.any([timeoutSignal, opts.signal]);
 
@@ -253,9 +289,9 @@ async function attemptDownload(url: string, opts: DownloadOptions): Promise<Down
 }
 
 function backoffWaitMs(attempt: number): number {
-  const base = BUNDLE_RETRY_BASE_MS * Math.pow(2, attempt - 1);
-  const jitter = Math.random() * BUNDLE_RETRY_BASE_MS;
-  return Math.min(BUNDLE_RETRY_MAX_WAIT_MS, Math.round(base + jitter));
+  const base = DOWNLOAD_DEFAULT_RETRY_BASE_MS * Math.pow(2, attempt - 1);
+  const jitter = Math.random() * DOWNLOAD_DEFAULT_RETRY_BASE_MS;
+  return Math.min(DOWNLOAD_DEFAULT_RETRY_MAX_WAIT_MS, Math.round(base + jitter));
 }
 
 function interruptibleSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -284,21 +320,21 @@ export interface DownloadWithRetryResult {
   retryCount: number;
 }
 
-/** Downloads `url` to `opts.destPath`, retrying up to BUNDLE_MAX_RETRIES
+/** Downloads `url` to `opts.destPath`, retrying up to DOWNLOAD_DEFAULT_MAX_RETRIES
  *  times (exponential backoff) on transient failures only. Never throws —
  *  every path resolves to a typed outcome. Streams directly to disk; never
  *  buffers the full response in memory. */
 export async function downloadToFile(url: string, opts: DownloadOptions): Promise<DownloadWithRetryResult> {
-  for (let attempt = 1; attempt <= BUNDLE_MAX_RETRIES + 1; attempt++) {
+  for (let attempt = 1; attempt <= DOWNLOAD_DEFAULT_MAX_RETRIES + 1; attempt++) {
     if (opts.signal.aborted) return { outcome: { ok: false, code: 'cancelled' }, retryCount: attempt - 1 };
     const outcome = await attemptDownload(url, opts);
     if (outcome.ok) return { outcome, retryCount: attempt - 1 };
     if (!isRetryable(outcome)) return { outcome, retryCount: attempt - 1 };
-    if (attempt > BUNDLE_MAX_RETRIES) {
+    if (attempt > DOWNLOAD_DEFAULT_MAX_RETRIES) {
       return { outcome: { ok: false, code: 'retries_exhausted' }, retryCount: attempt - 1 };
     }
     await interruptibleSleep(backoffWaitMs(attempt), opts.signal);
   }
-  // Unreachable — the loop always returns by BUNDLE_MAX_RETRIES + 1.
-  return { outcome: { ok: false, code: 'retries_exhausted' }, retryCount: BUNDLE_MAX_RETRIES };
+  // Unreachable — the loop always returns by DOWNLOAD_DEFAULT_MAX_RETRIES + 1.
+  return { outcome: { ok: false, code: 'retries_exhausted' }, retryCount: DOWNLOAD_DEFAULT_MAX_RETRIES };
 }

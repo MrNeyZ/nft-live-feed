@@ -1,27 +1,23 @@
 /**
- * Trait Extraction - image acquisition + RGBA decoding.
+ * Trait Extraction Core - image acquisition + RGBA decoding.
  *
- * Reuses the Stage 3/4 SSRF-safe downloader as-is (`bundle/ssrf-guard.ts`) -
- * same DNS/redirect validation, same "no cookies/auth/secrets forwarded"
- * contract, same 429/5xx-only retry policy (its retry counts/backoff come
- * from bundle-limits.ts's already-conservative, battle-tested constants;
- * only per-call timeout/redirect-limit are reparameterized here via
- * TE_PER_RESOURCE_TIMEOUT_MS/TE_MAX_REDIRECTS). Content is validated via
- * real `sharp` decoding (never trusts Content-Type/URL extension), same
- * png/jpeg/webp/gif allowlist Stage 3 uses for bundle images.
+ * This is the package's default `ImageAcquirer` implementation - the SSRF-
+ * safe downloader (`./ssrf-guard.ts`, moved here from the app's Stage 3/4
+ * bundle feature since it has no Express/server dependency either) with
+ * DNS/redirect validation, "no cookies/auth/secrets forwarded", 429/5xx-only
+ * retry policy. Content is validated via real `sharp` decoding (never trusts
+ * Content-Type/URL extension) against a narrow png/jpeg/webp/gif allowlist.
  *
  * "Download each unique source image only once per job" (spec section 7)
  * is implemented as a Promise-memoized per-job cache: concurrent callers
  * for the same URL share one in-flight download+decode, and a second call
- * after completion is a cache hit - mirrors the project's existing DAS
- * asset-cache pattern (src/enrichment/helius-das.ts).
+ * after completion is a cache hit.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import sharp from 'sharp';
-import { downloadToFile, type AddressValidator } from '../bundle/ssrf-guard';
-import { SUPPORTED_IMAGE_FORMATS } from '../bundle/bundle-filenames';
+import { downloadToFile, type AddressValidator } from './ssrf-guard';
 import {
   TE_MAX_DECODED_BYTES_PER_IMAGE,
   TE_MAX_IMAGE_BYTES,
@@ -32,6 +28,11 @@ import {
   TE_MAX_TOTAL_DECODED_BYTES,
   TE_PER_RESOURCE_TIMEOUT_MS,
 } from './te-limits';
+
+/** sharp-reported format allowlist - deliberately narrow, matches the
+ *  app's bundle/bundle-filenames.ts SUPPORTED_IMAGE_FORMATS (kept as its
+ *  own local copy so this package has zero import back into the app). */
+const SUPPORTED_IMAGE_FORMATS: ReadonlySet<string> = new Set(['png', 'jpeg', 'webp', 'gif']);
 
 export interface DecodedImage {
   width: number;
