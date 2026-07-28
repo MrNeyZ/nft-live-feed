@@ -7,7 +7,7 @@
  * Run: npm run test:collection-analyzer-te-pixel-diff
  */
 import assert from 'assert';
-import { computeDiffMask, cleanPairMask, estimateTargetCandidate, removeSmallComponents, type CleanedPair } from '../te-pixel-diff';
+import { computeDiffMask, cleanPairMask, estimateTargetCandidate, removeSmallComponents, type CleanedPair, type BinaryMask } from '../te-pixel-diff';
 import type { DecodedImage } from '../te-image-io';
 
 let failures = 0;
@@ -179,6 +179,62 @@ check('partially occluded target (only visible in some samples) still yields a s
   const result = estimateTargetCandidate(pairs, 0.5);
   assert.ok(result.candidatePixelCount > 0, 'some pixels still isolated');
   assert.ok(result.candidatePixelCount <= REGION.w * REGION.h);
+});
+
+console.log('\nestimateTargetCandidate - Stage 5.1 per-pair evidence weight (evidenceWeight)');
+const OTHER_BLOCK = { x: 8, y: 8, w: 3, h: 3 }; // unrelated region, disjoint from REGION
+const OB_COLOR: [number, number, number, number] = [10, 200, 10, 255];
+const OB_COLOR_ALT: [number, number, number, number] = [200, 10, 200, 255];
+// ONE canonical decoded image per source mint (mirrors real usage: a given
+// mint's image is fetched/decoded exactly once and reused across every
+// pair that references it - te-image-io.ts's per-job cache). Using a
+// FRESH divergent image per pair for the "same" source mint would be an
+// invalid fixture (can't happen via the real ImageDecodeCache) and
+// corrupts the color/consistency computation, which assumes one true
+// image per source.
+function canonicalSourceImage(): DecodedImage { return makeImage([{ ...REGION, color: TARGET_COLOR }, { ...OTHER_BLOCK, color: OB_COLOR }]); }
+function regionCount(mask: BinaryMask): number {
+  let n = 0;
+  for (let y = REGION.y; y < REGION.y + REGION.h; y++) for (let x = REGION.x; x < REGION.x + REGION.w; x++) if (mask[y * W + x]) n++;
+  return n;
+}
+check('WITHOUT weighting, enough low-quality pairs dilute a real region below the consensus threshold (the problem Stage 5.1 fixes)', () => {
+  const s1 = canonicalSourceImage(), s2 = canonicalSourceImage();
+  const cmpClean = makeImage([{ ...REGION, color: ALT_COLOR }, { ...OTHER_BLOCK, color: OB_COLOR }]); // only REGION differs from the source
+  const cmpContam = makeImage([{ ...REGION, color: TARGET_COLOR }, { ...OTHER_BLOCK, color: OB_COLOR_ALT }]); // only OTHER_BLOCK differs - unrelated noise
+  const clean1 = makePair('S1', 'C1', 'Normal', s1, cmpClean);
+  const clean2 = makePair('S2', 'C2', 'Normal', s2, cmpClean);
+  const contam1 = makePair('S1', 'CC1', 'Contaminant', s1, cmpContam);
+  const contam2 = makePair('S1', 'CC2', 'Contaminant', s1, cmpContam);
+  const contam3 = makePair('S2', 'CC3', 'Contaminant', s2, cmpContam);
+  const contam4 = makePair('S2', 'CC4', 'Contaminant', s2, cmpContam);
+  const pairs = [clean1, clean2, contam1, contam2, contam3, contam4];
+  const result = estimateTargetCandidate(pairs, 0.6); // needs >=60% agreement; 2 corroborating of 6 unweighted votes at REGION = 33%
+  assert.strictEqual(regionCount(result.candidateMask), 0, 'unweighted, the real region should NOT reach the consensus bar when outnumbered by non-corroborating pairs');
+});
+check('WITH per-pair evidenceWeight, the same contaminated pairs cannot suppress the real region', () => {
+  const s1 = canonicalSourceImage(), s2 = canonicalSourceImage();
+  const cmpClean = makeImage([{ ...REGION, color: ALT_COLOR }, { ...OTHER_BLOCK, color: OB_COLOR }]);
+  const cmpContam = makeImage([{ ...REGION, color: TARGET_COLOR }, { ...OTHER_BLOCK, color: OB_COLOR_ALT }]);
+  const clean1: CleanedPair = { ...makePair('S1', 'C1', 'Normal', s1, cmpClean), evidenceWeight: 1.0 };
+  const clean2: CleanedPair = { ...makePair('S2', 'C2', 'Normal', s2, cmpClean), evidenceWeight: 1.0 };
+  const contaminated: CleanedPair[] = [
+    { ...makePair('S1', 'CC1', 'Contaminant', s1, cmpContam), evidenceWeight: 0.05 },
+    { ...makePair('S1', 'CC2', 'Contaminant', s1, cmpContam), evidenceWeight: 0.05 },
+    { ...makePair('S2', 'CC3', 'Contaminant', s2, cmpContam), evidenceWeight: 0.05 },
+    { ...makePair('S2', 'CC4', 'Contaminant', s2, cmpContam), evidenceWeight: 0.05 },
+  ];
+  const pairs = [clean1, clean2, ...contaminated];
+  const result = estimateTargetCandidate(pairs, 0.6);
+  assert.strictEqual(regionCount(result.candidateMask), 12, 'weighted, the true region shape/size is preserved (same as the single-clean-pair case) despite 4 contaminated pairs outnumbering the 2 clean ones');
+});
+check('evidenceWeight is fully backward-compatible: omitting it on every pair reproduces pre-5.1 unweighted behavior exactly', () => {
+  const withWeight1 = { ...makePair('S1', 'C1', 'Normal', sourceImage(), comparisonImage()), evidenceWeight: 1 };
+  const withoutWeight = makePair('S1', 'C1', 'Normal', sourceImage(), comparisonImage());
+  const a = estimateTargetCandidate([withWeight1], 0.6);
+  const b = estimateTargetCandidate([withoutWeight], 0.6);
+  assert.strictEqual(a.candidatePixelCount, b.candidatePixelCount);
+  assert.strictEqual(a.changedPixelPercent, b.changedPixelPercent);
 });
 
 console.log(`\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`);

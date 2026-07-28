@@ -597,7 +597,7 @@ export function createCollectionAnalyzerRouter(): Router {
       status: record.status,
       config: record.config,
       progress: record.progress,
-      evidenceSummary: record.evidence.map((e) => ({ traitType: e.traitType, traitValue: e.traitValue, status: e.confidence.status, score: e.confidence.score, outputDirKey: e.outputDirKey })),
+      evidenceSummary: record.evidence.map((e) => ({ traitType: e.traitType, traitValue: e.traitValue, status: e.confidence.status, score: e.confidence.score, outputDirKey: e.outputDirKey, searchDiagnostics: e.searchDiagnostics })),
       unresolvedValues: record.unresolvedValues,
       error: record.error ?? undefined,
       collectionDisplayName: record.collectionDisplayName,

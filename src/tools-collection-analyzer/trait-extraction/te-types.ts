@@ -77,6 +77,76 @@ export interface ComparisonCandidate {
   differingCategories: string[];
   matchingCategoryCount: number;
   comparisonValue: string | null;
+  /** Stage 5.1: sum of impact weights of `differingCategories` - the
+   *  primary ranking signal (spec section 6). 0 for a Level 0 pair. */
+  weightedImpactPenalty: number;
+  /** Stage 5.1: the single largest differing-category impact weight in
+   *  this pair (0 for Level 0). */
+  maxSingleCategoryImpact: number;
+}
+
+// ── Stage 5.1: source selection / search / impact / evidence-weight diagnostics ─
+
+export interface SourceSelectionDiagnostics {
+  strategy: 'diversity_aware';
+  candidatePoolSize: number;
+  uniqueNonTargetSignatures: number;
+  representativesSelected: number;
+  diversityFillSelected: number;
+  lexicalTiebreakSelected: number;
+}
+
+export type SearchStopReason =
+  | 'exact_evidence_sufficient'
+  | 'consensus_stabilized'
+  | 'preset_pair_cap'
+  | 'no_more_candidates'
+  | 'timeout'
+  | 'weighted_quality_threshold';
+
+export interface ValueSearchDiagnostics {
+  traitType: string;
+  traitValue: string;
+  assetsSearchable: number;
+  exactBucketSize: number;
+  level0CandidatesFound: number;
+  level1CandidatesFound: number;
+  level2CandidatesFound: number;
+  candidatesRejectedHighImpact: number;
+  rejectionReasons: Record<string, number>;
+  sourceSelection: SourceSelectionDiagnostics;
+  indexBuildTimeMs: number;
+  searchTimeMs: number;
+  pairsAccepted: number;
+  lowQualityPairsCount: number;
+  levelsExpandedTo: ComparisonLevel;
+  adaptiveStopReason: SearchStopReason;
+}
+
+export type ImpactConfidence = 'measured' | 'estimated' | 'neutral';
+export type ImpactSource = 'level0_pixel_evidence' | 'metadata_frequency_fallback' | 'neutral_default';
+
+export interface CategoryImpactEstimate {
+  traitType: string;
+  sampleCount: number;
+  medianChangedAreaPercent: number | null;
+  p25ChangedAreaPercent: number | null;
+  p75ChangedAreaPercent: number | null;
+  impactWeight: number;
+  confidence: ImpactConfidence;
+  source: ImpactSource;
+}
+
+export interface PairEvidenceWeightComponents {
+  exactnessScore: number;
+  impactPenaltyScore: number;
+  sourceDiversityScore: number;
+  targetValueDiversityScore: number;
+}
+
+export interface PairEvidenceWeight {
+  weight: number;
+  components: PairEvidenceWeightComponents;
 }
 
 // ── Pixel/consensus outputs ─────────────────────────────────────────────
@@ -143,6 +213,9 @@ export interface TraitValueEvidence {
     evidence: string;
   };
   outputDirKey: string; // sanitized "<value>--<hash>" folder name
+  /** Stage 5.1: full comparison-search diagnostics for this value (spec
+   *  section 10) - also serialized into this value's evidence.json. */
+  searchDiagnostics: ValueSearchDiagnostics;
 }
 
 // ── Job progress / state ────────────────────────────────────────────────
@@ -203,7 +276,7 @@ export interface TraitExtractionStatusResponse {
   status: TraitExtractionJobStatus;
   config: TraitExtractionConfig;
   progress: TraitExtractionProgressSnapshot;
-  evidenceSummary: Array<{ traitType: string; traitValue: string; status: ConfidenceStatus; score: number; outputDirKey: string }>;
+  evidenceSummary: Array<{ traitType: string; traitValue: string; status: ConfidenceStatus; score: number; outputDirKey: string; searchDiagnostics: ValueSearchDiagnostics }>;
   unresolvedValues: TraitExtractionJobRecord['unresolvedValues'];
   error?: TraitExtractionErrorInfo;
   collectionDisplayName: string;

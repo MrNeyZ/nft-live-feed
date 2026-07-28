@@ -1,5 +1,12 @@
 /**
- * Trait Extraction - comparison-level / candidate-selection tests.
+ * Trait Extraction - comparison-level primitives + the te-comparison.ts
+ * orchestration entry point (Stage 5.1: now backed by te-index/
+ * te-diversity/te-impact/te-ranking - see those modules' own test files
+ * for the detailed algorithm coverage). This file keeps the original
+ * Stage 5 behavioral guarantees: Level 0 preferred over Level 1, presets
+ * reject worse-than-permitted levels, deterministic ordering, no
+ * comparison against unrelated NFTs merely to force a result.
+ *
  * Run: npm run test:collection-analyzer-te-comparison
  */
 import assert from 'assert';
@@ -52,33 +59,33 @@ check('missing category on one side counts as differing', () => {
   assert.deepStrictEqual(r.differingCategories, ['Body']);
 });
 
-console.log('\nselectComparisonCandidates - deterministic ranking + selection');
-check('prefers Level-0 pair over a Level-1 pair for the same source', () => {
+console.log('\nselectComparisonCandidates - deterministic ranking + selection (Stage 5.1: index/diversity/ranking-backed)');
+check('ranks a Level-0 pair AHEAD of a Level-1 pair for the same source (adaptive search may still gather both as extra evidence - spec section 9)', () => {
   const assets: NormalizedAsset[] = [
     asset('SRC', { Eyes: 'Laser', Body: 'Green' }),
     asset('CMP_L1', { Eyes: 'Normal', Body: 'Blue' }), // level 1
-    asset('CMP_L0', { Eyes: 'Normal', Body: 'Green' }), // level 0 - better
+    asset('CMP_L0', { Eyes: 'Normal', Body: 'Green' }), // level 0 - better, must rank first
   ];
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'));
-  assert.strictEqual(result.length, 1);
-  assert.strictEqual(result[0].comparisonMint, 'CMP_L0');
-  assert.strictEqual(result[0].level, 0);
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'), 'balanced');
+  assert.ok(candidates.length >= 1);
+  assert.strictEqual(candidates[0].comparisonMint, 'CMP_L0');
+  assert.strictEqual(candidates[0].level, 0);
 });
 check('rejects comparisons worse than the preset permits (fast preset caps at Level 1)', () => {
   const assets: NormalizedAsset[] = [
     asset('SRC', { Eyes: 'Laser', Body: 'Green', Hat: 'Cap' }),
     asset('CMP_L2', { Eyes: 'Normal', Body: 'Blue', Hat: 'Helmet' }), // level 2 - fast preset rejects
   ];
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('fast'));
-  assert.strictEqual(result.length, 0);
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('fast'), 'fast');
+  assert.strictEqual(candidates.length, 0);
 });
 check('never compares arbitrary unrelated NFTs merely to force a result (no candidate when only Level-3+ exists)', () => {
   const assets: NormalizedAsset[] = [
     asset('SRC', { Eyes: 'Laser', A: '1', B: '2', C: '3' }),
     asset('UNRELATED', { Eyes: 'Normal', A: 'x', B: 'y', C: 'z' }), // level 3
   ];
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('thorough'));
-  assert.strictEqual(result.length, 0);
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('thorough'), 'thorough');
+  assert.strictEqual(candidates.length, 0);
 });
 check('deterministic pair ordering: identical input always produces identical output', () => {
   const assets: NormalizedAsset[] = [
@@ -87,9 +94,9 @@ check('deterministic pair ordering: identical input always produces identical ou
     asset('CMP1', { Eyes: 'Normal', Body: 'Green' }),
     asset('CMP2', { Eyes: 'Normal', Body: 'Blue' }),
   ];
-  const r1 = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'));
-  const r2 = selectComparisonCandidates('Eyes', 'Laser', [...assets].reverse(), presetLimitsFor('balanced'));
-  assert.deepStrictEqual(r1.map((p) => `${p.sourceMint}/${p.comparisonMint}`), r2.map((p) => `${p.sourceMint}/${p.comparisonMint}`));
+  const r1 = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'), 'balanced');
+  const r2 = selectComparisonCandidates('Eyes', 'Laser', [...assets].reverse(), presetLimitsFor('balanced'), 'balanced');
+  assert.deepStrictEqual(r1.candidates.map((p) => `${p.sourceMint}/${p.comparisonMint}`), r2.candidates.map((p) => `${p.sourceMint}/${p.comparisonMint}`));
 });
 check('prefers comparison-value diversity when multiple pairs are equally ranked', () => {
   const assets: NormalizedAsset[] = [
@@ -100,8 +107,8 @@ check('prefers comparison-value diversity when multiple pairs are equally ranked
     asset('CMP_Fire1', { Eyes: 'Fire', Body: 'A' }),
   ];
   const limits = { ...presetLimitsFor('balanced'), maxComparisonPairsPerValue: 2 };
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, limits);
-  const comparisonValues = new Set(result.map((p) => p.comparisonValue));
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, limits, 'balanced');
+  const comparisonValues = new Set(candidates.map((p) => p.comparisonValue));
   assert.ok(comparisonValues.size >= 1);
 });
 check('mint lexical order is the final deterministic tiebreaker', () => {
@@ -110,20 +117,29 @@ check('mint lexical order is the final deterministic tiebreaker', () => {
     asset('B_CMP', { Eyes: 'Normal', Body: 'Green' }),
     asset('A_CMP', { Eyes: 'Normal', Body: 'Green' }),
   ];
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'));
-  assert.strictEqual(result[0].comparisonMint, 'A_CMP');
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'), 'balanced');
+  assert.strictEqual(candidates[0].comparisonMint, 'A_CMP');
 });
 check('no source assets for the target value -> empty result, never throws', () => {
   const assets: NormalizedAsset[] = [asset('A', { Eyes: 'Normal' })];
-  assert.deepStrictEqual(selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced')), []);
+  assert.deepStrictEqual(selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'), 'balanced').candidates, []);
 });
 check('source count capped by preset maxSourceAssetsPerValue', () => {
   const assets: NormalizedAsset[] = [];
   for (let i = 0; i < 10; i++) assets.push(asset(`SRC${i}`, { Eyes: 'Laser', Body: `B${i}` }));
   for (let i = 0; i < 10; i++) assets.push(asset(`CMP${i}`, { Eyes: 'Normal', Body: `B${i}` }));
-  const result = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('fast')); // fast: maxSourceAssetsPerValue=3
-  const distinctSources = new Set(result.map((p) => p.sourceMint));
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('fast'), 'fast'); // fast: maxSourceAssetsPerValue=3
+  const distinctSources = new Set(candidates.map((p) => p.sourceMint));
   assert.ok(distinctSources.size <= 3);
+});
+check('the whole collection is searchable - COMPARISON_POOL_CAP=2000 lexical prefix no longer exists (see te-index.test.ts for the full regression)', () => {
+  const assets: NormalizedAsset[] = [asset('AAA_SRC', { Eyes: 'Laser', Body: 'Green' })];
+  for (let i = 0; i < 2500; i++) assets.push(asset(`F${String(i).padStart(5, '0')}`, { Eyes: 'Normal', Body: `Other${i}` }));
+  assets.push(asset('ZZZ_EXACT_MATCH', { Eyes: 'Normal', Body: 'Green' }));
+  const { candidates } = selectComparisonCandidates('Eyes', 'Laser', assets, presetLimitsFor('balanced'), 'balanced');
+  assert.ok(candidates.length >= 1);
+  assert.strictEqual(candidates[0].comparisonMint, 'ZZZ_EXACT_MATCH', 'the exact match must rank first even though it sits at the very end of the collection');
+  assert.strictEqual(candidates[0].level, 0);
 });
 
 console.log(`\n${failures === 0 ? '✅ All checks passed' : `❌ ${failures} check(s) failed`}`);

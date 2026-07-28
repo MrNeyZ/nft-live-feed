@@ -82,3 +82,71 @@ export const PRESET_LIMITS: Record<ExtractionPreset, ExtractionPresetLimits> = {
 export function presetLimitsFor(preset: ExtractionPreset): ExtractionPresetLimits {
   return PRESET_LIMITS[preset];
 }
+
+// ── Stage 5.1: full-collection search safety limits ────────────────────
+// Replace the old COMPARISON_POOL_CAP (lexical-first-2000 cap, removed) -
+// the whole completed scan (up to SCAN_MAX_ASSETS, see scan-limits.ts) is
+// searchable, but every stage of that search is still explicitly bounded
+// so CPU/memory/time spend is safe on the largest collections this tool
+// accepts.
+
+/** Total category/value posting-list entries a single source asset's
+ *  near-match shortlist search (Level 1/2) may visit before it stops
+ *  widening and works with whatever it already has. */
+export const TE_MAX_CANDIDATE_INTERSECTIONS_PER_VALUE = envInt('TE_MAX_CANDIDATE_INTERSECTIONS_PER_VALUE', 2_000_000);
+/** Near-match shortlist size cap per source asset, ranked-then-truncated
+ *  (never a lexical prefix). */
+export const TE_MAX_NEAR_CANDIDATES_PER_SOURCE = envInt('TE_MAX_NEAR_CANDIDATES_PER_SOURCE', 500);
+/** A real many-category collection (e.g. 14 largely independent
+ *  categories) is combinatorially sparse - MOST diversity-selected source
+ *  assets can have NO valid comparison partner anywhere in the collection
+ *  at all (confirmed on Retardio Cousins: only 78/548, ~14%, of
+ *  Eyebrows=Clown source candidates had ANY level<=2 match among 4441
+ *  assets - and every one of those was Level 2, none Level 0/1). Picking
+ *  only `maxSourceAssetsPerValue` sources blind to productivity risks
+ *  finding nothing at all. The METADATA-LEVEL search (cheap, no network -
+ *  an indexed O(1) lookup per source for Level 0, a bounded posting-list
+ *  walk for Level 1/2) therefore considers EVERY target-bearing asset as
+ *  a candidate source, up to a generous safety ceiling; only the sources
+ *  that actually produce accepted evidence ever reach
+ *  `limits.maxSourceAssetsPerValue` in the final result (te-ranking.ts
+ *  enforces that cap on the OUTPUT, not the search). This never widens
+ *  the expensive part (image downloads/pixel diffing) - only in-memory
+ *  candidate discovery, which is separately time/intersection-bounded
+ *  (TE_MAX_SEARCH_MS_PER_VALUE / TE_MAX_CANDIDATE_INTERSECTIONS_PER_VALUE). */
+export const TE_SOURCE_SEARCH_POOL_MAX = envInt('TE_SOURCE_SEARCH_POOL_MAX', 2_000);
+/** Wall-clock budget for one target value's ENTIRE candidate search
+ *  (exact + Level 1 + Level 2, across every source asset). */
+export const TE_MAX_SEARCH_MS_PER_VALUE = envInt('TE_MAX_SEARCH_MS_PER_VALUE', 4_000);
+/** Wall-clock budget for candidate search summed across every value in
+ *  the job - independent of TE_JOB_TIMEOUT_MS (which also covers
+ *  download/pixel-diff time). */
+export const TE_MAX_SEARCH_MS_PER_JOB = envInt('TE_MAX_SEARCH_MS_PER_JOB', 60_000);
+/** Hard ceiling on low-quality (Level 2 / high-impact-but-not-rejected)
+ *  pairs contributing to one value's evidence, independent of the
+ *  preset's overall maxComparisonPairsPerValue. */
+export const TE_MAX_LOW_QUALITY_PAIRS_PER_VALUE = envInt('TE_MAX_LOW_QUALITY_PAIRS_PER_VALUE', 6);
+
+export interface RejectionThresholds {
+  /** Reject a candidate pair outright when the SUM of its differing
+   *  non-target categories' impact weights exceeds this. */
+  maxWeightedImpactPenalty: number;
+  /** Reject outright when any SINGLE differing category's impact weight
+   *  exceeds this (e.g. a lone Background mismatch). */
+  maxSingleCategoryImpact: number;
+}
+
+/** Preset-specific large-footprint rejection thresholds (spec section 7).
+ *  Fast is strict (near-exact pairs only); Thorough tolerates broader,
+ *  explicitly weaker evidence rather than hard-rejecting it - weight
+ *  (te-impact.ts / te-ranking.ts pair-evidence-weight), not raw
+ *  acceptance, is what keeps it from dominating consensus. */
+export const REJECTION_THRESHOLDS: Record<ExtractionPreset, RejectionThresholds> = {
+  fast: { maxWeightedImpactPenalty: envFloat('TE_FAST_MAX_IMPACT_PENALTY', 1.0), maxSingleCategoryImpact: envFloat('TE_FAST_MAX_SINGLE_IMPACT', 1.3) },
+  balanced: { maxWeightedImpactPenalty: envFloat('TE_BALANCED_MAX_IMPACT_PENALTY', 2.4), maxSingleCategoryImpact: envFloat('TE_BALANCED_MAX_SINGLE_IMPACT', 2.2) },
+  thorough: { maxWeightedImpactPenalty: envFloat('TE_THOROUGH_MAX_IMPACT_PENALTY', 4.5), maxSingleCategoryImpact: envFloat('TE_THOROUGH_MAX_SINGLE_IMPACT', 2.8) },
+};
+
+export function rejectionThresholdsFor(preset: ExtractionPreset): RejectionThresholds {
+  return REJECTION_THRESHOLDS[preset];
+}

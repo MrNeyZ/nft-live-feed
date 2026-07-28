@@ -33,7 +33,16 @@ interface TeProgress {
   resolvedHigh: number; resolvedMedium: number; resolvedLow: number; resolvedUnresolved: number; resolvedVisuallyIdentical: number;
   failedImageCount: number; bytesDownloaded: number; elapsedMs: number; warning?: string;
 }
-interface TeEvidenceSummary { traitType: string; traitValue: string; status: ConfidenceStatus; score: number; outputDirKey: string }
+type SearchStopReason =
+  | 'exact_evidence_sufficient' | 'consensus_stabilized' | 'preset_pair_cap'
+  | 'no_more_candidates' | 'timeout' | 'weighted_quality_threshold';
+interface ValueSearchDiagnostics {
+  assetsSearchable: number; exactBucketSize: number;
+  level0CandidatesFound: number; level1CandidatesFound: number; level2CandidatesFound: number;
+  candidatesRejectedHighImpact: number; pairsAccepted: number; lowQualityPairsCount: number;
+  levelsExpandedTo: 0 | 1 | 2; adaptiveStopReason: SearchStopReason;
+}
+interface TeEvidenceSummary { traitType: string; traitValue: string; status: ConfidenceStatus; score: number; outputDirKey: string; searchDiagnostics?: ValueSearchDiagnostics }
 interface TeStatusResponse {
   ok: boolean; jobId: string; status: TeJobStatus;
   config: { selections: Array<{ traitType: string; values?: string[] }>; preset: ExtractionPreset };
@@ -457,6 +466,35 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
               </div>
             ))}
           </div>
+
+          {evidenceSummary.some((e) => e.searchDiagnostics) && (
+            <details style={{ marginBottom: 10, fontSize: 10.5, color: '#9a9ab4' }}>
+              <summary style={{ cursor: 'pointer', color: '#c4b8e8', fontSize: 11 }}>Search diagnostics (Stage 5.1)</summary>
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {(() => {
+                  const diags = evidenceSummary.map((e) => e.searchDiagnostics).filter((d): d is ValueSearchDiagnostics => !!d);
+                  const assetsSearchable = diags[0]?.assetsSearchable ?? 0;
+                  const sum = (f: (d: ValueSearchDiagnostics) => number) => diags.reduce((s, d) => s + f(d), 0);
+                  const stopReasonCounts: Record<string, number> = {};
+                  for (const d of diags) stopReasonCounts[d.adaptiveStopReason] = (stopReasonCounts[d.adaptiveStopReason] ?? 0) + 1;
+                  return (
+                    <>
+                      <div>assets searchable (full collection): <span style={{ color: '#f0eef8' }}>{assetsSearchable}</span></div>
+                      <div>exact (Level 0) pairs found: <span style={{ color: '#f0eef8' }}>{sum((d) => d.level0CandidatesFound)}</span></div>
+                      <div>near (Level 1/2) pairs found: <span style={{ color: '#f0eef8' }}>{sum((d) => d.level1CandidatesFound + d.level2CandidatesFound)}</span></div>
+                      <div>candidates rejected (high-impact mismatch): <span style={{ color: '#f0eef8' }}>{sum((d) => d.candidatesRejectedHighImpact)}</span></div>
+                      <div>low-quality pairs used: <span style={{ color: '#f0eef8' }}>{sum((d) => d.lowQualityPairsCount)}</span></div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                        {Object.entries(stopReasonCounts).map(([reason, count]) => (
+                          <Chip key={reason} color="#7ea8d9">{count}× {reason.replace(/_/g, ' ')}</Chip>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </details>
+          )}
 
           <a href={`${API_BASE}/api/tools/collection-analyzer/trait-extractions/${jobId}/download`}
             style={{ display: 'inline-block', padding: '8px 20px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: '#43b984' }}>

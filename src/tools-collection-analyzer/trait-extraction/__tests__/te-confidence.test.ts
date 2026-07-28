@@ -17,6 +17,8 @@ const STRONG: ConfidenceInputs = {
   canvasMatchedPairCount: 8, canvasAttemptedPairCount: 8,
   changedPixelPercent: 5, uncertaintyPixelPercent: 0,
   candidatePixelCount: 100, expandedCandidatePixelCount: 100, changedPixelCount: 120,
+  candidatePixelPercent: 5,
+  selfCategoryMedianFootprintPercent: null,
 };
 
 console.log('\ncomputeConfidence - status boundaries');
@@ -63,10 +65,28 @@ check('score is always 0-100 and components are all 0-1', () => {
   assert.ok(r.score >= 0 && r.score <= 100);
   for (const v of Object.values(r.components)) assert.ok(v >= 0 && v <= 1, `component out of range: ${v}`);
 });
-check('changed-area-too-large (near 100% of canvas) penalizes reasonableness score', () => {
-  const reasonable = computeConfidence({ ...STRONG, changedPixelPercent: 5 });
-  const tooLarge = computeConfidence({ ...STRONG, changedPixelPercent: 95 });
+check('candidate-area-too-large (near 100% of canvas) penalizes reasonableness score', () => {
+  const reasonable = computeConfidence({ ...STRONG, candidatePixelPercent: 5 });
+  const tooLarge = computeConfidence({ ...STRONG, candidatePixelPercent: 95 });
   assert.ok(tooLarge.components.changedAreaReasonablenessScore < reasonable.components.changedAreaReasonablenessScore);
+});
+check('a HUGE raw changedPixelPercent (diagnostic union across many pairs) does NOT by itself tank reasonableness if the actual candidate stayed small - the score judges the real output, not contamination noise from rejected-adjacent pairs', () => {
+  const r = computeConfidence({ ...STRONG, changedPixelPercent: 90, candidatePixelPercent: 0.5 });
+  assert.strictEqual(r.components.changedAreaReasonablenessScore, 1);
+});
+check('a candidate spanning most of the canvas is forced to unresolved regardless of an otherwise-strong score (spec: unresolved > a severely contaminated candidate)', () => {
+  const r = computeConfidence({ ...STRONG, candidatePixelPercent: 85 });
+  assert.strictEqual(r.status, 'unresolved');
+});
+check('a learned self-category footprint tightens the large-candidate ceiling below the fixed default', () => {
+  // This job already learned (from other clean values in the SAME
+  // category) that a typical footprint here is ~0.7% - an 8.5% result is
+  // ~12x that, well under the fixed 60% default but should still trip
+  // the PERSONALIZED ceiling.
+  const withoutSelfKnowledge = computeConfidence({ ...STRONG, candidatePixelPercent: 8.5, selfCategoryMedianFootprintPercent: null });
+  const withSelfKnowledge = computeConfidence({ ...STRONG, candidatePixelPercent: 8.5, selfCategoryMedianFootprintPercent: 0.7 });
+  assert.notStrictEqual(withoutSelfKnowledge.status, 'unresolved');
+  assert.strictEqual(withSelfKnowledge.status, 'unresolved');
 });
 check('canvas-dimension mismatches reduce canvasConsistencyScore proportionally', () => {
   const r = computeConfidence({ ...STRONG, canvasMatchedPairCount: 4, canvasAttemptedPairCount: 8 });

@@ -127,6 +127,13 @@ export interface CleanedPair {
   comparisonValue: string | null;
   sourceImage: DecodedImage;
   diffMask: BinaryMask; // cleaned
+  /** Stage 5.1 (spec section 8): how much this pair should count toward
+   *  consensus - exact Level 0 pairs with no competing non-target
+   *  mismatch carry the most weight, a Thorough-only pair let through
+   *  despite a real (sub-rejection) footprint mismatch carries less, so
+   *  it cannot outvote clean evidence merely by being one of many.
+   *  Undefined/omitted defaults to 1 (pre-5.1, unweighted behavior). */
+  evidenceWeight?: number;
 }
 
 export interface ConsensusResult {
@@ -168,11 +175,20 @@ export function estimateTargetCandidate(pairs: CleanedPair[], consensusAgreement
   const height = pairs[0].sourceImage.height;
   const n = width * height;
 
+  // Weighted change-frequency map (spec section 8): a low-weight
+  // (contaminated/near-match/high-impact) pair's vote counts for less, so
+  // a handful of dirty Level 2 pairs can never outvote a smaller number
+  // of clean Level 0 pairs merely by being more numerous.
   const changeFrequency = new Float32Array(n);
+  let totalWeight = 0;
   for (const pair of pairs) {
-    for (let i = 0; i < n; i++) if (pair.diffMask[i]) changeFrequency[i]++;
+    const w = pair.evidenceWeight ?? 1;
+    totalWeight += w;
+    if (w === 0) continue;
+    for (let i = 0; i < n; i++) if (pair.diffMask[i]) changeFrequency[i] += w;
   }
-  for (let i = 0; i < n; i++) changeFrequency[i] /= pairs.length;
+  if (totalWeight <= 0) totalWeight = pairs.length || 1;
+  for (let i = 0; i < n; i++) changeFrequency[i] /= totalWeight;
 
   // Union, per DISTINCT source mint, of every pair-mask that used it -
   // "pixel i changed in at least one of this source's comparisons".
