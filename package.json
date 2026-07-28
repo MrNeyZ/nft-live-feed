@@ -25,6 +25,12 @@
     "test:collection-analyzer-part-plan": "ts-node src/tools-collection-analyzer/bundle/__tests__/bundle-part-plan.test.ts",
     "test:collection-analyzer-multipart": "ts-node src/tools-collection-analyzer/bundle/__tests__/bundle-multipart.test.ts",
     "test:collection-analyzer-multipart-split": "ts-node src/tools-collection-analyzer/bundle/__tests__/bundle-multipart-real-split.test.ts",
+    "test:collection-analyzer-te-pixel-diff": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-pixel-diff.test.ts",
+    "test:collection-analyzer-te-eligibility": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-eligibility.test.ts",
+    "test:collection-analyzer-te-comparison": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-comparison.test.ts",
+    "test:collection-analyzer-te-confidence": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-confidence.test.ts",
+    "test:collection-analyzer-te-zip": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-zip.test.ts",
+    "test:collection-analyzer-te-router": "ts-node src/tools-collection-analyzer/trait-extraction/__tests__/te-router.test.ts",
     "test:prnt-detector": "ts-node src/ingestion/mint-raw/__tests__/prnt-detector.test.ts",
     "test:mint-unified-create": "ts-node src/ingestion/mint-raw/__tests__/unified-create.test.ts",
     "test:targeted-unified-create": "ts-node src/ingestion/mint-raw/__tests__/targeted-mode-unified-create.test.ts",
@@ -69,7 +75,8 @@
     "sharp": "^0.35.3",
     "tweetnacl": "^1.0.3",
     "ws": "^8.20.0",
-    "yazl": "^2.5.1"
+    "yazl": "^2.5.1",
+    "yauzl": "^2.10.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
@@ -80,7 +87,6 @@
     "@types/yazl": "^3.3.1",
     "nodemon": "^3.1.4",
     "ts-node": "^10.9.2",
-    "typescript": "^5.5.2",
-    "yauzl": "^2.10.0"
+    "typescript": "^5.5.2"
   }
 }

@@ -77,11 +77,32 @@ import {
   BUNDLE_MAX_JOB_DOWNLOAD_BYTES,
   BUNDLE_MAX_TOTAL_ASSETS,
 } from '../tools-collection-analyzer/bundle/bundle-limits';
+import { buildTraitCollectionEligibility } from '../tools-collection-analyzer/trait-extraction/te-eligibility';
+import { executeTraitExtractionJob } from '../tools-collection-analyzer/trait-extraction/te-run';
+import {
+  activeJobSlots as teActiveJobSlots,
+  checkDiskSpace as teCheckDiskSpace,
+  createTraitExtractionJob,
+  finalizeTraitExtractionJob,
+  getTraitExtractionJob,
+  publishTraitExtractionProgress,
+  subscribeToTraitExtractionProgress,
+  sweepOrphanedTraitExtractionTempDirs,
+  traitExtractionTempRoot,
+  tryAcquireJobSlot as teTryAcquireJobSlot,
+} from '../tools-collection-analyzer/trait-extraction/te-state-store';
+import { TE_MAX_SELECTED_CATEGORIES, TE_MAX_SELECTED_VALUES } from '../tools-collection-analyzer/trait-extraction/te-limits';
+import { extractZipEntryBySuffix } from '../tools-collection-analyzer/trait-extraction/te-zip-read';
+import { sanitizeTraitName } from '../tools-collection-analyzer/trait-extraction/te-filenames';
+import type {
+  ExtractionPreset, TraitExtractionConfig, TraitExtractionJobRecord, TraitExtractionSelection, TraitExtractionStatusResponse,
+} from '../tools-collection-analyzer/trait-extraction/te-types';
 
 // Orphaned per-job temp directories from a prior process crash have no
 // surviving in-memory record — the only place that can ever clean them up
 // is a startup sweep. Fire-and-forget; never blocks router construction.
 void sweepOrphanedBundleTempDirs();
+void sweepOrphanedTraitExtractionTempDirs();
 
 function scanStatusResponse(record: ReturnType<typeof getScan>): ScanStatusResponse | null {
   if (!record) return null;
@@ -545,6 +566,250 @@ export function createCollectionAnalyzerRouter(): Router {
       return res.status(409).json({ ok: false, error: 'manifest_not_available', status: record.manifestStatus });
     }
     streamFileDownload(res, record.jobId, record.manifestPath, 'application/json', `${record.collectionDisplayName}-manifest.json`);
+  });
+
+  // ── Trait Extraction ("Download Trait Collection") ─────────────────────
+  // POST /api/tools/collection-analyzer/scans/:scanId/trait-extractions/eligibility
+  // POST /api/tools/collection-analyzer/scans/:scanId/trait-extractions
+  // GET  /api/tools/collection-analyzer/trait-extractions/:jobId/stream    (SSE, subscriber-only)
+  // GET  /api/tools/collection-analyzer/trait-extractions/:jobId          (status)
+  // POST /api/tools/collection-analyzer/trait-extractions/:jobId/cancel
+  // GET  /api/tools/collection-analyzer/trait-extractions/:jobId/download
+  // GET  /api/tools/collection-analyzer/trait-extractions/:jobId/previews
+  // GET  /api/tools/collection-analyzer/trait-extractions/:jobId/contact-sheets/:category
+  //
+  // Same detached-job architecture as bundles: SSE is subscriber-only,
+  // disconnecting never cancels, REST status is the durable fallback. See
+  // tools-collection-analyzer/trait-extraction/te-run.ts for the pixel
+  // pipeline and te-state-store.ts for the job registry.
+  const teEligibilityLimit = rateLimit({ limit: 15, windowMs: 60_000, label: 'tools/collection-analyzer-te-eligibility' });
+  const teCreateLimit = rateLimit({ limit: 5, windowMs: 10 * 60_000, label: 'tools/collection-analyzer-te-create' });
+
+  function isWithinTraitExtractionJobDir(jobId: string, absPath: string): boolean {
+    const expectedDir = path.resolve(traitExtractionTempRoot(), jobId);
+    return path.resolve(absPath).startsWith(expectedDir + path.sep);
+  }
+
+  function traitExtractionStatusResponse(record: TraitExtractionJobRecord): TraitExtractionStatusResponse {
+    return {
+      jobId: record.jobId,
+      scanId: record.scanId,
+      status: record.status,
+      config: record.config,
+      progress: record.progress,
+      evidenceSummary: record.evidence.map((e) => ({ traitType: e.traitType, traitValue: e.traitValue, status: e.confidence.status, score: e.confidence.score, outputDirKey: e.outputDirKey })),
+      unresolvedValues: record.unresolvedValues,
+      error: record.error ?? undefined,
+      collectionDisplayName: record.collectionDisplayName,
+      downloadAvailable: record.status === 'completed' && !!record.zipPath,
+    };
+  }
+
+  router.post('/tools/collection-analyzer/scans/:scanId/trait-extractions/eligibility', teEligibilityLimit, (req: Request, res: Response) => {
+    const scan = getScan(req.params.scanId);
+    if (!scan) return res.status(404).json({ ok: false, error: 'scan_not_found' });
+    if (scan.status !== 'completed' || !scan.assets) {
+      return res.status(409).json({ ok: false, error: 'scan_not_completed', status: scan.status });
+    }
+    const eligibility = buildTraitCollectionEligibility(scan.assets);
+    return res.json({ ok: true, eligibility });
+  });
+
+  router.post('/tools/collection-analyzer/scans/:scanId/trait-extractions', teCreateLimit, async (req: Request, res: Response) => {
+    const scan = getScan(req.params.scanId);
+    if (!scan) return res.status(404).json({ ok: false, error: 'scan_not_found' });
+    if (scan.status !== 'completed' || !scan.assets || !scan.summary) {
+      return res.status(409).json({ ok: false, error: 'scan_not_completed', status: scan.status });
+    }
+
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as { selections?: unknown; preset?: unknown; allowUnsuitable?: unknown };
+    const preset: ExtractionPreset = body.preset === 'fast' || body.preset === 'thorough' ? body.preset : 'balanced';
+
+    const rawSelections = Array.isArray(body.selections) ? body.selections : [];
+    const selections: TraitExtractionSelection[] = [];
+    for (const raw of rawSelections) {
+      if (!raw || typeof raw !== 'object') continue;
+      const traitType = (raw as { traitType?: unknown }).traitType;
+      if (typeof traitType !== 'string' || traitType.length === 0) continue;
+      const rawValues = (raw as { values?: unknown }).values;
+      const values = Array.isArray(rawValues) ? rawValues.filter((v): v is string => typeof v === 'string').slice(0, TE_MAX_SELECTED_VALUES) : undefined;
+      selections.push({ traitType, values });
+    }
+    const dedupedSelections = selections.slice(0, TE_MAX_SELECTED_CATEGORIES);
+
+    if (dedupedSelections.length === 0) {
+      return res.status(400).json({ ok: false, error: 'empty_selection' });
+    }
+    const totalSelectedValues = dedupedSelections.reduce((s, sel) => s + (sel.values?.length ?? TE_MAX_SELECTED_VALUES), 0);
+    if (totalSelectedValues > TE_MAX_SELECTED_VALUES) {
+      return res.status(413).json({ ok: false, error: 'selection_too_large', maxValues: TE_MAX_SELECTED_VALUES });
+    }
+
+    const eligibility = buildTraitCollectionEligibility(scan.assets);
+    const allowUnsuitable = body.allowUnsuitable === true;
+    if (eligibility.classification === 'unsuitable' && !allowUnsuitable) {
+      return res.status(409).json({ ok: false, error: 'ineligible', classification: eligibility.classification, reasons: eligibility.reasons });
+    }
+
+    const estimatedBytes = totalSelectedValues * 8 * 1024 * 1024; // conservative per-value estimate
+    const diskCheck = await teCheckDiskSpace(estimatedBytes);
+    if (!diskCheck.ok) {
+      return res.status(507).json({ ok: false, error: 'insufficient_disk_space' });
+    }
+    if (!teTryAcquireJobSlot()) {
+      const { active, max } = teActiveJobSlots();
+      console.warn(`[tools/collection-analyzer] trait-extraction rejected reason=capacity active=${active}/${max}`);
+      res.setHeader('Retry-After', '30');
+      return res.status(429).json({ ok: false, error: 'te_capacity' });
+    }
+
+    const config: TraitExtractionConfig = { scanId: scan.scanId, selections: dedupedSelections, preset };
+    const record = createTraitExtractionJob(config, 0);
+    const assets = scan.assets;
+    const summary = scan.summary;
+    void executeTraitExtractionJob({
+      record, assets, summary,
+      onProgress: (p) => publishTraitExtractionProgress(record.jobId, p),
+    }).catch((err) => {
+      console.error('[tools/collection-analyzer] trait-extraction job crashed outside executeTraitExtractionJob', err);
+      finalizeTraitExtractionJob(record, 'failed', { error: { code: 'archive_creation_failed', message: 'Unexpected internal error.' } });
+      publishTraitExtractionProgress(record.jobId, record.progress);
+    });
+
+    return res.status(202).json({ ok: true, jobId: record.jobId, status: record.status });
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId/stream', (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'te_not_found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const emit = (payload: Record<string, unknown>) => {
+      try { res.write(`data: ${JSON.stringify(payload)}\n\n`); }
+      catch { /* client disconnected */ }
+    };
+    const frameType = (status: string): string =>
+      status === 'completed' ? 'result' : status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'error' : 'progress';
+    const sendTick = (p: TraitExtractionJobRecord['progress']) => {
+      emit({ type: frameType(p.status), ...p, evidenceSummary: traitExtractionStatusResponse(record).evidenceSummary, error: record.error ?? undefined });
+    };
+
+    sendTick(record.progress);
+    const isTerminal = ['completed', 'failed', 'cancelled', 'expired'].includes(record.status);
+    if (isTerminal) { res.end(); return; }
+
+    const heartbeat = setInterval(() => {
+      try { res.write(': heartbeat\n\n'); } catch { /* client gone */ }
+    }, 20_000);
+    if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+    const unsubscribe = subscribeToTraitExtractionProgress(record.jobId, (p) => {
+      sendTick(p);
+      if (['completed', 'failed', 'cancelled'].includes(p.status)) {
+        try { res.end(); } catch { /* already closed */ }
+      }
+    });
+
+    // Disconnecting does NOT cancel the job - same contract as bundles.
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    req.on('close', cleanup);
+    req.on('error', cleanup);
+    req.on('aborted', cleanup);
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId', (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    return res.json({ ok: true, ...traitExtractionStatusResponse(record) });
+  });
+
+  router.post('/tools/collection-analyzer/trait-extractions/:jobId/cancel', (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    if (!['queued', 'downloading', 'processing', 'archiving'].includes(record.status)) {
+      return res.status(409).json({ ok: false, error: 'te_not_cancellable', status: record.status });
+    }
+    record.abortController.abort();
+    return res.status(202).json({ ok: true, status: record.status });
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId/download', (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    if (record.status !== 'completed' || !record.zipPath) {
+      return res.status(409).json({ ok: false, error: 'te_not_completed', status: record.status });
+    }
+    if (!isWithinTraitExtractionJobDir(record.jobId, record.zipPath)) {
+      console.error('[tools/collection-analyzer] refusing to serve a trait-extraction zip outside its job directory', record.jobId);
+      return res.status(500).json({ ok: false, error: 'internal_error' });
+    }
+    let size: number;
+    try { size = fs.statSync(record.zipPath).size; } catch { return res.status(404).json({ ok: false, error: 'te_file_missing' }); }
+    const filename = `${record.collectionDisplayName || 'trait-collection'}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', String(size));
+    const stream = fs.createReadStream(record.zipPath);
+    stream.on('error', () => { try { res.destroy(); } catch { /* already closed */ } });
+    stream.pipe(res);
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId/previews', (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    if (record.status !== 'completed') {
+      return res.status(409).json({ ok: false, error: 'te_not_completed', status: record.status });
+    }
+    const rawOffset = Number(req.query.offset);
+    const rawLimit = Number(req.query.limit);
+    const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? Math.floor(rawOffset) : 0;
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 24;
+    const page = record.evidence.slice(offset, offset + limit).map((e) => ({
+      traitType: e.traitType,
+      traitValue: e.traitValue,
+      occurrenceCount: e.occurrenceCount,
+      confidence: e.confidence,
+      candidateBoundingBox: e.candidateBoundingBox,
+      hasPreview: !!e.outputFiles.preview,
+      previewUrl: e.outputFiles.preview ? `/api/tools/collection-analyzer/trait-extractions/${record.jobId}/values/${e.outputDirKey}/preview.png` : null,
+    }));
+    return res.json({ ok: true, total: record.evidence.length, offset, limit, values: page });
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId/values/:outputDirKey/preview.png', async (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record || record.status !== 'completed' || !record.zipPath) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    // outputDirKey is generated server-side (sanitized value + hash) - still
+    // validated against a conservative charset before ever touching the
+    // filesystem/zip reader, defense in depth against path traversal.
+    if (!/^[a-z0-9._-]{1,80}$/.test(req.params.outputDirKey)) return res.status(400).json({ ok: false, error: 'invalid_output_key' });
+    const buffer = await extractZipEntryBySuffix(record.zipPath, `/${req.params.outputDirKey}/preview.png`);
+    if (!buffer) return res.status(404).json({ ok: false, error: 'preview_not_found' });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
+  });
+
+  router.get('/tools/collection-analyzer/trait-extractions/:jobId/contact-sheets/:category', async (req: Request, res: Response) => {
+    const record = getTraitExtractionJob(req.params.jobId);
+    if (!record || record.status !== 'completed' || !record.zipPath) return res.status(404).json({ ok: false, error: 'te_not_found' });
+    const safeCategory = sanitizeTraitName(req.params.category);
+    const buffer = await extractZipEntryBySuffix(record.zipPath, `/contact-sheets/${safeCategory}.png`);
+    if (!buffer) return res.status(404).json({ ok: false, error: 'contact_sheet_not_found' });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
   });
 
   return router;

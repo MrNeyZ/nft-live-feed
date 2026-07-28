@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
+import TraitExtractionPanel from './TraitExtractionPanel';
 import { authHeaders } from '@/runtime/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -255,6 +256,7 @@ export default function CollectionAnalyzerPage() {
   const [scanAssetsBusy, setScanAssetsBusy]     = useState(false);
 
   const [traitSearch, setTraitSearch] = useState('');
+  const [showAdvancedExport, setShowAdvancedExport] = useState(false);
 
   // ── Stage 3/4: collection bundle (download) state ─────────────────────
   const [bundleOptions, setBundleOptions] = useState<BundleOptions>({ ...DEFAULT_BUNDLE_OPTIONS });
@@ -970,10 +972,26 @@ export default function CollectionAnalyzerPage() {
         </div>
       )}
 
-      {/* ── Stage 3: collection bundle download ───────────────────────── */}
+      {/* ── Download Trait Collection (generative trait extraction) ──── */}
+      {scanStatus === 'completed' && scanSummary && (
+        <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '0 4px 12px' }}>
+          <TraitExtractionPanel scanId={scanId ?? ''} traitCategories={scanSummary.traitCategories} exactAssetCount={scanSummary.exactAssetCount} />
+        </div>
+      )}
+
+      {/* ── Advanced / Raw Collection Export (Stage 3/4 generic bundle) ── */}
       {scanStatus === 'completed' && scanSummary && (
         <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '0 4px 24px' }}>
-          <div style={PANEL}>
+          <button
+            type="button"
+            onClick={() => setShowAdvancedExport((v) => !v)}
+            data-uisnd="skip"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', borderRadius: 8, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.28)', background: 'rgba(255,255,255,0.02)', color: '#9a9ab4', width: '100%', textAlign: 'left' }}
+          >
+            {showAdvancedExport ? '▾' : '▸'} Advanced / Raw Collection Export
+          </button>
+          {showAdvancedExport && (
+          <div style={{ ...PANEL, marginTop: 8 }}>
             <div style={SECTION_LABEL}>Download collection</div>
             <div style={{ fontSize: 11, color: '#c7b479', marginBottom: 10 }}>
               Downloads final rendered NFT images and metadata from their public off-chain hosts — some may fail if a host is slow or gone.
@@ -1110,6 +1128,7 @@ export default function CollectionAnalyzerPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       )}
       </div>
