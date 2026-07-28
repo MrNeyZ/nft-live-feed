@@ -21,7 +21,9 @@ import type {
   ExtractionPresetLimits, NormalizedAsset, TraitCollectionEligibility, TraitExtractionConfig, ValueTarget,
 } from 'trait-extraction-core';
 import { resolveInputToCollectionAddress } from '../../../src/tools-collection-analyzer/resolve-input';
+import type { ResolveInputResult } from '../../../src/tools-collection-analyzer/resolve-input';
 import { walkFullCollection } from '../../../src/tools-collection-analyzer/scan-fetch';
+import type { ScanWalkHooks, ScanWalkResult } from '../../../src/tools-collection-analyzer/scan-fetch';
 import type { CliSelection } from './args';
 import { imagesDir } from './cache-paths';
 import type { ResolvedConfig } from './config';
@@ -31,8 +33,19 @@ import { computeConfigHash, loadManifest } from './manifest';
 import type { JobManifest, ManifestConfig } from './manifest';
 import { loadCachedScan, saveCachedScan } from './metadata-cache';
 import type { CachedScanResult } from './metadata-cache';
+import { loadResolutionCache, saveResolutionCache } from './resolution-cache';
 import { runPreflightChecks } from './resource-check';
 import type { PreflightResult } from './resource-check';
+
+/** Injectable seams, for tests only - production callers omit this
+ *  entirely and get the real backend functions. Lets a test prove "the
+ *  live resolver/scanner was never called" (a hard assertion, e.g. a fake
+ *  that throws if invoked) instead of needing real network access or a
+ *  mocking framework. */
+export interface JobPlanDeps {
+  resolveInput?: (input: string) => Promise<ResolveInputResult>;
+  scanCollection?: (collectionAddress: string, signal: AbortSignal, hooks: ScanWalkHooks) => Promise<ScanWalkResult>;
+}
 
 export interface ScanInfo {
   pagesFetched: number;
@@ -44,6 +57,11 @@ export interface ScanInfo {
 export interface JobPlan {
   outputDir: string;
   collectionAddress: string;
+  /** True only if the live `resolveInput` backend call was actually made
+   *  this run (false when a cached resolution or a literal already-a-
+   *  collection-address input meant it was never needed) - feeds the
+   *  execution report's `networkRequests` count. */
+  resolutionCalled: boolean;
   assets: NormalizedAsset[];
   scan: ScanInfo;
   eligibility: TraitCollectionEligibility;
@@ -72,7 +90,7 @@ export type JobPlanOutcome =
   | { ok: true; plan: JobPlan }
   | {
       ok: false;
-      code: 'resolve_failed' | 'scan_cancelled' | 'scan_failed' | 'offline_missing_scan'
+      code: 'resolve_failed' | 'offline_missing_resolution' | 'scan_cancelled' | 'scan_failed' | 'offline_missing_scan'
         | 'unsuitable' | 'unknown_categories' | 'no_targets' | 'preflight_failed';
       message: string;
       details?: unknown;
@@ -111,6 +129,7 @@ export function listCategoryValues(assets: NormalizedAsset[], traitType: string)
 
 async function scanOrLoadCached(
   config: ResolvedConfig, collectionAddress: string, logger: Logger, signal: AbortSignal,
+  scanCollection: NonNullable<JobPlanDeps['scanCollection']>,
 ): Promise<{ ok: true; assets: NormalizedAsset[]; scan: ScanInfo } | { ok: false; code: 'scan_cancelled' | 'scan_failed' | 'offline_missing_scan'; message: string }> {
   const maxAgeMs = config.fresh ? 0 : config.scanCacheMaxAgeMs;
   if (!config.fresh) {
@@ -125,7 +144,7 @@ async function scanOrLoadCached(
   }
 
   logger.info('Scanning full collection via Helius DAS...');
-  const scanResult = await walkFullCollection(collectionAddress, signal, {
+  const scanResult = await scanCollection(collectionAddress, signal, {
     onProgress: (tick) => logger.verbose(
       `[scanning] page ${tick.pagesFetched} | assets ${tick.assetsDiscovered} | duplicates ${tick.duplicatesSkipped}`
       + (tick.retryState ? ` | retry page ${tick.retryState.page} attempt ${tick.retryState.attempt}` : ''),
@@ -145,39 +164,61 @@ async function scanOrLoadCached(
   };
 }
 
-export async function buildJobPlan(config: ResolvedConfig, coreVersion: string, logger: Logger, signal: AbortSignal): Promise<JobPlanOutcome> {
+export async function buildJobPlan(
+  config: ResolvedConfig, coreVersion: string, logger: Logger, signal: AbortSignal, deps: JobPlanDeps = {},
+): Promise<JobPlanOutcome> {
   const outputDir = path.resolve(config.output);
+  const resolveInput = deps.resolveInput ?? resolveInputToCollectionAddress;
+  const scanCollection = deps.scanCollection ?? walkFullCollection;
 
-  // Offline honest-scoping (see cache-paths.ts/docs "known limitations"):
-  // resolveInputToCollectionAddress ALWAYS makes a network call, even for
-  // address-shaped input (it checks whether the address is actually an
-  // individual mint). Full offline support would require editing that
-  // shared backend file, which is off-limits - so --offline instead
-  // bypasses collection resolution entirely ONLY when a cached scan
-  // already exists keyed by the raw --collection input treated directly
-  // as a collection address. Any other input shape (mint/URL/slug) still
-  // requires the live resolution call even under --offline.
+  // Input resolution: ALWAYS check the persistent resolution cache first
+  // (keyed by the raw --collection input, e.g. a mint or marketplace URL -
+  // NOT the resolved address, since that's exactly the thing being looked
+  // up), regardless of online/offline. A hit here means the live
+  // `resolveInputToCollectionAddress` backend call - which ALWAYS makes a
+  // network request, even for address-shaped input (it checks whether the
+  // address is actually an individual mint) - is skipped entirely, for
+  // BOTH a normal run (avoids a redundant network call) and `--offline`
+  // (the actual gap this closes: a mint/URL input now works exactly like
+  // a literal collection-address input already did).
+  //
+  // `--fresh` bypasses this cache deliberately - it means "trust nothing
+  // cached, start over," same as it already does for the scan cache.
+  //
+  // On a MISS: `--offline` must fail clearly rather than silently falling
+  // through to a live network call (the whole point of this gap-closing
+  // work) - `--cache-only` gets the same treatment, since resolution is
+  // exactly the kind of resource `--cache-only` promises to never fetch.
+  // A normal online run calls the real resolver and persists the result,
+  // so every LATER run (online or offline) with this exact raw input
+  // never needs to ask again.
   let collectionAddress: string;
-  if (config.offline) {
-    const directHit = await loadCachedScan(config.cacheDir, config.collection, Infinity);
-    if (directHit) {
-      collectionAddress = config.collection;
-      logger.verbose(`--offline: treating "${config.collection}" directly as the collection address (cached scan found).`);
-    } else {
-      logger.info(`Resolving "${config.collection}"... (--offline: this one step still requires network - see known limitations)`);
-      const resolved = await resolveInputToCollectionAddress(config.collection);
-      if (!resolved.ok) return { ok: false, code: 'resolve_failed', message: `could not resolve collection input (${resolved.error}).` };
-      collectionAddress = resolved.collectionAddress;
-    }
+  let resolutionCalled = false;
+  const cachedResolution = config.fresh ? null : await loadResolutionCache(config.cacheDir, config.collection);
+  if (cachedResolution) {
+    collectionAddress = cachedResolution.collectionAddress;
+    logger.verbose(`Resolution cache hit for "${config.collection}" -> ${collectionAddress} - skipping the resolve call entirely.`);
+    for (const w of cachedResolution.extraWarnings) logger.info(w);
+  } else if (config.offline || config.cacheOnly) {
+    return {
+      ok: false,
+      code: 'offline_missing_resolution',
+      message: `no cached resolution for "${config.collection}" and ${config.offline ? '--offline' : '--cache-only'} forbids a live resolve call. Run this exact input online at least once first (or without --fresh), then retry.`,
+    };
   } else {
     logger.info(`Resolving "${config.collection}"...`);
-    const resolved = await resolveInputToCollectionAddress(config.collection);
+    resolutionCalled = true;
+    const resolved = await resolveInput(config.collection);
     if (!resolved.ok) return { ok: false, code: 'resolve_failed', message: `could not resolve collection input (${resolved.error}).` };
     collectionAddress = resolved.collectionAddress;
+    for (const w of resolved.extraWarnings) logger.info(w);
+    await saveResolutionCache(config.cacheDir, config.collection, {
+      inputKind: resolved.inputKind, collectionAddress: resolved.collectionAddress, extraWarnings: resolved.extraWarnings,
+    });
   }
   logger.info(`Collection address: ${collectionAddress}`);
 
-  const scanOutcome = await scanOrLoadCached(config, collectionAddress, logger, signal);
+  const scanOutcome = await scanOrLoadCached(config, collectionAddress, logger, signal, scanCollection);
   if (!scanOutcome.ok) return { ok: false, code: scanOutcome.code, message: scanOutcome.message };
   const { assets, scan } = scanOutcome;
   logger.info(`Scanned ${assets.length} assets across ${scan.pagesFetched} page(s) (${scan.duplicatesSkipped} duplicate(s) skipped)${scan.fromCache ? ' [from cache]' : ''}.`);
@@ -231,7 +272,7 @@ export async function buildJobPlan(config: ResolvedConfig, coreVersion: string, 
   return {
     ok: true,
     plan: {
-      outputDir, collectionAddress, assets, scan, eligibility, allCategories,
+      outputDir, collectionAddress, resolutionCalled, assets, scan, eligibility, allCategories,
       skippedCategoriesNoRepeatedValue, selections, extractionConfig, limits, targets,
       collectionIndex, impactModel, preflight, manifestConfig, existingManifest,
     },

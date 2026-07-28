@@ -113,6 +113,11 @@ export class LocalImageCache implements ImageAcquirer {
     const total = this.cacheHits + this.cacheMisses;
     return total > 0 ? this.cacheHits / total : null;
   }
+  /** Count of `get()` calls that were NOT served from cache - each one
+   *  attempts a real network fetch (`fetchAndDecode`/`downloadToFile`).
+   *  Feeds the execution report's `networkRequests` count; under
+   *  `--offline`/`--cache-only` with a fully warm cache this is always 0. */
+  get networkFetchAttempts(): number { return this.cacheMisses; }
 
   get(url: string | null): Promise<ImageDecodeOutcome> {
     if (!url) return Promise.resolve({ ok: false, code: 'no_source_url' });

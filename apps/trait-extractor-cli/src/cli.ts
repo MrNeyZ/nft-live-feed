@@ -26,7 +26,7 @@ import { clearCache as clearCacheRoot, cleanupCache, computeCacheStats, ensureCa
 import { resolveConfigOnce } from './config';
 import { extractZipToOutputDirs } from './extract-output';
 import { buildExecutionReport, writeExecutionReport } from './execution-report';
-import type { EffortTiming, PhaseTiming } from './execution-report';
+import type { EffortTiming, NetworkActivity, PhaseTiming } from './execution-report';
 import { buildJobPlan, computeAccurateEstimate, listCategoryValues } from './job-plan';
 import type { JobPlan, JobPlanOutcome } from './job-plan';
 import { LocalImageCache } from './local-image-cache';
@@ -246,12 +246,22 @@ async function main(): Promise<number> {
     decode: { cumulativeMs: imageCache.decodeTimeMs },
   };
   const imagesCacheHitRate = imageCache.cacheHitRate;
+  const network: NetworkActivity = {
+    resolutionCalled: plan.resolutionCalled,
+    scanPagesFetched: plan.scan.fromCache ? 0 : plan.scan.pagesFetched,
+    imageDownloadAttempts: imageCache.networkFetchAttempts,
+  };
+  if (config.offline || config.cacheOnly) {
+    const total = network.scanPagesFetched + network.imageDownloadAttempts + (network.resolutionCalled ? 1 : 0);
+    if (total === 0) logger.verbose(`${config.offline ? '--offline' : '--cache-only'}: zero network requests this run.`);
+    else logger.warn(`${config.offline ? '--offline' : '--cache-only'} still made ${total} network request(s) this run - see the execution report's "network" field for which.`);
+  }
 
   async function finish(exitCode: number, resultSummary: Record<string, unknown>): Promise<number> {
     await cleanupCache(config.cacheDir, { scanMaxAgeMs: config.scanCacheMaxAgeMs, maxImageBytes: config.maxImageCacheBytes }).catch((err) => logger.debug('cache cleanup failed', err));
     const report = buildExecutionReport({
       cliVersion: CLI_VERSION, coreVersion: CORE_VERSION, startedAt, config, sources,
-      collectionAddress: plan.collectionAddress, phases, effort,
+      collectionAddress: plan.collectionAddress, phases, effort, network,
       resume: { resumedFromManifest, completedTargetsAtStart, totalTargets: plan.targets.length },
       cache: { imagesCacheHitRate, scanCacheHit: plan.scan.fromCache },
       memorySamples, result: resultSummary, events: [...logger.getEvents()],

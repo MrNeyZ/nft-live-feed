@@ -28,6 +28,24 @@ export interface PhaseTiming { durationMs: number; [extra: string]: unknown }
  *  duration. */
 export interface EffortTiming { cumulativeMs: number }
 
+/** Breakdown behind the top-level `networkRequests` count - every field
+ *  is a REAL count of an actual network-calling operation this run
+ *  attempted, not an estimate. Under `--offline`/`--cache-only` with
+ *  everything cached, every field is 0/false and `networkRequests` is 0. */
+export interface NetworkActivity {
+  /** True only if the live collection-resolution backend call
+   *  (`resolveInputToCollectionAddress`) was actually invoked - false when
+   *  a cached resolution (or a literal already-a-collection-address
+   *  input) meant it was never needed. */
+  resolutionCalled: boolean;
+  /** DAS pages actually fetched this run - 0 when the scan was served
+   *  from the metadata scan cache. */
+  scanPagesFetched: number;
+  /** Image `get()` calls that were NOT served from the image cache - each
+   *  one attempts one real `downloadToFile` network fetch. */
+  imageDownloadAttempts: number;
+}
+
 export interface ExecutionReport {
   reportVersion: 1;
   cliVersion: string;
@@ -45,6 +63,12 @@ export interface ExecutionReport {
   /** Cumulative concurrent-operation effort - NOT wall-clock, NOT a
    *  subset of `phases`. See `EffortTiming`'s doc comment. */
   effort: Record<string, EffortTiming>;
+  /** Total real network-calling operations attempted this run - the
+   *  literal contract `--offline` must satisfy: 0 whenever every needed
+   *  resource (resolution, scan, images) was already cached. Sum of
+   *  `network`'s three fields. */
+  networkRequests: number;
+  network: NetworkActivity;
   resume: { resumedFromManifest: boolean; completedTargetsAtStart: number; totalTargets: number };
   cache: { imagesCacheHitRate: number | null; scanCacheHit: boolean | null };
   memory: { peakRssBytes: number; samples: { ts: string; rssBytes: number }[] };
@@ -63,6 +87,7 @@ export interface BuildExecutionReportInput {
   collectionAddress: string | null;
   phases: Record<string, PhaseTiming>;
   effort: Record<string, EffortTiming>;
+  network: NetworkActivity;
   resume: { resumedFromManifest: boolean; completedTargetsAtStart: number; totalTargets: number };
   cache: { imagesCacheHitRate: number | null; scanCacheHit: boolean | null };
   memorySamples: { ts: string; rssBytes: number }[];
@@ -99,6 +124,8 @@ export function buildExecutionReport(input: BuildExecutionReportInput): Executio
     configResolved,
     phases: input.phases,
     effort: input.effort,
+    networkRequests: (input.network.resolutionCalled ? 1 : 0) + input.network.scanPagesFetched + input.network.imageDownloadAttempts,
+    network: input.network,
     resume: input.resume,
     cache: input.cache,
     memory: { peakRssBytes: samples.reduce((max, s) => Math.max(max, s.rssBytes), 0), samples },

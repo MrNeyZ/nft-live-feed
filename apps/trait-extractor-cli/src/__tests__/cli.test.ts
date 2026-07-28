@@ -35,10 +35,14 @@ import { resolveConfig } from '../config';
 import { loadCachedScan, saveCachedScan } from '../metadata-cache';
 import type { CachedScanResult } from '../metadata-cache';
 import { Logger } from '../logger';
-import { computeAccurateEstimate } from '../job-plan';
-import type { JobPlan } from '../job-plan';
+import { buildJobPlan, computeAccurateEstimate } from '../job-plan';
+import type { JobPlan, JobPlanDeps } from '../job-plan';
 import { buildExecutionReport } from '../execution-report';
 import { runPreflightChecks } from '../resource-check';
+import { loadResolutionCache, saveResolutionCache } from '../resolution-cache';
+import type { PersistedResolution } from '../resolution-cache';
+import type { ResolveInputResult } from '../../../../src/tools-collection-analyzer/resolve-input';
+import type { ScanWalkResult } from '../../../../src/tools-collection-analyzer/scan-fetch';
 
 let failures = 0;
 function check(label: string, fn: () => void): void {
@@ -434,6 +438,127 @@ async function main() {
     assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_NEVER_SCANNED', Infinity), null);
   });
 
+  console.log('\ninput-resolution cache (Stage 5.4 offline-gap closure)');
+  const fakeResolution: PersistedResolution = { inputKind: 'mint', collectionAddress: 'RESOLVED_COLL_ADDR', extraWarnings: ['resolved from mint'] };
+  await checkAsync('saveResolutionCache + loadResolutionCache round-trips exactly', async () => {
+    const cacheRoot = tmpDir('te-cli-resolutioncache-');
+    await saveResolutionCache(cacheRoot, 'SOME_MINT_INPUT', fakeResolution);
+    const loaded = await loadResolutionCache(cacheRoot, 'SOME_MINT_INPUT');
+    assert.deepStrictEqual(loaded, fakeResolution);
+  });
+  await checkAsync('a resolution cached under one raw input is NOT returned for a different raw input', async () => {
+    const cacheRoot = tmpDir('te-cli-resolutioncache-');
+    await saveResolutionCache(cacheRoot, 'MINT_A', fakeResolution);
+    assert.strictEqual(await loadResolutionCache(cacheRoot, 'MINT_B'), null);
+  });
+  await checkAsync('a checksum mismatch (disk corruption / tampering) is rejected, not thrown', async () => {
+    const cacheRoot = tmpDir('te-cli-resolutioncache-');
+    await saveResolutionCache(cacheRoot, 'MINT_A', fakeResolution);
+    const files = fs.readdirSync(path.join(cacheRoot, 'resolutions'));
+    const p = path.join(cacheRoot, 'resolutions', files[0]);
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+    parsed.checksum = 'deadbeef';
+    fs.writeFileSync(p, JSON.stringify(parsed));
+    assert.strictEqual(await loadResolutionCache(cacheRoot, 'MINT_A'), null);
+  });
+  await checkAsync('missing resolution cache entry -> null, never throws', async () => {
+    const cacheRoot = tmpDir('te-cli-resolutioncache-empty-');
+    assert.strictEqual(await loadResolutionCache(cacheRoot, 'NEVER_RESOLVED'), null);
+  });
+
+  console.log('\nfull offline-gap-closure flow: online mint resolution -> persisted -> offline replay -> ZERO network calls (Stage 5.4)');
+  function fakeScanResult(): ScanWalkResult {
+    return {
+      outcome: 'completed',
+      assets: traitCollectionAssets(fixture.baseUrl),
+      perAssetIssues: [[], [], [], []],
+      pagesFetched: 1,
+      duplicatesSkipped: 0,
+      warnings: [],
+    };
+  }
+  await checkAsync('online run resolves the mint once and persists it; a later --offline run with the SAME mint input makes ZERO calls to the resolver or scanner', async () => {
+    const cacheDir = tmpDir('te-cli-offline-gap-cache-');
+    const cwd = tmpDir('te-cli-offline-gap-cwd-');
+    const rawMintInput = 'FAKE_MINT_qUZ9x7NeverARealAddress';
+    let resolveCallCount = 0;
+    let scanCallCount = 0;
+
+    const onlineDeps: JobPlanDeps = {
+      resolveInput: async (input: string): Promise<ResolveInputResult> => {
+        resolveCallCount++;
+        assert.strictEqual(input, rawMintInput, 'the resolver must be called with the RAW input, not anything derived from it');
+        return { ok: true, inputKind: 'mint', collectionAddress: 'RESOLVED_FROM_FAKE_MINT', extraWarnings: [`Address ${rawMintInput} is an individual NFT - resolved to its collection RESOLVED_FROM_FAKE_MINT.`] };
+      },
+      scanCollection: async (): Promise<ScanWalkResult> => { scanCallCount++; return fakeScanResult(); },
+    };
+
+    const { config: onlineConfig } = resolveConfig(
+      ['--collection', rawMintInput, '--cache-dir', cacheDir, '--select', 'Background', '--output', tmpDir('te-cli-offline-gap-out1-')],
+      {}, cwd,
+    );
+    const onlineLogger = new Logger('quiet');
+    const onlineController = new AbortController();
+    const onlineOutcome = await buildJobPlan(onlineConfig, '1.0.0', onlineLogger, onlineController.signal, onlineDeps);
+    assert.ok(onlineOutcome.ok, `online buildJobPlan must succeed: ${!onlineOutcome.ok ? onlineOutcome.message : ''}`);
+    assert.strictEqual(resolveCallCount, 1, 'the online run must call the resolver exactly once');
+    assert.strictEqual(scanCallCount, 1, 'the online run must scan exactly once (nothing cached yet)');
+    assert.strictEqual((onlineOutcome as any).plan.resolutionCalled, true);
+    assert.strictEqual((onlineOutcome as any).plan.collectionAddress, 'RESOLVED_FROM_FAKE_MINT');
+
+    // The persisted resolution must exist now, independent of any manifest -
+    // this is what makes a FRESH --output dir usable offline immediately.
+    const persisted = await loadResolutionCache(cacheDir, rawMintInput);
+    assert.deepStrictEqual(persisted, { inputKind: 'mint', collectionAddress: 'RESOLVED_FROM_FAKE_MINT', extraWarnings: [`Address ${rawMintInput} is an individual NFT - resolved to its collection RESOLVED_FROM_FAKE_MINT.`] });
+
+    // Offline replay: SAME raw mint input, a DIFFERENT --output dir (proving
+    // this isn't piggybacking on manifest/job.json state), deps that THROW
+    // if ever invoked - a hard, unambiguous proof of zero network calls,
+    // not just an unasserted call-count.
+    const offlineDeps: JobPlanDeps = {
+      resolveInput: async () => { throw new Error('resolveInput must NEVER be called under --offline when a resolution is already cached'); },
+      scanCollection: async () => { throw new Error('scanCollection must NEVER be called under --offline when a scan is already cached'); },
+    };
+    const { config: offlineConfig } = resolveConfig(
+      ['--collection', rawMintInput, '--cache-dir', cacheDir, '--select', 'Background', '--offline', '--output', tmpDir('te-cli-offline-gap-out2-')],
+      {}, cwd,
+    );
+    const offlineLogger = new Logger('quiet');
+    const offlineController = new AbortController();
+    const offlineOutcome = await buildJobPlan(offlineConfig, '1.0.0', offlineLogger, offlineController.signal, offlineDeps);
+    assert.ok(offlineOutcome.ok, `offline buildJobPlan must succeed using only cached data: ${!offlineOutcome.ok ? offlineOutcome.message : ''}`);
+    const offlinePlan = (offlineOutcome as any).plan as JobPlan;
+    assert.strictEqual(offlinePlan.resolutionCalled, false, 'the offline run must NOT have called the live resolver');
+    assert.strictEqual(offlinePlan.collectionAddress, 'RESOLVED_FROM_FAKE_MINT', 'must reuse the exact collection address persisted by the online run');
+    assert.strictEqual(offlinePlan.scan.fromCache, true, 'the scan must come from cache too, not a fresh (fake) network walk');
+
+    // Compute the same networkRequests figure cli.ts's real run path
+    // computes, from the plan alone (no images were touched in this
+    // test - image-download network activity is covered separately by
+    // the existing image-cache tests) - must be exactly 0.
+    const networkRequests = (offlinePlan.resolutionCalled ? 1 : 0) + (offlinePlan.scan.fromCache ? 0 : offlinePlan.scan.pagesFetched);
+    assert.strictEqual(networkRequests, 0, 'networkRequests must be 0 for a fully-cached --offline run');
+  });
+  await checkAsync('--offline with NO cached resolution fails clearly, without ever attempting the live resolver', async () => {
+    const cacheDir = tmpDir('te-cli-offline-gap-nocache-');
+    const cwd = tmpDir('te-cli-offline-gap-cwd2-');
+    let resolveCallCount = 0;
+    const deps: JobPlanDeps = {
+      resolveInput: async (): Promise<ResolveInputResult> => { resolveCallCount++; return { ok: true, inputKind: 'mint', collectionAddress: 'SHOULD_NOT_BE_CALLED', extraWarnings: [] }; },
+      scanCollection: async () => { throw new Error('must not be reached'); },
+    };
+    const { config } = resolveConfig(
+      ['--collection', 'NEVER_RESOLVED_MINT_INPUT', '--cache-dir', cacheDir, '--offline', '--output', tmpDir('te-cli-offline-gap-out3-')],
+      {}, cwd,
+    );
+    const logger = new Logger('quiet');
+    const controller = new AbortController();
+    const outcome = await buildJobPlan(config, '1.0.0', logger, controller.signal, deps);
+    assert.strictEqual(outcome.ok, false);
+    assert.strictEqual((outcome as any).code, 'offline_missing_resolution');
+    assert.strictEqual(resolveCallCount, 0, 'the live resolver must never be called once --offline determines the resolution is missing');
+  });
+
   console.log('\nglobal image cache reuse across collections (Stage 5.4)');
   await checkAsync('two different collections sharing one image URL, pointed at the SAME global cache dir, only download it once', async () => {
     const globalCacheDir = tmpDir('te-cli-global-imgcache-');
@@ -518,7 +643,7 @@ async function main() {
     const outputDir = tmpDir('te-cli-estimate-plan-');
     const preflight = await runPreflightChecks(outputDir, targets, limits);
     return {
-      outputDir, collectionAddress: 'COLL', assets,
+      outputDir, collectionAddress: 'COLL', resolutionCalled: false, assets,
       scan: { pagesFetched: 1, duplicatesSkipped: 0, warnings: [], fromCache: false },
       eligibility, allCategories: ['Background', 'Eyes'], skippedCategoriesNoRepeatedValue: [],
       selections, extractionConfig, limits, targets, collectionIndex, impactModel, preflight,
@@ -593,6 +718,7 @@ async function main() {
       config: { preset: 'balanced' } as any, sources: {}, collectionAddress: 'COLL',
       phases: { scanAndSetup: { durationMs: 10 }, downloadingAndProcessing: { durationMs: 500 }, archiving: { durationMs: 5 } },
       effort: { downloads: { cumulativeMs: 9999 }, decode: { cumulativeMs: 500 } },
+      network: { resolutionCalled: false, scanPagesFetched: 0, imageDownloadAttempts: 0 },
       resume: { resumedFromManifest: false, completedTargetsAtStart: 0, totalTargets: 1 },
       cache: { imagesCacheHitRate: null, scanCacheHit: false },
       memorySamples: [], result: {}, events: [],

@@ -59,7 +59,7 @@ that reaches `outcome: 'completed'` gets cached. True mid-scan resume would
 require adding cursor persistence to that shared backend file, out of
 scope.
 
-## `--offline` does not fully isolate the process from the network
+## `--offline` requires every input to have been resolved online at least once
 
 `resolveInputToCollectionAddress` (backend, shared with the website, not
 modified) makes a network call for **every** input shape, including
@@ -67,13 +67,25 @@ address-shaped input — it checks whether the given address is actually an
 individual NFT mint rather than the collection itself
 (`resolveMintToCollectionAddress`).
 
-`--offline` therefore bypasses collection resolution entirely **only**
-when a cached scan already exists keyed by the literal raw `--collection`
-string treated directly as a collection address. Any other input shape
-(a mint, a marketplace URL, a slug) — or an address-shaped input with no
-matching cached scan — still requires that one live network call even
-under `--offline`. This is a precise, documented scope, not full network
-isolation.
+**Closed**: `resolution-cache.ts` persists the full resolution result
+(`collectionAddress` + `inputKind` + `extraWarnings`) keyed by the raw
+`--collection` input string — a mint, a marketplace URL, a slug, or a
+literal address, uniformly, no special-casing by shape. Once any online
+run has resolved a given raw input once, every later run using that
+**exact same raw input string** — online or offline — skips the live
+resolution call entirely, whatever kind of input it is.
+
+**What remains true**: the very *first* time a given raw input is seen,
+resolving it still requires one live network call — there is no way
+around this (you cannot learn what a never-before-seen mint's collection
+is without asking somewhere), and `--offline` correctly refuses to attempt
+it, failing clearly (`offline_missing_resolution`) rather than silently
+making the call. A *different* raw input string for the same underlying
+collection (e.g. a different mint from the same collection, or a
+marketplace URL vs. the bare address) is, by design, a cache miss too —
+the cache key is the literal input text, not the resolved identity, so
+offline replay only works for an input string that has itself been seen
+online before.
 
 ## Timing buckets: "downloadingAndProcessing" is one combined wall-clock number
 

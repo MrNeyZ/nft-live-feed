@@ -38,7 +38,7 @@ usage text (kept in sync with this document — `args.ts`'s `USAGE`).
 |---|---|
 | `--clear-cache` | Delete the entire cache root, then exit. Does not require `--collection`. |
 | `--cache-only` | Fail fast on any resource not already cached, instead of downloading it. |
-| `--offline` | Like `--cache-only`, plus skips collection-resolution network calls **when a cached scan already covers the literal `--collection` input treated directly as an address**. See known-limitations.md for the exact scope — this is not full network isolation for every input shape. |
+| `--offline` | Like `--cache-only`, plus makes **zero** DNS/HTTP/RPC/DAS/marketplace requests when the exact `--collection` input (mint, marketplace URL, slug, or address) was resolved by any prior online run — the collection identity is loaded from the persistent resolution cache instead. Fails clearly (`offline_missing_resolution`) if that input was never resolved online before. See `known-limitations.md`. |
 
 ## Performance
 

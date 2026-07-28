@@ -13,6 +13,11 @@
  *                                               unchanged - only the ROOT
  *                                               moved, not the scheme)
  *     scans/<collectionAddress>.json          (metadata-cache.ts)
+ *     resolutions/<sha256(rawInput)>.json     (resolution-cache.ts - a raw
+ *                                               --collection input, e.g. a
+ *                                               mint or marketplace URL,
+ *                                               to its resolved collection
+ *                                               address + inputKind/warnings)
  *
  * Default root is `~/.trait-extractor-cli/cache` (via `os.homedir()`, not
  * XDG - a single fixed dot-folder name behaves identically on Linux/macOS/
@@ -34,10 +39,12 @@ export function defaultCacheRoot(): string {
 
 export function imagesDir(cacheRoot: string): string { return path.join(cacheRoot, 'images'); }
 export function scansDir(cacheRoot: string): string { return path.join(cacheRoot, 'scans'); }
+export function resolutionsDir(cacheRoot: string): string { return path.join(cacheRoot, 'resolutions'); }
 
 export async function ensureCacheDirs(cacheRoot: string): Promise<void> {
   await fs.promises.mkdir(imagesDir(cacheRoot), { recursive: true });
   await fs.promises.mkdir(scansDir(cacheRoot), { recursive: true });
+  await fs.promises.mkdir(resolutionsDir(cacheRoot), { recursive: true });
 }
 
 export interface CacheStats {
@@ -46,6 +53,8 @@ export interface CacheStats {
   imagesBytes: number;
   scansCount: number;
   scansBytes: number;
+  resolutionsCount: number;
+  resolutionsBytes: number;
 }
 
 /** `countSuffix` names the file that represents ONE logical cache entry
@@ -79,12 +88,15 @@ async function dirStats(dir: string, countSuffix: string): Promise<{ count: numb
 export async function computeCacheStats(cacheRoot: string): Promise<CacheStats> {
   const images = await dirStats(imagesDir(cacheRoot), '.bin');
   const scans = await dirStats(scansDir(cacheRoot), '.json');
+  const resolutions = await dirStats(resolutionsDir(cacheRoot), '.json');
   return {
     cacheRoot,
     imagesCount: images.count,
     imagesBytes: images.bytes,
     scansCount: scans.count,
     scansBytes: scans.bytes,
+    resolutionsCount: resolutions.count,
+    resolutionsBytes: resolutions.bytes,
   };
 }
 
