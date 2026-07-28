@@ -26,14 +26,14 @@ import { clearCache as clearCacheRoot, cleanupCache, computeCacheStats, ensureCa
 import { resolveConfigOnce } from './config';
 import { extractZipToOutputDirs } from './extract-output';
 import { buildExecutionReport, writeExecutionReport } from './execution-report';
-import type { PhaseTiming } from './execution-report';
+import type { EffortTiming, PhaseTiming } from './execution-report';
 import { buildJobPlan, computeAccurateEstimate, listCategoryValues } from './job-plan';
 import type { JobPlan, JobPlanOutcome } from './job-plan';
 import { LocalImageCache } from './local-image-cache';
 import { Logger } from './logger';
 import {
   checkpointKeyFor, initManifest, loadCheckpoint, markTargetCompleted,
-  saveManifest, saveCheckpoint, touchHeartbeat, updatePhase,
+  saveManifest, saveCheckpoint, shouldCheckpointSettlement, touchHeartbeat, updatePhase,
 } from './manifest';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -207,6 +207,10 @@ async function main(): Promise<number> {
     },
     onValueSettled: async ({ target, result: settled }) => {
       const key = checkpointKeyFor(target.traitType, target.traitValue);
+      if (!shouldCheckpointSettlement(settled.kind, controller.signal.aborted)) {
+        logger.verbose(`Not checkpointing ${target.traitType} = ${target.traitValue}: settled unresolved while cancelling - a resume will retry it fresh instead of treating an interrupt artifact as final.`);
+        return;
+      }
       await saveCheckpoint(plan.outputDir, key, settled);
       await markTargetCompleted(plan.outputDir, activeManifest, key);
       logger.verbose(`Completed: ${target.traitType} = ${target.traitValue}`);
@@ -220,16 +224,26 @@ async function main(): Promise<number> {
   const runEnd = Date.now();
   const archivingStartedAt = phaseFirstSeenAt.archiving ?? runEnd;
   const downloadingStartedAt = phaseFirstSeenAt.downloading ?? runStart;
-  const downloadProcessCombinedMs = archivingStartedAt - downloadingStartedAt;
-  const decodeMs = imageCache.decodeTimeMs;
-  const downloadMs = imageCache.downloadTimeMs;
-  const processingMs = Math.max(0, downloadProcessCombinedMs - downloadMs - decodeMs);
+  // Wall-clock breakdown ONLY - `downloadingAndProcessing` is one combined
+  // span (from the first 'downloading' progress tick to the first
+  // 'archiving' tick) because the core interleaves per-value download and
+  // processing sequentially with no externally-observable boundary
+  // between them across a whole job (see docs/known-limitations.md).
+  // Deliberately NOT decomposed further using imageCache's cumulative
+  // download/decode timers - those sum per-call durations across
+  // CONCURRENT downloads, so they can (and regularly do) exceed this
+  // span's own wall-clock length; subtracting them from it previously
+  // produced a nonsensical negative-clamped-to-zero "processing" number,
+  // caught during Stage 5.4's real-collection validation. Cumulative
+  // effort is reported separately, below, never mixed into `phases`.
   const phases: Record<string, PhaseTiming> = {
     scanAndSetup: { durationMs: scanAndSetupDurationMs, cacheHit: plan.scan.fromCache },
-    downloads: { durationMs: downloadMs },
-    decode: { durationMs: decodeMs },
-    processing: { durationMs: processingMs, note: 'pair-search + diff-generation + consensus, combined - see docs/known-limitations.md' },
+    downloadingAndProcessing: { durationMs: archivingStartedAt - downloadingStartedAt, note: 'combined wall-clock span: downloads + pair-search + diff-generation + consensus - see docs/known-limitations.md' },
     archiving: { durationMs: runEnd - archivingStartedAt },
+  };
+  const effort: Record<string, EffortTiming> = {
+    downloads: { cumulativeMs: imageCache.downloadTimeMs },
+    decode: { cumulativeMs: imageCache.decodeTimeMs },
   };
   const imagesCacheHitRate = imageCache.cacheHitRate;
 
@@ -237,7 +251,7 @@ async function main(): Promise<number> {
     await cleanupCache(config.cacheDir, { scanMaxAgeMs: config.scanCacheMaxAgeMs, maxImageBytes: config.maxImageCacheBytes }).catch((err) => logger.debug('cache cleanup failed', err));
     const report = buildExecutionReport({
       cliVersion: CLI_VERSION, coreVersion: CORE_VERSION, startedAt, config, sources,
-      collectionAddress: plan.collectionAddress, phases,
+      collectionAddress: plan.collectionAddress, phases, effort,
       resume: { resumedFromManifest, completedTargetsAtStart, totalTargets: plan.targets.length },
       cache: { imagesCacheHitRate, scanCacheHit: plan.scan.fromCache },
       memorySamples, result: resultSummary, events: [...logger.getEvents()],

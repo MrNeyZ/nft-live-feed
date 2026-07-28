@@ -24,7 +24,7 @@ import { expandComparisonSearch, ImageDecodeCache, runTraitExtraction } from 'tr
 import type { NormalizedAsset, TraitExtractionConfig } from 'trait-extraction-core';
 import {
   CACHE_FORMAT_VERSION, checkpointFilePathForTests, checkpointKeyFor, computeConfigHash,
-  initManifest, loadCheckpoint, loadManifest, saveCheckpoint, saveManifest,
+  initManifest, loadCheckpoint, loadManifest, saveCheckpoint, saveManifest, shouldCheckpointSettlement,
 } from '../manifest';
 import type { ManifestConfig } from '../manifest';
 import {
@@ -37,6 +37,7 @@ import type { CachedScanResult } from '../metadata-cache';
 import { Logger } from '../logger';
 import { computeAccurateEstimate } from '../job-plan';
 import type { JobPlan } from '../job-plan';
+import { buildExecutionReport } from '../execution-report';
 import { runPreflightChecks } from '../resource-check';
 
 let failures = 0;
@@ -80,6 +81,18 @@ async function startFixtureServer(): Promise<FixtureServerHandle> {
     requestCounts.set(url, (requestCounts.get(url) ?? 0) + 1);
     if (url === '/flaky-500') { res.writeHead(500); res.end(); return; }
     if (url === '/not-an-image.txt') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('not a png'); return; }
+    const slowMatch = url.match(/^\/slow\/(\d+)\.png$/);
+    if (slowMatch) {
+      // Stage 5.4 regression fixture: an artificially slow route so a test
+      // can fire several concurrent downloads and observe cumulative
+      // per-call time exceed real elapsed time (see the "cumulative vs
+      // wall-clock" regression test below).
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const buf = await synthPng(BLUE_BG, LASER_COLOR);
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end(buf);
+      return;
+    }
     const m = url.match(/^\/nft\/(A1|A2|A3|A4)\.png$/);
     if (!m) { res.writeHead(404); res.end(); return; }
     let buf = pngCache.get(m[1]);
@@ -401,7 +414,10 @@ async function main() {
     const cacheRoot = tmpDir('te-cli-cacheroot-');
     await saveCachedScan(cacheRoot, 'COLL_A', fakeScan);
     assert.ok(await loadCachedScan(cacheRoot, 'COLL_A', 24 * 60 * 60 * 1000));
-    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_A', 0), null, 'maxAgeMs=0 must reject an entry written just now (age > 0ms by the time it is read back)');
+    // maxAgeMs=0 is flaky on a fast filesystem/clock (age can read back as
+    // exactly 0ms) - use a negative threshold instead, which is
+    // unambiguously "always too old" regardless of clock resolution.
+    assert.strictEqual(await loadCachedScan(cacheRoot, 'COLL_A', -1), null, 'a negative maxAgeMs must reject an entry written just now, unambiguously (no clock-resolution race)');
   });
   await checkAsync('a checksum mismatch (disk corruption / tampering) is rejected, not thrown', async () => {
     const cacheRoot = tmpDir('te-cli-cacheroot-');
@@ -534,6 +550,56 @@ async function main() {
     const after = await computeAccurateEstimate(plan, cacheDir);
     assert.strictEqual(after.missing, 0);
     assert.strictEqual(after.cachedHits, before.totalUniqueUrls);
+  });
+
+  console.log('\ncheckpoint-on-cancellation (Stage 5.4 regression, found via real-collection validation)');
+  check('an unresolved settlement WHILE cancelling is NOT checkpointed - a resume must retry it', () => {
+    assert.strictEqual(shouldCheckpointSettlement('unresolved', true), false, 'run-extraction.ts can settle a value unresolved purely because the abort signal cut its candidate-pair search short, not because the collection genuinely lacks evidence - permanently checkpointing that would silently degrade the final output for values unlucky enough to be in-flight at Ctrl+C time');
+  });
+  check('an unresolved settlement in a NORMAL (non-cancelling) run IS checkpointed - genuinely unresolved values must not be retried forever', () => {
+    assert.strictEqual(shouldCheckpointSettlement('unresolved', false), true, 'without cancellation in play, an unresolved result reflects real evidence (or lack of it) in the collection, and resume must not waste effort re-attempting it on every future run');
+  });
+  check('a RESOLVED settlement is always checkpointed, cancelling or not', () => {
+    assert.strictEqual(shouldCheckpointSettlement('resolved', true), true, 'a value that resolved cleanly is genuinely done even if the job is cancelling elsewhere - only the unresolved+aborted combination is special-cased');
+    assert.strictEqual(shouldCheckpointSettlement('resolved', false), true);
+  });
+
+  console.log('\nexecution-report timing: cumulative effort vs. wall-clock phases (Stage 5.4 regression)');
+  await checkAsync('LocalImageCache.downloadTimeMs (cumulative, concurrent) can exceed real elapsed wall-clock time - it must NEVER be treated as a wall-clock phase duration', async () => {
+    // Reproduces the exact defect caught during Stage 5.4 real-collection
+    // validation: subtracting this cumulative figure from a wall-clock
+    // span produced a negative-clamped-to-zero "processing" duration,
+    // silently hiding real work. Fired concurrently (matching how
+    // run-extraction.ts's runWithConcurrency actually calls .get()), not
+    // sequentially, so this exercises the real overlap that caused it.
+    const cacheDir = tmpDir('te-cli-cumulative-timing-');
+    const controller = new AbortController();
+    const cache = new LocalImageCache(cacheDir, controller.signal, allowOnlyLoopback);
+    const urls = [0, 1, 2, 3].map((n) => `${fixture.baseUrl}/slow/${n}.png`);
+    const wallClockStart = Date.now();
+    await Promise.all(urls.map((u) => cache.get(u)));
+    const wallClockElapsed = Date.now() - wallClockStart;
+    assert.ok(cache.downloadTimeMs > wallClockElapsed, `cumulative downloadTimeMs (${cache.downloadTimeMs}ms) must exceed real elapsed time (${wallClockElapsed}ms) when downloads overlap - if this ever stops being true the concurrency behavior itself changed, re-examine before "fixing" this assertion`);
+    // The actual regression: this must NEVER go negative when used the
+    // way cli.ts's phase computation uses it (wall-clock span minus
+    // cumulative effort) - confirming the fixed report design keeps these
+    // two numbers in entirely separate report sections instead.
+    const nonsensicalIfSubtracted = wallClockElapsed - cache.downloadTimeMs;
+    assert.ok(nonsensicalIfSubtracted < 0, 'demonstrates why phases and effort must never be arithmetically combined');
+  });
+  check('buildExecutionReport keeps wall-clock phases and cumulative effort in separate top-level sections', () => {
+    const report = buildExecutionReport({
+      cliVersion: '1.0.0', coreVersion: '1.0.0', startedAt: Date.now() - 1000,
+      config: { preset: 'balanced' } as any, sources: {}, collectionAddress: 'COLL',
+      phases: { scanAndSetup: { durationMs: 10 }, downloadingAndProcessing: { durationMs: 500 }, archiving: { durationMs: 5 } },
+      effort: { downloads: { cumulativeMs: 9999 }, decode: { cumulativeMs: 500 } },
+      resume: { resumedFromManifest: false, completedTargetsAtStart: 0, totalTargets: 1 },
+      cache: { imagesCacheHitRate: null, scanCacheHit: false },
+      memorySamples: [], result: {}, events: [],
+    });
+    assert.ok(!('downloads' in report.phases), '"downloads" must live in effort, not phases, now that it is a cumulative (not wall-clock) figure');
+    assert.ok(!('decode' in report.phases), 'same for "decode"');
+    assert.strictEqual(report.effort.downloads.cumulativeMs, 9999, 'effort figures are reported as-is, even when larger than durationMs - that is expected, not a bug, for a cumulative-concurrent metric');
   });
 
   console.log('\nlogger levels (Stage 5.4)');

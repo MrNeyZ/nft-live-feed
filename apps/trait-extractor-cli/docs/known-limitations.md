@@ -75,15 +75,31 @@ matching cached scan — still requires that one live network call even
 under `--offline`. This is a precise, documented scope, not full network
 isolation.
 
-## Timing buckets: "processing" is one combined number
+## Timing buckets: "downloadingAndProcessing" is one combined wall-clock number
 
-Pair-search, diff-generation, and consensus-scoring all happen inside one
-un-hooked core function call (`processOneValue`). Splitting them into
-separate timing buckets needs a core-internal timing hook — out of scope.
-The execution report reports `processing` as one combined duration
-(computed as total wall-clock time inside `runTraitExtraction` minus the
-separately-instrumented `downloads`/`decode` time), rather than fabricating
-three numbers that aren't actually separately measurable.
+Downloads, pair-search, diff-generation, and consensus-scoring all happen
+inside one un-hooked core function call (`processOneValue`), sequentially
+per value. Splitting them into separate WALL-CLOCK phases needs a
+core-internal timing hook — out of scope. The execution report's `phases`
+section reports `downloadingAndProcessing` as one combined span (from the
+first `'downloading'` progress tick to the first `'archiving'` tick),
+rather than fabricating boundaries that aren't actually observable from
+outside the core.
+
+`effort.downloads`/`effort.decode` (separate from `phases` entirely) report
+**cumulative** time summed across every download/decode call this run —
+useful as a relative measure of I/O-vs-everything-else effort, but NOT a
+wall-clock span: since downloads run with bounded concurrency
+(`TE_MAX_CONCURRENT_DOWNLOADS`, default 6), several overlapping ~3s
+downloads can sum to well over the run's total real duration, the same
+`user` vs `real` distinction `time(1)` reports. An earlier version of this
+report subtracted `effort.downloads`/`effort.decode` from the wall-clock
+span to derive a "processing" number — found during Stage 5.4's own
+real-collection validation to go negative (clamped to 0, silently hiding
+real processing time) whenever cumulative download effort exceeded the
+span's wall-clock length, which is common under concurrency. Fixed by
+keeping the two concepts (wall-clock `phases` vs. cumulative `effort`)
+strictly separate and never arithmetically mixing them.
 
 ## No automatic migration of Stage 5.3 per-output caches
 

@@ -15,6 +15,19 @@ import type { LogEvent } from './logger';
 
 export interface PhaseTiming { durationMs: number; [extra: string]: unknown }
 
+/** Cumulative per-call time summed across CONCURRENT operations (e.g.
+ *  every `downloadToFile`/sharp-decode call this run) - this is NOT a
+ *  wall-clock span and routinely EXCEEDS the run's total duration when
+ *  several calls overlap (the same `user` vs `real` distinction `time(1)`
+ *  reports - 6 downloads at ~3s each running concurrently sum to ~18s of
+ *  "effort" inside ~3s of real time). Reported separately from `phases`
+ *  (which IS a wall-clock breakdown) specifically so the two are never
+ *  confused - a bug caught during Stage 5.4's own real-collection
+ *  validation, where subtracting this cumulative figure from wall-clock
+ *  time produced a nonsensical negative-clamped-to-zero "processing"
+ *  duration. */
+export interface EffortTiming { cumulativeMs: number }
+
 export interface ExecutionReport {
   reportVersion: 1;
   cliVersion: string;
@@ -25,7 +38,13 @@ export interface ExecutionReport {
   collectionAddress: string | null;
   preset: string;
   configResolved: Record<string, { value: unknown; source: ConfigSource }>;
+  /** Wall-clock breakdown - these are non-overlapping spans that
+   *  approximately sum to `durationMs` (see docs/known-limitations.md for
+   *  why `downloadingAndProcessing` is one combined bucket, not split). */
   phases: Record<string, PhaseTiming>;
+  /** Cumulative concurrent-operation effort - NOT wall-clock, NOT a
+   *  subset of `phases`. See `EffortTiming`'s doc comment. */
+  effort: Record<string, EffortTiming>;
   resume: { resumedFromManifest: boolean; completedTargetsAtStart: number; totalTargets: number };
   cache: { imagesCacheHitRate: number | null; scanCacheHit: boolean | null };
   memory: { peakRssBytes: number; samples: { ts: string; rssBytes: number }[] };
@@ -43,6 +62,7 @@ export interface BuildExecutionReportInput {
   sources: Record<string, ConfigSource>;
   collectionAddress: string | null;
   phases: Record<string, PhaseTiming>;
+  effort: Record<string, EffortTiming>;
   resume: { resumedFromManifest: boolean; completedTargetsAtStart: number; totalTargets: number };
   cache: { imagesCacheHitRate: number | null; scanCacheHit: boolean | null };
   memorySamples: { ts: string; rssBytes: number }[];
@@ -78,6 +98,7 @@ export function buildExecutionReport(input: BuildExecutionReportInput): Executio
     preset: input.config.preset,
     configResolved,
     phases: input.phases,
+    effort: input.effort,
     resume: input.resume,
     cache: input.cache,
     memory: { peakRssBytes: samples.reduce((max, s) => Math.max(max, s.rssBytes), 0), samples },

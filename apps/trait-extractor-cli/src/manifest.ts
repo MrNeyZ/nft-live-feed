@@ -158,6 +158,29 @@ export async function markTargetCompleted(outputDir: string, manifest: JobManife
   await saveManifest(outputDir, manifest);
 }
 
+/** Whether a just-settled value should be persisted as permanently
+ *  complete (checkpointed + added to `completedTargetKeys`, so a resume
+ *  never revisits it).
+ *
+ *  `trait-extraction-core`'s `processOneValue` breaks its candidate-pair
+ *  search loop as soon as the job's abort signal fires (by design, to
+ *  stop promptly on Ctrl+C) - which can leave a value with zero usable
+ *  pairs and settle it `unresolved` purely because the interrupt landed
+ *  mid-search, not because the collection genuinely lacks evidence for
+ *  it. Found during Stage 5.4 real-collection validation: a value that
+ *  resolved cleanly in an uninterrupted run came back unresolved the one
+ *  time Ctrl+C landed while it was the in-flight value. Checkpointing
+ *  that as permanently done would violate this CLI's own resume contract
+ *  (finished work should mean GENUINELY finished, not "cut short") - so
+ *  an unresolved settlement that happens while the signal is aborted is
+ *  deliberately NOT checkpointed, letting a plain resume retry it with a
+ *  full, uninterrupted attempt. A value that resolves successfully even
+ *  as the job is cancelling is still genuinely done and IS checkpointed
+ *  normally - only the unresolved+aborted combination is special-cased. */
+export function shouldCheckpointSettlement(resultKind: string, signalAborted: boolean): boolean {
+  return !(signalAborted && resultKind === 'unresolved');
+}
+
 /** Records which coarse pipeline phase the job is in - purely informational
  *  (surfaced on resume / in the execution report), independent of
  *  per-value checkpoint completion. */

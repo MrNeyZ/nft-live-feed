@@ -92,11 +92,18 @@ export class LocalImageCache implements ImageAcquirer {
 
   get uniqueImageCount(): number { return this.uniqueSeen.size; }
   get bytesDownloaded(): number { return this.downloadedThisRun; }
-  /** Cumulative wall-clock time spent inside `downloadToFile` this run -
-   *  feeds the CLI's "downloads" phase-timing bucket (Stage 5.4 section 4). */
+  /** Cumulative time summed across every `downloadToFile` call this run -
+   *  NOT a wall-clock span. Downloads run with bounded CONCURRENCY
+   *  (`TE_MAX_CONCURRENT_DOWNLOADS`), so this sum routinely EXCEEDS the
+   *  run's actual elapsed time (the same `user` vs `real` distinction
+   *  `time(1)` reports) - feeds the execution report's `effort.downloads`
+   *  field, which is deliberately reported separately from the wall-clock
+   *  `phases` breakdown (see docs/known-limitations.md; an earlier
+   *  version conflated the two and produced a negative-clamped-to-zero
+   *  "processing" duration, caught during real-collection validation). */
   get downloadTimeMs(): number { return this.downloadTimeMsTotal; }
-  /** Cumulative wall-clock time spent inside sharp's RGBA decode this run -
-   *  feeds the "decode" phase-timing bucket, separate from network time. */
+  /** Same cumulative-not-wall-clock caveat as `downloadTimeMs`, for
+   *  sharp's RGBA decode calls - feeds `effort.decode`. */
   get decodeTimeMs(): number { return this.decodeTimeMsTotal; }
   /** Fraction of `get()` calls this run served from an on-disk cache hit
    *  (recorded success OR remembered permanent failure - both avoid a
