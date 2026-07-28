@@ -35,6 +35,24 @@ import type {
 
 const BOOT_TIME_MS = Date.now();
 
+/** Same client-IP resolution priority as `rate-limit.ts`'s `clientIp` /
+ *  `sse.ts`'s `clientIpForCap` / `auth.ts`'s `clientIp` — kept as a local
+ *  copy (not imported) since none of those files export their version. */
+function normalizeIp(ip: string): string {
+  const t = ip.trim();
+  return t.startsWith('::ffff:') ? t.slice(7) : t;
+}
+function clientIp(req: Request): string {
+  const cf = req.headers['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim()) return normalizeIp(cf);
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0];
+    if (first && first.trim()) return normalizeIp(first);
+  }
+  return normalizeIp(req.ip || req.socket.remoteAddress || 'unknown');
+}
+
 // ── SSE connection bound ─────────────────────────────────────────────────
 // This API has exactly one intended consumer class (the bot fleet behind
 // BOT_API_KEY), so a flat process-wide cap — not a per-IP cap like the
@@ -128,20 +146,27 @@ export function createBotApiV1Router(snapshotDeps: SnapshotDeps = defaultSnapsho
     res.flushHeaders();
     res.write(': connected\n\n');
 
+    const ip = clientIp(req);
+    const connectedAt = Date.now();
+
     // EventSource sets this header automatically on reconnect; a
     // non-browser bot client that doesn't speak full EventSource semantics
     // can pass the same value via `?lastEventId=` instead.
     const lastEventId = (req.header('last-event-id') ?? String(req.query.lastEventId ?? '')).trim();
+    let replayOutcome = 'none';
     if (lastEventId) {
       const replay = replaySince(lastEventId);
       if (replay.ok) {
+        replayOutcome = `replayed=${replay.frames.length}`;
         for (const frame of replay.frames) {
           try { res.write(frame); } catch { break; }
         }
       } else {
+        replayOutcome = 'resync_required';
         try { res.write(buildResyncFrame(lastEventId)); } catch { /* client already gone */ }
       }
     }
+    console.log(`[bot-api/v1] connect ip=${ip} lastEventId=${lastEventId || 'none'} replay=${replayOutcome} clients=${subscriberCount() + 1}`);
 
     let consecutiveBackpressure = 0;
     let cleaned = false;
@@ -153,13 +178,10 @@ export function createBotApiV1Router(snapshotDeps: SnapshotDeps = defaultSnapsho
           consecutiveBackpressure = 0;
         } else {
           consecutiveBackpressure++;
-          if (consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE) {
-            console.warn('[bot-api/v1] evict reason=slow_client');
-            cleanup();
-          }
+          if (consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE) cleanup('slow_client');
         }
       } catch {
-        cleanup();
+        cleanup('write_error');
       }
     });
 
@@ -168,27 +190,29 @@ export function createBotApiV1Router(snapshotDeps: SnapshotDeps = defaultSnapsho
         const ok = res.write(`event: heartbeat\ndata: {"t":${Date.now()}}\n\n`);
         if (!ok) {
           consecutiveBackpressure++;
-          if (consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE) cleanup();
+          if (consecutiveBackpressure >= MAX_CONSECUTIVE_BACKPRESSURE) cleanup('slow_client');
         }
       } catch {
-        cleanup();
+        cleanup('heartbeat_error');
       }
     }, heartbeatMs);
     if (typeof heartbeat.unref === 'function') heartbeat.unref();
 
-    function cleanup(): void {
+    function cleanup(reason: string): void {
       if (cleaned) return;
       cleaned = true;
       clearInterval(heartbeat);
       unsubscribe();
+      const durationSec = ((Date.now() - connectedAt) / 1000).toFixed(1);
+      console.log(`[bot-api/v1] disconnect ip=${ip} reason=${reason} durationSec=${durationSec} clients=${subscriberCount()}`);
       try { res.end(); } catch { /* already closed */ }
     }
 
-    req.on('close',   cleanup);
-    req.on('error',   cleanup);
-    req.on('aborted', cleanup);
-    res.on('close',   cleanup);
-    res.on('error',   cleanup);
+    req.on('close',   () => cleanup('req_close'));
+    req.on('error',   () => cleanup('req_error'));
+    req.on('aborted', () => cleanup('req_aborted'));
+    res.on('close',   () => cleanup('res_close'));
+    res.on('error',   () => cleanup('res_error'));
   });
 
   return router;
