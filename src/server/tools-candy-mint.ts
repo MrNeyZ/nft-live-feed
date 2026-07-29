@@ -48,9 +48,19 @@ function isValidPubkey(s: unknown): s is string {
 
 export function createCandyMintRouter(): Router {
   const router = Router();
-  const limit = rateLimit({ limit: 20, windowMs: 60_000, label: 'tools/candy-mint' });
+  // One shared limiter across inspect/build-tx/simulate-tx meant a single
+  // batch mint (each item = 1 build-tx + 1 simulate-tx call) blew through a
+  // 20/min budget by itself — the wallet-switch effect's background
+  // /inspect refresh alone could eat into it. A quantity-10 batch got 429'd
+  // partway through, which build-tx/simulate-tx surfaced as a plain "error"
+  // (no on-chain trace, since the tx was never even built) — looked like a
+  // silent random failure. Separate limiters, sized for this tool's actual
+  // usage (quantity can go up to 25 = up to 50 build+simulate calls).
+  const inspectLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'tools/candy-mint/inspect' });
+  const buildLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/build-tx' });
+  const simulateLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/simulate-tx' });
 
-  router.get('/tools/candy-mint/inspect', limit, requireAuth, async (req: Request, res: Response) => {
+  router.get('/tools/candy-mint/inspect', inspectLimit, requireAuth, async (req: Request, res: Response) => {
     try {
       const sig = req.query.sig as string | undefined;
       const candyMachineQ = req.query.candyMachine as string | undefined;
@@ -114,7 +124,7 @@ export function createCandyMintRouter(): Router {
     }
   });
 
-  router.post('/tools/candy-mint/build-tx', limit, requireAuth, async (req: Request, res: Response) => {
+  router.post('/tools/candy-mint/build-tx', buildLimit, requireAuth, async (req: Request, res: Response) => {
     try {
       const {
         family, candyMachine, candyGuard, collection, collectionUpdateAuthority, group, wallet,
@@ -145,7 +155,7 @@ export function createCandyMintRouter(): Router {
     }
   });
 
-  router.post('/tools/candy-mint/simulate-tx', limit, requireAuth, async (req: Request, res: Response) => {
+  router.post('/tools/candy-mint/simulate-tx', simulateLimit, requireAuth, async (req: Request, res: Response) => {
     try {
       const { transactionBase64, wallet } = req.body as { transactionBase64?: string; wallet?: string };
       if (typeof transactionBase64 !== 'string' || !transactionBase64 || !isValidPubkey(wallet)) {

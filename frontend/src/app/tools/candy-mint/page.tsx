@@ -114,6 +114,7 @@ const BACKEND_ERROR_MESSAGES: Record<string, string> = {
   group_not_found: 'Selected guard group not found.',
   missing_or_invalid_fields: 'Missing or invalid fields.',
   collection_update_authority_unresolved: 'Could not resolve the collection\'s update authority (legacy mint).',
+  rate_limited: 'Rate limited — wait a few seconds and try again (or resume with a smaller quantity).',
 };
 
 function humanizeBackendError(code: string | undefined, httpStatus?: number): string {
