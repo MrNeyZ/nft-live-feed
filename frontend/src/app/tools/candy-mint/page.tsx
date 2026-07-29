@@ -141,8 +141,13 @@ function humanizeThrownError(message: string): string {
 // since the next item's own simulate would just show a wrong number, not
 // cause any real harm.
 async function waitForConfirmation(signature: string): Promise<void> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 3000));
+  // 'confirmed' typically lands within ~1 slot (~400-800ms) — a flat 3s gap
+  // between polls meant every item paid a 2-3s tax even in the fast common
+  // case (measured: felt like it dropped from ~500ms to 2-3s per item after
+  // this was added). Poll tighter; 15x300ms keeps roughly the same ~4.5s
+  // worst-case budget but resolves the common case in 1-2 polls instead.
+  for (let attempt = 0; attempt < 15; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 300));
     try {
       const r = await fetch(`${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`, {
         headers: { ...authHeaders() },
