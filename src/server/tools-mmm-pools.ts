@@ -1205,6 +1205,13 @@ async function batchResolveFvcaNames(fvcas: string[]): Promise<void> {
 export function createMmmPoolsRouter(): Router {
   const router = Router();
   const limit  = rateLimit({ limit: 10, windowMs: 60_000, label: 'tools/mmm-pools' });
+  // tx-status is a cheap read-only confirmation poll, not a pool action —
+  // sharing the 10/min pool-action budget meant a single multi-item Candy
+  // Mint batch (each item polled several times while waiting to land)
+  // burned through it by itself: the first couple of items confirmed
+  // instantly, then every later item's poll 429'd for up to the rest of the
+  // 60s window (looked like a random multi-second stall on item 5 of 5).
+  const txStatusLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/mmm-pools/tx-status' });
 
   // ── Triage SSE stream ──────────────────────────────────────────────────────
   // GET /api/tools/mmm-pools/triage-stream?min_pct=5&fast=0&force=0
@@ -1582,7 +1589,7 @@ export function createMmmPoolsRouter(): Router {
 
   // Verify a submitted transaction landed on-chain.
   // Returns immediately with the current status (caller should poll if not_found).
-  router.get('/tools/mmm-pools/tx-status', limit, requireAuth, async (req: Request, res: Response) => {
+  router.get('/tools/mmm-pools/tx-status', txStatusLimit, requireAuth, async (req: Request, res: Response) => {
     const sig = String(req.query.sig ?? '').trim();
     if (!sig || !/^[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(sig)) {
       return res.status(400).json({ ok: false, error: 'invalid_sig' });
