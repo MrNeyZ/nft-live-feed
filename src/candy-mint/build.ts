@@ -43,6 +43,36 @@ import { fetchMetadata, findMetadataPda } from '@metaplex-foundation/mpl-token-m
 import { inspectCandyMachine } from './guard-config';
 import type { CandyMintFamily } from './decode';
 
+// Every guard's *MintArgs type is `Omit<FullArgs, 'lamports' | 'amount' |
+// 'limit'>` — i.e. always a strict subset of the guard's own on-chain
+// settings (verified against the SDK's generated .d.ts for every guard in
+// SUPPORTED_GUARDS: solPayment needs `destination`, mintLimit/allocation
+// need `id`, solFixedFee/freeze* need `destination`, etc). The Umi builder
+// never reads that on-chain state on its own to fill mintArgs — passing
+// `mintArgs: {}` silently omits the guard's remaining account (wrong
+// `destination`, missing counter PDA, ...), which the Candy Guard program
+// then treats as a bot-mint attempt and taxes instead of failing loudly.
+// So: forward each enabled guard's already-fetched on-chain value verbatim
+// — a superset of what any of them individually require, all fields sourced
+// from the chain itself, nothing guessed or hand-picked per guard name.
+type GuardOption = { __option: 'Some' | 'None'; value?: unknown };
+type GuardSetLike = Record<string, GuardOption>;
+function resolveMintArgs(guards: GuardSetLike): Record<string, unknown> {
+  const mintArgs: Record<string, unknown> = {};
+  for (const [name, wrapped] of Object.entries(guards)) {
+    if (wrapped?.__option === 'Some' && wrapped.value !== undefined) mintArgs[name] = wrapped.value;
+  }
+  return mintArgs;
+}
+
+function activeGuardSet<G extends { guards: GuardSetLike; groups: { label: string; guards: GuardSetLike }[] }>(
+  candyGuard: G,
+  group: string | null,
+): GuardSetLike {
+  if (group == null) return candyGuard.guards;
+  return candyGuard.groups.find((g) => g.label === group)?.guards ?? candyGuard.guards;
+}
+
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
@@ -99,7 +129,8 @@ async function buildCore(input: BuildCandyMintInput): Promise<BuildCandyMintResu
     payer: walletSigner,
     minter: walletSigner,
     group: input.group ? some(input.group) : none(),
-    mintArgs: {},
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- built dynamically from whatever guards are enabled on-chain; see resolveMintArgs
+    mintArgs: resolveMintArgs(activeGuardSet(candyGuard, input.group)) as any,
   });
 
   return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner);
@@ -137,7 +168,8 @@ async function buildLegacy(input: BuildCandyMintInput): Promise<BuildCandyMintRe
     payer: walletSigner,
     minter: walletSigner,
     group: input.group ? some(input.group) : none(),
-    mintArgs: {},
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- built dynamically from whatever guards are enabled on-chain; see resolveMintArgs
+    mintArgs: resolveMintArgs(activeGuardSet(candyGuard, input.group)) as any,
   });
 
   return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner);

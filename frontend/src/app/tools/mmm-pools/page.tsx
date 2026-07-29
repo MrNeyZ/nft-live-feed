@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react';
 import { LiveDot }             from '@/soloist/shared';
 import { authHeaders }         from '@/runtime/auth';
-import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, ToolButton, ToolTextInput, fmtSol, short, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
 
 interface MmmPool {
   poolKey:        string;
@@ -177,39 +177,16 @@ export default function MmmPoolsPage() {
 
         {/* Input row */}
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-          <input
-            type="text"
+          <ToolTextInput
             value={inputVal}
             onChange={e => setInputVal(e.target.value)}
             onKeyDown={onKey}
             placeholder="Owner wallet address (base58)"
-            spellCheck={false}
-            style={{
-              flex: 1, minWidth: 280, padding: '7px 12px', fontSize: 12,
-              fontFamily: "'SF Mono','Fira Code',monospace", fontWeight: 500,
-              borderRadius: 5, border: '1px solid rgba(168,144,232,0.45)',
-              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
-            }}
+            style={{ flex: 1, minWidth: 280 }}
           />
-          <button
-            type="button"
-            onClick={() => void runScan()}
-            disabled={!canScan}
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase',
-              borderRadius: 5, cursor: canScan ? 'pointer' : 'not-allowed',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: canScan
-                ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)'
-                : 'rgba(128,104,216,0.10)',
-              color: canScan ? '#f0eef8' : '#9a9ab4',
-              boxShadow: canScan ? '0 0 12px rgba(128,104,216,0.18)' : 'none',
-              transition: 'all 0.15s',
-            }}
-          >
+          <ToolButton onClick={() => void runScan()} disabled={!canScan}>
             {busy ? 'Scanning…' : 'Scan Pools'}
-          </button>
+          </ToolButton>
         </div>
 
         {error && (

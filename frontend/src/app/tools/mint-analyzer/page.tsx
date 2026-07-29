@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
+import { ToolButton, ToolTextInput } from '@/app/tools/mmm-shared';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -255,39 +256,17 @@ export default function MintAnalyzerPage() {
 
         {/* Input */}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <input
-            type="text"
+          <ToolTextInput
             value={sig}
             onChange={(e) => setSig(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
             placeholder="Paste Solana transaction signature…"
-            spellCheck={false}
             disabled={busy}
-            style={{
-              flex: 1, minWidth: 280, padding: '9px 12px', fontSize: 12,
-              fontFamily: MONO, borderRadius: 5,
-              border: '1px solid rgba(168,144,232,0.40)',
-              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
-            }}
+            style={{ flex: 1, minWidth: 280 }}
           />
-          <button
-            type="button"
-            onClick={run}
-            disabled={busy || sig.trim().length === 0}
-            data-uisnd="skip"
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
-              cursor: (busy || sig.trim().length === 0) ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: (busy || sig.trim().length === 0) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: (busy || sig.trim().length === 0) ? '#9a9ab4' : '#f0eef8',
-              boxShadow: (busy || sig.trim().length === 0) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
-              transition: 'all 0.15s',
-            }}
-          >
+          <ToolButton onClick={run} disabled={busy || sig.trim().length === 0} ownSound>
             {busy ? 'Analyzing…' : 'Analyze'}
-          </button>
+          </ToolButton>
         </div>
 
         {error && (

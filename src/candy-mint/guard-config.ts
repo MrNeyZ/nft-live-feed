@@ -23,17 +23,21 @@
  */
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { publicKey as umiPublicKey } from '@metaplex-foundation/umi';
+import { publicKey as umiPublicKey, type Context } from '@metaplex-foundation/umi';
 import {
   mplCandyMachine as mplCoreCandyMachine,
   fetchCandyMachine as fetchCoreCandyMachine,
   safeFetchCandyGuard as safeFetchCoreCandyGuard,
+  findMintCounterPda as findCoreMintCounterPda,
+  safeFetchMintCounter as safeFetchCoreMintCounter,
   type DefaultGuardSet as CoreDefaultGuardSet,
 } from '@metaplex-foundation/mpl-core-candy-machine';
 import {
   mplCandyMachine as mplLegacyCandyMachine,
   fetchCandyMachine as fetchLegacyCandyMachine,
   safeFetchCandyGuard as safeFetchLegacyCandyGuard,
+  findMintCounterPda as findLegacyMintCounterPda,
+  safeFetchMintCounter as safeFetchLegacyMintCounter,
   type DefaultGuardSet as LegacyDefaultGuardSet,
 } from '@metaplex-foundation/mpl-candy-machine';
 import type { CandyMintFamily } from './decode';
@@ -59,12 +63,26 @@ function rpcUrl(): string {
 // A public stage actively redeeming items (which is the whole point of
 // this tool — check a still-live public mint) has necessarily already
 // been initialized, so this is safe to treat as self-contained.
+//
+// nftMintLimit / assetMintLimit are deliberately NOT included: both require
+// the caller to supply a specific NFT/asset the minter already holds
+// (`{ id, asset }` / `{ id, mint, tokenAccount? }`) — a holder-gate, not a
+// plain-wallet-signature guard. mintLimit / allocation only need their own
+// `id` (self-contained — see build.ts's resolveMintArgs).
 const SUPPORTED_GUARDS = new Set([
   'botTax', 'solPayment', 'tokenPayment', 'token2022Payment',
-  'startDate', 'endDate', 'mintLimit', 'nftMintLimit', 'assetMintLimit',
+  'startDate', 'endDate', 'mintLimit',
   'redeemedAmount', 'solFixedFee', 'allocation', 'addressGate',
   'freezeSolPayment', 'freezeTokenPayment',
 ]);
+
+export interface MintLimitStatus {
+  id: number;
+  limit: number;
+  /** null until a wallet is supplied to inspectCandyMachine. */
+  used: number | null;
+  remaining: number | null;
+}
 
 export interface GuardGroupSummary {
   /** null for the root (groupless) guard set. */
@@ -73,6 +91,7 @@ export interface GuardGroupSummary {
   unsupportedGuards: string[];
   supported: boolean;
   solPaymentLamports: string | null;
+  mintLimit: MintLimitStatus | null;
 }
 
 export interface CandyMachineInspection {
@@ -92,6 +111,7 @@ function summarizeGuardSet(
   const enabled: string[] = [];
   const unsupported: string[] = [];
   let solPaymentLamports: string | null = null;
+  let mintLimit: MintLimitStatus | null = null;
   for (const [name, wrapped] of Object.entries(guards)) {
     const opt = wrapped as { __option: 'Some' | 'None'; value?: unknown } | undefined;
     if (!opt || opt.__option !== 'Some') continue;
@@ -101,6 +121,10 @@ function summarizeGuardSet(
       const v = opt.value as { lamports?: { basisPoints?: bigint } } | undefined;
       if (v?.lamports?.basisPoints != null) solPaymentLamports = v.lamports.basisPoints.toString();
     }
+    if (name === 'mintLimit') {
+      const v = opt.value as { id: number; limit: number };
+      mintLimit = { id: v.id, limit: v.limit, used: null, remaining: null };
+    }
   }
   return {
     label,
@@ -108,10 +132,40 @@ function summarizeGuardSet(
     unsupportedGuards: unsupported,
     supported: unsupported.length === 0,
     solPaymentLamports,
+    mintLimit,
   };
 }
 
-async function inspectCore(candyMachineAddr: string, candyGuardAddr: string): Promise<CandyMachineInspection> {
+// Fills in `used`/`remaining` on each group's mintLimit (left null by
+// summarizeGuardSet, which only reads the guard's static config) — needs an
+// extra RPC round-trip per group against the wallet-specific counter PDA,
+// so it's opt-in and only run when a wallet is supplied.
+async function fillMintLimitUsage(
+  family: CandyMintFamily,
+  umi: Context,
+  groups: GuardGroupSummary[],
+  candyMachineAddr: string,
+  candyGuardAddr: string,
+  wallet: string,
+): Promise<void> {
+  const findPda = family === 'core' ? findCoreMintCounterPda : findLegacyMintCounterPda;
+  const fetchCounter = family === 'core' ? safeFetchCoreMintCounter : safeFetchLegacyMintCounter;
+  await Promise.all(groups.map(async (g) => {
+    if (!g.mintLimit) return;
+    const pda = findPda(umi, {
+      id: g.mintLimit.id,
+      user: umiPublicKey(wallet),
+      candyMachine: umiPublicKey(candyMachineAddr),
+      candyGuard: umiPublicKey(candyGuardAddr),
+    });
+    const counter = await fetchCounter(umi, pda[0]);
+    const used = counter ? counter.count : 0;
+    g.mintLimit.used = used;
+    g.mintLimit.remaining = Math.max(0, g.mintLimit.limit - used);
+  }));
+}
+
+async function inspectCore(candyMachineAddr: string, candyGuardAddr: string, wallet?: string | null): Promise<CandyMachineInspection> {
   const umi = createUmi(rpcUrl()).use(mplCoreCandyMachine());
   let itemsRedeemed: string | null = null;
   let itemsAvailable: string | null = null;
@@ -131,6 +185,7 @@ async function inspectCore(candyMachineAddr: string, candyGuardAddr: string): Pr
   if (guard) {
     if (guard.groups.length === 0) groups.push(summarizeGuardSet(null, guard.guards));
     else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, g.guards));
+    if (wallet) await fillMintLimitUsage('core', umi, groups, candyMachineAddr, candyGuardAddr, wallet);
   } else {
     alive = false;
   }
@@ -138,7 +193,7 @@ async function inspectCore(candyMachineAddr: string, candyGuardAddr: string): Pr
   return { alive, candyMachine: candyMachineAddr, candyGuard: candyGuardAddr, collection, itemsRedeemed, itemsAvailable, groups };
 }
 
-async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string): Promise<CandyMachineInspection> {
+async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string, wallet?: string | null): Promise<CandyMachineInspection> {
   const umi = createUmi(rpcUrl()).use(mplLegacyCandyMachine());
   let itemsRedeemed: string | null = null;
   let itemsAvailable: string | null = null;
@@ -158,6 +213,7 @@ async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string): 
   if (guard) {
     if (guard.groups.length === 0) groups.push(summarizeGuardSet(null, guard.guards));
     else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, g.guards));
+    if (wallet) await fillMintLimitUsage('legacy', umi, groups, candyMachineAddr, candyGuardAddr, wallet);
   } else {
     alive = false;
   }
@@ -169,8 +225,9 @@ export async function inspectCandyMachine(
   family: CandyMintFamily,
   candyMachineAddr: string,
   candyGuardAddr: string,
+  wallet?: string | null,
 ): Promise<CandyMachineInspection> {
   return family === 'core'
-    ? inspectCore(candyMachineAddr, candyGuardAddr)
-    : inspectLegacy(candyMachineAddr, candyGuardAddr);
+    ? inspectCore(candyMachineAddr, candyGuardAddr, wallet)
+    : inspectLegacy(candyMachineAddr, candyGuardAddr, wallet);
 }

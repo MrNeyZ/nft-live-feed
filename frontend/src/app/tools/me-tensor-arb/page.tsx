@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
-import { API_BASE, MONO, PANEL, TH, TH_L, ADDR_RE, short } from '@/app/tools/mmm-shared';
+import { API_BASE, MONO, PANEL, TH, TH_L, ADDR_RE, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
 
 interface ArbListing {
   mint:      string;
@@ -34,6 +34,8 @@ interface ArbResult {
   resolvedVia:       'slug' | 'me-mint-lookup' | 'address-passthrough';
   tensorFloorSol:    number | null;
   tensorListedCount: number;
+  meFloorSol:        number | null;
+  meListedCount:     number;
   listings:          ArbListing[];
 }
 
@@ -106,39 +108,17 @@ export default function MeTensorArbPage() {
           Collection slug, collection address, or NFT mint address
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-          <input
-            type="text"
+          <ToolTextInput
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void run(); }}
             placeholder="e.g. solfussisters0, a collection address, or one NFT's mint address"
-            spellCheck={false}
             disabled={busy}
-            style={{
-              flex: 1, minWidth: 280, padding: '9px 12px', fontSize: 12,
-              ...MONO, borderRadius: 5,
-              border: '1px solid rgba(168,144,232,0.40)',
-              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
-            }}
+            style={{ flex: 1, minWidth: 280 }}
           />
-          <button
-            type="button"
-            onClick={() => void run()}
-            disabled={idle}
-            data-uisnd="skip"
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
-              cursor: idle ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: idle ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: idle ? '#9a9ab4' : '#f0eef8',
-              boxShadow: idle ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
-              transition: 'all 0.15s',
-            }}
-          >
+          <ToolButton onClick={() => void run()} disabled={idle} ownSound>
             {busy ? 'Checking…' : 'Check'}
-          </button>
+          </ToolButton>
         </div>
 
         {error && (
@@ -166,6 +146,13 @@ export default function MeTensorArbPage() {
                   {result.tensorFloorSol != null ? `${fmtSol(result.tensorFloorSol)} SOL` : '—'}
                 </div>
                 <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>{result.tensorListedCount} active Tensor listings</div>
+              </div>
+              <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>ME floor</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#f0eef8', ...MONO, letterSpacing: '-0.5px' }}>
+                  {result.meFloorSol != null ? `${fmtSol(result.meFloorSol)} SOL` : '—'}
+                </div>
+                <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>{result.meListedCount} active ME listings</div>
               </div>
               <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>Below Tensor floor</div>

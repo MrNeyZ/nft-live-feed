@@ -20,9 +20,12 @@
  * gate) — this endpoint is not meant to be reachable by anyone outside the
  * operator's own allowed wallet.
  *
- *   GET  /api/tools/candy-mint/inspect?sig=<signature>
- *   GET  /api/tools/candy-mint/inspect?candyMachine=&candyGuard=
+ *   GET  /api/tools/candy-mint/inspect?sig=<signature>[&wallet=]
+ *   GET  /api/tools/candy-mint/inspect?candyMachine=&candyGuard=[&wallet=]
+ *      (wallet is optional — when supplied, each group's mintLimit guard
+ *      also gets `used`/`remaining` filled in against that specific wallet)
  *   POST /api/tools/candy-mint/build-tx   { family, candyMachine, candyGuard, collection, collectionUpdateAuthority?, group, wallet }
+ *   POST /api/tools/candy-mint/simulate-tx { transactionBase64, wallet }
  *
  * Broadcast reuses the existing generic `/api/tools/mmm-pools/send-tx` proxy
  * (same pattern as tools-dotland.ts / tools-me-bids.ts).
@@ -35,6 +38,8 @@ import { requireAuth } from './runtime';
 import { decodeCandyMintSignature, detectFamilyFromGuardAddress, type CandyMintFamily } from '../candy-mint/decode';
 import { inspectCandyMachine } from '../candy-mint/guard-config';
 import { buildCandyMintTx } from '../candy-mint/build';
+import { simulateCandyMintTx } from '../candy-mint/simulate';
+import { getAsset } from '../enrichment/helius-das';
 
 function isValidPubkey(s: unknown): s is string {
   if (typeof s !== 'string') return false;
@@ -50,6 +55,8 @@ export function createCandyMintRouter(): Router {
       const sig = req.query.sig as string | undefined;
       const candyMachineQ = req.query.candyMachine as string | undefined;
       const candyGuardQ = req.query.candyGuard as string | undefined;
+      const walletQ = req.query.wallet as string | undefined;
+      const wallet = isValidPubkey(walletQ) ? walletQ : null;
 
       let candyMachine: string; let candyGuard: string; let collection: string | null = null;
       let collectionUpdateAuthority: string | null = null; let group: string | null = null;
@@ -74,11 +81,31 @@ export function createCandyMintRouter(): Router {
         return res.status(400).json({ ok: false, error: 'provide_sig_or_candyMachine_and_candyGuard' });
       }
 
-      const inspection = await inspectCandyMachine(family, candyMachine, candyGuard);
+      const inspection = await inspectCandyMachine(family, candyMachine, candyGuard, wallet);
+
+      // Best-effort — the launchpad-style hero (image/name/creator) is a
+      // display nicety, not a gate. A DAS miss (fresh/never-indexed
+      // collection, rate limit) must never block minting itself.
+      let collectionMeta: { name: string | null; image: string | null; description: string | null; creator: string | null } | null = null;
+      const collectionAddr = inspection.collection ?? collection;
+      if (collectionAddr) {
+        try {
+          const meta = await getAsset(collectionAddr, 'manual_tools');
+          collectionMeta = {
+            name: meta.nftName,
+            image: meta.imageUrl,
+            description: meta.description ?? null,
+            creator: meta.verifiedCreators?.[0] ?? null,
+          };
+        } catch {
+          // leave collectionMeta null — inspection result is still fully usable
+        }
+      }
+
       return res.json({
         ok: true, family, referenceCollection: collection,
         referenceCollectionUpdateAuthority: collectionUpdateAuthority,
-        referenceGroup: group, inspection,
+        referenceGroup: group, inspection, collectionMeta,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -114,6 +141,22 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] build-tx error', msg);
+      return res.status(502).json({ ok: false, error: msg });
+    }
+  });
+
+  router.post('/tools/candy-mint/simulate-tx', limit, requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { transactionBase64, wallet } = req.body as { transactionBase64?: string; wallet?: string };
+      if (typeof transactionBase64 !== 'string' || !transactionBase64 || !isValidPubkey(wallet)) {
+        return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
+      }
+      const result = await simulateCandyMintTx(transactionBase64, wallet);
+      if (!result.ok) return res.status(502).json(result);
+      return res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] simulate-tx error', msg);
       return res.status(502).json({ ok: false, error: msg });
     }
   });

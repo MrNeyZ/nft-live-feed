@@ -32,7 +32,7 @@ import { Transaction } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom } from '@/wallet/phantom';
 import { API_BASE, MONO, PANEL, ADDR_RE, short } from '@/app/tools/mmm-shared';
-import { VL, rgb } from '@/lib/palette';
+import { VL, VLText, alpha, rgb } from '@/lib/palette';
 
 const LIVE_MODE_KEY = 'vl.mmmCollectionBids.liveMode';
 const LAST_POOL_KEY = 'vl.mmmCollectionBids.lastPool';
@@ -757,6 +757,9 @@ function DisconnectLink({ onClick, children }: { onClick: () => void; children?:
   );
 }
 
-const btnStyle: React.CSSProperties = { padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: rgb(VL.violet), color: '#fff', border: 'none', borderRadius: 6 };
-const labelStyle: React.CSSProperties = { fontSize: 11, color: '#b0aac8', display: 'flex', flexDirection: 'column', gap: 4 };
-const inputStyle: React.CSSProperties = { padding: '6px 8px', fontSize: 13, background: '#111', color: '#fff', border: '1px solid #333', borderRadius: 4 };
+const btnStyle: React.CSSProperties = { padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: rgb(VL.purpleTint), color: '#000', border: 'none', borderRadius: 8 };
+const labelStyle: React.CSSProperties = { fontSize: 11, color: VLText.muted, display: 'flex', flexDirection: 'column', gap: 4 };
+const inputStyle: React.CSSProperties = {
+  padding: '9px 12px', fontSize: 13, background: 'rgba(255,255,255,0.03)', color: VLText.primary, outline: 'none',
+  border: `1px solid ${alpha(VL.purpleTint, 0.28)}`, borderRadius: 5,
+};

@@ -32,6 +32,9 @@ export interface NftMetadata {
    *  with an "Artist" trait. Value is intentionally ignored. Optional; absent
    *  on the empty/error metadata objects. */
   hasArtistAttribute?: boolean;
+  /** DAS `content.metadata.description`, when present. Optional; absent on
+   *  the empty/error metadata objects. */
+  description?: string | null;
 }
 
 // Minimal shape of the Helius DAS getAsset response we care about.
@@ -43,6 +46,7 @@ interface DasAsset {
   content?: {
     metadata?: {
       name?: string;
+      description?: string;
       token_standard?: string;
       attributes?: Array<{ trait_type?: string; key?: string; value?: unknown }>;
     };
@@ -133,7 +137,7 @@ async function fetchAssetWithSource(
           jsonrpc: '2.0',
           id:      'fetch-asset',
           method:  'getAsset',
-          params:  { id: address },
+          params:  { id: address, options: { showCollectionMetadata: true } },
         }),
         signal: AbortSignal.timeout(8_000),
       });
@@ -233,6 +237,7 @@ export async function getAsset(mintAddress: string, reason?: GetAssetSource): Pr
     jsonUri:           asset.content?.json_uri                ?? null,
     verifiedCreators:  extractVerifiedCreators(asset),
     hasArtistAttribute: extractHasArtistAttribute(asset),
+    description:       asset.content?.metadata?.description   ?? null,
   };
 }
 

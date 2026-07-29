@@ -12,7 +12,7 @@ import { LiveDot }                                        from '@/soloist/shared
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
 import { requestMmmInstruction } from '@/lib/mmm-bridge';
-import { API_BASE, ADDR_RE, MONO, PANEL, fmtSol, short } from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, ToolButton, ToolTextInput, fmtSol, short } from '@/app/tools/mmm-shared';
 
 const ME_TOKEN_KEY = 'vl.meToken';
 
@@ -634,25 +634,13 @@ export default function MmmPoolLookupPage() {
 
           {/* ── Pool key input ── */}
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <input type="text" value={inputVal} onChange={e => setInputVal(e.target.value)}
+            <ToolTextInput value={inputVal} onChange={e => setInputVal(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') void runLookup(); }}
-              placeholder="Paste pool key…" spellCheck={false}
-              style={{ flex:1, minWidth:280, padding:'9px 14px', fontSize:13,
-                ...MONO, fontWeight:500, borderRadius:6, border:'1px solid rgba(168,144,232,0.45)',
-                background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }} />
-            <button type="button" onClick={() => void runLookup()} disabled={!canLookup}
-              style={{
-                padding:'9px 20px', fontSize:13, fontWeight:700, letterSpacing:'0.4px',
-                textTransform:'uppercase', borderRadius:6,
-                cursor: canLookup ? 'pointer' : 'not-allowed',
-                border:'1px solid rgba(168,144,232,0.55)',
-                background: canLookup ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.08)',
-                color: canLookup ? '#f0eef8' : '#9a9ab4',
-                boxShadow: canLookup ? '0 0 12px rgba(128,104,216,0.18)' : 'none',
-                transition:'all 0.15s',
-              }}>
+              placeholder="Paste pool key…"
+              style={{ flex: 1, minWidth: 280, fontSize: 13 }} />
+            <ToolButton onClick={() => void runLookup()} disabled={!canLookup}>
               {lookupBusy ? 'Loading…' : 'Load Pool'}
-            </button>
+            </ToolButton>
           </div>
 
           {lookupError && (

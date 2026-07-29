@@ -75,7 +75,7 @@ interface LoadedMachine {
   referenceCollectionUpdateAuthority: string | null;
 }
 
-type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'signing' | 'success' | 'blocked' | 'error';
+type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error';
 
 interface BatchItem {
   status: BatchItemStatus;
@@ -130,6 +130,29 @@ function humanizeThrownError(message: string): string {
   if (m.includes('user rejected') || m.includes('rejected the request')) return 'Transaction cancelled.';
   if (m.includes('phantom wallet not found')) return 'Phantom wallet not found. Install the Phantom extension.';
   return message;
+}
+
+// signSendAndConfirm returns as soon as Phantom submits the tx — it doesn't
+// actually wait for it to land (public RPC WSS confirm is unreliable, see
+// its own doc comment). Reuses the same tx-status endpoint the MMM pool
+// buy flow polls (collection/[slug]/page.tsx) rather than hitting RPC
+// directly from the browser. Best-effort: gives up after ~15s either way,
+// since the next item's own simulate would just show a wrong number, not
+// cause any real harm.
+async function waitForConfirmation(signature: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const r = await fetch(`${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`, {
+        headers: { ...authHeaders() },
+      });
+      if (!r.ok) continue;
+      const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null };
+      if (d.ok && d.found && (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized')) return;
+    } catch {
+      // transient — retry
+    }
+  }
 }
 
 export default function CandyMintPage() {
@@ -188,6 +211,13 @@ export default function CandyMintPage() {
   function handleDisconnect() {
     void getPhantom()?.disconnect();
     setWallet(null);
+    // Reset the in-progress mint attempt (ready_to_sign, batch, success,
+    // error) — none of it belongs to whichever wallet connects next. The
+    // drop itself (`loaded`) and the pasted signature stay put; the
+    // wallet-switch effect re-fetches per-wallet numbers (mintLimit
+    // used/remaining) once a new wallet connects.
+    setFlow({ kind: 'idle' });
+    setQuantity(1);
   }
 
   async function handleInspect() {
@@ -276,12 +306,39 @@ export default function CandyMintPage() {
     }
   }
 
+  // The mintLimit `used`/`remaining` numbers are a snapshot taken at
+  // Inspect time — nothing re-fetches them after a mint lands, so without
+  // this the panel keeps showing the pre-mint count forever (looked like a
+  // stuck/buggy counter, but it was just never being updated at all).
+  // Bumped optimistically per confirmed signature: we know for certain our
+  // own mint landed, so there's nothing to wait on a re-fetch for.
+  function bumpMintedCount() {
+    setLoaded((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        inspection: {
+          ...prev.inspection,
+          itemsRedeemed: prev.inspection.itemsRedeemed != null
+            ? String(Number(prev.inspection.itemsRedeemed) + 1)
+            : prev.inspection.itemsRedeemed,
+          groups: prev.inspection.groups.map((g) => {
+            if (g.label !== selectedGroup || !g.mintLimit) return g;
+            const used = (g.mintLimit.used ?? 0) + 1;
+            return { ...g, mintLimit: { ...g.mintLimit, used, remaining: Math.max(0, g.mintLimit.limit - used) } };
+          }),
+        },
+      };
+    });
+  }
+
   async function handleConfirmSign() {
     if (flow.kind !== 'ready_to_sign') return;
     setFlow({ kind: 'minting', step: 'signing' });
     try {
       const result = await signSendAndConfirm(flow.transactionBase64);
       setFlow({ kind: 'success', sig: result.signature });
+      bumpMintedCount();
     } catch (err) {
       setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
     }
@@ -351,8 +408,21 @@ export default function CandyMintPage() {
         items[i] = { status: 'signing', solDeltaLamports: simJ.solDeltaLamports ?? null };
         setFlow({ kind: 'batch', total, items: [...items] });
         const result = await signSendAndConfirm(j.transactionBase64);
+
+        // signSendAndConfirm returns the moment Phantom submits the tx, not
+        // once it lands (see its own doc comment — public RPC WSS confirm
+        // is unreliable, so it doesn't wait). Without waiting here, the next
+        // item's simulate-tx snapshots the wallet's "before" balance while
+        // THIS item may still be in flight, then simulates against a bank
+        // state where it already landed — the delta ends up covering both
+        // items' cost (looked exactly like ~2x a normal mint price).
+        items[i] = { status: 'confirming', solDeltaLamports: simJ.solDeltaLamports ?? null };
+        setFlow({ kind: 'batch', total, items: [...items] });
+        await waitForConfirmation(result.signature);
+
         items[i] = { status: 'success', sig: result.signature, solDeltaLamports: simJ.solDeltaLamports ?? null };
         setFlow({ kind: 'batch', total, items: [...items] });
+        bumpMintedCount();
       } catch (err) {
         items[i] = { status: 'error', message: humanizeThrownError((err as Error).message) };
         setFlow({ kind: 'batch', total, items: [...items] });
@@ -373,8 +443,22 @@ export default function CandyMintPage() {
 
   const busy = flow.kind === 'inspecting' || flow.kind === 'minting' || (flow.kind === 'batch' && !flow.done);
   const selected = loaded?.inspection.groups.find((g) => g.label === selectedGroup) ?? null;
-  const mintDisabled = !wallet || busy || !loaded || !loaded.inspection.alive || !selected?.supported;
+  const mintExhausted = selected?.mintLimit != null && selected.mintLimit.remaining === 0;
+  const soldOut = loaded != null
+    && loaded.inspection.itemsRedeemed != null && loaded.inspection.itemsAvailable != null
+    && loaded.inspection.itemsRedeemed === loaded.inspection.itemsAvailable;
+  const mintDisabled = !wallet || busy || !loaded || !loaded.inspection.alive || soldOut || !selected?.supported || mintExhausted;
   const quantityCap = Math.max(1, selected?.mintLimit?.remaining ?? 25);
+
+  // Keeps the selected quantity in bounds as `remaining` shrinks (each
+  // confirmed mint, or a wallet switch) — without this, picking e.g. 9 then
+  // minting them all left `quantity` stuck at 9 with nothing to clamp it,
+  // so the next attempt (now capped at 1 remaining) silently tried to batch
+  // 9 anyway. The stepper's own +/- already respect `max`, but that doesn't
+  // retroactively fix a value set before the cap dropped.
+  useEffect(() => {
+    setQuantity((q) => Math.min(Math.max(1, q), quantityCap));
+  }, [quantityCap]);
 
   const heroTitle = loaded?.collectionMeta?.name ?? (loaded ? short(loaded.inspection.candyMachine) : null);
   const priceLabel = selected?.solPaymentLamports != null
@@ -516,13 +600,37 @@ export default function CandyMintPage() {
                 </div>
               )}
 
+              {/* Explicit reasons the mint control is missing — a blank gap
+                  where the button used to be reads as "is the page broken?"
+                  to anyone who doesn't already know this tool's premise
+                  (machines close/sell out). Say so plainly instead. */}
+              {!loaded.inspection.alive && (
+                <div style={{ fontSize: 12.5, color: VLText.muted, marginTop: 8 }}>
+                  This candy machine is closed — it no longer exists on-chain (fully minted, or the drop ended).
+                </div>
+              )}
+              {loaded.inspection.alive && soldOut && (
+                <div style={{ fontSize: 12.5, color: VLText.muted, marginTop: 8 }}>
+                  Fully minted ({loaded.inspection.itemsRedeemed}/{loaded.inspection.itemsAvailable}) — nothing left to mint.
+                </div>
+              )}
+
               {/* ── mint control — the ONE spot that morphs through the flow ── */}
-              {loaded.inspection.alive && selected?.supported && (
+              {loaded.inspection.alive && !soldOut && selected?.supported && (
                 <div style={{ marginTop: 8 }}>
                   {flow.kind === 'ready_to_sign' ? (
-                    <ReadyToSignControl flow={flow} busy={busy} onConfirm={handleConfirmSign} />
+                    <ReadyToSignControl
+                      flow={flow}
+                      busy={busy}
+                      onConfirm={handleConfirmSign}
+                      onCancel={() => setFlow({ kind: 'idle' })}
+                    />
                   ) : flow.kind === 'batch' && !flow.done ? (
                     <BatchControl flow={flow} />
+                  ) : mintExhausted ? (
+                    <div style={{ fontSize: 12.5, color: VLText.muted }}>
+                      You've hit your mint limit on this wallet ({selected?.mintLimit?.limit}/{selected?.mintLimit?.limit}) — switch wallets to mint more.
+                    </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <QuantityStepper value={quantity} max={quantityCap} onChange={setQuantity} disabled={busy} />
@@ -584,6 +692,7 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
   building: VLText.muted,
   simulating: VLText.muted,
   signing: rgb(VL.purpleTint),
+  confirming: rgb(VL.purpleTint),
   success: rgb(VL.greenStrong),
   blocked: rgb(VL.redStrong),
   error: rgb(VL.redStrong),
@@ -596,10 +705,11 @@ function BatchStatusBadge({ status }: { status: BatchItemStatus }) {
 // Replaces the quantity+Mint row in place — cost line + Sign & Send button,
 // exactly where the Mint button was, per how a real launchpad's own button
 // morphs into a confirm state rather than opening a separate view.
-function ReadyToSignControl({ flow, busy, onConfirm }: {
+function ReadyToSignControl({ flow, busy, onConfirm, onCancel }: {
   flow: { kind: 'ready_to_sign'; solDeltaLamports: number | null; botTaxDetected: boolean };
   busy: boolean;
   onConfirm: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
@@ -614,6 +724,9 @@ function ReadyToSignControl({ flow, busy, onConfirm }: {
       <PrimaryButton onClick={onConfirm} disabled={busy || flow.botTaxDetected} big>
         {busy ? 'signing' : 'Sign & Send'}
       </PrimaryButton>
+      <ToolButton onClick={onCancel} disabled={busy}>
+        Cancel
+      </ToolButton>
     </div>
   );
 }
@@ -629,6 +742,11 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
           <span style={{ color: VLText.faint, width: 22 }}>#{i + 1}</span>
           <BatchStatusBadge status={it.status} />
+          {it.solDeltaLamports != null && (it.status === 'signing' || it.status === 'success') && (
+            <span style={{ color: rgb(VL.greenStrong), fontWeight: 600 }}>
+              {(it.solDeltaLamports / 1e9).toFixed(5)} SOL
+            </span>
+          )}
           {it.sig && (
             <a href={`https://solscan.io/tx/${it.sig}`} target="_blank" rel="noopener noreferrer" style={{ color: rgb(VL.purpleTint) }}>
               {short(it.sig)}
