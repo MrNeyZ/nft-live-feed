@@ -811,7 +811,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           return (
             <td
               title="Collection deployed — no mints yet"
-              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: VLText.muted, letterSpacing: '-0.1px', whiteSpace: 'nowrap' }}
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, fontWeight: 600, color: rgb(VL.gold), letterSpacing: '-0.1px', whiteSpace: 'nowrap' }}
             >
               deploy
             </td>
