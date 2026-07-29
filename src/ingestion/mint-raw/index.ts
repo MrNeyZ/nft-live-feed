@@ -53,6 +53,7 @@ import {
   PRNT_CORE_CANDY_GUARD,
   CANDY_MACHINE_V3_PROGRAM,
   CANDY_LABS_WRAPPER_PROGRAM,
+  extractCoreCandyMachineState,
   type LaunchpadSource,
 } from './launchpad-detector';
 import {
@@ -204,7 +205,9 @@ async function enrichLaunchpadCollectionMeta(
   }
 }
 
-/** Candy Machine v3 supply cache + refresh policy.
+/** Candy Machine supply cache + refresh policy — covers BOTH program
+ *  families (legacy Token Metadata CMv3 and MPL Core), which have
+ *  genuinely different account layouts, not just different program ids.
  *
  *  Keyed by candy_machine state pubkey. Each entry stores the most
  *  recent `items_redeemed` / `items_available` decoded from the
@@ -215,24 +218,51 @@ async function enrichLaunchpadCollectionMeta(
  *  immutable for a given drop; `items_redeemed` advances on every
  *  mint, so the TTL controls how often we re-read it.
  *
- *  Account layout (with the 8-byte Anchor discriminator prefix):
- *    offset   0  Anchor discriminator   (8 bytes)
- *    offset   8  version                (u8, 1 byte)
- *    offset   9  token_standard         (u8, 1 byte)
- *    offset  10  features               ([u8; 6], 6 bytes)
- *    offset  16  authority              (Pubkey, 32 bytes)
- *    offset  48  mint_authority         (Pubkey, 32 bytes)
- *    offset  80  collection_mint        (Pubkey, 32 bytes)
- *    offset 112  items_redeemed         (u64, 8 bytes)
- *    offset 120  data.items_available   (u64, 8 bytes) — first field of CandyMachineData
+ *  Account layouts (both with an 8-byte Anchor discriminator prefix) —
+ *  verified against each SDK's own `getCandyMachineGpaBuilder()` field
+ *  registry (authoritative) and cross-checked byte-for-byte against a
+ *  live Core account (Bulltoshi, Ew2PCNhwoC4C525gHvY3P2ngeF1qahnG7Rz2TpxtuED2:
+ *  offset 104 read back 4637, offset 112 read back 7777 — both correct).
+ *  The two layouts are NOT interchangeable: legacy has an extra 8-byte
+ *  version/token_standard/features block between the discriminator and
+ *  `authority` that Core's account doesn't have, shifting every
+ *  subsequent field by 8 bytes.
+ *
+ *    legacy (@metaplex-foundation/mpl-candy-machine, CndyV3Ldq…):
+ *      offset   0  discriminator                (8 bytes)
+ *      offset   8  version + token_standard      (2 bytes)
+ *      offset  10  features                      ([u8; 6])
+ *      offset  16  authority                      (Pubkey, 32 bytes)
+ *      offset  48  mint_authority                 (Pubkey, 32 bytes)
+ *      offset  80  collection_mint                (Pubkey, 32 bytes)
+ *      offset 112  items_redeemed                 (u64, 8 bytes)
+ *      offset 120  data.items_available           (u64, 8 bytes)
+ *
+ *    core (@metaplex-foundation/mpl-core-candy-machine, CMACYFEN…):
+ *      offset   0  discriminator                (8 bytes)
+ *      offset   8  authority                      (Pubkey, 32 bytes)
+ *      offset  40  mint_authority                 (Pubkey, 32 bytes)
+ *      offset  72  collection_mint                (Pubkey, 32 bytes)
+ *      offset 104  items_redeemed                 (u64, 8 bytes)
+ *      offset 112  data.items_available           (u64, 8 bytes)
  *
  *  Both u64s are little-endian; offsets are fixed regardless of the
- *  variable-length CandyMachineData tail (we never read past 128). */
+ *  variable-length CandyMachineData tail (we never read past 128). This
+ *  had silently never run for Core drops at all until now — the generic
+ *  Core Candy Machine mint path never resolved a state address to feed
+ *  it (see `extractCoreCandyMachineState` in launchpad-detector.ts) — so
+ *  the legacy offsets below were never actually exercised wrong in
+ *  production; only Core needed the distinct branch. */
+type CandyMachineFamily = 'legacy' | 'core';
+const CM_SUPPLY_OFFSETS: Record<CandyMachineFamily, { redeemed: number; available: number }> = {
+  legacy: { redeemed: 112, available: 120 },
+  core:   { redeemed: 104, available: 112 },
+};
 interface CmSupplyEntry { itemsRedeemed: number; itemsAvailable: number; fetchedAt: number; }
 const cmSupplyCache = new Map<string, CmSupplyEntry>();
 const CM_SUPPLY_TTL_MS = 15_000;
 
-async function enrichCgSupply(candyMachineState: string, groupingKey: string): Promise<void> {
+async function enrichCgSupply(candyMachineState: string, groupingKey: string, family: CandyMachineFamily): Promise<void> {
   const now = Date.now();
   const cached = cmSupplyCache.get(candyMachineState);
   if (cached && (now - cached.fetchedAt) < CM_SUPPLY_TTL_MS) {
@@ -258,27 +288,28 @@ async function enrichCgSupply(candyMachineState: string, groupingKey: string): P
     const json = await res.json() as { result?: { value?: { data?: [string, string]; owner?: string } } };
     const value = json.result?.value;
     if (!value?.data) {
-      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} status=account_not_found`);
+      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} family=${family} status=account_not_found`);
       return;
     }
     const buf = Buffer.from(value.data[0], 'base64');
     if (buf.length < 128) {
-      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} status=short_data len=${buf.length}`);
+      console.log(`[mints/candyguard-supply] cmState=${candyMachineState} family=${family} status=short_data len=${buf.length}`);
       return;
     }
+    const { redeemed, available } = CM_SUPPLY_OFFSETS[family];
     // u64 → Number is safe up to 2^53; drop sizes well within that.
-    const itemsRedeemed  = Number(buf.readBigUInt64LE(112));
-    const itemsAvailable = Number(buf.readBigUInt64LE(120));
+    const itemsRedeemed  = Number(buf.readBigUInt64LE(redeemed));
+    const itemsAvailable = Number(buf.readBigUInt64LE(available));
     cmSupplyCache.set(candyMachineState, { itemsRedeemed, itemsAvailable, fetchedAt: now });
     setMintMaxSupply(groupingKey, itemsAvailable);
     patchAccumulatorCoreSupply(groupingKey, itemsRedeemed);
     console.log(
-      `[mints/candyguard-supply] cmState=${candyMachineState} ` +
+      `[mints/candyguard-supply] cmState=${candyMachineState} family=${family} ` +
       `redeemed=${itemsRedeemed} available=${itemsAvailable}`,
     );
   } catch (e) {
     console.log(
-      `[mints/candyguard-supply] cmState=${candyMachineState} ` +
+      `[mints/candyguard-supply] cmState=${candyMachineState} family=${family} ` +
       `error=${e instanceof Error ? e.message : String(e)}`,
     );
   }
@@ -1811,6 +1842,15 @@ export async function ingestMintRaw(
           sourceLabel:       'Core Candy Machine',
           coreLaunchpad:     true,
         });
+        // Core Candy Machine state account holds items_redeemed +
+        // items_available — read those directly so the SUPPLY column
+        // shows "<minted> / <max>" instead of just the observed-session
+        // count with no cap (this was missing entirely: this detector
+        // never resolved a state address, so maxSupply stayed null for
+        // every Core Candy Machine drop). Null on layout drift falls
+        // through silently, same as the legacy Candy Guard path below.
+        const coreCmState = extractCoreCandyMachineState(tx);
+        if (coreCmState) void enrichCgSupply(coreCmState, groupingKey, 'core');
         // Per-NFT DAS enrichment only when the card was emitted into the
         // feed — sampled-out cards skip the getAsset to save RPC credits.
         if (emitted) enqueueMintEnrichment(groupingKey, cm.mintAddress);
@@ -2312,7 +2352,7 @@ export async function ingestMintRaw(
       // count. The detector populates `candyMachineState` from the
       // outer CG MintV2 ix; null on layout drift falls through silently.
       if (lp.candyMachineState) {
-        void enrichCgSupply(lp.candyMachineState, groupingKey);
+        void enrichCgSupply(lp.candyMachineState, groupingKey, 'legacy');
       }
     }
     // Async DAS confirmation only when the accept relied on the

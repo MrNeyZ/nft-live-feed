@@ -1192,6 +1192,46 @@ function extractCandyMachineState(tx: RawSolanaTx, shape: ParsedTxShape): string
   return null;
 }
 
+/** Same extraction as `extractCandyMachineState` above, for the MPL Core
+ *  Candy Guard family (Core Candy Guard `CMAGAK…` → Core Candy Machine
+ *  `CMACYFEN…`) instead of the legacy Token Metadata Candy Guard. Same
+ *  account-order guarantee (candy_guard @0, candy_machine_program @1,
+ *  candy_machine state @2 on the top-level ix — verified against the
+ *  Umi SDK's own generated `MintV1InstructionAccounts` and a real landed
+ *  tx, see candy-mint tool's decode.ts), different program ids.
+ *
+ *  This was missing entirely — the generic Core Candy Machine mint path
+ *  (`detectCoreCandyMachineMint` in core-v2-detector.ts) only checks that
+ *  the Core Candy Machine PROGRAM participated somewhere in the tx, never
+ *  resolved the drop-specific STATE account, so the /mints supply
+ *  cell's cap (maxSupply) was never populated for any Core Candy Machine
+ *  drop (confirmed: zero `[mints/candyguard-supply]` log lines ever,
+ *  despite Core Candy Machine being the single most common /mints
+ *  sourceLabel in the live feed). Exported so index.ts's Core Candy
+ *  Machine branch can resolve the same supply-check state address the
+ *  legacy Candy Guard path already does. */
+export function extractCoreCandyMachineState(tx: RawSolanaTx): string | null {
+  const shape = readTxShape(tx);
+  if (!shape) return null;
+  const message = tx.transaction?.message;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const top = (message as any)?.instructions as Array<{ programIdIndex?: number; programId?: string; accounts?: Array<number | string> }> | undefined;
+  if (!Array.isArray(top)) return null;
+  for (const ix of top) {
+    const programId = typeof ix.programId === 'string'
+      ? ix.programId
+      : typeof ix.programIdIndex === 'number'
+        ? shape.accountKeys[ix.programIdIndex]
+        : '';
+    if (programId !== PRNT_CORE_CANDY_GUARD) continue;
+    const accs = (ix.accounts ?? []).map(a => typeof a === 'string' ? a : shape.accountKeys[a]);
+    if (accs.length < 3) return null;
+    if (accs[1] !== PRNT_CORE_CANDY_MACHINE) return null;
+    return typeof accs[2] === 'string' ? accs[2] : null;
+  }
+  return null;
+}
+
 /** Tracker mode resolver. Defaults to `targeted` per the operator
  *  spec; set `MINT_TRACKER_MODE=legacy` to re-enable the broader
  *  Token Metadata / Core classifier path. */
