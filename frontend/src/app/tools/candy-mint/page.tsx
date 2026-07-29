@@ -27,7 +27,7 @@
 
 import { useEffect, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
-import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
+import { connectPhantom, eagerConnectPhantom, getPhantom, signAllAndSend, signSendAndConfirm } from '@/wallet/phantom';
 import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
 import { VL, VLText, ALPHA, alpha, rgb } from '@/lib/palette';
 import { ItemThumb, LiveDot, Pill } from '@/soloist/shared';
@@ -75,7 +75,7 @@ interface LoadedMachine {
   referenceCollectionUpdateAuthority: string | null;
 }
 
-type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error';
+type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'ready' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error';
 
 interface BatchItem {
   status: BatchItemStatus;
@@ -350,12 +350,15 @@ export default function CandyMintPage() {
     }
   }
 
-  // Sequential batch mint: each item goes through the same build → simulate
-  // → sign path as a single mint (same safety rails, same bot-tax abort),
-  // one Phantom approval per item — Phantom has no bulk-signing primitive,
-  // so N mints is N approvals no matter what. Stops the whole batch the
-  // moment one item comes back blocked or errored rather than burning
-  // through the rest (e.g. supply ran out mid-batch, limit reached).
+  // Batch mint: build + simulate every item first (same safety rails as a
+  // single mint, same bot-tax abort — stops queuing further items the
+  // moment one comes back blocked/errored), THEN sign every clean item
+  // with ONE Phantom approval (signAllAndSend) instead of one popup per
+  // item. Packing all N mints into a single on-chain transaction doesn't
+  // fit (measured: 10 MintV1 instructions serialize to ~1830 bytes, over
+  // the 1232-byte legacy wire limit) — this is what "one click mints 10"
+  // actually is on real candy-machine sites: N separate transactions,
+  // signed together.
   async function handleMintBatch() {
     if (!wallet || !loaded || selectedGroup === undefined) return;
     const { family, inspection, referenceCollection, referenceCollectionUpdateAuthority } = loaded;
@@ -366,6 +369,8 @@ export default function CandyMintPage() {
     const items: BatchItem[] = Array.from({ length: total }, () => ({ status: 'pending' }));
     setFlow({ kind: 'batch', total, items: [...items] });
 
+    // ── phase 1: build + simulate every item, stop at the first bad one ──
+    const readyTxs: string[] = [];
     for (let i = 0; i < total; i++) {
       items[i] = { status: 'building' };
       setFlow({ kind: 'batch', total, items: [...items] });
@@ -411,30 +416,55 @@ export default function CandyMintPage() {
           break;
         }
 
-        items[i] = { status: 'signing', solDeltaLamports: simJ.solDeltaLamports ?? null };
+        items[i] = { status: 'ready', solDeltaLamports: simJ.solDeltaLamports ?? null };
         setFlow({ kind: 'batch', total, items: [...items] });
-        const result = await signSendAndConfirm(j.transactionBase64);
-
-        // signSendAndConfirm returns the moment Phantom submits the tx, not
-        // once it lands (see its own doc comment — public RPC WSS confirm
-        // is unreliable, so it doesn't wait). Without waiting here, the next
-        // item's simulate-tx snapshots the wallet's "before" balance while
-        // THIS item may still be in flight, then simulates against a bank
-        // state where it already landed — the delta ends up covering both
-        // items' cost (looked exactly like ~2x a normal mint price).
-        items[i] = { status: 'confirming', solDeltaLamports: simJ.solDeltaLamports ?? null };
-        setFlow({ kind: 'batch', total, items: [...items] });
-        await waitForConfirmation(result.signature);
-
-        items[i] = { status: 'success', sig: result.signature, solDeltaLamports: simJ.solDeltaLamports ?? null };
-        setFlow({ kind: 'batch', total, items: [...items] });
-        bumpMintedCount();
+        readyTxs.push(j.transactionBase64);
       } catch (err) {
         items[i] = { status: 'error', message: humanizeThrownError((err as Error).message) };
         setFlow({ kind: 'batch', total, items: [...items] });
         break;
       }
     }
+
+    if (readyTxs.length === 0) {
+      setFlow({ kind: 'batch', total, items: [...items], done: true });
+      return;
+    }
+
+    // ── phase 2: one Phantom approval for every ready item ──────────────
+    const readyIndexes = items
+      .map((it, i) => (it.status === 'ready' ? i : -1))
+      .filter((i) => i >= 0);
+    try {
+      for (const i of readyIndexes) items[i] = { ...items[i], status: 'signing' };
+      setFlow({ kind: 'batch', total, items: [...items] });
+
+      await signAllAndSend(readyTxs, (readyPos, signature) => {
+        const i = readyIndexes[readyPos];
+        items[i] = { ...items[i], status: 'confirming', sig: signature };
+        setFlow({ kind: 'batch', total, items: [...items] });
+      });
+
+      // ── phase 3: wait for each to actually land, in submission order ──
+      for (const i of readyIndexes) {
+        const sig = items[i].sig;
+        if (!sig) continue;
+        await waitForConfirmation(sig);
+        items[i] = { ...items[i], status: 'success' };
+        setFlow({ kind: 'batch', total, items: [...items] });
+        bumpMintedCount();
+      }
+    } catch (err) {
+      // signAllTransactions rejected (e.g. user cancelled the approval) —
+      // none of the ready items got sent; mark them back as blocked rather
+      // than stuck on "signing" forever.
+      const message = humanizeThrownError((err as Error).message);
+      for (const i of readyIndexes) {
+        if (items[i].status !== 'success') items[i] = { ...items[i], status: 'error', message };
+      }
+      setFlow({ kind: 'batch', total, items: [...items] });
+    }
+
     // Release the busy lock whether the batch ran to completion or stopped
     // early on an error/blocked item — otherwise `busy` (tied to
     // flow.kind === 'batch') never clears and the Mint control can't come
@@ -700,6 +730,7 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
   pending: VLText.faint,
   building: VLText.muted,
   simulating: VLText.muted,
+  ready: VLText.muted,
   signing: rgb(VL.purpleTint),
   confirming: rgb(VL.purpleTint),
   success: rgb(VL.greenStrong),
@@ -765,13 +796,13 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ fontSize: 11, color: VLText.muted }}>
         Minting {flow.items.filter((it) => it.status === 'success').length}/{flow.total}
-        {' '}(one Phantom approval per mint):
+        {' '}(one Phantom approval for all of them):
       </div>
       {flow.items.map((it, i) => (
         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
           <span style={{ color: VLText.faint, width: 22 }}>#{i + 1}</span>
           <BatchStatusBadge status={it.status} />
-          {it.solDeltaLamports != null && (it.status === 'signing' || it.status === 'success') && (
+          {it.solDeltaLamports != null && ['ready', 'signing', 'confirming', 'success'].includes(it.status) && (
             <span style={{ color: rgb(VL.greenStrong), fontWeight: 600 }}>
               {(it.solDeltaLamports / 1e9).toFixed(5)} SOL
             </span>

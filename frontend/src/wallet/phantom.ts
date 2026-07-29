@@ -17,6 +17,7 @@ export interface PhantomProvider {
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey }>;
   disconnect: () => Promise<void>;
   signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T>;
+  signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]>;
   signAndSendTransaction<T extends Transaction | VersionedTransaction>(tx: T, opts?: { skipPreflight?: boolean; preflightCommitment?: string; maxRetries?: number }): Promise<{ signature: string }>;
 }
 
@@ -198,4 +199,43 @@ export async function signSendAndConfirm(
 
   console.log(TAG, 'signSendAndConfirm complete — signature=' + signature);
   return { signature, txType };
+}
+
+/**
+ * Sign N independent legacy transactions with ONE Phantom approval
+ * (signAllTransactions), then submit each sequentially via the backend
+ * raw-send proxy. This is what "one click mints 10" actually is on real
+ * candy-machine sites — not one packed on-chain transaction (10 MintV1
+ * instructions measured ~1830 bytes, over the 1232-byte legacy wire limit
+ * with no Address Lookup Table) but N separate transactions signed in a
+ * single wallet interaction.
+ *
+ * Every candy-mint tx is legacy with its asset keypair already
+ * partial-signed server-side (see build.ts) — only the wallet's own
+ * signature slot is empty, same precondition signSendAndConfirm relies on.
+ *
+ * `onSubmitted` fires the moment each tx's signature comes back from the
+ * send (not confirmation) so a caller can update per-item UI incrementally
+ * instead of waiting for the whole batch to land.
+ */
+export async function signAllAndSend(
+  txBase64List: string[],
+  onSubmitted?: (index: number, signature: string) => void,
+): Promise<string[]> {
+  const sol = getPhantom();
+  if (!sol) throw new Error('Phantom wallet not connected.');
+
+  const txs = txBase64List.map((b64) => Transaction.from(Buffer.from(b64, 'base64')));
+  console.log(TAG, `signAllTransactions: signing ${txs.length} txs with one approval...`);
+  const signed = await sol.signAllTransactions(txs);
+  console.log(TAG, 'signAllTransactions resolved — sending raw sequentially...');
+
+  const signatures: string[] = [];
+  for (let i = 0; i < signed.length; i++) {
+    const serialized = (signed[i] as Transaction).serialize();
+    const signature = await backendSendRaw(serialized);
+    signatures.push(signature);
+    onSubmitted?.(i, signature);
+  }
+  return signatures;
 }
