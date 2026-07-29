@@ -1184,10 +1184,17 @@ function extractCandyMachineState(tx: RawSolanaTx, shape: ParsedTxShape): string
         ? shape.accountKeys[ix.programIdIndex]
         : '';
     if (programId !== CANDY_GUARD_PROGRAM) continue;
+    // An allowlist-gated mint invokes the guard TWICE at the top level —
+    // once for `Route` (merkle-proof validation, different account shape)
+    // and once for the actual `MintV1` — so the first guard-program match
+    // isn't necessarily the mint ix. `continue` past a shape mismatch
+    // instead of giving up, so a later matching ix in the same tx still
+    // resolves (confirmed live: 3LxyiRpGMh9e…, Shinigami: The Underworld —
+    // Route ix first, MintV1 second; returning null here missed it).
     const accs = (ix.accounts ?? []).map(a => typeof a === 'string' ? a : shape.accountKeys[a]);
-    if (accs.length < 3) return null;
-    if (accs[1] !== CANDY_MACHINE_V3_PROGRAM) return null;
-    return typeof accs[2] === 'string' ? accs[2] : null;
+    if (accs.length < 3) continue;
+    if (accs[1] !== CANDY_MACHINE_V3_PROGRAM) continue;
+    if (typeof accs[2] === 'string') return accs[2];
   }
   return null;
 }
@@ -1224,10 +1231,13 @@ export function extractCoreCandyMachineState(tx: RawSolanaTx): string | null {
         ? shape.accountKeys[ix.programIdIndex]
         : '';
     if (programId !== PRNT_CORE_CANDY_GUARD) continue;
+    // Same reasoning as extractCandyMachineState above: an allowlist-gated
+    // mint invokes the guard twice (Route, then MintV1) — continue past a
+    // shape mismatch instead of giving up on the first guard-program hit.
     const accs = (ix.accounts ?? []).map(a => typeof a === 'string' ? a : shape.accountKeys[a]);
-    if (accs.length < 3) return null;
-    if (accs[1] !== PRNT_CORE_CANDY_MACHINE) return null;
-    return typeof accs[2] === 'string' ? accs[2] : null;
+    if (accs.length < 3) continue;
+    if (accs[1] !== PRNT_CORE_CANDY_MACHINE) continue;
+    if (typeof accs[2] === 'string') return accs[2];
   }
   return null;
 }
