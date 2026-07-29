@@ -23,7 +23,7 @@
  */
 
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { publicKey as umiPublicKey, type Context } from '@metaplex-foundation/umi';
+import { publicKey as umiPublicKey, AccountNotFoundError, type Context } from '@metaplex-foundation/umi';
 import {
   mplCandyMachine as mplCoreCandyMachine,
   fetchCandyMachine as fetchCoreCandyMachine,
@@ -176,8 +176,15 @@ async function inspectCore(candyMachineAddr: string, candyGuardAddr: string, wal
     itemsRedeemed = cm.itemsRedeemed.toString();
     itemsAvailable = cm.data.itemsAvailable.toString();
     collection = cm.collectionMint.toString();
-  } catch {
-    alive = false;
+  } catch (err) {
+    // Only a genuine "this account doesn't exist" means closed. A 429/
+    // network blip from a burst of rapid calls (batch-mint, wallet-switch
+    // background refresh) threw the same generic error here and got
+    // reported as "closed" indistinguishably — a transient RPC hiccup
+    // isn't the same fact as "sold out and rent-reclaimed", and battle-
+    // testing a 10x batch surfaced exactly that false positive live.
+    if (err instanceof AccountNotFoundError) alive = false;
+    else throw err;
   }
 
   const groups: GuardGroupSummary[] = [];
@@ -204,8 +211,15 @@ async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string, w
     itemsRedeemed = cm.itemsRedeemed.toString();
     itemsAvailable = cm.data.itemsAvailable.toString();
     collection = cm.collectionMint.toString();
-  } catch {
-    alive = false;
+  } catch (err) {
+    // Only a genuine "this account doesn't exist" means closed. A 429/
+    // network blip from a burst of rapid calls (batch-mint, wallet-switch
+    // background refresh) threw the same generic error here and got
+    // reported as "closed" indistinguishably — a transient RPC hiccup
+    // isn't the same fact as "sold out and rent-reclaimed", and battle-
+    // testing a 10x batch surfaced exactly that false positive live.
+    if (err instanceof AccountNotFoundError) alive = false;
+    else throw err;
   }
 
   const groups: GuardGroupSummary[] = [];

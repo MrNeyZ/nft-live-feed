@@ -596,24 +596,27 @@ export default function CandyMintPage() {
               )}
 
               {selected && !selected.supported && (
-                <div style={{ fontSize: 11.5, color: rgb(VL.redStrong) }}>
+                <StatusNotice tone="warning">
                   This group needs more than a wallet signature (unsupported: {selected.unsupportedGuards.join(', ')}) — can't mint it from here.
-                </div>
+                </StatusNotice>
               )}
 
               {/* Explicit reasons the mint control is missing — a blank gap
                   where the button used to be reads as "is the page broken?"
                   to anyone who doesn't already know this tool's premise
-                  (machines close/sell out). Say so plainly instead. */}
+                  (machines close/sell out). Say so plainly instead. Boxed
+                  as a distinct notice, not plain prose — at the same
+                  font-size/color as the collection description this read
+                  as the same kind of element, when it's a status, not copy. */}
               {!loaded.inspection.alive && (
-                <div style={{ fontSize: 12.5, color: VLText.muted, marginTop: 8 }}>
+                <StatusNotice>
                   This candy machine is closed — it no longer exists on-chain (fully minted, or the drop ended).
-                </div>
+                </StatusNotice>
               )}
               {loaded.inspection.alive && soldOut && (
-                <div style={{ fontSize: 12.5, color: VLText.muted, marginTop: 8 }}>
+                <StatusNotice>
                   Fully minted ({loaded.inspection.itemsRedeemed}/{loaded.inspection.itemsAvailable}) — nothing left to mint.
-                </div>
+                </StatusNotice>
               )}
 
               {/* ── mint control — the ONE spot that morphs through the flow ── */}
@@ -629,9 +632,9 @@ export default function CandyMintPage() {
                   ) : flow.kind === 'batch' && !flow.done ? (
                     <BatchControl flow={flow} />
                   ) : mintExhausted ? (
-                    <div style={{ fontSize: 12.5, color: VLText.muted }}>
+                    <StatusNotice>
                       You've hit your mint limit on this wallet ({selected?.mintLimit?.limit}/{selected?.mintLimit?.limit}) — switch wallets to mint more.
-                    </div>
+                    </StatusNotice>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <QuantityStepper value={quantity} max={quantityCap} onChange={setQuantity} disabled={busy} />
@@ -701,6 +704,26 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
 
 function BatchStatusBadge({ status }: { status: BatchItemStatus }) {
   return <span style={{ color: BATCH_STATUS_COLOR[status], minWidth: 70, display: 'inline-block' }}>{status}</span>;
+}
+
+// A boxed, bordered notice — distinct from the collection's own description
+// paragraph, which is plain flowing prose at the same neutral tone. Without
+// this the two read as the same kind of element (same size/color), even
+// though one is body copy and the other is a status about why there's no
+// Mint button right now.
+function StatusNotice({ tone = 'neutral', children }: { tone?: 'neutral' | 'warning'; children: React.ReactNode }) {
+  const accent = tone === 'warning' ? VL.redStrong : VL.purpleTint;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 7,
+      fontSize: 11.5, fontWeight: 600, color: tone === 'warning' ? rgb(VL.redStrong) : VLText.primary,
+      lineHeight: 1.5, padding: '9px 11px', borderRadius: 8, marginTop: 8,
+      background: alpha(accent, 0.08), border: `1px solid ${alpha(accent, ALPHA_BORDER)}`,
+    }}>
+      <span style={{ color: rgb(accent), flexShrink: 0, marginTop: 1 }}>{tone === 'warning' ? '⚠' : '●'}</span>
+      <span>{children}</span>
+    </div>
+  );
 }
 
 // Replaces the quantity+Mint row in place — cost line + Sign & Send button,
