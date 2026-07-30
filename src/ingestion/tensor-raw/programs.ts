@@ -285,6 +285,26 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
   // MPL Core inner-CPI scan (`extractCoreAssetFromInnerIx`).
 
   {
+    // ✅ VERIFIED 2026-07-30 — TAMM Core "sell into token pool" (bid fulfillment).
+    // Anchor disc sha256("global:sell_nft_token_pool_core")[:8] = 89 e3 c5 7a f5 e5 38 cd.
+    // Log name: SellNftTokenPoolCore. Confirmed missing from this table — a real
+    // Tensor Core sale (sig 36ZhURqyUJ8EYHG6wcMWoHfFCLeG6hJtnmrDv36eXY6642psZ9oRLrfo466mYHqycceGNsf7DmP3SCLXgn7SKZar)
+    // was silently dropped (fell through to "no recognised Tensor sale instruction")
+    // and never reached /feed. Account layout verified via balance-delta analysis
+    // on that tx: accounts[1] (signer) gained the sale proceeds = seller;
+    // accounts[7] lost the matching gross amount = pool margin/payer account
+    // ("buyer" slot, same TSWAP-degenerate-case handling as the existing 'sell'
+    // entry applies); accounts[14] is the Core asset (matches the inner MPL Core
+    // Transfer CPI's accounts[0]) — identical layout to the existing 'sell' entry.
+    name:          'sellNftTokenPoolCore',
+    disc:          Buffer.from('89e3c57af5e538cd', 'hex'),
+    verified:      true,
+    direction:     'sell',
+    buyerAcctIdx:  7,
+    sellerAcctIdx: 1,
+    coreAssetIdx:  14,
+  },
+  {
     // ⚠️ UNVERIFIED — discriminator observed live (sig
     //    2NFRJdpDckSaD3rV9FVDLjVfiFqdYXJApV4f2vXde8r6m9cG2VWCPSyRkJ3eG3k2WmzKZk8UnQXKtw5eepEhRFR4).
     // IDL name: sell_nft_trade_pool (Anchor disc sha256("global:sell_nft_trade_pool")[:8]).
