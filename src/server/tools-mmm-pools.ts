@@ -70,7 +70,7 @@ const ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
-    ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+    ? `https://beta.helius-rpc.com/?api-key=${key}`
     : 'https://api.mainnet-beta.solana.com';
 }
 
@@ -403,7 +403,7 @@ async function getAllWalletAssets(wallet: string): Promise<{ assets: DasAsset[];
   let truncated = false;
   for (let page = 1; page <= 20; page++) {
     try {
-      const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      const r = await fetch(`https://beta.helius-rpc.com/?api-key=${apiKey}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

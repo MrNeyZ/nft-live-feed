@@ -13,7 +13,7 @@ import { anchorDisc, TCOMP_SALE_INSTRUCTIONS, TAMM_SALE_INSTRUCTIONS } from './p
 const API_KEY = process.env.HELIUS_API_KEY;
 if (!API_KEY) { console.error('HELIUS_API_KEY not set'); process.exit(1); }
 
-const RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${API_KEY}`;
+const RPC_URL = `https://beta.helius-rpc.com/?api-key=${API_KEY}`;
 
 const TCOMP = 'TCMPhJdwDryooaGtiocG1u3xcYbRpiJzb283XfCZsDp';
 const TAMM  = 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg';

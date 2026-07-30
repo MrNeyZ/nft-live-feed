@@ -47,7 +47,7 @@ const BUY_PLOT_DISCRIMINATOR = Buffer.from([215, 251, 11, 234, 64, 163, 40, 181]
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
-    ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+    ? `https://beta.helius-rpc.com/?api-key=${key}`
     : 'https://api.mainnet-beta.solana.com';
 }
 

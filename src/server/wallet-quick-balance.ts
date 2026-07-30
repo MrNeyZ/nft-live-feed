@@ -13,7 +13,7 @@ import { Router, type Request, type Response } from 'express';
 import { rateLimit, isValidMint } from './rate-limit';
 
 const HELIUS_URL = (): string =>
-  `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
+  `https://beta.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 // Token-2022 holdings live under a separate program; a single
 // getTokenAccountsByOwner over the legacy program misses them entirely

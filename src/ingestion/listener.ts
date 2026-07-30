@@ -723,7 +723,7 @@ function hasOrbisSaleInstruction(logs: unknown): boolean {
 function wssUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   if (!key) throw new Error('HELIUS_API_KEY not set');
-  return `wss://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `wss://beta.helius-rpc.com/?api-key=${key}`;
 }
 
 // ─── WS connect audit ────────────────────────────────────────────────────────
@@ -1332,7 +1332,7 @@ const MAX_BLOCK_AGE_S   = 600;     // 10-minute recency window
 function rpcHttpUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   if (!key) throw new Error('HELIUS_API_KEY not set');
-  return `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `https://beta.helius-rpc.com/?api-key=${key}`;
 }
 
 // Per-target accumulated stats, reset each time logPollSummary() runs.

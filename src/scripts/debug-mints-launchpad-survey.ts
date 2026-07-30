@@ -30,7 +30,7 @@ const TOKEN_METADATA       = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
 const BUBBLEGUM            = 'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY';
 
 const RPC_URL = process.env.HELIUS_API_KEY
-  ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+  ? `https://beta.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
   : 'https://api.mainnet-beta.solana.com';
 
 const LIMIT          = 100;       // signatures to pull

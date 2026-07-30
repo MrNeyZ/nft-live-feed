@@ -22,7 +22,7 @@ import 'dotenv/config';
 
 const PUBLIC_RPC = 'https://api.mainnet-beta.solana.com';
 const RPC_URL = process.env.HELIUS_API_KEY
-  ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+  ? `https://beta.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
   : PUBLIC_RPC;
 
 const LMNFT_PROGRAM = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';

@@ -50,7 +50,7 @@ import { sleep } from '../ingestion/concurrency';
 
 const API_KEY = process.env.HELIUS_API_KEY;
 if (!API_KEY) { console.error('HELIUS_API_KEY not set'); process.exit(1); }
-const RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${API_KEY}`;
+const RPC_URL = `https://beta.helius-rpc.com/?api-key=${API_KEY}`;
 
 // ─── args ───────────────────────────────────────────────────────────────────
 function flag(name: string): string | undefined {

@@ -100,7 +100,7 @@ export function decodeCollectionV1NumMinted(dataB64: string): number | null {
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   if (!key) throw new Error('HELIUS_API_KEY not set');
-  return `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `https://beta.helius-rpc.com/?api-key=${key}`;
 }
 
 interface GmaResult {

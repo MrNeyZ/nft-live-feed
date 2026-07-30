@@ -160,7 +160,7 @@ export async function decodeCandyMintSignature(signature: string): Promise<Decod
  */
 export async function detectFamilyFromGuardAddress(candyGuardAddr: string): Promise<CandyMintFamily | null> {
   const apiKey = process.env.HELIUS_API_KEY;
-  const url = apiKey ? `https://mainnet.helius-rpc.com/?api-key=${apiKey}` : 'https://api.mainnet-beta.solana.com';
+  const url = apiKey ? `https://beta.helius-rpc.com/?api-key=${apiKey}` : 'https://api.mainnet-beta.solana.com';
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -42,7 +42,7 @@ async function fetchTps(): Promise<number | null> {
   const key = process.env.HELIUS_API_KEY;
   if (!key) return null;
   try {
-    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${key}`, {
+    const res = await fetch(`https://beta.helius-rpc.com/?api-key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

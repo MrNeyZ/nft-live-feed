@@ -43,7 +43,7 @@ const SCANNER_INTERVAL_MS = 30_000;   // scan accumulator for new addrs every 30
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   if (!key) throw new Error('HELIUS_API_KEY not set');
-  return `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `https://beta.helius-rpc.com/?api-key=${key}`;
 }
 
 interface SigInfo {

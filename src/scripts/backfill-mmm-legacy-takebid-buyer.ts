@@ -102,7 +102,7 @@ Dry-run example:
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   if (!key) throw new Error('HELIUS_API_KEY missing in env');
-  return `https://mainnet.helius-rpc.com/?api-key=${key}`;
+  return `https://beta.helius-rpc.com/?api-key=${key}`;
 }
 
 const isRateLimit = (status: number) => status === 429 || (status >= 500 && status <= 599);

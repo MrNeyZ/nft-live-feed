@@ -61,7 +61,7 @@ export function resolvePaymentToken(mint: string, attempt = 0): void {
     try {
       incGetAsset('payment_token_enrich');
       const res = await fetch(
-        `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+        `https://beta.helius-rpc.com/?api-key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

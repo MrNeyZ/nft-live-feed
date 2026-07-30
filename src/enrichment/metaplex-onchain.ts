@@ -215,7 +215,7 @@ export async function getMetaplexOnchainMetadata(
     const pda = deriveMetadataPda(mint);
 
     // ── 1. Fetch metadata account ───────────────────────────────────────────
-    const rpcRes = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+    const rpcRes = await fetch(`https://beta.helius-rpc.com/?api-key=${apiKey}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

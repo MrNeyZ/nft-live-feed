@@ -14,7 +14,7 @@ import { anchorDisc, ME_V2_SALE_INSTRUCTIONS, MMM_SALE_INSTRUCTIONS } from './pr
 const API_KEY = process.env.HELIUS_API_KEY;
 if (!API_KEY) { console.error('HELIUS_API_KEY not set'); process.exit(1); }
 
-const RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${API_KEY}`;
+const RPC_URL = `https://beta.helius-rpc.com/?api-key=${API_KEY}`;
 const ME_V2   = 'M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K';
 const ME_AMM  = 'mmm3XBJg5gk8XJxEKBvdgptZz6SgK4tXvn36sodowMc';
 

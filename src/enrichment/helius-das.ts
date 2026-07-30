@@ -130,7 +130,7 @@ async function fetchAssetWithSource(
       const apiKey = process.env.HELIUS_API_KEY;
       if (!apiKey) { assetMissCache.set(address, true); return null; }
 
-      const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      const res = await fetch(`https://beta.helius-rpc.com/?api-key=${apiKey}`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -388,7 +388,7 @@ async function searchAssetsTotal(owner: string, collection: string): Promise<num
   if (!apiKey) return null;
   try {
     const res = await fetch(
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+      `https://beta.helius-rpc.com/?api-key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -448,7 +448,7 @@ async function ownerScanForCollectionCount(
   try {
     for (let page = 1; page <= MAX_PAGES; page++) {
       const res = await fetch(
-        `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+        `https://beta.helius-rpc.com/?api-key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -570,7 +570,7 @@ export async function getCollectionMintedCount(collectionAddress: string): Promi
   if (!apiKey) return null;
   try {
     const res = await fetch(
-      `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
+      `https://beta.helius-rpc.com/?api-key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

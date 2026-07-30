@@ -100,7 +100,7 @@ function blockhashMarginBlocksFromEnv(): number {
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
-    ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+    ? `https://beta.helius-rpc.com/?api-key=${key}`
     : 'https://api.mainnet-beta.solana.com';
 }
 

@@ -245,7 +245,7 @@ async function decodeDeployJson(pda: string): Promise<{ tick: string; max: strin
 }
 
 function heliusUrl(): string {
-  return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
+  return `https://beta.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY ?? ''}`;
 }
 
 async function rpc(method: string, params: unknown): Promise<unknown> {

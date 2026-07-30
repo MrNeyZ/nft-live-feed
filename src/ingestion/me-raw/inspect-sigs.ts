@@ -7,7 +7,7 @@ import bs58 from 'bs58';
 import { anchorDisc } from './programs';
 
 const API_KEY = process.env.HELIUS_API_KEY!;
-const RPC = `https://mainnet.helius-rpc.com/?api-key=${API_KEY}`;
+const RPC = `https://beta.helius-rpc.com/?api-key=${API_KEY}`;
 
 const SIGS = [
   { sig: '2KTu5TRKipTz58HxwnzfkJ8qM36qzJn83pxepWt5XvQZWRRdDdMSctZTYeaFNpfeN9b5v3r13bw1wRskTThKmgJs', label: 'tx1 – suspected BuyV2 listing purchase' },

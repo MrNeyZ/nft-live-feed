@@ -273,7 +273,7 @@ async function enrichCgSupply(candyMachineState: string, groupingKey: string, fa
   const apiKey = process.env.HELIUS_API_KEY;
   if (!apiKey) return;
   try {
-    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+    const res = await fetch(`https://beta.helius-rpc.com/?api-key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

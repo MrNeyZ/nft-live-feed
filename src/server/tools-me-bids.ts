@@ -60,7 +60,7 @@ const DEFAULT_AUCTION_HOUSE = 'E8cU1WiRWjanGxmn96ewBgk9vPTcL6AEZ1t6F6fkgUWe';
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
   return key
-    ? `https://mainnet.helius-rpc.com/?api-key=${key}`
+    ? `https://beta.helius-rpc.com/?api-key=${key}`
     : 'https://api.mainnet-beta.solana.com';
 }
 
