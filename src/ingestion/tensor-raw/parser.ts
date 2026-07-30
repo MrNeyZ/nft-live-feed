@@ -23,6 +23,7 @@ import {
   findTammSaleIx,
   classifyNftType,
   extractCoreAssetFromInnerIx,
+  extractPoolOwnerFromMarginWithdrawCpi,
 } from './decoder';
 import {
   extractPaymentInfo,
@@ -257,13 +258,26 @@ function parseTammSale(
   if (match.buyerAcctIdx  !== null) buyer  = accs[match.buyerAcctIdx]  ?? null;
   if (match.sellerAcctIdx !== null) seller = accs[match.sellerAcctIdx] ?? null;
 
-  // TAMM sell: pool owner (buyer) was historically at instruction slot 7.
-  // Newer pool layouts dropped the TSwap singleton from the front of the
-  // account list, shifting the pool owner to slot 0 and leaving slot 7
-  // occupied by the TAMM program itself. Detect that degenerate case and
-  // use slot 0 instead.
-  if (match.direction === 'sell' && buyer === TAMM_PROGRAM) {
-    buyer = accs[0] ?? null;
+  // TAMM sell: whenever the pool pays out via a shared margin/escrow
+  // account, TSwap's "WithdrawMarginAccountCpiTamm" inner CPI names the
+  // real human pool owner at its own accounts[2] — independent of this
+  // instruction's outer account layout. This is authoritative and
+  // instruction-agnostic: it self-corrects wrong/unverified/uncatalogued
+  // outer indices alike (see programs.ts TSWAP_PROGRAM comment), so newly
+  // observed sell instructions don't repeat the "margin PDA mistaken for
+  // buyer" bug on their own. Only checked for 'sell' — 'buy' instructions
+  // never trigger a margin *withdrawal* (the pool is receiving, not paying).
+  if (match.direction === 'sell') {
+    const poolOwner = extractPoolOwnerFromMarginWithdrawCpi(tx);
+    if (poolOwner) {
+      buyer = poolOwner;
+    } else if (buyer === TAMM_PROGRAM) {
+      // Fallback for pools that pay from their own balance (no margin CPI):
+      // some layouts drop the TSwap singleton from the front of the account
+      // list, shifting the pool owner to slot 0 and leaving slot 7 occupied
+      // by the TAMM program itself.
+      buyer = accs[0] ?? null;
+    }
   }
 
   // For user-buys-from-pool with NO verified seller index, token-flow

@@ -31,6 +31,19 @@ export const TENSOR_FEE_ACCOUNT = 'DrFkK9QyDPDHHAgRi5jkAFkqeNDf4wkcyDtAv2CeL9tk'
 /** MPL Core program address (for classifying Core NFT transactions). */
 export const MPL_CORE_PROGRAM = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 
+/**
+ * TSwap program — invoked by TAMM via CPI when a pool pays out from a shared
+ * margin/escrow account instead of its own balance (log: "Instruction:
+ * WithdrawMarginAccountCpiTamm"). Confirmed 2026-07-30 across 3 live sell
+ * txs / 2 distinct pools: that inner CPI's accounts[2] is always the real,
+ * human pool-owner wallet — the SAME value as the outer instruction's
+ * accounts[0], but derived independently of any per-instruction account
+ * layout. Used as an instruction-agnostic override so newly-observed or
+ * still-unverified TAMM sell instructions (e.g. sellNftTradePool) don't
+ * repeat the "margin PDA mistaken for buyer" bug on their own.
+ */
+export const TSWAP_PROGRAM = 'TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN';
+
 // ─── Anchor discriminator helper ─────────────────────────────────────────────
 
 /** Computes the 8-byte Anchor instruction discriminator: sha256("global:<name>")[0..8]. */

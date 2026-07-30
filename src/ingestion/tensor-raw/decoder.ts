@@ -5,6 +5,7 @@ import {
   TAMM_PROGRAM,
   BUBBLEGUM_PROGRAM,
   MPL_CORE_PROGRAM,
+  TSWAP_PROGRAM,
   TENSOR_PROGRAMS,
   TCOMP_SALE_INSTRUCTIONS,
   TAMM_SALE_INSTRUCTIONS,
@@ -183,6 +184,33 @@ export function extractCoreAssetFromInnerIx(tx: RawSolanaTx): string | null {
       if (ix.accounts.length === 0) continue;
       const asset = resolveAccountKey(tx, ix.accounts[0]);
       if (asset) return asset;
+    }
+  }
+  return null;
+}
+
+// ─── TAMM pool owner from margin-withdraw inner CPI ──────────────────────────
+
+/**
+ * Extract the real pool-owner wallet from a TSwap "WithdrawMarginAccountCpiTamm"
+ * inner CPI, when a TAMM pool pays a seller out of a shared margin/escrow
+ * account rather than its own balance. That CPI's accounts[2] is confirmed
+ * the human pool owner (verified against 3 live sell txs / 2 pools,
+ * 2026-07-30) — the same value the outer instruction's accounts[0] resolves
+ * to, but obtained without relying on any per-instruction account layout.
+ *
+ * Use this as an override for the "pool owner" side of TAMM sell events —
+ * it self-corrects instructions whose outer-account indices are wrong,
+ * unverified, or not yet catalogued, instead of requiring a fresh hardcoded
+ * fix every time Tensor ships a new dispatch name.
+ */
+export function extractPoolOwnerFromMarginWithdrawCpi(tx: RawSolanaTx): string | null {
+  for (const group of tx.meta?.innerInstructions ?? []) {
+    for (const ix of group.instructions) {
+      if (resolveAccountKey(tx, ix.programIdIndex) !== TSWAP_PROGRAM) continue;
+      if (ix.accounts.length < 3) continue;
+      const owner = resolveAccountKey(tx, ix.accounts[2]);
+      if (owner) return owner;
     }
   }
   return null;
