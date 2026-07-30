@@ -249,13 +249,22 @@ export interface TammIxDef {
 export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
   {
     // ✅ VERIFIED — confirmed from sig 3 (user sells Core NFT into AMM pool).
-    // Discriminator observed: 25 cd 8d 35 56 f5 2d 4e
-    // Seller = accounts[1], Buyer (pool owner) = accounts[7], Core asset = accounts[14]
+    // IDL name: sell_nft_trade_pool_core. Discriminator: 25 cd 8d 35 56 f5 2d 4e.
+    // Seller = accounts[1], Core asset = accounts[14].
+    // Buyer correction 2026-07-30: accounts[7] is a TSWAP-owned escrow/margin
+    // PDA (owner=TSWAPaqyCSx…, data_len=192) — the SAME bug already fixed for
+    // 'buy'/'buyNft' below, just on the sell side. Two live pool-sell txs into
+    // the SAME pool (A5sAP5KhTQ7KGt2UgweDhLLHHSkyGfG5ukNKAd96f5Lp, incl. sig
+    // 55vcg5ufZq742aJnvjC7EQti6YMADXz7qLsvkchfR1hd5X1mN6aBMmP7gTj6aLgu4aU8prJ78zgodPwyyZB7E3ma)
+    // showed buyer=DUQbSM6AC6ctjAJDw1jQQfAaNP3ENZ8ZGBeHPiZXSfR4 (the margin PDA)
+    // instead of the real pool address at accounts[0] (System-owned,
+    // data_len=0) — confirmed via getAccountInfo on both. accounts[0] is
+    // constant across sales of the same pool, exactly like the buy-side fix.
     name:          'sell',
     disc:          Buffer.from('25cd8d3556f52d4e', 'hex'),
     verified:      true,
     direction:     'sell',
-    buyerAcctIdx:  7,
+    buyerAcctIdx:  0,    // pool owner (human wallet) — was 7 (TSWAP escrow/margin PDA)
     sellerAcctIdx: 1,
     coreAssetIdx:  14,
   },
@@ -292,15 +301,16 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     // was silently dropped (fell through to "no recognised Tensor sale instruction")
     // and never reached /feed. Account layout verified via balance-delta analysis
     // on that tx: accounts[1] (signer) gained the sale proceeds = seller;
-    // accounts[7] lost the matching gross amount = pool margin/payer account
-    // ("buyer" slot, same TSWAP-degenerate-case handling as the existing 'sell'
-    // entry applies); accounts[14] is the Core asset (matches the inner MPL Core
-    // Transfer CPI's accounts[0]) — identical layout to the existing 'sell' entry.
+    // accounts[14] is the Core asset (matches the inner MPL Core Transfer
+    // CPI's accounts[0]) — identical layout to the existing 'sell' entry.
+    // Buyer correction 2026-07-30: buyerAcctIdx=0, NOT 7 — accounts[7] is a
+    // TSWAP-owned escrow/margin PDA (data_len=192), same bug as the 'sell'
+    // entry above and the already-fixed 'buy'/'buyNft' entries below.
     name:          'sellNftTokenPoolCore',
     disc:          Buffer.from('89e3c57af5e538cd', 'hex'),
     verified:      true,
     direction:     'sell',
-    buyerAcctIdx:  7,
+    buyerAcctIdx:  0,
     sellerAcctIdx: 1,
     coreAssetIdx:  14,
   },
