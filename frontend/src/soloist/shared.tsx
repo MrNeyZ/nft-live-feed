@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 // import { VictoryLabsLogo } from './VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
 import {
-  CATEGORY_LAYER, Marketplace, rndFloat, rndInt,
+  CATEGORY_LAYER, Marketplace,
 } from './mock-data';
 import { useCollectionIcons } from './collection-icons';
 import { clearAuth as runtimeClearAuth } from '@/runtime/auth';
@@ -1624,9 +1624,15 @@ export function BarIconButton({ on, onClick, children }: {
   );
 }
 
+// Last real values survive a remount (e.g. full page reload lands here
+// before the first fetch resolves) so the bar never has to show a fake
+// number while waiting — see BottomStatusBar's initial state below.
+let lastKnownSol: string | null = null;
+let lastKnownTps: number | null = null;
+
 export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?: number } = {}) {
-  const [sol, setSol] = useState<string>(() => rndFloat(38, 42).toFixed(2));
-  const [tps, setTps] = useState<number>(() => rndInt(2100, 2800));
+  const [sol, setSol] = useState<string | null>(() => lastKnownSol);
+  const [tps, setTps] = useState<number | null>(() => lastKnownTps);
   const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
   const uiSoundEnabled  = useUiSoundEnabled();
   const uiSoundVolume   = useUiSoundVolumeMultiplier();
@@ -1662,8 +1668,12 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
         .then(r => r.ok ? r.json() : null)
         .then((data: { tps?: number | null; solUsd?: number | null } | null) => {
           if (cancelled || !data) return;
-          if (typeof data.tps    === 'number') setTps(data.tps);
-          if (typeof data.solUsd === 'number') setSol(data.solUsd.toFixed(2));
+          if (typeof data.tps === 'number') { lastKnownTps = data.tps; setTps(data.tps); }
+          if (typeof data.solUsd === 'number') {
+            const formatted = data.solUsd.toFixed(2);
+            lastKnownSol = formatted;
+            setSol(formatted);
+          }
         })
         .catch(() => { /* keep prior value */ });
     };
@@ -1762,7 +1772,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 color: '#c7ded5',
                 fontWeight: 600,
                 fontVariantNumeric: 'tabular-nums',
-              }}>${sol}</span>
+              }}>{sol !== null ? `$${sol}` : '—'}</span>
             </span>
             <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.20)' }} aria-hidden="true" />
             <span>
@@ -1771,7 +1781,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 color: '#a89eda',
                 fontWeight: 500,
                 fontVariantNumeric: 'tabular-nums',
-              }}>{tps.toLocaleString()}</span>
+              }}>{tps !== null ? tps.toLocaleString() : '—'}</span>
             </span>
           </div>
           <div style={{ ...groupModule, gap: 10 }}>
