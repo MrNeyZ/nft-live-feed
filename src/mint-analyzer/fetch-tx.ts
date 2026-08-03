@@ -3,8 +3,10 @@
  *
  * Thin wrapper over Helius `getTransaction` (encoding:'json'), mirroring the
  * RPC shape used across ingestion (`amm-poller`, `me-raw/inspect-sigs`). This
- * is the ONLY network call in the analyzer and it is strictly read-only — no
- * signing, no sending, no account writes.
+ * is the tx fetch `analyze()` itself depends on — strictly read-only, no
+ * signing, no sending, no account writes. (The router also makes one further
+ * optional, best-effort read via `collection-authority.ts` for a narrow case;
+ * `analyze()` stays pure/offline either way — see its header comment.)
  */
 import type { RawRpcTx } from './types';
 

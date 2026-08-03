@@ -352,6 +352,16 @@ primitive → `YES`. NB: a Candy-Guard allowlist mint scores `YES` (guard is a
 primitive, not a launchpad) — `MAYBE` requires a known launchpad entry
 program; `NO` requires a known platform signer (vvv.so / gravemint.io).
 
+**Access type** (`accessType`, additive, never feeds `verdict`): `public` ·
+`nft_holder_gate` · `treasury_manual_allowlist` · `backend_gated` ·
+`authority_gated` · `unknown`. `authority_gated` is router-side only
+(`src/mint-analyzer/collection-authority.ts`, one extra best-effort live
+read) — fires for a raw MPL Core create with no Candy Guard/wrapper/backend
+signer, since the Core program only lets the collection's `updateAuthority`
+(or an `UpdateDelegate` `additionalDelegates` entry) create into it; `YES`
+there means "structurally reconstructable", NOT "anyone can mint" —
+`accessClues` names the exact wallet(s) allowed.
+
 **Known examples**
 - `YES`       — `5wkbhQ3QHti69S3dqo4F1Y8PtTKofLSRWzeNW5foMrBCXkz7ntNDGTJMCHi7S21ChHghwUC8UZRHSmTLwKR6ujYr`
 - `MAYBE`     — `3qjW71UQFuq9X65Fk4bKVmGyPs6XVGc8rtHF1UiqzBJ7AfQ9ZA1RVX1PpKYFGJfG93vwcCcuTR5edV2zXNtDDUeQ`

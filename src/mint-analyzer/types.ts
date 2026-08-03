@@ -69,6 +69,7 @@ export type AccessType =
   | 'nft_holder_gate'
   | 'treasury_manual_allowlist'
   | 'backend_gated'
+  | 'authority_gated'
   | 'unknown';
 
 export interface ProgramCall {
@@ -163,6 +164,10 @@ export interface MintAnalysis {
   customWrapper: { programId: string; name: string | null } | null;
   /** set when a recognised launchpad program fronts the mint */
   knownLaunchpad: { programId: string; name: string | null } | null;
+  /** MPL Core collection address referenced by a Create/CreateV2 in this tx,
+   *  or null when no core create instruction was found. Decoded from the ix's
+   *  own account list — pure, no network. */
+  collection: string | null;
 
   signers: ClassifiedSigner[];
   /** true if any required signer is a known platform/backend co-signer */

@@ -484,6 +484,18 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
       .filter(f => f.programId === MPL_CORE_PROGRAM && (f.data[0] === 0 || f.data[0] === 20) && f.accounts[0])
       .map(f => f.accounts[0]),
   );
+  // Collection referenced by a Create/CreateV2 call — same fixed account
+  // order (asset·collection·authority·payer·…) in both Create and CreateV2,
+  // verified against the generated instruction builders. Used by the router
+  // for an optional live authority/delegate check; not read anywhere else in
+  // this pure function.
+  // A None `collection` account is filled by Umi with the program ID itself
+  // as a placeholder (same pattern as authority/owner/updateAuthority/
+  // logWrapper below) — exclude that case (standalone, collection-less asset).
+  const coreCreateCollection = flat.find(
+    f => f.programId === MPL_CORE_PROGRAM && (f.data[0] === 0 || f.data[0] === 20)
+      && f.accounts[1] && f.accounts[1] !== MPL_CORE_PROGRAM,
+  )?.accounts[1] ?? null;
   //  (b) Legacy Token Metadata / Candy Machine v3 — a fresh SPL mint keypair
   //      signs to create itself via SPL Token InitializeMint (tag 0) /
   //      InitializeMint2 (tag 20); the new mint = accounts[0]. Same self-signing
@@ -656,6 +668,7 @@ export function analyze(tx: RawRpcTx, signature: string): MintAnalysis {
     likelyMintPrimitive: primitive,
     customWrapper,
     knownLaunchpad,
+    collection: coreCreateCollection,
     signers,
     backendSignerObserved,
     guardAuth: { candyGuard, notes },
