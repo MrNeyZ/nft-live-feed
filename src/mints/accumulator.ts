@@ -22,7 +22,7 @@ import {
 import { getCollectionMintedCount } from '../enrichment/helius-das';
 import { cleanName } from './clean-name';
 import { noteSearchAssetsCall } from './collection-confirm';
-import { isCollectionBlacklisted, noteBlacklistDrop, isDeployerBlacklisted, trackDeployerMint } from './blacklist';
+import { isCollectionBlacklisted, noteBlacklistDrop, isDeployerBlacklisted, trackDeployerMint, sweepDeployerWindow } from './blacklist';
 import { shouldEmitFeedCard, forgetFeedSampling, getFeedSampling } from './feed-sampler';
 import { appendCountedLedger } from './counted-ledger';
 
@@ -877,8 +877,11 @@ export function recordMint(ev: MintEventWire): boolean {
 
 /** Background sweep: re-emits status frames for shown collections so the
  *  frontend's velocity readouts decay correctly when activity stops, and
- *  demotes burst-shown collections that have gone quiet. */
+ *  demotes burst-shown collections that have gone quiet. Also piggybacks
+ *  other /mints housekeeping that just needs "run periodically, don't
+ *  need its own timer" — e.g. `blacklist.ts`'s deployer-window TTL. */
 function sweep(): void {
+  sweepDeployerWindow();
   const now = Date.now();
   for (const [key, a] of map) {
     // Trim windows even if no new events arrived.
@@ -994,6 +997,11 @@ export const __testHooks = {
   },
   /** Drop all accumulator state (test isolation between cases). */
   reset: (): void => { map.clear(); },
+  /** True iff `groupingKey` was sticky-evicted via `evictMintGroup`
+   *  (confirmed non-NFT verdict) — i.e. it's in the permanent
+   *  `evictedNonNft` reject set and future `recordMint` calls for it
+   *  will be silently dropped. */
+  isEvictedNonNft: (groupingKey: string): boolean => evictedNonNft.has(groupingKey),
 };
 
 /** Read-only name probe — lets callers gate weaker-source name

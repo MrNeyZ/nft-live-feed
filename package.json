@@ -47,6 +47,7 @@
     "test:mint-unified-create": "ts-node src/ingestion/mint-raw/__tests__/unified-create.test.ts",
     "test:targeted-unified-create": "ts-node src/ingestion/mint-raw/__tests__/targeted-mode-unified-create.test.ts",
     "test:mint-accumulator": "MINT_BURST_V60=2 MINT_BURST_V5M=2 MINT_DISPLAY_THRESHOLD=50 MINT_IDLE_COOLDOWN_MS=1 ts-node src/mints/__tests__/accumulator-revival.test.ts",
+    "test:mint-collection-confirm-lifecycle": "ts-node src/mints/__tests__/collection-confirm-lifecycle.test.ts",
     "test:mint-price-relayer": "ts-node src/ingestion/mint-raw/mint-price-relayer.test.ts",
     "test:tensor-cnft-price": "ts-node src/ingestion/tensor-raw/__tests__/cnft-price.test.ts",
     "test:tamm-sell-buyer": "ts-node src/ingestion/tensor-raw/__tests__/tamm-sell-buyer.test.ts",

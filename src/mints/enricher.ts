@@ -26,9 +26,26 @@ const pending: PendingEntry[]  = [];
  *  every distinct mint gets a DAS verdict at least once, even when a
  *  fungible later joins a group whose first mint was a real NFT — the
  *  prior per-group dedup let those slip through unchallenged.
- *  Bounded indirectly: same population as the accumulator's mint set,
- *  which the rolling-window sweep already prunes.  */
+ *  Bounded FIFO (insertion-ordered Set, same pattern as
+ *  `evictedNonNft`/`countedMints` in accumulator.ts): oldest
+ *  mint addresses are evicted once the cap is exceeded, so this can't
+ *  grow without limit across long uptime. A mint falling out of the
+ *  window just means it could be re-enqueued and re-verified if it
+ *  somehow mints again — harmless, since real mint addresses never
+ *  repeat on-chain. */
+const VERIFIED_MINTS_MAX       = 100_000;
 const verifiedMints            = new Set<string>();
+function rememberVerified(mintAddress: string): void {
+  verifiedMints.add(mintAddress);
+  if (verifiedMints.size <= VERIFIED_MINTS_MAX) return;
+  const overflow = verifiedMints.size - VERIFIED_MINTS_MAX;
+  const it = verifiedMints.values();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    verifiedMints.delete(r.value);
+  }
+}
 let workerScheduled            = false;
 
 let warmEnrichSkips = 0;
@@ -48,7 +65,7 @@ export function enqueueMintEnrichment(
     return;
   }
   if (verifiedMints.has(mintAddress)) return;       // already attempted
-  verifiedMints.add(mintAddress);
+  rememberVerified(mintAddress);
   pending.push({ groupingKey, mintAddress, programSource });
   if (pending.length > PENDING_MAX) {
     // Drop oldest — under a hot launch the freshest entries are the
@@ -218,3 +235,13 @@ function noteDasSkipTransient(reason: string, mint: string): void {
     );
   }
 }
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. */
+export const __testHooks = {
+  verifiedMintsSize: (): number => verifiedMints.size,
+  hasVerified: (mintAddress: string): boolean => verifiedMints.has(mintAddress),
+  rememberVerified: (mintAddress: string): void => rememberVerified(mintAddress),
+  verifiedMintsMax: VERIFIED_MINTS_MAX,
+  isConfirmedFungibleVerdict: (reason: string | undefined): boolean => isConfirmedFungibleVerdict(reason),
+};
