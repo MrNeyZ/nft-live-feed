@@ -122,6 +122,68 @@ function txHasProgram(tx: RawSolanaTx, programId: string): boolean {
 function isLuckyBuyTx(tx: RawSolanaTx): boolean { return txHasProgram(tx, LUCKY_BUY_PROGRAM); }
 function isPackOpenTx(tx: RawSolanaTx): boolean { return txHasProgram(tx, ME_PACKS_PROGRAM); }
 
+/** True iff `pubkey` is a genuine signer of this transaction (per the raw
+ *  `getTransaction` response's per-key `signer` flag — present even under
+ *  `encoding: 'json'`, see RawAccountKey). The one fact a program-owned
+ *  escrow PDA can never have, no matter how large its SOL outflow. */
+function isConfirmedSigner(tx: RawSolanaTx, pubkey: string): boolean {
+  const keys = tx.transaction.message.accountKeys as unknown as Array<string | { pubkey: string; signer: boolean }>;
+  for (const k of keys) {
+    if (typeof k === 'string') continue; // un-merged raw response — no signer info available
+    if (k.pubkey === pubkey) return k.signer === true;
+  }
+  return false;
+}
+
+/**
+ * Instruction-aware buyer resolution for MPL Core ME v2 sales — the
+ * fallback path (extractPaymentInfo's SOL-flow "largest decrease")
+ * misattributes the buyer to a program-owned escrow PDA whenever that
+ * escrow's single-instruction outflow exceeds the real buyer's own fresh
+ * top-up in the same transaction (2026-08-05 bug, see MeV2IxDef.buyerAcctIdx
+ * doc in programs.ts for the full mechanism + confirmed live examples).
+ *
+ * Returns null (falls through to the existing tkBuyer / payment.buyer
+ * chain — i.e. current behaviour, unchanged) unless ALL of:
+ *   1. This exact instruction variant has a verified buyerAcctIdx
+ *      (currently: coreExecuteSaleV2 only — every other ME v2 variant
+ *      either has reliable token-flow data or hasn't been independently
+ *      confirmed, so this deliberately does nothing for them).
+ *   2. The candidate account at that index is a REAL signer of the
+ *      transaction. A relayed/sponsored wrapper (confirmed live: Lucky
+ *      Buy, where accounts[0] is ME's own treasury acting as fee-payer)
+ *      would place a non-buyer account there. Lucky Buy is ALSO excluded
+ *      by name (`isLuckyBuyTx`) since its relayed accounts[0] genuinely
+ *      IS a signer with a genuinely negative delta (network fee) — the
+ *      other two checks alone would NOT catch it.
+ *   3. The candidate has a net NON-POSITIVE SOL delta in this transaction
+ *      — i.e. they actually paid something. `coreExecuteSaleV2` is the
+ *      TERMINAL instruction for BOTH the buyer-initiated
+ *      `Deposit → BuyV2 → CoreExecuteSaleV2` flow (accounts[0] = buyer,
+ *      the case this fix targets) AND a seller-initiated
+ *      `CoreSell → CoreExecuteSaleV2` flow that fills an existing bid
+ *      (accounts[0] = the LISTING SELLER — confirmed live on sig
+ *      t9WL1dm2juFBecShy7ZbeReZYHz7PQRjofq743eUyA43bzHLTUdWvSNA7jpVjovMWy6hAkYhNcCrPVhasY75EbY,
+ *      where accounts[0] received +0.1995 SOL). Both produce the same
+ *      discriminator match; only the delta sign distinguishes them
+ *      without also needing to detect the preceding CoreSell/BuyV2
+ *      instruction. A receiving signer fails this check and falls
+ *      through — never asserted as the payer.
+ */
+function resolveCoreBuyer(
+  tx: RawSolanaTx,
+  match: { buyerAcctIdx: number | null; accounts: string[] },
+): string | null {
+  if (match.buyerAcctIdx === null) return null;
+  if (isLuckyBuyTx(tx)) return null;
+  const candidate = match.accounts[match.buyerAcctIdx] ?? null;
+  if (!candidate) return null;
+  if (!isConfirmedSigner(tx, candidate)) return null;
+  const delta = balanceDeltas(tx).find((d) => d.pubkey === candidate)?.delta;
+  if (delta === undefined || delta > 0) return null;
+  return candidate;
+}
+
 /** Derive NFT type from the matched instruction name — more precise than program-presence heuristic. */
 function nftTypeFromInstruction(name: string): NftType {
   if (name === 'coreFulfillBuy' || name === 'coreFulfillSell' ||
@@ -227,6 +289,10 @@ function parseMeV2Sale(
   //   Token-flow is kept only as a fallback for Core instructions (no SPL balances → tkSeller=null).
   //
   //   For buyer: token-flow (postHolder.owner = buyer's ATA owner) is reliable and preferred.
+  //   MPL Core has no SPL token balances at all, so tkBuyer is always null there — the
+  //   remaining fallback (payment.buyer, SOL-flow "largest decrease") is where the
+  //   2026-08-05 escrow-PDA bug lives; resolveCoreBuyer (instruction-aware, signer-
+  //   validated) takes priority over it when available. See its doc for the fix.
   const { seller: tkSeller, buyer: tkBuyer } = extractPartiesFromTokenFlow(tx, mint);
   const payment = extractPaymentInfo(tx);
   if (!payment) {
@@ -234,7 +300,7 @@ function parseMeV2Sale(
   }
 
   const seller = payment.seller ?? tkSeller;
-  const buyer  = tkBuyer  ?? payment.buyer;
+  const buyer  = resolveCoreBuyer(tx, match) ?? tkBuyer ?? payment.buyer;
 
   if (!seller || !buyer || seller === buyer) {
     return { ok: false, reason: `me_v2(${match.instructionName}): could not determine seller/buyer` };

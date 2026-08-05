@@ -52,6 +52,7 @@
     "test:amm-poller-cursor-safety": "ts-node src/ingestion/__tests__/amm-poller-cursor-safety.test.ts",
     "test:amm-poller-backlog-fairness": "ts-node src/ingestion/__tests__/amm-poller-backlog-fairness.test.ts",
     "test:mmm-owner-cache-ttl": "ts-node src/ingestion/__tests__/mmm-owner-cache-ttl.test.ts",
+    "test:core-buyer-attribution": "ts-node src/ingestion/me-raw/core-buyer-attribution-regression.test.ts",
     "test:mint-price-relayer": "ts-node src/ingestion/mint-raw/mint-price-relayer.test.ts",
     "test:tensor-cnft-price": "ts-node src/ingestion/tensor-raw/__tests__/cnft-price.test.ts",
     "test:tamm-sell-buyer": "ts-node src/ingestion/tensor-raw/__tests__/tamm-sell-buyer.test.ts",
