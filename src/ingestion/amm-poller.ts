@@ -26,10 +26,11 @@ import { HeliusEnhancedTransaction } from './helius/types';
 import { incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
-import { dispatchMmmDeferred } from './mmm-prefilter';
+import { dispatchMmmDeferred, dispatchMmmDeferredAwaitable } from './mmm-prefilter';
 import { isSalesWsDead } from './listener';
 import { getAcceptedCount } from './poll-useful';
 import { incFired, sourceFromTargetName } from './source-stats';
+import { IngestOutcome, isTerminalSafe } from './ingest-outcome';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ type IngestFn = (
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority?: Priority,
-) => Promise<void>;
+) => Promise<IngestOutcome>;
 
 interface PollTarget {
   name:    string;   // used as cursor key + log prefix
@@ -86,6 +87,14 @@ const TICK_STAGGER_MS  = 600;
  *  drain can't spam getSignaturesForAddress at full 2.5 s rate. */
 const SLOW_INTERVAL_MS = 10_000;
 const PAGE_SIZE   = 20;
+/** Fresh-path dispatch concurrency at the amm-poller layer. The real
+ *  throttle is still the shared rpcLimiter downstream (4 concurrent /
+ *  75 ms gap) — this just bounds how many `target.ingest` calls this
+ *  sweep has in flight at once while awaiting their outcomes. Set to
+ *  PAGE_SIZE so an ordinary (non-MMM-lean) sweep dispatches its whole
+ *  fresh slice essentially at once, matching the previous fire-and-forget
+ *  throughput; rpcLimiter still serializes the actual RPC calls. */
+const FRESH_DISPATCH_CONCURRENCY = PAGE_SIZE;
 /** Hard ceiling on catch-up pages per sweep — protects against runaway loops. */
 // Per-sweep page budget — mode-dependent.
 //   Full mode      : up to 20 pages (catch-up ceiling for backlog drain)
@@ -147,6 +156,78 @@ function markLocalSeen(sig: string): boolean {
     localSeen.delete(evict);
   }
   return true;
+}
+
+// ─── Cross-sweep outcome memory (cursor-safety) ────────────────────────────
+//
+// The persisted `poller_state` cursor may only advance past a signature once
+// its ingestion reached a TERMINAL SAFE outcome — never merely because work
+// was dispatched. A signature dispatched THIS sweep on the fresh path has its
+// outcome known synchronously (awaited below). One dispatched to `backlog`,
+// or deferred via dispatchMmmDeferred, resolves LATER — a subsequent sweep
+// re-fetching the same (not-yet-advanced) window will see it again via
+// `markLocalSeen` returning false, and needs to recall what happened to it
+// without re-dispatching. This bounded FIFO is that memory. An entry falling
+// out of the window just means the sig gets a fresh dispatch attempt next
+// time it's seen — harmless, never incorrectly permissive (worst case is an
+// extra, idempotent re-fetch via `ON CONFLICT (signature) DO NOTHING`).
+const SIGNATURE_OUTCOME_MAX = 10_000;
+const signatureOutcomes = new Map<string, IngestOutcome>();
+function rememberOutcome(sig: string, outcome: IngestOutcome): void {
+  signatureOutcomes.set(sig, outcome);
+  if (signatureOutcomes.size <= SIGNATURE_OUTCOME_MAX) return;
+  const overflow = signatureOutcomes.size - SIGNATURE_OUTCOME_MAX;
+  const it = signatureOutcomes.keys();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    signatureOutcomes.delete(r.value);
+  }
+}
+
+/** Runs `worker` over `items` with at most `concurrency` in flight at once.
+ *  The real throttle is still the shared `rpcLimiter` inside fetchRawTx
+ *  (4 concurrent / 75 ms gap) — this just bounds how many `target.ingest`
+ *  calls this loop has in flight at the JS level at any one time. */
+async function runBounded<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  async function runner(): Promise<void> {
+    while (next < items.length) {
+      const item = items[next++];
+      await worker(item);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: n }, () => runner()));
+}
+
+/** Given `page` (newest-first, index 0 = newest) and an index-aligned
+ *  `outcomes` array, returns the newest signature such that it AND every
+ *  signature newer than it in `page` resolved to a terminal-safe outcome —
+ *  i.e. the contiguous safe run walking from the OLDEST entry (highest
+ *  index) toward the newest (index 0). Returns null if even the oldest
+ *  entry isn't confirmed safe yet. `page` is newest-first because
+ *  `getSignaturesForAddress` returns results that way; a cursor value
+ *  asserts "everything newer than this is done", so walking from the old
+ *  end is what "advance through the contiguous completed prefix" means in
+ *  timeline terms — a single still-pending item anywhere in the range
+ *  blocks the cursor from passing it, no matter how many NEWER items in
+ *  the same concurrent dispatch batch already finished first. */
+function safeAdvanceSigFromPage(
+  page: SigInfo[],
+  outcomes: (IngestOutcome | undefined)[],
+): string | null {
+  let safe: string | null = null;
+  for (let i = page.length - 1; i >= 0; i--) {
+    const outcome = outcomes[i];
+    if (outcome === undefined || !isTerminalSafe(outcome)) break;
+    safe = page[i].signature;
+  }
+  return safe;
 }
 
 // ─── RPC ──────────────────────────────────────────────────────────────────────
@@ -361,17 +442,35 @@ function kickBacklogDrain(): void {
         try {
           if (isMmmLean) {
             // deferred dispatch may skip the fetch; count fired from inside.
+            // Still void/fire-and-forget from THIS loop's perspective (keeps
+            // the full noise_shed cost-saving intact for the high-volume
+            // backlog path — the fresh path uses the awaitable variant
+            // instead, see sweepTarget). When it DOES call through to a
+            // real dispatch, the wrapper below records the outcome so a
+            // later sweep re-encountering this exact sig (if the cursor
+            // hasn't advanced past it yet) can see it's already resolved.
+            // On a WS-resolved/noise-shed SKIP nothing gets recorded here —
+            // self-healing: `markLocalSeen`'s bounded FIFO eventually
+            // evicts the sig and it gets a fresh dispatch attempt.
             dispatchMmmDeferred(
               item.sig,
-              (s) => { incFired(backlogSource); return item.ingest(s, undefined, priority); },
+              (s) => {
+                incFired(backlogSource);
+                return item.ingest(s, undefined, priority).then((outcome) => {
+                  rememberOutcome(s, outcome);
+                  return outcome;
+                });
+              },
               item.target,
             );
           } else {
             incFired(backlogSource);
-            await item.ingest(item.sig, undefined, priority);
+            const outcome = await item.ingest(item.sig, undefined, priority);
+            rememberOutcome(item.sig, outcome);
           }
         } catch (err: unknown) {
           console.error(`[${item.target}] backlog ingest error  sig=${item.sig.slice(0, 12)}...`, err);
+          rememberOutcome(item.sig, 'retryable_error');
         }
         if (getMode() === 'off' || startGen !== currentGeneration()) break;
         await new Promise((r) => setTimeout(r, BACKLOG_GAP_MS));
@@ -613,42 +712,48 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     const ordered = page;
     const FRESH_CUTOFF = freshCutoffForTarget(target.name);
     const sourceLabel = sourceFromTargetName(target.name);
+    const m = getMode();
+    const isMmmLean = target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget');
+
+    // outcomes[i] mirrors ordered[i] — undefined means "not resolved this
+    // sweep" (backlog item, or a locally-seen sig with no remembered
+    // outcome yet). Populated synchronously below for on-chain-failed and
+    // already-known sigs, then filled in for the fresh-path batch once its
+    // dispatch settles.
+    const outcomes: (IngestOutcome | undefined)[] = new Array(ordered.length);
+    const toDispatchFresh: SigInfo[] = [];
+    const toDispatchIdx = new Map<string, number>();
 
     let unseen = 0, ingested = 0, skipped = 0, backlogged = 0;
     for (let i = 0; i < ordered.length; i++) {
       const info = ordered[i];
-      if (!markLocalSeen(info.signature)) { skipped++; continue; }
+      if (info.err !== null && info.err !== undefined) {
+        // On-chain failed tx — never had any effect. Confirmed-safe,
+        // recomputed fresh from `info` every sweep — no memory needed,
+        // and no `markLocalSeen` gating required for this classification.
+        outcomes[i] = 'confirmed_irrelevant';
+        continue;
+      }
+      if (!markLocalSeen(info.signature)) {
+        skipped++;
+        // Already seen in an earlier sweep (this window hasn't advanced
+        // past it) — recall whatever outcome that earlier dispatch (fresh
+        // or backlog-drained) eventually recorded, if any.
+        outcomes[i] = signatureOutcomes.get(info.signature);
+        continue;
+      }
       unseen++;
-      if (info.err !== null && info.err !== undefined) continue; // on-chain failure: don't ingest
 
       trace(info.signature, 'poll:fetched', `target=${target.name}`);
       trace(info.signature, 'poll:ingest',  `target=${target.name}`);
 
       if (i < FRESH_CUTOFF) {
-        // Fresh path — fire and forget through the shared rpcLimiter.
-        // Lean-mode MMM exception: poller has no log access so it can't
-        // run shouldSkipMmmLogsSalesOnly. Defer 5 s and re-check whether
-        // the WS path has marked the sig (recentSigs / inFlight). If yes,
-        // skip without RPC; if no, dispatch normally so WS-missed sigs
-        // are still recovered. Other targets (or full mode) dispatch
-        // immediately as before.
-        const m = getMode();
-        if (target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget')) {
-          // dispatchMmmDeferred may skip the fetch (WS-resolved or noise-shed);
-          // incFired is therefore done from inside the deferred dispatch lambda.
-          dispatchMmmDeferred(
-            info.signature,
-            (s) => { incFired(sourceLabel); return target.ingest(s); },
-            target.name,
-          );
-        } else {
-          incFired(sourceLabel);
-          target.ingest(info.signature).catch((err: unknown) =>
-            console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err)
-          );
-        }
+        toDispatchFresh.push(info);
+        toDispatchIdx.set(info.signature, i);
       } else {
         // Catch-up path — enqueue for serial drain so it doesn't starve fresh.
+        // Outcome stays unresolved for THIS sweep's cursor computation;
+        // kickBacklogDrain records it once it actually runs.
         backlog.push({ sig: info.signature, ingest: target.ingest, target: target.name });
         backlogged++;
       }
@@ -656,17 +761,59 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     }
     if (backlogged > 0) kickBacklogDrain();
 
-    // Cursor advance — saturation-aware.
+    // Fresh path — bounded-concurrency AWAITED dispatch. The persisted
+    // cursor cannot advance past these signatures until we actually know
+    // what happened to them (never merely because they were dispatched).
+    // Lean-mode MMM exception: poller has no log access, so it can't run
+    // shouldSkipMmmLogsSalesOnly pre-fetch. dispatchMmmDeferredAwaitable
+    // still gives WS a 5 s head start to resolve the sig for free (skips
+    // the real fetch only on an AUTHORITATIVE wasRecentlyFetched hit — a
+    // noise_shed guess is not authoritative enough for a cursor-safety
+    // decision, so it falls through to a real fetch instead of skipping).
+    if (toDispatchFresh.length > 0) {
+      await runBounded(toDispatchFresh, FRESH_DISPATCH_CONCURRENCY, async (info) => {
+        incFired(sourceLabel);
+        let outcome: IngestOutcome;
+        try {
+          outcome = isMmmLean
+            ? await dispatchMmmDeferredAwaitable(info.signature, (s) => target.ingest(s), target.name)
+            : await target.ingest(info.signature);
+        } catch (err: unknown) {
+          console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err);
+          outcome = 'retryable_error';
+        }
+        rememberOutcome(info.signature, outcome);
+        const idx = toDispatchIdx.get(info.signature);
+        if (idx !== undefined) outcomes[idx] = outcome;
+      });
+    }
+
+    // Safe-prefix walk over THIS page's outcomes — see safeAdvanceSigFromPage.
+    const safeAdvanceSig = safeAdvanceSigFromPage(page, outcomes);
+
+    // Cursor advance — saturation-aware AND outcome-safety-gated.
     //
     //   saturated + no prior catchup:  enter catch-up. Capture page[0] as
     //     frozen_newest (the timeline anchor for post-catchup steady state),
-    //     save before = oldest of batch. Leave `until` untouched.
+    //     save before = oldest of batch. Leave `until` untouched. `before`
+    //     is a PAGINATION marker (how far back this walk has looked for the
+    //     gap boundary), not a completion claim — it always advances so the
+    //     catch-up walk makes forward progress; the sigs it covers are
+    //     safety-gated later, at promotion time below.
     //   saturated + prior catchup:     continue catch-up. Keep prior
     //     frozen_newest, advance before to the new oldest.
-    //   non-saturated + prior catchup: catch-up just finished on this
-    //     sweep. Promote frozen_newest to `until`, clear the marker.
-    //   non-saturated + no catchup:    steady state. Advance until to
-    //     newest of this batch (existing behaviour).
+    //   non-saturated + prior catchup: catch-up may be finishing on this
+    //     sweep. Promoting frozen_newest to `until` DOES assert "everything
+    //     up to here is safely done" — gated on this sweep's safe-prefix
+    //     reaching page[0]. Best-effort: only this final (small) sweep's
+    //     page is checked, not the full multi-sweep catch-up range: if it's
+    //     not fully safe yet, defer promotion — the catch-up marker stays
+    //     and a later sweep retries. Never loses data, only delays the
+    //     `until` promotion.
+    //   non-saturated + no catchup:    steady state. Advance until only as
+    //     far as the safe prefix reaches — may be older than page[0] if
+    //     some newer items in this same batch are still unresolved /
+    //     retryable; the next sweep re-fetches and re-evaluates the rest.
     if (saturated) {
       const newBefore = page[page.length - 1].signature;
       const fn        = catchup?.frozenNewest ?? page[0].signature;
@@ -676,20 +823,34 @@ async function sweepTarget(target: PollTarget): Promise<void> {
         `frozen_newest=${fn.slice(0, 12)}…  before=${newBefore.slice(0, 12)}…`
       );
     } else if (catchup && forceExitCatchup) {
-      // Streak exit — three consecutive low-page sweeps with a stale
-      // catch-up marker. Promote frozen_newest to `until` and clear.
-      await setLastSig(target.name, catchup.frozenNewest);
-      await clearLastSig(`${target.name}:catchup`);
-      console.log(
-        `[${target.name}] catchup force-exit (low-page streak)  ` +
-        `until=${catchup.frozenNewest.slice(0, 12)}…`,
-      );
+      if (safeAdvanceSig === page[0].signature) {
+        await setLastSig(target.name, catchup.frozenNewest);
+        await clearLastSig(`${target.name}:catchup`);
+        console.log(
+          `[${target.name}] catchup force-exit (low-page streak)  ` +
+          `until=${catchup.frozenNewest.slice(0, 12)}…`,
+        );
+      } else {
+        console.log(
+          `[${target.name}] catchup force-exit deferred — unresolved sigs still pending  ` +
+          `safe=${safeAdvanceSig?.slice(0, 12) ?? 'none'}`,
+        );
+      }
     } else if (catchup) {
-      await setLastSig(target.name, catchup.frozenNewest);
-      await clearLastSig(`${target.name}:catchup`);
-      console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+      if (safeAdvanceSig === page[0].signature) {
+        await setLastSig(target.name, catchup.frozenNewest);
+        await clearLastSig(`${target.name}:catchup`);
+        console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+      } else {
+        console.log(
+          `[${target.name}] catchup completion deferred — unresolved sigs still pending  ` +
+          `safe=${safeAdvanceSig?.slice(0, 12) ?? 'none'}`,
+        );
+      }
+    } else if (safeAdvanceSig) {
+      await setLastSig(target.name, safeAdvanceSig);
     } else {
-      await setLastSig(target.name, page[0].signature);
+      console.log(`[${target.name}] cursor advance deferred — no safe prefix this sweep`);
     }
 
     console.log(
@@ -868,3 +1029,18 @@ export function stopAmmPoller(): void {
     `[poller] stopped  backlog_preserved=${preservedBacklog}  rpcLimiter_dropped=${droppedLimiter}`
   );
 }
+
+export type { SigInfo };
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. Exposes the pure cursor-safety algorithm
+ *  (`safeAdvanceSigFromPage`) for direct unit testing without mocking the
+ *  DB (`poller-state`) or RPC (`getSignaturesForAddress` / `getTransaction`)
+ *  layers sweepTarget otherwise depends on. */
+export const __testHooks = {
+  safeAdvanceSigFromPage,
+  rememberOutcome,
+  getRememberedOutcome: (sig: string): IngestOutcome | undefined => signatureOutcomes.get(sig),
+  signatureOutcomeCacheSize: (): number => signatureOutcomes.size,
+  runBounded,
+};

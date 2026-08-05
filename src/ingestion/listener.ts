@@ -13,7 +13,8 @@
  * Slot heartbeat + dual watchdog + forced 120s restart prevent silent stalls.
  */
 import WebSocket from 'ws';
-import { ingestMeRaw, markSigFetched } from './me-raw/ingest';
+import { ingestMeRaw } from './me-raw/ingest';
+import { IngestOutcome } from './ingest-outcome';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { ingestOrbisRaw } from './orbis-raw/ingest';
 import { ORBIS_PROGRAM, ORBIS_SALE_INSTRUCTIONS } from './orbis-raw/programs';
@@ -39,11 +40,17 @@ import { getMode, currentGeneration, getMintTrackerRuntimeMode, isAnyIngestActiv
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
+// Shared with the mint-tracker ingest functions (ingestMintRaw, out of
+// scope for the sale-pipeline outcome contract), which still return
+// Promise<void> — the union keeps both compatible without a wrapper.
+// listener.ts's own dispatch never inspects the resolved outcome; only
+// amm-poller.ts's cursor-safety logic (a separate, strict IngestFn type)
+// does.
 type IngestFn = (
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority?: Priority,
-) => Promise<void>;
+) => Promise<IngestOutcome | void>;
 
 interface Target {
   /** Short name used in log prefixes and stats output. */
@@ -534,9 +541,12 @@ const LOG_PREFILTER_BYPASS: ReadonlySet<string> = new Set(['mmm']);
 // can skip before paying for getTransaction. Unlike MMM, TComp and TAMM both
 // emit Anchor-generated log names, so the allowlist is deterministic.
 //
-// On skip we call markSigFetched(sig) so the primary poller (1.5 s cadence on
-// the same 4 programs) does not re-dispatch the sig a moment later — that's
-// what converts the skip from "queue shed" into a real fetch saved.
+// On skip we call markSeen(sig) so the primary poller (1.5 s cadence on the
+// same 4 programs) does not re-dispatch the sig a moment later — that's what
+// converts the skip from "queue shed" into a real fetch saved. We do NOT
+// call markSigFetched here (see the skip block below) — that would poison
+// the shared cross-pipeline fetch dedup on a mere heuristic guess instead of
+// a real fetch/insert decision.
 //
 // Fail mode: a new Tensor instruction we forget to add would be dropped. Kept
 // strict to the names canonicalized in `TCOMP_SALE_INSTRUCTIONS` /
@@ -978,22 +988,37 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
 
     // S3: Tensor-only log prefilter. Tensor programs use Anchor-generated log
     // names reliably, so we can safely skip obvious non-sale txs before paying
-    // for getTransaction. markSigFetched blocks the 1.5 s primary poller from
-    // re-dispatching the same sig — otherwise the saving is zero.
+    // for getTransaction. markSeen blocks the 1.5 s primary poller (listener-
+    // local only) from re-dispatching the same sig — otherwise the saving is
+    // zero.
+    //
+    // Do NOT call markSigFetched here — same dedupe-poisoning class as the
+    // MMM sales_only skip below (and the mint-prefilter fix, commit 65295c3).
+    // The log-name heuristic is a guess, not an authoritative decision:
+    // truncated logs, an unrecognized sale-ix variant, or a sale ix that
+    // only appears as an inner CPI not present in this log slice could all
+    // make a real sale look like "no sale ix". markSigFetched would poison
+    // the shared 3-min fetch dedup (recentByScope) even though NO fetch was
+    // ever attempted — permanently blocking the poller's own recovery pass
+    // for that sig. The real, authoritative markSigFetched call already
+    // happens downstream, inside ingestTensorRaw, right after a genuine
+    // fetch/insert decision (tensor-raw/ingest.ts) — that's the only place
+    // this dedup TTL should be poisoned from.
     if (TENSOR_PREFILTER_TARGETS.has(target.name) && !hasTensorSaleInstruction(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'tensor_no_sale_ix' });
-        saleDebug('mark_fetched',   sig, { reason: 'tensor_prefilter_skip' });
       }
-      markSeen(sig);        // block poller path via seenSigs FIFO
-      markSigFetched(sig);  // block fetchRawTx path via recentSigs (3 min TTL)
+      markSeen(sig);        // block poller path via seenSigs FIFO (listener-local, harmless)
       return;
     }
 
     // Orbis log prefilter. Same deterministic Anchor-log basis as Tensor —
     // skip non-sale Orbis txs (list/delist/offer/update) before fetchRawTx.
+    // Same "do NOT markSigFetched" reasoning as the Tensor block above —
+    // the authoritative mark happens inside ingestOrbisRaw on a real
+    // fetch/insert decision.
     if (ORBIS_PREFILTER_TARGETS.has(target.name) && !hasOrbisSaleInstruction(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
@@ -1004,10 +1029,8 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       noteOrbisUncoveredFromLogs(sig, value.logs, 'orbis_prefilter_skip');
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'orbis_no_sale_ix' });
-        saleDebug('mark_fetched',   sig, { reason: 'orbis_prefilter_skip' });
       }
       markSeen(sig);
-      markSigFetched(sig);
       return;
     }
 
@@ -1015,15 +1038,16 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
     // modes — its log naming is ambiguous (see comment above). The
     // sales_only mode below widens the deny-list to also cover ME v2
     // listing-state instructions (sell / cancel_sell variants).
+    // Same "do NOT markSigFetched" reasoning as Tensor/Orbis above — the
+    // authoritative mark happens inside ingestMeRaw on a real fetch/insert
+    // decision.
     if (target.name === 'me_v2' && shouldSkipMeV2Logs(value.logs)) {
       stats.filtered++;
       incPrefilterSkip();
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'me_v2_deny_list' });
-        saleDebug('mark_fetched',   sig, { reason: 'me_v2_prefilter_skip' });
       }
       markSeen(sig);
-      markSigFetched(sig);
       return;
     }
 

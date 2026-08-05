@@ -43,6 +43,8 @@
 
 import { wasRecentlyFetched } from './me-raw/ingest';
 import { getMode, currentGeneration } from '../runtime/mode';
+import { sweepOwnerCache } from './mmm-pool-type-resolver';
+import { IngestOutcome } from './ingest-outcome';
 
 const MMM_DEFER_MS = 5_000;
 
@@ -86,6 +88,9 @@ let fallbackFetch    = 0;
 let noiseShedSkipped = 0;
 
 const summaryTimer = setInterval(() => {
+  // Piggybacked housekeeping: mmm-pool-type-resolver.ts's ownerCache has no
+  // timer of its own — this is the closest ambient MMM-scoped 60 s tick.
+  sweepOwnerCache();
   if (deferred === 0) return;
   const total   = wsResolved + fallbackFetch + noiseShedSkipped;
   const wsPct   = total > 0 ? Math.round((wsResolved / total) * 100) : 0;
@@ -137,4 +142,48 @@ export function dispatchMmmDeferred(
     );
   }, MMM_DEFER_MS);
   if (typeof t.unref === 'function') t.unref();
+}
+
+/** Awaitable sibling of `dispatchMmmDeferred`, for callers that need a
+ *  definitive terminal outcome — specifically amm-poller's fresh-path
+ *  dispatch, which cannot advance its persisted cursor past a signature
+ *  without knowing what actually happened to it.
+ *
+ *  Same 5 s defer + WS-recheck for cost savings, but does NOT skip on a
+ *  `wasMmmNoiseShed` verdict the way the void variant does — that marker
+ *  is a heuristic guess (same "unreliable, not authoritative" class as the
+ *  log-based prefilters fixed in listener.ts), and a cursor-safety caller
+ *  cannot fold a guess into "terminal, safe to skip forever". Only an
+ *  AUTHORITATIVE `wasRecentlyFetched` hit (WS's own ingest already reached
+ *  a real terminal decision for this sig) short-circuits the real fetch;
+ *  everything else — including noise_shed — falls through to a real
+ *  dispatch so the caller gets a genuine outcome. This trades away part of
+ *  the noise-shed RPC savings for the small fresh-path slice only; the
+ *  high-volume backlog path still uses the void variant unchanged. */
+export function dispatchMmmDeferredAwaitable(
+  sig:      string,
+  dispatch: (s: string) => Promise<IngestOutcome>,
+  errLabel: string,
+): Promise<IngestOutcome> {
+  deferred++;
+  const dispatchGen = currentGeneration();
+  return new Promise<IngestOutcome>((resolve) => {
+    const t = setTimeout(() => {
+      if (getMode() === 'off' || dispatchGen !== currentGeneration()) {
+        // Aborted mid-flight — not a real verdict either way; treat as
+        // retryable so the cursor-safety caller doesn't advance past it.
+        resolve('retryable_error');
+        return;
+      }
+      if (wasRecentlyFetched(sig, 'sale')) { wsResolved++; resolve('duplicate'); return; }
+      fallbackFetch++;
+      dispatch(sig)
+        .then(resolve)
+        .catch((err: unknown) => {
+          console.error(`[${errLabel}] mmm-deferred ingest error  sig=${sig.slice(0, 12)}…`, err);
+          resolve('retryable_error');
+        });
+    }, MMM_DEFER_MS);
+    if (typeof t.unref === 'function') t.unref();
+  });
 }

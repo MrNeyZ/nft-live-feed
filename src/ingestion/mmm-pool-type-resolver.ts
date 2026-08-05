@@ -109,6 +109,28 @@ const queued = new Set<string>();
 
 interface OwnerCacheEntry { pools: Map<string, string>; fetchedAt: number } // poolKey -> raw ME poolType
 const ownerCache = new Map<string, OwnerCacheEntry>();
+// `ownerCache` previously had no eviction at all — an owner resolved once
+// and never looked up again (the common case: most wallets sell one pool
+// and move on) stayed allocated for the life of the process. TTL sweep +
+// hard cap, same shape as `negCache`'s size-triggered cleanup above. No new
+// timer: piggybacked onto `mmm-prefilter.ts`'s existing 60 s summary tick
+// (see `sweepOwnerCache` export below), since that's the closest ambient
+// MMM-scoped housekeeping cadence already running in the live pipeline.
+const OWNER_CACHE_MAX = 2_000;
+export function sweepOwnerCache(): void {
+  const now = Date.now();
+  for (const [owner, entry] of ownerCache) {
+    if (now - entry.fetchedAt >= OWNER_CACHE_TTL_MS) ownerCache.delete(owner);
+  }
+  if (ownerCache.size <= OWNER_CACHE_MAX) return;
+  const overflow = ownerCache.size - OWNER_CACHE_MAX;
+  const it = ownerCache.keys();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    ownerCache.delete(r.value);
+  }
+}
 
 function isFresh(cachedAt: number, ttl: number): boolean {
   return Date.now() - cachedAt < ttl;
@@ -259,3 +281,15 @@ export function startMmmPoolTypeResolver(): void {
   setInterval(workerTick, WORKER_INTERVAL_MS);
   console.log('[mmm-pool-type] resolver started');
 }
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. */
+export const __testHooks = {
+  ownerCacheSize: (): number => ownerCache.size,
+  ownerCacheMax: OWNER_CACHE_MAX,
+  ownerCacheTtlMs: OWNER_CACHE_TTL_MS,
+  seedOwnerCache: (owner: string, fetchedAt: number): void => {
+    ownerCache.set(owner, { pools: new Map(), fetchedAt });
+  },
+  sweepOwnerCache,
+};

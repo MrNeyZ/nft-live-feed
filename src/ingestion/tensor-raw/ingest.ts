@@ -27,6 +27,7 @@ import { extractCoreAssetFromInnerIx } from './decoder';
 import { TCOMP_PROGRAM, TAMM_PROGRAM } from './programs';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
 import { incEmitted, incDropped, sourceFromMarketplace } from '../source-stats';
+import { IngestOutcome } from '../ingest-outcome';
 import bs58 from 'bs58';
 
 /** Tensor parser-drop source attribution: tcomp dominates, tamm is rare. */
@@ -168,10 +169,11 @@ export async function ingestTensorRaw(
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
-): Promise<void> {
+): Promise<IngestOutcome> {
   // ── Fast path ───────────────────────────────────────────────────────────────
   let fastPathInserted = false;
   let fastParser: string | undefined;
+  let fastPathOutcome: IngestOutcome | undefined;
 
   if (heliusTx) {
     const fast = tryBuildFastTensorEvent(heliusTx);
@@ -180,9 +182,12 @@ export async function ingestTensorRaw(
       try {
         const id = await insertSaleEvent(fast);
         fastPathInserted = id !== null;
+        fastPathOutcome  = fastPathInserted ? 'inserted' : 'duplicate';
       } catch (err) {
         console.log(`DEDUPE_DEBUG_SKIP ${fast.signature} insert_condition_failed(fast_path): ${(err as Error)?.message ?? 'unknown'}`);
-        // Non-fatal — raw path will insert normally.
+        // Non-fatal for the SSE card — raw path below still attempts a normal
+        // insert. Only becomes the final outcome if raw fetch is skipped.
+        fastPathOutcome = 'retryable_error';
       }
     }
   }
@@ -197,7 +202,7 @@ export async function ingestTensorRaw(
     } else if (fastParser) {
       console.log(`[tensor_raw] dup   sig=${sig.slice(0, 12)}...`);
     }
-    return;
+    return fastPathOutcome ?? 'retryable_error';
   }
 
   // ── Slow path: RPC fetch + raw parse ───────────────────────────────────────
@@ -208,10 +213,13 @@ export async function ingestTensorRaw(
   } catch (err) {
     auditRecordOutcome(sig, 'error');
     console.error(`[tensor_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
-    return;
+    return 'retryable_error';
   }
 
-  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return; }  // deduped or not found — already processed elsewhere
+  // Not a confirmed verdict — see ingestMeRaw's identical comment. Treated
+  // as retryable so a real sale that's simply not-yet-indexed can't be
+  // permanently skipped by a cursor-safety caller.
+  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return 'retryable_error'; }
 
   // ── Per-tx debug: log every Tensor instruction discriminator seen ────────────
   const ixScan = scanTensorInstructions(tx);
@@ -220,6 +228,8 @@ export async function ingestTensorRaw(
 
   const result = parseRawTensorTransaction(tx);
   let recovered = false;  // set true if a tamm→me fallback or candidate path inserts a sale
+  let candidateWasDuplicate = false;
+  let candidateInsertFailed = false;
 
   if (!result.ok) {
     // Log EVERY failed parse — primary signal for diagnosing missing sales.
@@ -288,25 +298,33 @@ export async function ingestTensorRaw(
           `  mint=${meResult.event.mintAddress.slice(0, 8)}...`,
         );
         console.log(`INSERT_DEBUG_PARSED ${meResult.event.signature} tamm_to_me_raw ${meResult.event.marketplace} ${meResult.event.mintAddress}`);
+        let tammMeId: string | null;
         try {
-          const id = await insertSaleEvent(meResult.event);
-          if (id) {
-            console.log(
-              `[tensor_raw→me_raw] sale  ${meResult.event.marketplace}/${meResult.event.nftType}` +
-              `  ${meResult.event.priceSol.toFixed(4)} SOL  sig=${sig.slice(0, 12)}`
-            );
-          } else if (fastPathInserted) {
-            await patchSaleEventRaw(meResult.event);
-          } else {
-            console.log(`[tensor_raw→me_raw] dup   sig=${sig.slice(0, 12)}...`);
-          }
+          tammMeId = await insertSaleEvent(meResult.event);
         } catch (err) {
           console.log(`DEDUPE_DEBUG_SKIP ${meResult.event.signature} insert_condition_failed(tamm→me): ${(err as Error)?.message ?? 'unknown'}`);
           console.error(`[tensor_raw→me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
+          // A real DB failure — do NOT report accepted_sale / a terminal
+          // outcome; the caller must get another chance at this signature.
+          return 'retryable_error';
+        }
+        if (tammMeId) {
+          console.log(
+            `[tensor_raw→me_raw] sale  ${meResult.event.marketplace}/${meResult.event.nftType}` +
+            `  ${meResult.event.priceSol.toFixed(4)} SOL  sig=${sig.slice(0, 12)}`
+          );
+        } else if (fastPathInserted) {
+          try {
+            await patchSaleEventRaw(meResult.event);
+          } catch (err) {
+            console.error(`[tensor_raw→me_raw] patch error  sig=${sig.slice(0, 12)}...`, err);
+          }
+        } else {
+          console.log(`[tensor_raw→me_raw] dup   sig=${sig.slice(0, 12)}...`);
         }
         auditRecordOutcome(sig, 'accepted_sale');  // TAMM→ME fallback recovered a real sale
         incEmitted('tamm');
-        return;
+        return tammMeId ? 'inserted' : 'duplicate';
       }
     }
 
@@ -340,7 +358,7 @@ export async function ingestTensorRaw(
       auditRecordOutcome(sig, 'parser_drop');
       incDropped(tensorDropSource(programsStr));
       console.log(`[tensor_raw] SKIP_CAND sig=${sig.slice(0, 12)} non_sale_ix  discs=[${discStr}]`);
-      return;
+      return 'confirmed_irrelevant';  // fetched + parsed: a known non-sale ix, not a guess
     }
     if (!fastPathInserted && result.reason.includes('no recognised')) {
       const payment  = extractPaymentInfo(tx);
@@ -395,9 +413,11 @@ export async function ingestTensorRaw(
           try {
             const id = await insertSaleEvent(event);
             if (id) { recovered = true; console.log(`[tensor_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`); }
+            else     { candidateWasDuplicate = true; }
           } catch (err) {
             console.log(`DEDUPE_DEBUG_SKIP ${event.signature} insert_condition_failed(candidate): ${(err as Error)?.message ?? 'unknown'}`);
             console.error(`[tensor_raw] CAND insert error  sig=${sig.slice(0, 12)}`, err);
+            candidateInsertFailed = true;
           }
         }
       }
@@ -405,7 +425,10 @@ export async function ingestTensorRaw(
     // Audit: candidate recovery = real sale (never deny); else parser_drop.
     auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
     if (!recovered) incDropped(tensorDropSource(programsStr));
-    return;
+    if (candidateInsertFailed) return 'retryable_error';
+    if (recovered)             return 'inserted';
+    if (candidateWasDuplicate) return 'duplicate';
+    return 'confirmed_irrelevant';
   }
 
   const tag = (result.event.rawData as Record<string, unknown>)._parser ?? 'tensor_raw';
@@ -425,27 +448,36 @@ export async function ingestTensorRaw(
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} ${tag} ${result.event.marketplace} ${result.event.mintAddress}`);
 
+  let id: string | null;
   try {
-    const id = await insertSaleEvent(result.event);
-    if (id) {
-      console.log(
-        `[${tag}] sale  ${result.event.marketplace}/${result.event.nftType}` +
-        `  ${result.event.priceSol.toFixed(4)} SOL` +
-        `  mint=${result.event.mintAddress.slice(0, 8)}...` +
-        `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
-      );
-    } else if (fastPathInserted) {
+    id = await insertSaleEvent(result.event);
+  } catch (err) {
+    console.log(`DEDUPE_DEBUG_SKIP ${result.event.signature} insert_condition_failed: ${(err as Error)?.message ?? 'unknown'}`);
+    console.error(`[${tag}] insert error  sig=${sig.slice(0, 12)}...`, err);
+    return 'retryable_error';
+  }
+  if (id) {
+    console.log(
+      `[${tag}] sale  ${result.event.marketplace}/${result.event.nftType}` +
+      `  ${result.event.priceSol.toFixed(4)} SOL` +
+      `  mint=${result.event.mintAddress.slice(0, 8)}...` +
+      `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
+    );
+    return 'inserted';
+  }
+  if (fastPathInserted) {
+    try {
       await patchSaleEventRaw(result.event);
       console.log(
         `[${tag}] patch ${result.event.marketplace}/${result.event.nftType}` +
         `  mint=${result.event.mintAddress.slice(0, 8)}...` +
         `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
       );
-    } else {
-      console.log(`[${tag}] dup   sig=${sig.slice(0, 12)}...`);
+    } catch (err) {
+      console.error(`[${tag}] patch error  sig=${sig.slice(0, 12)}...`, err);
     }
-  } catch (err) {
-    console.log(`DEDUPE_DEBUG_SKIP ${result.event.signature} insert_condition_failed: ${(err as Error)?.message ?? 'unknown'}`);
-    console.error(`[${tag}] insert error  sig=${sig.slice(0, 12)}...`, err);
+  } else {
+    console.log(`[${tag}] dup   sig=${sig.slice(0, 12)}...`);
   }
+  return 'duplicate';
 }
