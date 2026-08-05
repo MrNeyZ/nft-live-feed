@@ -69,6 +69,7 @@
     "test:pool-address-coverage": "ts-node src/ingestion/me-raw/pool-address-coverage.test.ts",
     "backfill:me": "ts-node src/scripts/backfill-collection-sales.ts",
     "backfill:me-logprice": "ts-node src/scripts/backfill-me-v2-logprice.ts",
+    "audit:core-buyer-attribution": "ts-node src/scripts/audit-core-buyer-attribution.ts",
     "debug:mints:launchpads": "ts-node src/scripts/debug-mints-launchpads.ts",
     "debug:mints:supply": "ts-node src/scripts/debug-mints-supply.ts",
     "debug:mints:launchpad-survey": "ts-node src/scripts/debug-mints-launchpad-survey.ts",

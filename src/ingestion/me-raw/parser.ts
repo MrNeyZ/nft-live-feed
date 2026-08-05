@@ -170,19 +170,80 @@ function isConfirmedSigner(tx: RawSolanaTx, pubkey: string): boolean {
  *      instruction. A receiving signer fails this check and falls
  *      through — never asserted as the payer.
  */
+/** Why `resolveCoreBuyer` did or didn't assert a buyer — exported so callers
+ *  (the parser itself, and the read-only historical audit CLI that reuses
+ *  this exact function rather than re-deriving the rule) can distinguish
+ *  "the rule doesn't apply to this row" from "the rule applies and this is
+ *  its answer" without guessing from a bare string. */
+export type CoreBuyerRejectReason =
+  | 'no_buyer_acct_idx'   // instruction variant has no verified buyerAcctIdx
+  | 'lucky_buy_excluded'  // relayed raffle tx — accounts[0] is ME treasury, not the buyer
+  | 'no_candidate'        // buyerAcctIdx out of range for this instruction's account list
+  | 'not_signer'          // candidate never signed the transaction
+  | 'delta_unavailable'   // candidate absent from preBalances/postBalances entirely
+  | 'positive_delta';     // candidate RECEIVED SOL (e.g. seller-initiated CoreSell) — not a payer
+
+export interface CoreBuyerResolution {
+  /** The resolved buyer, or null if the rule declined to assert one. */
+  buyer: string | null;
+  /** Set iff `buyer` is null — why the rule declined. */
+  rejectReason: CoreBuyerRejectReason | null;
+  /** The account the rule considered (buyerAcctIdx resolved against this
+   *  instruction's own account list), regardless of whether it passed. */
+  candidate: string | null;
+  /** Index into the MATCHED INSTRUCTION's own account list (not the tx's
+   *  global accountKeys) that `candidate` came from. */
+  candidateAcctIdx: number | null;
+  /** candidate's net SOL balance delta in this tx (lamports), if resolvable. */
+  candidateDeltaLamports: number | null;
+  /** Matched instruction name (e.g. 'coreExecuteSaleV2'), for context. */
+  instructionName: string;
+}
+
+function resolveCoreBuyerDetailed(
+  tx: RawSolanaTx,
+  match: { instructionName: string; buyerAcctIdx: number | null; accounts: string[] },
+): CoreBuyerResolution {
+  const base = { candidate: null, candidateAcctIdx: null, candidateDeltaLamports: null, instructionName: match.instructionName };
+  if (match.buyerAcctIdx === null) {
+    return { buyer: null, rejectReason: 'no_buyer_acct_idx', ...base };
+  }
+  if (isLuckyBuyTx(tx)) {
+    return { buyer: null, rejectReason: 'lucky_buy_excluded', ...base, candidateAcctIdx: match.buyerAcctIdx };
+  }
+  const candidate = match.accounts[match.buyerAcctIdx] ?? null;
+  if (!candidate) {
+    return { buyer: null, rejectReason: 'no_candidate', ...base, candidateAcctIdx: match.buyerAcctIdx };
+  }
+  const withCandidate = { candidate, candidateAcctIdx: match.buyerAcctIdx, instructionName: match.instructionName };
+  if (!isConfirmedSigner(tx, candidate)) {
+    return { buyer: null, rejectReason: 'not_signer', candidateDeltaLamports: null, ...withCandidate };
+  }
+  const delta = balanceDeltas(tx).find((d) => d.pubkey === candidate)?.delta;
+  if (delta === undefined) {
+    return { buyer: null, rejectReason: 'delta_unavailable', candidateDeltaLamports: null, ...withCandidate };
+  }
+  if (delta > 0) {
+    return { buyer: null, rejectReason: 'positive_delta', candidateDeltaLamports: delta, ...withCandidate };
+  }
+  return { buyer: candidate, rejectReason: null, candidateDeltaLamports: delta, ...withCandidate };
+}
+
+/** Thin wrapper kept for the call site inside `parseMeV2Sale` — same
+ *  signature/behaviour as before this file exported the detailed variant. */
 function resolveCoreBuyer(
   tx: RawSolanaTx,
-  match: { buyerAcctIdx: number | null; accounts: string[] },
+  match: { instructionName: string; buyerAcctIdx: number | null; accounts: string[] },
 ): string | null {
-  if (match.buyerAcctIdx === null) return null;
-  if (isLuckyBuyTx(tx)) return null;
-  const candidate = match.accounts[match.buyerAcctIdx] ?? null;
-  if (!candidate) return null;
-  if (!isConfirmedSigner(tx, candidate)) return null;
-  const delta = balanceDeltas(tx).find((d) => d.pubkey === candidate)?.delta;
-  if (delta === undefined || delta > 0) return null;
-  return candidate;
+  return resolveCoreBuyerDetailed(tx, match).buyer;
 }
+
+/** Exported for the read-only historical-attribution audit CLI
+ *  (src/scripts/audit-core-buyer-attribution.ts) — reuses this EXACT
+ *  deployed decision function rather than re-deriving the rule, and reads
+ *  its diagnostic fields (candidate, delta, account index, reject reason)
+ *  for the audit's report. Not used by any other production code path. */
+export { resolveCoreBuyerDetailed };
 
 /** Derive NFT type from the matched instruction name — more precise than program-presence heuristic. */
 function nftTypeFromInstruction(name: string): NftType {
