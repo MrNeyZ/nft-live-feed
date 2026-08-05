@@ -132,6 +132,23 @@ export function trackDeployerMint(
   return false;
 }
 
+// Pruning above only runs when THIS deployer mints again — a deployer
+// that mints once and never returns keeps its (now-stale) entry in
+// `_deployerWindow` forever. No standalone timer here: `accumulator.ts`
+// already runs a 30 s housekeeping sweep for the same /mints runtime
+// (idle-row eviction, window trimming) and calls this at the end of it,
+// since it already imports from this module. One less timer to reason
+// about / unref / leak.
+export function sweepDeployerWindow(): void {
+  const cutoff = Date.now() - BULK_WINDOW_MS;
+  for (const [deployer, stamps] of _deployerWindow) {
+    let i = 0;
+    while (i < stamps.length && stamps[i].ts < cutoff) i++;
+    if (i > 0) stamps.splice(0, i);
+    if (stamps.length === 0) _deployerWindow.delete(deployer);
+  }
+}
+
 // ── Collection blacklist ──────────────────────────────────────────────────────
 
 /** Collections whose mints are dropped before they reach SSE. */
@@ -170,3 +187,18 @@ export function noteBlacklistDrop(addr: string): void {
   loggedDrops.add(addr);
   console.log(`[mints/blacklist] drop collection=${addr}`);
 }
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. */
+export const __testHooks = {
+  deployerWindowSize: (): number => _deployerWindow.size,
+  hasDeployerWindowEntry: (deployer: string): boolean => _deployerWindow.has(deployer),
+  runDeployerWindowSweep: (): void => sweepDeployerWindow(),
+  /** Seed a stamp with an arbitrary timestamp, bypassing `Date.now()` —
+   *  lets a test fast-forward a deployer's entry into staleness. */
+  seedDeployerStamp: (deployer: string, key: string, ts: number): void => {
+    let stamps = _deployerWindow.get(deployer);
+    if (!stamps) { stamps = []; _deployerWindow.set(deployer, stamps); }
+    stamps.push({ key, ts });
+  },
+};

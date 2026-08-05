@@ -11,12 +11,22 @@
  *
  * This module accepts the row optimistically using the parser's
  * inner-Core CPI `accounts[1]` value (the collection PARAMETER passed
- * to Core's Create ix), then verifies asynchronously via three DAS
- * polls at 30 s / 120 s / 300 s after the mint. If DAS surfaces a
- * collection grouping at any point → confirmed, row stays. If all
- * three retries return no grouping (the test/standalone case) →
- * `evictMintGroup` removes the row from /mints state and the next
- * mint_status frame tells every client to drop it.
+ * to Core's Create ix), then verifies asynchronously via four DAS
+ * polls at 15 s / 60 s / 180 s / 300 s after the mint. If DAS surfaces
+ * a collection grouping at any point → confirmed, row stays.
+ *
+ * If all four retries return no grouping, that is a TRANSIENT/
+ * unresolved outcome, not a confirmed verdict — DAS index lag can
+ * exceed 5 min under load, and a real launchpad collection must never
+ * be mistaken for the enricher's CONFIRMED-non-NFT case (fungible /
+ * SPL token, decided by `isConfirmedFungibleVerdict` in enricher.ts).
+ * Conflating the two used to call `evictMintGroup`, which sticky-
+ * blacklists the groupingKey in `evictedNonNft` — permanently dropping
+ * every future mint from a collection that was merely slow to index.
+ * Exhaustion here only drops this one mint's own retry entry; the
+ * accumulator row is left as-is and a later mint from the same
+ * groupingKey (a fresh `scheduleCollectionConfirmation` call) gets its
+ * own full retry chain, unblocked by anything this entry did.
  */
 import { getAsset } from '../enrichment/helius-das';
 import { isMintTrackerEnabled } from '../runtime/mode';
@@ -24,7 +34,6 @@ import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
 import {
-  evictMintGroup,
   patchAccumulatorMeta,
   patchAccumulatorLmnft,
   patchAccumulatorRepresentativeImage,
@@ -102,18 +111,32 @@ const RESOLVE_THRESHOLD_FOR_DELAYED    = 5;
 const RESOLVED_WINDOW_MS               = 5 * 60_000;
 const ENQUEUE_WINDOW_MS                = 60_000;
 const ADAPTIVE_RETRY_START_IDX         = 1;   // skips retry-1 (15s) only
-// 2026-05-29: Once a groupingKey has FINAL_RESOLVE_THRESHOLD confirmed
-// resolves inside RESOLVED_WINDOW_MS, the collection's identity is
-// considered fully known; new arrivals from that key skip DAS retries
-// entirely and pending entries short-circuit before their next attempt.
-// Window-decayed (`recentResolveCount` already resets the counter when
-// RESOLVED_WINDOW_MS passes), so a re-launch after a cooldown gets the
-// full 4-retry treatment again.
-const FINAL_RESOLVE_THRESHOLD          = 1;
+// 2026-08-05: FINAL gate used to trip on ANY resolved field (collection
+// name alone counted), which meant the first mint to resolve a name
+// starved every other mint in that collection of its own per-NFT image
+// retry for RESOLVED_WINDOW_MS — even collections with real, unique
+// per-mint art (each mint needs its OWN DAS call for its OWN image).
+// Full stop is now gated on a confirmed REPEATED image instead (i.e.
+// the launchpad is provably reusing one placeholder — further per-mint
+// DAS calls buy nothing). Collections with unique art never trip this
+// and keep retrying every mint; the existing adaptive-delay counter
+// below still caps their cost by skipping the noisy 15 s slot once the
+// collection has demonstrated volume.
 const loggedFinalKeys = new Set<string>();
 
 const enqueueTimesByKey:    Map<string, number[]> = new Map();
 const resolvedCountByKey:   Map<string, { count: number; firstAt: number }> = new Map();
+const sharedImageConfirmedByKey: Map<string, number> = new Map();   // groupingKey -> confirmedAt
+
+function isSharedImageConfirmed(key: string, now: number): boolean {
+  const at = sharedImageConfirmedByKey.get(key);
+  if (at === undefined) return false;
+  if (now - at > RESOLVED_WINDOW_MS) {
+    sharedImageConfirmedByKey.delete(key);   // window expired — re-launch gets full treatment
+    return false;
+  }
+  return true;
+}
 
 // Credit-usage counters. Reset on every emit of the [mints/credits]
 // metrics line so each log row is "since last tick" — easier to spot
@@ -169,6 +192,10 @@ function noteResolved(key: string, now: number): void {
  *  but tag it `repeated=true` in logs and keep retrying so a late
  *  per-NFT image can replace it. */
 const imageUseCount = new Map<string, Map<string, Set<string>>>();
+// Last-write timestamp per collection — drives the eager TTL sweep below.
+// `imageUseCount` itself carries no clock, so without this a collection
+// that stops minting keeps its full image-history map allocated forever.
+const imageUseTouchedAt = new Map<string, number>();
 function noteImageUse(collection: string | null, image: string, mint: string): number {
   if (!collection || !image) return 1;
   let perColl = imageUseCount.get(collection);
@@ -176,6 +203,7 @@ function noteImageUse(collection: string | null, image: string, mint: string): n
   let mints = perColl.get(image);
   if (!mints) { mints = new Set(); perColl.set(image, mints); }
   mints.add(mint);
+  imageUseTouchedAt.set(collection, Date.now());
   return mints.size;
 }
 function imageLooksRepeated(collection: string | null, image: string): boolean {
@@ -217,13 +245,14 @@ export function scheduleCollectionConfirmation(
   if (!isMintTrackerEnabled())          return;
   if (pending.has(mintAddress))         return;
   if (pending.size >= MAX_PENDING)      return;   // bounded — drop new arrivals on overflow
-  // FINAL gate — collection's identity already fully resolved within
-  // the recent window; no DAS retries needed for new mints from it.
-  if (recentResolveCount(groupingKey, Date.now()) >= FINAL_RESOLVE_THRESHOLD) {
+  // FINAL gate — a repeated (shared placeholder) image is already
+  // confirmed for this collection; further per-mint DAS calls can't
+  // surface anything new until it reveals.
+  if (isSharedImageConfirmed(groupingKey, Date.now())) {
     metricSkippedFinal++;
     if (!loggedFinalKeys.has(groupingKey)) {
       loggedFinalKeys.add(groupingKey);
-      console.log(`[mints/cc-final] groupingKey=${groupingKey.slice(0, 32)}… resolved=>=${FINAL_RESOLVE_THRESHOLD} — skipping DAS retries`);
+      console.log(`[mints/cc-final] groupingKey=${groupingKey.slice(0, 32)}… shared image confirmed — skipping DAS retries`);
     }
     return;
   }
@@ -263,13 +292,17 @@ export function scheduleCollectionConfirmation(
 
 function scheduleNext(entry: Pending): void {
   if (entry.idx >= RETRY_DELAYS_MS.length) {
-    // Exhausted — DAS never confirmed. Evict the optimistic accept.
+    // Exhausted — DAS never confirmed within the retry window. This is
+    // an unresolved/transient outcome, NOT a confirmed non-NFT verdict
+    // — do not evict the group or touch `evictedNonNft`. Just drop this
+    // mint's own retry entry so it stops polling; the accumulator row
+    // stays exactly as it is, and a later mint from the same collection
+    // still gets its own full retry chain via `scheduleCollectionConfirmation`.
     console.log(
       `[mints/launchpad-debug] mint=${entry.mintAddress} ` +
       `parserCollection=${entry.parserCollection} dasCollection=null ` +
-      `decision=evict_after_retries`,
+      `decision=retries_exhausted_unresolved`,
     );
-    evictMintGroup(entry.groupingKey);
     pending.delete(entry.mintAddress);
     return;
   }
@@ -282,10 +315,9 @@ async function runAttempt(entry: Pending): Promise<void> {
   // Tracker turned off after this retry was scheduled → abandon it without
   // spending a getAsset call (drop the pending entry; no reschedule).
   if (!isMintTrackerEnabled()) { pending.delete(entry.mintAddress); return; }
-  // Collection became fully resolved while this entry was in queue →
-  // drop without DAS spend. Same window-decayed counter as the entry
-  // gate above.
-  if (recentResolveCount(entry.groupingKey, Date.now()) >= FINAL_RESOLVE_THRESHOLD) {
+  // Shared image got confirmed while this entry was in queue → drop
+  // without DAS spend. Same window-decayed flag as the entry gate above.
+  if (isSharedImageConfirmed(entry.groupingKey, Date.now())) {
     metricSkippedFinal++;
     pending.delete(entry.mintAddress);
     return;
@@ -427,6 +459,7 @@ async function runAttempt(entry: Pending): Promise<void> {
       usesInCollection = noteImageUse(dasCollection, imageUrl, entry.mintAddress);
       repeated = usesInCollection >= 2;
       imageSource = repeated ? 'collection' : 'nft';
+      if (repeated) sharedImageConfirmedByKey.set(entry.groupingKey, Date.now());
     }
     console.log(
       `[mints/meta-image] mint=${entry.mintAddress} ` +
@@ -567,6 +600,29 @@ async function runAttempt(entry: Pending): Promise<void> {
   scheduleNext(entry);
 }
 
+// `resolvedCountByKey` / `sharedImageConfirmedByKey` / `imageUseCount`
+// were only expiring lazily — a key stayed in memory forever unless
+// something later happened to touch that SAME key again (which
+// re-checks its age). A collection that simply stops minting never
+// gets touched again, so its entry (for `imageUseCount`, a whole
+// Map<imageUrl, Set<mintAddress>>) never leaves memory. Eager sweep,
+// piggybacked on the existing once-a-minute metrics tick below, so no
+// new timer is introduced.
+function sweepStaleTrackingMaps(now: number): void {
+  for (const [key, r] of resolvedCountByKey) {
+    if (now - r.firstAt > RESOLVED_WINDOW_MS) resolvedCountByKey.delete(key);
+  }
+  for (const [key, at] of sharedImageConfirmedByKey) {
+    if (now - at > RESOLVED_WINDOW_MS) sharedImageConfirmedByKey.delete(key);
+  }
+  for (const [collection, touchedAt] of imageUseTouchedAt) {
+    if (now - touchedAt > RESOLVED_WINDOW_MS) {
+      imageUseTouchedAt.delete(collection);
+      imageUseCount.delete(collection);
+    }
+  }
+}
+
 // ─── Helius credit metrics ticker ────────────────────────────────────
 // Logs once per minute with the deltas since the previous tick. Each
 // counter resets after emit so a hot-collection spike shows up clearly
@@ -579,6 +635,7 @@ async function runAttempt(entry: Pending): Promise<void> {
 const METRICS_INTERVAL_MS = 60_000;
 const _metricsTimer = setInterval(() => {
   const now = Date.now();
+  sweepStaleTrackingMaps(now);
   // Distinct active collections = those whose sliding-window bucket
   // still has any enqueue inside ENQUEUE_WINDOW_MS. Trim each bucket
   // opportunistically so we don't accumulate dead keys forever.
@@ -607,3 +664,41 @@ const _metricsTimer = setInterval(() => {
   metricSearchAssets = 0;
 }, METRICS_INTERVAL_MS);
 if (typeof _metricsTimer.unref === 'function') _metricsTimer.unref();
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. Lets the offline regression tests drive the
+ *  retry-exhaustion / TTL-sweep paths deterministically, without waiting
+ *  on real setTimeout delays or making live DAS calls. */
+export const __testHooks = {
+  pendingSize: (): number => pending.size,
+  hasPending: (mintAddress: string): boolean => pending.has(mintAddress),
+  /** Synchronously drives the exact same exhaustion branch a real 4th
+   *  retry timeout would hit (`scheduleNext` with `idx` at the end of
+   *  `RETRY_DELAYS_MS`), without waiting on any timer. */
+  triggerExhaustion: (
+    groupingKey: string, mintAddress: string, parserCollection: string, signature: string,
+  ): void => {
+    const entry: Pending = { groupingKey, mintAddress, parserCollection, signature, idx: RETRY_DELAYS_MS.length };
+    pending.set(mintAddress, entry);
+    scheduleNext(entry);
+  },
+  resolvedCountByKeySize:    (): number => resolvedCountByKey.size,
+  sharedImageConfirmedSize:  (): number => sharedImageConfirmedByKey.size,
+  imageUseCountSize:         (): number => imageUseCount.size,
+  seedResolvedCount: (key: string, count: number, firstAt: number): void => {
+    resolvedCountByKey.set(key, { count, firstAt });
+  },
+  seedSharedImageConfirmed: (key: string, at: number): void => {
+    sharedImageConfirmedByKey.set(key, at);
+  },
+  /** Records a real image use (so `imageUseCount` gets a genuine entry)
+   *  then overrides the touch clock — lets a test fast-forward the
+   *  entry into staleness without waiting `RESOLVED_WINDOW_MS`. */
+  seedImageUse: (collection: string, image: string, mint: string, touchedAt: number): void => {
+    noteImageUse(collection, image, mint);
+    imageUseTouchedAt.set(collection, touchedAt);
+  },
+  runSweep: (now?: number): void => sweepStaleTrackingMaps(now ?? Date.now()),
+  resolvedWindowMs: RESOLVED_WINDOW_MS,
+  retryDelaysLength: RETRY_DELAYS_MS.length,
+};
