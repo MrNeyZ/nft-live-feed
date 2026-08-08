@@ -3,22 +3,22 @@
 // VictoryLabs — native Trending Collections panel for /multi-native.
 // Compact port of /dashboard's table: same data model (ME-sourced trending +
 // internal supplement, /api/tools/trending-collections polled + /api/collections/bids
-// polled) and the same live-overlay math (aggregateLive), but the live
-// overlay is fed from the page's SHARED sale stream (useMultiSales(), which
-// itself wraps useSaleStream()) instead of opening its own EventSource — this
-// is the whole point of the /multi native rework: one connection for the
-// page, not one per panel. /dashboard/page.tsx is NOT touched; this is an
-// independent copy trimmed for a narrow column (see drops below), not an
-// extraction shared with it.
+// polled), the same live-overlay math (aggregateLive), the same row order
+// (compareTrendingRows) and the same SOL formatting (formatSol) — kept in
+// sync via the shared soloist/trending-sort.ts, soloist/range-storage.ts and
+// soloist/collection-preview.ts modules /dashboard also uses. The live
+// overlay itself is fed from the page's SHARED sale stream (useMultiSales(),
+// which itself wraps useSaleStream()) instead of opening its own
+// EventSource — this is the whole point of the /multi native rework: one
+// connection for the page, not one per panel. /dashboard/page.tsx's JSX is
+// NOT touched; this remains an independent render, just no longer an
+// independent reimplementation of the row semantics above.
 //
-// Dropped vs. /dashboard (too much for a narrow embedded column — same
-// judgment call MintFeedPanel.tsx documents for its own drops):
-//   • ACTIVE/RECENT tabs — no tab-only sort branch; default sort is Volume.
+// Genuinely dropped vs. /dashboard (too much for a narrow embedded column —
+// same judgment call MintFeedPanel.tsx documents for its own drops):
+//   • ACTIVE/RECENT tabs — no tab-only sort branch (compareTrendingRows'
+//     liveActive default-sort branch covers the same "most recent" case).
 //   • Hover sales-preview popover (fixed-position card + its own fetch/cache).
-//   • Per-row ME/Tensor external-link icons.
-//   • Range/sort persisted to localStorage — local state only here.
-//   • Internal-source icon-fallback fetch (useCollectionIcons) — internal
-//     rows without ME artwork just show the abbr avatar.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,14 +26,18 @@ import {
   compressImage, rowLinkHandlers, RowLinkOverlay,
 } from '@/soloist/shared';
 import { collectionMeta } from '@/soloist/from-backend';
-import { FeedEvent, timeAgo } from '@/soloist/mock-data';
-import { formatFeedPrice } from '@/app/feed/lib/format';
+import { FeedEvent, formatSol, timeAgo } from '@/soloist/mock-data';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { authHeaders } from '@/runtime/auth';
 import { useMultiSales } from './lib/multi-sales';
 import { useSaleStreamConnected } from './lib/sale-event-stream';
 import { useDashboardHighlight } from './lib/dashboard-highlight';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
+import {
+  type SortKey, type SortDir, SORT_KEYS, compareTrendingRows,
+} from '@/soloist/trending-sort';
+import { loadStoredRange, saveStoredRange } from '@/soloist/range-storage';
+import { stashCollectionPreview } from '@/soloist/collection-preview';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -74,9 +78,20 @@ const RANGES: ReadonlyArray<{ key: Range; label: string }> = [
   { key: '30d', label: '30D' },
 ];
 const DEFAULT_RANGE: Range = '1h';
-const FETCH_LIMIT = 60;
+// Matches /dashboard's FETCH_LIMIT — same candidate set, so a secondary
+// sort column (e.g. Listed%) ranks over the same rows on both pages.
+const FETCH_LIMIT = 100;
 /** ME's own collection_stats cache is 45s-TTL upstream — matches dashboard. */
 const TRENDING_POLL_MS = 45_000;
+
+const RANGE_STORAGE_KEY = 'vl.multi.range';
+const VALID_RANGES = new Set<Range>(RANGES.map(r => r.key));
+function loadSavedRange(): Range {
+  return loadStoredRange(RANGE_STORAGE_KEY, VALID_RANGES, DEFAULT_RANGE);
+}
+function saveRange(r: Range): void {
+  saveStoredRange(RANGE_STORAGE_KEY, r);
+}
 
 const RANGE_MS: Record<Range, number> = {
   '5m':        5 * 60_000,
@@ -122,12 +137,12 @@ function shortDashboardName(name: string): string {
   return clean.slice(0, 12).trimEnd() + '…';
 }
 
-// formatFeedPrice (not the bare formatSol) — caps small values at 3
-// decimals (0.0034 -> "0.003") instead of formatSol's 4, matching how
-// prices already render in the Live Feed cards.
-function fmtSol(n: number | null): string { return n == null ? '—' : formatFeedPrice(n); }
+// Same formatSol precision /dashboard uses for Floor/Volume/Bid — was
+// formatFeedPrice (Live Feed's 3-decimal cap) here, which rendered the same
+// number with different precision on the two pages.
+function fmtSol(n: number | null): string { return n == null ? '—' : formatSol(n); }
 function fmtInt(n: number | null): string { return n == null ? '—' : Math.round(n).toLocaleString(); }
-function fmtBid(sol: number | null): string { return sol == null ? '—' : formatFeedPrice(sol); }
+function fmtBid(sol: number | null): string { return sol == null ? '—' : formatSol(sol); }
 
 function fmtLastAge(ts: number | null | undefined): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) return '—';
@@ -214,35 +229,6 @@ interface MergedRow extends TrendingCollection {
   avatarUrl: string | null;
 }
 
-type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'last';
-const SORT_KEYS = ['collection', 'floor', 'volume', 'sales', 'listedPct', 'me_bid', 'tnsr_bid', 'last'] as const;
-type SortDir = 'asc' | 'desc';
-
-function sortValueFor(r: MergedRow, key: SortKey): number | string {
-  switch (key) {
-    case 'collection': return (r.name ?? r.slug).toLowerCase();
-    case 'floor':      return r.bid?.floorSol ?? r.floorSol ?? 0;
-    case 'volume':     return r.volumeSol ?? 0;
-    case 'sales':      return r.salesCount ?? 0;
-    case 'listedPct': {
-      const count  = r.bid?.listedCount ?? r.listedCount;
-      const supply = r.bid?.totalSupply ?? r.totalSupply;
-      return count != null && supply != null && supply > 0 ? count / supply : 0;
-    }
-    case 'me_bid':     return r.bid?.meBidSol ?? 0;
-    case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
-    case 'last':       return r.live?.latestTs ?? 0;
-  }
-}
-
-function numCmp(a: number, b: number): number {
-  const da = Number.isFinite(a) ? a : 0;
-  const db = Number.isFinite(b) ? b : 0;
-  if (da < db) return -1;
-  if (da > db) return 1;
-  return 0;
-}
-
 function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
   label: string; col: SortKey; sortKey: SortKey | null; sortDir: SortDir;
   onSort: (k: SortKey) => void; align?: 'left' | 'right' | 'center';
@@ -300,7 +286,10 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
   const href = `/collection/${encodeURIComponent(row.slug)}`;
   const meUrl = `https://magiceden.io/marketplace/${row.slug}`;
   const tensorUrl = `https://www.tensor.trade/trade/${row.tensorSlug ?? row.slug}`;
-  const rowHandlers = rowLinkHandlers(href, () => { window.location.href = href; });
+  const rowHandlers = rowLinkHandlers(href, () => {
+    stashCollectionPreview(row.slug, row.avatarUrl);
+    window.location.href = href;
+  });
   const dashHl = useDashboardHighlight();
 
   return (
@@ -383,7 +372,10 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
 // ── Panel ────────────────────────────────────────────────────────────────────
 
 export function DashboardCollectionsPanel() {
-  const [range, setRange] = useState<Range>(DEFAULT_RANGE);
+  // Persisted under its own key (vl.multi.range) — same load/save semantics
+  // as /dashboard's vl.dashboard.range, deliberately a separate value so
+  // picking a range on one page doesn't silently change the other.
+  const [range, setRange] = useState<Range>(loadSavedRange);
 
   const [rows, setRows] = useState<TrendingCollection[]>([]);
   const [busy, setBusy] = useState(false);
@@ -526,19 +518,15 @@ export function DashboardCollectionsPanel() {
     else { setSortCol(col); setSortDir('desc'); }
   };
 
-  const sortedRows = useMemo(() => [...merged].sort((a, b) => {
-    let primary: number;
-    if (sortCol === null) {
-      primary = numCmp(b.volumeSol ?? 0, a.volumeSol ?? 0);
-    } else {
-      const sign = sortDir === 'asc' ? 1 : -1;
-      const va = sortValueFor(a, sortCol);
-      const vb = sortValueFor(b, sortCol);
-      primary = typeof va === 'string' ? sign * va.localeCompare(vb as string) : sign * numCmp(va as number, vb as number);
-    }
-    if (primary !== 0) return primary;
-    return (a.name ?? a.slug).localeCompare(b.name ?? b.slug);
-  }), [merged, sortCol, sortDir]);
+  // Same comparator /dashboard uses (compareTrendingRows) — including its
+  // liveActive default-sort branch (5m/10m/1h/6h → most-recent-sale first
+  // when no column is explicitly sorted), which this panel previously
+  // dropped in favor of an always-Volume default.
+  const liveActive = LIVE_OVERLAY_RANGES.has(range);
+  const sortedRows = useMemo(
+    () => [...merged].sort((a, b) => compareTrendingRows(a, b, { sortCol, sortDir, liveActive })),
+    [merged, sortCol, sortDir, liveActive],
+  );
 
   return (
     <div style={{
@@ -568,7 +556,7 @@ export function DashboardCollectionsPanel() {
             {loaded && !error ? `(${sortedRows.length.toLocaleString()})` : 'Loading…'}
           </span>
         </div>
-        <TimeframePills active={range} onChange={setRange} />
+        <TimeframePills active={range} onChange={r => { setRange(r); saveRange(r); }} />
       </div>
 
       {error && (
