@@ -33,6 +33,11 @@ import { useCollectionIcons } from '@/soloist/collection-icons';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
+import {
+  type SortKey, type SortDir, SORT_KEYS, compareTrendingRows,
+} from '@/soloist/trending-sort';
+import { loadStoredRange, saveStoredRange } from '@/soloist/range-storage';
+import { stashCollectionPreview } from '@/soloist/collection-preview';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 const MAX_STORED_EVENTS = 2000;
@@ -90,16 +95,10 @@ const RANGE_STORAGE_KEY = 'vl.dashboard.range';
 const VALID_RANGES = new Set<Range>(RANGES.map(r => r.key));
 
 function loadSavedRange(): Range {
-  if (typeof window === 'undefined') return DEFAULT_RANGE;
-  try {
-    const v = window.localStorage.getItem(RANGE_STORAGE_KEY);
-    if (v && VALID_RANGES.has(v as Range)) return v as Range;
-  } catch { /* private mode */ }
-  return DEFAULT_RANGE;
+  return loadStoredRange(RANGE_STORAGE_KEY, VALID_RANGES, DEFAULT_RANGE);
 }
 function saveRange(r: Range): void {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(RANGE_STORAGE_KEY, r); } catch { /* ignore */ }
+  saveStoredRange(RANGE_STORAGE_KEY, r);
 }
 
 /** Window length (ms) per range, for the client-side live-overlay join —
@@ -246,26 +245,6 @@ interface MergedRow extends TrendingCollection {
   avatarUrl: string | null;
 }
 
-type SortKey = 'collection' | 'floor' | 'volume' | 'sales' | 'listedPct' | 'me_bid' | 'tnsr_bid' | 'last';
-type SortDir = 'asc' | 'desc';
-
-function sortValueFor(r: MergedRow, key: SortKey): number | string {
-  switch (key) {
-    case 'collection': return (r.name ?? r.slug).toLowerCase();
-    case 'floor':      return r.bid?.floorSol ?? r.floorSol ?? 0;
-    case 'volume':     return r.volumeSol ?? 0;
-    case 'sales':      return r.salesCount ?? 0;
-    case 'listedPct': {
-      const count  = r.bid?.listedCount ?? r.listedCount;
-      const supply = r.bid?.totalSupply ?? r.totalSupply;
-      return count != null && supply != null && supply > 0 ? count / supply : 0;
-    }
-    case 'me_bid':     return r.bid?.meBidSol ?? 0;
-    case 'tnsr_bid':   return r.bid?.tnsrBidSol ?? 0;
-    case 'last':       return r.live?.latestTs ?? 0;
-  }
-}
-
 /** Short "time since last sale" — same tiering as mints' fmtAgeShort
  *  (MintsTableRow.tsx / lib/format.ts), no "ago" suffix. Only meaningful
  *  while the live overlay is active (10m/1h/6h); '—' otherwise. */
@@ -280,14 +259,6 @@ function fmtLastAge(ts: number | null | undefined): string {
   if (days < 14) return `${days}d`;
   if (days < 30) return `${Math.floor(days / 7)}w`;
   return `${Math.floor(days / 30)}mo`;
-}
-
-function numCmp(a: number, b: number): number {
-  const da = Number.isFinite(a) ? a : 0;
-  const db = Number.isFinite(b) ? b : 0;
-  if (da < db) return -1;
-  if (da > db) return 1;
-  return 0;
 }
 
 function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
@@ -679,7 +650,6 @@ export default function Dashboard() {
   })), [visibleRows, liveBySlug, bids, iconBySlug]);
 
   // ── Sort ───────────────────────────────────────────────────────────────────
-  const SORT_KEYS = ['collection', 'floor', 'volume', 'sales', 'listedPct', 'me_bid', 'tnsr_bid', 'last'] as const;
   const [sortCol, setSortCol] = useState<SortKey | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -703,36 +673,17 @@ export default function Dashboard() {
     else { setSortCol(col); setSortDir('desc'); }
   };
 
+  // Canonical ordering (compareTrendingRows, soloist/trending-sort.ts) — also
+  // reused verbatim by /multi's DashboardCollectionsPanel so both pages show
+  // the same row order for the same range/sort state.
   const liveActive = LIVE_OVERLAY_RANGES.has(range);
   const sortedRows = useMemo(() => {
-    return [...merged].sort((a, b) => {
-      let primary = 0;
-      if (sortCol === null) {
-        // Default (unsorted) order always favors most-recent activity when
-        // the live overlay has data to sort by — this used to be gated
-        // behind a RECENT tab; ACTIVE/RECENT was removed (column sort
-        // covers "most active by count" via the Sales column instead), so
-        // RECENT's behavior is now just the permanent default.
-        if (liveActive) primary = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
-        else primary = numCmp(b.volumeSol ?? 0, a.volumeSol ?? 0);
-      } else {
-        const sign = sortDir === 'asc' ? 1 : -1;
-        const va = sortValueFor(a, sortCol);
-        const vb = sortValueFor(b, sortCol);
-        primary = typeof va === 'string' ? sign * va.localeCompare(vb as string) : sign * numCmp(va as number, vb as number);
-      }
-      if (primary !== 0) return primary;
-      const tsCmp = numCmp(b.live?.latestTs ?? 0, a.live?.latestTs ?? 0);
-      if (tsCmp !== 0) return tsCmp;
-      return (a.name ?? a.slug).localeCompare(b.name ?? b.slug);
-    });
+    return [...merged].sort((a, b) => compareTrendingRows(a, b, { sortCol, sortDir, liveActive }));
   }, [merged, sortCol, sortDir, liveActive]);
 
   const handleRowClick = (row: MergedRow) => {
     setSelected(row.slug);
-    if (row.avatarUrl) {
-      try { sessionStorage.setItem(`cp-preview:${row.slug}`, row.avatarUrl); } catch { /* quota/private-mode: ignore */ }
-    }
+    stashCollectionPreview(row.slug, row.avatarUrl);
     window.location.href = `/collection/${encodeURIComponent(row.slug)}`;
   };
 

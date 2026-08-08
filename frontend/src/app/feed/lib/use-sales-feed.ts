@@ -1,17 +1,15 @@
 'use client';
 
-// VictoryLabs — Sales (Live Feed) data hook (Stage 1 native-/multi prep).
-// Self-contained: opens its OWN EventSource('/api/events/stream'), drives
-// the shared feedReducer, and exposes ordered events + ME-health for the
-// native <SalesFeedPanel>. This is a FOCUSED port of /feed's stream wiring
-// — it keeps the parts a /multi panel needs (snapshot, sale/meta/remove/
-// resize_status/status, reconnect/backoff, blacklist boundary + backstop)
-// and intentionally omits page-only concerns (seller-count persistence,
+// VictoryLabs — Sales (Live Feed) data hook, live production data source
+// for /multi (via multi-native/lib/multi-sales.tsx's useMultiSales(),
+// consumed by both <SalesFeedPanel> and <DashboardCollectionsPanel>'s live
+// overlay). Drives the shared feedReducer and exposes ordered events +
+// ME-health. This is a FOCUSED port of /feed's stream wiring — it keeps the
+// parts a /multi panel needs (snapshot, sale/meta/remove/resize_status/
+// status, reconnect/backoff, blacklist boundary + backstop) and
+// intentionally omits page-only concerns (seller-count persistence,
 // deep-discount sound, floorBySlug fallback, hover-pause, filters UI).
-//
-// ADDITIVE + UNWIRED: imported by nothing live yet. The iframe /multi and
-// the standalone /feed page are untouched; Stage 2 wires this in behind a
-// flag/route and the seller-count/floor extras are revisited then.
+// The standalone /feed page has its own separate wiring and is untouched.
 
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
