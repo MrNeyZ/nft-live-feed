@@ -715,12 +715,13 @@ export async function runScan(opts: RunScanOpts): Promise<ScanResult> {
     if (!mint || typeof l.price !== 'number') return;
 
     const offers = await fetchOffersReceived(mint);
-    if (offers.length === 0) return;
-    // Pace only between mints that actually carry an offer to process —
-    // empty mints don't add ME load, so no need to throttle them. Real
-    // offer-processing calls below still see the gap between iterations
-    // (per worker — the pool naturally interleaves across both workers).
+    // Unconditional pace — empty-offer mints used to skip this gap, which
+    // let a long run of zero-offer listings burst through with no spacing
+    // at all. That burst is exactly what tripped ME's real per-IP limit in
+    // production (retardio/nub/trencher scans all hit it), independent of
+    // API key validity. Every offers_received call now pays the same gap.
     await sleep(REQUEST_GAP_MS);
+    if (offers.length === 0) return;
     if (offers[0]) maybeLogSampleKeys(offers[0]);
 
     // Keep ALL priced offers; classify status per spec. Best-of-listing
