@@ -20,7 +20,8 @@
 import { Router, Request, Response }                 from 'express';
 import {
   PublicKey, Transaction, TransactionInstruction,
-  SystemProgram, SYSVAR_RENT_PUBKEY,
+  SystemProgram, SYSVAR_RENT_PUBKEY, SYSVAR_INSTRUCTIONS_PUBKEY,
+  AddressLookupTableAccount, TransactionMessage, VersionedTransaction,
 }                                                    from '@solana/web3.js';
 import {
   getAssociatedTokenAddressSync,
@@ -56,9 +57,239 @@ const OFF_AL       = 249;   // allowlists start
 
 // MMM on-chain constants (verified from live sol_fulfill_buy txs)
 const METAPLEX_PROGRAM   = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
-const MMM_FEE_CONSTANT   = new PublicKey('4nGoPfgRW2nkAp6ELx8bYRxLVRrNB3Si8drp4PRuDa3Q');
-const SOL_FULFILL_BUY_DISC = Buffer.from('5c10e24f1ff23576', 'hex');
+const AUTH_RULES_PROGRAM = new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg');
+const MPL_CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+const SOL_FULFILL_BUY_DISC          = Buffer.from('5c10e24f1ff23576', 'hex'); // sol_fulfill_buy (legacy/non-pNFT)
+const SOL_MIP1_FULFILL_BUY_DISC     = Buffer.from('ec529e7a0818af91', 'hex'); // sol_mip1_fulfill_buy (pNFT)
+const SOL_MPL_CORE_FULFILL_BUY_DISC = Buffer.from('aba722c170158e59', 'hex'); // sol_mpl_core_fulfill_buy (MPL Core)
 const SELL_STATE_SEED      = Buffer.from('mmm_sell_state');
+const TOKEN_RECORD_SEED    = Buffer.from('token_record');
+
+// PREVIOUSLY: a single hardcoded pubkey (`4nGoPfgRW2nkAp6ELx8bYRxLVRrNB3Si8drp4PRuDa3Q` —
+// which is open_solmap's own FVCA, not a protocol constant at all) was appended as
+// account [18] for EVERY sale regardless of collection. It only "worked" for
+// open_solmap by coincidence. Real on-chain SolFulfillBuy/SolMip1FulfillBuy both take
+// the NFT's full on-chain `creators` array (verified + unverified, in order) as
+// remaining_accounts for royalty payout — confirmed 2026-08-07 by decoding a real
+// Metaplex Metadata account and diffing against two live successful fulfill-buy txs
+// (creators list order/addresses matched exactly). Fixed below via decodeMetadataAccount.
+
+interface DecodedMetadata {
+  creators: Array<{ address: string; verified: boolean; share: number }>;
+  tokenStandard: number | null; // 4 = ProgrammableNonFungible (pNFT)
+  ruleSet: string | null;
+}
+
+/** Minimal Borsh decoder for a Metaplex Token Metadata account — just enough
+ *  to recover `creators` (for royalty remaining_accounts) and, for pNFTs,
+ *  `token_standard` + `programmable_config.rule_set`. Byte offsets verified
+ *  live 2026-08-07 against a real pNFT metadata account (Myros #2036,
+ *  H1GLRWcdjFXN9zJwDJouXbVTMG9mg2BXgQtyJXKVRzKf) — decoded creators and
+ *  rule_set both matched the real transaction's remaining_accounts /
+ *  authorizationRules exactly. Reads defensively past `uses` since older
+ *  (pre-pNFT) Metadata accounts end there with no trailing bytes.
+ */
+function decodeMetadataAccount(data: Buffer): DecodedMetadata {
+  let off = 1 + 32 + 32; // key(1) + update_authority(32) + mint(32)
+  const readString = () => {
+    const len = data.readUInt32LE(off); off += 4;
+    off += len;
+  };
+  readString(); // name
+  readString(); // symbol
+  readString(); // uri
+  off += 2;     // seller_fee_basis_points: u16
+
+  const creators: DecodedMetadata['creators'] = [];
+  const hasCreators = data[off]; off += 1;
+  if (hasCreators) {
+    const n = data.readUInt32LE(off); off += 4;
+    for (let i = 0; i < n; i++) {
+      const address = new PublicKey(data.subarray(off, off + 32)).toBase58(); off += 32;
+      const verified = data[off] === 1; off += 1;
+      const share = data[off]; off += 1;
+      creators.push({ address, verified, share });
+    }
+  }
+
+  off += 1; // primary_sale_happened: bool
+  off += 1; // is_mutable: bool
+  if (data[off]) { off += 1; off += 1; } else { off += 1; } // edition_nonce: Option<u8>
+
+  let tokenStandard: number | null = null;
+  if (off < data.length) {
+    const hasTs = data[off]; off += 1;
+    if (hasTs) { tokenStandard = data[off]; off += 1; }
+  }
+  if (off < data.length) { // collection: Option<Collection { verified: bool, key: Pubkey }>
+    const hasCollection = data[off]; off += 1;
+    if (hasCollection) off += 1 + 32;
+  }
+  if (off < data.length) { // uses: Option<Uses { use_method: u8, remaining: u64, total: u64 }>
+    const hasUses = data[off]; off += 1;
+    if (hasUses) off += 1 + 8 + 8;
+  }
+  if (off < data.length) { // collection_details: Option<CollectionDetails> — V1{size:u64} | V2{padding:[u8;8]}, both 1+8 bytes
+    const hasCollDetails = data[off]; off += 1;
+    if (hasCollDetails) off += 1 + 8;
+  }
+  let ruleSet: string | null = null;
+  if (off < data.length) { // programmable_config: Option<ProgrammableConfig::V1{ rule_set: Option<Pubkey> }>
+    const hasProgConfig = data[off]; off += 1;
+    if (hasProgConfig) {
+      off += 1; // variant tag
+      const hasRuleSet = data[off]; off += 1;
+      if (hasRuleSet) { ruleSet = new PublicKey(data.subarray(off, off + 32)).toBase58(); off += 32; }
+    }
+  }
+
+  return { creators, tokenStandard, ruleSet };
+}
+
+async function fetchMetadataAccount(metadataPk: PublicKey): Promise<DecodedMetadata> {
+  const result = await rpcPost('getAccountInfo', [metadataPk.toBase58(), { encoding: 'base64' }]) as
+    { value: { data: [string, string] } | null };
+  if (!result.value) throw new Error('metadata_account_not_found');
+  return decodeMetadataAccount(Buffer.from(result.value.data[0], 'base64'));
+}
+
+function tokenRecordPda(mintPk: PublicKey, tokenAccountPk: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer(), TOKEN_RECORD_SEED, tokenAccountPk.toBuffer()],
+    METAPLEX_PROGRAM,
+  );
+  return pda;
+}
+
+function serializeFulfillBuyArgs(minPayment: number): Buffer {
+  // 21-byte SolFulfillBuyArgs body (asset_amount, min_payment_amount,
+  // allowlist_aux, maker_fee_bp, taker_fee_bp) — shared by sol_fulfill_buy
+  // and sol_mip1_fulfill_buy per the on-chain IDL; only the 8-byte
+  // instruction discriminator differs between the two.
+  const data = Buffer.alloc(21);
+  data.writeBigUInt64LE(BigInt(1), 0);
+  data.writeBigUInt64LE(BigInt(minPayment), 8);
+  data[16] = 0x00;               // allowlist_aux = None
+  data.writeInt16LE(-100, 17);   // maker_fee_bp
+  data.writeInt16LE(200, 19);    // taker_fee_bp
+  return data;
+}
+
+function creatorKeys(creators: DecodedMetadata['creators']) {
+  return creators.map(c => ({ pubkey: new PublicKey(c.address), isSigner: false, isWritable: true }));
+}
+
+interface CoreAssetInfo {
+  collection: string | null;
+  creators: DecodedMetadata['creators'];
+}
+
+/** MPL Core assets almost always inherit royalty from a Collection-level
+ *  `royalties` plugin rather than carrying their own — per-asset DAS
+ *  `creators` comes back empty in that (common) case. Verified live
+ *  2026-08-07 (Curved Cats): asset-level creators=[], collection-level
+ *  creators=[{address, share:100, verified:true}] matched exactly the
+ *  remaining_accounts of a real successful sol_mpl_core_fulfill_buy tx.
+ *  Falls back to the collection's own creators only when the asset itself
+ *  has none. */
+async function fetchCoreAssetInfo(assetMint: string): Promise<CoreAssetInfo> {
+  const fetchDas = async (id: string) => {
+    const r = await fetch(rpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id } }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return await r.json() as {
+      result?: {
+        creators?: Array<{ address: string; share: number; verified: boolean }>;
+        grouping?: Array<{ group_key: string; group_value: string }>;
+      };
+    };
+  };
+
+  const assetJson = await fetchDas(assetMint);
+  const collection = (assetJson.result?.grouping ?? []).find(g => g.group_key === 'collection')?.group_value ?? null;
+  let creators = assetJson.result?.creators ?? [];
+
+  if (creators.length === 0 && collection) {
+    const collJson = await fetchDas(collection);
+    creators = collJson.result?.creators ?? [];
+  }
+
+  return { collection, creators };
+}
+
+/** sol_mpl_core_fulfill_buy — 11 fixed accounts + one remaining account per
+ *  royalty creator. No SPL token/ATA/metadata accounts at all (MPL Core
+ *  doesn't use them) — inherently tiny (~500-600 bytes even with several
+ *  creators), nowhere near the 1232-byte cap that blocks large pNFT sales.
+ *  Account order verified live 2026-08-07 against a real successful tx. */
+function buildSolMplCoreFulfillBuyIx(
+  pool:         MmmPool,
+  poolPk:       PublicKey,
+  sellerPk:     PublicKey,
+  assetPk:      PublicKey,
+  collectionPk: PublicKey,
+  creators:     DecodedMetadata['creators'],
+): TransactionInstruction {
+  const MMM_PK     = MMM_PROGRAM_ID;
+  const ownerPk    = new PublicKey(pool.owner);
+  const cosignerPk = new PublicKey(pool.cosigner);
+  const referralPk = new PublicKey(pool.referral);
+
+  const [escrowPk] = PublicKey.findProgramAddressSync([ESCROW_SEED, poolPk.toBuffer()], MMM_PK);
+  const [sellStatePk] = PublicKey.findProgramAddressSync(
+    [SELL_STATE_SEED, poolPk.toBuffer(), assetPk.toBuffer()], MMM_PK);
+
+  const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+  const data = Buffer.concat([SOL_MPL_CORE_FULFILL_BUY_DISC, serializeFulfillBuyArgs(minPayment)]);
+
+  return new TransactionInstruction({
+    programId: MMM_PK,
+    data,
+    keys: [
+      { pubkey: sellerPk,                isSigner: true,  isWritable: true  }, // [0] payer
+      { pubkey: ownerPk,                 isSigner: false, isWritable: true  }, // [1] owner
+      { pubkey: cosignerPk,              isSigner: false, isWritable: false }, // [2] cosigner
+      { pubkey: referralPk,              isSigner: false, isWritable: true  }, // [3] referral
+      { pubkey: poolPk,                  isSigner: false, isWritable: true  }, // [4] pool
+      { pubkey: escrowPk,                isSigner: false, isWritable: true  }, // [5] buyside_sol_escrow_account
+      { pubkey: assetPk,                 isSigner: false, isWritable: true  }, // [6] asset
+      { pubkey: sellStatePk,             isSigner: false, isWritable: true  }, // [7] sell_state
+      { pubkey: collectionPk,            isSigner: false, isWritable: false }, // [8] collection
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // [9] system_program
+      { pubkey: MPL_CORE_PROGRAM_ID,     isSigner: false, isWritable: false }, // [10] asset_program
+      ...creatorKeys(creators),                                                // [11..] royalty creators (dynamic)
+    ],
+  });
+}
+
+// Shared on-chain ALT (not ours — reused as-is) carrying the fixed accounts
+// every SolFulfillBuy repeats (mmm program, token/ATA/rent/instructions
+// sysvars, metadata program, etc). Referencing it in a v0 tx frees enough
+// space to fit 5-creator pNFTs under Solana's 1232-byte tx cap — confirmed
+// live 2026-08-07 by diffing two real successful fulfill-buy txs (22 and 30
+// accounts respectively) that both used it. Legacy (non-versioned) tx
+// building was the actual cause of past "byte limit" pool skips, not a real
+// protocol block. See memory project_mmm_alt_bytelimit_fix.
+const MMM_SHARED_ALT_ADDRESS = '9JqEwvgiSLd5gvMKtKXTYtmKBuhByGRZe7iPzHNQd4s3';
+let mmmAltCache: { account: AddressLookupTableAccount; fetchedAt: number } | null = null;
+const MMM_ALT_TTL_MS = 30 * 60 * 1000;
+
+async function fetchMmmSharedAlt(): Promise<AddressLookupTableAccount> {
+  if (mmmAltCache && Date.now() - mmmAltCache.fetchedAt < MMM_ALT_TTL_MS) {
+    return mmmAltCache.account;
+  }
+  const result = await rpcPost('getAccountInfo', [MMM_SHARED_ALT_ADDRESS, { encoding: 'base64' }]) as
+    { value: { data: [string, string] } | null };
+  if (!result.value) throw new Error('mmm_shared_alt_not_found');
+  const data = Buffer.from(result.value.data[0], 'base64');
+  const state = AddressLookupTableAccount.deserialize(data);
+  const account = new AddressLookupTableAccount({ key: new PublicKey(MMM_SHARED_ALT_ADDRESS), state });
+  mmmAltCache = { account, fetchedAt: Date.now() };
+  return account;
+}
 
 export const ALLOWLIST_TYPE: Record<number, string> = {
   0: 'empty', 1: 'FVCA', 2: 'mint', 3: 'MCC',
@@ -251,6 +482,13 @@ interface MePoolResult {
   buysideCreatorRoyaltyBp?: number;
   buyOrdersAmount?:         number;
   updatedAt?:               string;
+  // ME-side kill-switch — a pool with this set can never actually be
+  // fulfilled (found live 2026-08-07: a fully-funded 140 SOL SMB Gen2 pool,
+  // untouched since 2023, blockedAt=2023-07-09 — ME's own cosigner refuses
+  // it). Not previously tracked anywhere in this codebase; surfaced as a
+  // real false-positive risk for any profit-ranking that only looks at
+  // funded amount vs floor.
+  blockedAt?:                string | null;
 }
 
 async function fetchMeCollectionInfo(owner: string): Promise<Map<string, MePoolResult>> {
@@ -300,6 +538,13 @@ export interface MmmPoolWithCollection extends MmmPool {
   buysideCreatorRoyaltyBp?: number | null;
   buyOrdersAmount?:         number | null;
   meUpdatedAt?:             string | null;
+  // ME-side kill-switch — set means this pool can never actually be
+  // fulfilled regardless of how well-funded it looks (confirmed 2026-08-07:
+  // a fully-funded 140 SOL SMB Gen2 pool, untouched since 2023, has this
+  // set). Must gate any "profitable"/executable ranking, not just be
+  // informational — a blocked pool with a huge funded balance is the
+  // single worst false positive this scanner can produce.
+  blockedAt?:               string | null;
 }
 
 export interface MmmPoolScanResult {
@@ -351,6 +596,7 @@ async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
       poolType:         me.poolType         ?? '',
       isMIP1:           me.isMIP1           ?? false,
       meKnown:          Object.keys(me).length > 0,
+      blockedAt:        me.blockedAt        ?? null,
     };
   });
 
@@ -525,12 +771,15 @@ async function fetchAssetByMint(mint: string): Promise<WalletNft | null> {
 // ── On-chain sol_fulfill_buy builder ─────────────────────────────────────────
 // Account layout verified from live txs (Jun 2026). 19 accounts, no remaining_accounts.
 
-function buildOnChainFulfillBuyTx(
+/** Legacy (non-pNFT) sol_fulfill_buy — 18 fixed accounts + one remaining
+ *  account per on-chain creator (royalty payout targets), in metadata order. */
+function buildSolFulfillBuyIx(
   pool:     MmmPool,
   poolPk:   PublicKey,
   sellerPk: PublicKey,
   mintPk:   PublicKey,
-): Transaction {
+  creators: DecodedMetadata['creators'],
+): TransactionInstruction {
   const MMM_PK     = MMM_PROGRAM_ID;
   const ownerPk    = new PublicKey(pool.owner);
   const cosignerPk = new PublicKey(pool.cosigner);
@@ -557,17 +806,9 @@ function buildOnChainFulfillBuyTx(
 
   // min_payment_amount = spot * (10000 - taker_fee_bp) / 10000
   const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+  const data = Buffer.concat([SOL_FULFILL_BUY_DISC, serializeFulfillBuyArgs(minPayment)]);
 
-  // 29-byte Borsh instruction data (verified from live txs)
-  const data = Buffer.alloc(29);
-  SOL_FULFILL_BUY_DISC.copy(data, 0);
-  data.writeBigUInt64LE(BigInt(1), 8);
-  data.writeBigUInt64LE(BigInt(minPayment), 16);
-  data[24] = 0x00;                   // allowlist_aux = None
-  data.writeInt16LE(-100, 25);       // maker_fee_bp
-  data.writeInt16LE(200, 27);        // taker_fee_bp
-
-  const ix = new TransactionInstruction({
+  return new TransactionInstruction({
     programId: MMM_PK,
     data,
     keys: [
@@ -583,35 +824,238 @@ function buildOnChainFulfillBuyTx(
       { pubkey: sellerAta,                isSigner: false, isWritable: true  }, // [9] payer_asset_account
       { pubkey: poolAta,                  isSigner: false, isWritable: true  }, // [10] sellside_asset_token_account
       { pubkey: ownerAta,                 isSigner: false, isWritable: true  }, // [11] owner_token_account
-      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [12] system_program
+      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [12] allowlist_aux_account (None)
       { pubkey: sellStatePk,              isSigner: false, isWritable: true  }, // [13] sell_state
-      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [14] system_program (duplicate needed)
+      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [14] system_program
       { pubkey: TOKEN_PROGRAM_ID,         isSigner: false, isWritable: false }, // [15] token_program
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // [16] associated_token_program
       { pubkey: SYSVAR_RENT_PUBKEY,       isSigner: false, isWritable: false }, // [17] rent
-      { pubkey: MMM_FEE_CONSTANT,         isSigner: false, isWritable: false }, // [18] constant (mmm fee account)
+      ...creatorKeys(creators),                                                 // [18..] royalty creators (dynamic)
     ],
   });
+}
 
-  const tx = new Transaction();
-  tx.add(ix);
-  return tx;
+/** pNFT sol_mip1_fulfill_buy — 25 fixed accounts (incl. token records +
+ *  auth rules) + one remaining account per on-chain creator. Account order
+ *  and token-record/rule_set derivation verified live 2026-08-07 against a
+ *  real successful pNFT fulfill-buy tx. */
+function buildSolMip1FulfillBuyIx(
+  pool:     MmmPool,
+  poolPk:   PublicKey,
+  sellerPk: PublicKey,
+  mintPk:   PublicKey,
+  creators: DecodedMetadata['creators'],
+  ruleSet:  string | null,
+): TransactionInstruction {
+  const MMM_PK     = MMM_PROGRAM_ID;
+  const ownerPk    = new PublicKey(pool.owner);
+  const cosignerPk = new PublicKey(pool.cosigner);
+  const referralPk = new PublicKey(pool.referral);
+
+  const [escrowPk] = PublicKey.findProgramAddressSync(
+    [ESCROW_SEED, poolPk.toBuffer()], MMM_PK,
+  );
+  const [metadataPk] = PublicKey.findProgramAddressSync(
+    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer()],
+    METAPLEX_PROGRAM,
+  );
+  const [editionPk] = PublicKey.findProgramAddressSync(
+    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer(), Buffer.from('edition')],
+    METAPLEX_PROGRAM,
+  );
+  const [sellStatePk] = PublicKey.findProgramAddressSync(
+    [SELL_STATE_SEED, poolPk.toBuffer(), mintPk.toBuffer()], MMM_PK,
+  );
+
+  const sellerAta = getAssociatedTokenAddressSync(mintPk, sellerPk, false);
+  const poolAta   = getAssociatedTokenAddressSync(mintPk, poolPk, true);
+  const ownerAta  = getAssociatedTokenAddressSync(mintPk, ownerPk, false);
+
+  const tokenOwnerTokenRecord = tokenRecordPda(mintPk, sellerAta);
+  const poolTokenRecord       = tokenRecordPda(mintPk, poolAta);
+  const poolOwnerTokenRecord  = tokenRecordPda(mintPk, ownerAta);
+  // Untested: no observed example of a ruleset-less pNFT fulfill-buy yet.
+  // Metaplex convention for "no rule set" elsewhere is the token metadata
+  // program id itself as sentinel — applied here defensively.
+  const authorizationRulesPk = new PublicKey(ruleSet ?? METAPLEX_PROGRAM.toBase58());
+
+  const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
+  const data = Buffer.concat([SOL_MIP1_FULFILL_BUY_DISC, serializeFulfillBuyArgs(minPayment)]);
+
+  return new TransactionInstruction({
+    programId: MMM_PK,
+    data,
+    keys: [
+      { pubkey: sellerPk,                 isSigner: true,  isWritable: true  }, // [0] payer
+      { pubkey: ownerPk,                  isSigner: false, isWritable: true  }, // [1] owner
+      { pubkey: cosignerPk,               isSigner: false, isWritable: false }, // [2] cosigner
+      { pubkey: referralPk,               isSigner: false, isWritable: true  }, // [3] referral
+      { pubkey: poolPk,                   isSigner: false, isWritable: true  }, // [4] pool
+      { pubkey: escrowPk,                 isSigner: false, isWritable: true  }, // [5] escrow
+      { pubkey: metadataPk,               isSigner: false, isWritable: true  }, // [6] metadata
+      { pubkey: mintPk,                   isSigner: false, isWritable: false }, // [7] mint
+      { pubkey: editionPk,                isSigner: false, isWritable: false }, // [8] master_edition
+      { pubkey: sellerAta,                isSigner: false, isWritable: true  }, // [9] payer_asset_account
+      { pubkey: poolAta,                  isSigner: false, isWritable: true  }, // [10] sellside_asset_token_account
+      { pubkey: ownerAta,                 isSigner: false, isWritable: true  }, // [11] owner_token_account
+      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [12] allowlist_aux_account (None)
+      { pubkey: sellStatePk,              isSigner: false, isWritable: true  }, // [13] sell_state
+      { pubkey: tokenOwnerTokenRecord,    isSigner: false, isWritable: true  }, // [14] token_owner_token_record
+      { pubkey: poolTokenRecord,          isSigner: false, isWritable: true  }, // [15] pool_token_record
+      { pubkey: poolOwnerTokenRecord,     isSigner: false, isWritable: true  }, // [16] pool_owner_token_record
+      { pubkey: METAPLEX_PROGRAM,         isSigner: false, isWritable: false }, // [17] token_metadata_program
+      { pubkey: AUTH_RULES_PROGRAM,       isSigner: false, isWritable: false }, // [18] authorization_rules_program
+      { pubkey: authorizationRulesPk,     isSigner: false, isWritable: false }, // [19] authorization_rules
+      { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }, // [20] instructions
+      { pubkey: SystemProgram.programId,  isSigner: false, isWritable: false }, // [21] system_program
+      { pubkey: TOKEN_PROGRAM_ID,         isSigner: false, isWritable: false }, // [22] token_program
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // [23] associated_token_program
+      { pubkey: SYSVAR_RENT_PUBKEY,       isSigner: false, isWritable: false }, // [24] rent
+      ...creatorKeys(creators),                                                 // [25..] royalty creators (dynamic)
+    ],
+  });
 }
 
 // ── ME bid-accept tx proxy → on-chain fallback ────────────────────────────────
+
+// Real ME instruction-building host — NOT api-mainnet.magiceden.dev (that
+// domain's /mmm/pools/{key}/instruction/sol-fulfill-buy path is dead, always
+// 400 "Not Found", confirmed 2026-08-07). ME's own frontend/userscript calls
+// this .io host + /v2/instructions/mmm/ path instead. ME_BASE (.dev) is still
+// correct for the /mmm/pools?owner= list endpoint used elsewhere in this file.
+const ME_IXS_BASE = 'https://api-mainnet.magiceden.io/v2/instructions/mmm';
+
+/** True iff `mintPk` is owned by the MPL Core program rather than the SPL
+ *  Token program — i.e. it's a Core asset, not a Token Metadata NFT (legacy
+ *  or pNFT). Core assets have no Metadata PDA / ATA / token account at all,
+ *  so this must be checked before attempting the Token Metadata decode path. */
+async function isMplCoreAsset(mintPk: PublicKey): Promise<boolean> {
+  const result = await rpcPost('getAccountInfo', [mintPk.toBase58(), { encoding: 'base64' }]) as
+    { value: { owner: string } | null };
+  return result.value?.owner === MPL_CORE_PROGRAM_ID.toBase58();
+}
+
+/** Shared v0+ALT (fallback: legacy) serialization for any already-built
+ *  fulfill-buy instruction — used by both the Token Metadata and MPL Core
+ *  on-chain builders below. */
+async function serializeOnchainIx(ix: TransactionInstruction, sellerPk: PublicKey): Promise<Uint8Array> {
+  let bhResult: { value: { blockhash: string; lastValidBlockHeight: number } };
+  try {
+    bhResult = await rpcPost('getLatestBlockhash', [{ commitment: 'confirmed' }]) as typeof bhResult;
+    console.log('[fallback] blockhash=%s lastValidBlockHeight=%s', bhResult.value.blockhash, bhResult.value.lastValidBlockHeight);
+  } catch (e) {
+    console.error('[fallback] getLatestBlockhash threw:', (e instanceof Error ? e.stack : String(e)));
+    throw e;
+  }
+
+  // v0 versioned tx + shared ALT: compresses the fixed accounts every
+  // fulfill-buy repeats (mmm program, token/ATA/rent/instructions sysvars,
+  // metadata program) into 1-byte refs — required for 5-creator pNFTs to
+  // fit under the 1232-byte cap. Falls back to legacy tx if the ALT can't
+  // be fetched (still correct for low-creator-count NFTs, just no headroom).
+  try {
+    const alt = await fetchMmmSharedAlt();
+    const message = new TransactionMessage({
+      payerKey: sellerPk,
+      recentBlockhash: bhResult.value.blockhash,
+      instructions: [ix],
+    }).compileToV0Message([alt]);
+    const vtx = new VersionedTransaction(message);
+    const serialized = vtx.serialize();
+    console.log('[fallback] v0 serialize OK, byteLength=%s', serialized.length);
+    return serialized;
+  } catch (e) {
+    console.warn('[fallback] ALT/v0 build failed, falling back to legacy tx:', (e instanceof Error ? e.message : String(e)));
+    const tx = new Transaction();
+    tx.add(ix);
+    tx.feePayer        = sellerPk;
+    tx.recentBlockhash = bhResult.value.blockhash;
+    const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+    console.log('[fallback] legacy serialize OK, byteLength=%s', serialized.length);
+    return serialized;
+  }
+}
+
+/** MPL Core on-chain builder path. No ME REST endpoint for Core fulfill-buy
+ *  has been found (confirmed 2026-08-07: /v2/instructions/mmm/sol-fulfill-buy
+ *  requires assetTokenAccount unconditionally, which Core assets don't have;
+ *  every guessed sibling path — sol-mpl-core-fulfill-buy, mpl-core-sol-
+ *  fulfill-buy, etc. — 404s) — goes straight to the on-chain builder, same
+ *  me_cosigner_required guard as the Token Metadata path for pools with a
+ *  real ME cosigner. */
+async function fetchCoreBidAcceptTx(
+  poolKey: string,
+  seller:  string,
+  mint:    string,
+): Promise<{ txBase64: string; source: 'onchain' }> {
+  const poolPk   = new PublicKey(poolKey);
+  const sellerPk = new PublicKey(seller);
+  const assetPk  = new PublicKey(mint);
+
+  const coreInfo = await fetchCoreAssetInfo(mint);
+  console.log('[fallback] core asset decoded: collection=%s creators=%s', coreInfo.collection, JSON.stringify(coreInfo.creators));
+  if (!coreInfo.collection) throw new Error('core_collection_not_found');
+
+  const poolResult = await lookupSinglePool(poolKey);
+  if (poolResult.type !== 'pool') throw new Error('pool_not_found');
+  const pool = poolResult.pool;
+
+  if (pool.cosigner !== SystemProgram.programId.toBase58()) {
+    console.log('[fallback] BLOCKED: pool requires a real cosigner signature, cosigner=%s', pool.cosigner);
+    throw new Error('me_cosigner_required: no known ME endpoint for MPL Core fulfill-buy (on-chain builder cannot provide a cosigner signature)');
+  }
+
+  const ix = buildSolMplCoreFulfillBuyIx(
+    pool, poolPk, sellerPk, assetPk, new PublicKey(coreInfo.collection), coreInfo.creators);
+  const serialized = await serializeOnchainIx(ix, sellerPk);
+  return { txBase64: Buffer.from(serialized).toString('base64'), source: 'onchain' };
+}
 
 async function fetchBidAcceptTx(
   poolKey: string,
   seller:  string,
   mint:    string,
 ): Promise<{ txBase64: string; source: 'me_api' | 'onchain' }> {
+  const poolPk   = new PublicKey(poolKey);
+  const sellerPk = new PublicKey(seller);
+  const mintPk   = new PublicKey(mint);
+
+  if (await isMplCoreAsset(mintPk)) {
+    console.log('[fallback] mint=%s is an MPL Core asset — routing to Core builder', mint);
+    return fetchCoreBidAcceptTx(poolKey, seller, mint);
+  }
+
+  const [metadataPk] = PublicKey.findProgramAddressSync(
+    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer()], METAPLEX_PROGRAM);
+
+  // Read the NFT's real on-chain creators (+ pNFT token_standard/rule_set)
+  // directly off its Metadata account up front — needed both to build the
+  // correct ME API request (assetTokenAccount + tokenStandard=4 for pNFT)
+  // and, if ME fails, for the on-chain fallback below. Authoritative source
+  // for royalty remaining_accounts; do NOT reuse a single hardcoded creator
+  // account across pools.
+  let meta: DecodedMetadata;
+  try {
+    meta = await fetchMetadataAccount(metadataPk);
+    console.log('[fallback] metadata decoded: tokenStandard=%s creators=%s ruleSet=%s',
+      meta.tokenStandard, JSON.stringify(meta.creators), meta.ruleSet);
+  } catch (e) {
+    console.error('[fetchBidAcceptTx] fetchMetadataAccount threw:', (e instanceof Error ? e.stack : String(e)));
+    throw e;
+  }
+  const isPNFT = meta.tokenStandard === 4; // ProgrammableNonFungible
+  const sellerAta = getAssociatedTokenAddressSync(mintPk, sellerPk, false);
+
   // Try ME API first (returns fully cosigned tx)
   try {
-    const url = `${ME_BASE}/mmm/pools/${encodeURIComponent(poolKey)}/instruction/sol-fulfill-buy`
-      + `?seller=${encodeURIComponent(seller)}`
-      + `&assetMint=${encodeURIComponent(mint)}`
+    const url = `${ME_IXS_BASE}/sol-fulfill-buy`
+      + `?pool=`                 + encodeURIComponent(poolKey)
+      + `&seller=`               + encodeURIComponent(seller)
+      + `&assetMint=`            + encodeURIComponent(mint)
+      + `&assetTokenAccount=`    + encodeURIComponent(sellerAta.toBase58())
       + `&assetAmount=1`
-      + `&minPaymentAmount=0`;
+      + `&minPaymentAmount=0`
+      + (isPNFT ? '&tokenStandard=4' : '');
 
     const r = await fetch(url, {
       headers: {
@@ -659,80 +1103,20 @@ async function fetchBidAcceptTx(
   }
   console.log('[fallback] cosigner check passed (default/no cosigner)');
 
-  // Derive all PDAs before building tx so we can log them
-  const poolPk   = new PublicKey(poolKey);
-  const sellerPk = new PublicKey(seller);
-  const mintPk   = new PublicKey(mint);
-  const ownerPk  = new PublicKey(pool.owner);
-
-  const [escrowPk] = PublicKey.findProgramAddressSync([ESCROW_SEED, poolPk.toBuffer()], MMM_PROGRAM_ID);
-  const [metadataPk] = PublicKey.findProgramAddressSync(
-    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer()], METAPLEX_PROGRAM);
-  const [editionPk] = PublicKey.findProgramAddressSync(
-    [Buffer.from('metadata'), METAPLEX_PROGRAM.toBuffer(), mintPk.toBuffer(), Buffer.from('edition')], METAPLEX_PROGRAM);
-  const [sellStatePk] = PublicKey.findProgramAddressSync(
-    [SELL_STATE_SEED, poolPk.toBuffer(), mintPk.toBuffer()], MMM_PROGRAM_ID);
-  const sellerAta = getAssociatedTokenAddressSync(mintPk, sellerPk, false);
-  const poolAta   = getAssociatedTokenAddressSync(mintPk, poolPk, true);
-  const ownerAta  = getAssociatedTokenAddressSync(mintPk, ownerPk, false);
-
-  console.log('[fallback] derived PDAs:');
-  console.log('  escrowPk    = %s', escrowPk.toBase58());
-  console.log('  metadataPk  = %s', metadataPk.toBase58());
-  console.log('  editionPk   = %s', editionPk.toBase58());
-  console.log('  sellStatePk = %s', sellStatePk.toBase58());
-  console.log('  sellerAta   = %s', sellerAta.toBase58());
-  console.log('  poolAta     = %s', poolAta.toBase58());
-  console.log('  ownerAta    = %s', ownerAta.toBase58());
-  console.log('[fallback] accounts [0..18]:');
-  console.log('  [0] payer(seller)         = %s', sellerPk.toBase58());
-  console.log('  [1] owner                 = %s', ownerPk.toBase58());
-  console.log('  [2] cosigner              = %s', pool.cosigner);
-  console.log('  [3] referral              = %s', pool.referral);
-  console.log('  [4] pool                  = %s', poolPk.toBase58());
-  console.log('  [5] escrow                = %s', escrowPk.toBase58());
-  console.log('  [6] metadata              = %s', metadataPk.toBase58());
-  console.log('  [7] edition               = %s', editionPk.toBase58());
-  console.log('  [8] mint                  = %s', mintPk.toBase58());
-  console.log('  [9] sellerAta             = %s', sellerAta.toBase58());
-  console.log('  [10] poolAta              = %s', poolAta.toBase58());
-  console.log('  [11] ownerAta             = %s', ownerAta.toBase58());
-  console.log('  [12] systemProgram        = %s', SystemProgram.programId.toBase58());
-  console.log('  [13] sellState            = %s', sellStatePk.toBase58());
-  console.log('  [14] systemProgram(dup)   = %s', SystemProgram.programId.toBase58());
-
-  let tx: Transaction;
+  let ix: TransactionInstruction;
   try {
-    tx = buildOnChainFulfillBuyTx(pool, poolPk, sellerPk, mintPk);
-    console.log('[fallback] buildOnChainFulfillBuyTx OK, ix count=%s', tx.instructions.length);
+    ix = isPNFT
+      ? buildSolMip1FulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators, meta.ruleSet)
+      : buildSolFulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators);
+    console.log('[fallback] build%sFulfillBuyIx OK (isPNFT=%s, %s creators)',
+      isPNFT ? 'SolMip1' : 'SolFulfillBuy', isPNFT, meta.creators.length);
   } catch (e) {
-    console.error('[fallback] buildOnChainFulfillBuyTx threw:', (e instanceof Error ? e.stack : String(e)));
+    console.error('[fallback] build fulfill-buy ix threw:', (e instanceof Error ? e.stack : String(e)));
     throw e;
   }
 
-  // Need a recent blockhash so the tx can be serialized and Phantom can sign it
-  let bhResult: { value: { blockhash: string; lastValidBlockHeight: number } };
-  try {
-    bhResult = await rpcPost('getLatestBlockhash', [{ commitment: 'confirmed' }]) as typeof bhResult;
-    console.log('[fallback] blockhash=%s lastValidBlockHeight=%s', bhResult.value.blockhash, bhResult.value.lastValidBlockHeight);
-  } catch (e) {
-    console.error('[fallback] getLatestBlockhash threw:', (e instanceof Error ? e.stack : String(e)));
-    throw e;
-  }
-
-  tx.feePayer        = sellerPk;
-  tx.recentBlockhash = bhResult.value.blockhash;
-
-  let serialized: Buffer;
-  try {
-    serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
-    console.log('[fallback] serialize OK, byteLength=%s', serialized.length);
-  } catch (e) {
-    console.error('[fallback] serialize threw:', (e instanceof Error ? e.stack : String(e)));
-    throw e;
-  }
-
-  return { txBase64: serialized.toString('base64'), source: 'onchain' };
+  const serialized = await serializeOnchainIx(ix, sellerPk);
+  return { txBase64: Buffer.from(serialized).toString('base64'), source: 'onchain' };
 }
 
 // ── Single-pool lookup ───────────────────────────────────────────────────────
@@ -832,19 +1216,22 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
       buysideCreatorRoyaltyBp: me.buysideCreatorRoyaltyBp ?? null,
       buyOrdersAmount:         me.buyOrdersAmount         ?? null,
       meUpdatedAt:             me.updatedAt               ?? null,
+      blockedAt:               me.blockedAt               ?? null,
     },
     scannedAt: new Date().toISOString(),
   };
 }
 
 // ── Triage collection types + cache ──────────────────────────────────────────
-// 'core_collection' deliberately excluded: Metaplex Core postdates MMM's
-// infinite-lifetime pool creation window, and the one Core pool tested so far
-// (Curved Cats, poolType:two_sided) failed the bridge — treat all Core-backed
-// pools as unsupported rather than trust a per-pool poolType/funding check.
-// Single-pool lookup (/tools/mmm-pools/pool?key=) is unaffected — still shows
-// core_collection pools for manual inspection, just excluded from scan results.
-const COLL_AL_TYPES = new Set(['FVCA', 'MCC', 'group']);
+// 'core_collection' included as of 2026-08-07: the earlier exclusion was
+// based on one failed two_sided Core pool (a real, separate, already-known
+// block — see [[project_mmm_two_sided_pooltype_real_block]] — that applies
+// regardless of asset type, not something specific to Core). Since then a
+// real MPL Core sol_mpl_core_fulfill_buy sale was confirmed live on-chain
+// (Curved Cats, one-sided pool), and the accept path now has a verified
+// on-chain builder for Core (buildSolMplCoreFulfillBuyIx). No reason left to
+// blanket-exclude Core pools from Pool Feed / triage scan results.
+const COLL_AL_TYPES = new Set(['FVCA', 'MCC', 'group', 'core_collection']);
 
 export interface TriageCollection {
   alType:          string;
@@ -1260,30 +1647,38 @@ export function createMmmPoolsRouter(): Router {
         }
 
         // ── Live scan ────────────────────────────────────────────────────────
-        emit('progress', { msg: `Fetching all infinite-lifetime MMM pools${fast ? ' [fast mode]' : ''}...` });
+        // NOTE 2026-08-07: previously filtered to expiry==0 ("infinite-lifetime")
+        // pools only. Dropped that filter — confirmed live (real fulfilled sale,
+        // pool sitting 2 years) that MMM's fulfill_buy does not reject a pool for
+        // having a past/nonzero expiry, so excluding those pools at the RPC level
+        // was silently hiding real, fulfillable underfunded pools.
+        emit('progress', { msg: `Fetching all MMM pools${fast ? ' [fast mode]' : ''}...` });
 
         const accounts = await rpcPost('getProgramAccounts', [
           MMM_PROGRAM_ID.toBase58(),
           {
             encoding:   'base64',
             commitment: 'confirmed',
-            // memcmp on expiry field (i64 LE @ OFF_EXPIRY=27): value 0 = 8 zero bytes
-            // bs58.encode(Buffer.alloc(8)) = '11111111'
             filters: [
               { dataSize: POOL_SIZE },
-              { memcmp: { offset: OFF_EXPIRY, bytes: '11111111' } },
             ],
           },
         ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
 
-        emit('progress', { msg: `Got ${accounts.length} infinite-lifetime pools, parsing...` });
+        emit('progress', { msg: `Got ${accounts.length} pools, parsing...` });
 
         // Pre-filter on bpa (no RPC needed, local parse only)
+        // Confirmed live 2026-08-08 (simulateTransaction on an expired pool):
+        // MMM's fulfill_buy rejects a pool whose expiry has passed with
+        // AnchorError 6014 "Expired" — only expiry==0 or a still-future expiry
+        // is actually fulfillable.
+        const nowSec = Math.floor(Date.now() / 1000);
         const candidates: MmmPool[] = [];
         for (const acct of accounts) {
           const p = parsePool(acct.pubkey, acct.account.data[0]);
           if (!p) continue;
           if (!(p.bpa > 0 && p.bpa < p.spotPrice)) continue;
+          if (!(p.expiry === 0 || p.expiry > nowSec)) continue;
           if (!p.allowlists.some(al => COLL_AL_TYPES.has(al.type))) continue;
           candidates.push(p);
         }
@@ -1475,7 +1870,12 @@ export function createMmmPoolsRouter(): Router {
           }
 
           // Fresh scan
-          emit('progress', { msg: `Fetching all infinite-lifetime MMM pools${fast ? ' [fast]' : ''}…` });
+          // NOTE 2026-08-07: previously filtered to expiry==0 ("infinite-lifetime")
+          // pools only. Dropped that filter — confirmed live (real fulfilled sale,
+          // pool sitting 2 years) that MMM's fulfill_buy does not reject a pool for
+          // having a past/nonzero expiry, so excluding those pools at the RPC level
+          // was silently hiding real, fulfillable underfunded pools.
+          emit('progress', { msg: `Fetching all MMM pools${fast ? ' [fast]' : ''}…` });
           const accounts = await rpcPost('getProgramAccounts', [
             MMM_PROGRAM_ID.toBase58(),
             {
@@ -1483,18 +1883,23 @@ export function createMmmPoolsRouter(): Router {
               commitment: 'confirmed',
               filters: [
                 { dataSize: POOL_SIZE },
-                { memcmp: { offset: OFF_EXPIRY, bytes: '11111111' } },
               ],
             },
           ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
 
           emit('progress', { msg: `${accounts.length} pools — filtering candidates…` });
 
+          // Confirmed live 2026-08-08 (simulateTransaction on an expired pool):
+          // MMM's fulfill_buy rejects a pool whose expiry has passed with
+          // AnchorError 6014 "Expired" — a past-expiry pool is NOT fulfillable,
+          // only expiry==0 (infinite) or a still-future expiry works.
+          const nowSec = Math.floor(Date.now() / 1000);
           const candidates: MmmPool[] = [];
           for (const acct of accounts) {
             const p = parsePool(acct.pubkey, acct.account.data[0]);
             if (!p) continue;
             if (!(p.bpa > 0 && p.bpa < p.spotPrice)) continue;
+            if (!(p.expiry === 0 || p.expiry > nowSec)) continue;
             const hasCollAl = p.allowlists.some(al => COLL_AL_TYPES.has(al.type));
             const hasAnyAl  = includeAny && p.allowlists.some(al => al.type === 'any');
             if (!hasCollAl && !hasAnyAl) continue;
