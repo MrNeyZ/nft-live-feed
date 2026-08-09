@@ -147,6 +147,15 @@ function key(seller: string, collection: string): string {
 //
 const firstSightChains  = new Map<string, Promise<number | null>>();
 
+/** The scan primitive is pluggable: defaults to the DAS deep-scan used for
+ *  real on-chain collection addresses, but a caller keying on a Magic Eden
+ *  slug instead (see sse.ts's `resolveCollectionForMint` fallback, for
+ *  mints with no verified on-chain Collection) passes
+ *  `getOwnerCollectionCountViaMe` so seed AND reconcile both scan the
+ *  same way the key was seeded — mixing scan sources for one key would
+ *  silently read/write the wrong wallet-holdings source. */
+export type HoldingsScanFn = (seller: string, collection: string) => Promise<{ count: number | null }>;
+
 function chained(
   chains: Map<string, Promise<number | null>>,
   k: string,
@@ -178,14 +187,14 @@ const reconcileInflight = new Map<string, Promise<number | null>>();
  *  pair was still in flight. Queued per-key (see `chained` above) so
  *  AT MOST ONE Helius scan ever happens for a given pair's first sighting,
  *  no matter how the concurrent sales that triggered it are staggered. */
-function firstSightScanAndSeed(seller: string, collection: string): Promise<number | null> {
+function firstSightScanAndSeed(seller: string, collection: string, scan: HoldingsScanFn): Promise<number | null> {
   return chained(firstSightChains, key(seller, collection), async () => {
     // Re-check first: an earlier link in this same chain may have already
     // seeded the row, in which case this is just a normal decrement.
     const already = await atomicDecrementSellerHolding(seller, collection);
     if (already != null) return already.count;
 
-    const { count: scanned } = await getOwnerCollectionDeepCount(seller, collection);
+    const { count: scanned } = await scan(seller, collection);
     if (scanned == null) return null; // fail closed — no row created; next sale retries the scan
 
     const seeded = await seedSellerHolding(seller, collection, scanned);
@@ -200,12 +209,12 @@ function firstSightScanAndSeed(seller: string, collection: string): Promise<numb
   });
 }
 
-async function reconcileScan(seller: string, collection: string): Promise<number | null> {
+async function reconcileScan(seller: string, collection: string, scan: HoldingsScanFn): Promise<number | null> {
   const k = key(seller, collection);
   const live = reconcileInflight.get(k);
   if (live) return live;
   const p = (async (): Promise<number | null> => {
-    const { count } = await getOwnerCollectionDeepCount(seller, collection);
+    const { count } = await scan(seller, collection);
     if (count == null) return null; // fail closed — row left at its pre-reconcile (already-persisted) value
     await overwriteSellerHolding(seller, collection, count);
     return count;
@@ -229,19 +238,20 @@ function reconciliationDue(row: { count: number; decrementsSinceScan: number; pr
 export async function getAndDecrementSellerHolding(
   seller: string,
   collection: string,
+  scan: HoldingsScanFn = getOwnerCollectionDeepCount,
 ): Promise<number | null> {
   const decremented = await atomicDecrementSellerHolding(seller, collection);
 
   if (decremented == null) {
     // No row yet for this pair — first sight.
-    return firstSightScanAndSeed(seller, collection);
+    return firstSightScanAndSeed(seller, collection, scan);
   }
 
   if (!reconciliationDue(decremented)) {
     return decremented.count;
   }
 
-  return reconcileScan(seller, collection);
+  return reconcileScan(seller, collection, scan);
 }
 
 // ── Module-retirement note (2026-07-15 audit) ───────────────────────────

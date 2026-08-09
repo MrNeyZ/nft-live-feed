@@ -21,7 +21,8 @@ import { currentStatuses } from '../health/source-health';
 import { currentMintStatuses, currentRecentMints, getMintAuditCounts } from '../mints/accumulator';
 import { resolveCollectionForMint } from '../enrichment/seller-collection-count';
 import { noteRecentSell, getRecentSellCount, getRecentSellerCountAny } from '../enrichment/recent-sell-tracker';
-import { getAndDecrementSellerHolding } from '../enrichment/seller-holdings';
+import { getAndDecrementSellerHolding, HoldingsScanFn } from '../enrichment/seller-holdings';
+import { getOwnerCollectionCountViaMe } from '../enrichment/me-wallet-collection-count';
 import { updateSellerRemainingCount } from '../db/insert';
 
 /**
@@ -417,6 +418,7 @@ saleEventBus.onSale(           (event)  => {
   //         on null at any step (badge simply doesn't render).
   void (async () => {
     let collection: string | null = initialCollection;
+    let holdingsScan: HoldingsScanFn | undefined;
     if (!collection) {
       if (!mint) {
         if (Math.random() < 0.02) {
@@ -428,15 +430,29 @@ saleEventBus.onSale(           (event)  => {
       }
       collection = await resolveCollectionForMint(mint);
       if (!collection) {
-        if (Math.random() < 0.02) {
-          console.log(
-            `[seller-count-miss] reason=missing_collection_after_das sig=${signature.slice(0,12)}… ` +
-            `saleType=${saleType} mint=${mint.slice(0,8)}…`,
-          );
+        // Legacy collections with no verified on-chain Collection (DAS
+        // grouping empty) never resolve here — fall back to the already-
+        // resolved ME slug (see SaleEvent.meCollectionSlug) and count the
+        // seller's holdings via Magic Eden's wallet-tokens endpoint
+        // instead. Keyed as `me:<slug>` so it can't collide with a real
+        // on-chain collection address in the shared seller_holdings table.
+        const meSlug = event.meCollectionSlug;
+        if (meSlug) {
+          collection = `me:${meSlug}`;
+          holdingsScan = getOwnerCollectionCountViaMe;
+          if (process.env.SELLER_COUNT_DEBUG) {
+            console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=me:${meSlug} (via ME fallback)`);
+          }
+        } else {
+          if (Math.random() < 0.02) {
+            console.log(
+              `[seller-count-miss] reason=missing_collection_after_das sig=${signature.slice(0,12)}… ` +
+              `saleType=${saleType} mint=${mint.slice(0,8)}…`,
+            );
+          }
+          return;
         }
-        return;
-      }
-      if (process.env.SELLER_COUNT_DEBUG) {
+      } else if (process.env.SELLER_COUNT_DEBUG) {
         console.log(`[seller-count-resolve] mint=${mint.slice(0,8)}… collection=${collection.slice(0,8)}…`);
       }
     }
@@ -449,7 +465,7 @@ saleEventBus.onSale(           (event)  => {
     // then decrements in place on every later sale — no more per-sale
     // Helius `searchAssets` call, whose `total` aggregate was confirmed
     // unreliable for MPL Core collections (see seller-holdings.ts).
-    const count = await getAndDecrementSellerHolding(seller, collection);
+    const count = await getAndDecrementSellerHolding(seller, collection, holdingsScan);
     const sells10m = getRecentSellCount(seller, collection);
     const sellsAny10m = getRecentSellerCountAny(seller);
     if (SELLER_COUNT_DEBUG) {
