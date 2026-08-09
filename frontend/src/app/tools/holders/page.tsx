@@ -11,6 +11,13 @@
 
 import { useEffect, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
+// Marketplace icon badges next to a wallet — same 0.85-opacity convention
+// as feed-card.tsx's ME_ICON_LINK_STYLE (canonical marketplace-icon style
+// across /feed, /mints, /tools/trending), duplicated locally rather than
+// imported per this codebase's per-file constants convention.
+const MARKET_ICON_LINK_STYLE: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none',
+};
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
 
@@ -371,14 +378,36 @@ export default function HoldersPage() {
                         <tr key={h.wallet} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                           <td style={{ padding: '6px 8px', color: '#9a9ab4', fontFamily: MONO }}>{i + 1}</td>
                           <td style={{ padding: '6px 8px', fontFamily: MONO }}>
-                            <a
-                              href={`https://solscan.io/account/${h.wallet}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: '#c4b8e8', textDecoration: 'none' }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
-                            >{shortAddr(h.wallet)}</a>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <a
+                                href={`https://solscan.io/account/${h.wallet}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#c4b8e8', textDecoration: 'none' }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                              >{shortAddr(h.wallet)}</a>
+                              <a
+                                href={`https://magiceden.io/u/${h.wallet}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open on Magic Eden"
+                                style={MARKET_ICON_LINK_STYLE}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                              </a>
+                              <a
+                                href={`https://www.tensor.trade/portfolio?wallet=${h.wallet}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open on Tensor"
+                                style={MARKET_ICON_LINK_STYLE}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
+                              </a>
+                            </span>
                           </td>
                           <td style={{ padding: '6px 8px', textAlign: 'right', color: '#f0eef8', fontFamily: MONO, fontWeight: 700 }}>{fmtNum(h.count)}</td>
                           <td style={{ padding: '6px 8px', textAlign: 'right', color: '#9aa6c4', fontFamily: MONO }}>{h.percent}%</td>
