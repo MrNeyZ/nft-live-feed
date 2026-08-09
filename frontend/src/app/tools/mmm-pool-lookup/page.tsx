@@ -29,6 +29,7 @@ interface MmmPool {
   buysideCreatorRoyaltyBp?: number | null;
   buyOrdersAmount?: number | null;
   meUpdatedAt?: string | null;
+  blockedAt?: string | null;
 }
 type LookupResult =
   | { ok: true; type: 'pool';   pool: MmmPool; scannedAt: string }
@@ -82,6 +83,13 @@ function getSellIssues(p: MmmPool): SellIssue[] {
   const issues: SellIssue[] = [];
   if (p.expiry !== 0 && p.expiry <= now)
     issues.push({ warn: false, label: '✗ Not sellable', reason: 'Pool expired' });
+  // ME's own kill-switch — confirmed real 2026-08-07: a fully-funded 140 SOL
+  // SMB Gen2 pool has sat untouched since blockedAt=2023-07-09 (ME's cosigner
+  // refuses it). Unlike poolType:'invalid' (soft, can be stale) this is a
+  // hard, permanent block — no known way around it.
+  if (p.blockedAt)
+    issues.push({ warn: false, label: '✗ Not sellable',
+      reason: `ME blocked this pool on ${new Date(p.blockedAt).toLocaleDateString()} — permanent, no workaround known` });
   if (!p.executable)
     issues.push({ warn: true, label: '⚠ Low escrow', reason: 'Escrow balance too low' });
   // poolType:'invalid' is ME's own registry flag — but confirmed stale Jul 2026:
