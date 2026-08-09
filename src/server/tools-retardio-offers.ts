@@ -33,7 +33,7 @@ import {
   lamportsToSol,
   type FundingStatus,
 } from './me-bid-escrow';
-import { meCooldownActive, meCooldownRemainMs } from '../me-api-cooldown';
+import { meCooldownActive, meCooldownRemainMs, meAuthHeaders } from '../me-api-cooldown';
 import { sleep } from '../ingestion/concurrency';
 // Scanner-local cooldown: only blocked by its own 429s, not by floor/rare-feed.
 let scannerCooldownUntil = 0;
@@ -465,7 +465,7 @@ async function meGet(url: string, opts: MeGetOpts): Promise<FetchResponse> {
   }
   let r: FetchResponse;
   try {
-    r = await fetch(url, { signal: AbortSignal.timeout(opts.timeoutMs) });
+    r = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(opts.timeoutMs) });
   } catch (err) {
     throw new MeListingsUpstreamError(
       opts.endpoint,
