@@ -116,7 +116,19 @@ export function sourceHref(row: MintStatus): string | null {
 //                 so it's never confused with a real Candy Guard mint
 //                 (pink) or a bare one (green)
 const PINK = rgb(VL.pink); // CANDY-family pink — real Candy Machine (+ Candy Labs)
-export function sourceBadge(s: SourceLabel, coreLaunchpad?: boolean): { label: string; bg: string; fg: string } {
+export function sourceBadge(
+  s: SourceLabel,
+  coreLaunchpad?: boolean,
+  programSource?: 'mpl_token_metadata' | 'mpl_core' | 'bubblegum',
+): { label: string; bg: string; fg: string } {
+  // cNFT minted through LaunchMyNFT: sourceLabel is overwritten to
+  // 'LaunchMyNFT' at emit time (see index.ts mint-raw — cNFT path
+  // sets sourceLabel via launchpadSourceLabel(lp.source), losing the
+  // 'Bubblegum' label). Restore the cNFT text here, keeping LMNFT's
+  // gold accent so the badge still reads "this came from LMNFT".
+  if (s === 'LaunchMyNFT' && programSource === 'bubblegum') {
+    return { label: 'cNFT', bg: 'rgba(232,193,74,0.15)', fg: rgb(VL.gold) };
+  }
   // By elimination: 'Core Candy Machine' and 'Candy Labs' both carry their
   // own sourceLabel now, so the only thing left hitting 'Metaplex Core' +
   // coreLaunchpad===true is a genuinely unenumerated custom wrapper (no
