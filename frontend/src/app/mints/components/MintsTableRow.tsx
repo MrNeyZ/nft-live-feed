@@ -553,16 +553,16 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onHoverEnter?.();
               if (!isPinned) {
                 const b = e.currentTarget;
-                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(140,112,228,0.16) 28%, rgba(150,120,236,0.28) 50%, rgba(140,112,228,0.16) 72%, rgba(128,104,216,0) 100%)';
+                b.style.background = 'linear-gradient(90deg, rgb(var(--vl-purple-deep) / 0) 0%, rgba(140,112,228,0.16) 28%, rgba(150,120,236,0.28) 50%, rgba(140,112,228,0.16) 72%, rgb(var(--vl-purple-deep) / 0) 100%)';
                 b.style.boxShadow  = 'inset 0 0 0 1px rgba(178,152,240,0.32), inset 0 0 14px rgba(150,120,236,0.14)';
-                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = '#ffffff'; t.style.textShadow = '0 0 8px rgba(178,152,240,0.45)'; }
+                const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = 'var(--vl-white)'; t.style.textShadow = '0 0 8px rgba(178,152,240,0.45)'; }
               }
             }}
             onMouseLeave={(e) => {
               onHoverLeave?.();
               if (!isPinned) {
                 const b = e.currentTarget;
-                b.style.background = 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)';
+                b.style.background = 'linear-gradient(90deg, rgb(var(--vl-purple-deep) / 0) 0%, rgb(var(--vl-purple-deep) / 0.04) 28%, rgb(var(--vl-purple-deep) / 0.06) 50%, rgb(var(--vl-purple-deep) / 0.04) 72%, rgb(var(--vl-purple-deep) / 0) 100%)';
                 b.style.boxShadow  = 'none';
                 const t = b.firstElementChild as HTMLElement | null; if (t) { t.style.color = VLText.faint; t.style.textShadow = 'none'; }
               }
@@ -597,14 +597,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               background: isPinned
                 // Pinned (active) state kept distinctly purple so the
                 // affordance still reads when toggled on.
-                ? 'linear-gradient(90deg, rgba(128,104,216,0.06) 0%, rgba(140,112,228,0.20) 28%, rgba(155,124,240,0.34) 50%, rgba(140,112,228,0.20) 72%, rgba(128,104,216,0.06) 100%)'
+                ? 'linear-gradient(90deg, rgb(var(--vl-purple-deep) / 0.06) 0%, rgba(140,112,228,0.20) 28%, rgba(155,124,240,0.34) 50%, rgba(140,112,228,0.20) 72%, rgb(var(--vl-purple-deep) / 0.06) 100%)'
                 // Idle initial-render value matches the post-hover resting
                 // style below (the onMouseLeave target) — three states stay:
                 // idle/after-hover (this), :hover (brighter, imperative
                 // above), pinned. Was dimmer (0.018/0.025) before first
                 // hover; bumped to match so idle doesn't visibly jump the
                 // first time the row is touched.
-                : 'linear-gradient(90deg, rgba(128,104,216,0) 0%, rgba(128,104,216,0.04) 28%, rgba(128,104,216,0.06) 50%, rgba(128,104,216,0.04) 72%, rgba(128,104,216,0) 100%)',
+                : 'linear-gradient(90deg, rgb(var(--vl-purple-deep) / 0) 0%, rgb(var(--vl-purple-deep) / 0.04) 28%, rgb(var(--vl-purple-deep) / 0.06) 50%, rgb(var(--vl-purple-deep) / 0.04) 72%, rgb(var(--vl-purple-deep) / 0) 100%)',
               boxShadow: isPinned ? 'inset 0 0 0 1px rgba(188,160,246,0.42), inset 0 0 18px rgba(155,124,240,0.18)' : 'none',
               transition: 'background 160ms ease, box-shadow 160ms ease',
             }}
@@ -617,7 +617,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               // secondary action.
               fontSize: 9.5, fontWeight: 600, letterSpacing: '0.6px', textTransform: 'uppercase',
               whiteSpace: 'nowrap', transition: 'color 160ms ease, text-shadow 160ms ease',
-              color: isPinned ? '#ffffff' : VLText.faint,
+              color: isPinned ? 'var(--vl-white)' : VLText.faint,
               textShadow: isPinned ? '0 0 10px rgba(188,160,246,0.55)' : 'none',
             }}>SHOW</span>
           </div>
@@ -735,12 +735,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             : `${pct.toFixed(1)}%`;
           display     = minted.toLocaleString();
           popRows.push({ label: 'Minted', value: minted.toLocaleString() });
-          popRows.push({ label: 'Cap', value: cap.toLocaleString() });
+          popRows.push({ label: 'Supply', value: cap.toLocaleString() });
           popRows.push({ label: 'Progress', value: pctText, highlight: true });
           if (!verified) color = '#7c7a98';
         } else if (cap !== null) {
           display = cap.toLocaleString();
-          popRows.push({ label: 'Cap', value: cap.toLocaleString(), highlight: true });
+          popRows.push({ label: 'Supply', value: cap.toLocaleString(), highlight: true });
         } else if (minted !== null) {
           display = minted.toLocaleString();
           popRows.push({ label: 'Minted', value: minted.toLocaleString(), highlight: true });
@@ -841,8 +841,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           ? `${tokenAmount} ${tokenLabel}`
           : solDisplay;
         const cellColor = isFree     ? rgb(VL.green)
-                        : isUnknown  ? '#241f3b'
-                        :              '#ffffff';
+                        : isUnknown  ? 'var(--vl-border-subtle)'
+                        :              'var(--vl-white)';
         const tip = isUnknown
           ? `No mint price observed yet for this collection`
           : isFree

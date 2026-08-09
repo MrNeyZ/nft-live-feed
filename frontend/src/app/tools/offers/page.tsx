@@ -8,7 +8,7 @@
 // tool already follows.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, ItemThumb, compressImage } from '@/soloist/shared';
+import { LiveDot, ItemThumb, compressImage, CtaButton } from '@/soloist/shared';
 import { formatSol } from '@/soloist/mock-data';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
@@ -74,8 +74,8 @@ function statusBadgeStyle(s: OfferStatus): React.CSSProperties {
   // Match site palette: green for active, amber for unclear, dim red
   // for expired. Same opacity tier as the existing FREE/PAID/MIXED
   // badges on /mints.
-  if (s === 'AVAILABLE') return { color: '#43b984', background: 'rgba(92,224,160,0.15)',  border: '1px solid rgba(92,224,160,0.45)' };
-  if (s === 'EXPECTED')  return { color: '#c7b479', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
+  if (s === 'AVAILABLE') return { color: 'var(--vl-green-primary)', background: 'rgb(var(--vl-green-glow) / 0.15)',  border: '1px solid rgb(var(--vl-green-glow) / 0.45)' };
+  if (s === 'EXPECTED')  return { color: 'var(--vl-gold-primary)', background: 'rgba(232,193,74,0.15)',  border: '1px solid rgba(232,193,74,0.45)' };
   return { color: '#a07474', background: 'rgba(160,116,116,0.10)', border: '1px solid rgba(160,116,116,0.35)' };
 }
 
@@ -122,20 +122,20 @@ function statusCapsuleStyle(s: OfferState): React.CSSProperties {
   // (green ACTIVE / muted-red EXPIRED) but chip dominance dropped so it
   // reads as a quiet metadata field, not a button. ACTIVE bg 0.12→0.07,
   // border 0.45→0.28; EXPIRED bg 0.08→0.05, border 0.28→0.18.
-  // Mint Tracker palette match: ACTIVE text moves from neon #43b984
-  // to the MINTS-column green #43b984; EXPIRED red softened from
-  // #a07474 to #d96867 (closer to Feed SELL family). Bg/border alphas
+  // Mint Tracker palette match: ACTIVE text moves from neon var(--vl-green-primary)
+  // to the MINTS-column green var(--vl-green-primary); EXPIRED red softened from
+  // #a07474 to var(--vl-red-primary) (closer to Feed SELL family). Bg/border alphas
   // stay at metadata-tier levels.
   return s === 'EXPIRED'
-    ? { color: '#d96867', background: 'rgba(184,128,128,0.02)', border: '1px solid rgba(184,128,128,0.07)' }
-    : { color: '#43b984', background: 'rgba(126,217,168,0.025)', border: '1px solid rgba(126,217,168,0.10)' };
+    ? { color: 'var(--vl-red-primary)', background: 'rgba(184,128,128,0.02)', border: '1px solid rgba(184,128,128,0.07)' }
+    : { color: 'var(--vl-green-primary)', background: 'rgba(126,217,168,0.025)', border: '1px solid rgba(126,217,168,0.10)' };
 }
 /** Inner second-line color, independent of capsule offer state.
  *  LISTED is muted neutral grey, UNLISTED keeps the lilac accent so
  *  the listing-state dimension still reads at a glance even though
  *  there's no second border to carry it. */
 function listingLineColor(s: ListingState): string {
-  return s === 'UNLISTED' ? '#a890e8' : '#9a9ab4';
+  return s === 'UNLISTED' ? 'var(--vl-purple-tint)' : 'var(--vl-text-muted)';
 }
 
 /** Visual palette for the FUNDED / LOW / EMPTY / UNKNOWN escrow badge.
@@ -143,14 +143,14 @@ function listingLineColor(s: ListingState): string {
  *  badges read together as "is the offer real" + "is it backed". Gray
  *  for unknown stays neutral so missing data doesn't grab the eye. */
 function fundingBadgeStyle(s: FundingStatus): React.CSSProperties {
-  // Mint Tracker palette match: funded green pulled to #43b984 (same
+  // Mint Tracker palette match: funded green pulled to var(--vl-green-primary) (same
   // muted green as MintsTableRow's MINTS column) and border alphas
   // trimmed across all states so the badge reads as quiet metadata
   // beneath the BEST OFFER number, not a button.
-  if (s === 'funded')      return { color: '#43b984', background: 'rgba(126,217,168,0.10)', border: '1px solid rgba(126,217,168,0.25)' };
-  if (s === 'low_balance') return { color: '#c7b479', background: 'rgba(232,193,74,0.10)',  border: '1px solid rgba(232,193,74,0.25)' };
-  if (s === 'empty')       return { color: '#d96867', background: 'rgba(217,124,124,0.08)', border: '1px solid rgba(217,124,124,0.25)' };
-  return                          { color: '#9a9ab4', background: 'rgba(122,122,148,0.08)', border: '1px solid rgba(122,122,148,0.22)' };
+  if (s === 'funded')      return { color: 'var(--vl-green-primary)', background: 'rgba(126,217,168,0.10)', border: '1px solid rgba(126,217,168,0.25)' };
+  if (s === 'low_balance') return { color: 'var(--vl-gold-primary)', background: 'rgba(232,193,74,0.10)',  border: '1px solid rgba(232,193,74,0.25)' };
+  if (s === 'empty')       return { color: 'var(--vl-red-primary)', background: 'rgba(217,124,124,0.08)', border: '1px solid rgba(217,124,124,0.25)' };
+  return                          { color: 'var(--vl-text-muted)', background: 'rgba(122,122,148,0.08)', border: '1px solid rgba(122,122,148,0.22)' };
 }
 function fundingLabel(s: FundingStatus): string {
   if (s === 'funded')      return 'FUNDED';
@@ -560,37 +560,37 @@ export default function ToolsPage() {
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
               Magic Eden Bid Offers Scanner
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap', rowGap: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap', rowGap: 2 }}>
               <LiveDot />
               {/* Single metadata line: slug + scan stats inline, separated
                   by the same muted '·' used in the prior stats row. */}
-              <span style={{ color: '#a890e8', fontFamily: "'SF Mono','Fira Code',monospace" }}>
+              <span style={{ color: 'var(--vl-purple-tint)', fontFamily: "'SF Mono','Fira Code',monospace" }}>
                 {selectedSlug}
               </span>
               {result && !error && (() => {
-                const sep = <span style={{ color: '#241f3b', margin: '0 10px' }}>·</span>;
+                const sep = <span style={{ color: 'var(--vl-border-subtle)', margin: '0 10px' }}>·</span>;
                 return (
                   <>
                     {sep}
-                    <span>scanned {result.scanned}<span style={{ color: '#9a9ab4' }}>/</span>{result.listedTotal}</span>
+                    <span>scanned {result.scanned}<span style={{ color: 'var(--vl-text-muted)' }}>/</span>{result.listedTotal}</span>
                     {sep}
-                    <span>offers <span style={{ color: '#43b984', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: '#9a9ab4' }}>/</span>{result.offersFetched}</span>
+                    <span>offers <span style={{ color: 'var(--vl-green-primary)', fontWeight: 600 }}>{result.offersAvailable}</span><span style={{ color: 'var(--vl-text-muted)' }}>/</span>{result.offersFetched}</span>
                     {sep}
                     <span>rows {result.withOffers.length}</span>
                     {result.addedCount !== undefined && (
                       <>
                         {sep}
                         {result.addedCount > 0 ? (
-                          <span style={{ color: '#a890e8', fontWeight: 700 }}>+{result.addedCount} new</span>
+                          <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 700 }}>+{result.addedCount} new</span>
                         ) : (
                           <span>+0 new</span>
                         )}
                       </>
                     )}
-                    {result.fromCache && <>{sep}<span style={{ color: '#c7b479' }}>cached</span></>}
+                    {result.fromCache && <>{sep}<span style={{ color: 'var(--vl-gold-primary)' }}>cached</span></>}
                   </>
                 );
               })()}
@@ -603,38 +603,23 @@ export default function ToolsPage() {
               disabled={busy}
               style={{
                 padding: '6px 10px', fontSize: 12, fontWeight: 600,
-                borderRadius: 4, border: '1px solid rgba(168,144,232,0.55)',
-                background: 'rgba(20,14,34,0.85)', color: '#f0eef8',
+                borderRadius: 4, border: '1px solid rgb(var(--vl-purple-tint) / 0.55)',
+                background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)',
                 outline: 'none', cursor: busy ? 'wait' : 'pointer',
                 minWidth: 180, fontFamily: 'inherit',
               }}
             >
               {COLLECTIONS.map(c => (
-                <option key={c.slug} value={c.slug} style={{ background: '#1a1530', color: '#f0eef8' }}>
+                <option key={c.slug} value={c.slug} style={{ background: 'var(--vl-gray-surface)', color: 'var(--vl-text-primary)' }}>
                   {c.label}
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={runScan}
-              disabled={busy || inCooldown}
-              data-uisnd="skip"
-              style={{
-                padding: '7px 16px', fontSize: 12, fontWeight: 700,
-                letterSpacing: '0.5px', textTransform: 'uppercase',
-                borderRadius: 5, cursor: (busy || inCooldown) ? 'not-allowed' : 'pointer',
-                border: '1px solid rgba(168,144,232,0.55)',
-                background: (busy || inCooldown) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-                color: (busy || inCooldown) ? '#9a9ab4' : '#f0eef8',
-                boxShadow: (busy || inCooldown) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
-                transition: 'all 0.15s',
-              }}
-            >
+            <CtaButton onClick={runScan} disabled={busy || inCooldown} ownSound>
               {retryInfo
                 ? `Retrying ${retryInfo.waitSec}s…`
                 : busy ? 'Scanning…' : inCooldown ? `Wait ${cooldownLeftSec}s` : 'Scan ME Offers'}
-            </button>
+            </CtaButton>
           </div>
         </div>
         {retryInfo && (
@@ -642,7 +627,7 @@ export default function ToolsPage() {
           // distinct from the amber/red banners below, which only appear
           // once retries are exhausted. Auto-clears on the next attempt.
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#9a9ab4',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-text-muted)',
             background: 'rgba(154,154,180,0.08)', border: '1px solid rgba(154,154,180,0.28)',
             borderRadius: 5,
           }}>
@@ -664,8 +649,8 @@ export default function ToolsPage() {
             </div>
           ) : (
             <div style={{
-              marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-              background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+              marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+              background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
               borderRadius: 5,
             }}>
               scan failed — {error}
@@ -680,13 +665,13 @@ export default function ToolsPage() {
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
-        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
         // Aligned with Mint Tracker panel (1aef538): border 0.65→0.32,
         // inner sheen 0.08→0.06, outer purple aura 0.15→0.10. Same hue,
         // less neon ring around the chrome.
-        border: '1px solid rgba(168,144,232,0.32)',
+        border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.10)',
         overflow: 'hidden', marginBottom: 16,
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
@@ -715,22 +700,22 @@ export default function ToolsPage() {
             <thead>
               <tr style={{ position: 'sticky', top: 0, zIndex: 1, background: 'rgba(16,12,26,0.96)' }}>
                 <th style={{ ...thStyleNft,  cursor: 'pointer' }} onClick={() => onHeaderClick('nft')}>
-                  NFT {sortArrow('nft')     && <span style={{ color: '#7c5cf0' }}>{sortArrow('nft')}</span>}
+                  NFT {sortArrow('nft')     && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('nft')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('listing')}>
-                  LISTING {sortArrow('listing') && <span style={{ color: '#7c5cf0' }}>{sortArrow('listing')}</span>}
+                  LISTING {sortArrow('listing') && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('listing')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('offer')}>
-                  BEST OFFER {sortArrow('offer') && <span style={{ color: '#7c5cf0' }}>{sortArrow('offer')}</span>}
+                  BEST OFFER {sortArrow('offer') && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('offer')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('spread')}>
-                  SPREAD {sortArrow('spread') && <span style={{ color: '#7c5cf0' }}>{sortArrow('spread')}</span>}
+                  SPREAD {sortArrow('spread') && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('spread')}</span>}
                 </th>
                 <th style={{ ...thStyleNum, cursor: 'pointer' }} onClick={() => onHeaderClick('age')}>
-                  AGE {sortArrow('age') && <span style={{ color: '#7c5cf0' }}>{sortArrow('age')}</span>}
+                  AGE {sortArrow('age') && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('age')}</span>}
                 </th>
                 <th style={{ ...thStyleSmall, textAlign: 'center', cursor: 'pointer' }} onClick={() => onHeaderClick('status')}>
-                  STATUS {sortArrow('status') && <span style={{ color: '#7c5cf0' }}>{sortArrow('status')}</span>}
+                  STATUS {sortArrow('status') && <span style={{ color: 'var(--vl-purple-primary)' }}>{sortArrow('status')}</span>}
                 </th>
                 <th style={{ ...thStyleSmall, textAlign: 'center' }}>LINKS</th>
               </tr>
@@ -738,7 +723,7 @@ export default function ToolsPage() {
             <tbody>
               {!result && !busy && (
                 <tr><td colSpan={7} style={emptyCell}>
-                  Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
+                  Click <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 600 }}>Scan ME Offers</span> to fetch listings and personal offers from Magic Eden for the selected collection.
                 </td></tr>
               )}
               {busy && !result && (
@@ -843,7 +828,7 @@ export default function ToolsPage() {
                             style preserved via ItemThumb's borderRadius.
                             Row grows naturally; no other column touched. */}
                         <div style={{ flexShrink: 0, width: 50, height: 50 }}>
-                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="#7c5cf0" abbr={abbr} size={50} />
+                          <ItemThumb imageUrl={compressImage(row.imageUrl ?? null)} color="var(--vl-purple-primary)" abbr={abbr} size={50} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -854,7 +839,7 @@ export default function ToolsPage() {
                               onClick={(e) => e.stopPropagation()}
                               onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
                               onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
-                              style={{ fontSize: 16, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none', cursor: 'pointer', display: 'block', minWidth: 0 }}
+                              style={{ fontSize: 16, fontWeight: 600, color: 'var(--vl-text-primary)', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none', cursor: 'pointer', display: 'block', minWidth: 0 }}
                             >{name}</a>
                             {showNewBadge && (
                               // Compact NEW pill, inline next to the NFT
@@ -867,15 +852,15 @@ export default function ToolsPage() {
                                 padding: '1px 5px', fontSize: 8.5, fontWeight: 800,
                                 letterSpacing: '0.4px', textTransform: 'uppercase',
                                 borderRadius: 3, lineHeight: 1.2,
-                                border: '1px solid rgba(168,144,232,0.7)',
-                                background: 'linear-gradient(180deg, rgba(168,144,232,0.95) 0%, rgba(128,104,216,0.95) 100%)',
-                                color: '#08060c',
+                                border: '1px solid rgb(var(--vl-purple-tint) / 0.7)',
+                                background: 'linear-gradient(180deg, rgb(var(--vl-purple-tint) / 0.95) 0%, rgb(var(--vl-purple-deep) / 0.95) 100%)',
+                                color: 'var(--vl-gray-base)',
                                 boxShadow: '0 0 0 1px rgba(20,14,34,0.7), 0 1px 4px rgba(0,0,0,0.5)',
                                 pointerEvents: 'none', userSelect: 'none',
                               }}>NEW</span>
                             )}
                           </div>
-                          <div style={{ fontSize: 10, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
+                          <div style={{ fontSize: 10, color: 'var(--vl-text-muted)', fontFamily: "'SF Mono','Fira Code',monospace" }}>{shortAddr(row.mint)}</div>
                         </div>
                       </div>
                     </td>
@@ -885,7 +870,7 @@ export default function ToolsPage() {
                           rather than below it. Color/size unchanged. */}
                       {row.listingPrice != null ? formatSol(row.listingPrice) : '—'}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#43b984' }}>
+                    <td style={{ ...tdStyleNum, color: 'var(--vl-green-primary)' }}>
                       {row.bestOfferStatus === 'EXPIRED' && (
                         // Inline EXPIRED tag — kept here in addition to the
                         // STATUS column so the offer-price reading itself
@@ -949,13 +934,13 @@ export default function ToolsPage() {
                       // read as urgent/saturated inside its own dimmed
                       // row); existing green/red palette for active,
                       // listed rows. Mint Tracker palette match: positive
-                      // spread uses MINTS-column green (#43b984); negative
-                      // uses a softer red (#d96867) — same family as Feed's
+                      // spread uses MINTS-column green (var(--vl-green-primary)); negative
+                      // uses a softer red (var(--vl-red-primary)) — same family as Feed's
                       // SELL tone but lower-saturation so the spread
                       // number no longer dominates the row.
                       color: (row.spreadSol == null || row.bestOfferStatus === 'EXPIRED')
-                        ? '#9a9ab4'
-                        : (positiveSpread ? '#43b984' : '#d96867'),
+                        ? 'var(--vl-text-muted)'
+                        : (positiveSpread ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)'),
                       fontWeight: 700,
                     }}>
                       {row.spreadSol == null ? '—' : (
@@ -982,8 +967,8 @@ export default function ToolsPage() {
                         </>
                       )}
                     </td>
-                    <td style={{ ...tdStyleNum, color: '#9a9ab4', fontWeight: 500 }}>
-                      {/* AGE softened (#9a9ab4 → #9a9ab4) so the money columns
+                    <td style={{ ...tdStyleNum, color: 'var(--vl-text-muted)', fontWeight: 500 }}>
+                      {/* AGE softened (var(--vl-text-muted) → var(--vl-text-muted)) so the money columns
                           (BEST OFFER + SPREAD) win the hierarchy. */}
                       {fmtAge(row.bestOfferCreatedAt)}
                     </td>
@@ -1064,11 +1049,11 @@ export default function ToolsPage() {
 const thStyle: React.CSSProperties = {
   // Mint Tracker scale match: padding 12/10, fontSize 11, weight 700.
   padding: '12px 10px', fontSize: 11, fontWeight: 700,
-  color: 'var(--th-label-color, #9a9ab4)', letterSpacing: '0.6px', textAlign: 'left',
+  color: 'var(--th-label-color, var(--vl-text-muted))', letterSpacing: '0.6px', textAlign: 'left',
   // Mint Tracker thead contrast exact match: bg (28,22,48,0.96) — was
   // (16,12,26,0.96) which read darker than the Mints header and made
   // the column labels feel like a different layer of UI.
-  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
+  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.08)',
   textTransform: 'uppercase', userSelect: 'none',
 };
 const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
@@ -1082,17 +1067,17 @@ const tdStyleNum: React.CSSProperties = {
   // var(--table-row-pad, 14px 10px) in MintsTableRow), fontSize 13,
   // weight 600. verticalAlign middle preserved.
   padding: '14px 10px', textAlign: 'right', fontSize: 13, fontWeight: 600,
-  color: '#f0eef8', fontFamily: "'SF Mono','Fira Code',monospace",
+  color: 'var(--vl-text-primary)', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const tdStyleSmall: React.CSSProperties = {
-  // Mint Tracker row scale (14/10). Color #9a9ab4 stays per the prior
+  // Mint Tracker row scale (14/10). Color var(--vl-text-muted) stays per the prior
   // hierarchy pass so LINKS recede behind BEST OFFER + SPREAD.
-  padding: '14px 10px', fontSize: 11, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace",
+  padding: '14px 10px', fontSize: 11, color: 'var(--vl-text-muted)', fontFamily: "'SF Mono','Fira Code',monospace",
   verticalAlign: 'middle',
 };
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
+  textAlign: 'center', color: 'var(--vl-text-muted)', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
 };
 function linkChipStyle(color: string): React.CSSProperties {
   return {

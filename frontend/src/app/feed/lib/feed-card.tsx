@@ -343,7 +343,7 @@ const ME_ICON_LINK_STYLE: React.CSSProperties = {
 // reads as the price's 3rd-priority qualifier, never a second button.
 // Colors are the color-mix() results from the reference, precomputed so
 // the inline style stays dependency-free:
-//   pos  c=#43b984  ·  neg  c=#d96867  ·  neu  c=#8f86c2
+//   pos  c=var(--vl-green-primary)  ·  neg  c=var(--vl-red-primary)  ·  neu  c=#8f86c2
 // Floor delta = quiet metadata. Tokenized onto the palette: pos/neg use
 // the brand green/red text-accent (clearly readable but a tier below the
 // action tag's green-strong/red-strong), with a faint tint + border off
@@ -432,7 +432,7 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // dropped to a muted #63637a so it reads as clearly secondary, while
   // the wallet keeps a brighter tone (WALLET_LINK_STYLE) as the value
   // to read. Row gap set to 2 px between label and wallet address.
-  // (Was #9a9ab4 — identical to the wallet, which made the two blur
+  // (Was var(--vl-text-muted) — identical to the wallet, which made the two blur
   // together.)
   fontSize: 10.5, color: VLText.faint, display: 'flex', alignItems: 'center', gap: 2,
   // UX audit C1: minWidth:0 + overflow:hidden let this row actually shrink
@@ -478,7 +478,7 @@ const FC_PRICE_ROW_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
 };
 const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
-  // Bumped to pure white (was #f0eef8) so the price has the highest
+  // Bumped to pure white (was var(--vl-text-primary)) so the price has the highest
   // luminance on the card — beats the BUY/SELL badge and the title
   // for primary attention, matching trader-terminal hierarchy
   // (price first, then action, then identity).
@@ -486,12 +486,12 @@ const FC_PRICE_TEXT_STYLE: React.CSSProperties = {
   // Final-polish pass: 16 → 17.5 px (~+10 %) so the price is even more
   // decisively the #1 read above the now-quiet action capsule. Weight
   // and color unchanged (already 800 / pure white).
-  fontSize: 17.5, fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px',
+  fontSize: 17.5, fontWeight: 800, color: 'var(--vl-white)', letterSpacing: '-0.3px',
   fontFamily: "'SF Mono','Fira Code',monospace",
   fontVariantNumeric: 'tabular-nums',
 };
 const FC_PRICE_SUFFIX_STYLE: React.CSSProperties = {
-  // SOL unit suffix — text-clarity pass lifted #9a9ab4 → #8585a0
+  // SOL unit suffix — text-clarity pass lifted var(--vl-text-muted) → #8585a0
   // and opacity 0.7 → 0.85 so the unit reads clearly at scroll
   // speed without crowding the digits (still well below pure-white
   // price text). Digits remain dominant, suffix is now legible.
@@ -512,12 +512,12 @@ const SELLER_REMAINING_BADGE_STYLE: React.CSSProperties = {
   // cluster without changing the row gap — so the `seller:`↔wallet
   // spacing and wallet text position stay put. Badge
   // size/typography/row height unchanged.
-  marginLeft:     -1,
+  marginLeft:     -0.5,
   minWidth:       16,
   height:         16,
   padding:        '0 4px',
   borderRadius:   999,
-  // Color matches the TimeAgo "16s–3min" timestamp tint (#c7b479) so
+  // Color matches the TimeAgo "16s–3min" timestamp tint (var(--vl-gold-primary)) so
   // the badge reads as ambient context — same visual weight as the
   // time label, not an alert. Background is a very soft same-hue
   // wash for shape definition without the prior neon look.

@@ -240,7 +240,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
       color: VLText.muted,
       letterSpacing: '0.6px', textAlign: align, cursor: 'pointer',
       borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
-      background: '#1a1530', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
+      background: 'var(--vl-gray-surface)', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
     }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start' }}>
         {label}
@@ -344,7 +344,7 @@ function Row({ row, rank }: { row: MergedRow; rank: number }) {
         {row.live?.spike && <span style={{ fontSize: 10, marginRight: 4 }}>🔥</span>}
         {fmtInt(row.salesCount)}
       </td>
-      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff' }}>
+      <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--vl-white)' }}>
         {fmtSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green) }}>↑</span>}
       </td>
@@ -539,7 +539,7 @@ export function DashboardCollectionsPanel() {
       // style (SalesFeedPanel / mints' Live Mint Feed keep 0.65) — it was
       // still on the old loud values, which read as a bright purple ring
       // instead of the darker, more matte border /mints has.
-      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
       border: `1px solid ${alpha(VL.purpleTint, 0.32)}`, borderRadius: 12,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.10)}`,
     }}>
@@ -560,7 +560,7 @@ export function DashboardCollectionsPanel() {
       </div>
 
       {error && (
-        <div style={{ margin: '8px 14px 0', padding: '6px 10px', fontSize: 11, color: rgb(VL.red), background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5, flexShrink: 0 }}>
+        <div style={{ margin: '8px 14px 0', padding: '6px 10px', fontSize: 11, color: rgb(VL.red), background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5, flexShrink: 0 }}>
           {error}
         </div>
       )}

@@ -32,6 +32,7 @@ import { Transaction } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom } from '@/wallet/phantom';
 import { API_BASE, MONO, PANEL, ADDR_RE, short } from '@/app/tools/mmm-shared';
+import { CtaButton } from '@/soloist/shared';
 import { VL, VLText, alpha, rgb } from '@/lib/palette';
 
 const LIVE_MODE_KEY = 'vl.mmmCollectionBids.liveMode';
@@ -395,7 +396,7 @@ export default function MmmCollectionBidsPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
         {!wallet ? (
-          <PrimaryButton onClick={handleConnect}>Connect Phantom</PrimaryButton>
+          <CtaButton onClick={handleConnect} style={{ marginBottom: 12 }}>Connect Phantom</CtaButton>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ fontSize: 12, color: '#0f0' }}>Connected: {short(wallet)}</div>
@@ -511,9 +512,9 @@ export default function MmmCollectionBidsPage() {
         </div>
       )}
 
-      <PrimaryButton onClick={handleBuild} disabled={!wallet || busy || (tab !== 'create' && !ADDR_RE.test(poolKey))}>
+      <CtaButton onClick={handleBuild} disabled={!wallet || busy || (tab !== 'create' && !ADDR_RE.test(poolKey))} style={{ marginBottom: 12 }}>
         {uiState.kind === 'building' ? 'building…' : 'Build (dry-run)'}
-      </PrimaryButton>
+      </CtaButton>
 
       {/* position:relative + a z-index above BottomStatusBar's fixed
           wrapper (zIndex: 90 in Gate.tsx) — that wrapper's inner
@@ -524,22 +525,23 @@ export default function MmmCollectionBidsPage() {
       <div style={{ position: 'relative', zIndex: 1000 }}>
       {summary && <SummaryPanel summary={summary} />}
       {built && preflightLogs.length > 0 && (
-        <div style={{ fontSize: 10.5, color: '#43b984', marginTop: -8, marginBottom: 12 }}>
+        <div style={{ fontSize: 10.5, color: 'var(--vl-green-primary)', marginTop: -8, marginBottom: 12 }}>
           ✓ server-side preflight simulation passed at build time
         </div>
       )}
 
       {built && (
-        <PrimaryButton
+        <CtaButton
           onClick={() => {
             // eslint-disable-next-line no-console
             console.log('[mmm-collection-bids] Simulate button onClick fired');
             handleSimulate();
           }}
           disabled={busy}
+          style={{ marginBottom: 12 }}
         >
           {uiState.kind === 'simulating' ? 'simulating…' : 'Simulate again'}
-        </PrimaryButton>
+        </CtaButton>
       )}
 
       {simulated && uiState.kind === 'simulated' && (
@@ -567,9 +569,9 @@ export default function MmmCollectionBidsPage() {
             </span>
           </label>
           <div style={{ marginTop: 10 }}>
-            <PrimaryButton onClick={handleSignSubmit} disabled={!confirmChecked || busy} danger={!!simFailed}>
+            <CtaButton onClick={handleSignSubmit} disabled={!confirmChecked || busy} variant={simFailed ? 'danger' : 'purple'} style={{ marginBottom: 12 }}>
               {busy ? 'signing…' : 'Sign & Submit'}
-            </PrimaryButton>
+            </CtaButton>
           </div>
         </div>
       )}
@@ -642,7 +644,7 @@ function SummaryPanel({ summary }: { summary: BuildSummary }) {
   return (
     <div style={{ ...PANEL, padding: 12, fontSize: 11.5 }}>
       {rows.map(([k, v]) => (
-        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', borderBottom: '1px solid rgba(168,144,232,0.10)' }}>
+        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.10)' }}>
           <span style={{ color: '#8a84a4' }}>{k}</span>
           <span style={{ color: '#e8e4f8', wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
         </div>
@@ -668,7 +670,7 @@ function SimResultPanel({ err, logs, unitsConsumed }: { err: unknown; logs: stri
       </div>
       {logs.length > 0 && (
         <details>
-          <summary style={{ cursor: 'pointer', color: '#a890e8' }}>program logs ({logs.length})</summary>
+          <summary style={{ cursor: 'pointer', color: 'var(--vl-purple-tint)' }}>program logs ({logs.length})</summary>
           <pre style={{ fontSize: 10, color: '#8a84a4', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
             {logs.join('\n')}
           </pre>
@@ -691,9 +693,9 @@ function ModeToggle({ liveMode, serverLiveEnabled, onToggle }: {
       style={{
         padding: '6px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
         cursor: disabled ? 'not-allowed' : 'pointer', borderRadius: 6,
-        border: `1px solid ${active ? '#f66' : 'rgba(168,144,232,0.4)'}`,
-        background: active ? 'rgba(255,102,102,0.12)' : 'rgba(168,144,232,0.08)',
-        color: active ? '#f66' : '#a890e8',
+        border: `1px solid ${active ? '#f66' : 'rgb(var(--vl-purple-tint) / 0.4)'}`,
+        background: active ? 'rgba(255,102,102,0.12)' : 'rgb(var(--vl-purple-tint) / 0.08)',
+        color: active ? '#f66' : 'var(--vl-purple-tint)',
         opacity: disabled ? 0.5 : 1,
       }}
       title={disabled ? 'LIVE mode is disabled on the server (MMM_COLLECTION_BIDS_ENABLE_LIVE)' : active ? 'Click to switch back to DRY RUN' : 'Click to enable LIVE signing & submission'}
@@ -710,32 +712,10 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       onClick={onClick}
       style={{
         padding: '6px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', borderRadius: 6,
-        border: `1px solid ${active ? 'rgba(168,144,232,0.6)' : 'rgba(168,144,232,0.2)'}`,
-        background: active ? 'rgba(168,144,232,0.16)' : 'transparent',
-        color: active ? '#e8e4f8' : '#9a9ab4',
+        border: `1px solid ${active ? 'rgb(var(--vl-purple-tint) / 0.6)' : 'rgb(var(--vl-purple-tint) / 0.2)'}`,
+        background: active ? 'rgb(var(--vl-purple-tint) / 0.16)' : 'transparent',
+        color: active ? '#e8e4f8' : 'var(--vl-text-muted)',
       }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function PrimaryButton({ onClick, disabled, danger, children }: {
-  onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode;
-}) {
-  const [hover, setHover] = useState(false);
-  const [active, setActive] = useState(false);
-  const filter = disabled ? undefined : active ? 'brightness(0.9)' : hover ? 'brightness(1.12)' : undefined;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setActive(false); }}
-      onMouseDown={() => setActive(true)}
-      onMouseUp={() => setActive(false)}
-      style={{ ...btnStyle, background: danger ? '#c0392b' : btnStyle.background, opacity: disabled ? 0.5 : 1, filter, outline: 'none', transition: 'filter 0.1s', marginBottom: 12 }}
     >
       {children}
     </button>
@@ -750,14 +730,13 @@ function DisconnectLink({ onClick, children }: { onClick: () => void; children?:
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ fontSize: 10, color: hover ? '#f0eef8' : '#9a9ab4', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0, transition: 'color 0.12s' }}
+      style={{ fontSize: 10, color: hover ? 'var(--vl-text-primary)' : 'var(--vl-text-muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0, transition: 'color 0.12s' }}
     >
       {children ?? 'disconnect'}
     </button>
   );
 }
 
-const btnStyle: React.CSSProperties = { padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: rgb(VL.purpleTint), color: '#000', border: 'none', borderRadius: 8 };
 const labelStyle: React.CSSProperties = { fontSize: 11, color: VLText.muted, display: 'flex', flexDirection: 'column', gap: 4 };
 const inputStyle: React.CSSProperties = {
   padding: '9px 12px', fontSize: 13, background: 'rgba(255,255,255,0.03)', color: VLText.primary, outline: 'none',

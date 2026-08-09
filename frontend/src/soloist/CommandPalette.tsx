@@ -135,7 +135,7 @@ export function CommandPalette() {
         style={{
           width: 'min(480px, 92vw)',
           background: 'linear-gradient(180deg, #1a1430 0%, #14102a 100%)',
-          border: '1px solid rgba(168,144,232,0.28)',
+          border: '1px solid rgb(var(--vl-purple-tint) / 0.28)',
           borderRadius: 10,
           boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.3)',
           padding: 6,
@@ -148,7 +148,7 @@ export function CommandPalette() {
             return (
               <div key={cmd.id}>
                 {showHeader && (
-                  <div style={{ fontSize: 9, fontWeight: 600, color: '#9a9ab4', letterSpacing: '0.8px', padding: '6px 8px 3px', textTransform: 'uppercase' }}>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--vl-text-muted)', letterSpacing: '0.8px', padding: '6px 8px 3px', textTransform: 'uppercase' }}>
                     {cmd.group}
                   </div>
                 )}
@@ -158,12 +158,12 @@ export function CommandPalette() {
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 9,
                     padding: '7px 8px', borderRadius: 4, cursor: 'pointer',
-                    background: hi === i ? 'rgba(128,104,216,0.12)' : 'transparent',
+                    background: hi === i ? 'rgb(var(--vl-purple-deep) / 0.12)' : 'transparent',
                   }}
                 >
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#f0eef8' }}>{cmd.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--vl-text-primary)' }}>{cmd.label}</span>
                   {cmd.hint && (
-                    <span style={{ fontSize: 9, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>{cmd.hint}</span>
+                    <span style={{ fontSize: 9, color: 'var(--vl-text-muted)', fontFamily: "'SF Mono','Fira Code',monospace" }}>{cmd.hint}</span>
                   )}
                 </div>
               </div>
@@ -176,7 +176,7 @@ export function CommandPalette() {
               <kbd style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 minWidth: 14, height: 15, padding: '0 4px', fontSize: 9,
-                fontFamily: "'SF Mono','Fira Code',monospace", color: '#9a9ab4',
+                fontFamily: "'SF Mono','Fira Code',monospace", color: 'var(--vl-text-muted)',
                 border: 'none', borderRadius: 3, background: 'rgba(255,255,255,0.06)', lineHeight: 1,
               }}>{key}</kbd>
               {label}

@@ -6,9 +6,9 @@
 // No wallet, no signing, no transactions.
 
 import { useEffect, useState } from 'react';
-import { LiveDot }             from '@/soloist/shared';
+import { LiveDot, CtaButton }  from '@/soloist/shared';
 import { authHeaders }         from '@/runtime/auth';
-import { API_BASE, ADDR_RE, MONO, PANEL, ToolButton, ToolTextInput, fmtSol, short, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, ToolTextInput, fmtSol, short, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
 
 interface MmmPool {
   poolKey:        string;
@@ -48,7 +48,7 @@ interface ScanResult {
 // ── Styles ───────────────────────────────────────────────────────────────────
 const TD: React.CSSProperties = {
   ...MONO, padding: '11px 10px', fontSize: 12, fontWeight: 600,
-  color: '#f0eef8', textAlign: 'right', verticalAlign: 'middle',
+  color: 'var(--vl-text-primary)', textAlign: 'right', verticalAlign: 'middle',
   borderBottom: '1px solid rgba(255,255,255,0.022)',
 };
 const TD_L: React.CSSProperties = { ...TD, textAlign: 'left' };
@@ -66,12 +66,12 @@ function pill(label: string, color: string, bg: string, border: string): React.R
 
 function ExecPill({ executable }: { executable: boolean }) {
   return executable
-    ? pill('EXEC', '#43b984', 'rgba(92,224,160,0.15)', 'rgba(92,224,160,0.45)')
-    : pill('no',   '#9a9ab4', 'rgba(122,122,148,0.06)', 'rgba(122,122,148,0.20)');
+    ? pill('EXEC', 'var(--vl-green-primary)', 'rgb(var(--vl-green-glow) / 0.15)', 'rgb(var(--vl-green-glow) / 0.45)')
+    : pill('no',   'var(--vl-text-muted)', 'rgba(122,122,148,0.06)', 'rgba(122,122,148,0.20)');
 }
 function DivPill({ diverged, sol }: { diverged: boolean; sol: number }) {
   if (!diverged || sol <= 0) return null;
-  return pill(`+${fmtSol(sol * 1e9)}`, '#c7b479', 'rgba(232,193,74,0.12)', 'rgba(232,193,74,0.35)');
+  return pill(`+${fmtSol(sol * 1e9)}`, 'var(--vl-gold-primary)', 'rgba(232,193,74,0.12)', 'rgba(232,193,74,0.35)');
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -147,27 +147,27 @@ export default function MmmPoolsPage() {
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
               MMM Pool Scanner
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)' }}>
               <LiveDot />
               <span>read-only · on-chain escrow audit · no wallet needed</span>
               {result && (
                 <>
-                  <span style={{ color: '#241f3b', margin: '0 6px' }}>·</span>
+                  <span style={{ color: 'var(--vl-border-subtle)', margin: '0 6px' }}>·</span>
                   <span>{result.total} pools</span>
                   {result.executable > 0 && (
-                    <><span style={{ color: '#241f3b', margin: '0 6px' }}>·</span>
-                    <span style={{ color: '#43b984', fontWeight: 700 }}>{result.executable} executable</span></>
+                    <><span style={{ color: 'var(--vl-border-subtle)', margin: '0 6px' }}>·</span>
+                    <span style={{ color: 'var(--vl-green-primary)', fontWeight: 700 }}>{result.executable} executable</span></>
                   )}
                   {result.underfunded > 0 && (
-                    <><span style={{ color: '#241f3b', margin: '0 6px' }}>·</span>
-                    <span style={{ color: '#c7b479' }}>{result.underfunded} underfunded</span></>
+                    <><span style={{ color: 'var(--vl-border-subtle)', margin: '0 6px' }}>·</span>
+                    <span style={{ color: 'var(--vl-gold-primary)' }}>{result.underfunded} underfunded</span></>
                   )}
                   {result.diverged > 0 && (
-                    <><span style={{ color: '#241f3b', margin: '0 6px' }}>·</span>
-                    <span style={{ color: '#a890e8' }}>{result.diverged} diverged</span></>
+                    <><span style={{ color: 'var(--vl-border-subtle)', margin: '0 6px' }}>·</span>
+                    <span style={{ color: 'var(--vl-purple-tint)' }}>{result.diverged} diverged</span></>
                   )}
                 </>
               )}
@@ -184,13 +184,13 @@ export default function MmmPoolsPage() {
             placeholder="Owner wallet address (base58)"
             style={{ flex: 1, minWidth: 280 }}
           />
-          <ToolButton onClick={() => void runScan()} disabled={!canScan}>
+          <CtaButton onClick={() => void runScan()} disabled={!canScan}>
             {busy ? 'Scanning…' : 'Scan Pools'}
-          </ToolButton>
+          </CtaButton>
         </div>
 
         {error && (
-          <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 12, color: '#d96867', background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5 }}>
+          <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5 }}>
             scan failed — {error}
           </div>
         )}
@@ -200,18 +200,18 @@ export default function MmmPoolsPage() {
       {result && (
         <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto' }}>
           {result.executable === 0 && highlighted.length === 0 && (
-            <div style={{ padding: '10px 4px', fontSize: 12, color: '#9a9ab4' }}>
+            <div style={{ padding: '10px 4px', fontSize: 12, color: 'var(--vl-text-muted)' }}>
               No pools match filter (expiry=0, tracked&gt;0, tracked&lt;spot). Total pools: {result.total}.
             </div>
           )}
           {highlighted.length > 0 && (
             <div style={{ ...PANEL }}>
               {/* Summary strip */}
-              <div style={{ padding: '10px 14px', fontSize: 11, color: '#9a9ab4', borderBottom: '1px solid rgba(168,144,232,0.08)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <span style={{ color: '#f0eef8', fontWeight: 600 }}>
+              <div style={{ padding: '10px 14px', fontSize: 11, color: 'var(--vl-text-muted)', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.08)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--vl-text-primary)', fontWeight: 600 }}>
                   {highlighted.length} pool{highlighted.length !== 1 ? 's' : ''} · expiry=0 · tracked&gt;0 · tracked&lt;spot
                 </span>
-                {result.executable > 0 && <span style={{ color: '#43b984', fontWeight: 700 }}>{result.executable} EXECUTABLE</span>}
+                {result.executable > 0 && <span style={{ color: 'var(--vl-green-primary)', fontWeight: 700 }}>{result.executable} EXECUTABLE</span>}
                 <span style={{ ...MONO, fontSize: 10 }}>{short(result.owner)}</span>
                 <span style={{ marginLeft: 'auto', ...MONO, fontSize: 10 }}>{new Date(result.scannedAt).toLocaleTimeString()}</span>
               </div>
@@ -249,7 +249,7 @@ export default function MmmPoolsPage() {
                   <tbody>
                     {highlighted.map(p => {
                       const rowBg = p.executable
-                        ? 'rgba(92,224,160,0.04)'
+                        ? 'rgb(var(--vl-green-glow) / 0.04)'
                         : p.diverged
                         ? 'rgba(232,193,74,0.03)'
                         : undefined;
@@ -261,10 +261,10 @@ export default function MmmPoolsPage() {
                       return (
                         <tr key={p.poolKey} style={{ background: rowBg }}>
                           <td style={TD_L}>
-                            <div style={{ fontWeight: 700, fontSize: 12, color: '#f0eef8' }}>
+                            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--vl-text-primary)' }}>
                               {colSym.length > 22 ? colSym.slice(0, 20) + '…' : colSym}
                             </div>
-                            <div style={{ fontSize: 10, color: '#9a9ab4', marginTop: 1 }}>{allowStr}</div>
+                            <div style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginTop: 1 }}>{allowStr}</div>
                           </td>
                           <td style={TD_L}>
                             <CopyKey value={p.poolKey} />
@@ -273,7 +273,7 @@ export default function MmmPoolsPage() {
                             <a
                               href={`https://solscan.io/account/${p.escrowPda}`}
                               target="_blank" rel="noopener noreferrer"
-                              style={{ color: '#9a9ab4', textDecoration: 'none', fontSize: 11, ...MONO }}
+                              style={{ color: 'var(--vl-text-muted)', textDecoration: 'none', fontSize: 11, ...MONO }}
                               onMouseEnter={e => { (e.target as HTMLElement).style.textDecoration = 'underline'; }}
                               onMouseLeave={e => { (e.target as HTMLElement).style.textDecoration = 'none'; }}
                               title={p.escrowPda}
@@ -282,24 +282,24 @@ export default function MmmPoolsPage() {
                             </a>
                           </td>
                           <td style={TD}>{fmtSol(p.spotPrice)}</td>
-                          <td style={{ ...TD, color: '#c7b479' }}>{fmtSol(p.bpa)}</td>
-                          <td style={{ ...TD, color: p.executable ? '#43b984' : '#f0eef8' }}>
+                          <td style={{ ...TD, color: 'var(--vl-gold-primary)' }}>{fmtSol(p.bpa)}</td>
+                          <td style={{ ...TD, color: p.executable ? 'var(--vl-green-primary)' : 'var(--vl-text-primary)' }}>
                             {fmtSol(p.realEscrow)}
                           </td>
-                          <td style={{ ...TD, color: p.missing <= 0 ? '#43b984' : '#d96867' }}>
+                          <td style={{ ...TD, color: p.missing <= 0 ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>
                             {p.missing <= 0 ? '0' : fmtSol(p.missing)}
                           </td>
-                          <td style={{ ...TD, color: p.diverged ? '#c7b479' : '#9a9ab4' }}>
+                          <td style={{ ...TD, color: p.diverged ? 'var(--vl-gold-primary)' : 'var(--vl-text-muted)' }}>
                             {p.diverged ? (
                               <DivPill diverged={p.diverged} sol={p.divergence / 1e9} />
                             ) : '—'}
                           </td>
-                          <td style={{ ...TD, color: '#9a9ab4', fontSize: 11 }}>
+                          <td style={{ ...TD, color: 'var(--vl-text-muted)', fontSize: 11 }}>
                             {p.expiry === 0 ? 'none' : String(p.expiry)}
                           </td>
-                          <td style={{ ...TD, fontSize: 10, color: '#9a9ab4' }}>
+                          <td style={{ ...TD, fontSize: 10, color: 'var(--vl-text-muted)' }}>
                             {p.poolType || '—'}
-                            {p.isMIP1 && <div style={{ fontSize: 9, color: '#a890e8' }}>MIP1</div>}
+                            {p.isMIP1 && <div style={{ fontSize: 9, color: 'var(--vl-purple-tint)' }}>MIP1</div>}
                           </td>
                           <td style={{ ...TD, textAlign: 'center' }}>
                             <ExecPill executable={p.executable} />
@@ -316,7 +316,7 @@ export default function MmmPoolsPage() {
           {/* All pools (collapsed summary) */}
           {result.total > highlighted.length && (
             <details style={{ padding: '0 4px', marginBottom: 12 }}>
-              <summary style={{ fontSize: 11, color: '#9a9ab4', cursor: 'pointer', userSelect: 'none', padding: '4px 0' }}>
+              <summary style={{ fontSize: 11, color: 'var(--vl-text-muted)', cursor: 'pointer', userSelect: 'none', padding: '4px 0' }}>
                 All {result.total} pools (including bpa=0 and fully-funded)
               </summary>
               <div style={{ ...PANEL, marginTop: 8 }}>
@@ -342,12 +342,12 @@ export default function MmmPoolsPage() {
                             <CopyKey value={p.poolKey} />
                           </td>
                           <td style={TD}>{fmtSol(p.spotPrice)}</td>
-                          <td style={{ ...TD, color: '#c7b479' }}>{fmtSol(p.bpa)}</td>
-                          <td style={{ ...TD, color: p.executable ? '#43b984' : '#f0eef8' }}>{fmtSol(p.realEscrow)}</td>
-                          <td style={{ ...TD, color: p.missing <= 0 ? '#43b984' : '#9a9ab4' }}>
+                          <td style={{ ...TD, color: 'var(--vl-gold-primary)' }}>{fmtSol(p.bpa)}</td>
+                          <td style={{ ...TD, color: p.executable ? 'var(--vl-green-primary)' : 'var(--vl-text-primary)' }}>{fmtSol(p.realEscrow)}</td>
+                          <td style={{ ...TD, color: p.missing <= 0 ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }}>
                             {p.missing <= 0 ? '0' : fmtSol(p.missing)}
                           </td>
-                          <td style={{ ...TD, color: '#9a9ab4', fontSize: 11 }}>{p.expiry === 0 ? 'none' : String(p.expiry)}</td>
+                          <td style={{ ...TD, color: 'var(--vl-text-muted)', fontSize: 11 }}>{p.expiry === 0 ? 'none' : String(p.expiry)}</td>
                           <td style={{ ...TD, textAlign: 'center' }}><ExecPill executable={p.executable} /></td>
                         </tr>
                       ))}
@@ -362,8 +362,8 @@ export default function MmmPoolsPage() {
 
       {!result && !busy && !error && (
         <div style={{ width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', padding: '0 4px' }}>
-          <div style={{ ...PANEL, padding: '48px 24px', textAlign: 'center', color: '#9a9ab4', fontSize: 13, lineHeight: 1.6 }}>
-            Paste an owner wallet address and click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan Pools</span>.<br />
+          <div style={{ ...PANEL, padding: '48px 24px', textAlign: 'center', color: 'var(--vl-text-muted)', fontSize: 13, lineHeight: 1.6 }}>
+            Paste an owner wallet address and click <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 600 }}>Scan Pools</span>.<br />
             Returns all MMM bid pools with live escrow balances. Read-only.
           </div>
         </div>

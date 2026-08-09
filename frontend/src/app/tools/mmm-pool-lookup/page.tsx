@@ -8,11 +8,11 @@
 import { useEffect, useRef, useState }                    from 'react';
 import { PublicKey }                                      from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import { LiveDot }                                        from '@/soloist/shared';
+import { LiveDot, CtaButton }                             from '@/soloist/shared';
 import { authHeaders }                                    from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signSendAndConfirm } from '@/wallet/phantom';
 import { requestMmmInstruction } from '@/lib/mmm-bridge';
-import { API_BASE, ADDR_RE, MONO, PANEL, ToolButton, ToolTextInput, fmtSol, short } from '@/app/tools/mmm-shared';
+import { API_BASE, ADDR_RE, MONO, PANEL, ToolTextInput, fmtSol, short } from '@/app/tools/mmm-shared';
 
 const ME_TOKEN_KEY = 'vl.meToken';
 
@@ -65,10 +65,10 @@ function pill(label: string, color: string, bg: string, border: string): React.R
     ...MONO, color, background:bg, border:`1px solid ${border}` }}>{label}</span>;
 }
 function StatusPill({ p }: { p: MmmPool }) {
-  if (p.executable)  return pill('EXECUTABLE','#43b984','rgba(92,224,160,0.15)','rgba(92,224,160,0.45)');
-  if (p.underfunded) return pill('UNDERFUNDED','#c7b479','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)');
-  if (p.realEscrow === 0 && p.bpa === 0) return pill('EMPTY','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
-  return pill('INACTIVE','#9a9ab4','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
+  if (p.executable)  return pill('EXECUTABLE','var(--vl-green-primary)','rgb(var(--vl-green-glow) / 0.15)','rgb(var(--vl-green-glow) / 0.45)');
+  if (p.underfunded) return pill('UNDERFUNDED','var(--vl-gold-primary)','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)');
+  if (p.realEscrow === 0 && p.bpa === 0) return pill('EMPTY','var(--vl-text-muted)','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
+  return pill('INACTIVE','var(--vl-text-muted)','rgba(122,122,148,0.06)','rgba(122,122,148,0.22)');
 }
 
 interface SellIssue { warn: boolean; label: string; reason: string; }
@@ -130,9 +130,9 @@ function CanSellBadge({ p }: { p: MmmPool }) {
   const issues = getSellIssues(p);
   if (!issues.length) return (
     <div style={{ display:'flex', alignItems:'center', gap:6,
-      padding:'6px 12px', borderRadius:6, background:'rgba(67,185,132,0.10)',
-      border:'1px solid rgba(67,185,132,0.35)' }}>
-      <span style={{ color:'#43b984', fontWeight:700, fontSize:13 }}>✓ Sellable</span>
+      padding:'6px 12px', borderRadius:6, background:'rgb(var(--vl-green) / 0.10)',
+      border:'1px solid rgb(var(--vl-green) / 0.35)' }}>
+      <span style={{ color:'var(--vl-green-primary)', fontWeight:700, fontSize:13 }}>✓ Sellable</span>
     </div>
   );
   return (
@@ -140,12 +140,12 @@ function CanSellBadge({ p }: { p: MmmPool }) {
       {issues.map((res, i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:6,
           padding:'6px 12px', borderRadius:6,
-          background: res.warn ? 'rgba(199,180,121,0.10)' : 'rgba(220,80,80,0.10)',
-          border: `1px solid ${res.warn ? 'rgba(199,180,121,0.40)' : 'rgba(220,80,80,0.30)'}` }}>
-          <span style={{ color: res.warn ? '#c7b479' : '#e06060', fontWeight:700, fontSize:13 }}>
+          background: res.warn ? 'rgb(var(--vl-gold) / 0.10)' : 'rgba(220,80,80,0.10)',
+          border: `1px solid ${res.warn ? 'rgb(var(--vl-gold) / 0.40)' : 'rgba(220,80,80,0.30)'}` }}>
+          <span style={{ color: res.warn ? 'var(--vl-gold-primary)' : '#e06060', fontWeight:700, fontSize:13 }}>
             {res.label}
           </span>
-          <span style={{ color:'#9a9ab4', fontSize:11 }}>— {res.reason}</span>
+          <span style={{ color:'var(--vl-text-muted)', fontSize:11 }}>— {res.reason}</span>
         </div>
       ))}
     </div>
@@ -155,9 +155,9 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'9px 16px',
       borderBottom:'1px solid rgba(255,255,255,0.022)' }}>
-      <div style={{ width:120, flexShrink:0, fontSize:10, color:'#9a9ab4', fontWeight:700,
+      <div style={{ width:120, flexShrink:0, fontSize:10, color:'var(--vl-text-muted)', fontWeight:700,
         textTransform:'uppercase', letterSpacing:'0.5px', paddingTop:1 }}>{label}</div>
-      <div style={{ ...MONO, fontSize:12, color:'#f0eef8', fontWeight:600, wordBreak:'break-all', flex:1 }}>
+      <div style={{ ...MONO, fontSize:12, color:'var(--vl-text-primary)', fontWeight:600, wordBreak:'break-all', flex:1 }}>
         {children}
       </div>
     </div>
@@ -172,7 +172,7 @@ function CopyableBalance({ addr, color, children }: { addr: string; color: strin
   };
   return (
     <span onClick={copy} title={`Click to copy escrow address to top up: ${addr}`}
-      style={{ cursor:'pointer', color: copied ? '#43b984' : color, userSelect:'none' }}>
+      style={{ cursor:'pointer', color: copied ? 'var(--vl-green-primary)' : color, userSelect:'none' }}>
       {copied ? 'copied!' : children}
     </span>
   );
@@ -180,32 +180,11 @@ function CopyableBalance({ addr, color, children }: { addr: string; color: strin
 function SolLink({ addr, label }: { addr: string; label?: string }) {
   return (
     <a href={`https://solscan.io/account/${addr}`} target="_blank" rel="noopener noreferrer"
-      style={{ color:'#a890e8', textDecoration:'none', ...MONO, fontSize:11 }}
+      style={{ color:'var(--vl-purple-tint)', textDecoration:'none', ...MONO, fontSize:11 }}
       onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
       onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
       {label ?? short(addr)}
     </a>
-  );
-}
-function Btn({ onClick, disabled, children, variant = 'primary', block }: {
-  onClick: () => void; disabled?: boolean; children: React.ReactNode;
-  variant?: 'primary' | 'green'; block?: boolean;
-}) {
-  const on = !disabled;
-  const bg = variant === 'green'
-    ? (on ? 'linear-gradient(180deg,rgba(92,224,160,0.22) 0%,rgba(92,224,160,0.12) 100%)' : 'rgba(92,224,160,0.08)')
-    : (on ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.10)');
-  const border = variant === 'green' ? 'rgba(92,224,160,0.45)' : 'rgba(168,144,232,0.55)';
-  const color  = on ? (variant === 'green' ? '#43b984' : '#f0eef8') : '#9a9ab4';
-  const shadow = on ? (variant === 'green' ? '0 0 14px rgba(92,224,160,0.18)' : '0 0 12px rgba(128,104,216,0.18)') : 'none';
-  return (
-    <button type="button" onClick={onClick} disabled={disabled} style={{
-      display: block ? 'block' : 'inline-block',
-      width: block ? '100%' : undefined,
-      padding:'9px 18px', fontSize:13, fontWeight:700, letterSpacing:'0.4px', textTransform:'uppercase',
-      borderRadius:7, cursor:on ? 'pointer' : 'not-allowed',
-      border:`1px solid ${border}`, background:bg, color, boxShadow:shadow, transition:'all 0.15s',
-    }}>{children}</button>
   );
 }
 
@@ -213,9 +192,9 @@ function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolea
   return (
     <div onClick={onClick} style={{
       cursor:'pointer', width:90, borderRadius:8, overflow:'hidden',
-      border: selected ? '2px solid #43b984' : '1px solid rgba(168,144,232,0.22)',
-      background: selected ? 'rgba(92,224,160,0.06)' : 'rgba(168,144,232,0.04)',
-      boxShadow: selected ? '0 0 16px rgba(92,224,160,0.18)' : 'none',
+      border: selected ? '2px solid var(--vl-green-primary)' : '1px solid rgb(var(--vl-purple-tint) / 0.22)',
+      background: selected ? 'rgb(var(--vl-green-glow) / 0.06)' : 'rgb(var(--vl-purple-tint) / 0.04)',
+      boxShadow: selected ? '0 0 16px rgb(var(--vl-green-glow) / 0.18)' : 'none',
       transition:'all 0.12s', flexShrink:0,
     }}>
       <div style={{ width:90, height:90, background:'rgba(28,22,48,0.8)',
@@ -227,23 +206,23 @@ function NftThumb({ nft, selected, onClick }: { nft: WalletNft; selected: boolea
               style={{ objectFit:'cover', width:'100%', height:'100%' }}
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
-          : <span style={{ fontSize:26, fontWeight:700, color:'#a890e8' }}>
+          : <span style={{ fontSize:26, fontWeight:700, color:'var(--vl-purple-tint)' }}>
               {(nft.name[0] ?? '?').toUpperCase()}
             </span>
         }
         {selected && (
           <div style={{ position:'absolute', top:4, right:4, width:18, height:18, borderRadius:'50%',
-            background:'#43b984', display:'flex', alignItems:'center', justifyContent:'center',
+            background:'var(--vl-green-primary)', display:'flex', alignItems:'center', justifyContent:'center',
             fontSize:11, fontWeight:700, color:'#0a0a14' }}>✓</div>
         )}
         {sizeRiskReason(nft) && (
           <div title={sizeRiskReason(nft) ?? undefined}
             style={{ position:'absolute', top:4, left:4, width:18, height:18, borderRadius:'50%',
-              background:'#c7b479', display:'flex', alignItems:'center', justifyContent:'center',
+              background:'var(--vl-gold-primary)', display:'flex', alignItems:'center', justifyContent:'center',
               fontSize:11, fontWeight:700, color:'#0a0a14' }}>⚠</div>
         )}
       </div>
-      <div style={{ padding:'4px 6px', fontSize:10, color:'#f0eef8', fontWeight:600,
+      <div style={{ padding:'4px 6px', fontSize:10, color:'var(--vl-text-primary)', fontWeight:600,
         overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', ...MONO }}
         title={nft.name}>{nft.name}</div>
     </div>
@@ -632,10 +611,10 @@ export default function MmmPoolLookupPage() {
           maxWidth:'var(--tools-max,1100px)', margin:'0 auto', boxSizing:'border-box' }}>
 
           {/* ── Header ── */}
-          <h1 style={{ fontSize:22, fontWeight:700, color:'#f0eef8', letterSpacing:'-0.5px' }}>
+          <h1 style={{ fontSize:22, fontWeight:700, color:'var(--vl-text-primary)', letterSpacing:'-0.5px' }}>
             MMM Bid Accept
           </h1>
-          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, marginBottom:16, fontSize:11, color:'#9a9ab4' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6, marginBottom:16, fontSize:11, color:'var(--vl-text-muted)' }}>
             <LiveDot />
             <span>bypass ME UI · paste pool key · connect Phantom · accept bid directly</span>
           </div>
@@ -646,14 +625,14 @@ export default function MmmPoolLookupPage() {
               onKeyDown={e => { if (e.key === 'Enter') void runLookup(); }}
               placeholder="Paste pool key…"
               style={{ flex: 1, minWidth: 280, fontSize: 13 }} />
-            <ToolButton onClick={() => void runLookup()} disabled={!canLookup}>
+            <CtaButton onClick={() => void runLookup()} disabled={!canLookup}>
               {lookupBusy ? 'Loading…' : 'Load Pool'}
-            </ToolButton>
+            </CtaButton>
           </div>
 
           {lookupError && (
-            <div style={{ marginTop:10, padding:'8px 12px', fontSize:12, color:'#d96867',
-              background:'rgba(239,120,120,0.08)', border:'1px solid rgba(239,120,120,0.32)', borderRadius:5 }}>
+            <div style={{ marginTop:10, padding:'8px 12px', fontSize:12, color:'var(--vl-red-primary)',
+              background:'rgb(var(--vl-red-glow) / 0.08)', border:'1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius:5 }}>
               {lookupError}
             </div>
           )}
@@ -661,14 +640,14 @@ export default function MmmPoolLookupPage() {
           {/* ── Escrow-only ── */}
           {lookupResult?.type === 'escrow' && (
             <div style={{ ...PANEL, marginTop:16 }}>
-              <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
+              <div style={{ padding:'12px 16px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.08)',
                 display:'flex', gap:10 }}>
-                {pill('ESCROW ACCOUNT','#c7b479','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)')}
-                <span style={{ fontSize:11, color:'#9a9ab4' }}>not a pool config</span>
+                {pill('ESCROW ACCOUNT','var(--vl-gold-primary)','rgba(232,193,74,0.12)','rgba(232,193,74,0.35)')}
+                <span style={{ fontSize:11, color:'var(--vl-text-muted)' }}>not a pool config</span>
               </div>
               <Row label="Address"><SolLink addr={lookupResult.input} label={lookupResult.input} /></Row>
               <Row label="Balance">
-                <span style={{ color: lookupResult.lamports > 0 ? '#43b984' : '#9a9ab4' }}>
+                <span style={{ color: lookupResult.lamports > 0 ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }}>
                   {lookupResult.sol.toFixed(6)} SOL
                 </span>
               </Row>
@@ -678,19 +657,19 @@ export default function MmmPoolLookupPage() {
           {/* ── Empty state ── */}
           {!lookupResult && !lookupBusy && !lookupError && (
             <div style={{ ...PANEL, marginTop:16, padding:'52px 24px', textAlign:'center',
-              color:'#9a9ab4', fontSize:13, lineHeight:1.7 }}>
+              color:'var(--vl-text-muted)', fontSize:13, lineHeight:1.7 }}>
               Paste a pool key from{' '}
-              <a href="/tools/mmm-pools" style={{ color:'#a890e8', textDecoration:'none' }}
+              <a href="/tools/mmm-pools" style={{ color:'var(--vl-purple-tint)', textDecoration:'none' }}
                 onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
                 onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
                 MMM Pool Scanner
               </a>{' '}or{' '}
-              <a href="/tools/mmm-collection-scanner" style={{ color:'#a890e8', textDecoration:'none' }}
+              <a href="/tools/mmm-collection-scanner" style={{ color:'var(--vl-purple-tint)', textDecoration:'none' }}
                 onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
                 onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
                 Collection Scanner
               </a>
-              {' '}and click <span style={{ color:'#a890e8', fontWeight:600 }}>Load Pool</span>.
+              {' '}and click <span style={{ color:'var(--vl-purple-tint)', fontWeight:600 }}>Load Pool</span>.
               <br /><span style={{ fontSize:11 }}>Connect Phantom to accept the bid — bypasses ME UI.</span>
             </div>
           )}
@@ -704,28 +683,28 @@ export default function MmmPoolLookupPage() {
 
                 {/* Pool info */}
                 <div style={PANEL}>
-                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
+                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.08)',
                     display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
                     {(pool.collectionName || pool.collectionSymbol) && (
-                      <span style={{ fontSize:13, fontWeight:700, color:'#f0eef8' }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:'var(--vl-text-primary)' }}>
                         {pool.collectionName || pool.collectionSymbol}
                       </span>
                     )}
-                    {pool.isMIP1 && pill('MIP1','#a890e8','rgba(168,144,232,0.12)','rgba(168,144,232,0.35)')}
+                    {pool.isMIP1 && pill('MIP1','var(--vl-purple-tint)','rgb(var(--vl-purple-tint) / 0.12)','rgb(var(--vl-purple-tint) / 0.35)')}
                     {sizeRiskReasonForPool(pool) && (
                       <span title={sizeRiskReasonForPool(pool) ?? undefined}>
-                        {pill('⚠ SIZE RISK','#c7b479','rgba(199,180,121,0.10)','rgba(199,180,121,0.40)')}
+                        {pill('⚠ SIZE RISK','var(--vl-gold-primary)','rgb(var(--vl-gold) / 0.10)','rgb(var(--vl-gold) / 0.40)')}
                       </span>
                     )}
                     {pool.meKnown === false && pill('ME UNKNOWN','#e06060','rgba(220,80,80,0.10)','rgba(220,80,80,0.30)')}
                     <CanSellBadge p={pool} />
                     <a href={`https://magiceden.io/mmm/pool/${pool.poolKey}`} target="_blank"
                       rel="noopener noreferrer"
-                      style={{ marginLeft:'auto', fontSize:11, color:'#9a9ab4', textDecoration:'none',
-                        padding:'2px 8px', border:'1px solid rgba(168,144,232,0.22)', borderRadius:4,
-                        background:'rgba(168,144,232,0.06)', ...MONO }}
-                      onMouseEnter={e=>{(e.target as HTMLElement).style.color='#a890e8';}}
-                      onMouseLeave={e=>{(e.target as HTMLElement).style.color='#9a9ab4';}}>
+                      style={{ marginLeft:'auto', fontSize:11, color:'var(--vl-text-muted)', textDecoration:'none',
+                        padding:'2px 8px', border:'1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius:4,
+                        background:'rgb(var(--vl-purple-tint) / 0.06)', ...MONO }}
+                      onMouseEnter={e=>{(e.target as HTMLElement).style.color='var(--vl-purple-tint)';}}
+                      onMouseLeave={e=>{(e.target as HTMLElement).style.color='var(--vl-text-muted)';}}>
                       ME ↗
                     </a>
                   </div>
@@ -738,13 +717,13 @@ export default function MmmPoolLookupPage() {
                       <SolLink addr={pool.escrowPda} label={short(pool.escrowPda)} />
                       {'  '}
                       <CopyableBalance addr={pool.escrowPda}
-                        color={pool.executable ? '#43b984' : pool.realEscrow > 0 ? '#c7b479' : '#9a9ab4'}>
+                        color={pool.executable ? 'var(--vl-green-primary)' : pool.realEscrow > 0 ? 'var(--vl-gold-primary)' : 'var(--vl-text-muted)'}>
                         {fmtSol(pool.realEscrow)} SOL
                       </CopyableBalance>
                     </span>
                   </Row>
                   <Row label="Spot Price">
-                    <span style={{ fontSize:14, fontWeight:700, color:'#f0eef8' }}>
+                    <span style={{ fontSize:14, fontWeight:700, color:'var(--vl-text-primary)' }}>
                       {fmtSol(pool.spotPrice)} SOL
                     </span>
                   </Row>
@@ -752,7 +731,7 @@ export default function MmmPoolLookupPage() {
                     <span>
                       {fmtSol(pool.bpa)} SOL
                       {pool.divergence > 0 && (
-                        <span style={{ fontSize:11, color:'#c7b479', marginLeft:6 }}>
+                        <span style={{ fontSize:11, color:'var(--vl-gold-primary)', marginLeft:6 }}>
                           (divergence {fmtSol(pool.divergence)} — realEscrow &gt; bpa, don&apos;t trust executable)
                         </span>
                       )}
@@ -761,13 +740,13 @@ export default function MmmPoolLookupPage() {
                   <Row label="Missing">
                     {pool.missing > 0 ? (
                       <span>
-                        <span style={{ color:'#d96867', fontWeight:700 }}>{fmtSol(pool.missing)} SOL</span>
-                        <span style={{ fontSize:11, color:'#9a9ab4', marginLeft:6 }}>
+                        <span style={{ color:'var(--vl-red-primary)', fontWeight:700 }}>{fmtSol(pool.missing)} SOL</span>
+                        <span style={{ fontSize:11, color:'var(--vl-text-muted)', marginLeft:6 }}>
                           ({((pool.bpa / pool.spotPrice) * 100).toFixed(1)}% funded)
                         </span>
                       </span>
                     ) : (
-                      <span style={{ color:'#43b984', fontWeight:700 }}>0 — fully funded</span>
+                      <span style={{ color:'var(--vl-green-primary)', fontWeight:700 }}>0 — fully funded</span>
                     )}
                   </Row>
                   <Row label="Owner">
@@ -775,7 +754,7 @@ export default function MmmPoolLookupPage() {
                   </Row>
                   {pool.expiry !== 0 && (
                     <Row label="Expiry">
-                      <span style={{ color:'#c7b479' }}>
+                      <span style={{ color:'var(--vl-gold-primary)' }}>
                         {new Date(pool.expiry * 1000).toLocaleString()}
                       </span>
                     </Row>
@@ -785,8 +764,8 @@ export default function MmmPoolLookupPage() {
                       <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                         {pool.allowlists.map((al, i) => (
                           <div key={i} style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <span style={{ fontSize:10, color:'#a890e8', background:'rgba(168,144,232,0.10)',
-                              border:'1px solid rgba(168,144,232,0.22)', borderRadius:3, padding:'0 5px',
+                            <span style={{ fontSize:10, color:'var(--vl-purple-tint)', background:'rgb(var(--vl-purple-tint) / 0.10)',
+                              border:'1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius:3, padding:'0 5px',
                               lineHeight:1.5, flexShrink:0 }}>
                               {al.type}
                             </span>
@@ -801,8 +780,8 @@ export default function MmmPoolLookupPage() {
                 {/* NFT grid — appears once matching NFTs are loaded */}
                 {nfts && nfts.length > 0 && (
                   <div style={PANEL}>
-                    <div style={{ padding:'10px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)',
-                      fontSize:11, color:'#9a9ab4' }}>
+                    <div style={{ padding:'10px 16px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.08)',
+                      fontSize:11, color:'var(--vl-text-muted)' }}>
                       {nfts.length} matching NFT{nfts.length !== 1 ? 's' : ''} in your wallet — pick one to sell
                     </div>
                     <div style={{ padding:'14px 16px', display:'flex', flexWrap:'wrap', gap:10 }}>
@@ -818,7 +797,7 @@ export default function MmmPoolLookupPage() {
                 {/* ME token (advanced, hidden by default) */}
                 {showToken && (
                   <div style={{ padding:'0 0 12px' }}>
-                    <div style={{ fontSize:10, color:'#c7b479', marginBottom:6, fontWeight:600 }}>
+                    <div style={{ fontSize:10, color:'var(--vl-gold-primary)', marginBottom:6, fontWeight:600 }}>
                       Advanced — ME auth token
                       {diag?.bridgeAttempt?.status === 401 && ' (ME returned 401)'}
                     </div>
@@ -833,11 +812,11 @@ export default function MmmPoolLookupPage() {
                         spellCheck={false}
                         style={{ flex:1, minWidth:260, padding:'5px 10px', fontSize:11,
                           ...MONO, borderRadius:5, border:'1px solid rgba(232,193,74,0.35)',
-                          background:'rgba(20,14,34,0.85)', color:'#f0eef8', outline:'none' }}
+                          background:'rgba(20,14,34,0.85)', color:'var(--vl-text-primary)', outline:'none' }}
                       />
                       {meToken && (
                         <button onClick={() => { setMeToken(''); localStorage.removeItem(ME_TOKEN_KEY); }}
-                          style={{ fontSize:10, color:'#9a9ab4', background:'none', border:'none',
+                          style={{ fontSize:10, color:'var(--vl-text-muted)', background:'none', border:'none',
                             cursor:'pointer', textDecoration:'underline' }}>clear</button>
                       )}
                     </div>
@@ -853,28 +832,28 @@ export default function MmmPoolLookupPage() {
                         cursor:'pointer', padding:'4px 0', textTransform:'uppercase',
                         letterSpacing:'0.5px', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
                       {diagExpanded ? '▾' : '▸'} Diagnostics
-                      {diag.finalErrorSource && <span style={{ color:'#d96867', marginLeft:4 }}>· error</span>}
+                      {diag.finalErrorSource && <span style={{ color:'var(--vl-red-primary)', marginLeft:4 }}>· error</span>}
                     </button>
 
                     {diagExpanded && (
                       <div style={{ ...MONO, fontSize:11, padding:'12px 14px', borderRadius:6, marginTop:6,
-                        background:'rgba(15,10,30,0.85)', border:'1px solid rgba(168,144,232,0.18)',
+                        background:'rgba(15,10,30,0.85)', border:'1px solid rgb(var(--vl-purple-tint) / 0.18)',
                         display:'flex', flexDirection:'column', gap:8 }}>
 
-                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6 }}>
+                        <div style={{ color:'var(--vl-text-muted)', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.10)', paddingBottom:6 }}>
                           Attempt params
                         </div>
                         <div style={{ color:'#c4c2d4', fontSize:11, lineHeight:1.7 }}>
-                          <span style={{ color:'#9a9ab4' }}>pool:    </span>{diag.poolKey}<br/>
-                          <span style={{ color:'#9a9ab4' }}>mint:    </span>{diag.mint}<br/>
-                          <span style={{ color:'#9a9ab4' }}>seller:  </span>{diag.seller}<br/>
-                          <span style={{ color:'#9a9ab4' }}>ata:     </span>{diag.assetTokenAccount}<br/>
-                          <span style={{ color:'#9a9ab4' }}>minPay:  </span>{diag.minPayment} lamports
+                          <span style={{ color:'var(--vl-text-muted)' }}>pool:    </span>{diag.poolKey}<br/>
+                          <span style={{ color:'var(--vl-text-muted)' }}>mint:    </span>{diag.mint}<br/>
+                          <span style={{ color:'var(--vl-text-muted)' }}>seller:  </span>{diag.seller}<br/>
+                          <span style={{ color:'var(--vl-text-muted)' }}>ata:     </span>{diag.assetTokenAccount}<br/>
+                          <span style={{ color:'var(--vl-text-muted)' }}>minPay:  </span>{diag.minPayment} lamports
                         </div>
 
-                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                        <div style={{ color:'var(--vl-text-muted)', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.10)', paddingBottom:6, marginTop:4 }}>
                           Path 1 — Bridge (magiceden.io origin)
                         </div>
                         {diag.bridgeAttempt ? (() => {
@@ -882,36 +861,36 @@ export default function MmmPoolLookupPage() {
                           const ok = m.status !== null && m.status >= 200 && m.status < 300;
                           return (
                             <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                              <div><span style={{ color:'#9a9ab4' }}>window:  </span>
+                              <div><span style={{ color:'var(--vl-text-muted)' }}>window:  </span>
                                 <span style={{ color:'#c4c2d4' }}>{m.windowOpened ? 'opened new tab' : 'reused existing tab'}</span></div>
-                              <div><span style={{ color:'#9a9ab4' }}>status:  </span>
-                                <span style={{ color: m.error && !ok ? '#d96867' : ok ? '#43b984' : '#c7b479', fontWeight:700 }}>
+                              <div><span style={{ color:'var(--vl-text-muted)' }}>status:  </span>
+                                <span style={{ color: m.error && !ok ? 'var(--vl-red-primary)' : ok ? 'var(--vl-green-primary)' : 'var(--vl-gold-primary)', fontWeight:700 }}>
                                   {m.status !== null ? `HTTP ${m.status}` : m.error ? 'ERROR (no HTTP status)' : 'pending'}
                                 </span>
-                                {m.elapsedMs > 0 && <span style={{ color:'#9a9ab4', marginLeft:8 }}>{m.elapsedMs}ms</span>}
+                                {m.elapsedMs > 0 && <span style={{ color:'var(--vl-text-muted)', marginLeft:8 }}>{m.elapsedMs}ms</span>}
                               </div>
                               {m.txFound !== null && (
-                                <div><span style={{ color:'#9a9ab4' }}>tx bytes:</span>
-                                  <span style={{ color: m.txFound ? '#43b984' : '#d96867', marginLeft:6, fontWeight:700 }}>
+                                <div><span style={{ color:'var(--vl-text-muted)' }}>tx bytes:</span>
+                                  <span style={{ color: m.txFound ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)', marginLeft:6, fontWeight:700 }}>
                                     {m.txFound ? 'found ✓' : 'not found'}
                                   </span>
                                 </div>
                               )}
-                              {m.error && <div><span style={{ color:'#9a9ab4' }}>error:   </span>
-                                <span style={{ color:'#d96867' }}>{m.error}</span></div>}
+                              {m.error && <div><span style={{ color:'var(--vl-text-muted)' }}>error:   </span>
+                                <span style={{ color:'var(--vl-red-primary)' }}>{m.error}</span></div>}
                               {m.rawBody !== null && (
-                                <div><span style={{ color:'#9a9ab4' }}>body:    </span>
-                                  <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                                <div><span style={{ color:'var(--vl-text-muted)' }}>body:    </span>
+                                  <span style={{ color: ok ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>
                                     {m.rawBody.length > 300 ? m.rawBody.slice(0,300) + '…' : m.rawBody || '(empty)'}
                                   </span>
                                 </div>
                               )}
                             </div>
                           );
-                        })() : <div style={{ color:'#9a9ab4' }}>not attempted yet</div>}
+                        })() : <div style={{ color:'var(--vl-text-muted)' }}>not attempted yet</div>}
 
-                        <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                          textTransform:'uppercase', borderBottom:'1px solid rgba(168,144,232,0.10)', paddingBottom:6, marginTop:4 }}>
+                        <div style={{ color:'var(--vl-text-muted)', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                          textTransform:'uppercase', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.10)', paddingBottom:6, marginTop:4 }}>
                           Path 2 — Backend builder
                         </div>
                         {diag.backendAttempt ? (() => {
@@ -919,15 +898,15 @@ export default function MmmPoolLookupPage() {
                           const ok = b.status >= 200 && b.status < 300;
                           return (
                             <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                              <div><span style={{ color:'#9a9ab4' }}>url:     </span>
-                                <span style={{ color:'#a890e8', wordBreak:'break-all' }}>{b.url}</span></div>
-                              <div><span style={{ color:'#9a9ab4' }}>status:  </span>
-                                <span style={{ color: ok ? '#43b984' : '#d96867', fontWeight:700 }}>HTTP {b.status}</span>
-                                <span style={{ color:'#9a9ab4', marginLeft:8 }}>{b.elapsedMs}ms</span>
+                              <div><span style={{ color:'var(--vl-text-muted)' }}>url:     </span>
+                                <span style={{ color:'var(--vl-purple-tint)', wordBreak:'break-all' }}>{b.url}</span></div>
+                              <div><span style={{ color:'var(--vl-text-muted)' }}>status:  </span>
+                                <span style={{ color: ok ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)', fontWeight:700 }}>HTTP {b.status}</span>
+                                <span style={{ color:'var(--vl-text-muted)', marginLeft:8 }}>{b.elapsedMs}ms</span>
                               </div>
                               {b.rawBody !== null && (
-                                <div><span style={{ color:'#9a9ab4' }}>body:    </span>
-                                  <span style={{ color: ok ? '#43b984' : '#d96867' }}>
+                                <div><span style={{ color:'var(--vl-text-muted)' }}>body:    </span>
+                                  <span style={{ color: ok ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>
                                     {b.rawBody.length > 400 ? b.rawBody.slice(0,400) + '…' : b.rawBody || '(empty)'}
                                   </span>
                                 </div>
@@ -935,19 +914,19 @@ export default function MmmPoolLookupPage() {
                             </div>
                           );
                         })() : (
-                          <div style={{ color:'#9a9ab4' }}>
+                          <div style={{ color:'var(--vl-text-muted)' }}>
                             {diag.bridgeAttempt?.status === 200 ? 'skipped (bridge succeeded)' : 'not attempted yet'}
                           </div>
                         )}
 
                         {diag.finalErrorSource && (
                           <>
-                            <div style={{ color:'#9a9ab4', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
-                              textTransform:'uppercase', borderBottom:'1px solid rgba(239,120,120,0.20)',
+                            <div style={{ color:'var(--vl-text-muted)', fontWeight:700, fontSize:10, letterSpacing:'0.5px',
+                              textTransform:'uppercase', borderBottom:'1px solid rgb(var(--vl-red-glow) / 0.20)',
                               paddingBottom:6, marginTop:4 }}>Error source</div>
                             <div>
-                              <span style={{ color:'#d96867', fontWeight:700 }}>{diag.finalErrorSource}</span><br/>
-                              <span style={{ color:'#d96867' }}>{diag.finalError}</span>
+                              <span style={{ color:'var(--vl-red-primary)', fontWeight:700 }}>{diag.finalErrorSource}</span><br/>
+                              <span style={{ color:'var(--vl-red-primary)' }}>{diag.finalError}</span>
                             </div>
                           </>
                         )}
@@ -962,34 +941,34 @@ export default function MmmPoolLookupPage() {
                 <div style={{ ...PANEL, marginBottom:0 }}>
 
                   {/* Pool summary */}
-                  <div style={{ padding:'14px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)' }}>
+                  <div style={{ padding:'14px 16px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.08)' }}>
                     <div style={{ marginBottom:10 }}><StatusPill p={pool} /></div>
-                    <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                    <div style={{ fontSize:10, color:'var(--vl-text-muted)', textTransform:'uppercase',
                       letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Spot price</div>
-                    <div style={{ fontSize:22, fontWeight:700, color:'#f0eef8', ...MONO }}>
+                    <div style={{ fontSize:22, fontWeight:700, color:'var(--vl-text-primary)', ...MONO }}>
                       {fmtSol(pool.spotPrice)}
-                      <span style={{ fontSize:13, color:'#9a9ab4', marginLeft:4 }}>SOL</span>
+                      <span style={{ fontSize:13, color:'var(--vl-text-muted)', marginLeft:4 }}>SOL</span>
                     </div>
-                    <div style={{ fontSize:10, color: pool.executable ? '#43b984' : '#9a9ab4', marginTop:4 }}>
+                    <div style={{ fontSize:10, color: pool.executable ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)', marginTop:4 }}>
                       Escrow: {fmtSol(pool.realEscrow)} SOL
                       {!pool.executable && pool.missing > 0 && (
-                        <span style={{ color:'#d96867' }}> · needs {fmtSol(pool.missing)} more</span>
+                        <span style={{ color:'var(--vl-red-primary)' }}> · needs {fmtSol(pool.missing)} more</span>
                       )}
                     </div>
                   </div>
 
                   {/* Wallet section */}
-                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgba(168,144,232,0.08)' }}>
+                  <div style={{ padding:'12px 16px', borderBottom:'1px solid rgb(var(--vl-purple-tint) / 0.08)' }}>
                     {!wallet ? (
-                      <Btn onClick={() => void doConnect()} block>Connect Phantom</Btn>
+                      <CtaButton onClick={() => void doConnect()} block>Connect Phantom</CtaButton>
                     ) : (
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                         <div>
-                          <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                          <div style={{ fontSize:10, color:'var(--vl-text-muted)', textTransform:'uppercase',
                             letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Wallet</div>
                           <SolLink addr={wallet} label={short(wallet)} />
                         </div>
-                        <button onClick={doDisconnect} style={{ fontSize:10, color:'#9a9ab4',
+                        <button onClick={doDisconnect} style={{ fontSize:10, color:'var(--vl-text-muted)',
                           background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
                           disconnect
                         </button>
@@ -1000,25 +979,25 @@ export default function MmmPoolLookupPage() {
                   {/* Action section */}
                   <div style={{ padding:'16px' }}>
                     {wallet && !nfts && !nftsBusy && !nftsError && (
-                      <Btn onClick={() => void loadNfts()} block>Find Matching NFTs</Btn>
+                      <CtaButton onClick={() => void loadNfts()} block>Find Matching NFTs</CtaButton>
                     )}
 
                     {wallet && nftsBusy && (
-                      <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center' }}>Searching wallet…</div>
+                      <div style={{ fontSize:12, color:'var(--vl-text-muted)', textAlign:'center' }}>Searching wallet…</div>
                     )}
 
                     {wallet && nftsError && !nftsBusy && (
-                      <div style={{ fontSize:12, color:'#d96867', marginBottom:8 }}>
+                      <div style={{ fontSize:12, color:'var(--vl-red-primary)', marginBottom:8 }}>
                         {nftsError}
                         <button onClick={() => { setNftsError(null); void loadNfts(); }}
-                          style={{ marginLeft:10, fontSize:10, color:'#9a9ab4', background:'none',
+                          style={{ marginLeft:10, fontSize:10, color:'var(--vl-text-muted)', background:'none',
                             border:'none', cursor:'pointer', textDecoration:'underline' }}>retry</button>
                       </div>
                     )}
 
                     {wallet && nftsError && !nftsBusy && pool.allowlists.some(al => al.type === 'any') && (
                       <div style={{ marginTop:4 }}>
-                        <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:6 }}>
+                        <div style={{ fontSize:10, color:'var(--vl-text-muted)', marginBottom:6 }}>
                           &apos;Any NFT&apos; pool — enter a mint address directly instead of
                           scanning the whole wallet.
                         </div>
@@ -1026,21 +1005,21 @@ export default function MmmPoolLookupPage() {
                           <input value={manualMint} onChange={e => setManualMint(e.target.value)}
                             placeholder="NFT mint address" disabled={manualBusy}
                             style={{ flex:1, padding:'7px 10px', fontSize:11, ...MONO, borderRadius:5,
-                              border:'1px solid rgba(168,144,232,0.4)', background:'rgba(20,14,34,0.85)',
-                              color:'#f0eef8', outline:'none' }}
+                              border:'1px solid rgb(var(--vl-purple-tint) / 0.4)', background:'rgba(20,14,34,0.85)',
+                              color:'var(--vl-text-primary)', outline:'none' }}
                           />
-                          <Btn onClick={() => void loadManualNft()} disabled={manualBusy || !manualMint.trim()}>
+                          <CtaButton onClick={() => void loadManualNft()} disabled={manualBusy || !manualMint.trim()}>
                             {manualBusy ? '…' : 'Use'}
-                          </Btn>
+                          </CtaButton>
                         </div>
                         {manualError && (
-                          <div style={{ fontSize:11, color:'#d96867', marginTop:4 }}>{manualError}</div>
+                          <div style={{ fontSize:11, color:'var(--vl-red-primary)', marginTop:4 }}>{manualError}</div>
                         )}
                       </div>
                     )}
 
                     {wallet && nfts && !selectedNft && (
-                      <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center', lineHeight:1.6 }}>
+                      <div style={{ fontSize:12, color:'var(--vl-text-muted)', textAlign:'center', lineHeight:1.6 }}>
                         Select an NFT from the grid to sell it to this pool.
                       </div>
                     )}
@@ -1049,8 +1028,8 @@ export default function MmmPoolLookupPage() {
                       <>
                         {/* Selected NFT summary */}
                         <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:14,
-                          padding:'10px', borderRadius:8, background:'rgba(168,144,232,0.05)',
-                          border:'1px solid rgba(168,144,232,0.18)' }}>
+                          padding:'10px', borderRadius:8, background:'rgb(var(--vl-purple-tint) / 0.05)',
+                          border:'1px solid rgb(var(--vl-purple-tint) / 0.18)' }}>
                           {selectedNft.imageUrl && (
                             <img src={`${API_BASE}/thumb?url=${encodeURIComponent(selectedNft.imageUrl)}&w=48`}
                               alt={selectedNft.name} width={48} height={48}
@@ -1059,72 +1038,72 @@ export default function MmmPoolLookupPage() {
                             />
                           )}
                           <div style={{ minWidth:0 }}>
-                            <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                            <div style={{ fontSize:10, color:'var(--vl-text-muted)', textTransform:'uppercase',
                               letterSpacing:'0.5px', fontWeight:700, marginBottom:2 }}>Selling</div>
-                            <div style={{ fontSize:13, fontWeight:700, color:'#f0eef8',
+                            <div style={{ fontSize:13, fontWeight:700, color:'var(--vl-text-primary)',
                               overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                               {selectedNft.name}
                             </div>
-                            <div style={{ fontSize:10, color:'#9a9ab4', ...MONO }}>{short(selectedNft.mint)}</div>
+                            <div style={{ fontSize:10, color:'var(--vl-text-muted)', ...MONO }}>{short(selectedNft.mint)}</div>
                           </div>
                         </div>
 
                         {/* Size-risk warning — pNFT + 5+ creators tends to bust the legacy 1232B cap */}
                         {sizeRiskReason(selectedNft) && (
                           <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:14,
-                            padding:'6px 12px', borderRadius:6, background:'rgba(199,180,121,0.10)',
-                            border:'1px solid rgba(199,180,121,0.40)' }}>
-                            <span style={{ color:'#c7b479', fontWeight:700, fontSize:13 }}>⚠ Size risk</span>
-                            <span style={{ color:'#9a9ab4', fontSize:11 }}>— {sizeRiskReason(selectedNft)}</span>
+                            padding:'6px 12px', borderRadius:6, background:'rgb(var(--vl-gold) / 0.10)',
+                            border:'1px solid rgb(var(--vl-gold) / 0.40)' }}>
+                            <span style={{ color:'var(--vl-gold-primary)', fontWeight:700, fontSize:13 }}>⚠ Size risk</span>
+                            <span style={{ color:'var(--vl-text-muted)', fontSize:11 }}>— {sizeRiskReason(selectedNft)}</span>
                           </div>
                         )}
 
                         {/* You receive */}
                         <div style={{ marginBottom:16 }}>
-                          <div style={{ fontSize:10, color:'#9a9ab4', textTransform:'uppercase',
+                          <div style={{ fontSize:10, color:'var(--vl-text-muted)', textTransform:'uppercase',
                             letterSpacing:'0.5px', fontWeight:700, marginBottom:4 }}>You receive</div>
-                          <div style={{ fontSize:20, fontWeight:700, color:'#43b984', ...MONO }}>
+                          <div style={{ fontSize:20, fontWeight:700, color:'var(--vl-green-primary)', ...MONO }}>
                             ~{fmtSol(pool.spotPrice)}
-                            <span style={{ fontSize:13, color:'#9a9ab4', marginLeft:4 }}>SOL</span>
+                            <span style={{ fontSize:13, color:'var(--vl-text-muted)', marginLeft:4 }}>SOL</span>
                           </div>
-                          <div style={{ fontSize:10, color:'#9a9ab4', marginTop:2 }}>
+                          <div style={{ fontSize:10, color:'var(--vl-text-muted)', marginTop:2 }}>
                             spot price − protocol fees
                           </div>
                         </div>
 
                         {/* TX controls */}
                         {txPhase === null && (
-                          <Btn onClick={() => void acceptBid()} variant="green" block>
+                          <CtaButton onClick={() => void acceptBid()} variant="green" block>
                             Accept Bid
-                          </Btn>
+                          </CtaButton>
                         )}
                         {txPhase === 'building' && (
-                          <div style={{ fontSize:12, color:'#9a9ab4', textAlign:'center', padding:'8px 0' }}>
+                          <div style={{ fontSize:12, color:'var(--vl-text-muted)', textAlign:'center', padding:'8px 0' }}>
                             Building transaction…
                           </div>
                         )}
                         {txPhase === 'signing' && (
-                          <div style={{ fontSize:12, color:'#c7b479', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
+                          <div style={{ fontSize:12, color:'var(--vl-gold-primary)', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
                             Check Phantom to sign…
                           </div>
                         )}
                         {txPhase === 'confirming' && (
-                          <div style={{ fontSize:12, color:'#c7b479', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
+                          <div style={{ fontSize:12, color:'var(--vl-gold-primary)', fontWeight:600, textAlign:'center', padding:'8px 0' }}>
                             Confirming on-chain…
                           </div>
                         )}
                         {typeof txPhase === 'object' && txPhase !== null && 'sig' in txPhase && (
                           <div style={{ padding:'12px', borderRadius:8, textAlign:'center',
-                            background:'rgba(92,224,160,0.06)', border:'1px solid rgba(92,224,160,0.28)' }}>
-                            <div style={{ fontSize:14, color:'#43b984', fontWeight:700, marginBottom:6 }}>
+                            background:'rgb(var(--vl-green-glow) / 0.06)', border:'1px solid rgb(var(--vl-green-glow) / 0.28)' }}>
+                            <div style={{ fontSize:14, color:'var(--vl-green-primary)', fontWeight:700, marginBottom:6 }}>
                               ✓ Bid accepted!
                             </div>
-                            <div style={{ fontSize:10, color:'#9a9ab4', marginBottom:8 }}>
+                            <div style={{ fontSize:10, color:'var(--vl-text-muted)', marginBottom:8 }}>
                               {txPhase.source === 'me_browser' ? 'via ME bridge' : 'via on-chain builder'}
                             </div>
                             <a href={`https://solscan.io/tx/${txPhase.sig}`} target="_blank"
                               rel="noopener noreferrer"
-                              style={{ ...MONO, fontSize:10, color:'#a890e8', textDecoration:'none' }}
+                              style={{ ...MONO, fontSize:10, color:'var(--vl-purple-tint)', textDecoration:'none' }}
                               onMouseEnter={e=>{(e.target as HTMLElement).style.textDecoration='underline';}}
                               onMouseLeave={e=>{(e.target as HTMLElement).style.textDecoration='none';}}>
                               {short(txPhase.sig)} ↗
@@ -1133,12 +1112,12 @@ export default function MmmPoolLookupPage() {
                         )}
                         {typeof txPhase === 'object' && txPhase !== null && 'error' in txPhase && (
                           <div style={{ padding:'10px', borderRadius:8,
-                            background:'rgba(239,120,120,0.08)', border:'1px solid rgba(239,120,120,0.28)' }}>
-                            <div style={{ fontSize:11, color:'#d96867', marginBottom:8, lineHeight:1.5 }}>
+                            background:'rgb(var(--vl-red-glow) / 0.08)', border:'1px solid rgb(var(--vl-red-glow) / 0.28)' }}>
+                            <div style={{ fontSize:11, color:'var(--vl-red-primary)', marginBottom:8, lineHeight:1.5 }}>
                               {txPhase.error}
                             </div>
                             <button onClick={() => setTxPhase(null)}
-                              style={{ fontSize:11, color:'#9a9ab4', background:'none', border:'none',
+                              style={{ fontSize:11, color:'var(--vl-text-muted)', background:'none', border:'none',
                                 cursor:'pointer', textDecoration:'underline' }}>retry</button>
                           </div>
                         )}

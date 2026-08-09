@@ -26,8 +26,8 @@ export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a 
 //   BUY  → green gradient rgb(52,172,136) → rgb(25,116,86), text #04140e.
 //   SELL → red   gradient rgb(199,71,83)  → rgb(144,48,65), text #1c0307.
 // Hues are VictoryLabs' direction colors at ~81 % intensity — the
-// full-strength stops (buy rgb(64,212,168)→rgb(31,143,106), sell
-// rgb(245,88,102)→rgb(178,59,80)) read too loud against the price, so
+// full-strength stops (buy rgb(var(--vl-green-strong))→rgb(31,143,106), sell
+// rgb(var(--vl-red-strong))→rgb(178,59,80)) read too loud against the price, so
 // every channel is scaled ×0.9 twice (hue preserved, intensity dialled
 // back so the capsule reads as a calm Bloomberg-style tag, never a CTA
 // button). Trader convention preserved: green buy / red sell, SELL in

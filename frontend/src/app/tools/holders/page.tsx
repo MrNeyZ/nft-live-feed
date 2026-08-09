@@ -10,14 +10,7 @@
 // Data: GET /api/tools/holders/analyze?collection=<collectionAddress>
 
 import { useEffect, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
-// Marketplace icon badges next to a wallet — same 0.85-opacity convention
-// as feed-card.tsx's ME_ICON_LINK_STYLE (canonical marketplace-icon style
-// across /feed, /mints, /tools/trending), duplicated locally rather than
-// imported per this codebase's per-file constants convention.
-const MARKET_ICON_LINK_STYLE: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none',
-};
+import { LiveDot, CtaButton } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
 
@@ -56,18 +49,25 @@ function classifyInput(v: string): 'collection' | 'slug' | 'name' {
 }
 
 const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
+  background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+  border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
   borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.10)',
   padding: 12,
   marginBottom: 11,
 };
 const SECTION_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-  color: '#9a9ab4', marginBottom: 6,
+  color: 'var(--vl-text-muted)', marginBottom: 6,
 };
 const MONO = "'SF Mono','Fira Code',monospace";
+// Marketplace icon badges next to a wallet — same 0.85-opacity convention
+// as feed-card.tsx's ME_ICON_LINK_STYLE (canonical marketplace-icon style
+// across /feed, /mints, /tools/trending), duplicated locally rather than
+// imported per this codebase's per-file constants convention.
+const MARKET_ICON_LINK_STYLE: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none',
+};
 
 function shortAddr(s: string): string {
   return s.length > 12 ? `${s.slice(0, 5)}…${s.slice(-5)}` : s;
@@ -83,12 +83,12 @@ function fmtWhen(iso: string): string {
 }
 
 // Big stat card (Unique holders / Total NFTs / Top holder / Updated).
-function StatCard({ label, value, sub, color = '#f0eef8' }: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
+function StatCard({ label, value, sub, color = 'var(--vl-text-primary)' }: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
   return (
     <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
       <div style={SECTION_LABEL}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 800, color, fontFamily: MONO, letterSpacing: '-0.5px', lineHeight: 1.1, wordBreak: 'break-word' }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
@@ -180,16 +180,16 @@ export default function HoldersPage() {
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
         {/* Header */}
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
           HOLDERS
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · raw distinct on-chain owner count (Helius DAS) — may include escrow/custody/treasury wallets, not marketplace cached stats</span>
         </div>
 
         {/* Input */}
-        <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
+        <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--vl-text-muted)' }}>
           Collection address, NFT mint address, slug, or name
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -204,35 +204,20 @@ export default function HoldersPage() {
             style={{
               flex: 1, minWidth: 280, padding: '9px 12px', fontSize: 12,
               fontFamily: MONO, borderRadius: 5,
-              border: '1px solid rgba(168,144,232,0.40)',
-              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
+              border: '1px solid rgb(var(--vl-purple-tint) / 0.40)',
+              background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none',
             }}
           />
-          <button
-            type="button"
-            onClick={run}
-            disabled={idle}
-            data-uisnd="skip"
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
-              cursor: idle ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: idle ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: idle ? '#9a9ab4' : '#f0eef8',
-              boxShadow: idle ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
-              transition: 'all 0.15s',
-            }}
-          >
+          <CtaButton onClick={run} disabled={idle} ownSound>
             {busy ? 'Counting…' : 'Analyze'}
-          </button>
+          </CtaButton>
         </div>
 
         {/* Error */}
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
             borderRadius: 5,
           }}>
             {error}
@@ -243,7 +228,7 @@ export default function HoldersPage() {
             Each resolves directly by its unambiguous slug. */}
         {candidates && candidates.length > 0 && !busy && (
           <div style={{ ...PANEL, marginTop: 12, padding: 12, border: '1px solid rgba(232,193,74,0.34)', background: 'rgba(232,193,74,0.06)' }}>
-            <div style={{ ...SECTION_LABEL, color: '#c7b479' }}>Multiple matches — pick one</div>
+            <div style={{ ...SECTION_LABEL, color: 'var(--vl-gold-primary)' }}>Multiple matches — pick one</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {candidates.map((c) => (
                 <button
@@ -254,12 +239,12 @@ export default function HoldersPage() {
                   style={{
                     display: 'flex', alignItems: 'baseline', gap: 8, textAlign: 'left',
                     padding: '7px 10px', borderRadius: 5, cursor: 'pointer',
-                    border: '1px solid rgba(168,144,232,0.30)', background: 'rgba(168,144,232,0.08)',
-                    color: '#f0eef8',
+                    border: '1px solid rgb(var(--vl-purple-tint) / 0.30)', background: 'rgb(var(--vl-purple-tint) / 0.08)',
+                    color: 'var(--vl-text-primary)',
                   }}
                 >
                   <span style={{ fontSize: 12.5, fontWeight: 700 }}>{c.name}</span>
-                  <span style={{ fontSize: 11, fontFamily: MONO, color: '#9a9ab4' }}>{c.slug}</span>
+                  <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--vl-text-muted)' }}>{c.slug}</span>
                 </button>
               ))}
             </div>
@@ -268,7 +253,7 @@ export default function HoldersPage() {
 
         {/* Loading hint */}
         {busy && !error && (
-          <div style={{ marginTop: 12, fontSize: 12, color: '#9a9ab4' }}>
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--vl-text-muted)' }}>
             Walking on-chain assets — large collections can take a few seconds…
           </div>
         )}
@@ -278,21 +263,21 @@ export default function HoldersPage() {
           <div style={{ marginTop: 16 }}>
             {/* Stat cards */}
             <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap', marginBottom: 11 }}>
-              <StatCard label="Raw DAS owners" value={fmtNum(analysis.uniqueHolders)} sub="distinct ownership.owner" color="#43b984" />
+              <StatCard label="Raw DAS owners" value={fmtNum(analysis.uniqueHolders)} sub="distinct ownership.owner" color="var(--vl-green-primary)" />
               <StatCard label="Total NFTs"     value={fmtNum(analysis.totalAssets)} color="#c4b8e8" />
               <StatCard
                 label="Top holder"
                 value={top[0] ? shortAddr(top[0].wallet) : '—'}
                 sub={top[0] ? `${fmtNum(top[0].count)} NFTs · ${top[0].percent}%` : undefined}
-                color="#c7b479"
+                color="var(--vl-gold-primary)"
               />
               <StatCard label="Updated" value={fmtWhen(analysis.updatedAt)} color="#9aa6c4" />
             </div>
 
             {/* Resolved collection — always shown; for slug input it proves
                 which on-chain address the count was computed against. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: '#9a9ab4' }}>
-              <span style={{ fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c7b479' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: 'var(--vl-text-muted)' }}>
+              <span style={{ fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--vl-gold-primary)' }}>
                 {analysis.resolvedName
                   ? `${analysis.resolvedName} →`
                   : analysis.inputType === 'slug' ? `slug "${analysis.inputValue}" →`
@@ -319,9 +304,9 @@ export default function HoldersPage() {
                 style={{
                   padding: '3px 9px', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px',
                   borderRadius: 4, cursor: 'pointer', fontFamily: MONO,
-                  border: '1px solid rgba(168,144,232,0.45)',
-                  background: copied ? 'rgba(126,217,168,0.16)' : 'rgba(168,144,232,0.10)',
-                  color: copied ? '#43b984' : '#c4b8e8',
+                  border: '1px solid rgb(var(--vl-purple-tint) / 0.45)',
+                  background: copied ? 'rgba(126,217,168,0.16)' : 'rgb(var(--vl-purple-tint) / 0.10)',
+                  color: copied ? 'var(--vl-green-primary)' : '#c4b8e8',
                   transition: 'all 0.15s',
                 }}
               >{copied ? 'COPIED ✓' : 'COPY JSON'}</button>
@@ -330,7 +315,7 @@ export default function HoldersPage() {
             {/* Warnings */}
             {analysis.warnings.length > 0 && (
               <div style={{ ...PANEL, padding: 12, border: '1px solid rgba(232,193,74,0.34)', background: 'rgba(232,193,74,0.06)' }}>
-                <div style={{ ...SECTION_LABEL, color: '#c7b479' }}>Warnings</div>
+                <div style={{ ...SECTION_LABEL, color: 'var(--vl-gold-primary)' }}>Warnings</div>
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#d8cda6', lineHeight: 1.5 }}>
                   {analysis.warnings.map((w, i) => <li key={i}>{w}</li>)}
                 </ul>
@@ -348,9 +333,9 @@ export default function HoldersPage() {
                     ['Hold 6–10', dist.holders6to10],
                     ['Hold 11+', dist.holders11plus],
                   ] as const).map(([label, n]) => (
-                    <div key={label} style={{ flex: '1 1 120px', minWidth: 110, padding: '10px 12px', borderRadius: 8, background: 'rgba(168,144,232,0.06)', border: '1px solid rgba(168,144,232,0.22)' }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: '#f0eef8', fontFamily: MONO }}>{fmtNum(n)}</div>
-                      <div style={{ fontSize: 10.5, color: '#9a9ab4', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+                    <div key={label} style={{ flex: '1 1 120px', minWidth: 110, padding: '10px 12px', borderRadius: 8, background: 'rgb(var(--vl-purple-tint) / 0.06)', border: '1px solid rgb(var(--vl-purple-tint) / 0.22)' }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--vl-text-primary)', fontFamily: MONO }}>{fmtNum(n)}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
                     </div>
                   ))}
                 </div>
@@ -361,12 +346,12 @@ export default function HoldersPage() {
             <div style={{ ...PANEL, padding: 14 }}>
               <div style={SECTION_LABEL}>Top holders (max 25)</div>
               {top.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#9a9ab4' }}>No holders to show.</div>
+                <div style={{ fontSize: 12, color: 'var(--vl-text-muted)' }}>No holders to show.</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ color: '#9a9ab4', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1, background: '#1a1530' }}>
+                      <tr style={{ color: 'var(--vl-text-muted)', textAlign: 'left', position: 'sticky', top: 0, zIndex: 1, background: 'var(--vl-gray-surface)' }}>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase' }}>#</th>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase' }}>Wallet</th>
                         <th style={{ padding: '6px 8px', fontWeight: 700, letterSpacing: '0.5px', fontSize: 10.5, textTransform: 'uppercase', textAlign: 'right' }}>NFTs</th>
@@ -376,7 +361,7 @@ export default function HoldersPage() {
                     <tbody>
                       {top.map((h, i) => (
                         <tr key={h.wallet} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ padding: '6px 8px', color: '#9a9ab4', fontFamily: MONO }}>{i + 1}</td>
+                          <td style={{ padding: '6px 8px', color: 'var(--vl-text-muted)', fontFamily: MONO }}>{i + 1}</td>
                           <td style={{ padding: '6px 8px', fontFamily: MONO }}>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                               <a
@@ -409,7 +394,7 @@ export default function HoldersPage() {
                               </a>
                             </span>
                           </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', color: '#f0eef8', fontFamily: MONO, fontWeight: 700 }}>{fmtNum(h.count)}</td>
+                          <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--vl-text-primary)', fontFamily: MONO, fontWeight: 700 }}>{fmtNum(h.count)}</td>
                           <td style={{ padding: '6px 8px', textAlign: 'right', color: '#9aa6c4', fontFamily: MONO }}>{h.percent}%</td>
                         </tr>
                       ))}

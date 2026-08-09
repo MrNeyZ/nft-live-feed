@@ -272,7 +272,7 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'right' }: {
       color: `var(--th-label-color, ${VLText.muted})`,
       letterSpacing: '0.8px', textAlign: align, cursor: 'pointer',
       borderBottom: `1px solid ${alpha(VL.purpleTint, 0.12)}`, whiteSpace: 'nowrap',
-      background: '#1a1530', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
+      background: 'var(--vl-gray-surface)', position: 'sticky', top: 0, zIndex: 1, textTransform: 'uppercase',
     }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start' }}>
         {label}
@@ -380,7 +380,7 @@ function Row({ row, rank, isSelected, onClick }: RowProps) {
       <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 800, color: row.live ? salesTint(row.live.buyCount, row.live.sellCount) : SALES_TINT_NEUTRAL, letterSpacing: '-0.2px' }}>
         {fmtInt(row.salesCount)}
       </td>
-      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#ffffff', letterSpacing: '-0.2px' }}>
+      <td style={{ padding: 'var(--table-row-pad, 14px 10px)', textAlign: 'right', fontSize: 14, fontWeight: 700, color: 'var(--vl-white)', letterSpacing: '-0.2px' }}>
         {fmtSol(displayFloor)}
         {hasMomentum && <span style={{ marginLeft: 4, fontSize: 11, fontWeight: 700, color: rgb(VL.green), opacity: 0.9 }}>↑</span>}
       </td>
@@ -696,7 +696,7 @@ export default function Dashboard() {
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%',
         maxWidth: 'var(--dashboard-max, 1200px)', margin: '14px auto 16px',
-        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
         border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
         overflow: 'hidden',
@@ -719,7 +719,7 @@ export default function Dashboard() {
         </div>
 
         {error && (
-          <div style={{ margin: '8px 14px 0', padding: '8px 12px', fontSize: 12, color: rgb(VL.red), background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5, flexShrink: 0 }}>
+          <div style={{ margin: '8px 14px 0', padding: '8px 12px', fontSize: 12, color: rgb(VL.red), background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5, flexShrink: 0 }}>
             {error}
           </div>
         )}

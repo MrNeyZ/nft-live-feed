@@ -9,7 +9,7 @@
 // Data: GET /api/tools/collection-analyzer/analyze?input=<value>
 
 import { useEffect, useRef, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
+import { LiveDot, CtaButton } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import TraitExtractionPanel from './TraitExtractionPanel';
 import { authHeaders } from '@/runtime/auth';
@@ -211,16 +211,16 @@ function shortAddr(s: string): string {
 }
 
 const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
+  background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+  border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
   borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.10)',
   padding: 12,
   marginBottom: 11,
 };
 const SECTION_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-  color: '#9a9ab4', marginBottom: 6,
+  color: 'var(--vl-text-muted)', marginBottom: 6,
 };
 const MONO = "'SF Mono','Fira Code',monospace";
 
@@ -575,14 +575,14 @@ export default function CollectionAnalyzerPage() {
     <div className="feed-root page-transition" data-page="tools">
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
           COLLECTION ANALYZER
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · collection address, NFT mint, Tensor URL, or Magic Eden URL → asset + trait preview</span>
         </div>
-        <div style={{ marginTop: 8, fontSize: 11, color: '#c7b479' }}>
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--vl-gold-primary)' }}>
           Stage 1 — analyzes a small preview only. Does not yet export the complete collection.
         </div>
 
@@ -599,55 +599,31 @@ export default function CollectionAnalyzerPage() {
             style={{
               flex: 1, minWidth: 280, padding: '9px 12px', fontSize: 12,
               fontFamily: MONO, borderRadius: 5,
-              border: '1px solid rgba(168,144,232,0.40)',
-              background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
+              border: '1px solid rgb(var(--vl-purple-tint) / 0.40)',
+              background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none',
             }}
           />
-          <button
-            type="button"
-            onClick={run}
-            disabled={busy || input.trim().length === 0}
-            data-uisnd="skip"
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
-              cursor: (busy || input.trim().length === 0) ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: (busy || input.trim().length === 0) ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: (busy || input.trim().length === 0) ? '#9a9ab4' : '#f0eef8',
-              boxShadow: (busy || input.trim().length === 0) ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
-              transition: 'all 0.15s',
-            }}
-          >
+          <CtaButton onClick={run} disabled={busy || input.trim().length === 0} ownSound>
             {busy ? 'Analyzing…' : 'Analyze'}
-          </button>
-          <button
-            type="button"
+          </CtaButton>
+          <CtaButton
             onClick={startFullScan}
             disabled={scanStatus === 'running' || input.trim().length === 0}
-            data-uisnd="skip"
+            ownSound
+            variant="blue"
             title="Walks the full collection via bounded, retried Helius DAS pagination — may take a while and spends real RPC requests"
-            style={{
-              padding: '7px 18px', fontSize: 12, fontWeight: 700,
-              letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
-              cursor: (scanStatus === 'running' || input.trim().length === 0) ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(126,168,217,0.55)',
-              background: (scanStatus === 'running' || input.trim().length === 0) ? 'rgba(126,168,217,0.10)' : 'linear-gradient(180deg, rgba(126,168,217,0.28) 0%, rgba(126,168,217,0.14) 100%)',
-              color: (scanStatus === 'running' || input.trim().length === 0) ? '#9a9ab4' : '#f0eef8',
-              transition: 'all 0.15s',
-            }}
           >
             {scanStatus === 'running' ? 'Scanning…' : 'Scan Full Collection'}
-          </button>
+          </CtaButton>
         </div>
-        <div style={{ marginTop: 6, fontSize: 10.5, color: '#9a9ab4' }}>
+        <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--vl-text-muted)' }}>
           Full scan may take time for large collections and spends real Helius RPC requests (bounded — up to ~60,000 assets, ~10 min).
         </div>
 
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
             borderRadius: 5,
           }}>
             {error}
@@ -663,16 +639,16 @@ export default function CollectionAnalyzerPage() {
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Collection summary</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 12, fontFamily: MONO, marginBottom: 8 }}>
-              <div><span style={{ color: '#9a9ab4' }}>input type </span><span style={{ color: '#f0eef8' }}>{INPUT_KIND_LABEL[analysis.inputKind]}</span></div>
-              <div><span style={{ color: '#9a9ab4' }}>total assets </span><span style={{ color: '#f0eef8' }}>{analysis.totalAssets !== null ? analysis.totalAssets.toLocaleString() : '—'}</span></div>
-              <div><span style={{ color: '#9a9ab4' }}>preview fetched </span><span style={{ color: '#f0eef8' }}>{analysis.previewCount}</span></div>
-              <div><span style={{ color: '#9a9ab4' }}>trait categories </span><span style={{ color: '#f0eef8' }}>{analysis.traitCategories.length}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>input type </span><span style={{ color: 'var(--vl-text-primary)' }}>{INPUT_KIND_LABEL[analysis.inputKind]}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>total assets </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.totalAssets !== null ? analysis.totalAssets.toLocaleString() : '—'}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>preview fetched </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.previewCount}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>trait categories </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.traitCategories.length}</span></div>
             </div>
             <div style={{ fontSize: 11, fontFamily: MONO, color: '#c4b8e8', wordBreak: 'break-all' }}>
               {analysis.collectionAddress}
             </div>
             {analysis.warnings.length > 0 && (
-              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#c7b479', lineHeight: 1.6 }}>
+              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 11.5, color: 'var(--vl-gold-primary)', lineHeight: 1.6 }}>
                 {analysis.warnings.map((w, i) => <li key={i}>{w}</li>)}
               </ul>
             )}
@@ -685,7 +661,7 @@ export default function CollectionAnalyzerPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {analysis.traitCategories.map((cat) => (
                   <div key={cat.traitType}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', marginBottom: 4 }}>{cat.traitType}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', marginBottom: 4 }}>{cat.traitType}</div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {cat.values.map((v) => (
                         <Chip key={v.value} color="#9a9ab4">{v.value} ×{v.count}</Chip>
@@ -709,7 +685,7 @@ export default function CollectionAnalyzerPage() {
                 const std = STANDARD_META[a.standard];
                 return (
                   <div key={a.mint} style={{
-                    border: '1px solid rgba(168,144,232,0.22)', borderRadius: 8,
+                    border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius: 8,
                     padding: 8, background: 'rgba(255,255,255,0.02)',
                   }}>
                     <div style={{
@@ -724,11 +700,11 @@ export default function CollectionAnalyzerPage() {
                         <span style={{ fontSize: 10, color: '#6e6688' }}>no image</span>
                       )}
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {a.name ?? shortAddr(a.mint)}
                     </div>
                     <a href={`https://solscan.io/token/${a.mint}`} target="_blank" rel="noopener noreferrer"
-                       style={{ fontSize: 10, fontFamily: MONO, color: '#9a9ab4', textDecoration: 'none' }}>
+                       style={{ fontSize: 10, fontFamily: MONO, color: 'var(--vl-text-muted)', textDecoration: 'none' }}>
                       {shortAddr(a.mint)}
                     </a>
                     <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -736,7 +712,7 @@ export default function CollectionAnalyzerPage() {
                       {a.compressed && <Chip color="#a890e8">CNFT</Chip>}
                     </div>
                     {a.attributes.length > 0 && (
-                      <div style={{ marginTop: 6, fontSize: 10, color: '#9a9ab4', lineHeight: 1.5 }}>
+                      <div style={{ marginTop: 6, fontSize: 10, color: 'var(--vl-text-muted)', lineHeight: 1.5 }}>
                         {a.attributes.slice(0, 4).map((attr, i) => (
                           <div key={i}><span style={{ color: '#7ea8d9' }}>{attr.trait_type}</span>: {attr.value}</div>
                         ))}
@@ -767,20 +743,20 @@ export default function CollectionAnalyzerPage() {
                   style={{
                     padding: '4px 12px', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px',
                     textTransform: 'uppercase', borderRadius: 5, cursor: 'pointer',
-                    border: '1px solid rgba(217,104,103,0.5)', background: 'rgba(217,104,103,0.10)', color: '#d96867',
+                    border: '1px solid rgb(var(--vl-red) / 0.5)', background: 'rgb(var(--vl-red) / 0.10)', color: 'var(--vl-red-primary)',
                   }}
                 >
                   Cancel
                 </button>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 12, fontFamily: MONO, marginTop: 8 }}>
-                <div><span style={{ color: '#9a9ab4' }}>pages </span><span style={{ color: '#f0eef8' }}>{scanProgress?.pagesFetched ?? 0}</span></div>
-                <div><span style={{ color: '#9a9ab4' }}>assets found </span><span style={{ color: '#f0eef8' }}>{scanProgress?.assetsDiscovered ?? 0}</span></div>
-                <div><span style={{ color: '#9a9ab4' }}>duplicates skipped </span><span style={{ color: '#f0eef8' }}>{scanProgress?.duplicatesSkipped ?? 0}</span></div>
-                <div><span style={{ color: '#9a9ab4' }}>elapsed </span><span style={{ color: '#f0eef8' }}>{Math.round((scanProgress?.elapsedMs ?? 0) / 1000)}s</span></div>
+                <div><span style={{ color: 'var(--vl-text-muted)' }}>pages </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanProgress?.pagesFetched ?? 0}</span></div>
+                <div><span style={{ color: 'var(--vl-text-muted)' }}>assets found </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanProgress?.assetsDiscovered ?? 0}</span></div>
+                <div><span style={{ color: 'var(--vl-text-muted)' }}>duplicates skipped </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanProgress?.duplicatesSkipped ?? 0}</span></div>
+                <div><span style={{ color: 'var(--vl-text-muted)' }}>elapsed </span><span style={{ color: 'var(--vl-text-primary)' }}>{Math.round((scanProgress?.elapsedMs ?? 0) / 1000)}s</span></div>
               </div>
               {scanProgress?.retryState && (
-                <div style={{ marginTop: 8, fontSize: 11, color: '#c7b479' }}>
+                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--vl-gold-primary)' }}>
                   Retrying page {scanProgress.retryState.page} (attempt {scanProgress.retryState.attempt}
                   {scanProgress.retryState.httpStatus ? `, HTTP ${scanProgress.retryState.httpStatus}` : ''}) — waiting {Math.round(scanProgress.retryState.waitMs / 1000)}s…
                 </div>
@@ -789,9 +765,9 @@ export default function CollectionAnalyzerPage() {
           )}
 
           {(scanStatus === 'cancelled' || scanStatus === 'error' || scanStatus === 'expired') && (
-            <div style={{ ...PANEL, borderColor: 'rgba(217,104,103,0.4)' }}>
+            <div style={{ ...PANEL, borderColor: 'rgb(var(--vl-red) / 0.4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-                <div style={{ fontSize: 12, color: '#d96867' }}>
+                <div style={{ fontSize: 12, color: 'var(--vl-red-primary)' }}>
                   {scanStatus === 'cancelled' && 'Scan cancelled.'}
                   {scanStatus === 'error' && (scanError ?? 'Scan failed.')}
                   {scanStatus === 'expired' && 'This scan result has expired (TTL passed) — rescan to view it again.'}
@@ -803,7 +779,7 @@ export default function CollectionAnalyzerPage() {
                   style={{
                     padding: '4px 12px', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px',
                     textTransform: 'uppercase', borderRadius: 5, cursor: 'pointer',
-                    border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8',
+                    border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8',
                   }}
                 >
                   Clear
@@ -824,21 +800,21 @@ export default function CollectionAnalyzerPage() {
                     style={{
                       padding: '4px 12px', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px',
                       textTransform: 'uppercase', borderRadius: 5, cursor: 'pointer',
-                      border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8',
+                      border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8',
                     }}
                   >
                     Clear
                   </button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 12, fontFamily: MONO }}>
-                  <div><span style={{ color: '#9a9ab4' }}>exact assets </span><span style={{ color: '#43b984', fontWeight: 700 }}>{scanSummary.exactAssetCount.toLocaleString()}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>pages fetched </span><span style={{ color: '#f0eef8' }}>{scanSummary.pagesFetched}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>duplicates skipped </span><span style={{ color: '#f0eef8' }}>{scanSummary.duplicatesSkipped}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>duration </span><span style={{ color: '#f0eef8' }}>{Math.round(scanSummary.durationMs / 1000)}s</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>compressed / regular </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.compressedCount} / {scanSummary.quality.regularCount}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>exact assets </span><span style={{ color: 'var(--vl-green-primary)', fontWeight: 700 }}>{scanSummary.exactAssetCount.toLocaleString()}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>pages fetched </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.pagesFetched}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>duplicates skipped </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.duplicatesSkipped}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>duration </span><span style={{ color: 'var(--vl-text-primary)' }}>{Math.round(scanSummary.durationMs / 1000)}s</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>compressed / regular </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.compressedCount} / {scanSummary.quality.regularCount}</span></div>
                 </div>
                 {scanSummary.warnings.length > 0 && (
-                  <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 11, color: '#c7b479', lineHeight: 1.6 }}>
+                  <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 11, color: 'var(--vl-gold-primary)', lineHeight: 1.6 }}>
                     {scanSummary.warnings.map((w, i) => <li key={i}>{w}</li>)}
                   </ul>
                 )}
@@ -855,7 +831,7 @@ export default function CollectionAnalyzerPage() {
                       style={{
                         padding: '6px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.3px',
                         borderRadius: 5, textDecoration: 'none', fontFamily: MONO,
-                        border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8',
+                        border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8',
                       }}
                     >
                       {file}
@@ -868,16 +844,16 @@ export default function CollectionAnalyzerPage() {
               <div style={PANEL}>
                 <div style={SECTION_LABEL}>Metadata quality</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11.5, fontFamily: MONO }}>
-                  <div><span style={{ color: '#9a9ab4' }}>valid metadata </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.assetsWithValidMetadata}/{scanSummary.quality.totalAssets}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>missing name </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.assetsMissingName}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>missing image </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.assetsMissingImage}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>missing attributes </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.assetsMissingAttributes}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>malformed attrs skipped </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.malformedAttributesSkipped}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>conflicting dup traits </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.conflictingDuplicateTraitTypeAssets}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>null / empty values </span><span style={{ color: '#f0eef8' }}>{scanSummary.quality.nullValueAttributes} / {scanSummary.quality.emptyStringValueAttributes}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>valid metadata </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.assetsWithValidMetadata}/{scanSummary.quality.totalAssets}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>missing name </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.assetsMissingName}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>missing image </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.assetsMissingImage}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>missing attributes </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.assetsMissingAttributes}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>malformed attrs skipped </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.malformedAttributesSkipped}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>conflicting dup traits </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.conflictingDuplicateTraitTypeAssets}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>null / empty values </span><span style={{ color: 'var(--vl-text-primary)' }}>{scanSummary.quality.nullValueAttributes} / {scanSummary.quality.emptyStringValueAttributes}</span></div>
                 </div>
                 {(scanSummary.duplicateMetadataGroups.length > 0 || scanSummary.duplicateImageGroups.length > 0) && (
-                  <div style={{ marginTop: 10, fontSize: 11, color: '#9a9ab4' }}>
+                  <div style={{ marginTop: 10, fontSize: 11, color: 'var(--vl-text-muted)' }}>
                     {scanSummary.duplicateMetadataGroups.length} duplicate metadata signature group(s) · {scanSummary.duplicateImageGroups.length} duplicate image group(s)
                   </div>
                 )}
@@ -895,16 +871,16 @@ export default function CollectionAnalyzerPage() {
                     spellCheck={false}
                     style={{
                       padding: '5px 10px', fontSize: 11, fontFamily: MONO, borderRadius: 5, minWidth: 200,
-                      border: '1px solid rgba(168,144,232,0.40)', background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
+                      border: '1px solid rgb(var(--vl-purple-tint) / 0.40)', background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none',
                     }}
                   />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 420, overflowY: 'auto' }} className="scroll-area">
                   {filteredTraitCategories.map((cat) => (
                     <div key={cat.traitType}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', marginBottom: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', marginBottom: 4 }}>
                         {cat.traitType}
-                        <span style={{ fontSize: 10, color: '#9a9ab4', fontWeight: 400 }}> · missing {cat.missingCount} ({cat.missingPercent}%)</span>
+                        <span style={{ fontSize: 10, color: 'var(--vl-text-muted)', fontWeight: 400 }}> · missing {cat.missingCount} ({cat.missingPercent}%)</span>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {cat.values.map((v) => (
@@ -925,12 +901,12 @@ export default function CollectionAnalyzerPage() {
               <div style={PANEL}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
                   <div style={SECTION_LABEL}>All assets ({scanAssetsTotal.toLocaleString()})</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, fontFamily: MONO, color: '#9a9ab4' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, fontFamily: MONO, color: 'var(--vl-text-muted)' }}>
                     <button
                       type="button"
                       disabled={scanAssetsBusy || scanAssetsOffset === 0 || !scanId}
                       onClick={() => scanId && loadScanAssetsPage(scanId, Math.max(0, scanAssetsOffset - SCAN_ASSETS_PAGE_SIZE))}
-                      style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.35)', background: 'transparent', color: '#c4b8e8' }}
+                      style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'transparent', color: '#c4b8e8' }}
                     >
                       ‹ Prev
                     </button>
@@ -939,7 +915,7 @@ export default function CollectionAnalyzerPage() {
                       type="button"
                       disabled={scanAssetsBusy || scanAssetsOffset + SCAN_ASSETS_PAGE_SIZE >= scanAssetsTotal || !scanId}
                       onClick={() => scanId && loadScanAssetsPage(scanId, scanAssetsOffset + SCAN_ASSETS_PAGE_SIZE)}
-                      style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.35)', background: 'transparent', color: '#c4b8e8' }}
+                      style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'transparent', color: '#c4b8e8' }}
                     >
                       Next ›
                     </button>
@@ -947,7 +923,7 @@ export default function CollectionAnalyzerPage() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
                   {scanAssets.map((a) => (
-                    <div key={a.mint} style={{ border: '1px solid rgba(168,144,232,0.22)', borderRadius: 8, padding: 8, background: 'rgba(255,255,255,0.02)' }}>
+                    <div key={a.mint} style={{ border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius: 8, padding: 8, background: 'rgba(255,255,255,0.02)' }}>
                       <div style={{
                         width: '100%', aspectRatio: '1 / 1', borderRadius: 6, overflow: 'hidden',
                         background: 'rgba(255,255,255,0.04)', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -959,10 +935,10 @@ export default function CollectionAnalyzerPage() {
                           <span style={{ fontSize: 9, color: '#6e6688' }}>no image</span>
                         )}
                       </div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {a.name ?? shortAddr(a.mint)}
                       </div>
-                      <div style={{ fontSize: 9.5, fontFamily: MONO, color: '#9a9ab4' }}>{shortAddr(a.mint)}</div>
+                      <div style={{ fontSize: 9.5, fontFamily: MONO, color: 'var(--vl-text-muted)' }}>{shortAddr(a.mint)}</div>
                     </div>
                   ))}
                 </div>
@@ -986,14 +962,14 @@ export default function CollectionAnalyzerPage() {
             type="button"
             onClick={() => setShowAdvancedExport((v) => !v)}
             data-uisnd="skip"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', borderRadius: 8, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.28)', background: 'rgba(255,255,255,0.02)', color: '#9a9ab4', width: '100%', textAlign: 'left' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', borderRadius: 8, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.28)', background: 'rgba(255,255,255,0.02)', color: 'var(--vl-text-muted)', width: '100%', textAlign: 'left' }}
           >
             {showAdvancedExport ? '▾' : '▸'} Advanced / Raw Collection Export
           </button>
           {showAdvancedExport && (
           <div style={{ ...PANEL, marginTop: 8 }}>
             <div style={SECTION_LABEL}>Download collection</div>
-            <div style={{ fontSize: 11, color: '#c7b479', marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--vl-gold-primary)', marginBottom: 10 }}>
               Downloads final rendered NFT images and metadata from their public off-chain hosts — some may fail if a host is slow or gone.
               This does NOT recover the project&apos;s original layered/source artwork files.
             </div>
@@ -1008,9 +984,9 @@ export default function CollectionAnalyzerPage() {
                     </label>
                   ))}
                 </div>
-                <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 10 }}>
+                <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', marginBottom: 10 }}>
                   Estimated file count: ~{scanSummary.exactAssetCount * ((bundleOptions.images ? 1 : 0) + (bundleOptions.normalizedMetadata ? 1 : 0) + (bundleOptions.originalMetadata ? 1 : 0)) + 1}
-                  {bundleStatus === 'expired' && <span style={{ color: '#d96867' }}> · Previous bundle expired — generate a new one.</span>}
+                  {bundleStatus === 'expired' && <span style={{ color: 'var(--vl-red-primary)' }}> · Previous bundle expired — generate a new one.</span>}
                 </div>
                 <button
                   type="button"
@@ -1019,7 +995,7 @@ export default function CollectionAnalyzerPage() {
                   style={{
                     padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5,
                     cursor: 'pointer', border: '1px solid rgba(126,168,217,0.55)',
-                    background: 'linear-gradient(180deg, rgba(126,168,217,0.28) 0%, rgba(126,168,217,0.14) 100%)', color: '#f0eef8',
+                    background: 'linear-gradient(180deg, rgba(126,168,217,0.28) 0%, rgba(126,168,217,0.14) 100%)', color: 'var(--vl-text-primary)',
                   }}
                 >
                   Generate ZIP
@@ -1030,20 +1006,20 @@ export default function CollectionAnalyzerPage() {
             {(bundleStatus === 'queued' || bundleStatus === 'downloading' || bundleStatus === 'archiving') && (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', textTransform: 'uppercase' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', textTransform: 'uppercase' }}>
                     {bundleProgress?.phase ?? bundleStatus}…
                     {(bundleProgress?.totalParts ?? 1) > 1 && (
-                      <span style={{ color: '#9a9ab4', textTransform: 'none', fontWeight: 400 }}> — part {bundleProgress?.currentPartNumber ?? 1} of {bundleProgress?.totalParts}</span>
+                      <span style={{ color: 'var(--vl-text-muted)', textTransform: 'none', fontWeight: 400 }}> — part {bundleProgress?.currentPartNumber ?? 1} of {bundleProgress?.totalParts}</span>
                     )}
                   </div>
-                  <button type="button" onClick={cancelBundle} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(217,104,103,0.5)', background: 'rgba(217,104,103,0.10)', color: '#d96867' }}>
+                  <button type="button" onClick={cancelBundle} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: '1px solid rgb(var(--vl-red) / 0.5)', background: 'rgb(var(--vl-red) / 0.10)', color: 'var(--vl-red-primary)' }}>
                     Cancel
                   </button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11.5, fontFamily: MONO }}>
-                  <div><span style={{ color: '#9a9ab4' }}>processed </span><span style={{ color: '#f0eef8' }}>{bundleProgress?.processedAssets ?? 0}/{bundleProgress?.totalAssets ?? scanSummary.exactAssetCount}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>images </span><span style={{ color: '#43b984' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: '#d96867' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>downloaded </span><span style={{ color: '#f0eef8' }}>{formatBytes(bundleProgress?.bytesDownloaded ?? 0)}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>processed </span><span style={{ color: 'var(--vl-text-primary)' }}>{bundleProgress?.processedAssets ?? 0}/{bundleProgress?.totalAssets ?? scanSummary.exactAssetCount}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>images </span><span style={{ color: 'var(--vl-green-primary)' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: 'var(--vl-red-primary)' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>downloaded </span><span style={{ color: 'var(--vl-text-primary)' }}>{formatBytes(bundleProgress?.bytesDownloaded ?? 0)}</span></div>
                 </div>
                 <div style={{ fontSize: 10, color: '#6e6688', marginTop: 8 }}>You can navigate away — this bundle keeps generating on the server and will still be here when you come back.</div>
               </div>
@@ -1052,18 +1028,18 @@ export default function CollectionAnalyzerPage() {
             {(bundleStatus === 'completed' || bundleStatus === 'failed') && bundleJobId && bundleParts.length > 0 && (
               <div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, fontSize: 11.5, fontFamily: MONO, marginBottom: 10 }}>
-                  <div><span style={{ color: '#9a9ab4' }}>collection </span><span style={{ color: '#f0eef8' }}>{bundleCollectionName || '—'}</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>images </span><span style={{ color: '#43b984' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: '#d96867' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
-                  <div><span style={{ color: '#9a9ab4' }}>parts </span><span style={{ color: '#f0eef8' }}>{bundleParts.filter((p) => p.status === 'completed').length}/{bundleParts.length} completed</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>collection </span><span style={{ color: 'var(--vl-text-primary)' }}>{bundleCollectionName || '—'}</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>images </span><span style={{ color: 'var(--vl-green-primary)' }}>{bundleProgress?.successfulImages ?? 0} ok</span><span style={{ color: 'var(--vl-red-primary)' }}> / {bundleProgress?.failedImages ?? 0} failed</span></div>
+                  <div><span style={{ color: 'var(--vl-text-muted)' }}>parts </span><span style={{ color: 'var(--vl-text-primary)' }}>{bundleParts.filter((p) => p.status === 'completed').length}/{bundleParts.length} completed</span></div>
                 </div>
 
                 {bundleParts.some((p) => p.status === 'failed') && (
-                  <div style={{ fontSize: 11, color: '#c7b479', marginBottom: 10, padding: '6px 10px', background: 'rgba(232,193,74,0.08)', border: '1px solid rgba(232,193,74,0.3)', borderRadius: 5 }}>
+                  <div style={{ fontSize: 11, color: 'var(--vl-gold-primary)', marginBottom: 10, padding: '6px 10px', background: 'rgba(232,193,74,0.08)', border: '1px solid rgba(232,193,74,0.3)', borderRadius: 5 }}>
                     {bundleParts.filter((p) => p.status === 'failed').length} part(s) failed to generate — the completed parts below are still fully downloadable. Retrying regenerates the whole bundle.
                   </div>
                 )}
                 {bundleFailures.length > 0 && (
-                  <div style={{ fontSize: 10.5, color: '#c7b479', marginBottom: 10 }}>{bundleFailures.length} individual download(s) failed — see failed-downloads.json in each part.</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--vl-gold-primary)', marginBottom: 10 }}>{bundleFailures.length} individual download(s) failed — see failed-downloads.json in each part.</div>
                 )}
 
                 {/* Compact parts list — one row per PART, never per NFT */}
@@ -1071,20 +1047,20 @@ export default function CollectionAnalyzerPage() {
                   {bundleParts.map((p) => (
                     <div key={p.partNumber} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
-                      padding: '6px 10px', borderRadius: 5, border: '1px solid rgba(168,144,232,0.22)', background: 'rgba(255,255,255,0.02)',
+                      padding: '6px 10px', borderRadius: 5, border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', background: 'rgba(255,255,255,0.02)',
                     }}>
                       <div style={{ fontSize: 11, fontFamily: MONO, display: 'flex', gap: 10, alignItems: 'center' }}>
                         <Chip color={p.status === 'completed' ? '#43b984' : p.status === 'failed' ? '#d96867' : '#9a9ab4'}>
                           {bundleParts.length > 1 ? `PART ${p.partNumber}` : 'BUNDLE'}
                         </Chip>
-                        <span style={{ color: '#9a9ab4' }}>{p.assetCount} assets</span>
-                        {p.archiveBytesWritten !== null && <span style={{ color: '#9a9ab4' }}>{formatBytes(p.archiveBytesWritten)}</span>}
+                        <span style={{ color: 'var(--vl-text-muted)' }}>{p.assetCount} assets</span>
+                        {p.archiveBytesWritten !== null && <span style={{ color: 'var(--vl-text-muted)' }}>{formatBytes(p.archiveBytesWritten)}</span>}
                         <span style={{ color: '#6e6688', textTransform: 'uppercase' }}>{p.status}</span>
                       </div>
                       {p.downloadAvailable ? (
                         <a
                           href={`${API_BASE}/api/tools/collection-analyzer/bundles/${bundleJobId}/parts/${p.partNumber}/download`}
-                          style={{ padding: '3px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 4, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.5)', background: 'rgba(126,217,168,0.12)', color: '#43b984' }}
+                          style={{ padding: '3px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 4, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.5)', background: 'rgba(126,217,168,0.12)', color: 'var(--vl-green-primary)' }}
                         >
                           Download
                         </a>
@@ -1099,7 +1075,7 @@ export default function CollectionAnalyzerPage() {
                   {bundleParts.length === 1 && bundleParts[0].downloadAvailable && (
                     <a
                       href={`${API_BASE}/api/tools/collection-analyzer/bundles/${bundleJobId}/download`}
-                      style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: '#43b984' }}
+                      style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: 'var(--vl-green-primary)' }}
                     >
                       Download ZIP
                     </a>
@@ -1107,12 +1083,12 @@ export default function CollectionAnalyzerPage() {
                   {bundleManifestAvailable && (
                     <a
                       href={`${API_BASE}/api/tools/collection-analyzer/bundles/${bundleJobId}/manifest`}
-                      style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}
+                      style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8' }}
                     >
                       Download Manifest
                     </a>
                   )}
-                  <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '7px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}>
+                  <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '7px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8' }}>
                     Start over
                   </button>
                 </div>
@@ -1121,8 +1097,8 @@ export default function CollectionAnalyzerPage() {
 
             {((bundleStatus === 'failed' && bundleParts.length === 0) || bundleStatus === 'cancelled') && (
               <div>
-                <div style={{ fontSize: 12, color: '#d96867', marginBottom: 8 }}>{bundleError ?? (bundleStatus === 'cancelled' ? 'Bundle cancelled.' : 'Bundle generation failed.')}</div>
-                <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '6px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}>
+                <div style={{ fontSize: 12, color: 'var(--vl-red-primary)', marginBottom: 8 }}>{bundleError ?? (bundleStatus === 'cancelled' ? 'Bundle cancelled.' : 'Bundle generation failed.')}</div>
+                <button type="button" onClick={clearBundleState} data-uisnd="skip" style={{ padding: '6px 14px', fontSize: 11, borderRadius: 5, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8' }}>
                   Retry
                 </button>
               </div>

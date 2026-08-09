@@ -20,7 +20,7 @@
 // Data: GET /api/tools/spl20/scan-stream (SSE)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
+import { LiveDot, CtaButton } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 import { API_BASE, MONO, PANEL, TH, TH_L, short } from '@/app/tools/mmm-shared';
@@ -285,30 +285,19 @@ export default function Spl20Page() {
     <div className="feed-root page-transition" data-page="tools">
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1280px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
           SPL20
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · scans all 729 on-chain SPL-20 tickers, resolves each CA + inventory + ME floor, spreads redeemed token value vs floor</span>
         </div>
 
         {/* ── Controls ─────────────────────────────────────────────────────── */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0, marginTop: 16, marginBottom: 12 }}>
-          <button type="button" disabled={busy} onClick={() => runScan()}
-            style={{
-              padding: '8px 22px', fontSize: 13, fontWeight: 700, letterSpacing: '0.8px',
-              textTransform: 'uppercase', borderRadius: 6, cursor: busy ? 'not-allowed' : 'pointer',
-              border: `1px solid ${!busy ? alpha(VL.purpleTint, 0.38) : alpha(VL.purpleTint, 0.10)}`,
-              background: !busy
-                ? `linear-gradient(160deg,${alpha(VL.purpleDeep, 0.38)} 0%,${alpha(VL.purpleDeep, 0.20)} 100%)`
-                : alpha(VL.purpleDeep, 0.06),
-              color: !busy ? VLText.primary : VLText.muted,
-              boxShadow: !busy ? `0 0 16px ${alpha(VL.purpleDeep, 0.28)}, inset 0 1px 0 rgba(255,255,255,0.07)` : 'none',
-              flexShrink: 0,
-            }}>
+          <CtaButton disabled={busy} onClick={() => runScan()} style={{ flexShrink: 0 }}>
             {busy ? 'Scanning…' : 'Scan'}
-          </button>
+          </CtaButton>
 
           {result && !busy && (
             <div style={{ width: 1, height: 28, background: alpha(VL.purpleTint, 0.12), margin: '0 14px', flexShrink: 0 }} />
@@ -357,11 +346,11 @@ export default function Spl20Page() {
               spellCheck={false}
               style={{
                 width: 130, padding: '6px 10px', fontSize: 11.5, ...MONO, borderRadius: 5,
-                border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(20,14,34,0.85)',
-                color: '#f0eef8', outline: 'none',
+                border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'rgba(20,14,34,0.85)',
+                color: 'var(--vl-text-primary)', outline: 'none',
               }}
             />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#9a9ab4' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--vl-text-muted)' }}>
               min |spread|
               <input
                 type="number"
@@ -369,13 +358,13 @@ export default function Spl20Page() {
                 onChange={(e) => setMinAbsSpread(e.target.value)}
                 style={{
                   width: 52, padding: '5px 6px', fontSize: 11.5, ...MONO, borderRadius: 5,
-                  border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(20,14,34,0.85)',
-                  color: '#f0eef8', outline: 'none',
+                  border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'rgba(20,14,34,0.85)',
+                  color: 'var(--vl-text-primary)', outline: 'none',
                 }}
               />
               %
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#9a9ab4', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--vl-text-muted)', cursor: 'pointer' }}>
               <input type="checkbox" checked={hideUnresolved} onChange={(e) => setHideUnresolved(e.target.checked)} />
               hide no-floor
             </label>
@@ -393,8 +382,8 @@ export default function Spl20Page() {
 
         {scanError && (
           <div style={{
-            marginBottom: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5,
+            marginBottom: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5,
           }}>
             {scanError}
           </div>
@@ -402,7 +391,7 @@ export default function Spl20Page() {
 
         {droppedTicks.length > 0 && !busy && (
           <div style={{
-            marginBottom: 12, padding: '8px 12px', fontSize: 11.5, color: '#9a9ab4',
+            marginBottom: 12, padding: '8px 12px', fontSize: 11.5, color: 'var(--vl-text-muted)',
             background: 'rgba(217,184,103,0.06)', border: '1px solid rgba(217,184,103,0.25)', borderRadius: 5,
           }}>
             <span style={{ color: '#d9b867', fontWeight: 700 }}>dropped since last scan</span> — no longer showing a spread: {droppedTicks.join(', ')}
@@ -413,7 +402,7 @@ export default function Spl20Page() {
         {result && (
           <div style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
             {visibleRows.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#9a9ab4' }}>
+              <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: 'var(--vl-text-muted)' }}>
                 {result.rows.length === 0
                   ? 'Scan returned no tickers — something failed server-side.'
                   : spreadCount === 0
@@ -440,7 +429,7 @@ export default function Spl20Page() {
                   <tbody>
                     {visibleRows.map((r) => (
                       <tr key={r.deployPda} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                        <td style={{ padding: '6px 8px', fontWeight: 700, color: '#f0eef8' }}>
+                        <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--vl-text-primary)' }}>
                           {r.tick}
                           {newTicks.has(r.tick) && (
                             <span style={{
@@ -450,15 +439,15 @@ export default function Spl20Page() {
                             }}>NEW</span>
                           )}
                         </td>
-                        <td style={{ padding: '6px 8px', ...MONO, color: '#9a9ab4' }}>{r.mint ? short(r.mint) : '—'}</td>
+                        <td style={{ padding: '6px 8px', ...MONO, color: 'var(--vl-text-muted)' }}>{r.mint ? short(r.mint) : '—'}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>{r.nftInventoryCount}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>{r.tokenValuePerNftSol != null ? fmtSol(r.tokenValuePerNftSol) : '—'}</td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, color: r.liquidityUsd == null ? '#6e6688' : '#9a9ab4' }}>{r.liquidityUsd != null ? fmtUsd(r.liquidityUsd) : r.tokenPriceSol != null ? 'unindexed' : '—'}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, color: r.liquidityUsd == null ? '#6e6688' : 'var(--vl-text-muted)' }}>{r.liquidityUsd != null ? fmtUsd(r.liquidityUsd) : r.tokenPriceSol != null ? 'unindexed' : '—'}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>{r.meFloorSol != null ? fmtSol(r.meFloorSol) : '—'}</td>
-                        <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontWeight: 700, color: r.spreadPct == null ? '#9a9ab4' : r.spreadPct > 0 ? '#43b984' : '#d96867' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontWeight: 700, color: r.spreadPct == null ? 'var(--vl-text-muted)' : r.spreadPct > 0 ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>
                           {r.spreadPct != null ? `${r.spreadPct > 0 ? '+' : ''}${r.spreadPct.toFixed(1)}%` : '—'}
                         </td>
-                        <td style={{ padding: '6px 8px', color: r.direction === 'sell_nft_for_token' ? '#43b984' : r.direction === 'buy_token_for_nft' ? '#d9b867' : '#9a9ab4', fontSize: 11 }}>
+                        <td style={{ padding: '6px 8px', color: r.direction === 'sell_nft_for_token' ? 'var(--vl-green-primary)' : r.direction === 'buy_token_for_nft' ? '#d9b867' : 'var(--vl-text-muted)', fontSize: 11 }}>
                           {directionLabel(r.direction)}
                         </td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, color: rgb(VL.gold) }}>{r.valueScore >= 1 ? fmtNum(r.valueScore) : ''}</td>
@@ -479,12 +468,12 @@ export default function Spl20Page() {
         {/* ── Live activity feed — diffs between consecutive scans ────────── */}
         {result && (
           <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 8 }}>
               Last changes
             </div>
             <div style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
               {feedLog.length === 0 ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center', fontSize: 12, color: '#9a9ab4' }}>
+                <div style={{ padding: '20px 16px', textAlign: 'center', fontSize: 12, color: 'var(--vl-text-muted)' }}>
                   No changes detected yet — run another scan to compare against this one.
                 </div>
               ) : (
@@ -502,9 +491,9 @@ export default function Spl20Page() {
                     {feedLog.map((e, i) => (
                       <tr key={`${e.ts}-${e.tick}-${i}`} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                         <td style={{ padding: '6px 8px', ...MONO, color: '#6e6688', whiteSpace: 'nowrap', width: 1 }}>{fmtRelTime(e.ts)}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: 700, color: '#f0eef8' }}>{e.tick}</td>
-                        <td style={{ padding: '6px 8px', ...MONO, color: '#9a9ab4' }}>{e.from}</td>
-                        <td style={{ padding: '6px 8px', ...MONO, color: '#43b984', fontWeight: 700 }}>{e.to}</td>
+                        <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--vl-text-primary)' }}>{e.tick}</td>
+                        <td style={{ padding: '6px 8px', ...MONO, color: 'var(--vl-text-muted)' }}>{e.from}</td>
+                        <td style={{ padding: '6px 8px', ...MONO, color: 'var(--vl-green-primary)', fontWeight: 700 }}>{e.to}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -516,7 +505,7 @@ export default function Spl20Page() {
         )}
 
         {!result && !busy && logs.length === 0 && (
-          <div style={{ ...PANEL, padding: '32px 16px', textAlign: 'center', fontSize: 12, color: '#9a9ab4' }}>
+          <div style={{ ...PANEL, padding: '32px 16px', textAlign: 'center', fontSize: 12, color: 'var(--vl-text-muted)' }}>
             Hit Scan to walk all 729 on-chain SPL-20 tickers and price them against ME floors.
           </div>
         )}

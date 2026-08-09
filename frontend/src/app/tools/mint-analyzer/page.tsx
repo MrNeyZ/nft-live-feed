@@ -7,10 +7,10 @@
 // Data: GET /api/tools/mint-analyzer/analyze?sig=<signature>
 
 import { useEffect, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
+import { LiveDot, CtaButton } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
-import { ToolButton, ToolTextInput } from '@/app/tools/mmm-shared';
+import { ToolTextInput } from '@/app/tools/mmm-shared';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -113,19 +113,19 @@ function gateColor(t: FlowGateType): string {
 }
 
 const VERDICT_META: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
-  direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: '#43b984', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
-  possible_requires_extra_inputs:     { label: 'Possible — requires extra inputs',     color: '#c7b479', bg: 'rgba(232,193,74,0.10)',  border: 'rgba(232,193,74,0.40)' },
-  blocked_server_captcha_signature:   { label: 'Blocked — server/captcha/signature',   color: '#d96867', bg: 'rgba(217,124,124,0.10)', border: 'rgba(217,124,124,0.40)' },
-  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: '#a890e8', bg: 'rgba(168,144,232,0.12)', border: 'rgba(168,144,232,0.45)' },
+  direct_mint_likely_reconstructable: { label: 'Direct mint — likely reconstructable', color: 'var(--vl-green-primary)', bg: 'rgba(126,217,168,0.10)', border: 'rgba(126,217,168,0.40)' },
+  possible_requires_extra_inputs:     { label: 'Possible — requires extra inputs',     color: 'var(--vl-gold-primary)', bg: 'rgba(232,193,74,0.10)',  border: 'rgba(232,193,74,0.40)' },
+  blocked_server_captcha_signature:   { label: 'Blocked — server/captcha/signature',   color: 'var(--vl-red-primary)', bg: 'rgba(217,124,124,0.10)', border: 'rgba(217,124,124,0.40)' },
+  custom_program_manual_re_required:  { label: 'Custom program — manual RE required',  color: 'var(--vl-purple-tint)', bg: 'rgb(var(--vl-purple-tint) / 0.12)', border: 'rgb(var(--vl-purple-tint) / 0.45)' },
 };
 
 // Large reconstructable status badge derived from the verdict (display-only;
 // no analyzer/verdict logic touched — this is a UI restatement).
 const RECONSTRUCTABLE_BADGE: Record<Verdict, { label: string; color: string; bg: string; border: string }> = {
-  direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: '#43b984', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
-  possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: '#c7b479', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
-  blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: '#d96867', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
-  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: '#a890e8', bg: 'rgba(168,144,232,0.14)', border: 'rgba(168,144,232,0.60)' },
+  direct_mint_likely_reconstructable: { label: 'RECONSTRUCTABLE: YES',  color: 'var(--vl-green-primary)', bg: 'rgba(126,217,168,0.12)', border: 'rgba(126,217,168,0.55)' },
+  possible_requires_extra_inputs:     { label: 'RECONSTRUCTABLE: MAYBE', color: 'var(--vl-gold-primary)', bg: 'rgba(232,193,74,0.12)',  border: 'rgba(232,193,74,0.55)' },
+  blocked_server_captcha_signature:   { label: 'RECONSTRUCTABLE: NO',    color: 'var(--vl-red-primary)', bg: 'rgba(217,124,124,0.12)', border: 'rgba(217,124,124,0.55)' },
+  custom_program_manual_re_required:  { label: 'REQUIRES MANUAL RE',     color: 'var(--vl-purple-tint)', bg: 'rgb(var(--vl-purple-tint) / 0.14)', border: 'rgb(var(--vl-purple-tint) / 0.60)' },
 };
 
 // Access type — WHO was allowed to mint (orthogonal to the verdict). Colours
@@ -160,16 +160,16 @@ function shortAddr(s: string): string {
 }
 
 const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)',
+  background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+  border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
   borderRadius: 12,
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.10)',
   padding: 12,
   marginBottom: 11,
 };
 const SECTION_LABEL: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase',
-  color: '#9a9ab4', marginBottom: 6,
+  color: 'var(--vl-text-muted)', marginBottom: 6,
 };
 const MONO = "'SF Mono','Fira Code',monospace";
 
@@ -246,10 +246,10 @@ export default function MintAnalyzerPage() {
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
         {/* Header */}
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
           MINTX
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · decodes a mint tx signature into a reconstruction verdict</span>
         </div>
@@ -264,15 +264,15 @@ export default function MintAnalyzerPage() {
             disabled={busy}
             style={{ flex: 1, minWidth: 280 }}
           />
-          <ToolButton onClick={run} disabled={busy || sig.trim().length === 0} ownSound>
+          <CtaButton onClick={run} disabled={busy || sig.trim().length === 0} ownSound>
             {busy ? 'Analyzing…' : 'Analyze'}
-          </ToolButton>
+          </CtaButton>
         </div>
 
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
             borderRadius: 5,
           }}>
             {error}
@@ -292,9 +292,9 @@ export default function MintAnalyzerPage() {
           }}>
             {/* Header row: label + confidence + copy-json */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4' }}>Verdict</div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)' }}>Verdict</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: '#9a9ab4' }}>CONFIDENCE</span>
+                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--vl-text-muted)' }}>CONFIDENCE</span>
                 <span style={{
                   padding: '2px 8px', fontSize: 10, fontWeight: 800, letterSpacing: '0.5px',
                   borderRadius: 4, fontFamily: MONO,
@@ -308,9 +308,9 @@ export default function MintAnalyzerPage() {
                   style={{
                     padding: '3px 9px', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px',
                     borderRadius: 4, cursor: 'pointer', fontFamily: MONO,
-                    border: '1px solid rgba(168,144,232,0.45)',
-                    background: copied ? 'rgba(126,217,168,0.16)' : 'rgba(168,144,232,0.10)',
-                    color: copied ? '#43b984' : '#c4b8e8',
+                    border: '1px solid rgb(var(--vl-purple-tint) / 0.45)',
+                    background: copied ? 'rgba(126,217,168,0.16)' : 'rgb(var(--vl-purple-tint) / 0.10)',
+                    color: copied ? 'var(--vl-green-primary)' : '#c4b8e8',
                     transition: 'all 0.15s',
                   }}
                 >{copied ? 'COPIED ✓' : 'COPY JSON'}</button>
@@ -327,7 +327,7 @@ export default function MintAnalyzerPage() {
             {/* Secondary verdict text */}
             <div style={{ fontSize: 13, fontWeight: 600, color: v.color, marginTop: 10, opacity: 0.9 }}>{v.label}</div>
             {analysis.verdictReasons.length > 0 && (
-              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: '#9a9ab4', lineHeight: 1.6 }}>
+              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--vl-text-muted)', lineHeight: 1.6 }}>
                 {analysis.verdictReasons.map((rsn, i) => <li key={i}>{rsn}</li>)}
               </ul>
             )}
@@ -360,11 +360,11 @@ export default function MintAnalyzerPage() {
           <div style={PANEL}>
             <div style={SECTION_LABEL}>Transaction</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, fontSize: 12, fontFamily: MONO }}>
-              <div><span style={{ color: '#9a9ab4' }}>status </span><span style={{ color: analysis.status === 'success' ? '#43b984' : '#d96867', fontWeight: 700 }}>{analysis.status.toUpperCase()}</span></div>
-              <div><span style={{ color: '#9a9ab4' }}>slot </span><span style={{ color: '#f0eef8' }}>{analysis.slot.toLocaleString()}</span></div>
-              <div><span style={{ color: '#9a9ab4' }}>time </span><span style={{ color: '#f0eef8' }}>{analysis.blockTime ? new Date(analysis.blockTime).toUTCString() : '—'}</span></div>
-              {analysis.fee != null && <div><span style={{ color: '#9a9ab4' }}>fee </span><span style={{ color: '#f0eef8' }}>{(analysis.fee / 1e9).toFixed(6)} SOL</span></div>}
-              {analysis.computeUnitsConsumed != null && <div><span style={{ color: '#9a9ab4' }}>CU </span><span style={{ color: '#f0eef8' }}>{analysis.computeUnitsConsumed.toLocaleString()}</span></div>}
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>status </span><span style={{ color: analysis.status === 'success' ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)', fontWeight: 700 }}>{analysis.status.toUpperCase()}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>slot </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.slot.toLocaleString()}</span></div>
+              <div><span style={{ color: 'var(--vl-text-muted)' }}>time </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.blockTime ? new Date(analysis.blockTime).toUTCString() : '—'}</span></div>
+              {analysis.fee != null && <div><span style={{ color: 'var(--vl-text-muted)' }}>fee </span><span style={{ color: 'var(--vl-text-primary)' }}>{(analysis.fee / 1e9).toFixed(6)} SOL</span></div>}
+              {analysis.computeUnitsConsumed != null && <div><span style={{ color: 'var(--vl-text-muted)' }}>CU </span><span style={{ color: 'var(--vl-text-primary)' }}>{analysis.computeUnitsConsumed.toLocaleString()}</span></div>}
             </div>
           </div>
 
@@ -381,15 +381,15 @@ export default function MintAnalyzerPage() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span title={wrapper.programId} style={{
                   display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 600,
-                  borderRadius: 5, fontFamily: MONO, color: '#a890e8',
-                  background: 'rgba(168,144,232,0.12)', border: '1px solid rgba(168,144,232,0.35)',
+                  borderRadius: 5, fontFamily: MONO, color: 'var(--vl-purple-tint)',
+                  background: 'rgb(var(--vl-purple-tint) / 0.12)', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)',
                 }}>{wrapper.programId.slice(0, 12)}…</span>
-                {wrapper.name && <span style={{ fontSize: 11, color: '#9a9ab4', fontFamily: MONO }}>· {wrapper.name}</span>}
+                {wrapper.name && <span style={{ fontSize: 11, color: 'var(--vl-text-muted)', fontFamily: MONO }}>· {wrapper.name}</span>}
               </div>
             ) : (
               <span style={{
                 display: 'inline-block', padding: '3px 8px', fontSize: 12, fontWeight: 700,
-                borderRadius: 5, fontFamily: MONO, color: '#9a9ab4',
+                borderRadius: 5, fontFamily: MONO, color: 'var(--vl-text-muted)',
                 background: 'rgba(122,122,148,0.10)', border: '1px solid rgba(122,122,148,0.28)',
               }}>NONE</span>
             )}
@@ -404,7 +404,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.detectedGates.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 4 }}>Detected gates</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', marginBottom: 4 }}>Detected gates</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.detectedGates.map((g, i) => (
                       <Chip key={i} color={gateColor(g.type)}>
@@ -420,11 +420,11 @@ export default function MintAnalyzerPage() {
                     return (
                       <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, fontFamily: MONO }}>
                         {ssg && (
-                          <span style={{ color: '#d96867' }}>
+                          <span style={{ color: 'var(--vl-red-primary)' }}>
                             Backend signer: {ssg.signers!.map(shortAddr).join(', ')}
                           </span>
                         )}
-                        {offChain && <span style={{ color: '#9a9ab4' }}>Not enforced on-chain</span>}
+                        {offChain && <span style={{ color: 'var(--vl-text-muted)' }}>Not enforced on-chain</span>}
                       </div>
                     );
                   })()}
@@ -433,12 +433,12 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.burnedAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Burned</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', margin: '8px 0 4px' }}>Burned</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.burnedAssets.map((b, i) => (
                       <span key={i} title={b.mint} style={{
                         display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600,
-                        borderRadius: 5, fontFamily: MONO, color: '#c7b479',
+                        borderRadius: 5, fontFamily: MONO, color: 'var(--vl-gold-primary)',
                         background: 'rgba(232,161,74,0.10)', border: '1px solid rgba(232,161,74,0.34)',
                       }}>{b.name ?? shortAddr(b.mint ?? '?')}{b.amount && b.amount !== '1' ? ` ×${b.amount}` : ''}</span>
                     ))}
@@ -448,7 +448,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.transferredAssets.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Transferred</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', margin: '8px 0 4px' }}>Transferred</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {analysis.flowClues.transferredAssets.map((t, i) => (
                       <span key={i} title={t.mint} style={{
@@ -463,7 +463,7 @@ export default function MintAnalyzerPage() {
 
               {analysis.flowClues.mintFlow.length > 0 && (
                 <>
-                  <div style={{ fontSize: 10.5, color: '#9a9ab4', margin: '8px 0 4px' }}>Flow</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', margin: '8px 0 4px' }}>Flow</div>
                   <div style={{ fontSize: 12, fontFamily: MONO, color: '#c8c8dc', lineHeight: 1.6 }}>
                     {analysis.flowClues.mintFlow.join('  →  ')}
                   </div>
@@ -471,7 +471,7 @@ export default function MintAnalyzerPage() {
               )}
 
               {analysis.flowClues.notes.length > 0 && (
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11.5, color: '#9a9ab4', lineHeight: 1.5 }}>
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11.5, color: 'var(--vl-text-muted)', lineHeight: 1.5 }}>
                   {analysis.flowClues.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
@@ -486,11 +486,11 @@ export default function MintAnalyzerPage() {
                 <span key={p.programId} title={p.programId} style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px',
                   fontSize: 11, borderRadius: 5, fontFamily: MONO,
-                  color: p.name ? '#f0eef8' : '#c7b479',
-                  background: 'rgba(168,144,232,0.07)', border: '1px solid rgba(168,144,232,0.22)',
+                  color: p.name ? 'var(--vl-text-primary)' : 'var(--vl-gold-primary)',
+                  background: 'rgb(var(--vl-purple-tint) / 0.07)', border: '1px solid rgb(var(--vl-purple-tint) / 0.22)',
                 }}>
                   <span style={{ fontWeight: 600 }}>{p.name ?? shortAddr(p.programId)}</span>
-                  <span style={{ color: '#9a9ab4' }}>×{p.invocationCount}</span>
+                  <span style={{ color: 'var(--vl-text-muted)' }}>×{p.invocationCount}</span>
                 </span>
               ))}
             </div>
@@ -510,13 +510,13 @@ export default function MintAnalyzerPage() {
                       color: m.color, background: `${m.color}1a`, border: `1px solid ${m.color}3a`,
                     }}>{m.label}</span>
                     <a href={`https://solscan.io/account/${s.address}`} target="_blank" rel="noopener noreferrer"
-                       style={{ color: '#f0eef8', textDecoration: 'none' }}>{s.address}</a>
-                    {s.label && <span style={{ color: '#9a9ab4' }}>· {s.label}</span>}
+                       style={{ color: 'var(--vl-text-primary)', textDecoration: 'none' }}>{s.address}</a>
+                    {s.label && <span style={{ color: 'var(--vl-text-muted)' }}>· {s.label}</span>}
                   </div>
                 );
               })}
             </div>
-            <div style={{ marginTop: 6, fontSize: 11, color: analysis.backendSignerObserved ? '#d96867' : '#43b984' }}>
+            <div style={{ marginTop: 6, fontSize: 11, color: analysis.backendSignerObserved ? 'var(--vl-red-primary)' : 'var(--vl-green-primary)' }}>
               {analysis.backendSignerObserved
                 ? '⚠ Backend/platform co-signer observed — server signature required.'
                 : '✓ No backend/platform signer observed.'}
@@ -529,7 +529,7 @@ export default function MintAnalyzerPage() {
               <div style={SECTION_LABEL}>Guard / auth requirements</div>
               {analysis.guardAuth.candyGuard && <Chip color="#c7b479">Candy Guard present</Chip>}
               {analysis.guardAuth.notes.length > 0 && (
-                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: '#9a9ab4', lineHeight: 1.5 }}>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--vl-text-muted)', lineHeight: 1.5 }}>
                   {analysis.guardAuth.notes.map((n, i) => <li key={i}>{n}</li>)}
                 </ul>
               )}
@@ -542,7 +542,7 @@ export default function MintAnalyzerPage() {
             <div style={{ overflowX: 'auto' }} className="scroll-area">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: MONO, fontSize: 11 }}>
                 <thead>
-                  <tr style={{ color: '#9a9ab4', textAlign: 'left' }}>
+                  <tr style={{ color: 'var(--vl-text-muted)', textAlign: 'left' }}>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>PATH</th>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>PROGRAM</th>
                     <th style={{ padding: '6px 10px', fontWeight: 700 }}>INSTRUCTION</th>
@@ -552,14 +552,14 @@ export default function MintAnalyzerPage() {
                 <tbody>
                   {analysis.instructions.map((ix, i) => (
                     <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={{ padding: '6px 10px', color: '#9a9ab4' }}>{ix.path}</td>
-                      <td style={{ padding: '6px 10px', color: ix.programName ? '#f0eef8' : '#c7b479' }} title={ix.programId}>
+                      <td style={{ padding: '6px 10px', color: 'var(--vl-text-muted)' }}>{ix.path}</td>
+                      <td style={{ padding: '6px 10px', color: ix.programName ? 'var(--vl-text-primary)' : 'var(--vl-gold-primary)' }} title={ix.programId}>
                         {ix.programName ?? shortAddr(ix.programId)}
                       </td>
-                      <td style={{ padding: '6px 10px', color: ix.instructionName ? '#43b984' : '#9a9ab4' }}>
+                      <td style={{ padding: '6px 10px', color: ix.instructionName ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }}>
                         {ix.instructionName ?? '—'}
                       </td>
-                      <td style={{ padding: '6px 10px', color: '#a890e8' }}>{ix.discriminatorHex || '—'}</td>
+                      <td style={{ padding: '6px 10px', color: 'var(--vl-purple-tint)' }}>{ix.discriminatorHex || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

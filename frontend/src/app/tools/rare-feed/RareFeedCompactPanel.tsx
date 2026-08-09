@@ -77,7 +77,7 @@ interface RowProps {
  *  No image / price / wallets. Left accent stripe + hover/selected states. */
 function RareMiniCard({ e, selected, onSelect, onHover, onLeave }: RowProps) {
   // Aggressive shortening for the narrow strip.
-  const { shortName, fullName } = shortenNftName(e.nftName, 13);
+  const { shortName, fullName } = shortenNftName(e.nftName, 13, 13, 700);
   const name = (shortName ?? fullName) || (e.collectionName ?? e.mintAddress.slice(0, 6));
   // Item links built from the mint (same scheme the rare API used).
   const meUrl     = `https://magiceden.io/item-details/${e.mintAddress}`;
@@ -92,20 +92,20 @@ function RareMiniCard({ e, selected, onSelect, onHover, onLeave }: RowProps) {
         display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 5,
         minHeight: 60, padding: '8px 10px 8px 12px', cursor: 'pointer',
         position: 'relative', borderRadius: 10, margin: '6px 7px',
-        border: `1px solid ${selected ? 'rgba(168,144,232,0.85)' : 'rgba(168,144,232,0.22)'}`,
-        background: selected ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.05)',
-        boxShadow: selected ? '0 0 0 1px rgba(168,144,232,0.4), 0 0 14px rgba(128,104,216,0.18)' : 'none',
+        border: `1px solid ${selected ? 'rgb(var(--vl-purple-tint) / 0.85)' : 'rgb(var(--vl-purple-tint) / 0.22)'}`,
+        background: selected ? 'rgb(var(--vl-purple-tint) / 0.16)' : 'rgb(var(--vl-purple-tint) / 0.05)',
+        boxShadow: selected ? '0 0 0 1px rgb(var(--vl-purple-tint) / 0.4), 0 0 14px rgb(var(--vl-purple-deep) / 0.18)' : 'none',
         transition: 'background 0.1s, border-color 0.1s',
       }}
-      onMouseOver={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgba(168,144,232,0.11)'; }}
-      onMouseOut={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgba(168,144,232,0.05)'; }}
+      onMouseOver={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgb(var(--vl-purple-tint) / 0.11)'; }}
+      onMouseOut={(ev) => { if (!selected) (ev.currentTarget as HTMLDivElement).style.background = 'rgb(var(--vl-purple-tint) / 0.05)'; }}
     >
       {/* Left accent stripe (rare/feed style). */}
-      <span style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, background: 'rgba(168,144,232,0.55)' }} />
+      <span style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 3, background: 'rgb(var(--vl-purple-tint) / 0.55)' }} />
 
       {/* Top line: NFT name (flex) + rarity badge (right). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
         <RarityRankBadge
@@ -116,7 +116,7 @@ function RareMiniCard({ e, selected, onSelect, onHover, onLeave }: RowProps) {
 
       {/* Bottom line: collection name (flex, muted) + ME/Tensor links. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#9a9ab4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: 'var(--vl-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {e.collectionName ?? ''}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -173,9 +173,9 @@ export function RareFeedCompactPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-      border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+      background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+      border: '1px solid rgb(var(--vl-purple-tint) / 0.65)', borderRadius: 12,
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.15)',
     }}>
       {/* Compact header. UX audit H3/H4: right-aligned Pause added (matching
           the other two panels' header layout — left cluster + right
@@ -190,12 +190,12 @@ export function RareFeedCompactPanel() {
         // beside the first line regardless of how many lines wrap.
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
         padding: '10px 12px', flexShrink: 0,
-        borderBottom: '1px solid rgba(168,144,232,0.12)', background: 'rgba(168,144,232,0.04)',
+        borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.12)', background: 'rgb(var(--vl-purple-tint) / 0.04)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, rowGap: 4, minWidth: 0 }}>
-          <h1 style={{ fontSize: 14, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px', margin: 0 }}>Rare</h1>
+          <h1 style={{ fontSize: 14, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.2px', margin: 0 }}>Rare</h1>
           <LiveDot color={connected ? rgb(VL.green) : rgb(VL.gold)} />
-          <span style={{ fontSize: 10, color: '#9a9ab4' }}>{rows.length} signals · hover to highlight</span>
+          <span style={{ fontSize: 10, color: 'var(--vl-text-muted)' }}>{rows.length} signals · hover to highlight</span>
           {paused && <StatusChip label="PAUSED" />}
           {!connected && <StatusChip label="RECONNECTING" />}
         </div>
@@ -214,11 +214,11 @@ export function RareFeedCompactPanel() {
         {justMounted && rows.length === 0 && Array.from({ length: 3 }).map((_, i) => (
           <div key={`skeleton-${i}`} aria-hidden="true" style={{
             height: 60, borderRadius: 10, margin: '6px 7px',
-            background: 'rgba(168,144,232,0.05)', opacity: 1 - i * 0.2,
+            background: 'rgb(var(--vl-purple-tint) / 0.05)', opacity: 1 - i * 0.2,
           }} />
         ))}
         {!justMounted && rows.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '32px 0', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', color: 'var(--vl-text-muted)', padding: '32px 0', fontSize: 12 }}>
             No rare sales in the live window yet
           </div>
         )}

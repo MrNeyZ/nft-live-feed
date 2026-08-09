@@ -89,7 +89,7 @@ export function Gate({ children }: { children: ReactNode }) {
   }, []);
 
   if (state.kind === 'loading') {
-    return <GateShell><div style={{ color: '#9a9ab4', fontSize: 12 }}>…</div></GateShell>;
+    return <GateShell><div style={{ color: 'var(--vl-text-muted)', fontSize: 12 }}>…</div></GateShell>;
   }
   if (state.kind === 'login') {
     return <GateShell><LoginScreen onSuccess={() => { void resolve(); }} /></GateShell>;

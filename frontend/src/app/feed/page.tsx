@@ -87,8 +87,8 @@ function isDensity(v: unknown): v is Density {
 }
 
 const DENSITY_COLORS: Record<Density, string> = {
-  comfy:   '#43b984', // green  — relaxed mode
-  compact: '#a890e8', // purple — default
+  comfy:   'var(--vl-green-primary)', // green  — relaxed mode
+  compact: 'var(--vl-purple-tint)', // purple — default
   tape:    '#5fa8e6', // blue   — dense/fast
 };
 const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
@@ -106,17 +106,17 @@ const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
 // types" (see the `typeSet` gate in `filtered`).
 type TypeKey = Exclude<FilterKey, 'all'>;
 const FILTERS: { key: TypeKey; label: string; color: string }[] = [
-  { key: 'buy',     label: 'Buy',        color: '#43b984' },
-  { key: 'sell',    label: 'Sell',       color: '#d96867' },
-  { key: 'buyAmm',  label: 'Buy AMM',    color: '#43b984' },
-  { key: 'sellAmm', label: 'Sell AMM',   color: '#d96867' },
-  { key: 'listing', label: 'Listings',   color: '#a890e8' },
+  { key: 'buy',     label: 'Buy',        color: 'var(--vl-green-primary)' },
+  { key: 'sell',    label: 'Sell',       color: 'var(--vl-red-primary)' },
+  { key: 'buyAmm',  label: 'Buy AMM',    color: 'var(--vl-green-primary)' },
+  { key: 'sellAmm', label: 'Sell AMM',   color: 'var(--vl-red-primary)' },
+  { key: 'listing', label: 'Listings',   color: 'var(--vl-purple-tint)' },
 ];
 
 /** Inactive-pill style for Type/Price utility filters inside the
  *  filters panel. Brought up to the same family as
  *  DENSITY_PILL_INACTIVE_STYLE — faint white-α 0.025 fill, white-α
- *  0.08 border, color #9a9ab4 — so the panel reads as one
+ *  0.08 border, color var(--vl-text-muted) — so the panel reads as one
  *  consistent tone instead of "Density bright / everything else
  *  ghost". Pills are still clearly inactive (no per-color
  *  highlight, no border at full lilac), but visible. Active pills
@@ -962,7 +962,7 @@ export default function FeedPage() {
               flush with the embedded /dashboard table card top. */}
           <div style={{
             flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-            background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+            background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
             border: `1px solid ${alpha(VL.purpleTint, 0.65)}`,
             borderRadius: 12,
             boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
@@ -980,7 +980,7 @@ export default function FeedPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px' }}>Live events</h1>
                 <LiveDot />
-                {/* Event count — dimmed from #7c5cf0 → #9a9ab4 so the
+                {/* Event count — dimmed from var(--vl-purple-primary) → var(--vl-text-muted) so the
                     title "Live events" + the LiveDot stay primary; the
                     count is supplementary context (operator usually
                     reads the rows, not the number). */}
@@ -1020,7 +1020,7 @@ export default function FeedPage() {
                     persistence + pause logic unchanged.) */}
                 <Pill
                   active
-                  color={paused ? '#c7b479' : '#43b984'}
+                  color={paused ? 'var(--vl-gold-primary)' : 'var(--vl-green-primary)'}
                   onClick={() => setPaused(p => !p)}
                   label={paused ? '▶ Resume' : '⏸ Pause'}
                 />
@@ -1078,7 +1078,7 @@ export default function FeedPage() {
                               <Pill
                                 key={p.key}
                                 active={isActive}
-                                color="#c7b479"
+                                color="var(--vl-gold-primary)"
                                 onClick={() => toggleInSet(setPriceSet, p.key)}
                                 label={p.label}
                                 size="sm"
@@ -1201,7 +1201,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#a890e8"
+                            color="var(--vl-purple-tint)"
                             onClick={() => {
                               const v = collInput.trim();
                               if (v) { setCollFilter(v); setCollInput(''); }
@@ -1240,7 +1240,7 @@ export default function FeedPage() {
                           />
                           <Pill
                             active
-                            color="#d96867"
+                            color="var(--vl-red-primary)"
                             onClick={() => addBlacklist(blInput)}
                             label="+"
 
@@ -1358,7 +1358,7 @@ export default function FeedPage() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: 200, height: 200, objectFit: 'contain',
-              borderRadius: 8, background: '#08060c',
+              borderRadius: 8, background: 'var(--vl-gray-base)',
               boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
               cursor: 'default',
             }}

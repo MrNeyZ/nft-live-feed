@@ -137,15 +137,15 @@ function fmtAgo(iso: string): string {
 
 /** Percent-change cell value + color. Positive = green, negative = red,
  *  zero/missing = muted. Mirrors the green/red money palette used across
- *  /feed and /mints (#43b984 / #d96867). */
+ *  /feed and /mints (var(--vl-green-primary) / var(--vl-red-primary)). */
 function pctMeta(n: number | null): { text: string; color: string } {
-  if (n == null || !Number.isFinite(n)) return { text: '—', color: '#9a9ab4' };
+  if (n == null || !Number.isFinite(n)) return { text: '—', color: 'var(--vl-text-muted)' };
   const rounded = Math.abs(n) < 0.05 ? 0 : n;
-  if (rounded === 0) return { text: '0%', color: '#9a9ab4' };
+  if (rounded === 0) return { text: '0%', color: 'var(--vl-text-muted)' };
   const sign = rounded > 0 ? '+' : '';
   return {
     text: `${sign}${rounded.toFixed(1)}%`,
-    color: rounded > 0 ? '#43b984' : '#d96867',
+    color: rounded > 0 ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)',
   };
 }
 
@@ -175,12 +175,12 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
         // Active cue is text-only — brighter label + heavier weight (and the
         // accent arrow below). No background block / bar so the header row
         // stays uniform and reads as a table, not a selected tab.
-        color: active ? '#f0eef8' : '#9a9ab4',
+        color: active ? 'var(--vl-text-primary)' : 'var(--vl-text-muted)',
         fontWeight: active ? 800 : thStyleNum.fontWeight,
       }}
     >
       {label}
-      <span style={{ marginLeft: 6, color: active ? '#a890e8' : '#241f3b', fontWeight: 800 }}>
+      <span style={{ marginLeft: 6, color: active ? 'var(--vl-purple-tint)' : 'var(--vl-border-subtle)', fontWeight: 800 }}>
         {active ? (sortDir === 'desc' ? '↓' : '↑') : '↕'}
       </span>
     </th>
@@ -223,9 +223,9 @@ function sortRows(rows: TrendingCollection[], key: SortKey, dir: SortDir): Trend
 // down. The row carries the tint for 3 s, then clears.
 type HighlightKind = 'new' | 'up' | 'down';
 const HIGHLIGHT_STYLE: Record<HighlightKind, { bg: string; bar: string }> = {
-  new:  { bg: 'rgba(168,144,232,0.13)', bar: '#a890e8' },
-  up:   { bg: 'rgba(126,217,168,0.12)', bar: '#43b984' },
-  down: { bg: 'rgba(217,124,124,0.11)', bar: '#d96867' },
+  new:  { bg: 'rgb(var(--vl-purple-tint) / 0.13)', bar: 'var(--vl-purple-tint)' },
+  up:   { bg: 'rgba(126,217,168,0.12)', bar: 'var(--vl-green-primary)' },
+  down: { bg: 'rgba(217,124,124,0.11)', bar: 'var(--vl-red-primary)' },
 };
 const HIGHLIGHT_MS = 3000;
 const POLL_MS = 10_000;
@@ -460,20 +460,20 @@ export default function TrendingCollectionsPage() {
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
               Trending Collections
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap', rowGap: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap', rowGap: 2 }}>
               <LiveDot />
               <span>read-only · live · auto-refresh 10s</span>
               {loaded && !error && (
                 <>
-                  <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
+                  <span style={{ color: 'var(--vl-border-subtle)', margin: '0 8px' }}>·</span>
                   <span>{rows.length} collections</span>
                 </>
               )}
-              <span style={{ color: '#241f3b', margin: '0 8px' }}>·</span>
-              <span>Source: <span style={{ color: '#a890e8' }}>Magic Eden</span></span>
+              <span style={{ color: 'var(--vl-border-subtle)', margin: '0 8px' }}>·</span>
+              <span>Source: <span style={{ color: 'var(--vl-purple-tint)' }}>Magic Eden</span></span>
             </div>
           </div>
           <button
@@ -485,10 +485,10 @@ export default function TrendingCollectionsPage() {
               padding: '7px 16px', fontSize: 12, fontWeight: 700,
               letterSpacing: '0.5px', textTransform: 'uppercase',
               borderRadius: 5, cursor: busy ? 'not-allowed' : 'pointer',
-              border: '1px solid rgba(168,144,232,0.55)',
-              background: busy ? 'rgba(128,104,216,0.15)' : 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)',
-              color: busy ? '#9a9ab4' : '#f0eef8',
-              boxShadow: busy ? 'none' : '0 0 12px rgba(128,104,216,0.18)',
+              border: '1px solid rgb(var(--vl-purple-tint) / 0.55)',
+              background: busy ? 'rgb(var(--vl-purple-deep) / 0.15)' : 'linear-gradient(180deg, rgb(var(--vl-purple-deep) / 0.28) 0%, rgb(var(--vl-purple-deep) / 0.14) 100%)',
+              color: busy ? 'var(--vl-text-muted)' : 'var(--vl-text-primary)',
+              boxShadow: busy ? 'none' : '0 0 12px rgb(var(--vl-purple-deep) / 0.18)',
               transition: 'all 0.15s',
             }}
           >
@@ -510,12 +510,12 @@ export default function TrendingCollectionsPage() {
                   padding: '5px 14px', fontSize: 12, fontWeight: 700,
                   letterSpacing: '0.5px', borderRadius: 6, cursor: 'pointer',
                   fontFamily: MONO,
-                  border: active ? '1px solid rgba(168,144,232,0.55)' : '1px solid rgba(255,255,255,0.10)',
+                  border: active ? '1px solid rgb(var(--vl-purple-tint) / 0.55)' : '1px solid rgba(255,255,255,0.10)',
                   background: active
-                    ? 'linear-gradient(180deg, rgba(128,104,216,0.28) 0%, rgba(128,104,216,0.14) 100%)'
+                    ? 'linear-gradient(180deg, rgb(var(--vl-purple-deep) / 0.28) 0%, rgb(var(--vl-purple-deep) / 0.14) 100%)'
                     : 'rgba(255,255,255,0.025)',
-                  color: active ? '#f0eef8' : '#8a8aa2',
-                  boxShadow: active ? '0 0 12px rgba(128,104,216,0.18)' : 'none',
+                  color: active ? 'var(--vl-text-primary)' : '#8a8aa2',
+                  boxShadow: active ? '0 0 12px rgb(var(--vl-purple-deep) / 0.18)' : 'none',
                   transition: 'all 0.15s',
                 }}
               >
@@ -527,8 +527,8 @@ export default function TrendingCollectionsPage() {
 
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
             borderRadius: 5,
           }}>
             {error}
@@ -540,10 +540,10 @@ export default function TrendingCollectionsPage() {
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
         width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto',
-        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-        border: '1px solid rgba(168,144,232,0.32)',
+        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+        border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
         borderRadius: 12,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.10)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.10)',
         overflow: 'hidden', marginBottom: 16,
       }}>
         <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area">
@@ -595,13 +595,13 @@ export default function TrendingCollectionsPage() {
                     boxShadow: hlStyle ? `inset 3px 0 0 ${hlStyle.bar}` : 'none',
                     transition: 'background 0.5s ease, box-shadow 0.5s ease',
                   }}>
-                    <td style={{ ...tdStyleNum, textAlign: 'center', color: '#9a9ab4', fontWeight: 700, padding: '11px 8px' }}>
+                    <td style={{ ...tdStyleNum, textAlign: 'center', color: 'var(--vl-text-muted)', fontWeight: 700, padding: '11px 8px' }}>
                       {i + 1}
                     </td>
                     <td style={{ padding: '12px 8px 12px 14px', verticalAlign: 'middle' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                         <div style={{ flexShrink: 0, width: 38, height: 38 }}>
-                          <ItemThumb imageUrl={compressImage(c.image ?? null)} color="#7c5cf0" abbr={abbr} size={38} />
+                          <ItemThumb imageUrl={compressImage(c.image ?? null)} color="var(--vl-purple-primary)" abbr={abbr} size={38} />
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -611,21 +611,21 @@ export default function TrendingCollectionsPage() {
                               rel="noopener noreferrer"
                               onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
                               onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}
-                              style={{ fontSize: 14, fontWeight: 600, color: '#f0eef8', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', minWidth: 0 }}
+                              style={{ fontSize: 14, fontWeight: 600, color: 'var(--vl-text-primary)', letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none', display: 'block', minWidth: 0 }}
                             >{name}</a>
                             {c.isVerified && (
                               <span title="Verified collection" style={{
                                 flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 width: 14, height: 14, borderRadius: '50%', fontSize: 9, fontWeight: 900, lineHeight: 1,
-                                color: '#08060c', background: '#7ea8d9',
+                                color: 'var(--vl-gray-base)', background: '#7ea8d9',
                               }}>✓</span>
                             )}
                             {c.isCompressed && (
                               <span title="Compressed NFT (cNFT)" style={{
                                 flexShrink: 0, padding: '1px 5px', fontSize: 8.5, fontWeight: 800,
                                 letterSpacing: '0.3px', borderRadius: 3, lineHeight: 1.2,
-                                color: '#a890e8', background: 'rgba(168,144,232,0.12)',
-                                border: '1px solid rgba(168,144,232,0.40)',
+                                color: 'var(--vl-purple-tint)', background: 'rgb(var(--vl-purple-tint) / 0.12)',
+                                border: '1px solid rgb(var(--vl-purple-tint) / 0.40)',
                               }}>cNFT</span>
                             )}
                             {/* Marketplace external-link badges (tiny 13px icons,
@@ -655,22 +655,22 @@ export default function TrendingCollectionsPage() {
                               <img src="/brand/tensor.png" alt="Tensor" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
                             </a>
                           </div>
-                          <div style={{ fontSize: 10, color: '#9a9ab4', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.slug}</div>
+                          <div style={{ fontSize: 10, color: 'var(--vl-text-muted)', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.slug}</div>
                         </div>
                       </div>
                     </td>
                     <td style={{ ...tdStyleNum, fontWeight: 700 }}>{fmtSol(c.floorSol)}</td>
-                    <td style={{ ...tdStyleNum, color: '#43b984' }}>{fmtSol(c.topOfferSol)}</td>
+                    <td style={{ ...tdStyleNum, color: 'var(--vl-green-primary)' }}>{fmtSol(c.topOfferSol)}</td>
                     <td style={tdStyleNum}><PctCell value={c.floorPctChange} /></td>
                     <td style={{ ...tdStyleNum, fontWeight: 700 }}>{fmtSol(c.volumeSol)}</td>
-                    <td style={{ ...tdStyleNum, color: '#9a9ab4' }}>{fmtInt(c.salesCount)}</td>
+                    <td style={{ ...tdStyleNum, color: 'var(--vl-text-muted)' }}>{fmtInt(c.salesCount)}</td>
                     <td style={tdStyleNum}>
                       {/* Listed = pct on top, count / supply beneath. */}
-                      <div style={{ fontWeight: 700, color: '#f0eef8' }}>
+                      <div style={{ fontWeight: 700, color: 'var(--vl-text-primary)' }}>
                         {c.listedPct != null ? `${(c.listedPct * 100).toFixed(1)}%` : '—'}
                       </div>
-                      <div style={{ fontSize: 10, fontWeight: 500, color: '#9a9ab4', marginTop: 1 }}>
-                        {fmtInt(c.listedCount)}<span style={{ color: '#241f3b' }}> / </span>{fmtInt(c.totalSupply)}
+                      <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--vl-text-muted)', marginTop: 1 }}>
+                        {fmtInt(c.listedCount)}<span style={{ color: 'var(--vl-border-subtle)' }}> / </span>{fmtInt(c.totalSupply)}
                       </div>
                     </td>
                   </tr>
@@ -689,20 +689,20 @@ export default function TrendingCollectionsPage() {
           position: 'fixed', top: preview.top, left: preview.left, width: PREVIEW_WIDTH,
           zIndex: 50, pointerEvents: 'none',
           // VictoryLabs dark-purple glass card — same chrome as the results panel.
-          background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-          border: '1px solid rgba(168,144,232,0.32)',
+          background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+          border: '1px solid rgb(var(--vl-purple-tint) / 0.32)',
           borderRadius: 10,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.65), 0 0 24px rgba(128,104,216,0.12)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.65), 0 0 24px rgb(var(--vl-purple-deep) / 0.12)',
           maxHeight: 430, overflow: 'hidden', display: 'flex', flexDirection: 'column',
         }}>
           {/* Header: name · timeframe · showing X / salesCount */}
-          <div style={{ padding: '9px 11px', borderBottom: '1px solid rgba(168,144,232,0.12)' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ padding: '9px 11px', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.12)' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {preview.name}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: '#9a9ab4' }}>
-              <span style={{ color: '#a890e8', fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
-              <span style={{ color: '#241f3b' }}>·</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 10, color: 'var(--vl-text-muted)' }}>
+              <span style={{ color: 'var(--vl-purple-tint)', fontFamily: MONO, textTransform: 'uppercase' }}>{range}</span>
+              <span style={{ color: 'var(--vl-border-subtle)' }}>·</span>
               <span>showing {preview.sales.length} / {preview.salesCount ?? '—'}</span>
             </div>
           </div>
@@ -710,13 +710,13 @@ export default function TrendingCollectionsPage() {
           {/* Body: loading / error / empty / rows */}
           <div className="scroll-area" style={{ overflowY: 'auto' }}>
             {preview.status === 'loading' && (
-              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#9a9ab4' }}>Loading recent sales…</div>
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: 'var(--vl-text-muted)' }}>Loading recent sales…</div>
             )}
             {preview.status === 'error' && (
-              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#d96867' }}>Couldn’t load sales.</div>
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: 'var(--vl-red-primary)' }}>Couldn’t load sales.</div>
             )}
             {preview.status === 'empty' && (
-              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: '#9a9ab4' }}>No sales in this timeframe.</div>
+              <div style={{ padding: '20px 12px', textAlign: 'center', fontSize: 11, color: 'var(--vl-text-muted)' }}>No sales in this timeframe.</div>
             )}
             {preview.status === 'ready' && preview.sales.map((s) => {
               const sname = s.nftName ?? (s.mint ? `${s.mint.slice(0, 4)}…${s.mint.slice(-4)}` : '—');
@@ -727,13 +727,13 @@ export default function TrendingCollectionsPage() {
                   padding: '7px 11px', borderBottom: '1px solid rgba(255,255,255,0.022)',
                 }}>
                   <div style={{ flexShrink: 0, width: 30, height: 30 }}>
-                    <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color="#7c5cf0" abbr={sabbr} size={30} />
+                    <ItemThumb imageUrl={compressImage(s.imageUrl ?? null)} color="var(--vl-purple-primary)" abbr={sabbr} size={30} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
-                    <div style={{ fontSize: 9.5, color: '#9a9ab4', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sname}</div>
+                    <div style={{ fontSize: 9.5, color: 'var(--vl-text-muted)', fontFamily: MONO }}>{fmtAgo(s.blockTime)} ago</div>
                   </div>
-                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: '#43b984', fontFamily: MONO }}>
+                  <div style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: 'var(--vl-green-primary)', fontFamily: MONO }}>
                     {fmtSol(s.priceSol)}
                   </div>
                 </div>
@@ -749,8 +749,8 @@ export default function TrendingCollectionsPage() {
 // ── Shared table chrome — mirrors the Offers tool (Mint Tracker scale) ──────
 const thStyle: React.CSSProperties = {
   padding: '12px 10px', fontSize: 11, fontWeight: 700,
-  color: '#9a9ab4', letterSpacing: '0.6px', textAlign: 'left',
-  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgba(168,144,232,0.08)',
+  color: 'var(--vl-text-muted)', letterSpacing: '0.6px', textAlign: 'left',
+  background: 'rgba(28,22,48,0.96)', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.08)',
   textTransform: 'uppercase', userSelect: 'none',
   position: 'sticky', top: 0, zIndex: 1,
 };
@@ -758,9 +758,9 @@ const thStyleNum: React.CSSProperties = { ...thStyle, textAlign: 'right' };
 const thStyleNft: React.CSSProperties = { ...thStyle, padding: '12px 10px 12px 14px' };
 const tdStyleNum: React.CSSProperties = {
   padding: '11px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700,
-  color: '#f0eef8', fontFamily: MONO, verticalAlign: 'middle',
+  color: 'var(--vl-text-primary)', fontFamily: MONO, verticalAlign: 'middle',
   fontVariantNumeric: 'tabular-nums',
 };
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
+  textAlign: 'center', color: 'var(--vl-text-muted)', padding: '64px 24px', fontSize: 13, lineHeight: 1.5,
 };

@@ -30,7 +30,7 @@ import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signAllAndSend, signSendAndConfirm } from '@/wallet/phantom';
 import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
 import { VL, VLText, ALPHA, alpha, rgb } from '@/lib/palette';
-import { ItemThumb, LiveDot, Pill } from '@/soloist/shared';
+import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 
 interface MintLimitStatus {
   id: number;
@@ -508,7 +508,7 @@ export default function CandyMintPage() {
         {wallet ? (
           <WalletChip wallet={wallet} onDisconnect={handleDisconnect} />
         ) : (
-          <PrimaryButton onClick={handleConnect}>Connect Phantom</PrimaryButton>
+          <CtaButton onClick={handleConnect}>Connect Phantom</CtaButton>
         )}
         <div style={{ flex: 1 }} />
         {loaded && (
@@ -520,9 +520,9 @@ export default function CandyMintPage() {
               placeholder="load a different drop by reference tx signature"
               style={{ width: 340, maxWidth: '100%' }}
             />
-            <ToolButton onClick={handleInspect} disabled={busy || !sig.trim()}>
+            <CtaButton onClick={handleInspect} disabled={busy || !sig.trim()}>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
-            </ToolButton>
+            </CtaButton>
           </>
         )}
       </div>
@@ -553,9 +553,9 @@ export default function CandyMintPage() {
               big
               style={{ flex: 1 }}
             />
-            <ToolButton onClick={handleInspect} disabled={busy || !sig.trim()} big>
+            <CtaButton onClick={handleInspect} disabled={busy || !sig.trim()} big>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
-            </ToolButton>
+            </CtaButton>
           </div>
           {flow.kind === 'error' && (
             <div style={{ fontSize: 12, color: rgb(VL.redStrong), marginTop: 16 }}>{flow.message}</div>
@@ -673,7 +673,7 @@ export default function CandyMintPage() {
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <QuantityStepper value={quantity} max={quantityCap} onChange={setQuantity} disabled={busy} />
-                      <PrimaryButton onClick={handleMintClick} disabled={mintDisabled} big>
+                      <CtaButton onClick={handleMintClick} disabled={mintDisabled} big>
                         {flow.kind === 'minting'
                           ? flow.step
                           : quantity > 1
@@ -681,7 +681,7 @@ export default function CandyMintPage() {
                             : priceLabel
                               ? `Mint for ${priceLabel}`
                               : 'Mint'}
-                      </PrimaryButton>
+                      </CtaButton>
                     </div>
                   )}
 
@@ -781,9 +781,9 @@ function ReadyToSignControl({ flow, busy, onConfirm, onCancel }: {
           {flow.solDeltaLamports != null ? `${(flow.solDeltaLamports / 1e9).toFixed(5)} SOL` : 'unknown'}
         </span>
       </div>
-      <PrimaryButton onClick={onConfirm} disabled={busy || flow.botTaxDetected} big>
+      <CtaButton onClick={onConfirm} disabled={busy || flow.botTaxDetected} big>
         {busy ? 'signing' : 'Sign & Send'}
-      </PrimaryButton>
+      </CtaButton>
       <ToolButton onClick={onCancel} disabled={busy}>
         Cancel
       </ToolButton>
@@ -854,34 +854,6 @@ function StepperButton({ onClick, disabled, children }: {
   );
 }
 
-// The one CTA look this page keeps local: a solid lavender fill for
-// state-changing actions (Connect, Mint, Sign & Send). Read-only actions
-// (Inspect) use the shared `ToolButton` from mmm-shared instead.
-function PrimaryButton({ onClick, disabled, children, big }: {
-  onClick: () => void; disabled?: boolean; children: React.ReactNode; big?: boolean;
-}) {
-  const [hover, setHover] = useState(false);
-  const [active, setActive] = useState(false);
-  const filter = disabled ? undefined : active ? 'brightness(0.9)' : hover ? 'brightness(1.12)' : undefined;
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setActive(false); }}
-      onMouseDown={() => setActive(true)}
-      onMouseUp={() => setActive(false)}
-      style={{
-        ...btnStyle,
-        ...(big ? { padding: '10px 22px', fontSize: 14, height: 40 } : null),
-        opacity: disabled ? 0.5 : 1, filter, outline: 'none', transition: 'filter 0.1s',
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 // Reusable-by-design (not wired into other /tools pages yet): a green-dot
 // pill with click-to-copy address + inline disconnect, replacing the plain
 // "Connected: 71pWA…vFTPs" + underlined-text-link pattern this page (and
@@ -929,7 +901,3 @@ function WalletChip({ wallet, onDisconnect }: { wallet: string; onDisconnect: ()
   );
 }
 
-const btnStyle: React.CSSProperties = {
-  padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  background: rgb(VL.purpleTint), color: '#000', border: 'none', borderRadius: 8,
-};

@@ -73,7 +73,7 @@ export function MintFeedPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
       border: `1px solid ${alpha(VL.purpleTint,0.65)}`, borderRadius: 12,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.15)}`,
     }}>
@@ -117,7 +117,7 @@ export function MintFeedPanel() {
           }} />
         ))}
         {!justMounted && list.length === 0 && (
-          <div style={{ textAlign: 'center', color: '#241f3b', padding: '36px 16px', fontSize: 12 }}>
+          <div style={{ textAlign: 'center', color: 'var(--vl-border-subtle)', padding: '36px 16px', fontSize: 12 }}>
             Waiting for individual mint events…
           </div>
         )}

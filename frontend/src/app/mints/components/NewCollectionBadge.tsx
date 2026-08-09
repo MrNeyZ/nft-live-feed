@@ -37,7 +37,7 @@ const baseDot: CSSProperties = {
   justifyContent: 'center',
   background: 'linear-gradient(135deg, #5b8def 0%, #7c6ff0 100%)',
   boxShadow: '0 1px 3px rgba(0,0,0,0.45)',
-  color: '#fff',
+  color: 'var(--vl-white)',
   fontWeight: 800,
   lineHeight: 1,
   pointerEvents: 'none',

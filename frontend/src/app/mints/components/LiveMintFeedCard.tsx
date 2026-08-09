@@ -458,7 +458,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
     : undefined;
   const priceColor     = perNftLamports == null
     ? VLText.muted
-    : perNftLamports <= 0 ? rgb(VL.green) : (embedded ? '#ffffff' : VLText.primary);
+    : perNftLamports <= 0 ? rgb(VL.green) : (embedded ? 'var(--vl-white)' : VLText.primary);
   // Custom-token payment ("10 USDC"). When the mint was priced in an SPL /
   // Token-2022 token, `priceLamports` is only the SOL rent on the new asset,
   // NOT the real price (same as the Mint Tracker table). The SOL rent is the
@@ -659,7 +659,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
           const collectionHref = collAddr ? `https://solscan.io/account/${collAddr}` : null;
           const baseStyle: React.CSSProperties = {
             // Collection tier in the card's text hierarchy: NFT
-            // title above is the bright primary (#f0eef8, weight
+            // title above is the bright primary (var(--vl-text-primary), weight
             // 600); collection name here is flat neutral TEXT_MUTED.
             // It is normal text, so it deliberately carries no
             // collection identity tint — the CATEGORY_LAYER accent is
@@ -781,7 +781,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
           CORE/CNDY chip on a normal mint card — so DEPLOY renders 1:1 where a
           mint's type chip would, not as a separate widget. Same `.vl-srcchip`
           primitive as the mint chips so the column reads as one system; only
-          the accent differs: a muted slate-lilac (`#9a9ab4`, the existing
+          the accent differs: a muted slate-lilac (`var(--vl-text-muted)`, the existing
           neutral palette gray — NOT purple/CORE) so it reads as a system event,
           quieter than the source chips. Label is `DPLY` — `DEPLOY` (6) would
           clip inside the dot + fixed 66px chip; `DPLY` matches the 4-char chip
@@ -848,7 +848,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
           }}
         >
           <span style={{
-            fontSize: 14, fontWeight: 800, color: embedded ? '#ffffff' : VLText.primary,
+            fontSize: 14, fontWeight: 800, color: embedded ? 'var(--vl-white)' : VLText.primary,
             fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums',
             letterSpacing: '-0.2px', whiteSpace: 'nowrap',
           }}>{perNftLamports != null && perNftLamports > 0 ? fmtMintPrice(perNftLamports) : '—'}</span>

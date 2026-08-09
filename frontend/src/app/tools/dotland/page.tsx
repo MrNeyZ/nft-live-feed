@@ -271,7 +271,7 @@ function NumberField({ label, value, onChange, min, max, hasError }: {
 }) {
   const [hover, setHover] = useState(false);
   const [focused, setFocused] = useState(false);
-  const borderColor = hasError ? '#f66' : focused ? '#7c5cff' : hover ? 'rgba(168,144,232,0.55)' : '#333';
+  const borderColor = hasError ? '#f66' : focused ? '#7c5cff' : hover ? 'rgb(var(--vl-purple-tint) / 0.55)' : '#333';
   return (
     <label style={labelStyle}>
       {label}
@@ -332,7 +332,7 @@ function DisconnectLink({ onClick }: { onClick: () => void }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        fontSize: 10, color: hover ? '#f0eef8' : '#9a9ab4',
+        fontSize: 10, color: hover ? 'var(--vl-text-primary)' : 'var(--vl-text-muted)',
         background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0,
         transition: 'color 0.12s',
       }}
@@ -344,10 +344,10 @@ function DisconnectLink({ onClick }: { onClick: () => void }) {
 
 const btnStyle: React.CSSProperties = {
   padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-  background: rgb(VL.violet), color: '#fff', border: 'none', borderRadius: 6,
+  background: rgb(VL.violet), color: 'var(--vl-white)', border: 'none', borderRadius: 6,
 };
 const labelStyle: React.CSSProperties = { fontSize: 11, color: '#b0aac8', display: 'flex', flexDirection: 'column', gap: 4 };
 const inputStyle: React.CSSProperties = {
-  padding: '6px 8px', fontSize: 13, background: '#111', color: '#fff',
+  padding: '6px 8px', fontSize: 13, background: '#111', color: 'var(--vl-white)',
   border: '1px solid #333', borderRadius: 4,
 };

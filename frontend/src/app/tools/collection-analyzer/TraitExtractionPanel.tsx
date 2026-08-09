@@ -61,21 +61,21 @@ const CLASSIFICATION_META: Record<EligibilityClassification, { label: string; co
   unsuitable: { label: 'UNSUITABLE', color: '#d96867' },
 };
 const STATUS_META: Record<ConfidenceStatus, { label: string; color: string }> = {
-  high_confidence: { label: 'HIGH', color: '#43b984' },
+  high_confidence: { label: 'HIGH', color: 'var(--vl-green-primary)' },
   medium_confidence: { label: 'MEDIUM', color: '#7ea8d9' },
-  low_confidence: { label: 'LOW', color: '#c7b479' },
-  unresolved: { label: 'UNRESOLVED', color: '#9a9ab4' },
-  visually_identical: { label: 'IDENTICAL', color: '#a890e8' },
+  low_confidence: { label: 'LOW', color: 'var(--vl-gold-primary)' },
+  unresolved: { label: 'UNRESOLVED', color: 'var(--vl-text-muted)' },
+  visually_identical: { label: 'IDENTICAL', color: 'var(--vl-purple-tint)' },
 };
 
 const MONO = "'SF Mono','Fira Code',monospace";
 const PANEL: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-  border: '1px solid rgba(168,144,232,0.32)', borderRadius: 12,
+  background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+  border: '1px solid rgb(var(--vl-purple-tint) / 0.32)', borderRadius: 12,
   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6)',
   padding: 12, marginBottom: 11,
 };
-const SECTION_LABEL: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 };
+const SECTION_LABEL: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 6 };
 function Chip({ children, color = '#a890e8' }: { children: React.ReactNode; color?: string }) {
   return <span style={{ display: 'inline-block', padding: '3px 8px', fontSize: 11, fontWeight: 600, borderRadius: 5, fontFamily: MONO, color, background: `${color}14`, border: `1px solid ${color}3a` }}>{children}</span>;
 }
@@ -272,24 +272,24 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
         <div style={SECTION_LABEL}>Download collection</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
           <div style={{ border: '1px solid rgba(126,217,168,0.4)', borderRadius: 8, padding: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#f0eef8' }}>Download Trait Collection</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--vl-text-primary)' }}>Download Trait Collection</div>
             <Chip color="#43b984">AVAILABLE</Chip>
-            <div style={{ fontSize: 11.5, color: '#9a9ab4', marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 11.5, color: 'var(--vl-text-muted)', marginTop: 8, lineHeight: 1.5 }}>
               For collections built from repeated traits such as Body, Hair, Eyes, Clothes, and Background.
               Reconstruct reusable visual trait assets from a generative NFT collection.
             </div>
-            <div style={{ fontSize: 10, color: '#c7b479', marginTop: 8 }}>
+            <div style={{ fontSize: 10, color: 'var(--vl-gold-primary)', marginTop: 8 }}>
               Trait images are inferred from final rendered NFTs. They may not exactly match the project&apos;s original source layers.
             </div>
-            <button type="button" onClick={fetchEligibility} disabled={eligibilityBusy} data-uisnd="skip" style={{ marginTop: 10, padding: '7px 16px', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', borderRadius: 5, cursor: eligibilityBusy ? 'not-allowed' : 'pointer', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: '#43b984' }}>
+            <button type="button" onClick={fetchEligibility} disabled={eligibilityBusy} data-uisnd="skip" style={{ marginTop: 10, padding: '7px 16px', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', borderRadius: 5, cursor: eligibilityBusy ? 'not-allowed' : 'pointer', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: 'var(--vl-green-primary)' }}>
               {eligibilityBusy ? 'Checking…' : 'Configure Trait Extraction'}
             </button>
-            {eligibilityError && <div style={{ fontSize: 10.5, color: '#d96867', marginTop: 6 }}>{eligibilityError}</div>}
+            {eligibilityError && <div style={{ fontSize: 10.5, color: 'var(--vl-red-primary)', marginTop: 6 }}>{eligibilityError}</div>}
           </div>
-          <div style={{ border: '1px solid rgba(168,144,232,0.22)', borderRadius: 8, padding: 14, opacity: 0.6 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#f0eef8' }}>Download 1/1 Collection</div>
+          <div style={{ border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius: 8, padding: 14, opacity: 0.6 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--vl-text-primary)' }}>Download 1/1 Collection</div>
             <Chip color="#9a9ab4">COMING LATER</Chip>
-            <div style={{ fontSize: 11.5, color: '#9a9ab4', marginTop: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 11.5, color: 'var(--vl-text-muted)', marginTop: 8, lineHeight: 1.5 }}>
               For collections made of unique standalone artworks without a reusable trait system.
             </div>
           </div>
@@ -310,21 +310,21 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
       <div style={PANEL}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={SECTION_LABEL}>Configure trait extraction</div>
-          <button type="button" onClick={() => setStage('cards')} data-uisnd="skip" style={{ padding: '3px 10px', fontSize: 10, borderRadius: 4, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.35)', background: 'transparent', color: '#c4b8e8' }}>← Back</button>
+          <button type="button" onClick={() => setStage('cards')} data-uisnd="skip" style={{ padding: '3px 10px', fontSize: 10, borderRadius: 4, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'transparent', color: '#c4b8e8' }}>← Back</button>
         </div>
 
         <div style={{ marginBottom: 10 }}>
           <span style={{ padding: '4px 10px', borderRadius: 5, fontSize: 12, fontWeight: 800, color: meta.color, background: `${meta.color}18`, border: `1.5px solid ${meta.color}55` }}>{meta.label}</span>
-          <span style={{ fontSize: 11, color: '#9a9ab4', marginLeft: 8 }}>
+          <span style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginLeft: 8 }}>
             {eligibility.percentWithAttributes}% have attributes · {eligibility.totalTraitCategories} categories · {eligibility.categoriesWithRepeatedValues} with repeated values · median {eligibility.medianAssetsPerTraitValue}/value
           </span>
           {eligibility.classification !== 'suitable' && (
-            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11, color: '#c7b479', lineHeight: 1.5 }}>
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11, color: 'var(--vl-gold-primary)', lineHeight: 1.5 }}>
               {eligibility.reasons.slice(0, 4).map((r, i) => <li key={i}>{r}</li>)}
             </ul>
           )}
           {eligibility.classification === 'unsuitable' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#d96867', marginTop: 8, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--vl-red-primary)', marginTop: 8, cursor: 'pointer' }}>
               <input type="checkbox" checked={allowUnsuitable} onChange={() => setAllowUnsuitable((v) => !v)} />
               Advanced: attempt extraction anyway (metadata may be imperfect)
             </label>
@@ -334,10 +334,10 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
         <div style={SECTION_LABEL}>Trait categories</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto', marginBottom: 10 }} className="scroll-area">
           {traitCategories.map((cat) => (
-            <div key={cat.traitType} style={{ border: '1px solid rgba(168,144,232,0.2)', borderRadius: 6, padding: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#f0eef8', cursor: 'pointer' }}>
+            <div key={cat.traitType} style={{ border: '1px solid rgb(var(--vl-purple-tint) / 0.2)', borderRadius: 6, padding: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={selectedCategories.has(cat.traitType)} onChange={() => toggleCategory(cat.traitType)} />
-                {cat.traitType} <span style={{ color: '#9a9ab4', fontWeight: 400 }}>({cat.values.length} values)</span>
+                {cat.traitType} <span style={{ color: 'var(--vl-text-muted)', fontWeight: 400 }}>({cat.values.length} values)</span>
               </label>
               {selectedCategories.has(cat.traitType) && (
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, paddingLeft: 20 }}>
@@ -345,7 +345,7 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
                     const active = selectedValues.get(cat.traitType)?.has(v.value) ?? false;
                     return (
                       <button key={v.value} type="button" onClick={() => toggleValue(cat.traitType, v.value)} data-uisnd="skip"
-                        style={{ padding: '2px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer', fontFamily: MONO, border: `1px solid ${active ? 'rgba(126,217,168,0.55)' : 'rgba(168,144,232,0.3)'}`, background: active ? 'rgba(126,217,168,0.14)' : 'transparent', color: active ? '#43b984' : '#9a9ab4' }}>
+                        style={{ padding: '2px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer', fontFamily: MONO, border: `1px solid ${active ? 'rgba(126,217,168,0.55)' : 'rgb(var(--vl-purple-tint) / 0.3)'}`, background: active ? 'rgba(126,217,168,0.14)' : 'transparent', color: active ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }}>
                         {v.value} ×{v.count}
                       </button>
                     );
@@ -361,18 +361,18 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           {(['fast', 'balanced', 'thorough'] as ExtractionPreset[]).map((p) => (
             <button key={p} type="button" onClick={() => setPreset(p)} data-uisnd="skip"
-              style={{ padding: '6px 14px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', borderRadius: 5, cursor: 'pointer', border: `1px solid ${preset === p ? 'rgba(126,217,168,0.55)' : 'rgba(168,144,232,0.3)'}`, background: preset === p ? 'rgba(126,217,168,0.14)' : 'transparent', color: preset === p ? '#43b984' : '#9a9ab4' }}>
+              style={{ padding: '6px 14px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', borderRadius: 5, cursor: 'pointer', border: `1px solid ${preset === p ? 'rgba(126,217,168,0.55)' : 'rgb(var(--vl-purple-tint) / 0.3)'}`, background: preset === p ? 'rgba(126,217,168,0.14)' : 'transparent', color: preset === p ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }}>
               {p}
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 10 }}>
+        <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', marginBottom: 10 }}>
           Estimated workload: ~{estimatedValues} trait value(s) across {selectedCategories.size} categor{selectedCategories.size === 1 ? 'y' : 'ies'} out of {exactAssetCount} scanned assets.
         </div>
 
-        {jobError && <div style={{ fontSize: 11, color: '#d96867', marginBottom: 8 }}>{jobError}</div>}
+        {jobError && <div style={{ fontSize: 11, color: 'var(--vl-red-primary)', marginBottom: 8 }}>{jobError}</div>}
         <button type="button" onClick={startExtraction} disabled={blocked || selectedCategories.size === 0} data-uisnd="skip"
-          style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, cursor: (blocked || selectedCategories.size === 0) ? 'not-allowed' : 'pointer', border: '1px solid rgba(126,217,168,0.55)', background: (blocked || selectedCategories.size === 0) ? 'rgba(126,217,168,0.08)' : 'rgba(126,217,168,0.18)', color: (blocked || selectedCategories.size === 0) ? '#6e6688' : '#43b984' }}>
+          style={{ padding: '8px 20px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, cursor: (blocked || selectedCategories.size === 0) ? 'not-allowed' : 'pointer', border: '1px solid rgba(126,217,168,0.55)', background: (blocked || selectedCategories.size === 0) ? 'rgba(126,217,168,0.08)' : 'rgba(126,217,168,0.18)', color: (blocked || selectedCategories.size === 0) ? '#6e6688' : 'var(--vl-green-primary)' }}>
           Start Extraction
         </button>
       </div>
@@ -388,22 +388,22 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
     <div style={PANEL}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={SECTION_LABEL}>Download Trait Collection {collectionDisplayName ? `· ${collectionDisplayName}` : ''}</div>
-        {isActive && <button type="button" onClick={cancelExtraction} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(217,104,103,0.5)', background: 'rgba(217,104,103,0.10)', color: '#d96867' }}>Cancel</button>}
-        {(isDone || isFailedOrCancelled) && <button type="button" onClick={resetPanel} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, borderRadius: 5, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.45)', background: 'rgba(168,144,232,0.10)', color: '#c4b8e8' }}>Start over</button>}
+        {isActive && <button type="button" onClick={cancelExtraction} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: '1px solid rgb(var(--vl-red) / 0.5)', background: 'rgb(var(--vl-red) / 0.10)', color: 'var(--vl-red-primary)' }}>Cancel</button>}
+        {(isDone || isFailedOrCancelled) && <button type="button" onClick={resetPanel} data-uisnd="skip" style={{ padding: '4px 12px', fontSize: 10.5, borderRadius: 5, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.45)', background: 'rgb(var(--vl-purple-tint) / 0.10)', color: '#c4b8e8' }}>Start over</button>}
       </div>
-      <div style={{ fontSize: 10, color: '#c7b479', marginBottom: 10 }}>
+      <div style={{ fontSize: 10, color: 'var(--vl-gold-primary)', marginBottom: 10 }}>
         Attempts to reconstruct reusable visual traits from final rendered NFTs. Results are inferred and may not match the original source layers.
       </div>
 
       {isActive && (
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#f0eef8', textTransform: 'uppercase', marginBottom: 6 }}>{progress?.phase ?? status}…</div>
-          {progress?.currentCategory && <div style={{ fontSize: 11, color: '#9a9ab4', marginBottom: 6 }}>Current: {progress.currentCategory} = {progress.currentTraitValue}</div>}
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--vl-text-primary)', textTransform: 'uppercase', marginBottom: 6 }}>{progress?.phase ?? status}…</div>
+          {progress?.currentCategory && <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginBottom: 6 }}>Current: {progress.currentCategory} = {progress.currentTraitValue}</div>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 11, fontFamily: MONO }}>
-            <div><span style={{ color: '#9a9ab4' }}>values </span><span style={{ color: '#f0eef8' }}>{progress?.processedValues ?? 0}/{progress?.totalValues ?? 0}</span></div>
-            <div><span style={{ color: '#9a9ab4' }}>images </span><span style={{ color: '#f0eef8' }}>{progress?.uniqueImagesDownloaded ?? 0}</span></div>
-            <div><span style={{ color: '#9a9ab4' }}>comparisons </span><span style={{ color: '#f0eef8' }}>{progress?.comparisonsEvaluated ?? 0}</span></div>
-            <div><span style={{ color: '#9a9ab4' }}>downloaded </span><span style={{ color: '#f0eef8' }}>{formatBytes(progress?.bytesDownloaded ?? 0)}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>values </span><span style={{ color: 'var(--vl-text-primary)' }}>{progress?.processedValues ?? 0}/{progress?.totalValues ?? 0}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>images </span><span style={{ color: 'var(--vl-text-primary)' }}>{progress?.uniqueImagesDownloaded ?? 0}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>comparisons </span><span style={{ color: 'var(--vl-text-primary)' }}>{progress?.comparisonsEvaluated ?? 0}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>downloaded </span><span style={{ color: 'var(--vl-text-primary)' }}>{formatBytes(progress?.bytesDownloaded ?? 0)}</span></div>
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
             <Chip color="#43b984">{progress?.resolvedHigh ?? 0} high</Chip>
@@ -417,17 +417,17 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
       )}
 
       {isFailedOrCancelled && (
-        <div style={{ fontSize: 12, color: '#d96867' }}>{jobError ?? (status === 'expired' ? 'This extraction result has expired — start a new one.' : `Extraction ${status}.`)}</div>
+        <div style={{ fontSize: 12, color: 'var(--vl-red-primary)' }}>{jobError ?? (status === 'expired' ? 'This extraction result has expired — start a new one.' : `Extraction ${status}.`)}</div>
       )}
 
       {isDone && (
         <div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 11, fontFamily: MONO, marginBottom: 10 }}>
-            <div><span style={{ color: '#9a9ab4' }}>extracted </span><span style={{ color: '#f0eef8' }}>{evidenceSummary.length}</span></div>
-            <div><span style={{ color: '#9a9ab4' }}>unresolved </span><span style={{ color: '#f0eef8' }}>{unresolvedValues.length}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>extracted </span><span style={{ color: 'var(--vl-text-primary)' }}>{evidenceSummary.length}</span></div>
+            <div><span style={{ color: 'var(--vl-text-muted)' }}>unresolved </span><span style={{ color: 'var(--vl-text-primary)' }}>{unresolvedValues.length}</span></div>
           </div>
           {unresolvedValues.length > 0 && (
-            <div style={{ fontSize: 10.5, color: '#c7b479', marginBottom: 10 }}>{unresolvedValues.length} value(s) could not be extracted — see unresolved-traits.json in the archive.</div>
+            <div style={{ fontSize: 10.5, color: 'var(--vl-gold-primary)', marginBottom: 10 }}>{unresolvedValues.length} value(s) could not be extracted — see unresolved-traits.json in the archive.</div>
           )}
 
           {/* Paginated preview grid - never all values at once */}
@@ -435,24 +435,24 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
             {previews.map((p) => {
               const sMeta = STATUS_META[p.confidence.status];
               return (
-                <div key={`${p.traitType}-${p.traitValue}`} style={{ border: '1px solid rgba(168,144,232,0.22)', borderRadius: 6, padding: 6, textAlign: 'center' }}>
+                <div key={`${p.traitType}-${p.traitValue}`} style={{ border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius: 6, padding: 6, textAlign: 'center' }}>
                   <div style={{ width: '100%', aspectRatio: '1/1', borderRadius: 4, overflow: 'hidden', background: 'rgba(255,255,255,0.04)', marginBottom: 4 }}>
                     {p.previewUrl
                       // eslint-disable-next-line @next/next/no-img-element
                       ? <img src={`${API_BASE}${p.previewUrl}`} alt={p.traitValue} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       : <div style={{ fontSize: 9, color: '#6e6688', paddingTop: 40 }}>no preview</div>}
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.traitValue}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.traitValue}</div>
                   <div style={{ fontSize: 9, color: sMeta.color }}>{sMeta.label} · {p.confidence.score}</div>
                 </div>
               );
             })}
           </div>
           {previewTotal > PREVIEW_PAGE_SIZE && jobId && (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, fontFamily: MONO, color: '#9a9ab4', marginBottom: 10 }}>
-              <button type="button" disabled={previewOffset === 0} onClick={() => loadPreviews(jobId, Math.max(0, previewOffset - PREVIEW_PAGE_SIZE))} style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.35)', background: 'transparent', color: '#c4b8e8' }}>‹ Prev</button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, fontFamily: MONO, color: 'var(--vl-text-muted)', marginBottom: 10 }}>
+              <button type="button" disabled={previewOffset === 0} onClick={() => loadPreviews(jobId, Math.max(0, previewOffset - PREVIEW_PAGE_SIZE))} style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'transparent', color: '#c4b8e8' }}>‹ Prev</button>
               <span>{previewOffset + 1}–{Math.min(previewOffset + PREVIEW_PAGE_SIZE, previewTotal)} of {previewTotal}</span>
-              <button type="button" disabled={previewOffset + PREVIEW_PAGE_SIZE >= previewTotal} onClick={() => loadPreviews(jobId, previewOffset + PREVIEW_PAGE_SIZE)} style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgba(168,144,232,0.35)', background: 'transparent', color: '#c4b8e8' }}>Next ›</button>
+              <button type="button" disabled={previewOffset + PREVIEW_PAGE_SIZE >= previewTotal} onClick={() => loadPreviews(jobId, previewOffset + PREVIEW_PAGE_SIZE)} style={{ padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'transparent', color: '#c4b8e8' }}>Next ›</button>
             </div>
           )}
 
@@ -460,15 +460,15 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
             {[...new Set(evidenceSummary.map((e) => e.traitType))].sort().map((cat) => (
               <div key={cat}>
-                <div style={{ fontSize: 10.5, color: '#9a9ab4', marginBottom: 4 }}>{cat} contact sheet</div>
+                <div style={{ fontSize: 10.5, color: 'var(--vl-text-muted)', marginBottom: 4 }}>{cat} contact sheet</div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`${API_BASE}/api/tools/collection-analyzer/trait-extractions/${jobId}/contact-sheets/${encodeURIComponent(cat)}`} alt={`${cat} contact sheet`} style={{ maxWidth: '100%', borderRadius: 6, border: '1px solid rgba(168,144,232,0.22)' }} />
+                <img src={`${API_BASE}/api/tools/collection-analyzer/trait-extractions/${jobId}/contact-sheets/${encodeURIComponent(cat)}`} alt={`${cat} contact sheet`} style={{ maxWidth: '100%', borderRadius: 6, border: '1px solid rgb(var(--vl-purple-tint) / 0.22)' }} />
               </div>
             ))}
           </div>
 
           {evidenceSummary.some((e) => e.searchDiagnostics) && (
-            <details style={{ marginBottom: 10, fontSize: 10.5, color: '#9a9ab4' }}>
+            <details style={{ marginBottom: 10, fontSize: 10.5, color: 'var(--vl-text-muted)' }}>
               <summary style={{ cursor: 'pointer', color: '#c4b8e8', fontSize: 11 }}>Search diagnostics (Stage 5.1)</summary>
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {(() => {
@@ -479,11 +479,11 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
                   for (const d of diags) stopReasonCounts[d.adaptiveStopReason] = (stopReasonCounts[d.adaptiveStopReason] ?? 0) + 1;
                   return (
                     <>
-                      <div>assets searchable (full collection): <span style={{ color: '#f0eef8' }}>{assetsSearchable}</span></div>
-                      <div>exact (Level 0) pairs found: <span style={{ color: '#f0eef8' }}>{sum((d) => d.level0CandidatesFound)}</span></div>
-                      <div>near (Level 1/2) pairs found: <span style={{ color: '#f0eef8' }}>{sum((d) => d.level1CandidatesFound + d.level2CandidatesFound)}</span></div>
-                      <div>candidates rejected (high-impact mismatch): <span style={{ color: '#f0eef8' }}>{sum((d) => d.candidatesRejectedHighImpact)}</span></div>
-                      <div>low-quality pairs used: <span style={{ color: '#f0eef8' }}>{sum((d) => d.lowQualityPairsCount)}</span></div>
+                      <div>assets searchable (full collection): <span style={{ color: 'var(--vl-text-primary)' }}>{assetsSearchable}</span></div>
+                      <div>exact (Level 0) pairs found: <span style={{ color: 'var(--vl-text-primary)' }}>{sum((d) => d.level0CandidatesFound)}</span></div>
+                      <div>near (Level 1/2) pairs found: <span style={{ color: 'var(--vl-text-primary)' }}>{sum((d) => d.level1CandidatesFound + d.level2CandidatesFound)}</span></div>
+                      <div>candidates rejected (high-impact mismatch): <span style={{ color: 'var(--vl-text-primary)' }}>{sum((d) => d.candidatesRejectedHighImpact)}</span></div>
+                      <div>low-quality pairs used: <span style={{ color: 'var(--vl-text-primary)' }}>{sum((d) => d.lowQualityPairsCount)}</span></div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
                         {Object.entries(stopReasonCounts).map(([reason, count]) => (
                           <Chip key={reason} color="#7ea8d9">{count}× {reason.replace(/_/g, ' ')}</Chip>
@@ -497,7 +497,7 @@ export default function TraitExtractionPanel({ scanId, traitCategories, exactAss
           )}
 
           <a href={`${API_BASE}/api/tools/collection-analyzer/trait-extractions/${jobId}/download`}
-            style={{ display: 'inline-block', padding: '8px 20px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: '#43b984' }}>
+            style={{ display: 'inline-block', padding: '8px 20px', fontSize: 12, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', borderRadius: 5, textDecoration: 'none', border: '1px solid rgba(126,217,168,0.55)', background: 'rgba(126,217,168,0.14)', color: 'var(--vl-green-primary)' }}>
             Download ZIP
           </a>
         </div>

@@ -123,7 +123,7 @@ export function SalesFeedPanel() {
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', overflow: 'hidden',
-      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+      background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
       border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
     }}>
@@ -146,7 +146,7 @@ export function SalesFeedPanel() {
           <SettingsToggle active={settingsOpen} onClick={() => setSettingsOpen(o => !o)} />
           <Pill
             active
-            color={paused ? '#c7b479' : '#43b984'}
+            color={paused ? 'var(--vl-gold-primary)' : 'var(--vl-green-primary)'}
             onClick={() => setPaused(p => !p)}
             label={paused ? '▶ Resume' : '⏸ Pause'}
           />
@@ -172,7 +172,7 @@ export function SalesFeedPanel() {
                   <Pill
                     key={d}
                     active={isActive}
-                    color="#a890e8"
+                    color="var(--vl-purple-tint)"
                     onClick={() => setDensity(d)}
                     label={d.charAt(0).toUpperCase() + d.slice(1)}
                     size="sm"

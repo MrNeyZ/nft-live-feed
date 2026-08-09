@@ -68,12 +68,12 @@ export default function RareFeedPage() {
       <div style={{ padding: '20px 4px 14px', flexShrink: 0, width: '100%', maxWidth: maxW, margin: '0 auto', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
               Rare Feed
             </h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <LiveDot />
-              <span style={{ fontSize: 11, color: '#9a9ab4' }}>
+              <span style={{ fontSize: 11, color: 'var(--vl-text-muted)' }}>
                 Rarity-scored value sales · refreshes every 20s
                 {lastUpdated && <> · updated {fmtAge(new Date(lastUpdated).toISOString())}</>}
               </span>
@@ -81,42 +81,42 @@ export default function RareFeedPage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             {/* Rarity toggle */}
-            <div style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 6, background: 'rgba(20,14,34,0.6)', border: '1px solid rgba(168,144,232,0.25)' }}>
+            <div style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 6, background: 'rgba(20,14,34,0.6)', border: '1px solid rgb(var(--vl-purple-tint) / 0.25)' }}>
               {RARITY_TABS.map(t => (
                 <button key={t.key} type="button" onClick={() => setRarity(t.key)}
                   style={{
                     padding: '5px 11px', fontSize: 11, fontWeight: 700, letterSpacing: '0.3px',
                     borderRadius: 4, cursor: 'pointer', border: 'none',
-                    background: rarity === t.key ? 'rgba(128,104,216,0.35)' : 'transparent',
-                    color: rarity === t.key ? '#f0eef8' : '#9a9ab4', transition: 'all 0.12s',
+                    background: rarity === t.key ? 'rgb(var(--vl-purple-deep) / 0.35)' : 'transparent',
+                    color: rarity === t.key ? 'var(--vl-text-primary)' : 'var(--vl-text-muted)', transition: 'all 0.12s',
                   }}>
                   {t.label}
                 </button>
               ))}
             </div>
             {/* Min score */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#9a9ab4' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--vl-text-muted)' }}>
               min score
               <select value={minScore} onChange={(e) => setMinScore(Number(e.target.value))}
                 style={{
                   padding: '5px 8px', fontSize: 12, fontWeight: 600, borderRadius: 4,
-                  border: '1px solid rgba(168,144,232,0.55)', background: 'rgba(20,14,34,0.85)',
-                  color: '#f0eef8', outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  border: '1px solid rgb(var(--vl-purple-tint) / 0.55)', background: 'rgba(20,14,34,0.85)',
+                  color: 'var(--vl-text-primary)', outline: 'none', cursor: 'pointer', fontFamily: 'inherit',
                 }}>
-                {SCORE_OPTIONS.map(s => <option key={s} value={s} style={{ background: '#1a1530' }}>{s}</option>)}
+                {SCORE_OPTIONS.map(s => <option key={s} value={s} style={{ background: 'var(--vl-gray-surface)' }}>{s}</option>)}
               </select>
             </label>
           </div>
         </div>
         {error && (
-          <div style={{ marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867', background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 5 }}>
+          <div style={{ marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5 }}>
             failed to load — {error}
           </div>
         )}
         {!error && (
-          <div style={{ marginTop: 12, fontSize: 11, color: '#9a9ab4' }}>
-            <span>showing <span style={{ color: '#a890e8', fontWeight: 700 }}>{rows.length}</span> rare {rows.length === 1 ? 'sale' : 'sales'}</span>
-            <span style={{ color: '#241f3b', margin: '0 10px' }}>·</span>
+          <div style={{ marginTop: 12, fontSize: 11, color: 'var(--vl-text-muted)' }}>
+            <span>showing <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 700 }}>{rows.length}</span> rare {rows.length === 1 ? 'sale' : 'sales'}</span>
+            <span style={{ color: 'var(--vl-border-subtle)', margin: '0 10px' }}>·</span>
             <span>score ≥ {minScore}</span>
           </div>
         )}

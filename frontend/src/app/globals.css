@@ -392,8 +392,8 @@ html[data-layout="pc"] .topnav-logo img { height: 37px; }
 .vl-logo__victory {
   font-family: 'TeX Gyre Bonum', 'Bookman Old Style', 'URW Bookman', 'Georgia', serif;
   font-weight: 400;
-  color: #a890e8;
-  -webkit-text-stroke: 0.014em #a890e8;
+  color: var(--vl-purple-tint);
+  -webkit-text-stroke: 0.014em var(--vl-purple-tint);
   letter-spacing: 0.025em;
   font-kerning: normal;
   text-rendering: optimizeLegibility;
@@ -428,7 +428,7 @@ html[data-layout="pc"] .topnav-logo img { height: 37px; }
   gap: 14px;
   width: 5.8em;
   margin-top: 0.14em;
-  color: #a890e8;
+  color: var(--vl-purple-tint);
 }
 .vl-divider .vl-ln {
   flex: 1;
@@ -437,10 +437,10 @@ html[data-layout="pc"] .topnav-logo img { height: 37px; }
   border-radius: 2px;
 }
 .vl-divider .vl-ln--l {
-  background: linear-gradient(90deg, transparent, rgba(168,144,232,0.45) 18%);
+  background: linear-gradient(90deg, transparent, rgb(var(--vl-purple-tint) / 0.45) 18%);
 }
 .vl-divider .vl-ln--r {
-  background: linear-gradient(90deg, rgba(168,144,232,0.45) 82%, transparent);
+  background: linear-gradient(90deg, rgb(var(--vl-purple-tint) / 0.45) 82%, transparent);
 }
 .vl-divider .vl-star {
   width: 15px;
@@ -696,13 +696,13 @@ nextjs-portal,
 
 html, body {
   height: 100%;
-  color: #9a9ab4;
+  color: var(--vl-text-muted);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   overflow: hidden;
-  background: #08060c;
+  background: var(--vl-gray-base);
   /* Clarity pass: page-wide purple wash kept low (sharpness pass);
-     base bumped one shade darker (#050308 → #08060c) so cards have
+     base bumped one shade darker (#050308 → var(--vl-gray-base)) so cards have
      more contrast against the page without lifting the card itself.
      A near-imperceptible SVG-noise layer is composited under the
      purple wash to break the "AI-flat-gradient" feel — alpha is
@@ -720,7 +720,7 @@ html, body {
    color as `body` so what the user sees is the theme background, not
    a black/white system default. The `color-scheme` hint also tells
    the UA to use dark form-control / scrollbar defaults. */
-html { background-color: #08060c; color-scheme: dark; }
+html { background-color: var(--vl-gray-base); color-scheme: dark; }
 
 body { display: block; height: 100vh; }
 
@@ -762,20 +762,20 @@ a { color: inherit; text-decoration: none; }
    defined). slideDown still drives the actual entrance motion;
    these handle the color decay only. */
 @keyframes flashBuy {
-  0%   { background: rgba(67, 185, 132, 0.20); }
-  40%  { background: rgba(67, 185, 132, 0.10); }
-  100% { background: rgba(67, 185, 132, 0.030); }
+  0%   { background: rgb(var(--vl-green) / 0.20); }
+  40%  { background: rgb(var(--vl-green) / 0.10); }
+  100% { background: rgb(var(--vl-green) / 0.030); }
 }
 
 @keyframes flashSell {
-  0%   { background: rgba(217, 104, 103, 0.20); }
-  40%  { background: rgba(217, 104, 103, 0.10); }
-  100% { background: rgba(217, 104, 103, 0.025); }
+  0%   { background: rgb(var(--vl-red) / 0.20); }
+  40%  { background: rgb(var(--vl-red) / 0.10); }
+  100% { background: rgb(var(--vl-red) / 0.025); }
 }
 
 @keyframes flashListingFeed {
-  0%   { background: rgba(168, 144, 232, 0.18); }
-  40%  { background: rgba(168, 144, 232, 0.10); }
+  0%   { background: rgb(var(--vl-purple-tint) / 0.18); }
+  40%  { background: rgb(var(--vl-purple-tint) / 0.10); }
   100% { background: rgba(255, 255, 255, 0.02); }
 }
 
@@ -789,8 +789,8 @@ a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar-track       { background: transparent; }
 /* Idle alpha trimmed 0.14 → 0.09 in the contrast-discipline pass —
    hover behavior + thickness unchanged. */
-::-webkit-scrollbar-thumb       { background: rgba(128, 104, 216, 0.09); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(128, 104, 216, 0.28); }
+::-webkit-scrollbar-thumb       { background: rgb(var(--vl-purple-deep) / 0.09); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--vl-purple-deep) / 0.28); }
 
 /* Live Feed list — always-visible scrollbar so the user can grab/scrub it
    without first hovering the feed area. Resting thumb opacity bumped from
@@ -812,13 +812,13 @@ a { color: inherit; text-decoration: none; }
 .feed-list::-webkit-scrollbar-thumb       {
   /* Idle alpha 0.18 → 0.12 in the contrast-discipline pass. Hover
      unchanged so the grab affordance still reads. */
-  background: rgba(168, 144, 232, 0.12);
+  background: rgb(var(--vl-purple-tint) / 0.12);
   border-radius: 2px;
 }
-.feed-list::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.32); }
+.feed-list::-webkit-scrollbar-thumb:hover { background: rgb(var(--vl-purple-tint) / 0.32); }
 .feed-list {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.12) rgba(255, 255, 255, 0.012);
+  scrollbar-color: rgb(var(--vl-purple-tint) / 0.12) rgba(255, 255, 255, 0.012);
   scrollbar-gutter: stable;
   /* Let JS manage scroll compensation on prepend; browser anchoring would
      fight our pin-to-top behavior when the user is at scrollTop=0. */
@@ -988,20 +988,20 @@ a { color: inherit; text-decoration: none; }
   /* Side accent thinned 3 → 2 px (visual-polish pass). Same color,
      same alpha — the cleaner thinner line reads as more confident
      directional cue without expanding the card's effective width. */
-  border-left:  2px solid rgba( 64, 212, 168, 0.40);
-  border-right: 2px solid rgba( 64, 212, 168, 0.40);
-  background:   rgba( 64, 212, 168, 0.030);
+  border-left:  2px solid rgb(var(--vl-green-strong) / 0.40);
+  border-right: 2px solid rgb(var(--vl-green-strong) / 0.40);
+  background:   rgb(var(--vl-green-strong) / 0.030);
 }
-.feed-card.buy-card:hover  { background: rgba( 64, 212, 168, 0.088); }
+.feed-card.buy-card:hover  { background: rgb(var(--vl-green-strong) / 0.088); }
 .feed-card.sell-card    {
-  border-left:  2px solid rgba(245,  88, 102, 0.45);
-  border-right: 2px solid rgba(245,  88, 102, 0.45);
-  background:   rgba(245,  88, 102, 0.025);
+  border-left:  2px solid rgb(var(--vl-red-strong) / 0.45);
+  border-right: 2px solid rgb(var(--vl-red-strong) / 0.45);
+  background:   rgb(var(--vl-red-strong) / 0.025);
 }
-.feed-card.sell-card:hover { background: rgba(245,  88, 102, 0.082); }
+.feed-card.sell-card:hover { background: rgb(var(--vl-red-strong) / 0.082); }
 .feed-card.listing-card {
-  border-left:  2px solid rgba(168, 144, 232, 0.95);
-  border-right: 2px solid rgba(168, 144, 232, 0.95);
+  border-left:  2px solid rgb(var(--vl-purple-tint) / 0.95);
+  border-right: 2px solid rgb(var(--vl-purple-tint) / 0.95);
 }
 
 /* /feed Filters panel — terminal control surface. Sits as a darker
@@ -1022,8 +1022,8 @@ a { color: inherit; text-decoration: none; }
      so the panel reads as a flat physical strip — no remaining
      visible "fog" inside the box. Top/bottom 1px highlights kept. */
   background: rgba(0, 0, 0, 0.26);
-  border-top: 1px solid rgba(168, 144, 232, 0.10);
-  border-bottom: 1px solid rgba(168, 144, 232, 0.08);
+  border-top: 1px solid rgb(var(--vl-purple-tint) / 0.10);
+  border-bottom: 1px solid rgb(var(--vl-purple-tint) / 0.08);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     inset 0 -1px 0 rgba(255, 255, 255, 0.02),
@@ -1057,7 +1057,7 @@ a { color: inherit; text-decoration: none; }
 .feed-set-group--display {
   grid-column: 2;
   grid-row: 1 / span 2;
-  border-left: 1px solid rgba(168, 144, 232, 0.08);
+  border-left: 1px solid rgb(var(--vl-purple-tint) / 0.08);
   padding-left: 24px;
 }
 .feed-set-group-hd {
@@ -1125,8 +1125,8 @@ a { color: inherit; text-decoration: none; }
   transition: transform 0.16s ease, background 0.15s ease;
 }
 .vl-switch-on {
-  background: rgba(168, 144, 232, 0.45);
-  border-color: rgba(168, 144, 232, 0.60);
+  background: rgb(var(--vl-purple-tint) / 0.45);
+  border-color: rgb(var(--vl-purple-tint) / 0.60);
 }
 .vl-switch-on .vl-switch-thumb {
   transform: translate(13px, -50%);
@@ -1149,8 +1149,8 @@ a { color: inherit; text-decoration: none; }
   border: none; background: transparent; cursor: pointer;
   font-size: 10px; line-height: 1; color: inherit;
 }
-.feed-chip-watch { border: 1px solid #a890e855; background: #a890e81e; color: #b9a6ef; }
-.feed-chip-bl    { border: 1px solid #d9686755; background: #d968671e; color: #ec9fb4; }
+.feed-chip-watch { border: 1px solid rgb(var(--vl-purple-tint) / .33); background: rgb(var(--vl-purple-tint) / .12); color: #b9a6ef; }
+.feed-chip-bl    { border: 1px solid rgb(var(--vl-red) / .33); background: rgb(var(--vl-red) / .12); color: #ec9fb4; }
 
 @media (max-width: 720px) {
   .feed-settings { grid-template-columns: 1fr; gap: 8px 0; }
@@ -1159,7 +1159,7 @@ a { color: inherit; text-decoration: none; }
   .feed-set-group--display { grid-column: 1; grid-row: auto; }
   .feed-set-group--display {
     border-left: none; padding-left: 0;
-    border-top: 1px solid rgba(168, 144, 232, 0.08); padding-top: 8px;
+    border-top: 1px solid rgb(var(--vl-purple-tint) / 0.08); padding-top: 8px;
   }
 }
 
@@ -1192,12 +1192,12 @@ a { color: inherit; text-decoration: none; }
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  /* Bumped from #9a9ab4 → #9a9ab4 so Type/Price/Watch labels read
+  /* Bumped from var(--vl-text-muted) → var(--vl-text-muted) so Type/Price/Watch labels read
      in the same family as the Density label (#74749a) rather than
      looking dead next to it. Density's `.feed-filter-row-priority`
      override still keeps Density a notch brighter for clear
      hierarchy without the prior big mismatch. */
-  color: #9a9ab4;
+  color: var(--vl-text-muted);
 }
 .feed-filter-pills {
   display: flex; flex-wrap: wrap;
@@ -1218,9 +1218,9 @@ a { color: inherit; text-decoration: none; }
   padding: 4px 10px;
   font-size: 10.5px;
   border-radius: 4px;
-  border: 1px solid rgba(168, 144, 232, 0.12);
+  border: 1px solid rgb(var(--vl-purple-tint) / 0.12);
   background: rgba(0, 0, 0, 0.32);
-  color: #f0eef8;
+  color: var(--vl-text-primary);
   outline: none;
   /* Compact field that flexes within its group column but never grows into
      a giant full-width input; shrinks cleanly on narrow widths. */
@@ -1235,22 +1235,22 @@ a { color: inherit; text-decoration: none; }
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 .feed-coll-input::placeholder {
-  /* Bumped from #241f3b → #9a9ab4 so the empty-state placeholder
+  /* Bumped from var(--vl-border-subtle) → var(--vl-text-muted) so the empty-state placeholder
      reads as a hint, not a dead string. Same family as the new
-     #9a9ab4 default label color, kept one tier dimmer so the input
+     var(--vl-text-muted) default label color, kept one tier dimmer so the input
      still looks empty until typed into. */
-  color: #9a9ab4;
+  color: var(--vl-text-muted);
   font-family: 'SF Mono', 'Fira Code', monospace;
   letter-spacing: 0.5px;
 }
 .feed-coll-input:focus {
-  border-color: rgba(168, 144, 232, 0.40);
+  border-color: rgb(var(--vl-purple-tint) / 0.40);
   /* Focus glow tightened 12px @ 0.10 → 8px @ 0.08 — same visibility,
      tighter halo, no neon bloom. */
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.30),
-    0 0 0 1px rgba(168, 144, 232, 0.20),
-    0 0 8px rgba(168, 144, 232, 0.08);
+    0 0 0 1px rgb(var(--vl-purple-tint) / 0.20),
+    0 0 8px rgb(var(--vl-purple-tint) / 0.08);
 }
 
 /* Filters-panel mount animation. Combines opacity + slight
@@ -1368,8 +1368,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes flashTrade {
-  0%   { background: rgba(92, 224, 160, 0.32); }
-  40%  { background: rgba(92, 224, 160, 0.18); }
+  0%   { background: rgb(var(--vl-green-glow) / 0.32); }
+  40%  { background: rgb(var(--vl-green-glow) / 0.18); }
   100% { background: transparent; }
 }
 
@@ -1446,7 +1446,7 @@ a { color: inherit; text-decoration: none; }
 }
 .tools-offer-row:hover {
   transform: scale(1.015);
-  background: rgba(168,144,232,0.07);
+  background: rgb(var(--vl-purple-tint) / 0.07);
   /* Outer glow trimmed for trading-terminal aesthetic — blur 18→14 and
      alpha 0.24→0.18 (also overrides the slightly louder PC-mode token
      values 22 px / 0.28). Ring inset + scale + background lift are all
@@ -1455,7 +1455,7 @@ a { color: inherit; text-decoration: none; }
      full token-driven glow. */
   box-shadow:
     0 0 0 1px rgba(168,144,232, var(--hover-ring-alpha, 0.40)) inset,
-    0 0 14px rgba(128,104,216, 0.18);
+    0 0 14px rgb(var(--vl-purple-deep) / 0.18);
   z-index: 1;
 }
 
@@ -1481,8 +1481,8 @@ a { color: inherit; text-decoration: none; }
 }
 .tools-link-chip:hover {
   opacity: 1;
-  border-color: rgba(168, 144, 232, 0.45);
-  background: rgba(168, 144, 232, 0.06);
+  border-color: rgb(var(--vl-purple-tint) / 0.45);
+  background: rgb(var(--vl-purple-tint) / 0.06);
 }
 
 @keyframes flashListing {
@@ -1492,21 +1492,21 @@ a { color: inherit; text-decoration: none; }
 }
 
 @keyframes statFlicker {
-  0%   { color: #43b984; text-shadow: 0 0 8px rgba(92, 224, 160, 0.6); }
+  0%   { color: var(--vl-green-primary); text-shadow: 0 0 8px rgb(var(--vl-green-glow) / 0.6); }
   100% { color: inherit; text-shadow: none; }
 }
 
 .scroll-area {
   scrollbar-width: thin;
-  scrollbar-color: rgba(168, 144, 232, 0.18) transparent;
+  scrollbar-color: rgb(var(--vl-purple-tint) / 0.18) transparent;
   scrollbar-gutter: stable;
   overflow-anchor: none;
 }
 /* .scroll-area aligned with .feed-list / global default — 4 px,
    squared radius 2 px, alpha 0.18 idle / 0.32 hover. */
 .scroll-area::-webkit-scrollbar       { width: 4px; }
-.scroll-area::-webkit-scrollbar-thumb { background: rgba(168, 144, 232, 0.18); border-radius: 2px; }
-.scroll-area::-webkit-scrollbar-thumb:hover { background: rgba(168, 144, 232, 0.32); }
+.scroll-area::-webkit-scrollbar-thumb { background: rgb(var(--vl-purple-tint) / 0.18); border-radius: 2px; }
+.scroll-area::-webkit-scrollbar-thumb:hover { background: rgb(var(--vl-purple-tint) / 0.32); }
 
 .trade-row,
 .listing-row {
@@ -1524,14 +1524,14 @@ a { color: inherit; text-decoration: none; }
 /* ── Dashboard page ──────────────────────────────────────────────────────── */
 
 @keyframes flashUp {
-  0%   { background: rgba(67, 185, 132, 0.22); }
-  40%  { background: rgba(67, 185, 132, 0.12); }
+  0%   { background: rgb(var(--vl-green) / 0.22); }
+  40%  { background: rgb(var(--vl-green) / 0.12); }
   100% { background: transparent; }
 }
 
 @keyframes flashDown {
-  0%   { background: rgba(217, 104, 103, 0.22); }
-  40%  { background: rgba(217, 104, 103, 0.12); }
+  0%   { background: rgb(var(--vl-red) / 0.22); }
+  40%  { background: rgb(var(--vl-red) / 0.12); }
   100% { background: transparent; }
 }
 
@@ -1631,7 +1631,7 @@ html[data-layout="phone"] [data-page="mints"] .mints-grid {
     position: absolute;
     left: 0; right: 0; bottom: 0;
     height: 28px;
-    background: linear-gradient(180deg, transparent, #1a1530);
+    background: linear-gradient(180deg, transparent, var(--vl-gray-surface));
     pointer-events: none;
     border-radius: 0 0 12px 12px;
   }
@@ -1644,7 +1644,7 @@ html[data-layout="phone"] .mints-collections-panel::after {
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 28px;
-  background: linear-gradient(180deg, transparent, #1a1530);
+  background: linear-gradient(180deg, transparent, var(--vl-gray-surface));
   pointer-events: none;
   border-radius: 0 0 12px 12px;
 }
@@ -1810,8 +1810,8 @@ body[data-bottombar="1"] .feed-root {
         blur, no per-frame cost. */
 .mints-tracker-scroll {
   background-image:
-    radial-gradient(ellipse 60% 35% at 50% 0%,    rgba(168,144,232,0.07) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(128,104,216,0.05) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 35% at 50% 0%,    rgb(var(--vl-purple-tint) / 0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, rgb(var(--vl-purple-deep) / 0.05) 0%, transparent 65%),
     /* Bottom horizon fade — closes the "dead rectangle" feeling
        when only 1–3 collections are visible. Default
        background-attachment (`scroll`) pins this gradient to
@@ -1829,8 +1829,8 @@ body[data-bottombar="1"] .feed-root {
 /* /mints tracker — zero-row empty state. Two compact rows
    (primary + helper) styled to feel intentional rather than
    "loading". The primary line uses the same muted heading tone
-   as the rest of the tracker chrome (#9a9ab4), and the helper
-   sits one notch deeper (#241f3b) at a smaller size — same
+   as the rest of the tracker chrome (var(--vl-text-muted)), and the helper
+   sits one notch deeper (var(--vl-border-subtle)) at a smaller size — same
    palette / language as the existing column headers and
    secondary metadata in the page. Letter-spacing on the primary
    line nudges it toward a deliberate "no-data" header rather
@@ -1838,7 +1838,7 @@ body[data-bottombar="1"] .feed-root {
    no border, no illustration. */
 .mints-empty-primary {
   text-align: center;
-  color: #9a9ab4;
+  color: var(--vl-text-muted);
   padding: 56px 0 8px;
   font-size: 12.5px;
   font-weight: 600;
@@ -1847,7 +1847,7 @@ body[data-bottombar="1"] .feed-root {
 }
 .mints-empty-helper {
   text-align: center;
-  color: #241f3b;
+  color: var(--vl-border-subtle);
   padding: 0 24px 56px;
   font-size: 11px;
   letter-spacing: 0.2px;
@@ -1896,7 +1896,7 @@ body[data-bottombar="1"] .feed-root {
   top: 38px;
   bottom: 0;
   width: 3px;
-  background: rgba(168,144,232,0.045);
+  background: rgb(var(--vl-purple-tint) / 0.045);
   pointer-events: none;
 }
 /* Dashboard dropped the left-edge rail (read as a stray colorless strip
@@ -1918,13 +1918,13 @@ body[data-bottombar="1"] .feed-root {
    different colors side by side. Scoped to this dedicated class, not the
    global .scroll-area rule shared by /dashboard, /mints, /tools. */
 .multi-collections-scroll {
-  scrollbar-color: rgba(168, 144, 232, 0.12) transparent;
+  scrollbar-color: rgb(var(--vl-purple-tint) / 0.12) transparent;
 }
 .multi-collections-scroll::-webkit-scrollbar-thumb {
-  background: rgba(168, 144, 232, 0.12);
+  background: rgb(var(--vl-purple-tint) / 0.12);
 }
 .multi-collections-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(168, 144, 232, 0.32);
+  background: rgb(var(--vl-purple-tint) / 0.32);
 }
 .mints-tracker-row {
   background: rgba(255,255,255,0.030);
@@ -2005,7 +2005,7 @@ body[data-bottombar="1"] .feed-root {
    the chrome, faint enough that .tools-offer-row:hover still wins
    visually when the user mouses over a selected row. */
 .mints-tracker-row-selected {
-  background: rgba(128, 104, 216, 0.08);
+  background: rgb(var(--vl-purple-deep) / 0.08);
 }
 
 /* Symmetric scrollbar gutter for collection-style tables. The base
@@ -2080,12 +2080,12 @@ body[data-bottombar="1"] .feed-root {
   width: 2px;
   pointer-events: none;
   border-radius: 1px;
-  background: var(--mint-accent, rgb(168, 144, 232));
+  background: var(--mint-accent, rgb(var(--vl-purple-tint)));
   /* Glow EXACTLY matching /feed's `.buy-card::before/::after`: `0 0 4px`
      at 0.45 alpha. Fallback first (full-color) for browsers without
      color-mix; modern browsers use the alpha-reduced glow. */
-  box-shadow: 0 0 4px var(--mint-accent, rgba(168, 144, 232, 0.45));
-  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 45%, transparent);
+  box-shadow: 0 0 4px var(--mint-accent, rgb(var(--vl-purple-tint) / 0.45));
+  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(var(--vl-purple-tint))) 45%, transparent);
 }
 .mints-feed-row::before { left:  -2px; }
 .mints-feed-row::after  { right: -2px; }
@@ -2113,10 +2113,10 @@ body[data-bottombar="1"] .feed-root {
    two-class `.buy-card` wins left/right over `.feed-card:hover`. Alpha kept
    subtle (~42%, ≈ sales' 0.40–0.45); fallback solid for no color-mix. */
 .mints-feed-row.mints-feed-row {
-  border-left:  2px solid var(--mint-accent, rgba(168, 144, 232, 0.40));
-  border-right: 2px solid var(--mint-accent, rgba(168, 144, 232, 0.40));
-  border-left-color:  color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 40%, transparent);
-  border-right-color: color-mix(in srgb, var(--mint-accent, rgb(168, 144, 232)) 40%, transparent);
+  border-left:  2px solid var(--mint-accent, rgb(var(--vl-purple-tint) / 0.40));
+  border-right: 2px solid var(--mint-accent, rgb(var(--vl-purple-tint) / 0.40));
+  border-left-color:  color-mix(in srgb, var(--mint-accent, rgb(var(--vl-purple-tint))) 40%, transparent);
+  border-right-color: color-mix(in srgb, var(--mint-accent, rgb(var(--vl-purple-tint))) 40%, transparent);
 }
 
 /* Persistent freshness halo for cards that are 2.5–15 s old. The
@@ -2133,13 +2133,13 @@ body[data-bottombar="1"] .feed-root {
    they're looking at it. Pure paint — no animation loop, no
    transform, no layout shift. */
 .mints-feed-row-recent {
-  background: rgba(168, 144, 232, 0.035);
+  background: rgb(var(--vl-purple-tint) / 0.035);
   /* Outer-blur 8 px kept (perf). Ring + halo alphas trimmed in the
      contrast-discipline pass so 'recent' rows still read as new
      without bursting visual brightness across the feed. Pure paint. */
   box-shadow:
-    0 0 0 1px rgba(168, 144, 232, 0.14),
-    0 0 8px  rgba(168, 144, 232, 0.07);
+    0 0 0 1px rgb(var(--vl-purple-tint) / 0.14),
+    0 0 8px  rgb(var(--vl-purple-tint) / 0.07);
 }
 
 /* Previously: `.mints-feed-row img { filter: saturate(1.06) contrast(1.02) }`
@@ -2167,8 +2167,8 @@ body[data-bottombar="1"] .feed-root {
   to   { opacity: 1; transform: none;             }
 }
 @keyframes mintsFeedFreshFlash {
-  0%   { background: rgba(67, 185, 132, 0.22); border-color: rgba(67, 185, 132, 0.45); }
-  40%  { background: rgba(67, 185, 132, 0.10); border-color: rgba(67, 185, 132, 0.20); }
+  0%   { background: rgb(var(--vl-green) / 0.22); border-color: rgb(var(--vl-green) / 0.45); }
+  40%  { background: rgb(var(--vl-green) / 0.10); border-color: rgb(var(--vl-green) / 0.20); }
   100% { background: rgba(255, 255, 255, 0.02); border-color: rgba(255, 255, 255, 0.06); }
 }
 .mints-feed-row-fresh {
@@ -2197,7 +2197,7 @@ body[data-bottombar="1"] .feed-root {
 }
 /* 'recent' rows: keep the 1px ring, drop the 8px outer halo blur. */
 [data-embedded="1"] .mints-feed-row-recent {
-  box-shadow: 0 0 0 1px rgba(168, 144, 232, 0.14) !important;
+  box-shadow: 0 0 0 1px rgb(var(--vl-purple-tint) / 0.14) !important;
 }
 
 /* ===== breakpoints =====
@@ -2380,7 +2380,7 @@ body[data-bottombar="1"] .feed-root {
 /* (2) circular dot, +10% vs Premium v1 (6 -> 6.6px) */
 .vl-srcchip-dot{
   position:relative; z-index:2; pointer-events:none; width:6.6px; height:6.6px; border-radius:50%; flex:none;
-  background:radial-gradient(circle at 34% 30%,color-mix(in srgb,var(--c) 55%,#fff),var(--c) 72%);
+  background:radial-gradient(circle at 34% 30%,color-mix(in srgb,var(--c) 55%,var(--vl-white)),var(--c) 72%);
   box-shadow:0 0 0 1.5px color-mix(in srgb,var(--c) 24%,transparent),inset 0 0 1px rgba(255,255,255,.6);
 }
 /* (3) label tint — text stays tertiary under the dot/accent */
@@ -2395,3 +2395,129 @@ body[data-bottombar="1"] .feed-root {
    text node. cursor:pointer covers the full capsule for linked chips only. */
 a.vl-srcchip{ cursor:pointer; }
 .vl-srcchip:hover{ filter:brightness(1.06); }
+
+/* ============================================================================
+   /tools — bookmark-folder group card. Hovering the group card reveals a
+   flyout of its children to the right, CSS-only (no JS hover state). The
+   flyout itself also keeps :hover so moving the cursor from the card into
+   the flyout doesn't close it mid-transit.
+   ========================================================================= */
+.vl-tools-group{ position: relative; }
+.vl-tools-group-flyout{
+  position: absolute; top: 0; left: calc(100% + 10px); width: 240px;
+  display: flex; flex-direction: column; gap: 8px; z-index: 20;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateX(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+.vl-tools-group:hover .vl-tools-group-flyout,
+.vl-tools-group-flyout:hover{
+  opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(0);
+}
+/* Narrow viewports: no room to the right — flyout drops below the card
+   instead of off-screen. */
+@media (max-width: 900px) {
+  .vl-tools-group-flyout{ left: 0; top: calc(100% + 8px); width: 100%; }
+}
+
+/* ============================================================================
+   Shared tool-page CTA button (`CtaButton` in soloist/shared.tsx) — same
+   bright/dim visual language as the /access gate's Enter button
+   (`.vl-cta` in runtime/gate-css.ts): solid gradient fill + glow when
+   actionable, flat dim fill with no glow when disabled. Sized for inline
+   toolbars (next to a ToolTextInput) rather than the gate's full-width
+   52px CTA. Intentionally a SEPARATE class from `.vl-cta` — gate-css.ts is
+   an early-boot inline <style> rendered before this stylesheet is
+   guaranteed applied, so it must stay fully self-contained (see the
+   /access blank-button regression this caused once already).
+   `--vl-cta-btn--green` variant covers confirm/buy-style terminal actions
+   (e.g. Accept Bid) that carry an existing green semantic. */
+.vl-cta-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 20px; font-family: inherit; font-size: 12.5px; font-weight: 700;
+  letter-spacing: 1.2px; text-transform: uppercase; color: #1a1226;
+  background:
+    linear-gradient(135deg, #a890e8, #7c5fd0) padding-box,
+    linear-gradient(135deg, #a890e8, #7c5fd0) border-box;
+  border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+  box-shadow: 0 6px 20px -6px rgba(168, 144, 232, 0.55);
+  transition: transform 0.14s, box-shadow 0.14s, background 0.14s;
+}
+.vl-cta-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background:
+    linear-gradient(135deg, #b8a2ed, #8d70d8) padding-box,
+    linear-gradient(135deg, #b8a2ed, #8d70d8) border-box;
+  box-shadow: 0 8px 26px -6px rgba(168, 144, 232, 0.70);
+}
+.vl-cta-btn:active:not(:disabled) {
+  transform: translateY(1px);
+  background:
+    linear-gradient(135deg, #9272cc, #6a4fb8) padding-box,
+    linear-gradient(135deg, #9272cc, #6a4fb8) border-box;
+  box-shadow: 0 3px 10px -4px rgba(124, 95, 208, 0.45);
+}
+.vl-cta-btn:disabled {
+  cursor: not-allowed; color: #241f3b;
+  background: linear-gradient(180deg, #332a4d 0%, #241e39 100%);
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 2px 0 rgba(10, 6, 20, 0.5);
+  transform: none;
+}
+.vl-cta-btn--block { display: flex; width: 100%; }
+.vl-cta-btn--lg { padding: 10px 24px; font-size: 14px; letter-spacing: 1.5px; }
+.vl-cta-btn--green {
+  background:
+    linear-gradient(135deg, #6be0ac, #34a373) padding-box,
+    linear-gradient(135deg, #6be0ac, #34a373) border-box;
+  box-shadow: 0 6px 20px -6px rgba(92, 224, 160, 0.50);
+}
+.vl-cta-btn--green:hover:not(:disabled) {
+  background:
+    linear-gradient(135deg, #7ee8ba, #3fb883) padding-box,
+    linear-gradient(135deg, #7ee8ba, #3fb883) border-box;
+  box-shadow: 0 8px 26px -6px rgba(92, 224, 160, 0.65);
+}
+.vl-cta-btn--green:active:not(:disabled) {
+  background:
+    linear-gradient(135deg, #52c491, #2c8c62) padding-box,
+    linear-gradient(135deg, #52c491, #2c8c62) border-box;
+  box-shadow: 0 3px 10px -4px rgba(52, 163, 115, 0.45);
+}
+.vl-cta-btn--blue {
+  background:
+    linear-gradient(135deg, #8fc0f0, #4a8ed0) padding-box,
+    linear-gradient(135deg, #8fc0f0, #4a8ed0) border-box;
+  box-shadow: 0 6px 20px -6px rgba(126, 168, 217, 0.50);
+}
+.vl-cta-btn--blue:hover:not(:disabled) {
+  background:
+    linear-gradient(135deg, #a2cdf5, #5a9ade) padding-box,
+    linear-gradient(135deg, #a2cdf5, #5a9ade) border-box;
+  box-shadow: 0 8px 26px -6px rgba(126, 168, 217, 0.65);
+}
+.vl-cta-btn--blue:active:not(:disabled) {
+  background:
+    linear-gradient(135deg, #6fa8dc, #3a76b8) padding-box,
+    linear-gradient(135deg, #6fa8dc, #3a76b8) border-box;
+  box-shadow: 0 3px 10px -4px rgba(74, 142, 208, 0.45);
+}
+.vl-cta-btn--danger {
+  color: #fff;
+  background:
+    linear-gradient(135deg, #e0645a, #c0392b) padding-box,
+    linear-gradient(135deg, #e0645a, #c0392b) border-box;
+  box-shadow: 0 6px 20px -6px rgba(224, 100, 90, 0.50);
+}
+.vl-cta-btn--danger:hover:not(:disabled) {
+  background:
+    linear-gradient(135deg, #ea7b71, #cf483a) padding-box,
+    linear-gradient(135deg, #ea7b71, #cf483a) border-box;
+  box-shadow: 0 8px 26px -6px rgba(224, 100, 90, 0.65);
+}
+.vl-cta-btn--danger:active:not(:disabled) {
+  background:
+    linear-gradient(135deg, #c04c42, #a02d20) padding-box,
+    linear-gradient(135deg, #c04c42, #a02d20) border-box;
+  box-shadow: 0 3px 10px -4px rgba(192, 57, 43, 0.45);
+}

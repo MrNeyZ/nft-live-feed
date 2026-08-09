@@ -27,7 +27,7 @@ export function colorForCollection(addr: string | null | undefined): string {
 // Collection-name text is intentionally NOT collection-tinted: category
 // colors are reserved for the identity bar / marker / avatar surfaces,
 // never normal text. The Live Mint Feed name line uses the flat neutral
-// TEXT_MUTED (#9a9ab4) directly — the prior `colorForCollectionMuted`
+// TEXT_MUTED (var(--vl-text-muted)) directly — the prior `colorForCollectionMuted`
 // hue-tint helper was retired with that decision.
 
 /** Per-wallet muted-tint palette for the minter line on the Live Mint

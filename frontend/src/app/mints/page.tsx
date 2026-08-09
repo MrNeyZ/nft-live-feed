@@ -691,9 +691,9 @@ const SOURCE_COLORS: Record<SourceKey, string> = {
   CORE:  hex(VL.purpleTint), // Core (hidden from UI)
 };
 const STATUS_COLORS: Record<string, string> = {
-  active: '#43b984', // VL.green
-  watch:  '#c7b479', // VL.gold
-  sold:   '#d96867', // VL.red — hex only, see TYPE_COLORS note above
+  active: 'var(--vl-green-primary)', // VL.green
+  watch:  'var(--vl-gold-primary)', // VL.gold
+  sold:   'var(--vl-red-primary)', // VL.red — hex only, see TYPE_COLORS note above
 };
 
 type SortKey = 'collection' | 'mints' | 'supply' | 'last' | 'price' | 'created';
@@ -792,13 +792,13 @@ function FeedFiltersPopover({
             position: 'absolute', top: '100%', right: 0, marginTop: 6,
             // EXACT reuse of the left Mint Collections panel recipe so the two
             // settings surfaces read as one system — no approximated colors:
-            //   • card gradient identity  (#1a1530 → #1a1530, line ~2212)
+            //   • card gradient identity  (var(--vl-gray-surface) → var(--vl-gray-surface), line ~2212)
             //   • .feed-filters-panel overlay (rgba(0,0,0,0.26), globals ~920)
             //     stacked on top → exact effective tone of the left strip,
             //     opaque so feed cards behind never bleed through.
-            //   • card border (rgba(168,144,232,0.32)) + card box-shadow.
+            //   • card border (rgb(var(--vl-purple-tint) / 0.32)) + card box-shadow.
             background:
-              'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+              'linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.26)), linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
             border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
             borderRadius: 12,
             boxShadow:
@@ -2370,13 +2370,13 @@ export default function MintsPage() {
         // Restore the VictoryLabs dark-purple panel identity (the v2
         // strong-pass de-saturated this to cold #15121f/#0f0c19 which
         // detached the page from the rest of the app). Original was
-        // #1a1530 → #1a1530 with a loud 0.65 purple border and a 0.15
+        // var(--vl-gray-surface) → var(--vl-gray-surface) with a loud 0.65 purple border and a 0.15
         // outer purple aura — kept the hue, trimmed the excess. New:
         // same purple gradient, border alpha 0.65 → 0.32 (half),
         // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
         // the same purple terminal panel /feed and /dashboard ship,
         // just with less neon ring around it.
-        background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
         border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
         borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
@@ -2510,7 +2510,7 @@ export default function MintsPage() {
                     />
                     <Pill
                       active
-                      color="#d96867"
+                      color="var(--vl-red-primary)"
                       onClick={() => addBlacklist(blInput)}
                       label="+"
 
@@ -2849,7 +2849,7 @@ export default function MintsPage() {
           hidden in embed). */}
       {(
         <div style={{
-          background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
+          background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
           border: `1px solid ${alpha(VL.purpleTint,0.65)}`, borderRadius: 12,
           boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.15)}`,
           // Pane fills its grid cell vertically — minHeight: 0 lets the
@@ -2962,7 +2962,7 @@ export default function MintsPage() {
             scrollbarGutter: 'stable both-edges',
           }}>
             {visibleEvents.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#241f3b', padding: '36px 16px', fontSize: 12 }}>
+              <div style={{ textAlign: 'center', color: 'var(--vl-border-subtle)', padding: '36px 16px', fontSize: 12 }}>
                 {events.length === 0
                   ? 'Waiting for individual mint events…'
                   : activeFeedFilterCount > 0

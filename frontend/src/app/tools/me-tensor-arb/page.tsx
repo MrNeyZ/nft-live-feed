@@ -12,10 +12,10 @@
 // Data: GET /api/tools/me-tensor-arb?q=<slug | collection address | mint>
 
 import { useEffect, useState } from 'react';
-import { LiveDot } from '@/soloist/shared';
+import { LiveDot, CtaButton } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { authHeaders } from '@/runtime/auth';
-import { API_BASE, MONO, PANEL, TH, TH_L, ADDR_RE, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
+import { API_BASE, MONO, PANEL, TH, TH_L, ADDR_RE, ToolTextInput, short } from '@/app/tools/mmm-shared';
 
 interface ArbListing {
   mint:      string;
@@ -96,15 +96,15 @@ export default function MeTensorArbPage() {
     <div className="feed-root page-transition" data-page="tools">
       <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
       <div style={{ width: '100%', maxWidth: 'var(--tools-max, 1100px)', margin: '0 auto', boxSizing: 'border-box', padding: '20px 4px 14px' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
           ME vs TENSOR ARB
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap' }}>
           <LiveDot />
           <span>read-only · finds ME/MMM listings priced below Tensor&apos;s cheapest active listing for the same collection</span>
         </div>
 
-        <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: '#9a9ab4' }}>
+        <label style={{ display: 'block', marginTop: 16, fontSize: 11, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--vl-text-muted)' }}>
           Collection slug, collection address, or NFT mint address
         </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
@@ -116,15 +116,15 @@ export default function MeTensorArbPage() {
             disabled={busy}
             style={{ flex: 1, minWidth: 280 }}
           />
-          <ToolButton onClick={() => void run()} disabled={idle} ownSound>
+          <CtaButton onClick={() => void run()} disabled={idle} ownSound>
             {busy ? 'Checking…' : 'Check'}
-          </ToolButton>
+          </CtaButton>
         </div>
 
         {error && (
           <div style={{
-            marginTop: 12, padding: '8px 12px', fontSize: 12, color: '#d96867',
-            background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)',
+            marginTop: 12, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+            background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)',
             borderRadius: 5,
           }}>
             {error}
@@ -133,44 +133,44 @@ export default function MeTensorArbPage() {
 
         {result && !busy && (
           <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: '#9a9ab4' }}>
-              <span style={{ ...MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#c7b479' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 11, fontSize: 11.5, color: 'var(--vl-text-muted)' }}>
+              <span style={{ ...MONO, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--vl-gold-primary)' }}>
                 {resolvedViaLabel(result.resolvedVia)}
               </span>
               <span style={{ ...MONO, color: '#c4b8e8' }}>{result.resolvedSlug}</span>
             </div>
             <div style={{ display: 'flex', gap: 11, flexWrap: 'wrap', marginBottom: 11 }}>
               <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>Tensor floor</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#f0eef8', ...MONO, letterSpacing: '-0.5px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 6 }}>Tensor floor</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--vl-text-primary)', ...MONO, letterSpacing: '-0.5px' }}>
                   {result.tensorFloorSol != null ? `${fmtSol(result.tensorFloorSol)} SOL` : '—'}
                 </div>
-                <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>{result.tensorListedCount} active Tensor listings</div>
+                <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginTop: 4 }}>{result.tensorListedCount} active Tensor listings</div>
               </div>
               <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>ME floor</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#f0eef8', ...MONO, letterSpacing: '-0.5px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 6 }}>ME floor</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--vl-text-primary)', ...MONO, letterSpacing: '-0.5px' }}>
                   {result.meFloorSol != null ? `${fmtSol(result.meFloorSol)} SOL` : '—'}
                 </div>
-                <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>{result.meListedCount} active ME listings</div>
+                <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginTop: 4 }}>{result.meListedCount} active ME listings</div>
               </div>
               <div style={{ ...PANEL, flex: '1 1 180px', minWidth: 160, marginBottom: 0, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>Below Tensor floor</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: listings.length > 0 ? '#43b984' : '#f0eef8', ...MONO, letterSpacing: '-0.5px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 6 }}>Below Tensor floor</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: listings.length > 0 ? 'var(--vl-green-primary)' : 'var(--vl-text-primary)', ...MONO, letterSpacing: '-0.5px' }}>
                   {listings.length}
                 </div>
-                <div style={{ fontSize: 11, color: '#9a9ab4', marginTop: 4 }}>checked {fmtWhen(checkedAt)}</div>
+                <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginTop: 4 }}>checked {fmtWhen(checkedAt)}</div>
               </div>
             </div>
 
             <div style={{ ...PANEL, padding: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: '#9a9ab4', marginBottom: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--vl-text-muted)', marginBottom: 6 }}>
                 Arbitrage candidates
               </div>
               {result.tensorFloorSol == null ? (
-                <div style={{ fontSize: 12, color: '#9a9ab4' }}>No active Tensor listings found for this collection — nothing to compare against.</div>
+                <div style={{ fontSize: 12, color: 'var(--vl-text-muted)' }}>No active Tensor listings found for this collection — nothing to compare against.</div>
               ) : listings.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#9a9ab4' }}>Nothing currently listed below the Tensor floor.</div>
+                <div style={{ fontSize: 12, color: 'var(--vl-text-muted)' }}>Nothing currently listed below the Tensor floor.</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -188,10 +188,10 @@ export default function MeTensorArbPage() {
                       {listings.map((l) => (
                         <tr key={l.mint} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                           <td style={{ padding: '6px 8px', ...MONO }}>{l.nftName ?? short(l.mint)}</td>
-                          <td style={{ padding: '6px 8px', color: l.source === 'MMM' ? '#c7b479' : '#9aa6c4' }}>{l.source}</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', color: '#43b984', fontWeight: 700, ...MONO }}>{fmtSol(l.priceSol)}</td>
+                          <td style={{ padding: '6px 8px', color: l.source === 'MMM' ? 'var(--vl-gold-primary)' : '#9aa6c4' }}>{l.source}</td>
+                          <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--vl-green-primary)', fontWeight: 700, ...MONO }}>{fmtSol(l.priceSol)}</td>
                           <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>{l.multiple.toFixed(2)}×</td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', color: '#9a9ab4', ...MONO }}>{fmtWhen(l.listedAt)}</td>
+                          <td style={{ padding: '6px 8px', textAlign: 'right', color: 'var(--vl-text-muted)', ...MONO }}>{fmtWhen(l.listedAt)}</td>
                           <td style={{ padding: '6px 8px' }}>
                             <a
                               href={`https://magiceden.io/item-details/${l.mint}`}

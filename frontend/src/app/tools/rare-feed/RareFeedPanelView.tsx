@@ -35,9 +35,9 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
       flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
       width: '100%', maxWidth: maxW, margin: '0 auto',
       overflow: 'hidden',
-      background: 'linear-gradient(180deg, #1a1530 0%, #1a1530 100%)',
-      border: '1px solid rgba(168,144,232,0.65)', borderRadius: 12,
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgba(128,104,216,0.15)',
+      background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+      border: '1px solid rgb(var(--vl-purple-tint) / 0.65)', borderRadius: 12,
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px rgb(var(--vl-purple-deep) / 0.15)',
       marginBottom: embedded ? 0 : 16,
     }}>
       {/* Embed-only compact header — matches the right Live Feed Sales
@@ -47,27 +47,27 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px', flexShrink: 0,
-          borderBottom: '1px solid rgba(168,144,232,0.12)',
-          background: 'rgba(168,144,232,0.04)',
+          borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.12)',
+          background: 'rgb(var(--vl-purple-tint) / 0.04)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h1 style={{ fontSize: 15, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.2px' }}>Rare events</h1>
+            <h1 style={{ fontSize: 15, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.2px' }}>Rare events</h1>
             <LiveDot />
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#9a9ab4', marginLeft: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--vl-text-muted)', marginLeft: 4 }}>
               ({rows.length.toLocaleString()})
             </span>
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3,
               marginLeft: 4, padding: '1px 5px', borderRadius: 3,
               fontSize: 9.5, fontWeight: 700, letterSpacing: '0.3px',
-              border: error ? '1px solid #d9686766' : '1px solid rgba(92,224,160,0.22)',
-              background: error ? 'rgba(239,120,120,0.14)' : 'transparent',
-              color: error ? '#d96867' : 'rgba(92,224,160,0.65)',
+              border: error ? '1px solid rgb(var(--vl-red) / .4)' : '1px solid rgb(var(--vl-green-glow) / 0.22)',
+              background: error ? 'rgb(var(--vl-red-glow) / 0.14)' : 'transparent',
+              color: error ? 'var(--vl-red-primary)' : 'rgb(var(--vl-green-glow) / 0.65)',
             }}>
               <span style={{
                 display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                background: error ? '#d96867' : '#43b984',
-                boxShadow: error ? '0 0 6px #d9686780' : '0 0 4px rgba(92,224,160,0.40)',
+                background: error ? 'var(--vl-red-primary)' : 'var(--vl-green-primary)',
+                boxShadow: error ? '0 0 6px rgb(var(--vl-red) / .5)' : '0 0 4px rgb(var(--vl-green-glow) / 0.40)',
               }} />
               RARE {error ? 'ERR' : 'OK'}
             </span>
@@ -92,7 +92,6 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
             key={e.saleSignature}
             event={rareToFeedEvent(e)}
             onPreview={onPreview}
-            inclusiveFees={false}
             sellerSellCountInFeed={0}
             isNewestSellForSellerColl={false}
             density="compact"
@@ -106,5 +105,5 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
 }
 
 const emptyCell: React.CSSProperties = {
-  textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
+  textAlign: 'center', color: 'var(--vl-text-muted)', padding: '64px 24px', fontSize: 13, lineHeight: 1.6,
 };
