@@ -20,6 +20,7 @@ const playfairDisplay = Playfair_Display({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://victorylabs.app'),
   title: 'Live Feed | VictoryLabs',
   description: 'Solana-wide NFT sales in real time',
   // Favicon = VictoryLabs brand mark. favicon.ico in app/ (served at
@@ -30,6 +31,23 @@ export const metadata: Metadata = {
       { url: '/favicon.svg', type: 'image/svg+xml' },
     ],
     apple: [{ url: '/apple-touch-icon.png' }],
+  },
+  // Discord/Slack/Twitter link-preview card. `summary` (not
+  // `summary_large_image`) renders the logo as a small square thumbnail
+  // on the right, matching Tensor's link-card layout.
+  openGraph: {
+    // Kept identical to wallet-checker's card — one shared VictoryLabs
+    // brand headline across both domains, not per-page.
+    title: "VictoryLabs | Solana's NFT Trading Tool",
+    description: 'Real-time Solana NFT sales feed, mint tracking, and bulk wallet cleanup for active traders.',
+    url: 'https://victorylabs.app',
+    images: [{ url: '/apple-touch-icon.png', width: 180, height: 180 }],
+  },
+  twitter: {
+    card: 'summary',
+    title: "VictoryLabs | Solana's NFT Trading Tool",
+    description: 'Real-time Solana NFT sales feed, mint tracking, and bulk wallet cleanup for active traders.',
+    images: ['/apple-touch-icon.png'],
   },
 };
 
