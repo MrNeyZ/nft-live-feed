@@ -11,6 +11,7 @@
  * marketplace holder stat is ever trusted.
  */
 import { getAsset } from '../enrichment/helius-das';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 /** ME collection symbols are lowercase alnum + underscore/hyphen. Keep the
  *  validator permissive but reject paths/spaces that could break the URL. */
@@ -33,7 +34,7 @@ async function sampleMintForSlug(slug: string): Promise<string | null> {
   ];
   for (const url of urls) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
       if (!res.ok) continue;
       const json = await res.json() as Array<{ tokenMint?: string }>;
       const mint = Array.isArray(json) ? json[0]?.tokenMint : undefined;

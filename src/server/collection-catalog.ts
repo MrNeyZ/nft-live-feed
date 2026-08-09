@@ -23,6 +23,7 @@
 
 import { Limiter } from '../ingestion/concurrency';
 import { getPool } from '../db/client';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 const ME_API_BASE          = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE            = 500;
@@ -67,7 +68,7 @@ async function fetchPage(offset: number): Promise<MeCollectionRaw[] | null> {
     try {
       const res = await fetch(
         `${ME_API_BASE}/collections?offset=${offset}&limit=${PAGE_SIZE}`,
-        { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+        { headers: meAuthHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
       );
       if (!res.ok) return null;
       const json = await res.json() as unknown;

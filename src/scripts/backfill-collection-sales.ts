@@ -30,6 +30,7 @@
 
 import 'dotenv/config';   // auto-load .env so DATABASE_URL is always available
 import { Pool } from 'pg';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 const ME_API   = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE     = 500;
@@ -118,7 +119,7 @@ function parseArgs(argv: string[]): CliArgs {
 async function fetchPage(slug: string, offset: number): Promise<MeActivity[]> {
   const url = `${ME_API}/collections/${encodeURIComponent(slug)}/activities`
             + `?type=buyNow&offset=${offset}&limit=${PAGE}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`ME activities HTTP ${res.status}`);
   const json = await res.json() as MeActivity[];
   if (!Array.isArray(json)) throw new Error('ME activities: non-array response');

@@ -11,6 +11,7 @@
  */
 
 import { NftMetadata } from './helius-das';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 // Verified live shape of ME v2 /tokens/{mint} response:
 //   { mintAddress, collection (slug), collectionName, name, image, … }
@@ -28,7 +29,7 @@ interface MeTokenResponse {
 export async function getMeTokenMetadata(mintAddress: string): Promise<NftMetadata> {
   const res = await fetch(
     `https://api-mainnet.magiceden.dev/v2/tokens/${mintAddress}`,
-    { headers: { Accept: 'application/json' } },
+    { headers: { Accept: 'application/json', ...meAuthHeaders() } },
   );
 
   if (!res.ok) {

@@ -12,6 +12,7 @@
  * collection size — so it is deliberately excluded as a rarity denominator.
  */
 import { getJson, firstPositiveInt, type RarityProvider, type RarityFetch } from './shared';
+import { meAuthHeaders } from '../../me-api-cooldown';
 
 const TOKEN_BASE = 'https://api-mainnet.magiceden.dev/v2/tokens';
 const STATS_BASE = 'https://api-mainnet.magiceden.dev/v2/collections';
@@ -46,7 +47,7 @@ async function collectionSupply(symbol: string): Promise<number | null> {
   if (hit && Date.now() - hit.at < SUPPLY_TTL_MS) return hit.supply;
   const json = await getJson<Record<string, unknown>>(
     `${STATS_BASE}/${encodeURIComponent(symbol)}/stats`,
-    { label: 'magiceden', timeoutMs: 6_000 },
+    { label: 'magiceden', timeoutMs: 6_000, headers: meAuthHeaders() },
   );
   const supply = json ? firstPositiveInt(json, STATS_SUPPLY_KEYS) : null;
   supplyBySymbol.set(symbol, { supply, at: Date.now() });
@@ -59,7 +60,7 @@ export const magicEdenProvider: RarityProvider = {
   async resolve(mint: string): Promise<RarityFetch | null> {
     const json = await getJson<Record<string, unknown>>(
       `${TOKEN_BASE}/${encodeURIComponent(mint)}`,
-      { label: 'magiceden', timeoutMs: 5_000 },
+      { label: 'magiceden', timeoutMs: 5_000, headers: meAuthHeaders() },
     );
     if (!json) return null;
     const rank = firstPositiveInt(json, RANK_KEYS) ?? nestedRarityRank(json);

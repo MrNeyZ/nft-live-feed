@@ -25,6 +25,7 @@
 
 import { Router, Request, Response } from 'express';
 import { rateLimit, isValidMint } from './rate-limit';
+import { meAuthHeaders } from '../me-api-cooldown';
 
 const CHECK_TTL_MS = 30_000;
 // Lowered 60 → 20 per H2. The Collection page's listing-presence prefetch
@@ -62,7 +63,7 @@ async function fetchMeListing(mint: string): Promise<MeListing> {
   try {
     const res = await fetch(
       `https://api-mainnet.magiceden.dev/v2/tokens/${encodeURIComponent(mint)}/listings`,
-      { signal: AbortSignal.timeout(4_000) },
+      { headers: meAuthHeaders(), signal: AbortSignal.timeout(4_000) },
     );
     if (!res.ok) return { listed: false, priceSol: null, seller: null, auctionHouse: null };
     const json = await res.json() as MeListingRaw[];
