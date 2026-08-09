@@ -75,6 +75,22 @@ interface FlatPool {
   anyOnly:        boolean;   // 'any' allowlist — invisible to the normal FVCA/MCC scan
   isNew?:         boolean;   // never seen by pool-stream before (persistent, not cache-derived)
 }
+// Guards against pre-aa9351a localStorage entries: the hide/later panels
+// used to persist a narrow { collectionName, pct, realEscrowSol, escrowPda }
+// snapshot under the same keys before that commit switched to the full
+// FlatPool shape. Old entries silently surviving under the new key crash
+// PoolFeedRow's .toFixed() calls on the fields they never had
+// (spotPriceSol, missingSol, poolKey, owner, alKey) — drop anything that
+// doesn't match the current shape instead of rendering it.
+function isValidFlatPool(p: unknown): p is FlatPool {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.poolKey === 'string'
+    && typeof o.spotPriceSol === 'number'
+    && typeof o.realEscrowSol === 'number'
+    && typeof o.missingSol === 'number'
+    && typeof o.pct === 'number';
+}
 
 type TokenType = 'Legacy' | 'pNFT' | 'Core' | 'Unknown';
 const ALL_TOKEN_TYPES: TokenType[] = ['Legacy', 'pNFT', 'Core', 'Unknown'];
@@ -519,6 +535,8 @@ export default function MmmCollectionScannerPage() {
     const params   = new URLSearchParams({ min_pct: String(minPct) });
     if (fastMode)    params.set('fast',  '1');
     if (opts?.force) params.set('force', '1');
+    const authToken = authHeaders().Authorization?.replace(/^Bearer\s+/i, '');
+    if (authToken) params.set('token', authToken);
     const url = `${API_BASE}/api/tools/mmm-pools/triage-stream?${params}`;
 
     triageEsRef.current?.close();
@@ -642,7 +660,8 @@ export default function MmmCollectionScannerPage() {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.hidden') : null;
       if (!raw) return new Map<string, FlatPool>();
-      return new Map(JSON.parse(raw) as Array<[string, FlatPool]>);
+      const entries = (JSON.parse(raw) as Array<[string, unknown]>).filter(([, v]) => isValidFlatPool(v));
+      return new Map(entries as Array<[string, FlatPool]>);
     } catch { return new Map<string, FlatPool>(); }
   });
   const [showHiddenPanel, setShowHiddenPanel] = useState(false);
@@ -671,7 +690,8 @@ export default function MmmCollectionScannerPage() {
     try {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('vl.mmm-pf.later') : null;
       if (!raw) return new Map<string, FlatPool>();
-      return new Map(JSON.parse(raw) as Array<[string, FlatPool]>);
+      const entries = (JSON.parse(raw) as Array<[string, unknown]>).filter(([, v]) => isValidFlatPool(v));
+      return new Map(entries as Array<[string, FlatPool]>);
     } catch { return new Map<string, FlatPool>(); }
   });
   const [showLaterPanel, setShowLaterPanel] = useState(false);
@@ -704,6 +724,8 @@ export default function MmmCollectionScannerPage() {
     const minPct = parseFloat(pfMinPct) || 50;
     const params = new URLSearchParams({ min_pct: String(minPct), fast: pfFast ? '1' : '0', any: pfIncludeAny ? '1' : '0' });
     if (opts?.force) params.set('force', '1');
+    const authToken = authHeaders().Authorization?.replace(/^Bearer\s+/i, '');
+    if (authToken) params.set('token', authToken);
     const url = `${API_BASE}/api/tools/mmm-pools/pool-stream?${params}`;
 
     pfEsRef.current?.close();
