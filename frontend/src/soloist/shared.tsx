@@ -700,7 +700,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
@@ -1264,6 +1264,23 @@ export function TopNav({ active }: { active?: Page } = {}) {
                       }}
                     >
                       CANDYMINT
+                    </Link>
+                    <Link
+                      role="menuitem"
+                      href="/tools/tensor-take-bid"
+                      prefetch
+                      style={DROPDOWN_ITEM_STYLE}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgb(var(--vl-purple-tint) / 0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; router.prefetch('/tools/tensor-take-bid'); }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-muted)'; }}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                          console.log('[nav-perf] click /tools/tensor-take-bid');
+                        }
+                        setToolsOpen(false);
+                      }}
+                    >
+                      TAKEBID
                     </Link>
                     <Link
                       role="menuitem"

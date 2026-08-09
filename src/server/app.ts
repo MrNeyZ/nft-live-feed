@@ -32,6 +32,7 @@ import { createSpl20Router } from './tools-spl20';
 import { createDotlandRouter } from './tools-dotland';
 import { createCandyMintRouter } from './tools-candy-mint';
 import { createMeBidsRouter } from './tools-me-bids';
+import { createTensorTakeBidRouter } from './tools-tensor-take-bid';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
@@ -205,6 +206,13 @@ export function createApp() {
   // private key; build-only until the client signs via Phantom and submits
   // through the existing /api/tools/mmm-pools/send-tx proxy.
   app.use('/api', createMeBidsRouter());
+
+  // Tensor Take Bid tool — personal use, requireAuth-gated on every route
+  // (see tools-tensor-take-bid.ts header comment). Reads a live Tensor
+  // collection bid + an mpl-core asset and returns an unsigned
+  // takeBidCore tx; Phantom signs and submits it directly client-side,
+  // no backend broadcast step.
+  app.use('/api', createTensorTakeBidRouter());
 
   // Pixel-forge drawing agent — personal use, requireAuth-gated on every
   // route (see tools-pixel-forge.ts header comment).

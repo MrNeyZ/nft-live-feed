@@ -33,6 +33,7 @@ const TOOLS: ReadonlyArray<ToolCard> = [
   // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
   // { href: '/tools/pixel-forge',        title: 'Pixel Forge',           desc: 'AI pixel-art trait generator, collection-aware.' },
   { href: '/tools/candy-mint',            title: 'Candy Mint',            desc: 'Reconstruct a Core Candy Guard mint from a signature and mint directly, if still alive.' },
+  { href: '/tools/tensor-take-bid',       title: 'Tensor Take Bid',       desc: 'Accept any live Tensor collection bid on an mpl-core asset — reads live chain state, sign with Phantom.' },
 ];
 
 export default function ToolsIndexPage() {
