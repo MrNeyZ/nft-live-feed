@@ -106,15 +106,20 @@ export function createMeTensorArbRouter(): Router {
 
       // Floor detection now delegates to the shared cross-market analytics
       // module (src/analytics/cross-market.ts) instead of re-computing
-      // Math.min() inline. `tensorDirectFloorSol` is provably identical to
-      // the old `tensorFloorSol` value in every real case: both are a
-      // scalar minimum over the same TENSOR-source row set, and taking a
-      // minimum is invariant to whether duplicate rows for one mint were
-      // deduped first (dedup only ever removes a NON-minimal duplicate,
-      // never the minimum itself).
+      // Math.min() inline. `meDirectFloorSol` / `tensorDirectFloorSol` are
+      // provably identical to the old `meFloorSol` / `tensorFloorSol`
+      // values in every real case: both are a scalar minimum over the same
+      // per-source row set, and taking a minimum is invariant to whether
+      // duplicate rows for one mint were deduped first (dedup only ever
+      // removes a NON-minimal duplicate, never the minimum itself).
       const gap = computeCrossMarketGap(rows);
+      const meFloorSol = gap.meDirectFloorSol;
+      // Raw per-source row counts — intentionally NOT `gap.uniqueMintCount`
+      // (that's deduped across ALL sources, a different concept from "how
+      // many ME/Tensor rows exist"). Preserves the exact original counting.
+      const meListedCount = rows.filter(r => r.source === 'ME').length;
       if (gap.tensorDirectFloorSol === null) {
-        res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol: null, tensorListedCount: 0, listings: [] });
+        res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol: null, tensorListedCount: 0, meFloorSol, meListedCount, listings: [] });
         return;
       }
       const tensorFloorSol = gap.tensorDirectFloorSol;
@@ -142,7 +147,7 @@ export function createMeTensorArbRouter(): Router {
           multiple: tensorFloorSol / r.priceSol,
         }));
 
-      res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol, tensorListedCount, listings });
+      res.json({ ok: true, resolvedSlug: slug, resolvedVia, tensorFloorSol, tensorListedCount, meFloorSol, meListedCount, listings });
     } catch (err) {
       console.error('[tools/me-tensor-arb] error', err);
       res.status(500).json({ error: 'internal' });
