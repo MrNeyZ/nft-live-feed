@@ -64,7 +64,7 @@ const SRCCHIP_W = 66;
 
 export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?: 'sm' | 'lg' }) {
   void size; // sizing is fixed by the chip primitive; prop kept for callers
-  const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad);
+  const sb = sourceBadge(row.sourceLabel, row.coreLaunchpad, row.programSource);
   const href = sourceHref(row);
   // Deploy-only collection — the accumulator returns early on a
   // collection-CREATE event and never increments `observedMints`

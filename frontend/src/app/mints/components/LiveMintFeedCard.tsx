@@ -481,7 +481,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   // (same helper the table uses), so this chip and the table's are always
   // in sync by construction. See the CHIP_LABEL comment above for the
   // width-driven abbreviation applied on top for this narrower chip.
-  const badge = sourceBadge(ev.sourceLabel, ev.coreLaunchpad);
+  const badge = sourceBadge(ev.sourceLabel, ev.coreLaunchpad, ev.programSource);
   const nftTypeLabel = badge.label;
   // Two-tier freshness on the right Live Mint Feed:
   //   • `mints-feed-row-fresh`  (< 2.5 s) — one-shot slide-in +
