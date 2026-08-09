@@ -1592,6 +1592,15 @@ const NFT_MINT_INSTRUCTION_NEEDLES: readonly string[] = [
   'Instruction: MintAsset',
 ];
 
+// Per-asset MPL Core create forms — mirrors the per-asset subset of
+// CORE_INSTRUCTION_NEEDLES above (deliberately excludes the two
+// CreateCollection variants: creating the collection isn't a minted NFT).
+const CORE_PER_ASSET_CREATE_INSTRUCTIONS: readonly string[] = [
+  'Instruction: Create',
+  'Instruction: CreateV1',
+  'Instruction: CreateV2',
+];
+
 /** Count `Program log: <instruction>` lines emitted DIRECTLY by `program` —
  *  i.e. the immediately-preceding log line is that program's `invoke`.
  *  Program-scoping is required when the bare instruction string is ambiguous
@@ -1646,10 +1655,20 @@ export function countNftMints(tx: RawSolanaTx): number {
   // assets in the same tx. (A LaunchMyNFT-specific gate was rejected — the
   // verified bulk tx is driven by `7FGMn1z6…`, not LaunchMyNFT, and doesn't
   // contain that program, so such a gate would regress the 12-count to 1.)
+  //
+  // Bare `Instruction: Create` isn't the only per-asset form — newer Core
+  // program versions log `CreateV1`/`CreateV2` instead (same variants
+  // CORE_INSTRUCTION_NEEDLES above already whitelists for detection; e.g.
+  // vvv.so). Missing them here undercounted every CreateV2 bulk mint to 1,
+  // silently hiding the ×N badge (verified live, sig 4tssWAd4…: 4 scoped
+  // `CreateV2` reduced to max=0 with only the bare needle, badge never
+  // rendered even though 4 assets were created in one tx).
   const coreBurns = countScopedInstruction(logs, 'Instruction: Burn', MPL_CORE_PROGRAM);
   if (coreBurns === 0) {
-    const coreCreates = countScopedInstruction(logs, 'Instruction: Create', MPL_CORE_PROGRAM);
-    if (coreCreates > max) max = coreCreates;
+    for (const createInstruction of CORE_PER_ASSET_CREATE_INSTRUCTIONS) {
+      const coreCreates = countScopedInstruction(logs, createInstruction, MPL_CORE_PROGRAM);
+      if (coreCreates > max) max = coreCreates;
+    }
   }
   // Candy Machine v3 `mintV2`: scoped to the Candy Machine program so the
   // Candy Guard wrapper's duplicate `Instruction: MintV2` line doesn't

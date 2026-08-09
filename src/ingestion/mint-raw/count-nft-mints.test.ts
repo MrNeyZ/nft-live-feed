@@ -62,6 +62,11 @@ const CASES: Case[] = [
     label:  'forge/merge — prm1az… deposit only, 1 Core Create / 0 Burn = 1 NFT',
     expect: 1,
   },
+  {
+    sig:    '4tssWAd45brqmcVoDHczqwXQdrjhVSPVPWyrRRKfgs8oTWL2bor4KtC37G8jZjormHEtfSci2MFnb8D2bbZK3XXH',
+    label:  'true bulk — MPL Core ×4, newer CreateV2 log form (not bare Create)',
+    expect: 4, // before fix: 1 (bare-only needle missed CreateV2 entirely)
+  },
 ];
 
 async function main() {
