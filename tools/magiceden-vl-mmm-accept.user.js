@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.6
-// @description  VictoryLabs MMM bridge — v0.5.6 removes hardcoded RPC key; signed-but-unsent txs are submitted by VL's backend instead
+// @version      0.5.9
+// @description  VictoryLabs MMM bridge — v0.5.9: ME's response always carries both a legacy variant (tx/txSigned) and a versioned ALT variant (v0.tx/v0.txSigned) in one call; ALT detection now reads the v0 field instead of the always-legacy top-level tx field, removing the pointless retry loop from v0.5.8
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -24,12 +24,65 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.6 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.5.9 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
+
+  function buildIxUrl(params, withTokenStandard) {
+    const { pool, seller, assetMint, assetTokenAccount, assetAmount = 1, minPaymentAmount, isMip1, isCnft } = params;
+    if (isCnft) {
+      return ME_IXS_CNFT
+        + '?pool='             + encodeURIComponent(pool)
+        + '&seller='           + encodeURIComponent(seller)
+        + '&assetMint='        + encodeURIComponent(assetMint)
+        + '&assetAmount='      + encodeURIComponent(assetAmount)
+        + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
+    }
+    return ME_IXS
+      + '?pool='                + encodeURIComponent(pool)
+      + '&seller='              + encodeURIComponent(seller)
+      + '&assetMint='           + encodeURIComponent(assetMint)
+      + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
+      + '&assetAmount='         + encodeURIComponent(assetAmount)
+      + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount)
+      + (withTokenStandard && isMip1 ? '&tokenStandard=4' : '');
+  }
+
+  async function doFetchIx(url) {
+    console.log(TAG, 'calling fetch() ->', url);
+    const t0 = performance.now();
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { accept: 'application/json' },
+      });
+      const elapsedMs = Math.round(performance.now() - t0);
+      console.log(TAG, 'fetch finished - status=' + resp.status + ' elapsed=' + elapsedMs + 'ms');
+
+      const rawBody = await resp.text();
+      let data = null;
+      try { data = JSON.parse(rawBody); } catch (_) { /* not JSON */ }
+
+      const result = {
+        ok: resp.ok, status: resp.status, elapsedMs, url, data, rawBody,
+        error: resp.ok ? null : (data?.message ?? data?.error ?? ('HTTP ' + resp.status)),
+      };
+      if (resp.ok) console.log(TAG, 'fetch OK', result);
+      else         console.warn(TAG, 'fetch non-OK', result);
+      return result;
+    } catch (err) {
+      const elapsedMs = Math.round(performance.now() - t0);
+      console.error(TAG, 'fetch threw', err.message, 'elapsed=' + elapsedMs + 'ms');
+      return {
+        ok: false, status: null, elapsedMs, url,
+        data: null, rawBody: null, error: err.message ?? String(err),
+      };
+    }
+  }
 
   // Core fetch
   async function vlMmmFulfillBuy(params) {
-    const { pool, seller, assetMint, assetTokenAccount, assetAmount = 1, minPaymentAmount, isMip1, isCnft } = params ?? {};
+    const { pool, seller, assetMint, assetTokenAccount, minPaymentAmount, isMip1, isCnft } = params ?? {};
 
     if (!pool || !seller || !assetMint || minPaymentAmount == null) {
       return {
@@ -45,64 +98,28 @@
         error: 'Missing assetTokenAccount for non-cNFT',
       };
     }
+    console.log(TAG, 'isCnft=' + !!isCnft + ' isMip1=' + !!isMip1);
 
-    let url;
-    if (isCnft) {
-      // cNFT: dedicated endpoint, no assetTokenAccount needed
-      url = ME_IXS_CNFT
-        + '?pool='             + encodeURIComponent(pool)
-        + '&seller='           + encodeURIComponent(seller)
-        + '&assetMint='        + encodeURIComponent(assetMint)
-        + '&assetAmount='      + encodeURIComponent(assetAmount)
-        + '&minPaymentAmount=' + encodeURIComponent(minPaymentAmount);
-    } else {
-      // pNFT pools: add tokenStandard=4 so ME builds the right accounts
-      // ME may return versioned tx (ALTs) for its own pools → trySignInPopup handles it
-      url = ME_IXS
-        + '?pool='                + encodeURIComponent(pool)
-        + '&seller='              + encodeURIComponent(seller)
-        + '&assetMint='           + encodeURIComponent(assetMint)
-        + '&assetTokenAccount='   + encodeURIComponent(assetTokenAccount)
-        + '&assetAmount='         + encodeURIComponent(assetAmount)
-        + '&minPaymentAmount='    + encodeURIComponent(minPaymentAmount)
-        + (isMip1 ? '&tokenStandard=4' : '');
+    if (isCnft || !isMip1) {
+      const url = buildIxUrl(params, true);
+      return doFetchIx(url);
     }
-    console.log(TAG, 'isCnft=' + !!isCnft + ' isMip1=' + !!isMip1 + ' -> ' + url);
 
-    console.log(TAG, 'calling fetch() ->', url);
-    const t0 = performance.now();
-
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { accept: 'application/json' },
-      });
-
-      const elapsedMs = Math.round(performance.now() - t0);
-      console.log(TAG, 'fetch finished - status=' + resp.status + ' elapsed=' + elapsedMs + 'ms');
-
-      const rawBody = await resp.text();
-      let data = null;
-      try { data = JSON.parse(rawBody); } catch (_) { /* not JSON */ }
-
-      const result = {
-        ok: resp.ok, status: resp.status, elapsedMs, url, data, rawBody,
-        error: resp.ok ? null : (data?.message ?? data?.error ?? ('HTTP ' + resp.status)),
-      };
-
-      if (resp.ok) console.log(TAG, 'fetch OK', result);
-      else         console.warn(TAG, 'fetch non-OK', result);
-      return result;
-
-    } catch (err) {
-      const elapsedMs = Math.round(performance.now() - t0);
-      console.error(TAG, 'fetch threw', err.message, 'elapsed=' + elapsedMs + 'ms');
-      return {
-        ok: false, status: null, elapsedMs, url,
-        data: null, rawBody: null, error: err.message ?? String(err),
-      };
-    }
+    // ME's response for a fulfill-buy always carries BOTH a legacy variant
+    // (top-level tx/txSigned — a bare message, no sig-count prefix) AND a
+    // versioned ALT variant (v0.tx/v0.txSigned — full wire format, sig-count
+    // prefix + placeholder sigs) in the SAME response. Confirmed 2026-08-07
+    // via a real captured response (DEGEN NEWS pool). The earlier "ME
+    // inconsistently returns legacy-vs-versioned" theory (v0.5.8) was wrong —
+    // it came from checking ALT count on the top-level tx field, which is
+    // never versioned, so that check always returned -1 regardless of what
+    // ME actually sent. Read ALT count from v0, not top-level tx.
+    const url = buildIxUrl(params, true);
+    const result = await doFetchIx(url);
+    const v0Bytes = result.data?.v0?.txSigned?.data ?? result.data?.v0?.tx?.data;
+    const alts = result.ok && v0Bytes ? parseALTCount(v0Bytes) : -1;
+    console.log(TAG, 'fetch ok=' + result.ok + ' v0AltCount=' + alts);
+    return result;
   }
 
   // Minimal compact-u16 decoder (no library needed)
@@ -253,10 +270,12 @@
       console.log(TAG, 'REQUEST received id=' + id, payload);
       const result = await vlMmmFulfillBuy(payload);
 
-      // If we got tx bytes, try to sign+send inside this ME popup
-      // (avoids Phantom ALT-resolution failure on the VL origin)
-      if (result.ok && result.data?.tx?.data) {
-        const signResult = await trySignInPopup(result.data.tx.data);
+      // If we got a versioned/ALT tx, try to sign+send inside this ME popup
+      // (avoids Phantom ALT-resolution failure on the VL origin). ALTs only
+      // ever live in the v0 variant — the top-level tx field is always legacy.
+      const v0Bytes = result.data?.v0?.txSigned?.data ?? result.data?.v0?.tx?.data;
+      if (result.ok && v0Bytes) {
+        const signResult = await trySignInPopup(v0Bytes);
         if (signResult?.signature) {
           console.log(TAG, 'in-popup signing succeeded — returning presigned response');
           postToVl(event.source, {
@@ -314,5 +333,5 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.5.6 ready - postMessage listener active - waiting for PING from VL');
+  console.log(TAG, 'MMM bridge v0.5.9 ready - postMessage listener active - waiting for PING from VL');
 })();
