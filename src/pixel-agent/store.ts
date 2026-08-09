@@ -99,6 +99,20 @@ export interface TraitAsset {
    *  see docs/pixel-forge-reference-mode-mvp.md §8.7. Null when no
    *  reference was used, and always null for a legacy record. */
   referenceGuidanceNote: string | null;
+  /** Which hidden dev-only `collectionPreset` (if any) this trait was
+   *  generated against — id only, never the composed prompt text (see
+   *  src/pixel-agent/collection-prompt-composer.ts). Null when no preset
+   *  was used, and always null for a legacy record. A/B-testing aid only —
+   *  not real Collection DNA storage, which doesn't exist yet. */
+  collectionPresetId: string | null;
+  /** Which real, stored `Collection` (collections-store.ts) this trait
+   *  belongs to — id only. Distinct from `collectionPresetId`: that says
+   *  which DNA preset was resolved *at generation time*; this says which
+   *  Collection record the trait is filed under. Null = not part of any
+   *  stored collection (today's status quo for every existing trait), and
+   *  always null for a legacy record. See
+   *  docs/pixel-forge-collection-mvp-plan.md §2. */
+  collectionId: string | null;
   /** Human review gate — never set to 'approved' automatically. */
   status: TraitStatus;
   tags: string[];
@@ -124,6 +138,8 @@ export interface TraitAssetSummary {
   evaluation: Evaluation;
   repairPlan: RepairPlan | null;
   referenceGuidanceNote: string | null;
+  collectionPresetId: string | null;
+  collectionId: string | null;
   revision: number;
   createdAt: number;
   updatedAt: number;
@@ -266,6 +282,8 @@ export function normalizeTraitAsset(raw: unknown, id: string): TraitAsset | null
     evaluation: parseEvaluation(raw.evaluation),
     repairPlan: isPlausibleRepairPlan(raw.repairPlan) ? raw.repairPlan : null,
     referenceGuidanceNote: asNullableString(raw.referenceGuidanceNote),
+    collectionPresetId: asNullableString(raw.collectionPresetId),
+    collectionId: asNullableString(raw.collectionId),
     status: isTraitStatus(raw.status) ? raw.status : 'candidate',
     tags: isStringArray(raw.tags) ? raw.tags : [],
     notes: asNullableString(raw.notes),
@@ -321,6 +339,10 @@ export async function saveTraitAsset(input: {
   zIndex?: number;
   /** See TraitAsset.referenceGuidanceNote — text only, never the image. */
   referenceGuidanceNote?: string | null;
+  /** See TraitAsset.collectionPresetId. */
+  collectionPresetId?: string | null;
+  /** See TraitAsset.collectionId. */
+  collectionId?: string | null;
 }): Promise<TraitAsset> {
   const now = Date.now();
   const id = randomUUID();
@@ -346,6 +368,8 @@ export async function saveTraitAsset(input: {
     evaluation: input.evaluation,
     repairPlan: input.repairPlan,
     referenceGuidanceNote: input.referenceGuidanceNote ?? null,
+    collectionPresetId: input.collectionPresetId ?? null,
+    collectionId: input.collectionId ?? null,
     status: 'candidate',
     tags: input.tags,
     notes: input.notes,
@@ -359,6 +383,22 @@ export async function saveTraitAsset(input: {
 
 export async function getTraitAsset(id: string): Promise<TraitAsset | null> {
   return readRecord(id);
+}
+
+/** Reads a trait's stored PNG bytes directly — `TraitAsset` itself only
+ *  holds the palette/pixel grid, never the rendered PNG (see `writeRecord`
+ *  above); the PNG lives at `pngPath(id)` and is normally only surfaced
+ *  via `listTraitAssets`/`TraitAssetSummary`. Added for
+ *  tools-pixel-forge-export.ts (Stage 7) so it can read a trait's exact
+ *  stored image without duplicating the storage path convention. Returns
+ *  `null` if the trait (or just its PNG) doesn't exist — same not-found
+ *  convention as `getTraitAsset`. */
+export async function getTraitAssetPngBuffer(id: string): Promise<Buffer | null> {
+  try {
+    return await fsp.readFile(pngPath(id));
+  } catch {
+    return null;
+  }
 }
 
 /** In-place revision write-back — same id, bumped `revision`/`updatedAt`.
@@ -461,6 +501,8 @@ export async function listTraitAssets(): Promise<TraitAssetSummary[]> {
         evaluation: record.evaluation,
         repairPlan: record.repairPlan,
         referenceGuidanceNote: record.referenceGuidanceNote,
+        collectionPresetId: record.collectionPresetId,
+        collectionId: record.collectionId,
         revision: record.revision,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
