@@ -34,6 +34,9 @@ import { getMetaplexOnchainMetadata } from './metaplex-onchain';
 import { getMeTokenData, getTensorMetadata } from './enrich';
 import { saleEventBus } from '../events/emitter';
 import { getMintedAt } from '../mints/fresh-mint-cache';
+import { isBlacklistedCollection } from '../db/blacklist';
+import { markMintBlocked } from '../db/blocked-mint-cache';
+import { getPool } from '../db/client';
 
 const RETRY_DELAYS_MS = [15_000, 60_000, 180_000];
 const RECENTLY_ATTEMPTED_TTL_MS = 20 * 60_000;
@@ -138,6 +141,38 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
           }
           continue;
         }
+        const patchedName = resolved.nftName        ?? args.nftName;
+        const patchedCollectionName = resolved.collectionName ?? args.collectionName;
+
+        // This retry chain is the ONLY place a blacklisted collection's real
+        // identity can surface for a row whose synchronous enrichment came
+        // back entirely null (the pre-insert AND post-enrichment gates in
+        // db/insert.ts had nothing to match against — see blacklist.ts's own
+        // "staratlascrew timeouts" note). Without this check, a row like
+        // that stays visible forever once this patch lands, because nothing
+        // downstream ever re-checks it. Real incident: mint
+        // GkgnMQiViNHtmYTwVc9F1YCD55zdJrtPa1Dsg2fEcSKM (Star Atlas Crew,
+        // Tensor cNFT takeBidFullMeta) — initial enrich() returned all
+        // nulls, this retry later resolved the real collection name via
+        // DAS, and the card stayed up with no blacklist check at all.
+        if (isBlacklistedCollection({
+          collectionAddress: args.collectionAddress,
+          meCollectionSlug:  args.meCollectionSlug,
+          collectionName:    patchedCollectionName,
+          nftName:           patchedName,
+          signature:         sig,
+          mintAddress:       mint,
+        })) {
+          console.log(
+            `[feed/blacklist-learn] reason=collection_match source=image_retry ` +
+            `mint=${mint} collection=${patchedCollectionName ?? 'null'} sig=${sig.slice(0, 12)}...`,
+          );
+          markMintBlocked(mint, 'collection_match');
+          await getPool().query('DELETE FROM sale_events WHERE signature = $1', [sig]);
+          saleEventBus.emitRemove(sig);
+          return;
+        }
+
         // Sticky MetaUpdate. Frontend reducer's `?? ev.X` semantics
         // mean null fields here never overwrite existing values; only
         // the resolved imageUrl (and any newly-discovered name/
@@ -145,9 +180,9 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
         saleEventBus.emitMetaUpdate({
           mintAddress:       mint,
           signature:         sig,
-          nftName:           resolved.nftName        ?? args.nftName,
+          nftName:           patchedName,
           imageUrl:          resolved.imageUrl,
-          collectionName:    resolved.collectionName ?? args.collectionName,
+          collectionName:    patchedCollectionName,
           collectionAddress: args.collectionAddress,
           meCollectionSlug:  args.meCollectionSlug,
           floorDelta:        null,
