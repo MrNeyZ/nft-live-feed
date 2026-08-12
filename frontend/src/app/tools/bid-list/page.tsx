@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LiveDot } from '@/soloist/shared';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
-import { API_BASE, MONO, PANEL, TH, CopyKey, short } from '@/app/tools/mmm-shared';
+import { API_BASE, MONO, PANEL, TH, short } from '@/app/tools/mmm-shared';
 import { authHeaders } from '@/runtime/auth';
 
 interface BidRow {
@@ -331,10 +331,15 @@ export default function BidListPage() {
                           color: r.spreadSol == null ? 'var(--vl-text-muted)' : r.spreadSol > 0 ? '#facc15' : 'var(--vl-red-primary)' }}>
                           {r.spreadSol == null ? '—' : `${r.spreadSol > 0 ? '+' : ''}${fmtSol(r.spreadSol)}`}
                         </td>
-                        {/* Owner — tertiary/supporting evidence: quiet monospace, no purple tint */}
+                        {/* Owner — tertiary/supporting evidence: quiet monospace, no purple tint. Click opens Solscan (not copy). */}
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                            <CopyKey value={r.owner} label={short(r.owner)} color={VLText.faint} />
+                            <a href={`https://solscan.io/account/${r.owner}`} target="_blank" rel="noopener noreferrer"
+                              title="View on Solscan" style={{ fontSize: 11, ...MONO, color: VLText.faint, textDecoration: 'none' }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
+                              {short(r.owner)}
+                            </a>
                             <a href={`https://magiceden.io/u/${r.owner}`} target="_blank" rel="noopener noreferrer"
                               title="ME profile" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -347,9 +352,14 @@ export default function BidListPage() {
                           color: recentlyActive ? '#a79eca' : VLText.faint }}>
                           {fmtAgo(r.lastActive)}
                         </td>
-                        {/* Escrow — technical evidence, quietest text on the row */}
+                        {/* Escrow — technical evidence, quietest text on the row. Click opens Solscan (not copy). */}
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
-                          <CopyKey value={r.escrow} label={short(r.escrow)} color={VLText.faint} />
+                          <a href={`https://solscan.io/account/${r.escrow}`} target="_blank" rel="noopener noreferrer"
+                            title="View on Solscan" style={{ fontSize: 11, ...MONO, color: VLText.faint, textDecoration: 'none' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
+                            {short(r.escrow)}
+                          </a>
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <a href={`https://magiceden.io/item-details/${r.mint}`} target="_blank" rel="noopener noreferrer"
