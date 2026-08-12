@@ -250,18 +250,18 @@ export default function BidListPage() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto', maxHeight: '78vh', overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed', minWidth: 1320 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed', minWidth: 1030 }}>
                   <colgroup>
-                    <col style={{ width: 260 }} />
-                    <col style={{ width: 170 }} />
-                    <col style={{ width: 80 }} />
-                    <col style={{ width: 110 }} />
-                    <col style={{ width: 100 }} />
-                    <col style={{ width: 130 }} />
-                    <col style={{ width: 160 }} />
+                    <col style={{ width: 200 }} />
+                    <col style={{ width: 125 }} />
+                    <col style={{ width: 65 }} />
                     <col style={{ width: 90 }} />
-                    <col style={{ width: 150 }} />
-                    <col style={{ width: 70 }} />
+                    <col style={{ width: 80 }} />
+                    <col style={{ width: 105 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 65 }} />
+                    <col style={{ width: 105 }} />
+                    <col style={{ width: 55 }} />
                   </colgroup>
                   <thead>
                     <tr>
