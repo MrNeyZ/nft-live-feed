@@ -361,10 +361,10 @@ export default function BidListPage() {
                               onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
                               {short(r.escrow)}
                             </a>
-                            <a href={`https://x.com/search?q=${encodeURIComponent(r.escrow)}`} target="_blank" rel="noopener noreferrer"
-                              title="Search X for this escrow address" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
+                            <a href={`https://x.com/search?q=${encodeURIComponent(r.owner)}`} target="_blank" rel="noopener noreferrer"
+                              title="Search X for the owner wallet" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/brand/x.png" alt="X" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none', opacity: 0.55 }} />
+                              <img src="/brand/x.png" alt="X" width={13} height={13} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none', opacity: 0.6 }} />
                             </a>
                           </div>
                         </td>
