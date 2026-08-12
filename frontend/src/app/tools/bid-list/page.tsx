@@ -265,7 +265,7 @@ export default function BidListPage() {
                   </colgroup>
                   <thead>
                     <tr>
-                      <th style={{ ...THEAD_TH, textAlign: 'center' }}>NFT</th>
+                      <th style={{ ...THEAD_TH, textAlign: 'left' }}>NFT</th>
                       {sortHeader('collection', 'COLLECTION', 'center')}
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>MARKET</th>
                       {sortHeader('price', 'BID (SOL)', 'center')}
@@ -290,7 +290,7 @@ export default function BidListPage() {
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.055)'; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.016)' : 'transparent'; }}>
                         {/* NFT — row anchor: avatar + high-contrast name, centered */}
-                        <td style={{ ...ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                        <td style={{ ...ROW_H, display: 'flex', alignItems: 'center', gap: 10 }}>
                           {r.image ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={r.image} alt="" width={32} height={32} draggable={false}
