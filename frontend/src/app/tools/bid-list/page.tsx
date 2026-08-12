@@ -265,15 +265,15 @@ export default function BidListPage() {
                   </colgroup>
                   <thead>
                     <tr>
-                      <th style={{ ...THEAD_TH, textAlign: 'left' }}>NFT</th>
-                      {sortHeader('collection', 'COLLECTION', 'left')}
+                      <th style={{ ...THEAD_TH, textAlign: 'center' }}>NFT</th>
+                      {sortHeader('collection', 'COLLECTION', 'center')}
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>MARKET</th>
-                      {sortHeader('price', 'BID (SOL)', 'right')}
-                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>FLOOR (SOL)</th>
-                      {sortHeader('spread', 'SPREAD (SOL)', 'right')}
-                      <th style={{ ...THEAD_TH, textAlign: 'left' }}>OWNER</th>
-                      {sortHeader('lastActive', 'LAST TX', 'right')}
-                      <th style={{ ...THEAD_TH, textAlign: 'left' }}>ESCROW</th>
+                      {sortHeader('price', 'BID (SOL)', 'center')}
+                      <th style={{ ...THEAD_TH, textAlign: 'center' }}>FLOOR (SOL)</th>
+                      {sortHeader('spread', 'SPREAD (SOL)', 'center')}
+                      <th style={{ ...THEAD_TH, textAlign: 'center' }}>OWNER</th>
+                      {sortHeader('lastActive', 'LAST TX', 'center')}
+                      <th style={{ ...THEAD_TH, textAlign: 'center' }}>ESCROW</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>LINK</th>
                     </tr>
                   </thead>
@@ -289,8 +289,8 @@ export default function BidListPage() {
                         }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.055)'; }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.016)' : 'transparent'; }}>
-                        {/* NFT — row anchor: avatar + high-contrast name, left-aligned */}
-                        <td style={{ ...ROW_H, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {/* NFT — row anchor: avatar + high-contrast name, centered */}
+                        <td style={{ ...ROW_H, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                           {r.image ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={r.image} alt="" width={32} height={32} draggable={false}
@@ -305,7 +305,7 @@ export default function BidListPage() {
                           </span>
                         </td>
                         {/* Collection — secondary, muted, single-line */}
-                        <td style={{ ...ROW_H, textAlign: 'left', fontSize: 11.5, color: 'var(--vl-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, color: 'var(--vl-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                           title={r.collectionName ?? ''}>
                           {r.collectionName ?? <span style={{ opacity: 0.45 }}>—</span>}
                         </td>
@@ -319,21 +319,21 @@ export default function BidListPage() {
                           </span>
                         </td>
                         {/* Bid — PRIMARY: strongest numeral in the row */}
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 14, fontWeight: 800, color: 'var(--vl-text-primary)' }}>
+                        <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 14, fontWeight: 800, color: 'var(--vl-text-primary)' }}>
                           {fmtSol(r.priceSol)}
                         </td>
                         {/* Floor — secondary to Bid: smaller, lighter, muted */}
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 500, color: 'var(--vl-text-muted)' }}>
+                        <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 500, color: 'var(--vl-text-muted)' }}>
                           {fmtSol(r.floorSol)}
                         </td>
                         {/* Spread — PRIMARY: fastest opportunity signal, sign always shown, color never the only cue */}
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 13.5, fontWeight: 800,
+                        <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 13.5, fontWeight: 800,
                           color: r.spreadSol == null ? 'var(--vl-text-muted)' : r.spreadSol > 0 ? '#facc15' : 'var(--vl-red-primary)' }}>
                           {r.spreadSol == null ? '—' : `${r.spreadSol > 0 ? '+' : ''}${fmtSol(r.spreadSol)}`}
                         </td>
                         {/* Owner — tertiary/supporting evidence: quiet monospace, no purple tint */}
-                        <td style={{ ...ROW_H, textAlign: 'left' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <td style={{ ...ROW_H, textAlign: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                             <CopyKey value={r.owner} label={short(r.owner)} color={VLText.faint} />
                             <a href={`https://magiceden.io/u/${r.owner}`} target="_blank" rel="noopener noreferrer"
                               title="ME profile" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
@@ -343,12 +343,12 @@ export default function BidListPage() {
                           </div>
                         </td>
                         {/* Last Tx — wallet-activity signal, concise relative time, mild contrast bump when very recent */}
-                        <td style={{ ...ROW_H, textAlign: 'right', fontSize: 11, ...MONO,
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11, ...MONO,
                           color: recentlyActive ? '#a79eca' : VLText.faint }}>
                           {fmtAgo(r.lastActive)}
                         </td>
                         {/* Escrow — technical evidence, quietest text on the row */}
-                        <td style={{ ...ROW_H, textAlign: 'left' }}>
+                        <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <CopyKey value={r.escrow} label={short(r.escrow)} color={VLText.faint} />
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
