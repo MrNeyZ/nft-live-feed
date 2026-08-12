@@ -354,12 +354,19 @@ export default function BidListPage() {
                         </td>
                         {/* Escrow — technical evidence, quietest text on the row. Click opens Solscan (not copy). */}
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
-                          <a href={`https://solscan.io/account/${r.escrow}`} target="_blank" rel="noopener noreferrer"
-                            title="View on Solscan" style={{ fontSize: 11, ...MONO, color: VLText.faint, textDecoration: 'none' }}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
-                            {short(r.escrow)}
-                          </a>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                            <a href={`https://solscan.io/account/${r.escrow}`} target="_blank" rel="noopener noreferrer"
+                              title="View on Solscan" style={{ fontSize: 11, ...MONO, color: VLText.faint, textDecoration: 'none' }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
+                              {short(r.escrow)}
+                            </a>
+                            <a href={`https://x.com/search?q=${encodeURIComponent(r.escrow)}`} target="_blank" rel="noopener noreferrer"
+                              title="Search X for this escrow address" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/x.png" alt="X" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none', opacity: 0.55 }} />
+                            </a>
+                          </div>
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <a href={`https://magiceden.io/item-details/${r.mint}`} target="_blank" rel="noopener noreferrer"
