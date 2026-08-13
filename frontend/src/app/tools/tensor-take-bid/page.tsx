@@ -1,8 +1,9 @@
 'use client';
 
 // Tensor Take Bid tool — personal use only. Accepts any live Tensor
-// collection bid on any mpl-core asset by reading live on-chain bid state
-// and building an unsigned `takeBidCore` transaction, signed and sent
+// collection bid on any mpl-core OR legacy/pNFT asset by reading live
+// on-chain bid state and building an unsigned takeBidCore/takeBidLegacy
+// transaction (dispatched by the asset's owner program), signed and sent
 // directly by Phantom in the browser — no backend broadcast step, no
 // private key ever touches the server. Every backend route is
 // requireAuth-gated (site-wide SIWS + UI_ALLOWED_WALLETS).
@@ -196,7 +197,7 @@ export default function TensorTakeBidPage() {
         <ToolTextInput
           value={asset}
           onChange={(e) => setAsset(e.target.value)}
-          placeholder="the mpl-core asset mint address"
+          placeholder="the asset mint address (Core or legacy/pNFT)"
           disabled={busy}
           style={{ width: '100%' }}
         />
