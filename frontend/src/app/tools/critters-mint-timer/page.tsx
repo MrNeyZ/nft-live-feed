@@ -50,13 +50,34 @@ function fmtCountdown(startMs: number, nowMs: number): string {
 }
 
 function fmtUtc(ms: number): string {
-  // "2026-08-13 18:41 UTC" — fixed UTC formatting regardless of the
-  // viewer's local timezone, so a start time is unambiguous when shared.
+  // "18:41 UTC" — time only, no date/seconds. Fixed to UTC regardless of
+  // the viewer's local timezone, so a start time is unambiguous.
   const iso = new Date(ms).toISOString(); // "2026-08-13T18:41:30.000Z"
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+  return `${iso.slice(11, 16)} UTC`;
 }
 
-const THEAD_TH: React.CSSProperties = { ...TH, color: '#9089ab', background: 'rgba(13,10,22,0.98)', borderBottom: '1px solid rgba(255,255,255,0.10)' };
+// ── Readability-pass tiers ──────────────────────────────────────────────
+// PRICE: a distinct hue (cyan) from REMAINING's green and STARTS IN's gold,
+// so "cheap" reads as its own signal rather than competing with either.
+// Fixed absolute thresholds, not relative to the current max-price filter —
+// "cheap" should mean the same thing regardless of what the box is set to.
+function priceTierStyle(priceSol: number): React.CSSProperties {
+  if (priceSol <= 0.05) return { color: '#22d3ee', fontWeight: 800, fontSize: 15 };
+  if (priceSol <= 0.08) return { color: '#67e8f9', fontWeight: 800, fontSize: 14.5 };
+  if (priceSol <= 0.10) return { color: '#a5f3fc', fontWeight: 750, fontSize: 14 };
+  return { color: 'var(--vl-text-primary)', fontWeight: 800, fontSize: 14 };
+}
+// STARTS IN: stays in the gold/yellow family per spec — imminent mints get
+// brighter + heavier, not a different hue (which would read as a status
+// change rather than "same thing, more urgent"). No animation.
+function countdownTierStyle(startMs: number, nowMs: number): React.CSSProperties {
+  const diffMin = (startMs - nowMs) / 60_000;
+  if (diffMin < 15) return { color: '#fde047', fontWeight: 800, fontSize: 14.5 };
+  if (diffMin < 60) return { color: '#facc15', fontWeight: 750, fontSize: 13.5 };
+  return { color: '#ca9a1e', fontWeight: 650, fontSize: 13 };
+}
+
+const THEAD_TH: React.CSSProperties = { ...TH, color: '#ada5c9', background: 'rgba(13,10,22,0.98)', borderBottom: '1px solid rgba(255,255,255,0.14)' };
 const ROW_H = { padding: '11px 10px' };
 
 export default function CrittersMintTimerPage() {
@@ -193,7 +214,7 @@ export default function CrittersMintTimerPage() {
 
         {/* ── Results table ────────────────────────────────────────────────── */}
         {result && (
-          <div style={{ ...PANEL, padding: 0, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 16px 40px rgba(0,0,0,0.55)' }}>
+          <div style={{ ...PANEL, padding: 0, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.11)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 40px rgba(0,0,0,0.55)' }}>
             {visibleRows.length === 0 ? (
               <div style={{ padding: '32px 16px', textAlign: 'center', fontSize: 12, color: 'var(--vl-text-muted)' }}>
                 No upcoming editions under {result.maxPrice} SOL right now.
@@ -227,12 +248,12 @@ export default function CrittersMintTimerPage() {
                     {visibleRows.map((r, i) => (
                       <tr key={r.mint}
                         style={{
-                          background: i % 2 === 1 ? 'rgba(255,255,255,0.016)' : 'transparent',
-                          borderBottom: '1px solid rgba(255,255,255,0.045)',
+                          background: i % 2 === 1 ? 'rgba(255,255,255,0.024)' : 'transparent',
+                          borderBottom: '1px solid rgba(255,255,255,0.06)',
                         }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.055)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.016)' : 'transparent'; }}>
-                        <td style={{ ...ROW_H, textAlign: 'left', fontSize: 12.5, color: 'var(--vl-text-primary)', fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.024)' : 'transparent'; }}>
+                        <td style={{ ...ROW_H, textAlign: 'left', fontSize: 13, color: 'var(--vl-text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                           title={r.name}>
                           {r.name}
                           {!r.editionMintActive && (
@@ -241,13 +262,13 @@ export default function CrittersMintTimerPage() {
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'left' }}>
                           <a href={`https://solscan.io/account/${r.mint}`} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 11, ...MONO, color: VLText.faint, textDecoration: 'none' }}
+                            style={{ fontSize: 11, ...MONO, color: VLText.muted, textDecoration: 'none' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.faint; }}>
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.muted; }}>
                             {short(r.mint)}
                           </a>
                         </td>
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 14, fontWeight: 800, color: 'var(--vl-text-primary)' }}>
+                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', ...priceTierStyle(r.priceSol) }}>
                           {r.priceSol}
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', color: 'var(--vl-text-muted)' }}>
@@ -257,15 +278,17 @@ export default function CrittersMintTimerPage() {
                           color: r.remaining > 0 ? '#4ade80' : 'var(--vl-text-muted)' }}>
                           {r.remaining}
                         </td>
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 700, color: '#facc15' }}>
+                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', ...countdownTierStyle(r.mintStartDate, now) }}>
                           {fmtCountdown(r.mintStartDate, now)}
                         </td>
-                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 11, color: VLText.faint }}>
+                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 11, color: VLText.muted }}>
                           {fmtUtc(r.mintStartDate)}
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <a href={`https://critters.quest/edition-mint/${r.mint}`} target="_blank" rel="noopener noreferrer"
-                            style={{ color: '#c4b8e8', textDecoration: 'none', fontSize: 11 }}>
+                            style={{ color: alpha(VL.purpleTint, 0.75), textDecoration: 'none', fontSize: 11, fontWeight: 600, transition: 'color 0.12s' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = rgb(VL.purpleTint); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = alpha(VL.purpleTint, 0.75); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
                             Open →
                           </a>
                         </td>
