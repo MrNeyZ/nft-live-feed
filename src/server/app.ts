@@ -29,11 +29,17 @@ import { createCollectionAnalyzerRouter } from './tools-collection-analyzer';
 import { createMmmPoolsRouter } from './tools-mmm-pools';
 import { createMeTensorArbRouter } from './tools-me-tensor-arb';
 import { createSpl20Router } from './tools-spl20';
+import { createTensorFloorScanRouter } from './tools-tensor-floor-scan';
+import { createOfferFloorSweepRouter } from './tools-offer-floor-sweep';
 import { createDotlandRouter } from './tools-dotland';
 import { createCandyMintRouter } from './tools-candy-mint';
 import { createMeBidsRouter } from './tools-me-bids';
 import { createTensorTakeBidRouter } from './tools-tensor-take-bid';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
+import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
+import { createSolseaAcceptBidRouter } from './tools-solsea-accept-bid';
+import { createBidListRouter } from './tools-bid-list';
+import { createCrittersMintTimerRouter, startCrittersMintTimerRefreshLoop } from './tools-critters-mint-timer';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
 import { createPixelForgeGenerateSourceRouter } from './tools-pixel-forge-generate-source';
@@ -192,6 +198,12 @@ export function createApp() {
   // comment). GET /api/tools/spl20/tickers, /api/tools/spl20/resolve
   app.use('/api', createSpl20Router());
 
+  // Tensor low-floor scanner — read-only full-market sweep for legacy/pNFT
+  // collections under a low floor (see tools-tensor-floor-scan.ts header
+  // comment). GET /api/tools/tensor-floor-scan/scan-stream (SSE)
+  app.use('/api', createTensorFloorScanRouter());
+  app.use('/api', createOfferFloorSweepRouter());
+
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
   app.use('/api', createDotlandRouter());
@@ -271,6 +283,31 @@ export function createApp() {
   // the owner's private key; only a narrowly-scoped server-held cosigner
   // keypair that cannot move funds or act alone.
   app.use('/api', createMmmCollectionBidsRouter());
+
+  // Solanart forgotten-bid Accept Offer tool — personal use, requireAuth-gated
+  // on every route (see tools-solanart-accept-offer.ts header comment).
+  // Single-signer (seller only, no cosigner) — builds the raw on-chain
+  // Solanart accept-offer instruction directly, since solanart.io itself
+  // has been dead since ~2022. pNFT-only for now.
+  app.use('/api', createSolanartAcceptOfferRouter());
+
+  // SolSea forgotten-bid Accept Bid tool — personal use, requireAuth-gated
+  // on every route (see tools-solsea-accept-bid.ts header comment).
+  // Single-signer (seller only, no cosigner) — builds the raw on-chain
+  // SolSea "Accept unlisted bid" instruction directly, since api.all.art's
+  // frontend has been dead since ~2022. Native-SOL bids only for now.
+  app.use('/api', createSolseaAcceptBidRouter());
+
+  // Bid List — static snapshot of forgotten Solanart/SolSea bids sitting on
+  // NFTs currently held by real, active personal wallets. Read-only, see
+  // tools-bid-list.ts header comment.
+  app.use('/api', createBidListRouter());
+
+  // Critters.quest mint timer — read-only catalog of upcoming cheap NFT
+  // edition mints. No wallet/signing here; the actual sniper bot lives on
+  // a different VPS. See tools-critters-mint-timer.ts header comment.
+  app.use('/api', createCrittersMintTimerRouter());
+  startCrittersMintTimerRefreshLoop();
 
   // VictoryLabs Internal Bot API v1 — private, versioned, read-only market
   // data for the vl-nft-bots consumer. Bot-auth-gated on every route (see

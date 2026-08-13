@@ -21,10 +21,9 @@ import { setMode as runtimeSetMode, fetchMode as runtimeFetchMode, setRuntimeCho
 import { fetchMintTrackerEnabled, setMintTrackerEnabled } from '@/runtime/mint-tracker';
 import { sendHeartbeat, HEARTBEAT_INTERVAL_MS } from '@/runtime/heartbeat';
 import { useLayoutMode, LAYOUT_MODES } from './layout-mode';
-import { useInclusiveFees } from './price-mode';
 import {
   useUiSoundEnabled, setUiSoundEnabled,
-  playUiLogin, playUiLogout, playUiSelect,
+  playUiSelect,
   useUiSoundVolumeMultiplier, setUiSoundVolumeMultiplier, UI_SOUND_VOLUME_OPTIONS,
 } from './use-ui-sound';
 
@@ -253,7 +252,7 @@ export const ItemThumb = memo(function ItemThumb({
           setErrored(true);
         }
       }}
-      style={{ width: size, height: size, borderRadius: 4, objectFit: 'cover', display: 'block', background: '#08060c' }}
+      style={{ width: size, height: size, borderRadius: 4, objectFit: 'cover', display: 'block', background: 'var(--vl-gray-base)' }}
     />
   );
 });
@@ -322,7 +321,7 @@ export const CollectionIcon = memo(function CollectionIcon({
       style={{
         width: size, height: size, borderRadius: '50%',
         objectFit: 'cover', display: 'block',
-        background: '#08060c',
+        background: 'var(--vl-gray-base)',
         border: `1px solid ${color}2a`,
         flexShrink: 0,
       }}
@@ -388,7 +387,7 @@ export function Pill({
         letterSpacing: '0.3px',
         border:     active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,0.07)',
         background: active ? `${color}1c`           : 'rgba(255,255,255,0.03)',
-        color:      active ? color                  : '#9a9ab4',
+        color:      active ? color                  : 'var(--vl-text-muted)',
         cursor:     disabled ? 'not-allowed' : 'pointer',
         opacity:    disabled ? 0.55 : 1,
         transition: 'all 0.12s',
@@ -397,6 +396,58 @@ export function Pill({
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+/**
+ * Shared primary-action CTA button for /tools pages — same bright/dim
+ * visual language as the /access gate's Enter button: solid gradient +
+ * glow when actionable, flat dim fill (no glow) when disabled. Sized for
+ * inline toolbars (next to a ToolTextInput), not the gate's full-width
+ * 52px CTA. Style lives in globals.css (`.vl-cta-btn`) — deliberately a
+ * different class from the gate's own `.vl-cta` (see globals.css comment).
+ */
+export function CtaButton({
+  onClick, disabled, children, variant = 'purple', block = false, big = false, type = 'button', title, ownSound, style,
+}: {
+  onClick?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+  /** `green` for confirm/buy-style terminal actions; `blue` for a secondary/heavier
+   *  action that needs visual separation from a primary purple CTA on the same row;
+   *  `danger` for a destructive/high-risk confirm (e.g. submitting after a failed sim). */
+  variant?: 'purple' | 'green' | 'blue' | 'danger';
+  block?: boolean;
+  big?: boolean;
+  type?: 'button' | 'submit';
+  title?: string;
+  /** Pass true when the caller already plays its own sound (e.g. playUiConfirm())
+   *  — sets data-uisnd="skip" so the global click-sound listener doesn't double up. */
+  ownSound?: boolean;
+  /** Layout-only overrides (alignSelf, minWidth, margin, flexShrink…) — the
+   *  visual language (color/gradient/glow/disabled state) always comes from
+   *  the `vl-cta-btn` class and should not be overridden here. */
+  style?: React.CSSProperties;
+}) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      data-uisnd={ownSound ? 'skip' : undefined}
+      className={
+        'vl-cta-btn' +
+        (variant === 'green' ? ' vl-cta-btn--green'
+          : variant === 'blue' ? ' vl-cta-btn--blue'
+          : variant === 'danger' ? ' vl-cta-btn--danger' : '') +
+        (block ? ' vl-cta-btn--block' : '') +
+        (big ? ' vl-cta-btn--lg' : '')
+      }
+      style={style}
+    >
+      {children}
     </button>
   );
 }
@@ -414,7 +465,7 @@ export const SETTINGS_PILL_INACTIVE: React.CSSProperties = {
   padding: '2px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
   background: 'rgba(255, 255, 255, 0.025)',
   border: '1px solid rgba(255, 255, 255, 0.05)',
-  color: '#9a9ab4',
+  color: 'var(--vl-text-muted)',
   boxShadow: 'none',
 };
 
@@ -424,7 +475,7 @@ export const settingsPillActive = (color = '#a890e8'): React.CSSProperties => ({
   padding: '2px 8px', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px',
   background: `${color}24`,
   border: `1px solid ${color}44`,
-  color: '#f0eef8',
+  color: 'var(--vl-text-primary)',
   boxShadow: 'none',
 });
 
@@ -462,7 +513,7 @@ export function SettingsToggle({
   );
 }
 
-export function LiveDot({ color = '#43b984' }: { color?: string }) {
+export function LiveDot({ color = 'var(--vl-green-primary)' }: { color?: string }) {
   return (
     <span style={{
       display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
@@ -476,8 +527,8 @@ export function RankBadge({ rank }: { rank: number }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 500,
-      padding: '1px 6px', borderRadius: 3, border: '1px solid #7c5cf018',
-      background: '#7c5cf008', color: '#7a6a9c', letterSpacing: '0.2px',
+      padding: '1px 6px', borderRadius: 3, border: '1px solid rgb(var(--vl-purple) / .09)',
+      background: 'rgb(var(--vl-purple) / .03)', color: '#7a6a9c', letterSpacing: '0.2px',
       fontFamily: "'SF Mono','Fira Code',monospace", flexShrink: 0, lineHeight: '14px',
     }}>R {rank}</span>
   );
@@ -487,16 +538,16 @@ export function TypeBadge({ type }: { type: 'buy' | 'sell' }) {
   if (type === 'buy') return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
-      padding: '1px 6px', borderRadius: 3, border: '1px solid #43b98448',
-      background: '#43b98420', color: '#43b984', letterSpacing: '0.3px',
+      padding: '1px 6px', borderRadius: 3, border: '1px solid rgb(var(--vl-green) / .28)',
+      background: 'rgb(var(--vl-green) / .13)', color: 'var(--vl-green-primary)', letterSpacing: '0.3px',
       flexShrink: 0, lineHeight: '14px',
     }}>BUY</span>
   );
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
-      padding: '1px 6px', borderRadius: 3, border: '1px solid #d9686748',
-      background: '#d9686720', color: '#d96867', letterSpacing: '0.3px',
+      padding: '1px 6px', borderRadius: 3, border: '1px solid rgb(var(--vl-red) / .28)',
+      background: 'rgb(var(--vl-red) / .13)', color: 'var(--vl-red-primary)', letterSpacing: '0.3px',
       flexShrink: 0, lineHeight: '14px',
     }}>SELL</span>
   );
@@ -549,13 +600,13 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
   const meStyle = {
     display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
     padding: '1px 6px', borderRadius: 3, border: '1px solid #d63d7c48',
-    background: '#d63d7c20', color: '#9a9ab4', letterSpacing: '0.2px',
+    background: '#d63d7c20', color: 'var(--vl-text-muted)', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
   const tStyle = {
     display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
-    padding: '1px 6px', borderRadius: 3, border: '1px solid #7c5cf048',
-    background: '#7c5cf020', color: '#a890e8', letterSpacing: '0.2px',
+    padding: '1px 6px', borderRadius: 3, border: '1px solid rgb(var(--vl-purple) / .28)',
+    background: 'rgb(var(--vl-purple) / .13)', color: 'var(--vl-purple-tint)', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
   // Orbis — teal, distinct from ME (pink) and Tensor (purple). Same chrome.
@@ -632,20 +683,82 @@ let _topnavLastIndicator: { left: number; width: number } | null = null;
 const DROPDOWN_ITEM_STYLE: React.CSSProperties = {
   display:        'flex',
   alignItems:     'center',
-  justifyContent: 'center',
-  height:         28,
-  padding:        '0 10px',
-  fontSize:       11.5,
+  justifyContent: 'flex-start',
+  height:         26,
+  padding:        '0 8px',
+  fontSize:       11,
   fontWeight:     600,
   letterSpacing:  '0.5px',
   textTransform:  'uppercase',
   lineHeight:     1,
-  color:          '#9a9ab4',
+  color:          'var(--vl-text-muted)',
   textDecoration: 'none',
-  borderRadius:   8,
+  borderRadius:   6,
   transition:     'background 0.12s, color 0.12s',
   cursor:         'pointer',
+  whiteSpace:     'nowrap',
 };
+
+// TOOLS mega-menu — grouped by what each tool DOES (same taxonomy/colors
+// as the /tools index page cards), not by which on-chain program it talks
+// to. Was previously one flat 150px-wide column of ~20 items with no
+// structure; this groups them into labeled, color-accented sections
+// rendered in a multi-column grid instead.
+interface ToolsMenuItem { label: string; href: string; external?: boolean; }
+interface ToolsMenuGroup { label: string; color: string; items: ReadonlyArray<ToolsMenuItem>; }
+const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
+  {
+    label: 'Accept Bid/Offer', color: '#60a5fa',
+    items: [
+      { label: 'TAKEBID',               href: '/tools/tensor-take-bid' },
+      { label: 'SOLANART',              href: '/tools/solanart-accept-offer' },
+      { label: 'SOLSEA',                href: '/tools/solsea-accept-bid' },
+      { label: 'POOL LOOKUP',           href: '/tools/mmm-pool-lookup' },
+      { label: 'BID LIST',              href: '/tools/bid-list' },
+    ],
+  },
+  {
+    label: 'MMM Pools', color: '#a78bfa',
+    items: [
+      { label: 'MMM POOLS',       href: '/tools/mmm-pools' },
+      { label: 'COLL SCANNER',    href: '/tools/mmm-collection-scanner' },
+      { label: 'COLL BIDS', href: '/tools/mmm-collection-bids' },
+    ],
+  },
+  {
+    label: 'Arbitrage & Spreads', color: '#4ade80',
+    items: [
+      { label: 'ARB',          href: '/tools/me-tensor-arb' },
+      { label: 'OFFERS',       href: '/tools/offers' },
+      { label: 'OFFER SWEEP',  href: '/tools/offer-floor-sweep' },
+      { label: 'LOW FLOOR',    href: '/tools/tensor-low-floor' },
+      { label: 'SPL20',        href: '/tools/spl20' },
+    ],
+  },
+  {
+    label: 'Analysis & Data', color: '#facc15',
+    items: [
+      { label: 'MINTX',                href: '/tools/mint-analyzer' },
+      { label: 'HOLDERS',              href: '/tools/holders' },
+      { label: 'COLLECTION',           href: '/tools/collection-analyzer' },
+      { label: 'RARE',                 href: '/tools/rare-feed' },
+    ],
+  },
+  {
+    label: 'Minting', color: '#f472b6',
+    items: [
+      { label: 'CANDYMINT', href: '/tools/candy-mint' },
+      { label: 'CRITTERS TIMER', href: '/tools/critters-mint-timer' },
+    ],
+  },
+  {
+    label: 'Wallet', color: '#9891b0',
+    items: [
+      { label: 'BURNER', href: 'https://wallet.victorylabs.app/burner', external: true },
+      { label: 'SENDER', href: 'https://wallet.victorylabs.app/sender', external: true },
+    ],
+  },
+];
 
 export function TopNav({ active }: { active?: Page } = {}) {
   // TPS / SOL price / live indicator moved to the bottom status bar
@@ -700,7 +813,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/bid-list', '/tools/critters-mint-timer', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
@@ -947,10 +1060,10 @@ export function TopNav({ active }: { active?: Page } = {}) {
       background:
         'radial-gradient(120% 180% at 50% -45%, rgba(132,108,224,0.018) 0%, rgba(132,108,224,0.006) 40%, transparent 66%), ' +
         'linear-gradient(180deg, rgba(13,10,24,0.95) 0%, rgba(6,5,14,0.995) 100%)',
-      borderBottom: '1px solid rgba(168,144,232,0.09)',
+      borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.09)',
       boxShadow:
         'inset 0 1px 0 rgba(255,255,255,0.03), ' +
-        '0 1px 0 rgba(168,144,232,0.03), ' +
+        '0 1px 0 rgb(var(--vl-purple-tint) / 0.03), ' +
         '0 10px 24px -10px rgba(58,40,104,0.14), ' +
         '0 6px 16px rgba(0,0,0,0.26)',
       backdropFilter: 'blur(10px)',
@@ -1017,9 +1130,9 @@ export function TopNav({ active }: { active?: Page } = {}) {
               // top sheen are the ::after / ::before in globals.css. No outer
               // glow, no bright outline. Slide animation kept.
               background:
-                'linear-gradient(180deg, rgba(168,144,232,0.22) 0%, rgba(168,144,232,0.13) 100%)',
+                'linear-gradient(180deg, rgb(var(--vl-purple-tint) / 0.22) 0%, rgb(var(--vl-purple-tint) / 0.13) 100%)',
               boxShadow:
-                'inset 0 0 0 1px rgba(168,144,232,0.28), ' +
+                'inset 0 0 0 1px rgb(var(--vl-purple-tint) / 0.28), ' +
                 'inset 0 1px 0 rgba(255,255,255,0.06), ' +
                 'inset 0 -1px 0 rgba(0,0,0,0.18)',
               transform: 'translateY(-1px)',
@@ -1045,10 +1158,10 @@ export function TopNav({ active }: { active?: Page } = {}) {
               position: 'relative', zIndex: 1,
               padding: '4px 16px', fontSize: 12,
               // Active label: pure white, slightly heavier (700), lifted 1px to
-              // match the pressed-glass capsule behind it. Inactive: #9a9ab4,
+              // match the pressed-glass capsule behind it. Inactive: var(--vl-text-muted),
               // 600 weight — clearly readable, not "disabled". Hover: white.
               fontWeight: isActive ? 700 : 600,
-              color: isActive ? '#ffffff' : (isHover ? '#ffffff' : '#9a9ab4'),
+              color: isActive ? 'var(--vl-white)' : (isHover ? 'var(--vl-white)' : 'var(--vl-text-muted)'),
               transform: isActive ? 'translateY(-1px)' : 'none',
               letterSpacing: '0.5px', borderRadius: 7, textDecoration: 'none',
               // Background + box-shadow removed — handled by the
@@ -1139,25 +1252,22 @@ export function TopNav({ active }: { active?: Page } = {}) {
                     role="menu"
                     aria-label="Tools menu"
                     style={{
-                      // Floating command-menu: fully rounded, glassy, detached
-                      // from the tab. The bridge above keeps hover alive across
-                      // the gap, so the panel can float without a square top edge.
+                      // Floating mega-menu: fully rounded, glassy, detached
+                      // from the tab. The bridge above keeps hover alive
+                      // across the gap. Widened from a single 150px column
+                      // into a multi-column grid of color-coded groups (see
+                      // TOOLS_MENU_GROUPS) so ~20 tools read as a structured
+                      // menu instead of one long undifferentiated list.
                       position: 'relative',
-                      width: 150,
-                      padding: 7,
-                      // Mostly opaque so feed cards behind don't bleed through —
-                      // glass lip stays via the subtle gradient + faint blur, but
-                      // the panel reads as a solid dropdown, not a blur blob.
+                      width: 620,
+                      padding: 14,
                       background: 'linear-gradient(180deg, rgba(24,18,40,0.985) 0%, rgba(15,11,26,0.985) 100%)',
-                      // Soft but visible border + faint top highlight.
-                      border: '1px solid rgba(168,144,232,0.30)',
+                      border: '1px solid rgb(var(--vl-purple-tint) / 0.30)',
                       borderTop: '1px solid rgba(196,176,250,0.34)',
-                      // Fully rounded — no tombstone top edge.
                       borderRadius: 16,
                       boxShadow: '0 14px 34px rgba(0,0,0,0.65)',
                       backdropFilter: 'blur(6px)',
                       WebkitBackdropFilter: 'blur(6px)',
-                      display: 'flex', flexDirection: 'column', gap: 2,
                     }}
                   >
                     {/* Centered connector notch — a small rotated glass square
@@ -1175,251 +1285,54 @@ export function TopNav({ active }: { active?: Page } = {}) {
                         borderRadius: 2,
                       }}
                     />
-                    <a
-                      role="menuitem"
-                      href="https://wallet.victorylabs.app/burner"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                    >
-                      Burner
-                    </a>
-                    <a
-                      role="menuitem"
-                      href="https://wallet.victorylabs.app/sender"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                    >
-                      Sender
-                    </a>
-                    <Link
-                      role="menuitem"
-                      href="/tools/offers"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/offers'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/offers');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      Offers
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/rare-feed"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/rare-feed'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/rare-feed');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      RARE
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/mint-analyzer"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/mint-analyzer'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/mint-analyzer');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      MINTX
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/candy-mint"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/candy-mint'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/candy-mint');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      CANDYMINT
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/tensor-take-bid"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgb(var(--vl-purple-tint) / 0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; router.prefetch('/tools/tensor-take-bid'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-muted)'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/tensor-take-bid');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      TAKEBID
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/holders"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/holders'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/holders');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      HOLDERS
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/collection-analyzer"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/collection-analyzer'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/collection-analyzer');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      COLLECTION ANALYZER
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/mmm-pools"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/mmm-pools'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/mmm-pools');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      MMM POOLS
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/mmm-pool-lookup"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/mmm-pool-lookup'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/mmm-pool-lookup');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      POOL LOOKUP
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/mmm-collection-scanner"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/mmm-collection-scanner'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/mmm-collection-scanner');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      COLL SCANNER
-                    </Link>
-                    {/* Pixel Forge temporarily pulled from nav — route still live at
-                        /tools/pixel-forge, just unlinked. Re-add this Link to restore. */}
-                    <Link
-                      role="menuitem"
-                      href="/tools/me-tensor-arb"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/me-tensor-arb'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/me-tensor-arb');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      ARB
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/spl20"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/spl20'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/spl20');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      SPL20
-                    </Link>
-                    <Link
-                      role="menuitem"
-                      href="/tools/mmm-collection-bids"
-                      prefetch
-                      style={DROPDOWN_ITEM_STYLE}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; (e.currentTarget as HTMLAnchorElement).style.color = '#f0eef8'; router.prefetch('/tools/mmm-collection-bids'); }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';                  (e.currentTarget as HTMLAnchorElement).style.color = '#9a9ab4'; }}
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
-                          console.log('[nav-perf] click /tools/mmm-collection-bids');
-                        }
-                        setToolsOpen(false);
-                      }}
-                    >
-                      COLLECTION BIDS
-                    </Link>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px 18px' }}>
+                      {TOOLS_MENU_GROUPS.map((group) => (
+                        <div key={group.label}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, padding: '0 8px' }}>
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: group.color, flexShrink: 0,
+                              boxShadow: `0 0 4px ${group.color}99` }} />
+                            <span style={{ fontSize: 9, fontWeight: 700, color: group.color, letterSpacing: '0.6px', textTransform: 'uppercase' }}>
+                              {group.label}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            {group.items.map((item) => item.external ? (
+                              <a
+                                key={item.href}
+                                role="menuitem"
+                                href={item.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={DROPDOWN_ITEM_STYLE}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = `${group.color}1f`; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';         (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-muted)'; }}
+                              >
+                                {item.label}
+                              </a>
+                            ) : (
+                              <Link
+                                key={item.href}
+                                role="menuitem"
+                                href={item.href}
+                                prefetch
+                                style={DROPDOWN_ITEM_STYLE}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = `${group.color}1f`; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; router.prefetch(item.href); }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent';         (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-muted)'; }}
+                                onClick={() => {
+                                  if (typeof window !== 'undefined') {
+                                    (window as unknown as { __navPerfClick?: number }).__navPerfClick = performance.now();
+                                    console.log(`[nav-perf] click ${item.href}`);
+                                  }
+                                  setToolsOpen(false);
+                                }}
+                              >
+                                {item.label}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   </div>
                 )}
@@ -1455,7 +1368,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
               position: 'relative', zIndex: 1,
               padding: '4px 16px', fontSize: 12, fontWeight: 600,
               // Match the readable inactive nav color (was the too-dark #4f4f66).
-              color: '#9a9ab4',
+              color: 'var(--vl-text-muted)',
               letterSpacing: '0.5px', borderRadius: 6, textDecoration: 'none',
               background: 'transparent',
               border: 'none', outline: 'none', fontFamily: 'inherit', cursor: 'pointer',
@@ -1477,7 +1390,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
           // recessed slot. Focus state untouched — same purple ring +
           // 3px outer glow as before.
           background: open ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.025)',
-          border: open ? '1px solid rgba(168,144,232,0.55)' : '1px solid rgba(255,255,255,0.10)',
+          border: open ? '1px solid rgb(var(--vl-purple-tint) / 0.55)' : '1px solid rgba(255,255,255,0.10)',
           borderRadius: 8,
           boxShadow: open
             ? 'inset 0 1px 2px rgba(0,0,0,0.28), 0 0 0 3px rgba(132,108,224,0.12)'
@@ -1489,7 +1402,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             width="14" height="14" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2.2"
             strokeLinecap="round" strokeLinejoin="round"
-            style={{ color: '#9a9ab4', flexShrink: 0 }}
+            style={{ color: 'var(--vl-text-muted)', flexShrink: 0 }}
           >
             <circle cx="11" cy="11" r="7" />
             <line x1="20" y1="20" x2="16.2" y2="16.2" />
@@ -1503,7 +1416,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
             onKeyDown={onKeyDown}
             style={{
               flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              color: '#f0eef8', fontSize: 12, fontFamily: 'inherit', padding: 0,
+              color: 'var(--vl-text-primary)', fontSize: 12, fontFamily: 'inherit', padding: 0,
             }}
           />
           {!q && (
@@ -1521,13 +1434,13 @@ export function TopNav({ active }: { active?: Page } = {}) {
           <div style={{
             position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
             background: 'linear-gradient(180deg, #1a1430 0%, #14102a 100%)',
-            border: '1px solid rgba(168,144,232,0.28)',
+            border: '1px solid rgb(var(--vl-purple-tint) / 0.28)',
             borderRadius: 6,
             boxShadow: '0 16px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.3)',
             maxHeight: 320, overflowY: 'auto', padding: 4,
           }}>
             {!q && (
-              <div style={{ fontSize: 9, fontWeight: 600, color: '#9a9ab4', letterSpacing: '0.8px', padding: '5px 8px 3px' }}>
+              <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--vl-text-muted)', letterSpacing: '0.8px', padding: '5px 8px 3px' }}>
                 TRENDING
               </div>
             )}
@@ -1536,7 +1449,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
                 search silently did nothing). Reuses the same dropdown shell,
                 just swaps the row list for one muted message. */}
             {results.length === 0 && q.trim().length > 0 && (
-              <div style={{ padding: '10px 8px', fontSize: 11, color: '#9a9ab4', textAlign: 'center' }}>
+              <div style={{ padding: '10px 8px', fontSize: 11, color: 'var(--vl-text-muted)', textAlign: 'center' }}>
                 No collections found
               </div>
             )}
@@ -1560,15 +1473,15 @@ export function TopNav({ active }: { active?: Page } = {}) {
                   style={{
                     display: 'flex', alignItems: 'center', gap: 9,
                     padding: '5px 8px', borderRadius: 4, cursor: 'pointer',
-                    background: hi === i ? 'rgba(128,104,216,0.12)' : 'transparent',
+                    background: hi === i ? 'rgb(var(--vl-purple-deep) / 0.12)' : 'transparent',
                     textDecoration: 'none', color: 'inherit',
                   }}>
                   <CollectionIcon imageUrl={compressImage(iconBySlug[col.slug] ?? null)} color={col.color} abbr={col.abbr} size={22} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#f0eef8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.name}</div>
-                    <div style={{ fontSize: 9, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>{col.slug}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--vl-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.name}</div>
+                    <div style={{ fontSize: 9, color: 'var(--vl-text-muted)', fontFamily: "'SF Mono','Fira Code',monospace" }}>{col.slug}</div>
                   </div>
-                  <span style={{ fontSize: 9, color: '#9a9ab4', fontFamily: "'SF Mono','Fira Code',monospace" }}>#{i + 1}</span>
+                  <span style={{ fontSize: 9, color: 'var(--vl-text-muted)', fontFamily: "'SF Mono','Fira Code',monospace" }}>#{i + 1}</span>
                 </a>
               );
             })}
@@ -1630,7 +1543,7 @@ export function BarIconButton({ on, onClick, children }: {
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         width: 24, height: 22, padding: 0, borderRadius: 5,
         background: 'transparent', border: 'none', cursor: 'pointer',
-        color: on ? '#a890e8' : '#7878a0',
+        color: on ? 'var(--vl-purple-tint)' : '#7878a0',
         transition: 'background 0.12s, color 0.12s',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
@@ -1650,7 +1563,6 @@ let lastKnownTps: number | null = null;
 export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?: number } = {}) {
   const [sol, setSol] = useState<string | null>(() => lastKnownSol);
   const [tps, setTps] = useState<number | null>(() => lastKnownTps);
-  const [inclusiveFees, setInclusiveFees] = useInclusiveFees();
   const uiSoundEnabled  = useUiSoundEnabled();
   const uiSoundVolume   = useUiSoundVolumeMultiplier();
   const cycleUiVolume = () => {
@@ -1738,11 +1650,11 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
       background:
         'radial-gradient(120% 180% at 50% 140%, rgba(132,108,224,0.018) 0%, rgba(132,108,224,0.006) 42%, transparent 66%), ' +
         'linear-gradient(180deg, rgba(6,5,14,0.995) 0%, rgba(13,10,24,0.95) 100%)',
-      borderTop: '1px solid rgba(168,144,232,0.09)',
+      borderTop: '1px solid rgb(var(--vl-purple-tint) / 0.09)',
       boxShadow:
         'inset 0 1px 0 rgba(255,255,255,0.04), ' +
         'inset 0 6px 14px -10px rgba(0,0,0,0.18), ' +
-        '0 -1px 0 rgba(168,144,232,0.03), ' +
+        '0 -1px 0 rgb(var(--vl-purple-tint) / 0.03), ' +
         '0 -10px 22px -10px rgba(58,40,104,0.14), ' +
         '0 -6px 16px rgba(0,0,0,0.26)',
       backdropFilter: 'blur(10px)',
@@ -1791,7 +1703,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 fontVariantNumeric: 'tabular-nums',
               }}>{sol !== null ? `$${sol}` : '—'}</span>
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.20)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgb(var(--vl-purple-tint) / 0.20)' }} aria-hidden="true" />
             <span>
               <span style={{ color: '#909bb6' }}>TPS </span>
               <span style={{
@@ -1809,9 +1721,9 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 <span style={{ color: '#909bb6' }}> · <span style={{ color: '#d4d4eb' }}>{eventsCount}</span> events</span>
               )}
             </span>
-            <span style={{ width: 1, height: 10, background: 'rgba(168,144,232,0.20)' }} aria-hidden="true" />
+            <span style={{ width: 1, height: 10, background: 'rgb(var(--vl-purple-tint) / 0.20)' }} aria-hidden="true" />
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ color: '#43b984', fontWeight: 700 }}>0</span>
+              <span style={{ color: 'var(--vl-green-primary)', fontWeight: 700 }}>0</span>
               <span style={{ color: '#909bb6' }}>alerts</span>
             </span>
           </div>
@@ -1851,7 +1763,7 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   height: 22, padding: '0 6px', borderRadius: 5,
                   background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: uiSoundVolume === 1.0 ? '#7878a0' : '#a890e8',
+                  color: uiSoundVolume === 1.0 ? '#7878a0' : 'var(--vl-purple-tint)',
                   fontFamily: "'SF Mono','Fira Code',monospace",
                   fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
                   transition: 'background 0.12s, color 0.12s',
@@ -1866,22 +1778,10 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
                 for new visitors (use-ui-sound.ts). The setUiSoundPack /
                 useUiSoundPack / SOUND_PACK_NAMES exports remain available for
                 future re-introduction; only the visible <select> is gone. */}
-            {/* Inclusive-fees toggle — affects only AMM_SELL display (logic unchanged). */}
-            <BarIconButton
-              on={inclusiveFees}
-              onClick={() => {
-                const next = !inclusiveFees;
-                if (next) playUiLogin(); else playUiLogout();
-                setInclusiveFees(next);
-              }}
-              
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="19" y1="5" x2="5" y2="19" />
-                <circle cx="6.5" cy="6.5" r="2.5" />
-                <circle cx="17.5" cy="17.5" r="2.5" />
-              </svg>
-            </BarIconButton>
+            {/* Inclusive-fees toggle removed 2026-08-07 — price display is
+                now a deterministic function of the sale itself (see
+                displayPrice() in soloist/price-mode.ts), so there's nothing
+                left for a per-user toggle to control. */}
           </div>
           {/* UX audit M5: at the mobile breakpoint (≤480px, see
               lib/breakpoints.ts) these two text links ran past the edge
@@ -1897,9 +1797,9 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             <a
               href="https://discord.com/" target="_blank" rel="noopener noreferrer"
               aria-label="Discord"
-              style={{ display: 'inline-flex', alignItems: 'center', color: '#9a9ab4', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#9a9ab4'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#9a9ab4'; }}
+              style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--vl-text-muted)', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--vl-text-muted)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--vl-text-muted)'; }}
             >
               <svg className="bp-only-mobile" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
                 <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057.1 18.08.111 18.1.128 18.115c2.053 1.508 4.041 2.423 5.993 3.029a.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.029.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
@@ -1909,9 +1809,9 @@ export function BottomStatusBar({ eventsCount: propEventsCount }: { eventsCount?
             <a
               href="https://x.com/VictoryHell_" target="_blank" rel="noopener noreferrer"
               aria-label="Twitter"
-              style={{ display: 'inline-flex', alignItems: 'center', color: '#9a9ab4', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#9a9ab4'; }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#9a9ab4'; }}
+              style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--vl-text-muted)', fontFamily: 'inherit', textDecoration: 'none', transition: 'color 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--vl-text-muted)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--vl-text-muted)'; }}
             >
               <svg className="bp-only-mobile" viewBox="0 0 24 24" fill="currentColor" width="13" height="13" aria-hidden="true">
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.747l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -1966,7 +1866,7 @@ export function FloatingLayoutModeSwitcher() {
         // faint bottom sheen so it reads as a milled-in control rather than a
         // bright floating widget, and a lighter outer drop shadow (the purple
         // glow ring is gone).
-        border: '1px solid rgba(168,144,232,0.18)',
+        border: '1px solid rgb(var(--vl-purple-tint) / 0.18)',
         background: 'rgba(14,11,24,0.95)',
         backdropFilter: 'blur(8px)',
         boxShadow:
@@ -1987,8 +1887,8 @@ export function FloatingLayoutModeSwitcher() {
           // Softened: a quieter purple wash + rim, plus a faint top sheen so
           // the active capsule reads as a slightly raised key inside the
           // recessed track. The brighter active label keeps the state obvious.
-          background: 'rgba(168,144,232,0.16)',
-          border: '1px solid rgba(168,144,232,0.26)',
+          background: 'rgb(var(--vl-purple-tint) / 0.16)',
+          border: '1px solid rgb(var(--vl-purple-tint) / 0.26)',
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
           borderRadius: 3,
           transition: pill.primed
@@ -2016,7 +1916,7 @@ export function FloatingLayoutModeSwitcher() {
               letterSpacing: '0.4px', borderRadius: 3,
               border: 'none',
               background: 'transparent',
-              color: active ? '#9a9ab4' : '#9a9ab4',
+              color: active ? 'var(--vl-text-muted)' : 'var(--vl-text-muted)',
               cursor: 'pointer', textTransform: 'uppercase',
               transition: 'color 0.18s ease',
               fontFamily: 'inherit',
@@ -2060,7 +1960,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
     fontSize:       13,
     fontWeight:     600,
     letterSpacing:  '0.4px',
-    color:          '#9a9ab4',
+    color:          'var(--vl-text-muted)',
     background:     'transparent',
     border:         'none',
     outline:        'none',
@@ -2094,17 +1994,17 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
           minWidth: 240, maxWidth: 320, width: '78%',
           padding: 8,
           background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
-          border: '1px solid rgba(168,144,232,0.28)',
+          border: '1px solid rgb(var(--vl-purple-tint) / 0.28)',
           borderRadius: 12,
           boxShadow:
             '0 20px 50px rgba(0,0,0,0.65), ' +
             '0 0 0 1px rgba(0,0,0,0.4), ' +
-            '0 0 28px rgba(128,104,216,0.18)',
+            '0 0 28px rgb(var(--vl-purple-deep) / 0.18)',
           animation: 'otherMenuCardIn 180ms cubic-bezier(0.22,1,0.36,1)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px 8px' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#9a9ab4', letterSpacing: '1px' }}>OTHER</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--vl-text-muted)', letterSpacing: '1px' }}>OTHER</span>
           <button
             type="button"
             aria-label="Close"
@@ -2112,7 +2012,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
             style={{
               width: 22, height: 22, padding: 0,
               border: 'none', outline: 'none',
-              background: 'transparent', color: '#9a9ab4',
+              background: 'transparent', color: 'var(--vl-text-muted)',
               fontSize: 16, lineHeight: '22px', cursor: 'pointer',
               fontFamily: 'inherit',
             }}
@@ -2121,7 +2021,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
         <button
           type="button"
           style={ITEM_STYLE}
-          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgb(var(--vl-purple-tint) / 0.12)'; }}
           onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onClick={() => goInternal('/mints')}
@@ -2131,7 +2031,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
         <button
           type="button"
           style={ITEM_STYLE}
-          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseDown={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgb(var(--vl-purple-tint) / 0.12)'; }}
           onMouseUp={(e)   => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
           onClick={() => goInternal('/tools/offers')}
@@ -2143,7 +2043,7 @@ function OtherMenuModal({ onClose }: { onClose: () => void }): JSX.Element {
           target="_blank"
           rel="noopener noreferrer"
           style={ITEM_STYLE}
-          onMouseDown={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(168,144,232,0.12)'; }}
+          onMouseDown={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'rgb(var(--vl-purple-tint) / 0.12)'; }}
           onMouseUp={(e)   => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = 'transparent'; }}
           onClick={onClose}
@@ -2233,13 +2133,13 @@ function RuntimeControls() {
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 7,
           height: 28, padding: '0 10px', borderRadius: 7,
-          background: open ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.08)',
-          border: '1px solid rgba(168,144,232,0.18)',
-          color: '#9a9ab4', fontFamily: 'inherit', fontSize: 11, letterSpacing: '0.4px',
+          background: open ? 'rgb(var(--vl-purple-tint) / 0.16)' : 'rgb(var(--vl-purple-tint) / 0.08)',
+          border: '1px solid rgb(var(--vl-purple-tint) / 0.18)',
+          color: 'var(--vl-text-muted)', fontFamily: 'inherit', fontSize: 11, letterSpacing: '0.4px',
           cursor: 'pointer', transition: 'background 0.14s, border-color 0.14s',
         }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(168,144,232,0.14)'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = open ? 'rgba(168,144,232,0.16)' : 'rgba(168,144,232,0.08)'; }}
+        onMouseEnter={e => { e.currentTarget.style.background = 'rgb(var(--vl-purple-tint) / 0.14)'; }}
+        onMouseLeave={e => { e.currentTarget.style.background = open ? 'rgb(var(--vl-purple-tint) / 0.16)' : 'rgb(var(--vl-purple-tint) / 0.08)'; }}
       >
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, boxShadow: `0 0 6px ${dot}99`, flexShrink: 0 }} />
         <span className="topnav-mode-badge" style={{ fontWeight: 600 }}>{label}</span>
@@ -2255,7 +2155,7 @@ function RuntimeControls() {
           width: 28, height: 28, borderRadius: 7,
           background: 'rgba(224,106,106,0.08)',
           border: '1px solid rgba(224,106,106,0.20)',
-          color: offBusy ? '#9a9ab4' : '#e0888a',
+          color: offBusy ? 'var(--vl-text-muted)' : '#e0888a',
           cursor: offBusy ? 'not-allowed' : 'pointer',
           transition: 'background 0.14s, color 0.14s',
         }}
@@ -2274,22 +2174,22 @@ function RuntimeControls() {
             position: 'absolute', top: '100%', right: 0, marginTop: 6,
             minWidth: 200,
             background: 'linear-gradient(180deg, rgba(20,14,34,0.98) 0%, rgba(14,11,28,0.98) 100%)',
-            border: '1px solid rgba(168,144,232,0.22)', borderRadius: 8,
-            boxShadow: '0 10px 22px rgba(0,0,0,0.5), 0 0 8px rgba(128,104,216,0.08)',
+            border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', borderRadius: 8,
+            boxShadow: '0 10px 22px rgba(0,0,0,0.5), 0 0 8px rgb(var(--vl-purple-deep) / 0.08)',
             padding: 8, zIndex: 1000,
             backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
             display: 'flex', flexDirection: 'column', gap: 8, fontFamily: 'inherit',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: '#9a9ab4', textTransform: 'uppercase' }}>Sales</span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: salesActive ? '#9a9ab4' : '#9a9ab4' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: salesActive ? '#43b984' : '#9a9ab4' }} />
+            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: 'var(--vl-text-muted)', textTransform: 'uppercase' }}>Sales</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: salesActive ? 'var(--vl-text-muted)' : 'var(--vl-text-muted)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: salesActive ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)' }} />
               {salesActive ? mode!.replace('_', ' ').toUpperCase() : 'OFF'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: '#9a9ab4', textTransform: 'uppercase' }}>Mints</span>
+            <span style={{ fontSize: 10, letterSpacing: '0.6px', color: 'var(--vl-text-muted)', textTransform: 'uppercase' }}>Mints</span>
             <button
               type="button"
               onClick={toggleMints}
