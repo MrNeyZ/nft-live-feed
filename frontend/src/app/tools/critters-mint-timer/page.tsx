@@ -54,10 +54,10 @@ function fmtCountdown(startMs: number, nowMs: number): string {
 }
 
 function fmtUtc(ms: number): string {
-  // "18:41 UTC" — time only, no date/seconds. Fixed to UTC regardless of
-  // the viewer's local timezone, so a start time is unambiguous.
-  const iso = new Date(ms).toISOString(); // "2026-08-13T18:41:30.000Z"
-  return `${iso.slice(11, 16)} UTC`;
+  // "19:41 UTC+1" — time only, no date/seconds. Fixed offset (Lisbon),
+  // not the viewer's actual local timezone, so a start time is unambiguous.
+  const iso = new Date(ms + 3_600_000).toISOString(); // "2026-08-13T19:41:30.000Z"
+  return `${iso.slice(11, 16)} UTC+1`;
 }
 
 // ── Usability-pass tiers ─────────────────────────────────────────────────
@@ -263,7 +263,12 @@ export default function CrittersMintTimerPage() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed', minWidth: 1060 }}>
+                {/* maxWidth pinned to the colgroup's own width sum (1100) —
+                    without it, tableLayout:fixed stretches every column
+                    proportionally to fill whatever the panel's actual width
+                    is, distorting the authored spacing (same fix as the
+                    /mints collections table). */}
+                <table style={{ width: '100%', maxWidth: 1100, borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed' }}>
                   <colgroup>
                     <col style={{ width: 260 }} />
                     <col style={{ width: 150 }} />
@@ -282,7 +287,7 @@ export default function CrittersMintTimerPage() {
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>SUPPLY</th>
                       <th style={sortableThStyle} onClick={() => toggleSort('remaining')}>REMAINING{sortArrow('remaining')}</th>
                       <th style={sortableThStyle} onClick={() => toggleSort('time')}>STARTS IN{sortArrow('time')}</th>
-                      <th style={sortableThStyle} onClick={() => toggleSort('time')}>START (UTC){sortArrow('time')}</th>
+                      <th style={sortableThStyle} onClick={() => toggleSort('time')}>START (UTC+1){sortArrow('time')}</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>LINK</th>
                     </tr>
                   </thead>
