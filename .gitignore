@@ -11,3 +11,5 @@ dist
 *.tsbuildinfo
 data/
 !data/blocked-deployers.txt
+research/
+dist.bak.*
