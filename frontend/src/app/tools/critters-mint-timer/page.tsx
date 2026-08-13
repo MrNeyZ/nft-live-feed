@@ -164,18 +164,14 @@ export default function CrittersMintTimerPage() {
     if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortCol(col); setSortDir('asc'); }
   };
-  // Fixed-width arrow slot so engaging/switching sort never shifts layout —
-  // dim placeholder on inactive sortable headers, bright + directional once
-  // that column is the active sort.
-  const sortArrow = (col: SortCol) => (
-    <span style={{ display: 'inline-block', width: 10, marginLeft: 4, opacity: sortCol === col ? 1 : 0.25 }}>
-      {sortCol === col ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
-    </span>
-  );
-  const sortableThStyle = (col: SortCol): React.CSSProperties => ({
-    ...THEAD_TH, textAlign: 'right', cursor: 'pointer', userSelect: 'none',
-    color: sortCol === col ? rgb(VL.purpleTint) : THEAD_TH.color,
-  });
+  // Same convention as /mints' sortArrow — nothing rendered on inactive
+  // headers (not even a dimmed placeholder), a small purple ↑/↓ only next
+  // to the active sort column.
+  const sortArrow = (col: SortCol) => {
+    if (sortCol !== col) return null;
+    return <span style={{ color: rgb(VL.purpleTint), marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  };
+  const sortableThStyle: React.CSSProperties = { ...THEAD_TH, textAlign: 'right', cursor: 'pointer', userSelect: 'none' };
 
   const applyFilter = () => {
     const p = Number(maxPriceInput);
@@ -282,11 +278,11 @@ export default function CrittersMintTimerPage() {
                     <tr>
                       <th style={{ ...THEAD_TH, textAlign: 'left' }}>NAME</th>
                       <th style={{ ...THEAD_TH, textAlign: 'left' }}>MINT</th>
-                      <th style={sortableThStyle('price')} onClick={() => toggleSort('price')}>PRICE (SOL){sortArrow('price')}</th>
+                      <th style={sortableThStyle} onClick={() => toggleSort('price')}>PRICE (SOL){sortArrow('price')}</th>
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>SUPPLY</th>
-                      <th style={sortableThStyle('remaining')} onClick={() => toggleSort('remaining')}>REMAINING{sortArrow('remaining')}</th>
-                      <th style={sortableThStyle('time')} onClick={() => toggleSort('time')}>STARTS IN{sortArrow('time')}</th>
-                      <th style={sortableThStyle('time')} onClick={() => toggleSort('time')}>START (UTC){sortArrow('time')}</th>
+                      <th style={sortableThStyle} onClick={() => toggleSort('remaining')}>REMAINING{sortArrow('remaining')}</th>
+                      <th style={sortableThStyle} onClick={() => toggleSort('time')}>STARTS IN{sortArrow('time')}</th>
+                      <th style={sortableThStyle} onClick={() => toggleSort('time')}>START (UTC){sortArrow('time')}</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>LINK</th>
                     </tr>
                   </thead>
