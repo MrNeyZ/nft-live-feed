@@ -13,7 +13,7 @@
 
 import type { MintStatus } from '../lib/types';
 import { sourceBadge, sourceHref } from '../lib/source';
-import { VLText } from '@/lib/palette';
+import { VL, rgb } from '@/lib/palette';
 
 /** `size` is opt-in: 'sm' (default) is the original 9px pill used by the Live
  *  Mint Feed card (left byte-identical). 'lg' is the ~25%-larger table variant
@@ -85,7 +85,12 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
   // Restore the original per-source VictoryLabs accent (sb.fg): CORE purple
   // (var(--vl-purple-tint)), LMNFT gold (var(--vl-gold-primary)), CANDY pink (#e58aa3), and GRAVE / VVV /
   // LEGACY / cNFT / PRNT / GAY / ME unchanged. No invented shades.
-  const accent = isDeployOnly ? VLText.muted : sb.fg;
+  //
+  // Deploy rows always render gold, regardless of source — matches the
+  // PRICE cell's "deploy" text (also gold, see MintsTableRow.tsx) so the
+  // whole row reads as one consistent "this is a deploy" signal instead
+  // of a muted/washed-out one that read as unfinished/disabled.
+  const accent = isDeployOnly ? rgb(VL.gold) : sb.fg;
   const label  = CHIP_LABEL[sb.label] ?? sb.label;
   const chipClassName = srcChipClassName(label);
   // flexShrink:0 so the anchor keeps its full SRCCHIP_W box as a flex child of
