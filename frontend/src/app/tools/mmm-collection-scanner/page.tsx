@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot }                                            from '@/soloist/shared';
+import { LiveDot, CtaButton }                                 from '@/soloist/shared';
 import { authHeaders }                                        from '@/runtime/auth';
 import { VL, VLText, ALPHA, rgb, alpha }                     from '@/lib/palette';
 import { API_BASE, ADDR_RE, MONO, PANEL, CopyKey, TH, TH_L } from '@/app/tools/mmm-shared';
@@ -10,6 +10,8 @@ import { API_BASE, ADDR_RE, MONO, PANEL, CopyKey, TH, TH_L } from '@/app/tools/m
 interface UnderfundedPool {
   poolKey:       string;
   escrowPda:     string;
+  fundingAccount:    string;  // top-up address: shared_escrow_account when usingSharedEscrow, else escrowPda
+  usingSharedEscrow: boolean;
   owner:         string;
   spotPrice:     number;
   spotPriceSol:  number;
@@ -62,7 +64,8 @@ interface TriageResult {
 }
 interface FlatPool {
   poolKey:        string;
-  escrowPda:      string;
+  escrowPda:      string;   // already the top-up address server-side (shared wallet when sharedEscrow)
+  sharedEscrow:   boolean;
   owner:          string;
   spotPriceSol:   number;
   realEscrowSol:  number;
@@ -74,22 +77,6 @@ interface FlatPool {
   isMIP1:         boolean;
   anyOnly:        boolean;   // 'any' allowlist — invisible to the normal FVCA/MCC scan
   isNew?:         boolean;   // never seen by pool-stream before (persistent, not cache-derived)
-}
-// Guards against pre-aa9351a localStorage entries: the hide/later panels
-// used to persist a narrow { collectionName, pct, realEscrowSol, escrowPda }
-// snapshot under the same keys before that commit switched to the full
-// FlatPool shape. Old entries silently surviving under the new key crash
-// PoolFeedRow's .toFixed() calls on the fields they never had
-// (spotPriceSol, missingSol, poolKey, owner, alKey) — drop anything that
-// doesn't match the current shape instead of rendering it.
-function isValidFlatPool(p: unknown): p is FlatPool {
-  if (!p || typeof p !== 'object') return false;
-  const o = p as Record<string, unknown>;
-  return typeof o.poolKey === 'string'
-    && typeof o.spotPriceSol === 'number'
-    && typeof o.realEscrowSol === 'number'
-    && typeof o.missingSol === 'number'
-    && typeof o.pct === 'number';
 }
 
 type TokenType = 'Legacy' | 'pNFT' | 'Core' | 'Unknown';
@@ -117,7 +104,7 @@ interface PoolFeedResult {
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const TD: React.CSSProperties = {
   ...MONO, padding: '8px 10px', fontSize: 12, fontWeight: 600,
-  color: '#f0eef8', textAlign: 'right', verticalAlign: 'middle',
+  color: 'var(--vl-text-primary)', textAlign: 'right', verticalAlign: 'middle',
   borderBottom: '1px solid rgba(255,255,255,0.016)',
 };
 const TD_L: React.CSSProperties = { ...TD, textAlign: 'left' };
@@ -134,9 +121,9 @@ function pctFunded(p: UnderfundedPool): number {
   return p.spotPrice > 0 ? (p.realEscrow / p.spotPrice) * 100 : 0;
 }
 function pctColor(pct: number): string {
-  if (pct >= 20) return '#43b984';
-  if (pct >=  5) return '#c7b479';
-  return '#d96867';
+  if (pct >= 20) return 'var(--vl-green-primary)';
+  if (pct >=  5) return 'var(--vl-gold-primary)';
+  return 'var(--vl-red-primary)';
 }
 // Pool-feed VALUE score — % funded alone surfaces a 99%-funded pool sitting
 // on 0.01 SOL above a genuinely toppable 80%-funded pool sitting on 0.2 SOL;
@@ -146,6 +133,22 @@ function pctColor(pct: number): string {
 // 0.80 × 0.2 = 0.16  vs  0.99 × 0.01 = 0.0099.
 function pfValueScore(p: FlatPool): number {
   return (p.pct / 100) * p.realEscrowSol;
+}
+// Guards against pre-aa9351a localStorage entries: the hide/later panels
+// used to persist a narrow { collectionName, pct, realEscrowSol, escrowPda }
+// snapshot under the same keys before that commit switched to the full
+// FlatPool shape. Old entries silently surviving under the new key crash
+// PoolFeedRow's .toFixed() calls on the fields they never had
+// (spotPriceSol, missingSol, poolKey, owner, alKey) — drop anything that
+// doesn't match the current shape instead of rendering it.
+function isValidFlatPool(p: unknown): p is FlatPool {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return typeof o.poolKey === 'string'
+    && typeof o.spotPriceSol === 'number'
+    && typeof o.realEscrowSol === 'number'
+    && typeof o.missingSol === 'number'
+    && typeof o.pct === 'number';
 }
 function tierColor(t: string): string {
   if (t === 'HIGH')     return '#43b984';
@@ -171,7 +174,7 @@ function CopyPoolTemplateBtn({ poolKey, escrowPda }: { poolKey: string; escrowPd
       title="Copy pool key + escrow wallet template"
       style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26,
         border: 'none', background: 'transparent',
-        cursor: 'pointer', fontSize: 12, fontWeight: 700, color: copied ? '#43b984' : rgb(VL.purpleTint) }}>
+        cursor: 'pointer', fontSize: 12, fontWeight: 700, color: copied ? 'var(--vl-green-primary)' : rgb(VL.purpleTint) }}>
       {copied ? '✓' : '⧉'}
     </button>
   );
@@ -215,6 +218,15 @@ function PoolFeedRow({ p, i, actions }: { p: FlatPool; i: number; actions: React
               color: rgb(VL.red), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
               textTransform: 'uppercase', verticalAlign: 'middle' }}>
             ⚡ any-only
+          </span>
+        )}
+        {p.sharedEscrow && (
+          <span title="Funded from a shared escrow wallet (owner-wide) — the ESCROW column/link points at that shared wallet, not a per-pool account. Topping it up funds every pool sharing it."
+            style={{ display: 'inline-block', marginLeft: 7, padding: '1px 5px', borderRadius: 3,
+              border: `1px solid ${alpha(VL.blue, 0.33)}`, background: alpha(VL.blue, 0.08),
+              color: rgb(VL.blue), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+              textTransform: 'uppercase', verticalAlign: 'middle' }}>
+            shared
           </span>
         )}
       </td>
@@ -311,10 +323,10 @@ function StatChip({ label, value, color }: { label: string; value: number | stri
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       padding: '8px 16px', borderRadius: 8,
-      background: 'rgba(168,144,232,0.06)', border: '1px solid rgba(168,144,232,0.14)',
+      background: 'rgb(var(--vl-purple-tint) / 0.06)', border: '1px solid rgb(var(--vl-purple-tint) / 0.14)',
     }}>
-      <span style={{ fontSize: 18, fontWeight: 700, color: color ?? '#f0eef8', ...MONO }}>{value}</span>
-      <span style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 2 }}>{label}</span>
+      <span style={{ fontSize: 18, fontWeight: 700, color: color ?? 'var(--vl-text-primary)', ...MONO }}>{value}</span>
+      <span style={{ fontSize: 10, color: 'var(--vl-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 2 }}>{label}</span>
     </div>
   );
 }
@@ -339,12 +351,12 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
     { id: 'poolfeed',   label: 'Pool Feed' },
   ];
   return (
-    <div style={{ display: 'flex', gap: 2, marginTop: 8, borderBottom: '1px solid rgba(168,144,232,0.18)' }}>
+    <div style={{ display: 'flex', gap: 2, marginTop: 8, borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.18)' }}>
       {tabs.map(t => (
         <button key={t.id} type="button" onClick={() => onChange(t.id)}
           style={{
             padding: '7px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-            border: 'none', borderBottom: active === t.id ? '2px solid #a890e8' : '2px solid transparent',
+            border: 'none', borderBottom: active === t.id ? '2px solid var(--vl-purple-tint)' : '2px solid transparent',
             marginBottom: -1,
             background: active === t.id ? alpha(VL.purpleTint, ALPHA.tint) : 'transparent',
             color: active === t.id ? rgb(VL.purpleTint) : VLText.muted,
@@ -778,7 +790,7 @@ export default function MmmCollectionScannerPage() {
       : collections;
 
     if (!rows.length) return (
-      <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '40px 24px', fontSize: 13 }}>
+      <div style={{ textAlign: 'center', color: 'var(--vl-text-muted)', padding: '40px 24px', fontSize: 13 }}>
         {q ? `No collections matching "${triageSearch}"` : 'No collections found above threshold.'}
       </div>
     );
@@ -802,7 +814,7 @@ export default function MmmCollectionScannerPage() {
             <div key={t} style={{ marginBottom: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', marginBottom: 6 }}>
                 <TierChip tier={t} />
-                <span style={{ fontSize: 11, color: '#9a9ab4' }}>{group.length} collection{group.length !== 1 ? 's' : ''}</span>
+                <span style={{ fontSize: 11, color: 'var(--vl-text-muted)' }}>{group.length} collection{group.length !== 1 ? 's' : ''}</span>
               </div>
               <div style={PANEL}>
                 <div style={{ overflowX: 'auto' }}>
@@ -835,32 +847,32 @@ export default function MmmCollectionScannerPage() {
                       {sortedGroup.map(c => (
                         <tr key={c.alKey}
                           style={{ borderBottom: '1px solid rgba(255,255,255,0.022)', cursor: 'pointer' }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(168,144,232,0.04)'; }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgb(var(--vl-purple-tint) / 0.04)'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; }}>
                           <td style={TD_L}>
                             <CopyKey value={c.alKey} label={short(c.alKey)} />
                           </td>
                           <td style={TD_L}>
                             {c.collectionName
-                              ? <span style={{ fontSize: 12, color: '#c7b479', fontWeight: 600 }}>{c.collectionName}</span>
+                              ? <span style={{ fontSize: 12, color: 'var(--vl-gold-primary)', fontWeight: 600 }}>{c.collectionName}</span>
                               : <span style={{ fontSize: 11, color: '#6b6b85' }}>—</span>
                             }
                           </td>
                           <td style={TD}>{c.count}</td>
                           <td style={{ ...TD, color: pctColor(c.bestPct), fontWeight: 700 }}>{c.bestPct.toFixed(1)}%</td>
-                          <td style={{ ...TD, color: '#9a9ab4' }}>{c.avgPct.toFixed(1)}%</td>
-                          <td style={TD}>{c.bestSpotSol.toFixed(4)}<span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span></td>
-                          <td style={TD}>{c.bestRealSol > 0 ? c.bestRealSol.toFixed(4) : <span style={{ color: '#6b6b85' }}>bpa</span>}<span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span></td>
-                          <td style={{ ...TD, color: '#d96867' }}>{c.bestMissingSol.toFixed(4)}<span style={{ fontSize: 9, color: '#9a9ab4', marginLeft: 2 }}>◎</span></td>
+                          <td style={{ ...TD, color: 'var(--vl-text-muted)' }}>{c.avgPct.toFixed(1)}%</td>
+                          <td style={TD}>{c.bestSpotSol.toFixed(4)}<span style={{ fontSize: 9, color: 'var(--vl-text-muted)', marginLeft: 2 }}>◎</span></td>
+                          <td style={TD}>{c.bestRealSol > 0 ? c.bestRealSol.toFixed(4) : <span style={{ color: '#6b6b85' }}>bpa</span>}<span style={{ fontSize: 9, color: 'var(--vl-text-muted)', marginLeft: 2 }}>◎</span></td>
+                          <td style={{ ...TD, color: 'var(--vl-red-primary)' }}>{c.bestMissingSol.toFixed(4)}<span style={{ fontSize: 9, color: 'var(--vl-text-muted)', marginLeft: 2 }}>◎</span></td>
                           <td style={{ ...TD, textAlign: 'center' }}>
                             <button onClick={() => jumpToCollectionScan(c.alKey, c.collectionName || undefined, c.collectionSlug || undefined)}
                               type="button"
                               title="Deep scan this collection"
                               style={{
                                 padding: '4px 12px', fontSize: 11, fontWeight: 700, borderRadius: 4,
-                                border: '1px solid rgba(168,144,232,0.45)',
-                                background: 'rgba(168,144,232,0.10)',
-                                color: '#a890e8', cursor: 'pointer', whiteSpace: 'nowrap',
+                                border: '1px solid rgb(var(--vl-purple-tint) / 0.45)',
+                                background: 'rgb(var(--vl-purple-tint) / 0.10)',
+                                color: 'var(--vl-purple-tint)', cursor: 'pointer', whiteSpace: 'nowrap',
                               }}>
                               Scan →
                             </button>
@@ -885,10 +897,10 @@ export default function MmmCollectionScannerPage() {
         <div style={{ padding: '14px 4px 0', width: '100%', maxWidth: 'var(--tools-max,1100px)', margin: '0 auto', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0eef8', letterSpacing: '-0.5px' }}>
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
                 MMM Collection Scanner
               </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 11, color: '#9a9ab4' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 11, color: 'var(--vl-text-muted)' }}>
                 <LiveDot />
                 <span>Live scanner for underfunded infinite-lifetime MMM buy pools</span>
               </div>
@@ -904,7 +916,7 @@ export default function MmmCollectionScannerPage() {
             {/* Search bar */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                <label style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                <label style={{ fontSize: 10, color: 'var(--vl-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
                   Collection slug or FVCA address
                 </label>
                 <input
@@ -923,26 +935,16 @@ export default function MmmCollectionScannerPage() {
                   style={{
                     padding: '9px 14px', fontSize: 13,
                     ...MONO, borderRadius: 6,
-                    border: `1px solid ${busy ? 'rgba(168,144,232,0.6)' : 'rgba(168,144,232,0.35)'}`,
-                    background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none',
+                    border: `1px solid ${busy ? 'rgb(var(--vl-purple-tint) / 0.6)' : 'rgb(var(--vl-purple-tint) / 0.35)'}`,
+                    background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none',
                     transition: 'border-color 0.15s',
                   }}
                 />
               </div>
-              <button type="button" onClick={() => void runCollectionScan()} disabled={!canScan}
-                style={{
-                  padding: '9px 24px', fontSize: 13, fontWeight: 700, letterSpacing: '0.4px',
-                  textTransform: 'uppercase', borderRadius: 6,
-                  cursor: canScan ? 'pointer' : 'not-allowed',
-                  border: '1px solid rgba(168,144,232,0.55)',
-                  background: canScan ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.08)',
-                  color: canScan ? '#f0eef8' : '#9a9ab4',
-                  boxShadow: canScan ? '0 0 14px rgba(128,104,216,0.2)' : 'none',
-                  transition: 'all 0.15s', alignSelf: 'flex-end',
-                  minWidth: 90,
-                }}>
+              <CtaButton onClick={() => void runCollectionScan()} disabled={!canScan}
+                style={{ alignSelf: 'flex-end', minWidth: 90 }}>
                 {resolving ? 'Resolving…' : busy ? 'Scanning…' : 'Scan'}
-              </button>
+              </CtaButton>
             </div>
 
             {/* Context strip — show resolved name / FVCA when came from slug */}
@@ -950,19 +952,19 @@ export default function MmmCollectionScannerPage() {
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
                 padding: '7px 12px', borderRadius: 6,
-                background: 'rgba(168,144,232,0.05)', border: '1px solid rgba(168,144,232,0.18)',
-                fontSize: 11, color: '#9a9ab4', flexWrap: 'wrap',
+                background: 'rgb(var(--vl-purple-tint) / 0.05)', border: '1px solid rgb(var(--vl-purple-tint) / 0.18)',
+                fontSize: 11, color: 'var(--vl-text-muted)', flexWrap: 'wrap',
               }}>
                 {collectionName && (
                   collectionSlugS
                     ? <a href={`https://magiceden.io/marketplace/${collectionSlugS}`}
                         target="_blank" rel="noopener noreferrer"
-                        style={{ fontWeight: 700, color: '#c7b479', fontSize: 14, textDecoration: 'none' }}
+                        style={{ fontWeight: 700, color: 'var(--vl-gold-primary)', fontSize: 14, textDecoration: 'none' }}
                         onMouseEnter={e => { (e.target as HTMLElement).style.textDecoration = 'underline'; }}
                         onMouseLeave={e => { (e.target as HTMLElement).style.textDecoration = 'none'; }}>
                         {collectionName} ↗
                       </a>
-                    : <span style={{ fontWeight: 700, color: '#c7b479', fontSize: 14 }}>{collectionName}</span>
+                    : <span style={{ fontWeight: 700, color: 'var(--vl-gold-primary)', fontSize: 14 }}>{collectionName}</span>
                 )}
                 {resolvedFvca && resolvedFvca !== trimmed && (
                   <CopyKey value={resolvedFvca} label={short(resolvedFvca)} />
@@ -971,13 +973,13 @@ export default function MmmCollectionScannerPage() {
             )}
 
             {scanError && (
-              <div style={{ marginBottom: 12, padding: '8px 14px', fontSize: 12, color: '#d96867', background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 6 }}>
+              <div style={{ marginBottom: 12, padding: '8px 14px', fontSize: 12, color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 6 }}>
                 {scanError}
               </div>
             )}
 
             {busy && !scanResult && (
-              <div style={{ marginBottom: 12, padding: '8px 14px', fontSize: 12, color: '#9a9ab4', background: 'rgba(168,144,232,0.05)', border: '1px solid rgba(168,144,232,0.14)', borderRadius: 6, ...MONO }}>
+              <div style={{ marginBottom: 12, padding: '8px 14px', fontSize: 12, color: 'var(--vl-text-muted)', background: 'rgb(var(--vl-purple-tint) / 0.05)', border: '1px solid rgb(var(--vl-purple-tint) / 0.14)', borderRadius: 6, ...MONO }}>
                 Querying 6 allowlist slots × 4 types via getProgramAccounts…
               </div>
             )}
@@ -985,11 +987,11 @@ export default function MmmCollectionScannerPage() {
             {scanResult && (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '0 0 16px' }}>
                 <StatChip label="Total Found"    value={scanResult.totalFound} />
-                <StatChip label="Expired"        value={scanResult.expired}    color="#9a9ab4" />
+                <StatChip label="Expired"        value={scanResult.expired}    color="var(--vl-text-muted)" />
                 <StatChip label="Active"         value={scanResult.activeTotal} />
-                <StatChip label="Executable"     value={scanResult.executable}  color="#43b984" />
-                <StatChip label="Underfunded"    value={scanResult.underfunded} color="#c7b479" />
-                <StatChip label="Empty escrow"   value={scanResult.emptyEscrow} color="#9a9ab4" />
+                <StatChip label="Executable"     value={scanResult.executable}  color="var(--vl-green-primary)" />
+                <StatChip label="Underfunded"    value={scanResult.underfunded} color="var(--vl-gold-primary)" />
+                <StatChip label="Empty escrow"   value={scanResult.emptyEscrow} color="var(--vl-text-muted)" />
                 <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 6 }}>
                   <span style={{ ...MONO, fontSize: 10, color: '#6b6b85' }}>
                     {new Date(scanResult.scannedAt).toLocaleTimeString()}
@@ -1027,13 +1029,13 @@ export default function MmmCollectionScannerPage() {
                   </thead>
                   <tbody>
                     {!scanResult && !busy && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', color: '#9a9ab4', padding: '64px 24px', fontSize: 13, lineHeight: 1.7 }}>
-                        Enter a collection slug or FVCA address above and press <kbd style={{ padding: '1px 6px', borderRadius: 3, border: '1px solid rgba(168,144,232,0.3)', fontSize: 11, background: 'rgba(168,144,232,0.08)', color: '#a890e8' }}>Enter</kbd> or click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan</span>.
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--vl-text-muted)', padding: '64px 24px', fontSize: 13, lineHeight: 1.7 }}>
+                        Enter a collection slug or FVCA address above and press <kbd style={{ padding: '1px 6px', borderRadius: 3, border: '1px solid rgb(var(--vl-purple-tint) / 0.3)', fontSize: 11, background: 'rgb(var(--vl-purple-tint) / 0.08)', color: 'var(--vl-purple-tint)' }}>Enter</kbd> or click <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 600 }}>Scan</span>.
                         <br /><span style={{ fontSize: 11 }}>Shows underfunded infinite-lifetime MMM pools invisible in the ME UI.</span>
                       </td></tr>
                     )}
                     {scanResult && scanResult.pools.length === 0 && !busy && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', color: '#43b984', padding: '64px 24px', fontSize: 13, fontWeight: 600 }}>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--vl-green-primary)', padding: '64px 24px', fontSize: 13, fontWeight: 600 }}>
                         ✓ No underfunded infinite-lifetime pools found for this collection.
                       </td></tr>
                     )}
@@ -1042,35 +1044,46 @@ export default function MmmCollectionScannerPage() {
                       return (
                         <tr key={p.poolKey}>
                           <td style={{ ...TD, color: '#6b6b85' }}>{i + 1}</td>
-                          <td style={TD_L}><CopyKey value={p.poolKey} label={short(p.poolKey)} /></td>
-                          <td style={TD}>
-                            <span style={{ color: '#f0eef8', fontWeight: 700 }}>{fmtSol(p.spotPrice)}</span>
-                            <span style={{ fontSize: 10, color: '#9a9ab4', marginLeft: 3 }}>◎</span>
+                          <td style={TD_L}>
+                            <CopyKey value={p.poolKey} label={short(p.poolKey)} />
+                            {p.usingSharedEscrow && (
+                              <span title="Funded from a shared escrow wallet (owner-wide) — ESCROW column/link and the copy template point at that shared wallet, not a per-pool account."
+                                style={{ display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 3,
+                                  border: `1px solid ${alpha(VL.blue, 0.33)}`, background: alpha(VL.blue, 0.08),
+                                  color: rgb(VL.blue), fontSize: 8, fontWeight: 700, letterSpacing: '0.4px',
+                                  textTransform: 'uppercase', verticalAlign: 'middle' }}>
+                                shared
+                              </span>
+                            )}
                           </td>
                           <td style={TD}>
-                            <a href={`https://solscan.io/account/${p.escrowPda}`} target="_blank" rel="noopener noreferrer"
-                              title={p.escrowPda}
-                              style={{ color: '#c7b479', textDecoration: 'none', ...MONO, fontSize: 12, fontWeight: 600 }}
+                            <span style={{ color: 'var(--vl-text-primary)', fontWeight: 700 }}>{fmtSol(p.spotPrice)}</span>
+                            <span style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginLeft: 3 }}>◎</span>
+                          </td>
+                          <td style={TD}>
+                            <a href={`https://solscan.io/account/${p.fundingAccount}`} target="_blank" rel="noopener noreferrer"
+                              title={p.fundingAccount}
+                              style={{ color: 'var(--vl-gold-primary)', textDecoration: 'none', ...MONO, fontSize: 12, fontWeight: 600 }}
                               onMouseEnter={e => { (e.target as HTMLElement).style.textDecoration = 'underline'; }}
                               onMouseLeave={e => { (e.target as HTMLElement).style.textDecoration = 'none'; }}>
                               {fmtSol(p.realEscrow)}
                             </a>
-                            <span style={{ fontSize: 10, color: '#9a9ab4', marginLeft: 3 }}>◎</span>
+                            <span style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginLeft: 3 }}>◎</span>
                           </td>
                           <td style={TD}>
-                            <span style={{ color: '#d96867', fontWeight: 700 }}>{fmtSol(p.missing)}</span>
-                            <span style={{ fontSize: 10, color: '#9a9ab4', marginLeft: 3 }}>◎</span>
+                            <span style={{ color: 'var(--vl-red-primary)', fontWeight: 700 }}>{fmtSol(p.missing)}</span>
+                            <span style={{ fontSize: 10, color: 'var(--vl-text-muted)', marginLeft: 3 }}>◎</span>
                           </td>
                           <td style={{ ...TD, color: pctColor(pct), fontWeight: 700 }}>{pct.toFixed(1)}%</td>
                           <td style={TD_L}>
                             <a href={`https://magiceden.io/u/${p.owner}`} target="_blank" rel="noopener noreferrer"
-                              style={{ color: '#a890e8', textDecoration: 'none', ...MONO, fontSize: 11 }}
+                              style={{ color: 'var(--vl-purple-tint)', textDecoration: 'none', ...MONO, fontSize: 11 }}
                               onMouseEnter={e => { (e.target as HTMLElement).style.textDecoration = 'underline'; }}
                               onMouseLeave={e => { (e.target as HTMLElement).style.textDecoration = 'none'; }}>
                               {short(p.owner)}
                             </a>
                           </td>
-                          <td style={{ ...TD, color: '#9a9ab4', fontSize: 11 }}>
+                          <td style={{ ...TD, color: 'var(--vl-text-muted)', fontSize: 11 }}>
                             {p.expiry === 0 ? 'no expiry' : new Date(p.expiry * 1000).toLocaleDateString()}
                           </td>
                           <td style={{ ...TD, textAlign: 'center' }}>
@@ -1083,11 +1096,11 @@ export default function MmmCollectionScannerPage() {
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src="/brand/me.png" alt="ME" width={20} height={20} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none' }} />
                               </a>
-                              <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.escrowPda} />
+                              <CopyPoolTemplateBtn poolKey={p.poolKey} escrowPda={p.fundingAccount} />
                               <a href={`/tools/mmm-pool-lookup?pool=${encodeURIComponent(p.poolKey)}`} title="Pool Lookup"
                                 style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26,
                                   borderLeft: `1px solid ${alpha(VL.purpleTint, 0.18)}`,
-                                  cursor: 'pointer', textDecoration: 'none', fontSize: 11, fontWeight: 700, color: '#a890e8' }}>
+                                  cursor: 'pointer', textDecoration: 'none', fontSize: 11, fontWeight: 700, color: 'var(--vl-purple-tint)' }}>
                                 ↗
                               </a>
                             </div>
@@ -1109,31 +1122,23 @@ export default function MmmCollectionScannerPage() {
             {/* Controls */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <label style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Min % funded</label>
+                <label style={{ fontSize: 10, color: 'var(--vl-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Min % funded</label>
                 <input type="number" value={triageMinPct} min="0" max="100" step="0.1"
                   onChange={e => { setTriageMinPct(e.target.value); localStorage.setItem('vl.mmm-triage.minPct', e.target.value); }} disabled={triageBusy}
-                  style={{ width: 80, padding: '7px 10px', fontSize: 12, ...MONO, borderRadius: 5, border: '1px solid rgba(168,144,232,0.4)', background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none' }}
+                  style={{ width: 80, padding: '7px 10px', fontSize: 12, ...MONO, borderRadius: 5, border: '1px solid rgb(var(--vl-purple-tint) / 0.4)', background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none' }}
                 />
               </div>
 
 
 
-              <button type="button" disabled={triageBusy} onClick={() => runTriage()}
-                style={{
-                  padding: '8px 22px', fontSize: 12, fontWeight: 700, letterSpacing: '0.4px',
-                  textTransform: 'uppercase', borderRadius: 5, cursor: triageBusy ? 'not-allowed' : 'pointer',
-                  border: '1px solid rgba(168,144,232,0.55)',
-                  background: !triageBusy ? 'linear-gradient(180deg,rgba(128,104,216,0.28) 0%,rgba(128,104,216,0.14) 100%)' : 'rgba(128,104,216,0.08)',
-                  color: !triageBusy ? '#f0eef8' : '#9a9ab4',
-                  boxShadow: !triageBusy ? '0 0 14px rgba(128,104,216,0.2)' : 'none',
-                  alignSelf: 'flex-end', marginBottom: 0,
-                }}>
+              <CtaButton disabled={triageBusy} onClick={() => runTriage()}
+                style={{ alignSelf: 'flex-end', marginBottom: 0 }}>
                 {triageBusy ? 'Scanning…' : 'Scan'}
-              </button>
+              </CtaButton>
 
               {triageResult?.cached && !triageBusy && (
                 <button type="button" onClick={() => runTriage({ force: true })}
-                  style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: '1px solid rgba(168,144,232,0.22)', background: 'transparent', color: '#9a9ab4', cursor: 'pointer', alignSelf: 'flex-end' }}>
+                  style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: '1px solid rgb(var(--vl-purple-tint) / 0.22)', background: 'transparent', color: 'var(--vl-text-muted)', cursor: 'pointer', alignSelf: 'flex-end' }}>
                   ↺ Refresh
                 </button>
               )}
@@ -1141,11 +1146,11 @@ export default function MmmCollectionScannerPage() {
               {/* Search — shown only once we have results */}
               {triageResult && !triageBusy && (
                 <div style={{ flex: 1, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <label style={{ fontSize: 10, color: '#9a9ab4', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Search</label>
+                  <label style={{ fontSize: 10, color: 'var(--vl-text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>Search</label>
                   <input
                     type="text" value={triageSearch} placeholder="Collection name or FVCA…"
                     onChange={e => setTriageSearch(e.target.value)}
-                    style={{ padding: '7px 12px', fontSize: 12, borderRadius: 5, border: '1px solid rgba(168,144,232,0.35)', background: 'rgba(20,14,34,0.85)', color: '#f0eef8', outline: 'none' }}
+                    style={{ padding: '7px 12px', fontSize: 12, borderRadius: 5, border: '1px solid rgb(var(--vl-purple-tint) / 0.35)', background: 'rgba(20,14,34,0.85)', color: 'var(--vl-text-primary)', outline: 'none' }}
                   />
                 </div>
               )}
@@ -1156,20 +1161,20 @@ export default function MmmCollectionScannerPage() {
             {(triageBusy || (triageLogs.length > 0 && !triageResult)) && !triageError && (
               <div style={{
                 marginBottom: 14, padding: '10px 14px', borderRadius: 8,
-                background: 'rgba(168,144,232,0.04)', border: '1px solid rgba(168,144,232,0.16)',
+                background: 'rgb(var(--vl-purple-tint) / 0.04)', border: '1px solid rgb(var(--vl-purple-tint) / 0.16)',
                 ...MONO, fontSize: 11,
               }}>
                 {triageLogs.map((l, i) => (
-                  <div key={i} style={{ color: i === triageLogs.length - 1 ? '#c7b479' : '#9a9ab4', padding: '1px 0' }}>
+                  <div key={i} style={{ color: i === triageLogs.length - 1 ? 'var(--vl-gold-primary)' : 'var(--vl-text-muted)', padding: '1px 0' }}>
                     {i === triageLogs.length - 1 && triageBusy ? '› ' : '✓ '}{l}
                   </div>
                 ))}
-                {triageBusy && <div style={{ color: '#a890e8', padding: '1px 0' }}>…</div>}
+                {triageBusy && <div style={{ color: 'var(--vl-purple-tint)', padding: '1px 0' }}>…</div>}
               </div>
             )}
 
             {triageError && (
-              <div style={{ marginBottom: 14, padding: '8px 14px', fontSize: 12, color: '#d96867', background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 6 }}>
+              <div style={{ marginBottom: 14, padding: '8px 14px', fontSize: 12, color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 6 }}>
                 {triageError}
               </div>
             )}
@@ -1178,18 +1183,18 @@ export default function MmmCollectionScannerPage() {
             {triageResult && (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
                 <StatChip label="All Pools"   value={triageResult.totalPools.toLocaleString()} />
-                <StatChip label="Underfunded" value={triageResult.underfundedTotal} color="#c7b479" />
-                <StatChip label="Collections" value={triageResult.collectionCount}  color="#a890e8" />
-                <StatChip label="HIGH ≥20%"   value={triageResult.collections.filter(c => c.tier === 'HIGH').length}     color="#43b984" />
-                <StatChip label="LOW 5–19%"   value={triageResult.collections.filter(c => c.tier === 'LOW').length}      color="#c7b479" />
-                <StatChip label="V.LOW 2–4%"  value={triageResult.collections.filter(c => c.tier === 'VERY_LOW').length} color="#a890e8" />
+                <StatChip label="Underfunded" value={triageResult.underfundedTotal} color="var(--vl-gold-primary)" />
+                <StatChip label="Collections" value={triageResult.collectionCount}  color="var(--vl-purple-tint)" />
+                <StatChip label="HIGH ≥20%"   value={triageResult.collections.filter(c => c.tier === 'HIGH').length}     color="var(--vl-green-primary)" />
+                <StatChip label="LOW 5–19%"   value={triageResult.collections.filter(c => c.tier === 'LOW').length}      color="var(--vl-gold-primary)" />
+                <StatChip label="V.LOW 2–4%"  value={triageResult.collections.filter(c => c.tier === 'VERY_LOW').length} color="var(--vl-purple-tint)" />
                 <div style={{
                   padding: '6px 12px', borderRadius: 8,
-                  border: '1px solid rgba(168,144,232,0.14)',
-                  background: triageResult.cached ? 'rgba(67,185,132,0.06)' : 'rgba(168,144,232,0.05)',
+                  border: '1px solid rgb(var(--vl-purple-tint) / 0.14)',
+                  background: triageResult.cached ? 'rgb(var(--vl-green) / 0.06)' : 'rgb(var(--vl-purple-tint) / 0.05)',
                   display: 'flex', flexDirection: 'column', gap: 2,
                 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: triageResult.cached ? '#43b984' : '#a890e8', ...MONO }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: triageResult.cached ? 'var(--vl-green-primary)' : 'var(--vl-purple-tint)', ...MONO }}>
                     {triageResult.cached
                       ? `⚡ cached · ${Math.floor((triageResult.cacheAgeMs ?? 0) / 60_000)}m ago`
                       : triageResult.fast ? '⚡ fast mode' : '✓ live scan'}
@@ -1202,9 +1207,9 @@ export default function MmmCollectionScannerPage() {
             )}
 
             {!triageResult && !triageBusy && !triageError && (
-              <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '72px 24px', fontSize: 13, lineHeight: 1.6 }}>
-                Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan</span> to find all collections with underfunded MMM bids.
-                <br /><span style={{ fontSize: 11, color: '#6b6b85' }}>One RPC dump of all infinite-lifetime pools. Click <strong style={{ color: '#a890e8' }}>Scan →</strong> on any row to deep-dive instantly.</span>
+              <div style={{ textAlign: 'center', color: 'var(--vl-text-muted)', padding: '72px 24px', fontSize: 13, lineHeight: 1.6 }}>
+                Click <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 600 }}>Scan</span> to find all collections with underfunded MMM bids.
+                <br /><span style={{ fontSize: 11, color: '#6b6b85' }}>One RPC dump of all infinite-lifetime pools. Click <strong style={{ color: 'var(--vl-purple-tint)' }}>Scan →</strong> on any row to deep-dive instantly.</span>
               </div>
             )}
 
@@ -1220,22 +1225,9 @@ export default function MmmCollectionScannerPage() {
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0, marginBottom: 12 }}>
 
               {/* SCAN — clearly clickable, not the eye anchor */}
-              <button type="button" disabled={pfBusy} onClick={() => runPoolFeed()}
-                style={{
-                  padding: '8px 22px', fontSize: 13, fontWeight: 700, letterSpacing: '0.8px',
-                  textTransform: 'uppercase', borderRadius: 6, cursor: pfBusy ? 'not-allowed' : 'pointer',
-                  border: `1px solid ${!pfBusy ? alpha(VL.purpleTint, 0.38) : alpha(VL.purpleTint, 0.10)}`,
-                  background: !pfBusy
-                    ? `linear-gradient(160deg,${alpha(VL.purpleDeep,0.38)} 0%,${alpha(VL.purpleDeep,0.20)} 100%)`
-                    : alpha(VL.purpleDeep,0.06),
-                  color: !pfBusy ? VLText.primary : VLText.muted,
-                  boxShadow: !pfBusy
-                    ? `0 0 16px ${alpha(VL.purpleDeep,0.28)}, inset 0 1px 0 rgba(255,255,255,0.07)`
-                    : 'none',
-                  flexShrink: 0,
-                }}>
+              <CtaButton disabled={pfBusy} onClick={() => runPoolFeed()} style={{ flexShrink: 0 }}>
                 {pfBusy ? 'Scanning…' : 'Scan'}
-              </button>
+              </CtaButton>
 
               {/* Divider */}
               {pfResult && !pfBusy && (
@@ -1445,18 +1437,18 @@ export default function MmmCollectionScannerPage() {
 
             {/* Progress log */}
             {(pfBusy || pfLogs.length > 0) && !pfError && !pfResult && (
-              <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(168,144,232,0.04)', border: '1px solid rgba(168,144,232,0.16)', ...MONO, fontSize: 11 }}>
+              <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: 'rgb(var(--vl-purple-tint) / 0.04)', border: '1px solid rgb(var(--vl-purple-tint) / 0.16)', ...MONO, fontSize: 11 }}>
                 {pfLogs.map((l, i) => (
-                  <div key={i} style={{ color: i === pfLogs.length - 1 ? '#c7b479' : '#9a9ab4', padding: '1px 0' }}>
+                  <div key={i} style={{ color: i === pfLogs.length - 1 ? 'var(--vl-gold-primary)' : 'var(--vl-text-muted)', padding: '1px 0' }}>
                     {i === pfLogs.length - 1 && pfBusy ? '› ' : '✓ '}{l}
                   </div>
                 ))}
-                {pfBusy && <div style={{ color: '#a890e8', padding: '1px 0' }}>…</div>}
+                {pfBusy && <div style={{ color: 'var(--vl-purple-tint)', padding: '1px 0' }}>…</div>}
               </div>
             )}
 
             {pfError && (
-              <div style={{ marginBottom: 14, padding: '8px 14px', fontSize: 12, color: '#d96867', background: 'rgba(239,120,120,0.08)', border: '1px solid rgba(239,120,120,0.32)', borderRadius: 6 }}>
+              <div style={{ marginBottom: 14, padding: '8px 14px', fontSize: 12, color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 6 }}>
                 {pfError}
               </div>
             )}
@@ -1536,8 +1528,8 @@ export default function MmmCollectionScannerPage() {
             })()}
 
             {!pfResult && !pfBusy && !pfError && (
-              <div style={{ textAlign: 'center', color: '#9a9ab4', padding: '72px 24px', fontSize: 13, lineHeight: 1.6 }}>
-                Click <span style={{ color: '#a890e8', fontWeight: 600 }}>Scan</span> to view all underfunded pools sorted by % funded.<br />
+              <div style={{ textAlign: 'center', color: 'var(--vl-text-muted)', padding: '72px 24px', fontSize: 13, lineHeight: 1.6 }}>
+                Click <span style={{ color: 'var(--vl-purple-tint)', fontWeight: 600 }}>Scan</span> to view all underfunded pools sorted by % funded.<br />
                 <span style={{ fontSize: 11, color: '#6b6b85' }}>Default min 50% — shows pools close to executable. Reuses Triage cache if available.</span>
               </div>
             )}

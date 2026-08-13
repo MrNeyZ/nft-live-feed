@@ -53,12 +53,18 @@ const OFF_OWNER    = 121;
 const OFF_COSIGNER = 153;   // immediately after owner (32 bytes)
 const OFF_REFERRAL = 185;   // immediately after cosigner (32 bytes)
 const OFF_BPA      = 447;
+const OFF_SHARED_ESCROW = 455; // shared_escrow_account Pubkey (32 bytes)
 const OFF_AL       = 249;   // allowlists start
 
 // MMM on-chain constants (verified from live sol_fulfill_buy txs)
 const METAPLEX_PROGRAM   = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 const AUTH_RULES_PROGRAM = new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg');
 const MPL_CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+// M2 (Magic Eden v2 auction house) program — CPI target for shared-escrow
+// withdrawals inside sol_fulfill_buy/sol_mip1_fulfill_buy/sol_mpl_core_fulfill_buy.
+// Verified against magicoss/mmm source (constants.rs): M2_PROGRAM + M2_AUCTION_HOUSE
+// are fixed protocol constants, not per-pool values.
+const M2_PROGRAM_ID = new PublicKey('M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K');
 const SOL_FULFILL_BUY_DISC          = Buffer.from('5c10e24f1ff23576', 'hex'); // sol_fulfill_buy (legacy/non-pNFT)
 const SOL_MIP1_FULFILL_BUY_DISC     = Buffer.from('ec529e7a0818af91', 'hex'); // sol_mip1_fulfill_buy (pNFT)
 const SOL_MPL_CORE_FULFILL_BUY_DISC = Buffer.from('aba722c170158e59', 'hex'); // sol_mpl_core_fulfill_buy (MPL Core)
@@ -179,6 +185,20 @@ function creatorKeys(creators: DecodedMetadata['creators']) {
   return creators.map(c => ({ pubkey: new PublicKey(c.address), isSigner: false, isWritable: true }));
 }
 
+/** Shared-escrow pools require 2 extra remaining_accounts BEFORE the royalty
+ *  creator accounts: [m2_program, shared_escrow_account] — the mmm program
+ *  CPIs into M2's withdraw_by_mmm to pull funds from the shared wallet into
+ *  the per-pool escrow PDA atomically, inside the same fulfill-buy ix.
+ *  Verified against magicoss/mmm source (util.rs check_remaining_accounts_for_m2/
+ *  withdraw_m2, identical across vanilla/mip1/mpl_core_asset fulfill-buy). */
+function sharedEscrowRemainingAccounts(pool: MmmPool) {
+  if (!pool.usingSharedEscrow) return [];
+  return [
+    { pubkey: M2_PROGRAM_ID,                       isSigner: false, isWritable: false },
+    { pubkey: new PublicKey(pool.sharedEscrowAccount), isSigner: false, isWritable: true },
+  ];
+}
+
 interface CoreAssetInfo {
   collection: string | null;
   creators: DecodedMetadata['creators'];
@@ -260,7 +280,8 @@ function buildSolMplCoreFulfillBuyIx(
       { pubkey: collectionPk,            isSigner: false, isWritable: false }, // [8] collection
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // [9] system_program
       { pubkey: MPL_CORE_PROGRAM_ID,     isSigner: false, isWritable: false }, // [10] asset_program
-      ...creatorKeys(creators),                                                // [11..] royalty creators (dynamic)
+      ...sharedEscrowRemainingAccounts(pool),                                  // [11..12] m2_program + shared_escrow_account (shared-escrow pools only)
+      ...creatorKeys(creators),                                                // [11/13..] royalty creators (dynamic)
     ],
   });
 }
@@ -350,6 +371,9 @@ export interface Allowlist { type: string; pubkey: string; }
 export interface MmmPool {
   poolKey:        string;
   escrowPda:      string;
+  sharedEscrowAccount: string; // pool.shared_escrow_account (M2 PDA); default pubkey when unused
+  usingSharedEscrow:   boolean;
+  fundingAccount: string;   // account real balance actually funds this pool: sharedEscrowAccount when using shared escrow, else escrowPda
   owner:          string;
   cosigner:       string;
   referral:       string;
@@ -357,7 +381,7 @@ export interface MmmPool {
   spotPriceSol:   number;
   bpa:            number;   // tracked buyside_payment_amount, lamports
   bpaSol:         number;
-  realEscrow:     number;   // actual lamports in escrow PDA
+  realEscrow:     number;   // actual lamports in fundingAccount
   realEscrowSol:  number;
   missing:        number;   // spotPrice - realEscrow (lamports)
   missingSol:     number;
@@ -396,13 +420,22 @@ export function parsePool(pubkey: string, dataB64: string): MmmPool | null {
   let owner    = '';
   let cosigner = '';
   let referral = '';
+  let sharedEscrowAccount = SystemProgram.programId.toBase58();
   try { owner    = new PublicKey(raw.subarray(OFF_OWNER,    OFF_OWNER    + 32)).toBase58(); } catch { /* ignore */ }
   try { cosigner = new PublicKey(raw.subarray(OFF_COSIGNER, OFF_COSIGNER + 32)).toBase58(); } catch { /* ignore */ }
   try { referral = new PublicKey(raw.subarray(OFF_REFERRAL, OFF_REFERRAL + 32)).toBase58(); } catch { /* ignore */ }
+  try { sharedEscrowAccount = new PublicKey(raw.subarray(OFF_SHARED_ESCROW, OFF_SHARED_ESCROW + 32)).toBase58(); } catch { /* ignore */ }
+  // Mirrors on-chain Pool::using_shared_escrow() exactly (state.rs): true iff
+  // shared_escrow_account != Pubkey::default().
+  const usingSharedEscrow = sharedEscrowAccount !== SystemProgram.programId.toBase58();
+  const fundingAccount    = usingSharedEscrow ? sharedEscrowAccount : escrowPda;
 
   return {
     poolKey:       pubkey,
     escrowPda,
+    sharedEscrowAccount,
+    usingSharedEscrow,
+    fundingAccount,
     owner,
     cosigner,
     referral,
@@ -580,8 +613,8 @@ async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
   }
 
   // 3. Batch fetch real escrow balances
-  const balances = await fetchMultipleBalances(pools.map(p => p.escrowPda));
-  const hydrated  = pools.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+  const balances = await fetchMultipleBalances(pools.map(p => p.fundingAccount));
+  const hydrated  = pools.map(p => applyBalance(p, balances.get(p.fundingAccount) ?? 0));
 
   // 4. ME collection info (non-fatal)
   const meInfo = await fetchMeCollectionInfo(owner);
@@ -830,7 +863,8 @@ function buildSolFulfillBuyIx(
       { pubkey: TOKEN_PROGRAM_ID,         isSigner: false, isWritable: false }, // [15] token_program
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // [16] associated_token_program
       { pubkey: SYSVAR_RENT_PUBKEY,       isSigner: false, isWritable: false }, // [17] rent
-      ...creatorKeys(creators),                                                 // [18..] royalty creators (dynamic)
+      ...sharedEscrowRemainingAccounts(pool),                                   // [18..19] m2_program + shared_escrow_account (shared-escrow pools only)
+      ...creatorKeys(creators),                                                 // [18/20..] royalty creators (dynamic)
     ],
   });
 }
@@ -911,7 +945,8 @@ function buildSolMip1FulfillBuyIx(
       { pubkey: TOKEN_PROGRAM_ID,         isSigner: false, isWritable: false }, // [22] token_program
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // [23] associated_token_program
       { pubkey: SYSVAR_RENT_PUBKEY,       isSigner: false, isWritable: false }, // [24] rent
-      ...creatorKeys(creators),                                                 // [25..] royalty creators (dynamic)
+      ...sharedEscrowRemainingAccounts(pool),                                   // [25..26] m2_program + shared_escrow_account (shared-escrow pools only)
+      ...creatorKeys(creators),                                                 // [25/27..] royalty creators (dynamic)
     ],
   });
 }
@@ -1149,8 +1184,8 @@ async function lookupSinglePool(key: string): Promise<MmmPoolLookupResult> {
   const pool = parsePool(key, dataB64);
   if (!pool) throw new Error('parse_failed');
 
-  const balances = await fetchMultipleBalances([pool.escrowPda]);
-  const hydrated  = applyBalance(pool, balances.get(pool.escrowPda) ?? 0);
+  const balances = await fetchMultipleBalances([pool.fundingAccount]);
+  const hydrated  = applyBalance(pool, balances.get(pool.fundingAccount) ?? 0);
 
   const meInfo = await fetchMeCollectionInfo(pool.owner);
   const me     = meInfo.get(pool.poolKey) ?? {};
@@ -1267,7 +1302,8 @@ const TRIAGE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 // Used by pool-stream so it doesn't need a separate scan.
 interface FlatPool {
   poolKey:        string;
-  escrowPda:      string;
+  escrowPda:      string;   // top-up/funding address: shared_escrow_account when sharedEscrow, else the pool's own escrow PDA
+  sharedEscrow:   boolean;
   owner:          string;
   spotPriceSol:   number;
   realEscrowSol:  number;
@@ -1701,8 +1737,8 @@ export function createMmmPoolsRouter(): Router {
           emit('progress', {
             msg: `${candidates.length} candidates — fetching real escrow balances (${Math.ceil(candidates.length / 100)} batch calls)...`,
           });
-          const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
-          const hydrated = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+          const balances = await fetchMultipleBalances(candidates.map(p => p.fundingAccount));
+          const hydrated = candidates.map(p => applyBalance(p, balances.get(p.fundingAccount) ?? 0));
           underfunded = hydrated.filter(p => p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS && !p.executable);
         }
 
@@ -1775,7 +1811,8 @@ export function createMmmPoolsRouter(): Router {
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
               poolKey:        p.poolKey,
-              escrowPda:      p.escrowPda,
+              escrowPda:      p.fundingAccount,
+              sharedEscrow:   p.usingSharedEscrow,
               owner:          p.owner,
               spotPriceSol:   p.spotPriceSol,
               realEscrowSol:  p.realEscrowSol,
@@ -1912,8 +1949,8 @@ export function createMmmPoolsRouter(): Router {
               .filter(p => !p.executable && p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS);
           } else {
             emit('progress', { msg: `Fetching real escrow balances (${Math.ceil(candidates.length / 100)} calls)…` });
-            const balances = await fetchMultipleBalances(candidates.map(p => p.escrowPda));
-            underfunded = candidates.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0))
+            const balances = await fetchMultipleBalances(candidates.map(p => p.fundingAccount));
+            underfunded = candidates.map(p => applyBalance(p, balances.get(p.fundingAccount) ?? 0))
               .filter(p => p.realEscrow >= MIN_VISIBLE_ESCROW_LAMPORTS && !p.executable);
           }
 
@@ -1937,7 +1974,8 @@ export function createMmmPoolsRouter(): Router {
             const info      = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
               poolKey:        p.poolKey,
-              escrowPda:      p.escrowPda,
+              escrowPda:      p.fundingAccount,
+              sharedEscrow:   p.usingSharedEscrow,
               owner:          p.owner,
               spotPriceSol:   p.spotPriceSol,
               realEscrowSol:  p.realEscrowSol,
@@ -2143,8 +2181,8 @@ export function createMmmPoolsRouter(): Router {
           if (p) allPools.push(p);
         }
 
-        const balances  = await fetchMultipleBalances(allPools.map(p => p.escrowPda));
-        const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+        const balances  = await fetchMultipleBalances(allPools.map(p => p.fundingAccount));
+        const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.fundingAccount) ?? 0));
         const isActive  = (p: MmmPool) => p.expiry === 0 || p.expiry > now;
         const active    = hydrated.filter(isActive);
         const expired   = hydrated.length - active.length;
@@ -2223,8 +2261,8 @@ export function createMmmPoolsRouter(): Router {
       }
 
       // Fetch real escrow balances
-      const balances = await fetchMultipleBalances(allPools.map(p => p.escrowPda));
-      const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.escrowPda) ?? 0));
+      const balances = await fetchMultipleBalances(allPools.map(p => p.fundingAccount));
+      const hydrated  = allPools.map(p => applyBalance(p, balances.get(p.fundingAccount) ?? 0));
 
       // Classify
       const isActive      = (p: MmmPool) => p.expiry === 0 || p.expiry > now;
