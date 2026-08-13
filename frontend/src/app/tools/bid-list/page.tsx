@@ -366,6 +366,11 @@ export default function BidListPage() {
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src="/brand/x.png" alt="X" width={13} height={13} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none', opacity: 0.6 }} />
                             </a>
+                            <a href={`https://matrica.io/user/${r.owner}`} target="_blank" rel="noopener noreferrer"
+                              title="Look up on Matrica (linked socials)" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0 }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src="/brand/matrica.png" alt="Matrica" width={13} height={13} draggable={false} style={{ display: 'block', objectFit: 'cover', pointerEvents: 'none', opacity: 0.6, borderRadius: 2 }} />
+                            </a>
                           </div>
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
