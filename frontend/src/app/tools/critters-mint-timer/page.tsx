@@ -49,6 +49,13 @@ function fmtCountdown(startMs: number, nowMs: number): string {
   return `${sec}s`;
 }
 
+function fmtUtc(ms: number): string {
+  // "2026-08-13 18:41 UTC" — fixed UTC formatting regardless of the
+  // viewer's local timezone, so a start time is unambiguous when shared.
+  const iso = new Date(ms).toISOString(); // "2026-08-13T18:41:30.000Z"
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
 const THEAD_TH: React.CSSProperties = { ...TH, color: '#9089ab', background: 'rgba(13,10,22,0.98)', borderBottom: '1px solid rgba(255,255,255,0.10)' };
 const ROW_H = { padding: '11px 10px' };
 
@@ -59,10 +66,14 @@ export default function CrittersMintTimerPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [maxPriceInput, setMaxPriceInput] = useState(String(DEFAULT_MAX_PRICE));
+  // The threshold actually in effect — separate from the raw text input so
+  // the background auto-refresh below re-fetches with the last *applied*
+  // value, not whatever's mid-typing in the box.
+  const [appliedMaxPrice, setAppliedMaxPrice] = useState(DEFAULT_MAX_PRICE);
   const [now, setNow] = useState(() => Date.now());
 
-  const load = useCallback((maxPrice: number) => {
-    setBusy(true);
+  const load = useCallback((maxPrice: number, opts?: { background?: boolean }) => {
+    if (!opts?.background) setBusy(true);
     setError(null);
     fetch(`${API_BASE}/api/tools/critters-mint-timer?maxPrice=${encodeURIComponent(maxPrice)}`, { headers: authHeaders() })
       .then(r => r.json())
@@ -71,15 +82,22 @@ export default function CrittersMintTimerPage() {
         setResult(data);
       })
       .catch(e => setError(String(e)))
-      .finally(() => setBusy(false));
+      .finally(() => { if (!opts?.background) setBusy(false); });
   }, []);
 
   useEffect(() => {
-    const p = Number(maxPriceInput);
-    const valid = Number.isFinite(p) && p >= 0;
-    load(valid ? p : DEFAULT_MAX_PRICE);
+    load(DEFAULT_MAX_PRICE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Background auto-refresh — matches the backend's own ~45s poll cadence,
+  // so the page reflects new/closed editions without a manual reload or
+  // "apply" click. Uses `background:true` so it doesn't flash the busy
+  // spinner or clobber a filter the user is mid-typing.
+  useEffect(() => {
+    const t = setInterval(() => load(appliedMaxPrice, { background: true }), 45_000);
+    return () => clearInterval(t);
+  }, [appliedMaxPrice, load]);
 
   // Live countdown tick — cosmetic only, no refetch.
   useEffect(() => {
@@ -94,7 +112,9 @@ export default function CrittersMintTimerPage() {
 
   const applyFilter = () => {
     const p = Number(maxPriceInput);
-    load(Number.isFinite(p) && p >= 0 ? p : DEFAULT_MAX_PRICE);
+    const valid = Number.isFinite(p) && p >= 0 ? p : DEFAULT_MAX_PRICE;
+    setAppliedMaxPrice(valid);
+    load(valid);
   };
 
   return (
@@ -180,7 +200,7 @@ export default function CrittersMintTimerPage() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed', minWidth: 900 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, tableLayout: 'fixed', minWidth: 1060 }}>
                   <colgroup>
                     <col style={{ width: 260 }} />
                     <col style={{ width: 150 }} />
@@ -188,6 +208,7 @@ export default function CrittersMintTimerPage() {
                     <col style={{ width: 100 }} />
                     <col style={{ width: 110 }} />
                     <col style={{ width: 140 }} />
+                    <col style={{ width: 160 }} />
                     <col style={{ width: 80 }} />
                   </colgroup>
                   <thead>
@@ -198,6 +219,7 @@ export default function CrittersMintTimerPage() {
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>SUPPLY</th>
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>REMAINING</th>
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>STARTS IN</th>
+                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>START (UTC)</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>LINK</th>
                     </tr>
                   </thead>
@@ -237,6 +259,9 @@ export default function CrittersMintTimerPage() {
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 700, color: '#facc15' }}>
                           {fmtCountdown(r.mintStartDate, now)}
+                        </td>
+                        <td style={{ ...ROW_H, textAlign: 'right', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 11, color: VLText.faint }}>
+                          {fmtUtc(r.mintStartDate)}
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <a href={`https://critters.quest/edition-mint/${r.mint}`} target="_blank" rel="noopener noreferrer"
