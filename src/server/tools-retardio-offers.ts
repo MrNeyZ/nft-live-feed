@@ -376,7 +376,7 @@ let cached: { key: string; result: ScanResult } | null = null;
  *  `instanceof`-checks this to return a structured 503 with a friendly
  *  errorCode the frontend can recognise, instead of the generic 500 /
  *  `scan failed` payload that otherwise renders raw. */
-class MeListingsUpstreamError extends Error {
+export class MeListingsUpstreamError extends Error {
   readonly upstreamStatus:     number;
   readonly upstreamStatusText: string;
   /** Best-effort endpoint label that errored, for log diagnostics. */
@@ -401,7 +401,7 @@ class MeListingsUpstreamError extends Error {
  *    3. the route handler can set a process-wide cooldown so a
  *       follow-up scan against a DIFFERENT collection won't immediately
  *       trigger another 429 (ME rate-limits per-IP, not per-slug). */
-class MeRateLimitError extends Error {
+export class MeRateLimitError extends Error {
   readonly retryAfterSec: number;
   readonly endpoint:      string;
   constructor(endpoint: string, retryAfterSec: number) {
@@ -438,7 +438,7 @@ function parseRetryAfter(v: string | null): number | null {
 /** Public for the route handler so the pre-flight check can short-circuit
  *  with `ME_RATE_LIMITED` before runScan starts (and burns at least one
  *  ME listings request). Returns 0 when no cooldown is active. */
-function getMeCooldownRemainingSec(): number {
+export function getMeCooldownRemainingSec(): number {
   return Math.ceil(scannerCooldownRemainMs() / 1000);
 }
 
@@ -675,7 +675,7 @@ async function fetchActivityCandidateMints(
   return { mints, imageByMint, activitiesScanned, pagesFetched, coverageTruncated, warning };
 }
 
-interface RunScanOpts {
+export interface RunScanOpts {
   slug:                string;
   scanLimit:           number;
   minOfferSol:         number;
@@ -689,7 +689,7 @@ interface RunScanOpts {
   debugMint?:          string | null;
 }
 
-async function runScan(opts: RunScanOpts): Promise<ScanResult> {
+export async function runScan(opts: RunScanOpts): Promise<ScanResult> {
   const { slug, scanLimit, minOfferSol, recentActivityDays, activityMaxPages, debugMint } = opts;
   const scanStartedAt = Date.now();
   const warnings: string[] = [];
