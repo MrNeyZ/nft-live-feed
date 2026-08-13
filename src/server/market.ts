@@ -80,6 +80,14 @@ async function refresh(): Promise<void> {
   return refreshing;
 }
 
+/** Last-known SOL/USD (Coinbase spot), or null before the first successful
+ *  fetch. Read-only accessor for other server modules that need the same
+ *  trusted price this file already fetches for the TopNav header pill —
+ *  avoids standing up a second independent SOL/USD caller. */
+export function getSolUsd(): number | null {
+  return cached.solUsd;
+}
+
 export function createMarketRouter(): Router {
   const router = Router();
 
