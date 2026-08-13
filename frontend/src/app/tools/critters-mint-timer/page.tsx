@@ -34,6 +34,10 @@ interface ApiResult {
 }
 
 const DEFAULT_MAX_PRICE = 0.16;
+// Matches the backend's own float32-noise tolerance (tools-critters-mint-timer.ts)
+// — used here only for the "cheap + soon" row highlight, not for filtering
+// (filtering already happened server-side).
+const PRICE_EPSILON = 0.001;
 
 function fmtCountdown(startMs: number, nowMs: number): string {
   const diff = startMs - nowMs;
@@ -56,29 +60,38 @@ function fmtUtc(ms: number): string {
   return `${iso.slice(11, 16)} UTC`;
 }
 
-// ── Readability-pass tiers ──────────────────────────────────────────────
-// PRICE: a distinct hue (cyan) from REMAINING's green and STARTS IN's gold,
-// so "cheap" reads as its own signal rather than competing with either.
-// Fixed absolute thresholds, not relative to the current max-price filter —
-// "cheap" should mean the same thing regardless of what the box is set to.
+// ── Usability-pass tiers ─────────────────────────────────────────────────
+// PRICE: a distinct hue (cool cyan→blue) from REMAINING's green and STARTS
+// IN's amber, so "cheap" reads as its own signal. Fixed absolute
+// thresholds, not relative to the current max-price filter — "cheap"
+// should mean the same thing regardless of what the box is set to. Cheaper
+// = stronger (same "more important = more prominent" logic as urgency).
 function priceTierStyle(priceSol: number): React.CSSProperties {
-  if (priceSol <= 0.05) return { color: '#22d3ee', fontWeight: 800, fontSize: 15 };
-  if (priceSol <= 0.08) return { color: '#67e8f9', fontWeight: 800, fontSize: 14.5 };
-  if (priceSol <= 0.10) return { color: '#a5f3fc', fontWeight: 750, fontSize: 14 };
-  return { color: 'var(--vl-text-primary)', fontWeight: 800, fontSize: 14 };
+  if (priceSol <= 0.05) return { color: '#22d3ee', fontWeight: 800, fontSize: 15.5 };
+  if (priceSol <= 0.08) return { color: '#38bdf8', fontWeight: 800, fontSize: 15 };
+  if (priceSol <= 0.10) return { color: '#7dd3fc', fontWeight: 700, fontSize: 14 };
+  return { color: 'var(--vl-text-primary)', fontWeight: 700, fontSize: 14 };
 }
-// STARTS IN: stays in the gold/yellow family per spec — imminent mints get
-// brighter + heavier, not a different hue (which would read as a status
-// change rather than "same thing, more urgent"). No animation.
+// STARTS IN: four urgency tiers. <15min breaks from the gold family into
+// red/orange — this is the one signal that should visually interrupt a
+// scan, everything else stays within amber so it reads as "same thing,
+// more/less urgent" rather than a status change. No animation/flashing —
+// urgency is conveyed by color + weight + size only.
 function countdownTierStyle(startMs: number, nowMs: number): React.CSSProperties {
   const diffMin = (startMs - nowMs) / 60_000;
-  if (diffMin < 15) return { color: '#fde047', fontWeight: 800, fontSize: 14.5 };
-  if (diffMin < 60) return { color: '#facc15', fontWeight: 750, fontSize: 13.5 };
-  return { color: '#ca9a1e', fontWeight: 650, fontSize: 13 };
+  if (diffMin < 15) return { color: '#f97316', fontWeight: 800, fontSize: 15.5 };
+  if (diffMin < 60) return { color: '#fbbf24', fontWeight: 800, fontSize: 14.5 };
+  if (diffMin < 180) return { color: '#facc15', fontWeight: 700, fontSize: 13.5 };
+  return { color: alpha(VL.gold, 0.55), fontWeight: 600, fontSize: 12.5 };
 }
 
 const THEAD_TH: React.CSSProperties = { ...TH, color: '#ada5c9', background: 'rgba(13,10,22,0.98)', borderBottom: '1px solid rgba(255,255,255,0.14)' };
 const ROW_H = { padding: '11px 10px' };
+
+// 'time' backs BOTH the STARTS IN and START (UTC) headers — they order the
+// same underlying `mintStartDate`, so clicking either sorts by it and both
+// headers light up together rather than tracking two redundant sort states.
+type SortCol = 'price' | 'time' | 'remaining';
 
 export default function CrittersMintTimerPage() {
   useEffect(() => { document.title = 'Critters Mint Timer | VictoryLabs'; }, []);
@@ -92,6 +105,11 @@ export default function CrittersMintTimerPage() {
   // value, not whatever's mid-typing in the box.
   const [appliedMaxPrice, setAppliedMaxPrice] = useState(DEFAULT_MAX_PRICE);
   const [now, setNow] = useState(() => Date.now());
+  // null = default behavior (ascending by mintStartDate, unchanged from
+  // before this pass). Explicit sort survives background refresh since it
+  // lives here, not derived from `result`.
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const load = useCallback((maxPrice: number, opts?: { background?: boolean }) => {
     if (!opts?.background) setBusy(true);
@@ -128,8 +146,36 @@ export default function CrittersMintTimerPage() {
 
   const visibleRows = useMemo(() => {
     if (!result) return [];
-    return [...result.rows].sort((a, b) => a.mintStartDate - b.mintStartDate);
-  }, [result]);
+    const rows = [...result.rows];
+    if (sortCol === null) {
+      rows.sort((a, b) => a.mintStartDate - b.mintStartDate); // preserved default
+      return rows;
+    }
+    const dir = sortDir === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      const av = sortCol === 'price' ? a.priceSol : sortCol === 'remaining' ? a.remaining : a.mintStartDate;
+      const bv = sortCol === 'price' ? b.priceSol : sortCol === 'remaining' ? b.remaining : b.mintStartDate;
+      return (av - bv) * dir;
+    });
+    return rows;
+  }, [result, sortCol, sortDir]);
+
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir('asc'); }
+  };
+  // Fixed-width arrow slot so engaging/switching sort never shifts layout —
+  // dim placeholder on inactive sortable headers, bright + directional once
+  // that column is the active sort.
+  const sortArrow = (col: SortCol) => (
+    <span style={{ display: 'inline-block', width: 10, marginLeft: 4, opacity: sortCol === col ? 1 : 0.25 }}>
+      {sortCol === col ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
+    </span>
+  );
+  const sortableThStyle = (col: SortCol): React.CSSProperties => ({
+    ...THEAD_TH, textAlign: 'right', cursor: 'pointer', userSelect: 'none',
+    color: sortCol === col ? rgb(VL.purpleTint) : THEAD_TH.color,
+  });
 
   const applyFilter = () => {
     const p = Number(maxPriceInput);
@@ -236,24 +282,36 @@ export default function CrittersMintTimerPage() {
                     <tr>
                       <th style={{ ...THEAD_TH, textAlign: 'left' }}>NAME</th>
                       <th style={{ ...THEAD_TH, textAlign: 'left' }}>MINT</th>
-                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>PRICE (SOL)</th>
+                      <th style={sortableThStyle('price')} onClick={() => toggleSort('price')}>PRICE (SOL){sortArrow('price')}</th>
                       <th style={{ ...THEAD_TH, textAlign: 'right' }}>SUPPLY</th>
-                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>REMAINING</th>
-                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>STARTS IN</th>
-                      <th style={{ ...THEAD_TH, textAlign: 'right' }}>START (UTC)</th>
+                      <th style={sortableThStyle('remaining')} onClick={() => toggleSort('remaining')}>REMAINING{sortArrow('remaining')}</th>
+                      <th style={sortableThStyle('time')} onClick={() => toggleSort('time')}>STARTS IN{sortArrow('time')}</th>
+                      <th style={sortableThStyle('time')} onClick={() => toggleSort('time')}>START (UTC){sortArrow('time')}</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>LINK</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.map((r, i) => (
+                    {visibleRows.map((r, i) => {
+                      // "Cheap enough + opening soon" — the two FCFS-relevant
+                      // conditions at once. Price check is redundant against
+                      // current data (the backend already filters to
+                      // appliedMaxPrice) but kept explicit/correct in case
+                      // that ever changes independently of this check.
+                      const isHot = r.priceSol <= appliedMaxPrice + PRICE_EPSILON && (r.mintStartDate - now) < 3_600_000;
+                      const altBg = i % 2 === 1 ? 'rgba(255,255,255,0.024)' : 'transparent';
+                      return (
                       <tr key={r.mint}
                         style={{
-                          background: i % 2 === 1 ? 'rgba(255,255,255,0.024)' : 'transparent',
+                          background: altBg,
                           borderBottom: '1px solid rgba(255,255,255,0.06)',
                         }}
                         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.07)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.024)' : 'transparent'; }}>
-                        <td style={{ ...ROW_H, textAlign: 'left', fontSize: 13, color: 'var(--vl-text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = altBg; }}>
+                        {/* borderLeft lives on the cell, not <tr> — row-level
+                            borders are unreliably rendered across browsers,
+                            especially with border-collapse:collapse. */}
+                        <td style={{ ...ROW_H, textAlign: 'left', fontSize: 13, color: 'var(--vl-text-primary)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          borderLeft: isHot ? '3px solid rgba(74,222,128,0.6)' : '3px solid transparent', paddingLeft: 7 }}
                           title={r.name}>
                           {r.name}
                           {!r.editionMintActive && (
@@ -262,9 +320,9 @@ export default function CrittersMintTimerPage() {
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'left' }}>
                           <a href={`https://solscan.io/account/${r.mint}`} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 11, ...MONO, color: VLText.muted, textDecoration: 'none' }}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.muted; }}>
+                            style={{ fontSize: 10.5, ...MONO, color: VLText.muted, textDecoration: 'none', opacity: 0.7, transition: 'opacity 0.12s, color 0.12s' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.muted; (e.currentTarget as HTMLAnchorElement).style.opacity = '0.7'; }}>
                             {short(r.mint)}
                           </a>
                         </td>
@@ -286,14 +344,16 @@ export default function CrittersMintTimerPage() {
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <a href={`https://critters.quest/edition-mint/${r.mint}`} target="_blank" rel="noopener noreferrer"
-                            style={{ color: alpha(VL.purpleTint, 0.75), textDecoration: 'none', fontSize: 11, fontWeight: 600, transition: 'color 0.12s' }}
+                            style={{ color: alpha(VL.purpleTint, 0.9), textDecoration: 'none', fontSize: 11, fontWeight: 700, transition: 'color 0.12s' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = rgb(VL.purpleTint); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = alpha(VL.purpleTint, 0.75); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = alpha(VL.purpleTint, 0.9); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+                            onFocus={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = rgb(VL.purpleTint); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                            onBlur={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = alpha(VL.purpleTint, 0.9); (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
                             Open →
                           </a>
                         </td>
                       </tr>
-                    ))}
+                      );})}
                   </tbody>
                 </table>
               </div>
