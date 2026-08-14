@@ -603,7 +603,20 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
               kept in the `title` tooltip. CSS ellipsis retained as a safety
               fallback for any name the char cap doesn't fully tame. */}
           <div title={cardTitleFull} style={{ fontSize: 13, fontWeight: embedded ? 700 : 600, color: VLText.primary, letterSpacing: '-0.2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-            {isSolPubkey(ev.mintAddress) ? (
+            {isCollectionCreate ? (
+              // Deploy events have no per-asset mint page — the name links
+              // to the deploy tx itself (the only signature this event has).
+              <a
+                href={`https://solscan.io/tx/${ev.signature}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}
+              >
+                {cardTitleText}
+              </a>
+            ) : isSolPubkey(ev.mintAddress) ? (
               <a
                 href={`https://solscan.io/token/${ev.mintAddress}`}
                 target="_blank"
@@ -780,10 +793,9 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
       {/* Collection-CREATE reuses the SAME type-badge slot that holds the
           CORE/CNDY chip on a normal mint card — so DEPLOY renders 1:1 where a
           mint's type chip would, not as a separate widget. Same `.vl-srcchip`
-          primitive as the mint chips so the column reads as one system; only
-          the accent differs: a muted slate-lilac (`var(--vl-text-muted)`, the existing
-          neutral palette gray — NOT purple/CORE) so it reads as a system event,
-          quieter than the source chips. Label is `DPLY` — `DEPLOY` (6) would
+          primitive as the mint chips so the column reads as one system; the
+          accent is gold (`VL.gold`), matching the LMNFT source badge and the
+          gold "deploy" price-cell text for this same row. Label is `DPLY` — `DEPLOY` (6) would
           clip inside the dot + fixed 66px chip; `DPLY` matches the 4-char chip
           rhythm (CORE/CNDY). Deploy has no mint type/source, so the normal
           type-chip builder is skipped for it; full word stays in the tooltip. */}
@@ -791,7 +803,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         <span
           className="vl-srcchip"
           title="Collection deployed"
-          style={{ '--c': VLText.muted, width: SRCCHIP_W } as React.CSSProperties}
+          style={{ '--c': rgb(VL.gold), width: SRCCHIP_W } as React.CSSProperties}
         >
           <span className="vl-srcchip-dot" />
           <span className="vl-srcchip-lbl">DPLY</span>
