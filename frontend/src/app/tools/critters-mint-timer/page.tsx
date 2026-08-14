@@ -320,7 +320,7 @@ export default function CrittersMintTimerPage() {
                           )}
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'left' }}>
-                          <a href={`https://solscan.io/account/${r.mint}`} target="_blank" rel="noopener noreferrer"
+                          <a href={`https://critters.quest/edition-mint/${r.mint}`} target="_blank" rel="noopener noreferrer"
                             style={{ fontSize: 10.5, ...MONO, color: VLText.muted, textDecoration: 'none', opacity: 0.7, transition: 'opacity 0.12s, color 0.12s' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--vl-text-primary)'; (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
                             onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.color = VLText.muted; (e.currentTarget as HTMLAnchorElement).style.opacity = '0.7'; }}>
