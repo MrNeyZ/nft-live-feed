@@ -904,7 +904,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         // Bumped fontSize 13 → 14 and fontWeight 700 → 800 — single
         // element, no card resize, but the price now clearly outranks
         // the muted collection/wallet lines per the polish brief.
-        fontSize: 14, fontWeight: 800, color: isCollectionCreate ? rgb(VL.gold) : priceColor,
+        fontSize: isCollectionCreate ? 12 : 14, fontWeight: 800, color: isCollectionCreate ? 'var(--vl-white)' : priceColor,
         fontFamily: "'SF Mono','Fira Code',monospace",
         fontVariantNumeric: 'tabular-nums',
         flexShrink: 0,
