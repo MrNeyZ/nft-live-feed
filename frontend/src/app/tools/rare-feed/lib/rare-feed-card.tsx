@@ -43,7 +43,6 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
     sellerNetPrice:   null,
     floorDelta:       e.floorDeltaPct,
     marketplace:      e.source && e.source.toLowerCase().includes('tensor') ? 'tensor' : 'me',
-    isPoolMarketplace: false,
     ts,
     side:             'buy',
     nftType:          '',

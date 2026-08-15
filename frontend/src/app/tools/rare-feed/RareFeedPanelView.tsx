@@ -94,6 +94,7 @@ export function RareFeedPanelView({ rows, error, loading, onPreview, embedded, m
             onPreview={onPreview}
             sellerSellCountInFeed={0}
             isNewestSellForSellerColl={false}
+            inclusiveFees={false}
             density="compact"
             pillOverride={SALE_PILL}
             nameChip={rarityChip(e)}
