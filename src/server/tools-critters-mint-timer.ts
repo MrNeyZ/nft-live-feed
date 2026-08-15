@@ -27,6 +27,11 @@ const SOURCE_URL = 'https://bump.critters.quest/api/master-edition/get-edition-m
 const REFRESH_INTERVAL_MS = 45_000;
 const PRICE_EPSILON = 0.001;
 const DEFAULT_MAX_PRICE_SOL = 0.16;
+const PAGE_SIZE = 500;
+// Sorted 'date asc' from the dawn of the collection — most of page 1 is
+// already-started editions. Safety cap so a runaway upstream count can't
+// turn one refresh() tick into an unbounded fetch loop.
+const MAX_PAGES = 10;
 
 interface RawEdition {
   mint: string;
@@ -52,7 +57,7 @@ export interface EditionRow {
 let cache: { fetchedAt: number; rows: EditionRow[] } = { fetchedAt: 0, rows: [] };
 let lastError: string | null = null;
 
-async function fetchEditions(): Promise<RawEdition[]> {
+async function fetchEditionsPage(page: number): Promise<RawEdition[]> {
   const res = await fetch(SOURCE_URL, {
     method: 'POST',
     headers: {
@@ -66,7 +71,7 @@ async function fetchEditions(): Promise<RawEdition[]> {
     body: JSON.stringify({
       mintType: [], amulets: [], armors: [], boots: [], eyes: [], hats: [],
       shields: [], weapons: [], critters: [], factions: [], search: '',
-      sort: 'date', sortOrder: 'asc', page: 1, pageSize: 500,
+      sort: 'date', sortOrder: 'asc', page, pageSize: PAGE_SIZE,
     }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -74,6 +79,20 @@ async function fetchEditions(): Promise<RawEdition[]> {
   const data = await res.json();
   if (!Array.isArray(data)) throw new Error('unexpected_response_shape');
   return data as RawEdition[];
+}
+
+// Results are sorted 'date asc' across the entire catalog, so a single
+// page-1/pageSize-500 fetch is mostly already-started editions — real
+// upcoming events can sit on page 2+. Page forward until a short page
+// (end of data) or MAX_PAGES.
+async function fetchEditions(): Promise<RawEdition[]> {
+  const all: RawEdition[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const batch = await fetchEditionsPage(page);
+    all.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return all;
 }
 
 async function refresh(): Promise<void> {
