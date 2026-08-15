@@ -54,6 +54,7 @@ export function rareToFeedEvent(e: RareEvent): FeedEvent {
     sellerRemainingCount: null,
     sellerSells10m:   0,
     resizeStatus:     null,
+    isPoolMarketplace: false,  // rare events are synthesized, never pool-mediated
   };
 }
 
