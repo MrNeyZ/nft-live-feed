@@ -64,6 +64,39 @@ function readLpFeeFromLogs(logs: unknown): number | null {
   return null;
 }
 
+/** Extract the `total_price` integer (lamports) from MMM's post-fulfill
+ *  program log line — the SAME JSON line `readLpFeeFromLogs` reads `lp_fee`
+ *  from, e.g. `Program log: {"lp_fee":0,"royalty_paid":0,"total_price":3888900}`.
+ *
+ *  This is the canonical MMM sale price, straight from the program's own
+ *  settlement event — unlike `extractPaymentInfo`'s SOL-flow guess (price =
+ *  the largest SOL decrease among tx SIGNERS), it is immune to the signer's
+ *  own priority fee being folded into "price" when the signer is the
+ *  SELLER, not the buyer. That's exactly the fulfillBuy/takeBid shape: the
+ *  seller signs and pays the tx/priority fee to sell INTO a pool or bid; the
+ *  pool's SOL escrow (a non-signer) pays the real price. A large priority
+ *  fee then swamps the signer-delta heuristic.
+ *
+ *  Confirmed live on sig
+ *  Ph6Qp4ejvskWBmzkX2tkpsm2bfp3i8H9bwL3ouPttSV7tQPY6iHoXGmRcwCpmSSc4jg3qLTCg4doEKM927gwR4P:
+ *  seller paid a 20,010,000-lamport priority fee, so `extractPaymentInfo`
+ *  returned 19,479,595 (seller's net tx-wide loss, fee included) as the
+ *  "price" — the log's `total_price` is the true 3,888,900.
+ *  Returns null if no such log line is present (tolerates whitespace and
+ *  optional quoting around the field, same as `readLpFeeFromLogs`). */
+function readMmmTotalPriceFromLogs(logs: unknown): bigint | null {
+  if (!Array.isArray(logs)) return null;
+  for (const line of logs) {
+    if (typeof line !== 'string') continue;
+    const m = line.match(/["']?total_price["']?\s*:\s*(\d+)/);
+    if (m) {
+      const n = BigInt(m[1]);
+      return n > 0n ? n : null;
+    }
+  }
+  return null;
+}
+
 /** Extract the explicit settlement price (lamports) from a Magic Eden v2
  *  fixed-price sale's program logs. ME v2 emits a JSON log line carrying the
  *  true list/sale price on both the intermediate `BuyV2`
@@ -591,10 +624,10 @@ function parseMmmSale(
   // corrected 2026-07-15); `seller` above is assigned from the verified
   // `sellerAcctIdx` account, entirely independently of this price calc.
   //
-  // Scope: ONLY `fulfillSell` (= pool_buy). All other MMM directions
-  // (`fulfillBuy` = pool_sale, `takeBid` = bid_sell) keep the existing
-  // buyer-outflow path — for those the buyer is the pool and the
-  // distinction doesn't apply the same way.
+  // `fulfillBuy` (= pool_sale) / `takeBid` (= bid_sell) get their own
+  // log-based override just below (readMmmTotalPriceFromLogs) — the
+  // SELLER signs there, so a large priority fee corrupts the SOL-flow
+  // guess the same way an inflated buyer outflow does here.
   let priceLamports = payment.priceLamports;
   if (effectiveDirection === 'fulfillSell') {
     const deltas = balanceDeltas(tx);
@@ -602,6 +635,13 @@ function parseMmmSale(
       const topGain = deltas.reduce((a, b) => (a.delta > b.delta ? a : b));
       if (topGain.delta > 0) priceLamports = BigInt(topGain.delta);
     }
+  } else if (effectiveDirection === 'fulfillBuy' || effectiveDirection === 'takeBid') {
+    // Seller signs + pays the tx fee here (selling INTO a pool/bid) — prefer
+    // the log's canonical total_price over the SOL-flow guess, which folds
+    // the seller's own priority fee into "price" when it's abnormally large.
+    // See readMmmTotalPriceFromLogs's doc comment.
+    const logPrice = readMmmTotalPriceFromLogs(tx.meta?.logMessages);
+    if (logPrice != null) priceLamports = logPrice;
   }
 
   // ── Build event ───────────────────────────────────────────────────────────

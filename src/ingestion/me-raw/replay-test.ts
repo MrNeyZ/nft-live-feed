@@ -455,6 +455,26 @@ const CASES: TestCase[] = [
     expectInstruction: 'cnftFulfillBuy',
     expectAmmFill:     'absent',
   },
+  // ── 2026-08-17: large priority fee corrupts SOL-flow price ────────────────
+  // Seller (signer/fee-payer) paid a 20,010,000-lamport priority fee to sell
+  // into a bid — extractPaymentInfo's signer-delta heuristic returned their
+  // whole tx-wide net loss (19,479,595, fee included) as "price" instead of
+  // the log's canonical total_price (3,888,900). Fixed via
+  // readMmmTotalPriceFromLogs, preferred over SOL-flow for fulfillBuy/takeBid.
+  {
+    sig:               'Ph6Qp4ejvskWBmzkX2tkpsm2bfp3i8H9bwL3ouPttSV7tQPY6iHoXGmRcwCpmSSc4jg3qLTCg4doEKM927gwR4P',
+    label:             'Core bid-sale, seller pays huge priority fee (MMM — coreFulfillBuy → takeBid)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden_amm',
+    expectNftType:     'core',
+    expectMint:        '3kLEFWLZHuzr3EjRwsfRvVAgG7PsLtgr6mjyiKaQrQE9',
+    expectSeller:      '6XYRhcW4QkUtA2YKBCdBPLtXjqGCGS5tuNCTMcBLP5N1',
+    expectBuyer:       '4osKgRS9yp5n2yDW8H7UgLsvmuFge3kA9xANJSJwSckM',
+    expectPriceGte:    0.00388,
+    expectPriceLte:    0.00390,
+    expectInstruction: 'coreFulfillBuy',
+    expectAmmFill:     false,
+  },
 ];
 
 // ─── Checker ──────────────────────────────────────────────────────────────────
