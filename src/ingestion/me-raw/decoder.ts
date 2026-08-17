@@ -219,6 +219,42 @@ export function extractCoreAssetFromInnerIx(tx: RawSolanaTx): string | null {
   return null;
 }
 
+// ─── Core new-owner from inner instruction ───────────────────────────────────
+
+/**
+ * Extract the real NFT recipient (new owner) from the mpl-core `TransferV1`
+ * CPI belonging to `outerIx` specifically — never the first Transfer CPI in
+ * the whole tx (a bundled "list + instant-buy" ME v2 tx can contain TWO Core
+ * transfers: an earlier `CoreSell` approve/transfer to a delegate, and the
+ * real ownership-changing transfer inside the matched sale instruction).
+ *
+ * `newOwner` sits at a FIXED account index (4) in mpl-core's TransferV1,
+ * regardless of which optional accounts (collection / authority) are
+ * present — confirmed against the kinobi-generated client
+ * (`@metaplex-foundation/mpl-core`'s `transferV1.js`, `resolvedAccounts.newOwner.index = 4`)
+ * and verified live on sig
+ * 5JpT7jgSdnycfyjPAHmEd4jZurfNtS6rwMbDfNQpPyqYuoCmsQemAMt97jPrW1kaDrDeQhB4QZS6L57rDqybCnNU
+ * (ME "buy for someone else" / session-payer flow: the SOL-flow payer and
+ * the actual new asset owner were two different wallets — SOL-flow alone
+ * misattributed the sale to the payer).
+ */
+export function extractCoreNewOwnerFromInnerIx(
+  tx: RawSolanaTx,
+  outerIx: RawInstruction,
+): string | null {
+  const outerIdx = tx.transaction.message.instructions.indexOf(outerIx);
+  if (outerIdx === -1) return null;
+  const group = (tx.meta?.innerInstructions ?? []).find((g) => g.index === outerIdx);
+  if (!group) return null;
+  for (const ix of group.instructions) {
+    if (resolveAccountKey(tx, ix.programIdIndex) !== MPL_CORE_PROGRAM) continue;
+    if (ix.accounts.length < 5) continue; // newOwner is index 4 — malformed/foreign CPI otherwise
+    const newOwner = resolveAccountKey(tx, ix.accounts[4]);
+    if (newOwner) return newOwner;
+  }
+  return null;
+}
+
 // ─── Asset type classification ────────────────────────────────────────────────
 
 /**

@@ -28,6 +28,7 @@ import {
   findMmmSaleIx,
   findMeCnftSaleIx,
   extractCoreAssetFromInnerIx,
+  extractCoreNewOwnerFromInnerIx,
 } from './decoder';
 import {
   extractPaymentInfo,
@@ -227,14 +228,21 @@ function parseMeV2Sale(
   //   Token-flow is kept only as a fallback for Core instructions (no SPL balances → tkSeller=null).
   //
   //   For buyer: token-flow (postHolder.owner = buyer's ATA owner) is reliable and preferred.
+  //   Core has no SPL token account, so tkBuyer is always null there — fall back to the
+  //   mpl-core Transfer CPI's `newOwner` account (extractCoreNewOwnerFromInnerIx) BEFORE
+  //   SOL-flow. SOL-flow alone picks whoever's balance dropped by the price, which is wrong
+  //   for ME's "buy for someone else" / session-payer flow where the payer and the NFT's
+  //   actual new owner are two different wallets (see the function's doc comment).
   const { seller: tkSeller, buyer: tkBuyer } = extractPartiesFromTokenFlow(tx, mint);
   const payment = extractPaymentInfo(tx);
   if (!payment) {
     return { ok: false, reason: `me_v2(${match.instructionName}): could not determine price` };
   }
 
+  const coreNewOwner = nftType === 'core' ? extractCoreNewOwnerFromInnerIx(tx, match.ix) : null;
+
   const seller = payment.seller ?? tkSeller;
-  const buyer  = tkBuyer  ?? payment.buyer;
+  const buyer  = tkBuyer ?? coreNewOwner ?? payment.buyer;
 
   if (!seller || !buyer || seller === buyer) {
     return { ok: false, reason: `me_v2(${match.instructionName}): could not determine seller/buyer` };

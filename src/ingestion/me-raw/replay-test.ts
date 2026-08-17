@@ -277,6 +277,28 @@ const CASES: TestCase[] = [
     expectPriceLte:    0.012,
     expectInstruction: 'coreExecuteSaleV2',
   },
+  // ── 2026-08-17: coreExecuteSaleV2 — "buy for someone else" / session-payer ────
+  // Bundled CoreSell + CoreExecuteSaleV2 in one tx. The SOL-flow payer
+  // (5vv763ri…) and the real NFT recipient (F7BDq8Ys…, verified live against
+  // DAS getAsset ownership.owner) are two different wallets — SOL-flow alone
+  // misattributed buyer to the payer. Fixed via extractCoreNewOwnerFromInnerIx
+  // reading the mpl-core TransferV1 CPI's newOwner account (fixed index 4),
+  // scoped to the matched sale instruction's own inner-ix group so the
+  // earlier CoreSell approve/transfer (accounts[4] = a delegate, not the
+  // buyer) isn't picked up instead.
+  {
+    sig:               '5JpT7jgSdnycfyjPAHmEd4jZurfNtS6rwMbDfNQpPyqYuoCmsQemAMt97jPrW1kaDrDeQhB4QZS6L57rDqybCnNU',
+    label:             'Core listing purchase — bundled list+buy, session-payer ≠ new owner (ME v2 — coreExecuteSaleV2)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden',
+    expectNftType:     'core',
+    expectMint:        'Adoy26ycyNyY6jpBuM71WSxJbciR2QkvLwAgE8ymepVy',
+    expectBuyer:       'F7BDq8YsYs69JsMxJJhARTTTZNcKu5h2GohLbe8cYQwE',
+    expectSeller:      'DxM4ZY4xWdD2Wm3Ff6KEUK4WtThG5Xb4kawKj5yymsC2',
+    expectPriceGte:    0.012,
+    expectPriceLte:    0.014,
+    expectInstruction: 'coreExecuteSaleV2',
+  },
   {
     sig:               'nTgwSDwXUxRChV8gdJDzRaDiyq23ZqJD36Zm2NnDhneYusu6YR68UL1RcH4SrDKop8jxrdXEHHHuEtJ7AL7E9ni',
     label:             'Core AMM pool buy (MMM — coreFulfillSell, inner-ix asset extraction)',

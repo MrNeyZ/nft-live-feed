@@ -123,6 +123,52 @@ async function probeImage(url: string): Promise<ProbeResult | null> {
   }
 }
 
+// ── Dead-gateway short-circuit (w3s.link / nft.storage / dweb.link) ─────────
+//
+// These web3.storage-family IPFS gateways are permanently dead/unreliable:
+// they don't 404 fast, they hang for 30+ seconds before ever responding (or
+// bounce through redirect chains that also hang). wsrv.nl waits on that same
+// hang before it can fail, so the browser's <img> sits on the `background:
+// var(--vl-gray-base)` placeholder — reads as a stuck black square — instead
+// of falling through to ItemThumb's onError → initials fallback, and a burst
+// of these in the feed ties up connections/renders long enough to read as
+// jank on new-event animation.
+//
+// Fix: probe with the same short PROBE_TIMEOUT_MS budget already used for
+// Irys. A probe miss short-circuits straight to a fast 404 (no wsrv hop) so
+// the frontend's onError fires in ~2.5s instead of ~30s+. Cached per URL —
+// positive hits get the long TTL (content-addressed, immutable), negative
+// hits get a short TTL so a since-recovered gateway isn't pinned dead.
+const DEAD_GATEWAY_HOST_SUFFIXES = ['.w3s.link', '.dweb.link', '.nftstorage.link'];
+const DEAD_GATEWAY_HOST_EXACT    = new Set(['w3s.link', 'nft.storage', 'dweb.link', 'nftstorage.link']);
+
+function isDeadGatewayCandidate(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (DEAD_GATEWAY_HOST_EXACT.has(h)) return true;
+  return DEAD_GATEWAY_HOST_SUFFIXES.some((suf) => h.endsWith(suf));
+}
+
+interface GatewayCacheEntry { ok: boolean; expiresAt: number; }
+const gatewayCache = new Map<string, GatewayCacheEntry>();
+const GATEWAY_CACHE_MAX = 500;
+const GATEWAY_OK_TTL_MS   = 30 * 60 * 1000; // 30 min — content-addressed, immutable once confirmed live
+const GATEWAY_DEAD_TTL_MS = 5 * 60 * 1000;  // 5 min — let a since-recovered gateway self-heal
+
+function gatewayCacheGet(key: string): GatewayCacheEntry | null {
+  const e = gatewayCache.get(key);
+  if (!e) return null;
+  if (e.expiresAt <= Date.now()) { gatewayCache.delete(key); return null; }
+  return e;
+}
+
+function gatewayCacheSet(key: string, ok: boolean): void {
+  if (!gatewayCache.has(key) && gatewayCache.size >= GATEWAY_CACHE_MAX) {
+    const oldest = gatewayCache.keys().next().value;
+    if (oldest !== undefined) gatewayCache.delete(oldest);
+  }
+  gatewayCache.set(key, { ok, expiresAt: Date.now() + (ok ? GATEWAY_OK_TTL_MS : GATEWAY_DEAD_TTL_MS) });
+}
+
 // ── Redirect-destination allowlist (Audit #13 SEC3 hardening) ───────────────
 // gateway.irys.xyz's redirect target is untrusted — irys (or whoever
 // uploaded the underlying txid) controls what a given path resolves to.
@@ -313,6 +359,35 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       url = u.toString();
     }
   } catch { /* malformed URL — drop through to the existing bad-url guard above */ }
+
+  // ── Dead-gateway short-circuit ──────────────────────────────────────────
+  // Runs after the irys/mypinata rewrite above so a w3s.link URL that got
+  // rewritten to ipfs.io (unlikely here, but consistent) isn't probed under
+  // its old host. See DEAD_GATEWAY_HOST_* doc comment for why this exists.
+  try {
+    const du = new URL(url);
+    if (isDeadGatewayCandidate(du.hostname)) {
+      const cached = gatewayCacheGet(url);
+      let ok: boolean;
+      if (cached) {
+        ok = cached.ok;
+      } else {
+        const probe = await probeImage(url);
+        ok = probe != null && probe.ok && probe.contentType.startsWith('image/');
+        gatewayCacheSet(url, ok);
+      }
+      if (!ok) {
+        if (DEBUG) {
+          // eslint-disable-next-line no-console
+          console.log(`[image/thumb] dead-gateway host=${du.hostname} — fast-404`);
+        }
+        return new NextResponse(null, {
+          status: 404,
+          headers: { 'Cache-Control': 'public, max-age=300' },
+        });
+      }
+    }
+  } catch { /* malformed URL — drop through, wsrv will fail on it same as before */ }
 
   const w      = sp.get('w')      ?? '128';
   const h      = sp.get('h')      ?? '128';
