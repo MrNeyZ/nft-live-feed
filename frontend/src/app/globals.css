@@ -2521,3 +2521,81 @@ a.vl-srcchip{ cursor:pointer; }
     linear-gradient(135deg, #c04c42, #a02d20) border-box;
   box-shadow: 0 3px 10px -4px rgba(192, 57, 43, 0.45);
 }
+
+/* ===== /tools/vvv — stage rows =====
+   Single JSX tree, no separate mobile render path: `.vvv-stage-row-top` /
+   `-bottom` are flex rows that wrap+reverse to a stacked card below the
+   tablet boundary (matches src/lib/breakpoints.ts tabletMax). Keeps every
+   field (name/status/price/minted/cap/wallet-limit/window/eligibility)
+   present at every width — narrow screens stack instead of losing data. */
+.vvv-stage-row {
+  padding: 12px 14px;
+  border-radius: 9px;
+  border: 1px solid rgb(var(--vl-purple-tint) / 0.14);
+  background: rgba(255, 255, 255, 0.015);
+  position: relative;
+  transition: transform 200ms ease-out, background 200ms ease-out, border-color 200ms ease-out, opacity 180ms ease-out;
+}
+.vvv-stage-row + .vvv-stage-row { margin-top: 8px; }
+/* Same lift+ring+glow recipe as `.feed-card:hover` (globals.css ~L929) —
+   requested explicitly over the row's previous left-border-fade hover,
+   which read as too weak. Byte-identical values, own selector (not
+   shared with the live feed's :has() cross-dim behavior). */
+.vvv-stage-row:hover {
+  transform: translateY(-1px) scale(1.005);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgb(var(--vl-purple-tint) / var(--hover-ring-alpha, 0.40));
+  box-shadow:
+    0 0 0 1px rgb(var(--vl-purple-tint) / var(--hover-ring-alpha, 0.40)) inset,
+    0 0 var(--hover-glow-blur, 18px) rgb(var(--vl-purple-deep) / var(--hover-glow-alpha, 0.22));
+  z-index: 1;
+}
+.vvv-stage-row--live {
+  border-left: 2px solid var(--vl-green-primary);
+  background: rgb(var(--vl-green) / 0.045);
+}
+.vvv-stage-row--upcoming { border-left: 2px solid var(--vl-gold-primary); }
+.vvv-stage-row--ended { opacity: 0.5; }
+.vvv-stage-row--ended:hover { opacity: 0.85; }
+
+.vvv-stage-row-top,
+.vvv-stage-row-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vvv-stage-row-bottom {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.vvv-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 7px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgb(var(--vl-purple-tint) / 0.24);
+  color: var(--vl-text-muted);
+  transition: transform 0.14s, border-color 0.14s, color 0.14s, background 0.14s;
+}
+.vvv-icon-btn:hover:not(:disabled) {
+  color: var(--vl-text-primary);
+  border-color: rgb(var(--vl-purple-tint) / 0.5);
+  background: rgba(255, 255, 255, 0.05);
+}
+.vvv-icon-btn:active:not(:disabled) { transform: scale(0.93); }
+.vvv-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.vvv-icon-btn--spin svg { animation: vvv-spin 0.9s linear infinite; }
+@keyframes vvv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+@media (max-width: 768px) {
+  .vvv-stage-row-top,
+  .vvv-stage-row-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}

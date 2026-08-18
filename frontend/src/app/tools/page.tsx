@@ -66,6 +66,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
     tools: [
       { href: '/tools/mint-analyzer',         title: 'Mint Analyzer',        desc: 'Decode a mint transaction — primitive, wrapper, reconstruction verdict.' },
       { href: '/tools/holders',               title: 'Holders',              desc: 'Raw distinct on-chain owner count for a collection (Helius DAS).' },
+      { href: '/tools/me-collection-refresh', title: 'ME Collection Refresh',desc: 'Force-resync Magic Eden’s per-NFT index (owner/name/image) for a wallet’s NFTs, optionally scoped to one collection.' },
       { href: '/tools/collection-analyzer',   title: 'Collection',           desc: 'Collection/mint/marketplace URL → asset + trait attribute preview (Helius DAS).' },
       { href: '/tools/rare-feed',             title: 'Rare Feed',            desc: 'Rarity-scored value sales feed.' },
       { href: '/tools/trending-legacy',       title: 'Trending (legacy)',    desc: 'Pre-merge Trending, preserved as-is for side-by-side comparison against /dashboard.' },
@@ -77,6 +78,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
     tools: [
       { href: '/tools/candy-mint',            title: 'Candy Mint',           desc: 'Reconstruct a Core Candy Guard mint from a signature and mint directly, if still alive.' },
       { href: '/tools/critters-mint-timer',   title: 'Critters Timer',       desc: 'Upcoming cheap edition mints from critters.quest, sorted by soonest start — read-only, no wallet.' },
+      { href: '/tools/vvv',                   title: 'VVV Stages',           desc: 'Paste a vvv.so mint link — whitelist stages + eligible collections, structured.' },
       // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
       // { href: '/tools/pixel-forge',        title: 'Pixel Forge',          desc: 'AI pixel-art trait generator, collection-aware.' },
     ],
