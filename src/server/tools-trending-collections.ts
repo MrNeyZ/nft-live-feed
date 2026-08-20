@@ -33,6 +33,7 @@
 import { Router, Request, Response } from 'express';
 import { rateLimit, isValidSlug } from './rate-limit';
 import { getEventsByCollection } from '../db/queries';
+import { resolveTensorMeta, tensorFetch } from './listings-store';
 import {
   getTrendingCollections,
   MeTrendingUpstreamError,
@@ -313,6 +314,91 @@ export function createTrendingCollectionsRouter(): Router {
       return res.json({ ok: true, slug, range: rangeRaw, count: sales.length, sales, fromCache: false });
     } catch (err) {
       console.error(`[tools/trending-collections/sales] slug=${slug} error`, err);
+      return res.status(500).json({ ok: false, error: 'internal_error' });
+    }
+  });
+
+  // ── Marketplace winner: which of ME / Tensor had more sales for this slug
+  // in the selected range. Powers the dashboard row click-through — it
+  // redirects to whichever marketplace actually did the volume instead of
+  // always opening Magic Eden.
+  //
+  // Both sides are LIVE external reads, deliberately not sourced from our
+  // own `sale_events` — the dashboard must keep working when our ingestion
+  // (the same pipeline that feeds /feed) is stopped. ME's count is already
+  // known to the caller (the row it just clicked came from this router's
+  // own ME-sourced `salesCount`, passed back as `meCount`); Tensor's count
+  // comes from Tensor's own find_collection `stats` object (sales1h/24h/7d/
+  // salesAll), the same live per-collection stats endpoint collection-bids.ts
+  // already polls for bid/listed data — never our DB.
+  //
+  // Tensor only exposes fixed windows (1h/24h/7d/all-time), not our exact
+  // range enum, so each dashboard range maps to its nearest Tensor window:
+  //   5m, 10m, 1h -> sales1h · 6h, 1d -> sales24h · 7d -> sales7d · 30d -> salesAll
+  const TENSOR_WINDOW_BY_RANGE: Record<string, 'sales1h' | 'sales24h' | 'sales7d' | 'salesAll'> = {
+    '5m': 'sales1h', '10m': 'sales1h', '1h': 'sales1h',
+    '6h': 'sales24h', '1d': 'sales24h',
+    '7d': 'sales7d',
+    '30d': 'salesAll',
+  };
+
+  interface TensorFindCollectionStats {
+    stats?: { sales1h?: number; sales24h?: number; sales7d?: number; salesAll?: number };
+  }
+  const TENSOR_WINNER_STATS_TTL_MS = 60_000;
+  const tensorWinnerStatsCache = new Map<string, { stats: TensorFindCollectionStats['stats'] | null; fetchedAt: number }>();
+
+  async function fetchTensorSalesStats(slug: string): Promise<TensorFindCollectionStats['stats'] | null> {
+    if (!process.env.TENSOR_API_KEY) return null;
+    const hit = tensorWinnerStatsCache.get(slug);
+    const now = Date.now();
+    if (hit && now - hit.fetchedAt < TENSOR_WINNER_STATS_TTL_MS) return hit.stats;
+
+    let stats: TensorFindCollectionStats['stats'] | null = null;
+    try {
+      const meta = await resolveTensorMeta(slug);
+      if (meta) {
+        const res = await tensorFetch(
+          `https://api.mainnet.tensordev.io/api/v1/collections/find_collection?filter=${encodeURIComponent(meta.collId)}`,
+        );
+        if (res.ok) {
+          const json = await res.json() as TensorFindCollectionStats;
+          stats = json?.stats ?? null;
+        }
+      }
+    } catch { stats = null; }
+
+    tensorWinnerStatsCache.set(slug, { stats, fetchedAt: now });
+    return stats;
+  }
+
+  const winnerLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'tools/trending-collections/marketplace-winner' });
+
+  router.get('/tools/trending-collections/:slug/marketplace-winner', winnerLimit, async (req: Request, res: Response) => {
+    const slug = String(req.params.slug ?? '').trim();
+    if (!isValidSlug(slug)) {
+      return res.status(400).json({ ok: false, error: 'invalid_slug' });
+    }
+
+    const rangeRaw = String(req.query.range ?? DEFAULT_RANGE).trim();
+    if (!inEnum(rangeRaw, EXTENDED_RANGES)) {
+      return res.status(400).json({ ok: false, error: 'invalid_range', allowed: EXTENDED_RANGES });
+    }
+
+    // ME's count for this exact row/range — the caller already has it
+    // (it's what's rendered in the table), so this endpoint doesn't need
+    // its own ME round-trip. Missing/invalid -> treated as 0.
+    const meCountRaw = Number(req.query.meCount);
+    const meCount = Number.isFinite(meCountRaw) && meCountRaw >= 0 ? meCountRaw : 0;
+
+    try {
+      const tensorStats = await fetchTensorSalesStats(slug);
+      const tensorField = TENSOR_WINDOW_BY_RANGE[rangeRaw] ?? 'sales24h';
+      const tensorCount = tensorStats?.[tensorField] ?? 0;
+      const winner: 'magic_eden' | 'tensor' = tensorCount > meCount ? 'tensor' : 'magic_eden';
+      return res.json({ ok: true, slug, range: rangeRaw, meCount, tensorCount, winner });
+    } catch (err) {
+      console.error(`[tools/trending-collections/marketplace-winner] slug=${slug} error`, err);
       return res.status(500).json({ ok: false, error: 'internal_error' });
     }
   });

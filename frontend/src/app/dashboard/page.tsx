@@ -684,7 +684,29 @@ export default function Dashboard() {
   const handleRowClick = (row: MergedRow) => {
     setSelected(row.slug);
     stashCollectionPreview(row.slug, row.avatarUrl);
-    window.location.href = `/collection/${encodeURIComponent(row.slug)}`;
+
+    // Redirect to whichever marketplace actually did more volume for this
+    // collection in the current range, instead of always opening the
+    // internal /collection page. ME's count is already known (row.salesCount,
+    // ME-sourced, live) — the backend only needs to resolve Tensor's live
+    // count (also live, not our own feed/ingestion) to decide.
+    const meUrl = `https://magiceden.io/marketplace/${row.slug}`;
+    const tensorUrl = `https://www.tensor.trade/trade/${row.tensorSlug ?? row.slug}`;
+    const fallbackHref = `/collection/${encodeURIComponent(row.slug)}`;
+
+    (async () => {
+      try {
+        const url = `${API_BASE}/api/tools/trending-collections/${encodeURIComponent(row.slug)}`
+          + `/marketplace-winner?range=${encodeURIComponent(range)}&meCount=${encodeURIComponent(row.salesCount ?? 0)}`;
+        const res = await fetch(url, { headers: { ...authHeaders() } });
+        if (!res.ok) { window.location.href = fallbackHref; return; }
+        const json = await res.json() as { ok?: boolean; winner?: 'magic_eden' | 'tensor' };
+        if (!json.ok) { window.location.href = fallbackHref; return; }
+        window.location.href = json.winner === 'tensor' ? tensorUrl : meUrl;
+      } catch {
+        window.location.href = fallbackHref;
+      }
+    })();
   };
 
   return (
