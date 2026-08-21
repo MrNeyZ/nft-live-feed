@@ -26,7 +26,7 @@
  */
 import { PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
-import type { RawSolanaTx } from '../me-raw/types';
+import { resolveAccountKey, type RawSolanaTx } from '../me-raw/types';
 
 export const LAUNCHMYNFT_PROGRAM    = 'F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf';
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
@@ -159,6 +159,31 @@ export const GRAVEMINT_PROGRAM           = 'GRVMNt7b2Pojom2fTF6HytLRm2hfQCN8iHm9
 export const MINTX_PLATFORM_SIGNER_PRIMARY   = 'xbWUT2Z3DWUrc4f65keHjntdtXiD7ov8d4Wj11yuBh8';
 export const MINTX_PLATFORM_SIGNER_SECONDARY = 'EBxTysPFiZymqFswF5SyLKCC5ybj6ii8wg8s2Mbhseex';
 
+/** mallow.art platform fee wallet. Every confirmed mallow.art DIRECT 1/1
+ *  mint (no wrapper program — the outer ix is the primitive itself, either
+ *  Token Metadata's modern unified `Create`+`Mint`(+`Verify`) or a bare MPL
+ *  Core `Create`/`CreateV2`) includes a top-level SystemProgram.transfer of
+ *  EXACTLY `MALLOW_MINT_FEE_LAMPORTS` to this wallet. Confirmed identical
+ *  (same wallet, same exact amount) across 6/6 sampled mints from TWO
+ *  different payer wallets, on both NFT standards. The exact amount is
+ *  required, not just account-key presence (unlike `NFTS_GAY_TREASURY`
+ *  below) — this same wallet is also mallow's general ops/treasury address
+ *  (observed doing unrelated token payout splits and Jupiter swaps), so bare
+ *  presence alone would be too loose a gate. Reference tx:
+ *    4gpK4B55pFu2DVLi2cL1Wv8aPK1F6L1LMbFSfp3dYvXyfaZR6iJeQLJCZg6ooHCTKBKz82v89adRUxaAtN9j2p9H
+ *  (mint 6JvoGvnCxMfank92RG7RZZhJgLZDJsQyntoF3Mxrbx4G, "Monologue in the Void"). */
+export const MALLOW_FEE_WALLET = 'MFHHByMGfk84s3GZ8dZHaQQ3gbpQYc2NnQYPg2tRCSx';
+export const MALLOW_MINT_FEE_LAMPORTS = 11_000_000;
+
+/** mallow.art's own on-chain program — used for "Buy Edition" (limited
+ *  print) purchases, distinct from the direct 1/1 mint above. CPIs into
+ *  MPL Core `Create` to mint the print. Program presence is the fingerprint
+ *  here (same class of signal as `LAUNCHMYNFT_PROGRAM` / `GRAVEMINT_PROGRAM`
+ *  — unspoofable without mallow's upgrade authority). Reference tx:
+ *    2uRn9SZ6g2UzptCpK1FaTQxyCRQM64fT9qvmcTzGJXMRJMbPXq62enFBGJ2UeBAzwLRpjiV2Nm9Wot1rtQDn1j3Q
+ *  (`Instruction: BuyCoreEdition`). */
+export const MALLOW_PROGRAM = 'MMA7VebX8Pi5JrrvaTBBm7nW81sfCww7ZtLBBT1YCy8';
+
 /** Metaplex Candy Guard — the standard outer wrapper for Candy
  *  Machine v3 (and any future Metaplex-issued CM variants that route
  *  through the same Guard). Used as the **launchpad fingerprint** in
@@ -235,7 +260,7 @@ function prntVestingAssetIfPresent(shape: ParsedTxShape): string | null {
   return vestingAsset;
 }
 
-export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay' | 'PRNT';
+export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay' | 'PRNT' | 'Mallow';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
  *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
@@ -541,18 +566,57 @@ function isNftsGayCgTx(shape: ParsedTxShape): boolean {
  *  When the Verify CPI is absent the collection is left null; the caller
  *  then falls back to the existing DAS resolve / async confirmation path,
  *  same as the Core branch. The mint is required — null returns reject. */
+/** Normalize every TM-program instruction in `tx` into `{ data, accs }`
+ *  pairs, TOP-LEVEL first then inner CPI. Every wrapped launchpad (LMNFT
+ *  MintTm, Candy Guard MintV2) invokes TM only via inner CPI, so the
+ *  top-level pass yields nothing for them and behaviour is unchanged from
+ *  before this helper existed. It exists for the unwrapped case — a DIRECT
+ *  TM mint with no launchpad program at all (e.g. mallow.art's raw
+ *  `Create`/`Mint`/`Verify`) — where TM IS the outer instruction. */
+function collectTmInstructions(
+  tx: RawSolanaTx,
+  shape: ParsedTxShape,
+): Array<{ data: string; accs: string[] }> {
+  const out: Array<{ data: string; accs: string[] }> = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const normalize = (ix: any): void => {
+    const programId: string = typeof ix.programId === 'string'
+      ? ix.programId
+      : typeof ix.programIdIndex === 'number'
+        ? shape.accountKeys[ix.programIdIndex]
+        : '';
+    if (programId !== TOKEN_METADATA_PROGRAM || typeof ix.data !== 'string') return;
+    const accs: string[] = (ix.accounts ?? []).map((a: number | string) =>
+      typeof a === 'string' ? a : shape.accountKeys[a],
+    );
+    out.push({ data: ix.data, accs });
+  };
+  const message = tx.transaction?.message;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const top = (message as any)?.instructions as unknown[] | undefined;
+  if (Array.isArray(top)) for (const ix of top) normalize(ix);
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      for (const ix of grp.instructions) normalize(ix);
+    }
+  }
+  return out;
+}
+
 function extractTmMintFromInner(
   tx: RawSolanaTx,
   shape: ParsedTxShape,
 ): { mintAddress: string; collectionAddress: string | null } | null {
-  const inner = tx.meta?.innerInstructions;
-  if (!Array.isArray(inner)) return null;
+  const tmIxs = collectTmInstructions(tx, shape);
+  if (tmIxs.length === 0) return null;
 
   let metadataPDA:       string | null = null;
   let mintAddress:       string | null = null;
   let collectionAddress: string | null = null;
 
-  // Pass 1: first TM CPI is the Create call. Pull metadata PDA + mint.
+  // Pass 1: first TM ix is the Create call. Pull metadata PDA + mint.
   //
   // The mint-slot index depends on the TM `Create` variant in use,
   // identified by the first byte of the instruction data:
@@ -563,47 +627,30 @@ function extractTmMintFromInner(
   //    disc 42  Create (V1 / pNFT)       │ accs[0]=metadata accs[1]=master_edition accs[2]=MINT
   //
   // LMNFT MintTm routes through the legacy CreateMetadataAccountV3
-  // family (slot 1). Candy Guard's MintV2 wraps the new pNFT
-  // `Create` (disc=42) which puts the master edition at accs[1] and
-  // the mint at accs[2] — reading accs[1] there would surface the
-  // master-edition pubkey as the "mint", which DAS doesn't index
-  // (every downstream `getAsset` returns `RecordNotFound`) and
-  // collapses per-NFT enrichment for the entire flow.
-  outer1:
-  for (const grp of inner) {
-    if (!Array.isArray(grp.instructions)) continue;
-    for (const ix of grp.instructions) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ixAny = ix as any;
-      const programId: string = typeof ixAny.programId === 'string'
-        ? ixAny.programId
-        : typeof ixAny.programIdIndex === 'number'
-          ? shape.accountKeys[ixAny.programIdIndex]
-          : '';
-      if (programId !== TOKEN_METADATA_PROGRAM) continue;
-      const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
-        typeof a === 'string' ? a : shape.accountKeys[a],
-      );
-      // Decode discriminator byte to pick the mint slot. Default to
-      // slot 1 (legacy family) when the data is missing / undecodable.
-      let mintSlot = 1;
-      try {
-        const data = Buffer.from(bs58.decode(ixAny.data));
-        if (data.length > 0 && data[0] === 42) mintSlot = 2;
-      } catch { /* default mintSlot=1 */ }
-      if (accs.length > mintSlot
-          && typeof accs[0]        === 'string'
-          && typeof accs[mintSlot] === 'string') {
-        metadataPDA = accs[0];
-        mintAddress = accs[mintSlot];
-      }
-      break outer1;
+  // family (slot 1). Candy Guard's MintV2 and mallow.art's direct mint
+  // both use the new pNFT-family `Create` (disc=42), which puts the
+  // master edition at accs[1] and the mint at accs[2] — reading accs[1]
+  // there would surface the master-edition pubkey as the "mint", which
+  // DAS doesn't index (every downstream `getAsset` returns
+  // `RecordNotFound`) and collapses per-NFT enrichment for the entire flow.
+  for (const { data, accs } of tmIxs) {
+    let mintSlot = 1;
+    try {
+      const buf = Buffer.from(bs58.decode(data));
+      if (buf.length > 0 && buf[0] === 42) mintSlot = 2;
+    } catch { /* default mintSlot=1 */ }
+    if (accs.length > mintSlot
+        && typeof accs[0]        === 'string'
+        && typeof accs[mintSlot] === 'string') {
+      metadataPDA = accs[0];
+      mintAddress = accs[mintSlot];
     }
+    break;
   }
 
   if (!mintAddress) return null;
 
-  // Pass 2: locate the Verify CPI by discriminator + metadataPDA anchor.
+  // Pass 2: locate the Verify ix by discriminator + metadataPDA anchor.
   //
   // Both Verify and Mint have `metadata` in their account layouts, so
   // discriminator filtering is required to avoid reading the wrong slot.
@@ -616,6 +663,7 @@ function extractTmMintFromInner(
   //   disc 25  SetAndVerifyCollection        accs: [meta, auth, payer, updAuth, collMint, …]
   //   disc 32  SetAndVerifySizedCollectionItem  accs: [meta, auth, payer, updAuth, collMint, …]
   //   disc 52  Verify (unified / CollectionV1)  accs: [auth, delegate?, meta, collMint, …]
+  //     — this is also mallow.art's direct-mint Verify shape.
   //
   // Each entry: [metadataPdaIdx, collMintIdx, minAccountsLen].
   // metadataPdaIdx anchors to THIS mint's metadata so a concurrent
@@ -628,36 +676,21 @@ function extractTmMintFromInner(
     [52, [2, 3, 4]],
   ]);
   if (metadataPDA) {
-    outer2:
-    for (const grp of inner) {
-      if (!Array.isArray(grp.instructions)) continue;
-      for (const ix of grp.instructions) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ixAny = ix as any;
-        const programId: string = typeof ixAny.programId === 'string'
-          ? ixAny.programId
-          : typeof ixAny.programIdIndex === 'number'
-            ? shape.accountKeys[ixAny.programIdIndex]
-            : '';
-        if (programId !== TOKEN_METADATA_PROGRAM) continue;
-        let disc: number | null = null;
-        try {
-          const data = Buffer.from(bs58.decode(ixAny.data));
-          if (data.length > 0) disc = data[0];
-        } catch { /* leave disc=null → skip */ }
-        const layout = disc !== null ? VERIFY_COLLECTION_IDX.get(disc) : undefined;
-        if (!layout) continue;
-        const [metaIdx, collIdx, minLen] = layout;
-        const accs: string[] = (ixAny.accounts ?? []).map((a: number | string) =>
-          typeof a === 'string' ? a : shape.accountKeys[a],
-        );
-        if (accs.length >= minLen
-            && accs[metaIdx] === metadataPDA
-            && typeof accs[collIdx] === 'string'
-            && accs[collIdx] !== mintAddress) {
-          collectionAddress = accs[collIdx];
-          break outer2;
-        }
+    for (const { data, accs } of tmIxs) {
+      let disc: number | null = null;
+      try {
+        const buf = Buffer.from(bs58.decode(data));
+        if (buf.length > 0) disc = buf[0];
+      } catch { /* leave disc=null → skip */ }
+      const layout = disc !== null ? VERIFY_COLLECTION_IDX.get(disc) : undefined;
+      if (!layout) continue;
+      const [metaIdx, collIdx, minLen] = layout;
+      if (accs.length >= minLen
+          && accs[metaIdx] === metadataPDA
+          && typeof accs[collIdx] === 'string'
+          && accs[collIdx] !== mintAddress) {
+        collectionAddress = accs[collIdx];
+        break;
       }
     }
   }
@@ -752,6 +785,67 @@ function isGraveMintTx(shape: ParsedTxShape): boolean {
   // Shape B — GRVMNt Anchor program orchestrates.
   if (shape.accountKeys.includes(GRAVEMINT_PROGRAM)) return true;
   return false;
+}
+
+/** System Program instruction index for `Transfer` (matches
+ *  `SYS_TRANSFER_IX` in `mint-raw/index.ts` — duplicated locally rather
+ *  than imported to avoid a circular import, since `index.ts` imports
+ *  FROM this module). Data layout: [0..4) u32 LE ix=2, [4..12) u64 LE
+ *  lamports; accounts = [from, to]. */
+const SYS_TRANSFER_IX = 2;
+const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+
+/** True iff `tx` carries a top-level OR inner SystemProgram.transfer of
+ *  exactly `MALLOW_MINT_FEE_LAMPORTS` to `MALLOW_FEE_WALLET`. The fixed
+ *  amount (not just destination presence) is the whole point — see the
+ *  constant's doc comment. */
+function hasMallowFeeTransfer(tx: RawSolanaTx): boolean {
+  const scan = (ix: { programIdIndex: number; accounts: number[]; data: string }): boolean => {
+    if (!ix || resolveAccountKey(tx, ix.programIdIndex) !== SYSTEM_PROGRAM_ID || !ix.data) return false;
+    let buf: Buffer;
+    try { buf = Buffer.from(bs58.decode(ix.data)); } catch { return false; }
+    if (buf.length < 12 || buf.readUInt32LE(0) !== SYS_TRANSFER_IX) return false;
+    const lamports = Number(buf.readBigUInt64LE(4));
+    if (lamports !== MALLOW_MINT_FEE_LAMPORTS) return false;
+    const destIdx = ix.accounts?.[1];
+    if (destIdx == null) return false;
+    return resolveAccountKey(tx, destIdx) === MALLOW_FEE_WALLET;
+  };
+  const top = tx.transaction?.message?.instructions;
+  if (Array.isArray(top)) for (const ix of top) if (scan(ix)) return true;
+  const inner = tx.meta?.innerInstructions;
+  if (Array.isArray(inner)) {
+    for (const grp of inner) {
+      if (!Array.isArray(grp.instructions)) continue;
+      for (const ix of grp.instructions) if (scan(ix)) return true;
+    }
+  }
+  return false;
+}
+
+/** True iff `tx` is a mallow.art DIRECT 1/1 mint — a bare Token Metadata
+ *  or MPL Core create (no wrapper program) co-paying the exact mallow.art
+ *  platform fee. Requires BOTH a recognizable create-family log (cheap
+ *  structural gate — the fee wallet is also mallow's general treasury, see
+ *  `MALLOW_FEE_WALLET`'s doc comment) AND the exact fee transfer. */
+function isMallowDirectMintTx(tx: RawSolanaTx, shape: ParsedTxShape): boolean {
+  const hasCreateLog = shape.logs.some((line) =>
+    line.includes('IX: Create')
+    || line.includes('Instruction: Create')
+    || line.includes('Instruction: CreateV1')
+    || line.includes('Instruction: CreateV2'),
+  );
+  if (!hasCreateLog) return false;
+  if (!shape.accountKeys.includes(TOKEN_METADATA_PROGRAM) && !shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
+  return hasMallowFeeTransfer(tx);
+}
+
+/** True iff `tx` is a mallow.art "Buy Edition" (limited print) purchase —
+ *  `MALLOW_PROGRAM` present, CPI-ing into an MPL Core `Create`. */
+function isMallowEditionTx(shape: ParsedTxShape): boolean {
+  if (!shape.accountKeys.includes(MALLOW_PROGRAM)) return false;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
+  return shape.logs.some((line) => line.includes('Instruction: Create'));
 }
 
 /** Pull the asset/mint, payer, and (best-effort) collection out of the
@@ -1058,6 +1152,22 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       matchedNeedle:     'Instruction: CreateV2',
     };
   }
+  // mallow.art "Buy Edition" (limited print) — own program fingerprint,
+  // same class of signal as VVV's platform signer above. Checked here
+  // (program-based branches together) before the fee-wallet-based direct
+  // mint branch near the end of this function.
+  if (isMallowEditionTx(shape)) {
+    const core = extractCoreMintFromInner(tx, shape);
+    if (!core) return null;
+    return {
+      source:            'Mallow',
+      standard:          'core',
+      mintAddress:       core.mintAddress,
+      collectionAddress: core.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     'Instruction: BuyCoreEdition',
+    };
+  }
   // Gravemint.io targeted detector — runs AFTER vvv so a tx that
   // somehow carried both fingerprints (none seen) would still resolve
   // as VVV (older, more samples). Flag-gated; OFF by default.
@@ -1160,6 +1270,36 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     `${cgNeedle} (Candy Guard${isGay ? ' / nfts.gay' : ''})`,
       candyMachineState,
+    };
+  }
+  // mallow.art direct 1/1 mint — no wrapper program at all (the outer ix
+  // IS the primitive: TM's modern unified Create/Mint/Verify, or bare
+  // MPL Core Create/CreateV2), gated on the exact platform-fee transfer.
+  // Checked LAST since it's the least specific signal in this file (a
+  // fee-wallet transfer, not a program ID) — every branch above requires
+  // a program/signer fingerprint and would already have returned.
+  if (isMallowDirectMintTx(tx, shape)) {
+    if (shape.accountKeys.includes(MPL_CORE_PROGRAM)) {
+      const core = extractCoreMintFromInner(tx, shape);
+      if (!core) return null;
+      return {
+        source:            'Mallow',
+        standard:          'core',
+        mintAddress:       core.mintAddress,
+        collectionAddress: core.collectionAddress,
+        minter:            shape.signerKeys[0] ?? null,
+        matchedNeedle:     'mallow fee transfer + Core Create',
+      };
+    }
+    const tm = extractTmMintFromInner(tx, shape);
+    if (!tm) return null;
+    return {
+      source:            'Mallow',
+      standard:          'token_metadata',
+      mintAddress:       tm.mintAddress,
+      collectionAddress: tm.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     'mallow fee transfer + TM Create',
     };
   }
   return null;

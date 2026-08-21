@@ -193,6 +193,7 @@ export type MintSourceLabel =
   | 'nfts.gay'
   | 'PRNT'
   | 'SFT'
+  | 'Mallow'
   | 'Unknown';
 
 /** Per-mint event, fired once on detection. */

@@ -42,13 +42,18 @@ const SOURCE_PILL_W_LG = 60;
 const CHIP_LABEL: Record<string, string> = {
   UNKNOWN: 'UNK',
 };
-/** Labels long enough (5+ chars) to read cramped at the base chip font-size
+/** Labels long enough (5 chars) to read cramped at the base chip font-size
  *  — see `.vl-srcchip--long` in globals.css. */
 const LONG_LABELS = new Set(['LMNFT', 'CANDY', 'GRAVE']);
+/** 6-char labels — one notch smaller again than LONG_LABELS, tighter
+ *  letter-spacing too, so the full name still fits the fixed-width chip
+ *  — see `.vl-srcchip--xlong` in globals.css. */
+const XLONG_LABELS = new Set(['MALLOW']);
 /** 3-char labels — widened letter-spacing instead of a bigger font-size
  *  (see `.vl-srcchip--short` in globals.css). */
 const SHORT_LABELS = new Set(['NFT', 'VVV']);
 function srcChipClassName(label: string): string {
+  if (XLONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--xlong';
   if (LONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--long';
   if (SHORT_LABELS.has(label)) return 'vl-srcchip vl-srcchip--short';
   return 'vl-srcchip';
@@ -115,7 +120,9 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
       ? 'Open on VVV'
       : row.sourceLabel === 'GRAVE'
         ? 'Open on gravemint.io'
-        : row.sourceLabel;
+        : row.sourceLabel === 'Mallow'
+          ? 'Open on mallow.art'
+          : row.sourceLabel;
   const chip = href ? (
     <a
       href={href}

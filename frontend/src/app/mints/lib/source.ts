@@ -85,6 +85,12 @@ export function sourceHref(row: MintStatus): string | null {
       if (/^(authority|program|owner|pool):/.test(c)) return null;
       return `https://gravemint.io/mint/${c}`;
     }
+    case 'Mallow': {
+      // mallow.art artwork page is keyed by the mint address itself.
+      const addr = row.stableMintAddress ?? row.lastMintAddress;
+      if (!isSolPubkey(addr)) return null;
+      return `https://www.mallow.art/artwork/${addr}`;
+    }
     case 'Metaplex Core':
     case 'Core Candy Machine':
     case 'Candy Labs': {
@@ -177,6 +183,11 @@ export function sourceBadge(
     // PRNT mint-pass — Core Candy mint with an SPL722 vesting leg. Teal
     // palette so the pass reads distinctly from generic CORE / CANDY.
     case 'PRNT':                   return { label: 'PRNT',     bg: 'rgba(74,200,190,0.16)',  fg: '#3fd0c4' };
+    // mallow.art — coral/salmon (redGlow), distinct from CANDY's pink
+    // (VL.pink #E58AA3) and every other family in use (gold/blue/gray/
+    // green/purpleTint/fuchsia/teal above). Otherwise unused by any
+    // source badge.
+    case 'Mallow':                 return { label: 'MALLOW',   bg: alpha(VL.redGlow, 0.15),  fg: rgb(VL.redGlow) };
     default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }

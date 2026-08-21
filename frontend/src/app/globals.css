@@ -2350,6 +2350,10 @@ body[data-bottombar="1"] .feed-root {
    fixed-width chip — dial down a notch so they breathe the same as the
    4-char labels (CORE, VVV, cNFT…) without needing a wider chip. */
 .vl-srcchip.vl-srcchip--long{ font-size:9.5px; }
+/* 6-char labels (MALLOW) — one notch below --long again, tighter
+   letter-spacing too, so the full name still fits the fixed-width chip
+   instead of clipping or forcing the slot wider. */
+.vl-srcchip.vl-srcchip--xlong{ font-size:8.3px; letter-spacing:.01em; }
 /* 3-char labels (NFT, VVV) leave the widest dead space in the fixed-width
    chip — bumping their font-size to compensate would make them louder
    than every other badge, drawing the eye instead of reading as one flat

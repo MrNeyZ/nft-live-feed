@@ -44,6 +44,7 @@
     "test:collection-analyzer-te-ranking": "ts-node packages/trait-extraction-core/src/__tests__/te-ranking.test.ts",
     "test:collection-analyzer-te-limits": "ts-node packages/trait-extraction-core/src/__tests__/te-limits.test.ts",
     "test:prnt-detector": "ts-node src/ingestion/mint-raw/__tests__/prnt-detector.test.ts",
+    "test:mallow-detector": "ts-node src/ingestion/mint-raw/__tests__/mallow-detector.test.ts",
     "test:mint-unified-create": "ts-node src/ingestion/mint-raw/__tests__/unified-create.test.ts",
     "test:targeted-unified-create": "ts-node src/ingestion/mint-raw/__tests__/targeted-mode-unified-create.test.ts",
     "test:mint-accumulator": "MINT_BURST_V60=2 MINT_BURST_V5M=2 MINT_DISPLAY_THRESHOLD=50 MINT_IDLE_COOLDOWN_MS=1 ts-node src/mints/__tests__/accumulator-revival.test.ts",

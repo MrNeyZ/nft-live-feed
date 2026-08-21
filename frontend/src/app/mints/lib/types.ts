@@ -40,7 +40,7 @@ export type MintRollupType = 'free' | 'paid' | 'unknown' | 'mixed';
 export type SourceLabel =
   | 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'ME'
   | 'Metaplex Candy Machine' | 'Core Candy Machine' | 'Metaplex Core' | 'Candy Labs' | 'Metaplex'
-  | 'Bubblegum' | 'nfts.gay' | 'PRNT' | 'SFT' | 'Unknown';
+  | 'Bubblegum' | 'nfts.gay' | 'PRNT' | 'SFT' | 'Mallow' | 'Unknown';
 
 export interface MintStatus {
   groupingKey:       string;
