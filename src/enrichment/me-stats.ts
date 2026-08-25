@@ -11,7 +11,24 @@
  * a try/catch around this helper.
  */
 
-import { meCooldownActive, setMeCooldown, meAuthHeaders } from '../me-api-cooldown';
+// Deliberately NOT importing the shared me-api-cooldown module — this
+// endpoint runs on its own isolated, keyless (public) rate budget instead
+// of the shared authed-key one every other ME consumer (rare-feed,
+// retardio-offers, mmm-pools, spl20, collection-bids' mmm/tensor calls)
+// draws from. Two reasons:
+//   1. Isolation: an unrelated consumer's 429 used to trip the shared
+//      process-wide cooldown and blank floor-delta badges feed-wide for
+//      60s even though floor-delta itself never made the offending call
+//      (confirmed live, repeatedly, throughout 2026-08-25).
+//   2. Budget: floor-delta is the highest-value, most latency-sensitive ME
+//      consumer in the project (computed per real sale, shown live) — it
+//      shouldn't compete with background scan tools for the same authed
+//      quota. Keyless traffic hits Cloudflare's own per-IP limiter sooner
+//      than authed calls (see me-api-cooldown.ts's own comment on this),
+//      but that's a materially smaller, self-contained cost: a missed
+//      floor lookup just skips one badge, vs. an authed 429 elsewhere
+//      silently killing floor-delta for everyone for a full minute.
+let cooldownUntil = 0;
 
 const ME_STATS_TTL_MS = 12_000;
 const ME_STATS_TIMEOUT_MS = 4_000;
@@ -76,7 +93,7 @@ export async function getMeStats(slug: string): Promise<MeStatsRaw | null> {
   // inFlight.set runs after the IIFE and the try/finally never executed, so
   // inFlight.delete was never called. Future callers then hit the stale entry
   // and returned null permanently. Checking here keeps inFlight untouched.
-  if (meCooldownActive()) return null;
+  if (Date.now() < cooldownUntil) return null;
 
   const pending = inFlight.get(slug);
   if (pending) return pending;
@@ -85,10 +102,10 @@ export async function getMeStats(slug: string): Promise<MeStatsRaw | null> {
     try {
       const res = await fetch(
         `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`,
-        { headers: meAuthHeaders(), signal: AbortSignal.timeout(ME_STATS_TIMEOUT_MS) },
+        { signal: AbortSignal.timeout(ME_STATS_TIMEOUT_MS) },
       );
       if (res.status === 429) {
-        setMeCooldown(60_000);
+        cooldownUntil = Date.now() + 60_000;
         cache.set(slug, { stats: null, fetchedAt: Date.now() });
         // Unlike rare-feed's getJson(), this path used to fail silently —
         // a 429 here (e.g. the concurrent boot-time burst: rarity replay +

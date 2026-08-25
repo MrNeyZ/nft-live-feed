@@ -590,10 +590,15 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
         meCollectionSlug:     enriched.meCollectionSlug     ?? null,
         tensorCollectionSlug: enriched.tensorCollectionSlug ?? null,
       });
-      // Late image-resolution path. enrich can leave imageUrl null when DAS
-      // hasn't indexed a freshly-minted asset; retries at 15/60/180 s patch
-      // the card via a follow-up MetaUpdate. Per-mint dedup + 20 min backoff.
-      if (!enriched.imageUrl && enriched.mintAddress) {
+      // Late image / slug / floor_delta resolution path. enrich can leave
+      // any of these null — DAS hasn't indexed a freshly-minted asset, or
+      // the 25s enrich watchdog killed the whole call, or the slug just
+      // wasn't resolvable yet even though image/name were. Retries at
+      // 15/60/180s patch the card (and the DB row) via a follow-up
+      // MetaUpdate. Per-mint dedup + 20 min backoff. Widened 2026-08-25 —
+      // used to gate on imageUrl alone, so a sale with image+name but no
+      // slug (no floor_delta badge) never got a retry chance at all.
+      if (enriched.mintAddress && (!enriched.imageUrl || !enriched.meCollectionSlug || enriched.floorDelta == null)) {
         scheduleImageRetry({
           mintAddress:       enriched.mintAddress,
           signature:         enriched.signature,
@@ -601,6 +606,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
           collectionAddress: enriched.collectionAddress,
           meCollectionSlug:  enriched.meCollectionSlug ?? null,
           nftName:           enriched.nftName,
+          priceLamports:     enriched.priceLamports,
         });
       }
     } catch (err) {

@@ -119,7 +119,7 @@ export { getMeTokenData, type MeTokenData };
  * match only — never by name or mint. Returns null when nothing is known.
  * Never throws.
  */
-async function recoverSlugByCollection(
+export async function recoverSlugByCollection(
   collectionAddress: string,
 ): Promise<{ slug: string; collectionName: string | null } | null> {
   const cached = collSlugCache.get(collectionAddress);
@@ -160,7 +160,7 @@ async function recoverSlugByCollection(
  * only — never by name or collection. Returns null when nothing is known.
  * Never throws.
  */
-async function recoverSlugByMint(
+export async function recoverSlugByMint(
   mint: string,
 ): Promise<{ slug: string; collectionName: string | null } | null> {
   const cached = mintSlugCache.get(mint);
@@ -661,7 +661,7 @@ async function _enrich(event: SaleEvent): Promise<SaleEvent> {
  * cache itself is only filled by the legacy code path; in steady
  * state both lookups should agree closely.
  */
-async function computeFloorDelta(
+export async function computeFloorDelta(
   slug: string | null | undefined,
   priceLamports: bigint,
 ): Promise<number | null> {
