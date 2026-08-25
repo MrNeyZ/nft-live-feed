@@ -595,6 +595,11 @@ export default function Dashboard() {
     if (slugList.length === 0) return;
     let cancelled = false;
     const doLoad = async () => {
+      // Skip background-tab refreshes — a forgotten-open dashboard tab was
+      // confirmed live (2026-08-25) to blindly re-poll its full trending
+      // slug list every BIDS_REFRESH_MS regardless of visibility, tripping
+      // ME's rate limit and blanking floor badges site-wide for a minute.
+      if (typeof document !== 'undefined' && document.hidden) return;
       const chunks: string[][] = [];
       for (let i = 0; i < slugList.length; i += BIDS_CHUNK_SIZE) chunks.push(slugList.slice(i, i + BIDS_CHUNK_SIZE));
 
@@ -629,7 +634,15 @@ export default function Dashboard() {
     };
     doLoad();
     const id = setInterval(doLoad, BIDS_REFRESH_MS);
-    return () => { cancelled = true; clearInterval(id); };
+    // Catch up immediately on return from a backgrounded tab instead of
+    // waiting out the rest of the current BIDS_REFRESH_MS tick.
+    const onVisible = () => { if (!document.hidden) void doLoad(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slugKey]);
 
