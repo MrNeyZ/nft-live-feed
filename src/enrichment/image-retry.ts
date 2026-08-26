@@ -162,6 +162,7 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
     let currentSlug = args.meCollectionSlug;
     let floorDelta: number | null = null;
     let floorResolved = false; // stop recomputing once we've got a value once
+    let imageResolved: ResolvedImage | null = null; // stop re-fetching once found
     try {
       for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
         await sleep(RETRY_DELAYS_MS[i]);
@@ -185,11 +186,15 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
           if (floorDeltaThisRound != null) { floorDelta = floorDeltaThisRound; floorResolved = true; }
         }
 
-        const resolved = await resolveImage(mint, args.collectionAddress, isLast);
+        // Skip re-fetching once image already resolved on an earlier
+        // round — only floor_delta (above) still needs further attempts.
+        const resolvedThisRound: ResolvedImage | null = imageResolved ? null : await resolveImage(mint, args.collectionAddress, isLast);
+        if (resolvedThisRound) imageResolved = resolvedThisRound;
+        const resolved = imageResolved;
         // getMeTokenData is already fetched inside resolveImage's own ME
         // fallback step — piggyback its slug if everything above missed.
-        if (!currentSlug && resolved?.meCollectionSlug) {
-          currentSlug = resolved.meCollectionSlug;
+        if (!currentSlug && resolvedThisRound?.meCollectionSlug) {
+          currentSlug = resolvedThisRound.meCollectionSlug;
           if (!floorResolved) {
             floorDeltaThisRound = await computeFloorDelta(currentSlug, args.priceLamports);
             if (floorDeltaThisRound != null) { floorDelta = floorDeltaThisRound; floorResolved = true; }
@@ -200,7 +205,7 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
         // Note: floorDeltaThisRound (not the accumulated floorDelta) —
         // once resolved once it stays non-null across later iterations,
         // and would otherwise re-trigger a no-op patch every attempt.
-        const gotSomethingNew = !!resolved || slugIsNew || floorDeltaThisRound != null;
+        const gotSomethingNew = !!resolvedThisRound || slugIsNew || floorDeltaThisRound != null;
         if (!gotSomethingNew) {
           if (isLast) {
             console.log(
@@ -273,10 +278,21 @@ export function scheduleImageRetry(args: ScheduleArgs): void {
           `[feed/image] patch sig=${sig.slice(0, 12)}… mint=${mint.slice(0, 8)}… ` +
           `image=${resolved ? 'yes' : 'no'} slug=${currentSlug ?? 'no'} floorDelta=${floorDelta ?? 'no'} attempt=${i + 1}`,
         );
-        if (resolved) return; // image found — stop the chain, same as before
-        // image still missing — keep retrying it; slug/floor_delta (if
-        // found this round) already persisted above and won't be
-        // recomputed again (floorResolved / currentSlug guards).
+        // Stop only once BOTH image and floor_delta are settled — resolving
+        // image alone used to end the whole chain, silently abandoning any
+        // further floor_delta attempts for collections that just weren't
+        // cached yet on this attempt (confirmed live 2026-08-26: image
+        // found on attempt 1, floor_delta stayed permanently null because
+        // nothing tried again at 60s/180s). image is "settled" once found
+        // OR the collection-fallback attempt (isLast) has run.
+        const imageSettled = !!resolved || isLast;
+        const floorSettled = floorResolved || !currentSlug || isLast;
+        if (imageSettled && floorSettled) return;
+        // Something still outstanding — keep retrying; whatever already
+        // resolved this round (image and/or slug/floor_delta) is already
+        // persisted above and won't be recomputed again (floorResolved /
+        // currentSlug guards, and resolveImage returning early once found
+        // means further attempts just skip straight to the floor half).
       }
     } finally {
       inflight.delete(mint);
