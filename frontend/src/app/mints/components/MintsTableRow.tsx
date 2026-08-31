@@ -179,6 +179,12 @@ function formatTokenAmount(raw: string, decimals: number): string | null {
 }
 
 export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, lastPriceByKey, lastPaymentByKey, paymentTokens, onHoverEnter, onHoverLeave, onPauseEnter, onPauseLeave, isPinned, onTogglePin }: Props) {
+  // ME/Tensor badge link target — firstMintAddress (write-once, never
+  // drifts) first, then the older stableMintAddress/lastMintAddress
+  // fallbacks for rows from before firstMintAddress existed. See the
+  // accumulator.ts field doc for why: marketplace indexers lag fresh
+  // mints, so a link that changes on every new mint routinely 404s.
+  const badgeMintAddress = r.firstMintAddress ?? r.stableMintAddress ?? r.lastMintAddress;
   // Per-row toggle: SOL price (default) ↔ custom-token amount. Persists
   // for the lifetime of the mounted row only — short-lived UI state, no
   // localStorage. Independent across rows.
@@ -473,18 +479,19 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 (/feed wallet rows, /tools). */}
             {/* ME `/item-details/{X}` only renders a real page when
                 X is a SPECIFIC NFT mint, not a collection address.
-                Prefer stableMintAddress (a mid-collection mint, aged
-                ~1h / ~15min for brand-new collections — see
-                accumulator.ts) over lastMintAddress (brand-new, may
-                show as "unknown" on ME). Falls back to lastMintAddress
-                when stable isn't populated yet (collection too new /
-                too few mints). */}
-            {isSolPubkey(r.stableMintAddress ?? r.lastMintAddress) && (
+                Prefer firstMintAddress — the collection's literal first
+                mint, write-once, never drifts — over stableMintAddress
+                (a mid-collection mint, aged ~1h / ~15min for brand-new
+                collections) over lastMintAddress (brand-new, may show
+                as "unknown" on ME/Tensor since their indexer hasn't
+                caught up yet — and it changes on every new mint, so a
+                link pinned to it never stays valid). See accumulator.ts. */}
+            {isSolPubkey(badgeMintAddress) && (
               <a
-                href={`https://magiceden.io/item-details/${r.stableMintAddress ?? r.lastMintAddress}`}
+                href={`https://magiceden.io/item-details/${badgeMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                
+
                 style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -492,12 +499,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 <img src="/brand/me.png" alt="ME" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
               </a>
             )}
-            {/* Tensor badge — same stable-address logic as ME above.
+            {/* Tensor badge — same firstMintAddress-first logic as ME above.
                 `/item/{mint}` always loads an item page from which
                 the user can navigate up to the collection. */}
-            {isSolPubkey(r.stableMintAddress ?? r.lastMintAddress) && (
+            {isSolPubkey(badgeMintAddress) && (
               <a
-                href={`https://www.tensor.trade/item/${r.stableMintAddress ?? r.lastMintAddress}`}
+                href={`https://www.tensor.trade/item/${badgeMintAddress}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 

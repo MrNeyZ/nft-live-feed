@@ -92,8 +92,23 @@ export function extractPaymentInfo(tx: RawSolanaTx): PaymentInfo | null {
   const deltas = balanceDeltas(tx).filter((d) => isUserAccount(d.pubkey));
   if (deltas.length === 0) return null;
 
-  // Largest SOL decrease → buyer
-  const buyer = deltas.reduce((a, b) => (a.delta < b.delta ? a : b));
+  // Largest SOL decrease among transaction SIGNERS → buyer. Restricting to
+  // signers (not just "any user account") matters when the buyer already had
+  // funds sitting in a pre-existing ME v2 escrow PDA: a same-tx `Deposit`
+  // step only tops that PDA up by the shortfall, so the escrow PDA's own
+  // balance drop (paid out minus this tx's top-up) can exceed the signer
+  // wallet's drop (just the top-up + fee) — picking the largest decrease
+  // overall then misattributes the escrow PDA as the buyer. The escrow PDA
+  // never signs, so filtering to signers first fixes this without touching
+  // the normal (no pre-existing escrow balance) case, where the signer
+  // wallet already had the largest decrease anyway.
+  const signerKeys = new Set(
+    tx.transaction.message.accountKeys.filter((k) => k.signer).map((k) => k.pubkey)
+  );
+  const signerDeltas = deltas.filter((d) => signerKeys.has(d.pubkey) && d.delta < 0);
+  const buyer = signerDeltas.length > 0
+    ? signerDeltas.reduce((a, b) => (a.delta < b.delta ? a : b))
+    : deltas.reduce((a, b) => (a.delta < b.delta ? a : b));
   // Largest SOL increase → seller (net recipient, e.g. seller after royalty split)
   const seller = deltas.reduce((a, b) => (a.delta > b.delta ? a : b));
 

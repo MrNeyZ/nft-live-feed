@@ -181,6 +181,7 @@ export type MintDisplayState  = 'incubating' | 'shown' | 'cooled';
  *  string. Operator can extend the allowlist over time. */
 export type MintSourceLabel =
   | 'LaunchMyNFT'
+  | 'Pack'
   | 'VVV'
   | 'GRAVE'
   | 'ME'
@@ -315,6 +316,12 @@ export interface MintStatusWire {
    *  update authority, or merkle tree (not a viewable NFT). May be null
    *  for cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress:   string | null;
+  /** The collection's very first observed mint address. Write-once, never
+   *  drifts — the preferred ME/Tensor marketplace link target (see
+   *  MintsTableRow.tsx): a link that changes on every new mint routinely
+   *  404s against marketplace indexers that lag fresh mints by minutes,
+   *  and the first mint has had the most time to get indexed. */
+  firstMintAddress?: string | null;
   /** A mint address that is at least ~3 minutes old — used for ME/Tensor
    *  marketplace links instead of lastMintAddress so metadata has time to
    *  load on the marketplace side before the user lands on the page.

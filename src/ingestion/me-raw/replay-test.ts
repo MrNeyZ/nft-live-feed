@@ -220,7 +220,10 @@ const CASES: TestCase[] = [
     // coreAssetIdx=4 assumption. Actual Core asset from MPL Core inner-CPI accounts[0].
     expectMint:        '3DdC5TKo9JGBkJEG4zi9hk3TVh2QnuETx31i22sJsPAe',
     expectBuyer:       '4UViG3skM7BAcLRQNrm3nJ6PLH7Ajb7ZQRRhJVdjKsUC',
-    expectSeller:      'BUGzCKSywTEAFz1W1YYRCjYtuVNWk6YAR5HBGWdnRerh',
+    // Corrected 2026-08-15: old value ('BUGzCK…') was the pool's buyside SOL
+    // escrow PDA (sellerAcctIdx=5). Real owner (accs[1]) verified against the
+    // pool account's on-chain `owner` struct field — see programs.ts fix note.
+    expectSeller:      '6Fvwa3cPPQPhPBFx5vqr9QJ3qJJ7e1Ai21vDP1FBrDHc',
     // Price range updated 2026-06-27: old [0.33, 0.36] was incorrect.
     // Actual = 0.312885 SOL (pool vault receipt, largest positive SOL delta).
     expectPriceGte:    0.31,
@@ -235,7 +238,10 @@ const CASES: TestCase[] = [
     expectNftType:     'pnft',
     expectMint:        '7ia4RCikRVWztyXKfb6qP6z52hs3E6k4sxS14K3mMB3X',
     expectBuyer:       '5VHFDHwwnrJTf3z2zAVFFjqFZ8YH4bULb7CVn9bkJVyC',
-    expectSeller:      'JAHgvPJCZu6SyGjHrtW3KJfuxxDjkf5p6JbYB5kbUsk2',
+    // Corrected 2026-08-15: old value ('JAHgvP…') was the pool's buyside SOL
+    // escrow PDA (sellerAcctIdx=5). Real owner (accs[1]) verified against the
+    // pool account's on-chain `owner` struct field — see programs.ts fix note.
+    expectSeller:      '6Fvwa3cPPQPhPBFx5vqr9QJ3qJJ7e1Ai21vDP1FBrDHc',
     // Price range updated 2026-06-27: old [0.06, 0.07] was incorrect.
     // Actual = 0.054475 SOL (pool owner SOL receipt, largest positive delta).
     expectPriceGte:    0.054,
@@ -308,7 +314,13 @@ const CASES: TestCase[] = [
     // Core asset ID extracted from MPL Core inner-ix[0] accounts[0] (accounts[6] of outer ix)
     expectMint:        'CN1Vn9JfJbMgqtg2vfWSzGMn883pprqRt8xKBNqeaXEh',
     expectBuyer:       'HGnmeRB2gb3wEAjvDVTBSHvUiWPEr1naq1m5sw21Lj8m',
-    expectSeller:      '9USXkk7U1mTaxjy4WpFTwL7rCE3iJBQAJ52EAXc14QCV',
+    // Corrected 2026-08-15: old value ('9USXkk…') was the pool's buyside SOL
+    // escrow PDA (sellerAcctIdx=5) — see programs.ts fix note. Pool account is
+    // now closed on-chain so this specific fixture's owner can't be
+    // independently re-verified, but the account position (accs[1]) is the
+    // same one confirmed live on two other coreFulfillSell/solMip1FulfillSell
+    // fixtures in this file.
+    expectSeller:      '4osKgRS9yp5n2yDW8H7UgLsvmuFge3kA9xANJSJwSckM',
     expectPriceGte:    0.004,
     expectPriceLte:    0.006,
     expectInstruction: 'coreFulfillSell',

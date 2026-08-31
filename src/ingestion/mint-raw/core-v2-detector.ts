@@ -174,6 +174,11 @@ export interface CoreV2Detection {
    *  special-case a known-but-unenumerated wrapper's display label (e.g.
    *  Candy Labs → 'LABS') without a dedicated tx-shape detector. */
   wrapperProgramId?: string | null;
+  /** Set only by `detectCoreCreateV2NftCandidate` — true when the CreateV2
+   *  `authority` account (index 2) is populated and co-signed, distinct
+   *  from the asset keypair and the payer. Signals an authority-gated
+   *  direct Create (e.g. LMNFT pack-reveal mints) vs a plain bare mint. */
+  authorityGated?: boolean;
 }
 
 export interface TxShape {
@@ -253,13 +258,17 @@ interface FoundCreateV2 {
   dataB58:  string;
   viaInner: boolean;
 }
-function findCreateV2Ix(
+/** Collects every mpl-core Create/CreateV2 ix in the tx (top-level + inner),
+ *  in encounter order — a Candy Guard `MintV1` bundle invokes one per NFT
+ *  minted, and stopping at the first (the old behavior) silently dropped
+ *  every mint after the first in a multi-mint tx. See `findCreateV2Ix`. */
+function findAllCreateV2Ix(
   tx: RawSolanaTx,
   accountKeys: string[],
   discSet: ReadonlySet<number> = new Set([CORE_CREATE_V2_DISC]),
-): FoundCreateV2 | null {
+): FoundCreateV2[] {
   const message = tx.transaction?.message;
-  if (!message) return null;
+  if (!message) return [];
   const isCreateV2 = (programId: string, dataB58: string): boolean => {
     if (programId !== MPL_CORE_PROGRAM) return false;
     // Cheap discriminator pre-check before full bs58 decode: base58
@@ -271,6 +280,7 @@ function findCreateV2Ix(
     } catch { return false; }
   };
 
+  const found: FoundCreateV2[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const top = (message as any).instructions as Array<{ programIdIndex?: number; programId?: string; accounts?: Array<number | string>; data?: string }> | undefined;
   if (Array.isArray(top)) {
@@ -284,7 +294,7 @@ function findCreateV2Ix(
       if (!dataB58) continue;
       if (!isCreateV2(programId, dataB58)) continue;
       const accs = (ix.accounts ?? []).map(a => typeof a === 'number' ? a : accountKeys.indexOf(a));
-      return { accounts: accs, dataB58, viaInner: false };
+      found.push({ accounts: accs, dataB58, viaInner: false });
     }
   }
   const inner = tx.meta?.innerInstructions;
@@ -305,11 +315,19 @@ function findCreateV2Ix(
         const accs: number[] = (ixAny.accounts ?? []).map((a: number | string) =>
           typeof a === 'number' ? a : accountKeys.indexOf(a),
         );
-        return { accounts: accs, dataB58, viaInner: true };
+        found.push({ accounts: accs, dataB58, viaInner: true });
       }
     }
   }
-  return null;
+  return found;
+}
+
+function findCreateV2Ix(
+  tx: RawSolanaTx,
+  accountKeys: string[],
+  discSet: ReadonlySet<number> = new Set([CORE_CREATE_V2_DISC]),
+): FoundCreateV2 | null {
+  return findAllCreateV2Ix(tx, accountKeys, discSet)[0] ?? null;
 }
 
 function uriIsTrusted(uri: string): boolean {
@@ -416,6 +434,19 @@ export function detectCoreCreateV2NftCandidate(tx: RawSolanaTx): CoreV2Detection
   // Payer is the first writable signer at index 3 in the dense case;
   // for safety we fall back to signerKeys[0] (transaction fee payer).
   const minter = shape.signerKeys[0] ?? null;
+  // "Pack open" / authority-gated signal: the optional `authority` slot
+  // (index 2) is populated AND actually signed, distinct from both the
+  // asset keypair and the payer. A bare direct mint (vvv.so-style) only
+  // ever has payer + asset sign — this third signer means the Core
+  // program's own "only updateAuthority/delegate may Create" gate fired,
+  // i.e. someone besides the buyer had to co-sign to allow this create.
+  // Observed live on LMNFT pack-reveal mints (CreateV2 called directly,
+  // no LMNFT outer wrapper, collection authority co-signs).
+  const authorityAccount = accIxs.length > 2 && accIxs[2] >= 0 ? shape.accountKeys[accIxs[2]] ?? null : null;
+  const authorityGated = !!authorityAccount
+    && shape.signerKeys.includes(authorityAccount)
+    && authorityAccount !== asset
+    && authorityAccount !== minter;
 
   if (!asset) {
     return {
@@ -486,6 +517,7 @@ export function detectCoreCreateV2NftCandidate(tx: RawSolanaTx): CoreV2Detection
     name:              args.name,
     uri:               args.uri,
     pluginsCount:      args.pluginsCount,
+    authorityGated,
   };
 }
 
@@ -962,6 +994,51 @@ export function detectCoreCandyMachineMint(tx: RawSolanaTx): CoreV2Detection | n
     mintAddress: asset, collectionAddress: collection, minter,
     name: null, uri: null, pluginsCount: null,
   };
+}
+
+/** Plural sibling of `detectCoreCandyMachineMint` — a Candy Guard `MintV1`
+ *  bundle CPIs into the candy machine once per NFT requested, each with its
+ *  own inner mpl-core Create ix. The singular detector only ever looked at
+ *  `findCreateV2Ix`'s first match, so a same-tx multi-mint (buy N in one
+ *  click) silently recorded just 1 of N assets. Same gates as the singular
+ *  detector, applied per found Create ix; only used by the live ingestion
+ *  path (index.ts) — `detectCoreCandyMachineMint` stays as-is for the
+ *  audit script and any other single-asset caller. */
+export function detectCoreCandyMachineMints(tx: RawSolanaTx): CoreV2Detection[] {
+  const shape = readShape(tx);
+  if (!shape) return [];
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return [];
+  if (!shape.accountKeys.includes(CORE_CANDY_MACHINE_PROGRAM)) return [];
+
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return [];
+  }
+  if (shape.accountKeys.includes(TOKEN_2022_PROGRAM)) return [];
+
+  const allFound = findAllCreateV2Ix(tx, shape.accountKeys, CORE_CREATE_DISCS);
+  if (allFound.length === 0) return [];
+
+  const minter = shape.signerKeys[0] ?? null;
+  const results: CoreV2Detection[] = [];
+  for (const found of allFound) {
+    const accIxs = found.accounts;
+    const asset      = accIxs.length > 0 && accIxs[0] >= 0 ? shape.accountKeys[accIxs[0]] ?? null : null;
+    const collection = accIxs.length > 1 && accIxs[1] >= 0 ? shape.accountKeys[accIxs[1]] ?? null : null;
+    if (!asset) continue;
+    const hasRealCollection = !!collection
+      && collection !== MPL_CORE_PROGRAM
+      && collection !== asset
+      && collection !== SYSTEM_PROGRAM;
+    if (!hasRealCollection) continue;
+    if (!isFresh(shape, asset)) continue;
+    results.push({
+      accept: true, score: 2, reasons: ['core_candy_machine', 'collection_present'],
+      rejectReason: null,
+      mintAddress: asset, collectionAddress: collection, minter,
+      name: null, uri: null, pluginsCount: null,
+    });
+  }
+  return results;
 }
 
 /** Magic Eden launchpad Core mint detector.

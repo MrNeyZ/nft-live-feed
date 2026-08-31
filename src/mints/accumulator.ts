@@ -112,6 +112,13 @@ interface Accum {
    *  link target that points at an actual NFT (never the collection
    *  / authority / merkle-tree pubkey used as the groupingKey). */
   lastMintAddress:   string | null;
+  /** The very first mintAddress ever observed for this groupingKey.
+   *  Write-once (only set at accumulator creation, never touched again)
+   *  — unlike lastMintAddress, this never drifts. Used as the ME/Tensor
+   *  badge link target: marketplace indexers lag fresh mints by minutes,
+   *  so a link that changes on every new mint routinely 404s; the
+   *  collection's first mint has had the most time to get indexed. */
+  firstMintAddress:  string | null;
   /** Sticky last observed non-null priceLamports for this collection.
    *  Unlike the 5-minute `events5m` median, this never window-prunes —
    *  updated on every recordMint with a non-null price, held forever
@@ -525,6 +532,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     programSource:     a.programSource,
     collectionAddress: a.collectionAddress,
     lastMintAddress:   a.lastMintAddress,
+    firstMintAddress:  a.firstMintAddress,
     stableMintAddress,
     displayState:      a.displayState,
     shownReason:       a.shownReason,
@@ -718,6 +726,7 @@ export function recordMint(ev: MintEventWire): boolean {
       programSource:     ev.programSource,
       collectionAddress: ev.collectionAddress,
       lastMintAddress:   ev.mintAddress,
+      firstMintAddress:  ev.mintAddress,
       lastPriceLamports: ev.priceLamports ?? null,
       sourceLabel:       ev.sourceLabel,
       coreLaunchpad:     ev.coreLaunchpad === true,
@@ -772,6 +781,14 @@ export function recordMint(ev: MintEventWire): boolean {
   a.observedMints++;
   a.supplyMintedLocal++;
   a.lastMintAt = now;
+  // Belt-and-suspenders: the accumulator-creation initializer above
+  // already sets firstMintAddress from the FIRST event for this
+  // groupingKey, but that first event can be a collection-create deploy
+  // (no mintAddress) rather than an actual mint. Backfill from the first
+  // real mint if so — still write-once (only fires while still null).
+  if (a.firstMintAddress == null && ev.mintAddress) {
+    a.firstMintAddress = ev.mintAddress;
+  }
   // Capture a representative mint for marketplace links once the
   // collection is past its earliest (often test / 1-of-1) mints:
   // either STABLE_MINT_SAMPLE_INDEX total mints observed, or
@@ -1423,6 +1440,10 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       programSource:     r.programSource,
       collectionAddress: r.collectionAddress,
       lastMintAddress:   r.lastMintAddress ?? null,
+      // Unlike candidateMintAddress (re-stamped/re-aged below),
+      // firstMintAddress carries forward as-is — it's not time-gated,
+      // so there's nothing to re-age across a restart.
+      firstMintAddress:  r.firstMintAddress ?? null,
       lastPriceLamports: typeof r.priceLamports === 'number' ? r.priceLamports : null,
       // Carry the old stable address forward as the new candidate, but
       // re-stamp its capture time to "now" rather than fabricating a

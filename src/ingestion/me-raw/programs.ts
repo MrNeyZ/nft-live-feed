@@ -212,19 +212,33 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
   },
   {
     // ✅ CONFIRMED — computed disc matches observed; layout verified on pNFT AMM buy-from-pool
-    // accts[0]=buyer(fulfiller), accts[1]=pool-state-PDA, accts[5]=pool-owner(seller), accts[6]=mint
+    // accts[0]=buyer(fulfiller), accts[1]=pool OWNER (human wallet), accts[5]=buyside SOL
+    // escrow PDA, accts[6]=mint
     // NOTE: raw 'json' encoding positions differ from jsonParsed — verified via raw instruction
-    // accounts array [0,2,1,17,3,4,5,...] where pos[5]=rawIdx[4]=pool-owner wallet.
+    // accounts array [0,2,1,17,3,4,5,...] where pos[5]=rawIdx[4]=buyside SOL escrow PDA.
+    //
+    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1 on sig
+    //   5TovHDBe12q1YEWii2Q1bo8G88DbbtDF1B6aJ8QWB7YbTeqmDk5Ux9xjUNULHBSDar2iEkZJNxfZkBcz3USsG1UN.
+    // accts[5] (6LnkHAUG…, the previous `sellerAcctIdx` target — received the sale
+    // proceeds, +0.026954952 SOL) is byte-for-byte `findProgramAddressSync(['mmm_buyside_sol_
+    // escrow_account', poolAddress], MMM_PROGRAM)` — the pool's OWN escrow PDA, not a human
+    // wallet. The real owner is accts[1] (5Cyucs2N…), which exactly matches the pool account's
+    // on-chain `owner` struct field at byte offset 121 (see tools-mmm-pools.ts's OFF_OWNER).
+    // Same pattern already used for every fulfillBuy variant's buyerAcctIdx=1 ("pool owner /
+    // bidder wallet") — fulfillSell mirrors it at the same local position. The previous
+    // "accts[1]=pool-state-PDA" claim (superseded when poolAcctIdx was corrected to 4) was
+    // half-right that accts[1] wasn't the pool state account, but never re-verified what it
+    // actually WAS — it silently left the wrong wallet (an escrow PDA) surfacing as the
+    // displayed "seller" on every AMM pool_buy card.
     name:          'solMip1FulfillSell',
     disc:          anchorDisc('sol_mip1_fulfill_sell'), // 3b0b496b286940d2
     direction:     'fulfillSell',
-    sellerAcctIdx: 5,    // pool owner wallet — confirmed via raw json encoding + loadedAddresses expansion
+    sellerAcctIdx: 1,    // pool owner wallet — see fix note above
     buyerAcctIdx:  0,
     coreAssetIdx:  null,
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 1sr1i1ckSZWgJGfLX2Wrned2CpvmDnq7rsmiL2Xqon4v3pxNUoARowDDzJWoq1gGzEpqCHuRHhVtotf2bwtUJeM
-    // — this file's own "accts[1]=pool-state-PDA" comment above is WRONG: accts[1] is
-    // System-owned/0-byte (a wallet), accts[4] is mmm-program-owned/849B (the real pool
-    // account; a second MMM-owned 344B sell-state account sat at accts[12]).
+    // (accts[4] is mmm-program-owned/849B, the real pool account; a second MMM-owned 344B
+    // sell-state account sat at accts[12]).
     poolAcctIdx:   4,
   },
   {
@@ -248,19 +262,29 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     // ✅ CONFIRMED — discriminator observed in live Core buy-from-pool tx.
     // Actual Anchor name: sol_mpl_core_fulfill_sell (anchorDisc matches fce7c9b01ed57612).
     // Solscan displays this as "SolMplCoreFulfillSell" on MagicEden AMM.
-    // accts[0]=buyer(fulfiller), accts[1]=pool-state-PDA, accts[5]=pool-owner(seller)
+    // accts[0]=buyer(fulfiller), accts[1]=pool OWNER (human wallet), accts[5]=buyside SOL escrow PDA
     // Core asset position varies across txs (idx 4 in some, idx 6 in others — confirmed
     // against two live txs 2026-04-15). Use coreAssetIdx=null → parser falls back to
     // extractCoreAssetFromInnerIx() which reads MPL Core inner-CPI accounts[0] (stable).
+    //
+    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1 on sig
+    //   5aRyvtxMJ7CdyJwmU7dGdreMyKUTJF7b35FdLyJzV347Af8ZxwEGwNwLDcLuq5e388i1K4LUdbniKV5sU6NbfxZS.
+    // accts[5] (EsRKTc1f…, the previous `sellerAcctIdx` target — received the sale proceeds,
+    // +0.019047616 SOL = exact `total_price`) is byte-for-byte
+    // `findProgramAddressSync(['mmm_buyside_sol_escrow_account', poolAddress], MMM_PROGRAM)` —
+    // the pool's OWN escrow PDA, not a human wallet. The real owner is accts[1] (7AacMPvC…),
+    // which exactly matches the pool account's on-chain `owner` struct field at byte offset 121
+    // (see tools-mmm-pools.ts's OFF_OWNER) — same position the fulfillBuy family already uses
+    // for buyerAcctIdx=1. "accts[1]=pool-owner" was correct all along here; only sellerAcctIdx
+    // was ever wrong. Same root-cause fix applied to solMip1FulfillSell (see its comment).
     name:          'coreFulfillSell',
     disc:          Buffer.from('fce7c9b01ed57612', 'hex'),  // observed, name unconfirmed
     direction:     'fulfillSell',
-    sellerAcctIdx: 5,    // pool owner wallet — confirmed via SOL flow (+largest increase)
+    sellerAcctIdx: 1,    // pool owner wallet — see fix note above
     buyerAcctIdx:  0,
     coreAssetIdx:  null, // variable position — extracted from MPL Core inner CPI instead
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 2pwXPPv3DhDEhynVmaCDTLqrKei2vqNHuipJUy3KUo1b3bULQkkBKKavA6yaeGNpcEGjEBtvZ5P7GmwEBiyyMFrL
-    // (accts[4] owner=mmm program, dataLen=849; NOTE this contradicts this entry's own
-    // "accts[1]=pool-state-PDA" comment above, which pre-dates this verification).
+    // (accts[4] owner=mmm program, dataLen=849).
     poolAcctIdx:   4,
   },
   {
@@ -283,21 +307,33 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     poolAcctIdx:   null,
   },
   {
-    // ✅ SELLER POSITION CONFIRMED 2026-05-29 on
-    //   4F79Zo1amYnuL5oZ1sMaAdbo4qjyTcriK4sumJT1jcvrH67txkikzSWy5C7mTvaojh2uQmQQS2Bs3gh4Hez3guMJ
-    // (aggregator-routed: outer = LUCK57…, inner CPI = MMM SolFulfillSell).
-    // accs[5] = pool owner wallet — getAccountInfo(owner) = System Program,
-    // and the same account took the largest SOL increase (+0.215 SOL of
-    // the buyer's 0.232 SOL outflow). Matches the verified sibling layouts
-    // (solMip1FulfillSell, coreFulfillSell both use sellerAcctIdx=5 = pool
-    // owner). Without this, fulfillSell direction + sellerAcctIdx=null
-    // triggers poolSellAmbiguous and the parser drops the sale ("could not
-    // determine parties"). Buyer left null — token-flow fallback correctly
-    // resolves the end recipient wallet in both direct and aggregator flows.
+    // accs[1] = pool owner wallet (see fix note below). Without a
+    // sellerAcctIdx set, fulfillSell direction triggers poolSellAmbiguous
+    // and the parser drops the sale ("could not determine parties"). Buyer
+    // left null — token-flow fallback correctly resolves the end recipient
+    // wallet in both direct and aggregator flows.
+    //
+    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1, same root
+    // cause as solMip1FulfillSell/coreFulfillSell (see their comments):
+    // accs[5], previously claimed as "pool owner… getAccountInfo(owner) =
+    // System Program" (2026-05-29, sig 4F79Zo1amYnuL5oZ1sMaAdbo4qjyTcriK4
+    // sumJT1jcvrH67txkikzSWy5C7mTvaojh2uQmQQS2Bs3gh4Hez3guMJ), is
+    // `findProgramAddressSync(['mmm_buyside_sol_escrow_account', poolAddress],
+    // MMM_PROGRAM)` — the pool's OWN escrow PDA. A System-owned, zero-data PDA
+    // is indistinguishable from a plain wallet by `getAccountInfo(owner)`
+    // alone, and it legitimately takes the largest SOL increase (it's where
+    // the sale proceeds land before the pool owner withdraws them) — both
+    // signals that "confirmed" this were consistent with either account,
+    // and happened to pick the wrong one. accs[1] is the real owner —
+    // verified directly against the pool account's on-chain `owner` struct
+    // field (byte offset 121, see tools-mmm-pools.ts's OFF_OWNER) on both
+    // sibling instructions; not independently re-checked for this exact
+    // variant, but the account-layout convention is shared across all three
+    // MMM fulfillSell instructions.
     name:          'solFulfillSell',
     disc:          anchorDisc('sol_fulfill_sell'),   // a4b460c067e169e8
     direction:     'fulfillSell',
-    sellerAcctIdx: 5,
+    sellerAcctIdx: 1,
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig TBgaYDpxVyMAEUxmWGFAeBMio9c1poP8qfmi7V6cPaNyQ81DcuDeL8CDE291hLvtTNnb2KyLZDRgWNiWhsc4pJm

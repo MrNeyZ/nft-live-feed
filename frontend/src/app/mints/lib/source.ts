@@ -87,19 +87,20 @@ export function sourceHref(row: MintStatus): string | null {
     }
     case 'Mallow': {
       // mallow.art artwork page is keyed by the mint address itself.
-      const addr = row.stableMintAddress ?? row.lastMintAddress;
+      const addr = row.firstMintAddress ?? row.stableMintAddress ?? row.lastMintAddress;
       if (!isSolPubkey(addr)) return null;
       return `https://www.mallow.art/artwork/${addr}`;
     }
     case 'Metaplex Core':
     case 'Core Candy Machine':
     case 'Candy Labs': {
-      // Magic Eden item-details. Prefer stableMintAddress (a mid-collection
-      // mint, aged ~1h / ~15min for brand-new collections) so the user
-      // lands on a loaded page. Falls back to lastMintAddress when stable
-      // isn't populated yet. Candy Labs mints are still plain MPL Core
-      // assets underneath, so the same ME deep link works.
-      const addr = row.stableMintAddress ?? row.lastMintAddress;
+      // Magic Eden item-details. Prefer firstMintAddress (the collection's
+      // literal first mint, write-once, never drifts) over stableMintAddress
+      // (older fallback for pre-firstMintAddress rows) over lastMintAddress
+      // (drifts with every new mint — routinely 404s against a lagging ME
+      // indexer). Candy Labs mints are still plain MPL Core assets
+      // underneath, so the same ME deep link works.
+      const addr = row.firstMintAddress ?? row.stableMintAddress ?? row.lastMintAddress;
       if (!isSolPubkey(addr)) return null;
       return `https://magiceden.io/item-details/${addr}`;
     }
@@ -160,6 +161,10 @@ export function sourceBadge(
     // colour family now, text is the only differentiator between them.
     case 'Candy Labs':             return { label: 'CANDY',    bg: alpha(VL.pink, 0.15), fg: PINK };
     case 'LaunchMyNFT':            return { label: 'LMNFT',    bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
+    // Authority-gated direct Create (pack reveal/open) — same gold as
+    // LMNFT (pack mints are LMNFT-sourced), PACK text distinguishes the
+    // reveal step from the initial LMNFT pack mint.
+    case 'Pack':                   return { label: 'PACK',     bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
     case 'VVV':                    return { label: 'VVV',      bg: alpha(VL.blue, 0.15),     fg: rgb(VL.blue) };
     case 'GRAVE':                  return { label: 'GRAVE',    bg: alpha(VL.gray, 0.15),     fg: rgb(VL.gray) };
     case 'ME':                     return { label: 'ME',       bg: 'rgba(232,122,176,0.15)', fg: VLText.muted };

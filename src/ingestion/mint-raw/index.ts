@@ -59,6 +59,7 @@ import {
 import {
   detectCoreCreateV2NftCandidate,
   detectCoreCandyMachineMint,
+  detectCoreCandyMachineMints,
   detectMagicEdenCoreMint,
   detectGenericCoreLaunchpadMint,
   detectGenericTokenMetadataLaunchpadMint,
@@ -988,6 +989,57 @@ function extractRawMintPriceLamports(tx: RawSolanaTx): number | null {
   return fromSigner;
 }
 
+/** Total SOL that left every transaction SIGNER combined, minus the network
+ *  fee — the unambiguous "how much did the minter(s) actually pay" figure.
+ *  Handles the "relayer" shape where accountKeys[0] (fee payer) covers only
+ *  the network fee while a DIFFERENT signer pays the real mint cost, which
+ *  `extractMintPriceFromTransfers`'s repeated-transfer-leg grouping can
+ *  undercount when a Candy Guard fires more legs per mint than the grouping
+ *  catches (found live: a real 3-mint / 0.049548 SOL tx priced at 0.0065 SOL
+ *  — an 87% undercount, repeatedAmount matched only 1 of 2 per-mint legs).
+ *  Used ONLY by the Core Candy Machine multi-mint branch below — the
+ *  single-mint priority chain in `extractMintPriceLamports` is untouched and
+ *  already verified against many real signatures (see the "Verified on
+ *  sig…" comments throughout this file); don't widen this without the same
+ *  verification. */
+export function extractTotalSignerSpendLamports(tx: RawSolanaTx): number | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const message = tx.transaction?.message as any;
+  const rawKeys = message?.accountKeys as Array<string | { pubkey: string; signer?: boolean }> | undefined;
+  if (!Array.isArray(rawKeys) || rawKeys.length === 0) return null;
+  const pre  = tx.meta?.preBalances;
+  const post = tx.meta?.postBalances;
+  if (!Array.isArray(pre) || !Array.isArray(post)) return null;
+
+  const hasSignerFlags = typeof rawKeys[0] === 'object';
+  // `header.numRequiredSignatures` and `meta.fee` are present on every real
+  // getTransaction payload but trimmed from the narrower RawSolanaTx/
+  // RawTransactionMeta types used across this file — read via `any`, same
+  // pattern `readShape()` uses in core-v2-detector.ts for accountKeys.
+  const numRequiredSignatures = typeof message?.header?.numRequiredSignatures === 'number'
+    ? message.header.numRequiredSignatures
+    : 1;
+
+  let signerOutflow = 0;
+  for (let i = 0; i < rawKeys.length; i++) {
+    const k = rawKeys[i];
+    const isSigner = hasSignerFlags
+      ? !!(k as { signer?: boolean }).signer
+      : i < numRequiredSignatures; // plain string-array shape: signers are always the first N static keys
+    if (!isSigner) continue;
+    const p = pre[i] as number;
+    const q = post[i] as number;
+    if (!Number.isFinite(p) || !Number.isFinite(q)) continue;
+    const delta = p - q; // positive = this signer paid out
+    if (delta > 0) signerOutflow += delta;
+  }
+  if (signerOutflow <= 0) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fee = typeof (tx.meta as any)?.fee === 'number' ? (tx.meta as any).fee : 0;
+  const total = signerOutflow - fee;
+  return total > 0 ? total : null;
+}
+
 /** SPL / Token-2022 amount the signer parted with, when the mint was
  *  priced in a custom token. Detected from `meta.preTokenBalances` vs
  *  `meta.postTokenBalances` deltas filtered to accounts owned by the
@@ -1833,72 +1885,99 @@ export async function ingestMintRaw(
       // CreateV2 scorer both miss (asset minted via inner mpl-core `Create`,
       // not a direct CreateV2). Reaches us via the existing mpl_core WS/poll
       // (the tx mentions the Core program), so no new subscription/poll.
-      const cm = detectCoreCandyMachineMint(tx);
-      if (cm && cm.accept && cm.mintAddress && cm.collectionAddress) {
-        logV2CoreAccept(sig, cm.score, cm.reasons, cm.mintAddress, cm.collectionAddress);
-        const priceLamports = extractMintPriceLamports(tx);
-        const mintType      = classifyMintType(priceLamports);
-        const groupingKey   = `collection:${cm.collectionAddress}`;
-        const blockTime = tx.blockTime
-          ? new Date((tx.blockTime as number) * 1000).toISOString()
-          : new Date().toISOString();
-        const emitted = rec({
-          signature:         sig,
-          blockTime,
-          programSource:     'mpl_core',
-          mintAddress:       cm.mintAddress,
-          collectionAddress: cm.collectionAddress,
-          groupingKey,
-          groupingKind:      'collection',
-          mintType,
-          priceLamports,
-          ...paymentFieldsFrom(tx),
-          minter:            cm.minter,
-          // Distinct from generic 'Metaplex Core': this detector requires
-          // CORE_CANDY_MACHINE_PROGRAM to actually be invoked, so it's a
-          // real Core Candy Machine v3 mint (Candy Guard), not a bare Core
-          // create or an unenumerated custom wrapper. Own badge (CCDY) so
-          // it doesn't read as either generic CORE or legacy CNDY.
-          sourceLabel:       'Core Candy Machine',
-          coreLaunchpad:     true,
-        });
-        // Core Candy Machine state account holds items_redeemed +
-        // items_available — read those directly so the SUPPLY column
-        // shows "<minted> / <max>" instead of just the observed-session
-        // count with no cap (this was missing entirely: this detector
-        // never resolved a state address, so maxSupply stayed null for
-        // every Core Candy Machine drop). Null on layout drift falls
-        // through silently, same as the legacy Candy Guard path below.
-        const coreCmState = extractCoreCandyMachineState(tx);
-        if (coreCmState) void enrichCgSupply(coreCmState, groupingKey, 'core');
-        // Per-NFT DAS enrichment only when the card was emitted into the
-        // feed — sampled-out cards skip the getAsset to save RPC credits.
-        if (emitted) enqueueMintEnrichment(groupingKey, cm.mintAddress);
-        scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
-        // Collection-level identity. This targeted Core Candy Machine
-        // fallback catches Core CM / MintX-style mints the launchpad
-        // detector misses, but it returns here — before the
-        // `lp.source==='CandyMachine'` branch that calls
-        // `enrichLaunchpadCollectionMeta`. Without this the row only ever
-        // sees per-NFT DAS, which yields the asset name ("Foo #N", not the
-        // collection title) and on fresh mints routinely "Asset Not Found",
-        // so collection name + image never resolve and the tracker's
-        // `isUsefulTrackerCollection` hides the row (audit: collection
-        // 7rvuvx…BkPh / "THE HATED", 778 mints, never shown).
-        // `getAsset(collectionAddress)` is long-indexed (the collection NFT
-        // is created upfront) and cached per-collection, so a several-
-        // hundred-mint burst burns one DAS call. Mirrors the CandyMachine
-        // branch below.
-        void enrichLaunchpadCollectionMeta(cm.collectionAddress, groupingKey, {
-          patchName: true,
-          logTag:    'core-cm-meta',
-        });
+      // Plural: a Candy Guard `MintV1` bundle mints N assets in one tx (buy
+      // N in one click) — the old singular detector only ever saw asset #1
+      // and silently dropped the rest (found live: a 3-mint tx recorded only
+      // 1 row). `priceLamports` here is the minter's TOTAL spend for the
+      // whole tx (extractMintPriceLamports already computes that), split
+      // evenly across the N assets actually minted — the real per-NFT cost,
+      // not a fragment of one internal transfer.
+      const cms = detectCoreCandyMachineMints(tx);
+      if (cms.length > 0) {
+        // Single mint in the tx: the existing, individually-verified
+        // priority chain is more precise than a generic signer-outflow sum
+        // (it can isolate e.g. a sponsored/free mint correctly). Multiple
+        // mints: use the unambiguous total-signer-spend figure instead —
+        // see extractTotalSignerSpendLamports for why the transfer-grouping
+        // heuristic undercounts multi-mint bundles.
+        const totalPriceLamports = cms.length === 1
+          ? extractMintPriceLamports(tx)
+          : (extractTotalSignerSpendLamports(tx) ?? extractMintPriceLamports(tx));
+        const perMintPriceLamports = totalPriceLamports != null
+          ? Math.round(totalPriceLamports / cms.length)
+          : null;
+        for (const cm of cms) {
+          if (!cm.mintAddress || !cm.collectionAddress) continue;
+          logV2CoreAccept(sig, cm.score, cm.reasons, cm.mintAddress, cm.collectionAddress);
+          const priceLamports = perMintPriceLamports;
+          const mintType      = classifyMintType(priceLamports);
+          const groupingKey   = `collection:${cm.collectionAddress}`;
+          const blockTime = tx.blockTime
+            ? new Date((tx.blockTime as number) * 1000).toISOString()
+            : new Date().toISOString();
+          const emitted = rec({
+            signature:         sig,
+            blockTime,
+            programSource:     'mpl_core',
+            mintAddress:       cm.mintAddress,
+            collectionAddress: cm.collectionAddress,
+            groupingKey,
+            groupingKind:      'collection',
+            mintType,
+            priceLamports,
+            ...paymentFieldsFrom(tx),
+            minter:            cm.minter,
+            // Distinct from generic 'Metaplex Core': this detector requires
+            // CORE_CANDY_MACHINE_PROGRAM to actually be invoked, so it's a
+            // real Core Candy Machine v3 mint (Candy Guard), not a bare Core
+            // create or an unenumerated custom wrapper. Own badge (CCDY) so
+            // it doesn't read as either generic CORE or legacy CNDY.
+            sourceLabel:       'Core Candy Machine',
+            coreLaunchpad:     true,
+          });
+          // Core Candy Machine state account holds items_redeemed +
+          // items_available — read those directly so the SUPPLY column
+          // shows "<minted> / <max>" instead of just the observed-session
+          // count with no cap (this was missing entirely: this detector
+          // never resolved a state address, so maxSupply stayed null for
+          // every Core Candy Machine drop). Null on layout drift falls
+          // through silently, same as the legacy Candy Guard path below.
+          const coreCmState = extractCoreCandyMachineState(tx);
+          if (coreCmState) void enrichCgSupply(coreCmState, groupingKey, 'core');
+          // Per-NFT DAS enrichment only when the card was emitted into the
+          // feed — sampled-out cards skip the getAsset to save RPC credits.
+          if (emitted) enqueueMintEnrichment(groupingKey, cm.mintAddress);
+          scheduleCollectionConfirmation(groupingKey, cm.mintAddress, cm.collectionAddress, sig);
+          // Collection-level identity. This targeted Core Candy Machine
+          // fallback catches Core CM / MintX-style mints the launchpad
+          // detector misses, but it returns here — before the
+          // `lp.source==='CandyMachine'` branch that calls
+          // `enrichLaunchpadCollectionMeta`. Without this the row only ever
+          // sees per-NFT DAS, which yields the asset name ("Foo #N", not the
+          // collection title) and on fresh mints routinely "Asset Not Found",
+          // so collection name + image never resolve and the tracker's
+          // `isUsefulTrackerCollection` hides the row (audit: collection
+          // 7rvuvx…BkPh / "THE HATED", 778 mints, never shown).
+          // `getAsset(collectionAddress)` is long-indexed (the collection NFT
+          // is created upfront) and cached per-collection, so a several-
+          // hundred-mint burst burns one DAS call. Mirrors the CandyMachine
+          // branch below.
+          void enrichLaunchpadCollectionMeta(cm.collectionAddress, groupingKey, {
+            patchName: true,
+            logTag:    'core-cm-meta',
+          });
+        }
         return;
       }
-      if (cm && !cm.accept && cm.rejectReason && cm.rejectReason !== 'no_collection') {
+      // Reject-diagnostics only: the plural detector above doesn't carry
+      // reject reasons (it just returns [] on any gate failure), so reuse
+      // the singular detector here purely for its `rejectReason` — same
+      // gates, cheap pure function, no side effects, not used for emission.
+      const cmRejectProbe = detectCoreCandyMachineMint(tx);
+      if (cmRejectProbe && !cmRejectProbe.accept && cmRejectProbe.rejectReason && cmRejectProbe.rejectReason !== 'no_collection') {
         // Surface only the informative rejects (skip the common pre-reveal
         // no_collection noise) so the path stays observable without flooding.
-        logV2CoreReject(sig, cm.score, cm.rejectReason, cm.reasons);
+        logV2CoreReject(sig, cmRejectProbe.score, cmRejectProbe.rejectReason, cmRejectProbe.reasons);
       }
       // Generic UNKNOWN custom-launchpad fallback. Always on (no flag): it
       // covers the long tail of launchpad wrapper programs we don't enumerate
@@ -1991,10 +2070,11 @@ export async function ingestMintRaw(
               priceLamports,
               ...paymentFieldsFrom(tx),
               minter:            v2.minter,
-              // Reuse the existing `Metaplex Core` label so the
-              // frontend's `sourceBadge` renders it as `CORE` and
-              // none of the LMNFT/VVV-specific code paths fire.
-              sourceLabel:       'Metaplex Core',
+              // Authority-gated direct CreateV2 (collection authority
+              // co-signed, e.g. LMNFT pack-reveal mints) gets its own
+              // `Pack` label → gold PACK badge. Plain bare mints keep
+              // the existing `Metaplex Core` label → CORE badge.
+              sourceLabel:       v2.authorityGated ? 'Pack' : 'Metaplex Core',
             });
             if (emitted) enqueueMintEnrichment(groupingKey, v2.mintAddress);
             // Parser already supplied a collection address. Schedule

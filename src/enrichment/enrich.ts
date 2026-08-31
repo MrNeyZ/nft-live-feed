@@ -31,9 +31,11 @@ const floorCache   = new TtlCache<string, number>(FLOOR_TTL_MS, 60_000);
 /** Keyed by slug → marker that recent ME+Tensor floor lookups both failed.
  *  Prevents per-event refresh storms for slugs with no resolvable floor. */
 const floorMissCache = new TtlCache<string, true>(FLOOR_MISS_TTL_MS, 60_000);
-/** Slugs with an in-flight background floor refresh — dedup so concurrent
- *  events don't fan out into duplicate ME/Tensor calls. */
-const floorRefreshInFlight = new Set<string>();
+/** Slugs with an in-flight floor refresh, keyed to the shared promise —
+ *  dedup so concurrent events (e.g. a burst of sales for one cold-cache
+ *  collection) await the same ME/Tensor round-trip instead of each firing
+ *  their own. */
+const floorRefreshInFlight = new Map<string, Promise<void>>();
 
 // ── Tensor collection slug cache ─────────────────────────────────────────────
 // Keyed by ME collection slug (the filter input) → Tensor slugDisplay.
@@ -275,36 +277,23 @@ async function fetchTensorFloorLamports(slug: string): Promise<number | null> {
   }
 }
 
-/** Fire-and-forget background floor refresh. Tries ME first (public),
- *  Tensor second (key-gated). Populates `floorCache` on success so the
- *  NEXT event for this slug carries floorDelta. Logs `[floor-miss]` on
- *  total failure so coverage gaps are visible. Deduped via in-flight Set
- *  + miss TTL so we never fan out per-event. */
 /**
- * Awaitable floor warm — same source order + caches/dedup as kickFloorRefresh,
- * but resolves once the floorCache is populated (or confirmed missing). Used by
- * the /latest snapshot so a reload can stamp floor_delta on first render instead
- * of waiting for live sales to warm the cache. Reuses getMeStats' own 12s cache
- * + in-flight dedup, so concurrent callers for one slug do one ME request.
+ * Awaitable floor warm. Tries ME first (public), Tensor second (key-gated).
+ * Populates `floorCache` on success. Used both by computeFloorDelta below
+ * (cold-cache case — so the triggering sale itself gets a floor chip, not
+ * just the next one) and by the /latest snapshot (reload warm-up). Reuses
+ * getMeStats' own 12s cache + in-flight dedup, so concurrent callers for one
+ * slug do one ME request.
  */
 export async function warmFloorCache(slug: string | null | undefined): Promise<void> {
   if (!slug) return;
   if (getDerivedFloorLamports(slug) != null) return;  // listings-store covers it
   if (floorCache.has(slug)) return;
   if (floorMissCache.has(slug)) return;
-  const me = await fetchMeFloorLamports(slug);
-  if (me != null) { floorCache.set(slug, me); return; }
-  const tnsr = await fetchTensorFloorLamports(slug);
-  if (tnsr != null) { floorCache.set(slug, tnsr); return; }
-  if (!meCooldownActive()) floorMissCache.set(slug, true);
-}
+  const pending = floorRefreshInFlight.get(slug);
+  if (pending) return pending;
 
-function kickFloorRefresh(slug: string): void {
-  if (floorCache.has(slug)) return;
-  if (floorMissCache.has(slug)) return;
-  if (floorRefreshInFlight.has(slug)) return;
-  floorRefreshInFlight.add(slug);
-  (async () => {
+  const task = (async () => {
     try {
       const me = await fetchMeFloorLamports(slug);
       if (me != null) { floorCache.set(slug, me); return; }
@@ -320,7 +309,9 @@ function kickFloorRefresh(slug: string): void {
     } finally {
       floorRefreshInFlight.delete(slug);
     }
-  })().catch(() => { floorRefreshInFlight.delete(slug); });
+  })();
+  floorRefreshInFlight.set(slug, task);
+  return task;
 }
 
 /**
@@ -344,15 +335,55 @@ const MAX_QUEUED     = 12;
 let   activeEnriches  = 0;
 let   queuedEnriches  = 0;
 let   skippedEnriches = 0;   // dropped because queue was full
+let   watchdogTrips   = 0;   // _enrich() never settled — slot force-released
 const enrichQueue: Array<() => void> = [];
 
 setInterval(() => {
-  console.log(`[enrich] active=${activeEnriches}  queue=${queuedEnriches}  skipped=${skippedEnriches}`);
+  console.log(`[enrich] active=${activeEnriches}  queue=${queuedEnriches}  skipped=${skippedEnriches}  watchdog=${watchdogTrips}`);
 }, 10_000).unref();
 
 export function activeEnrichCount():  number { return activeEnriches; }
 export function queuedEnrichCount():  number { return queuedEnriches; }
 export function skippedEnrichCount(): number { return skippedEnriches; }
+
+// Real incident 2026-08-22: active pinned at 8/queue 12 for 20+ minutes
+// straight — some call inside `_enrich()` never settled (every individual
+// fetch already carries its own AbortSignal.timeout, so this was very
+// likely a stuck in-flight dedup promise elsewhere, not a raw hung
+// socket), so `releaseEnrichSlot()` in the `.finally()` below never ran.
+// With all 8 concurrent slots wedged and the 12-slot queue permanently
+// full behind them, virtually every sale from that point on got
+// `skippedEnriches++` — no image, no name, forever. This watchdog is a
+// backstop: `_enrich()` itself may keep running in the background (best
+// effort, logged, ignored), but the slot is force-released and the event
+// returned unenriched once ENRICH_WATCHDOG_MS elapses, so a single stuck
+// call can never wedge the whole pool again.
+const ENRICH_WATCHDOG_MS = 25_000;
+
+function withEnrichWatchdog(p: Promise<SaleEvent>, event: SaleEvent, mint: string): Promise<SaleEvent> {
+  return new Promise<SaleEvent>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      watchdogTrips++;
+      console.log(`[enrich] watchdog-timeout mint=${mint.slice(0, 8)}…  after=${ENRICH_WATCHDOG_MS}ms  — slot force-released, event returned unenriched`);
+      resolve(event);
+    }, ENRICH_WATCHDOG_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    p.then((v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(v);
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(event);
+    });
+  });
+}
 
 function acquireEnrichSlot(): Promise<boolean> {
   if (activeEnriches < MAX_CONCURRENT) {
@@ -431,7 +462,7 @@ export async function enrich(event: SaleEvent): Promise<SaleEvent> {
     return ownershipLoop ? { ...event, ownershipLoop } : event;
   }
 
-  const promise = _enrich(event)
+  const promise = withEnrichWatchdog(_enrich(event), event, mint)
     .then((enriched) => (ownershipLoop ? { ...enriched, ownershipLoop } : enriched))
     .finally(() => {
       releaseEnrichSlot();
@@ -673,17 +704,24 @@ export async function computeFloorDelta(
   //      giving inconsistent % vs. floor for sales seconds apart.
   //   2. legacy ME-API floor cache — slower / less fresh but stable.
   const derived = getDerivedFloorLamports(slug);
-  const cachedMe = floorCache.get(slug) ?? null;
-  const floorLamports = derived ?? cachedMe ?? null;
-  const floorSource: 'listings_store' | 'me_api' | 'none' =
+  let cachedMe = floorCache.get(slug) ?? null;
+  let floorLamports = derived ?? cachedMe ?? null;
+  let floorSource: 'listings_store' | 'me_api' | 'none' =
     derived != null ? 'listings_store' :
     cachedMe != null ? 'me_api' :
     'none';
   if (floorLamports == null || floorLamports <= 0) {
-    // Background populate so the next event for this slug carries a delta.
-    // Never blocks — the current event ships without a floor chip.
-    kickFloorRefresh(slug);
-    return null;
+    // Cold cache (collection not tracked in listings-store + no recent ME/Tensor
+    // floor cached) — synchronously warm it via ME→Tensor (warmFloorCache, same
+    // path the /latest snapshot uses) so THIS sale still gets a floor chip
+    // instead of only the next one. No Helius/RPC involved — ME/Tensor HTTP only,
+    // bounded by their own timeouts (~4s worst case), and deduped/cached same as
+    // before so a burst of sales for one cold slug still does one lookup.
+    await warmFloorCache(slug);
+    cachedMe = floorCache.get(slug) ?? null;
+    floorLamports = cachedMe;
+    floorSource = cachedMe != null ? 'me_api' : 'none';
+    if (floorLamports == null || floorLamports <= 0) return null;
   }
   if (Number(priceLamports) <= 0) return null;
   const pct = (Number(priceLamports) - floorLamports) / floorLamports;

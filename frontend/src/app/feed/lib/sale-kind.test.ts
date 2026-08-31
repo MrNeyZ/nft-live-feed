@@ -43,6 +43,21 @@ const CASES: Case[] = [
     saleTypeRaw: SALE_TYPE_BUY_AMM, isPoolMarketplace: true, poolType: null, ammFill: true,
     expected: 'buyAmm',
   },
+  // ── pool_buy (fulfillSell/'buy') has no reclassification ambiguity: ─────────
+  // ammFill is only ever computed for fulfillBuy, and poolType is live-SSE-
+  // only (never persisted) — so a real pool_buy row commonly has BOTH signals
+  // absent. isPoolMarketplace alone must still resolve to buyAmm. This is the
+  // exact case that was silently dropping the AMM badge (2026-08-15 fix).
+  {
+    label: 'pool_buy, ammFill absent, poolType absent (typical post-reload row) → buyAmm',
+    saleTypeRaw: SALE_TYPE_BUY_AMM, isPoolMarketplace: true,
+    expected: 'buyAmm',
+  },
+  {
+    label: 'pool_buy but NOT a pool marketplace → plain buy',
+    saleTypeRaw: SALE_TYPE_BUY_AMM, isPoolMarketplace: false,
+    expected: 'buy',
+  },
   // ── ammFill=false is AUTHORITATIVE non-AMM — must NEVER fall back to poolType ──
   {
     label: 'ammFill=false (confirmed lp_fee=0 bid accept) + poolType=two_sided (STALE) → sell, NOT sellAmm',

@@ -1315,18 +1315,22 @@ function restartTarget(target: Target, reason: string): void {
 
 const POLL_LIMIT        = 100;     // sigs per fetch — generous to avoid missing bursts
 // ─── WS-health-gated poll cadence ───────────────────────────────────────────
-// When WS logsSubscribe is healthy — defined as: both high-volume targets
-// (me_v2 + mmm) have EACH received a real notification, AND each of their
-// last-real-notification timestamps is younger than WS_HEALTHY_MAX_AGE_MS —
-// the primary poller slows from 1.5 s to 10 s. Low-activity targets
-// (tcomp/tamm) are intentionally excluded from the health signal so their
-// natural quiet periods can't pin us in degraded mode.
-// Any staleness on a high-volume target instantly flips the cadence back
-// to fast. amm-poller still runs at 30 s as a secondary safety net.
+// When WS logsSubscribe is healthy — defined as: me_v2 has received a real
+// notification, AND its last-real-notification timestamp is younger than
+// WS_HEALTHY_MAX_AGE_MS — the primary poller slows from 1.5 s to 20 s.
+// me_v2 only: it's the target that actually stays within the 120 s stale
+// watchdog window nearly all day (0 stale-restarts on 2026-08-22 vs 344 for
+// mmm). mmm used to gate this too, but its natural quiet periods pinned the
+// poller in fast mode ~50% of the day (measured 2026-08-22), a ~7x tick-rate
+// tax with no coverage benefit — amm-poller.ts already runs its own
+// independent 10s/15s-degraded sweep of mmm (isSalesWsDead(), 5 min
+// threshold) as the real backstop for mmm coverage. Low-activity targets
+// (tcomp/tamm) stay excluded for the same reason.
+// Staleness on me_v2 instantly flips the cadence back to fast.
 const POLL_FAST_MS          = 1_500;
 const POLL_HEALTHY_MS       = 20_000;  // WS-healthy cadence (was 10s) — RPC-credit trim; degraded stays POLL_FAST_MS
 const WS_HEALTHY_MAX_AGE_MS = 60_000;
-const WS_HEALTH_TARGETS: ReadonlySet<string> = new Set(['me_v2', 'mmm']);
+const WS_HEALTH_TARGETS: ReadonlySet<string> = new Set(['me_v2']);
 const MAX_BLOCK_AGE_S   = 600;     // 10-minute recency window
 
 function rpcHttpUrl(): string {

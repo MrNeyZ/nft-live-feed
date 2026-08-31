@@ -38,7 +38,7 @@ export const MINT_TF_DESC: Record<MintTimeframe, string> = {
 export type ProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
 export type MintRollupType = 'free' | 'paid' | 'unknown' | 'mixed';
 export type SourceLabel =
-  | 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'ME'
+  | 'LaunchMyNFT' | 'Pack' | 'VVV' | 'GRAVE' | 'ME'
   | 'Metaplex Candy Machine' | 'Core Candy Machine' | 'Metaplex Core' | 'Candy Labs' | 'Metaplex'
   | 'Bubblegum' | 'nfts.gay' | 'PRNT' | 'SFT' | 'Mallow' | 'Unknown';
 
@@ -51,6 +51,11 @@ export interface MintStatus {
    *  link target. May be null until the first event arrives or for
    *  cNFT groups whose first sample didn't carry a leaf address. */
   lastMintAddress?:  string | null;
+  /** The collection's very first observed mint address. Write-once, never
+   *  drifts — the preferred ME/Tensor marketplace badge link target: a
+   *  link that changes on every new mint routinely 404s against
+   *  marketplace indexers that lag fresh mints by minutes. */
+  firstMintAddress?: string | null;
   /** A mid-collection mint (never the first mint, never the newest),
    *  aged ~1h (~15min for brand-new collections) — used for ME/Tensor
    *  marketplace badge links so metadata is already indexed by the time

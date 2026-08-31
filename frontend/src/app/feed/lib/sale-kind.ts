@@ -116,7 +116,18 @@ export function saleKind(
   switch (saleTypeRaw) {
     case SALE_TYPE_BUY:      return 'buy';
     case SALE_TYPE_SELL:     return showAmm ? 'sellAmm' : 'sell';
-    case SALE_TYPE_BUY_AMM:  return showAmm ? 'buyAmm'  : 'buy';
+    // pool_buy (MMM fulfillSell / TAMM 'buy') has no bid-acceptance
+    // ambiguity to resolve — unlike fulfillBuy, this direction is never
+    // reclassified at parse time, so isPoolMarketplace alone is already
+    // conclusive: a buyer pulling an NFT from AMM inventory is always a
+    // genuine pool fill. Gating this on ammFill/poolType is wrong — ammFill
+    // is only ever computed for the fulfillBuy direction (see me-raw/parser.ts's
+    // "Synchronous AMM-fill classification" block) so it's always null here,
+    // and poolType is live-SSE-only (never persisted/backfilled — see
+    // mmm-pool-type-resolver.ts's SCOPE note) — a page load after the sale
+    // already happened never carries it, which was silently swallowing the
+    // AMM badge on every pool_buy row.
+    case SALE_TYPE_BUY_AMM:  return isPoolMarketplace ? 'buyAmm' : 'buy';
     case SALE_TYPE_SELL_AMM: return showAmm ? 'sellAmm' : 'sell';
     // Lucky Buy is still a buy from the seller's perspective; the
     // 🍀 marker rendered next to the NFT name communicates the
