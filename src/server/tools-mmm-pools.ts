@@ -357,6 +357,35 @@ export async function rpcPost(method: string, params: unknown[], timeoutMs = RPC
   }
 }
 
+// getProgramAccounts against MMM_PROGRAM_ID now gets rejected by Helius
+// ("Request deprioritized due to number of accounts requested") — the
+// program has too many accounts for a single unpaginated scan. Helius'
+// getProgramAccountsV2 is the paginated replacement; loop paginationKey
+// until an empty page comes back. Single source of truth for all 4
+// MMM getProgramAccounts call sites (owner scan, collection scan, both
+// pool-stream/triage-stream full scans).
+async function getProgramAccountsPaginated(
+  programId: string,
+  opts: { encoding: string; commitment?: string; filters?: unknown[] },
+  timeoutMs = RPC_TIMEOUT_MS,
+): Promise<Array<{ pubkey: string; account: { data: [string, string] } }>> {
+  const out: Array<{ pubkey: string; account: { data: [string, string] } }> = [];
+  let paginationKey: string | undefined;
+  for (;;) {
+    const params: Record<string, unknown> = { ...opts, limit: 10_000 };
+    if (paginationKey) params.paginationKey = paginationKey;
+    const page = await rpcPost('getProgramAccountsV2', [
+      programId,
+      params,
+    ], timeoutMs) as { accounts: Array<{ pubkey: string; account: { data: [string, string] } }>; paginationKey: string | null };
+    if (!page.accounts.length) break;
+    out.push(...page.accounts);
+    if (!page.paginationKey) break;
+    paginationKey = page.paginationKey;
+  }
+  return out;
+}
+
 function deriveEscrowPda(poolKey: string): string {
   const pool = new PublicKey(poolKey);
   const [pda] = PublicKey.findProgramAddressSync(
@@ -593,17 +622,14 @@ export interface MmmPoolScanResult {
 
 async function scanOwnerPools(owner: string): Promise<MmmPoolScanResult> {
   // 1. getProgramAccounts with memcmp on owner field (offset 121)
-  const result = await rpcPost('getProgramAccounts', [
-    MMM_PROGRAM_ID.toBase58(),
-    {
-      encoding:   'base64',
-      commitment: 'confirmed',
-      filters: [
-        { dataSize: POOL_SIZE },
-        { memcmp: { offset: OFF_OWNER, bytes: owner, encoding: 'base58' } },
-      ],
-    },
-  ]) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+  const result = await getProgramAccountsPaginated(MMM_PROGRAM_ID.toBase58(), {
+    encoding:   'base64',
+    commitment: 'confirmed',
+    filters: [
+      { dataSize: POOL_SIZE },
+      { memcmp: { offset: OFF_OWNER, bytes: owner, encoding: 'base58' } },
+    ],
+  });
 
   // 2. Parse all pool configs
   const pools: MmmPool[] = [];
@@ -1046,7 +1072,7 @@ async function fetchCoreBidAcceptTx(
   return { txBase64: Buffer.from(serialized).toString('base64'), source: 'onchain' };
 }
 
-async function fetchBidAcceptTx(
+export async function fetchBidAcceptTx(
   poolKey: string,
   seller:  string,
   mint:    string,
@@ -1081,7 +1107,35 @@ async function fetchBidAcceptTx(
   const isPNFT = meta.tokenStandard === 4; // ProgrammableNonFungible
   const sellerAta = getAssociatedTokenAddressSync(mintPk, sellerPk, false);
 
-  // Try ME API first (returns fully cosigned tx)
+  // Pool lookup moved up front (was previously only done in the on-chain
+  // fallback branch) — needed *before* deciding what to do with an
+  // oversized ME-built tx below, not just when ME's HTTP call itself fails.
+  let poolResult: Awaited<ReturnType<typeof lookupSinglePool>>;
+  try {
+    poolResult = await lookupSinglePool(poolKey);
+  } catch (e) {
+    console.error('[fallback] lookupSinglePool threw:', (e instanceof Error ? e.stack : String(e)));
+    throw e;
+  }
+  console.log('[fallback] lookupSinglePool type=%s', poolResult.type);
+  if (poolResult.type !== 'pool') throw new Error('pool_not_found');
+  const pool = poolResult.pool;
+  console.log('[fallback] pool decoded: owner=%s cosigner=%s referral=%s spotPriceSol=%s expiry=%s isMIP1=%s',
+    pool.owner, pool.cosigner, pool.referral, pool.spotPriceSol, pool.expiry, pool.isMIP1);
+  console.log('[fallback] pool allowlists: %s', JSON.stringify(pool.allowlists));
+  console.log('[fallback] pool escrowPda=%s realEscrowSol=%s executable=%s', pool.escrowPda, pool.realEscrowSol, pool.executable);
+  const hasRealCosigner = pool.cosigner !== SystemProgram.programId.toBase58();
+
+  // Try ME API first (returns fully cosigned tx). ME builds this as a
+  // legacy (non-versioned, non-ALT) tx — fine for low creator counts, but
+  // pNFT + ~5 verified creators regularly blows past Solana's 1232-byte
+  // wire limit. Past behavior trusted ME's 200 OK response blindly and
+  // shipped that oversized tx straight to the wallet, which is exactly
+  // where "Transaction too large" was surfacing — bypassing the on-chain
+  // ALT-based builder below entirely, since that only ran when ME's HTTP
+  // call itself failed, not when ME succeeded with a too-big result.
+  // Fix: check the returned tx's actual byte length before trusting it.
+  const TX_WIRE_LIMIT = 1232;
   try {
     const url = `${ME_IXS_BASE}/sol-fulfill-buy`
       + `?pool=`                 + encodeURIComponent(poolKey)
@@ -1104,35 +1158,40 @@ async function fetchBidAcceptTx(
       const data = await r.json() as { tx?: { data?: number[] }; txSigned?: { data?: number[] } };
       const src  = data.txSigned ?? data.tx;
       if (src?.data && Array.isArray(src.data)) {
-        return { txBase64: Buffer.from(src.data).toString('base64'), source: 'me_api' };
+        if (src.data.length <= TX_WIRE_LIMIT) {
+          return { txBase64: Buffer.from(src.data).toString('base64'), source: 'me_api' };
+        }
+        console.warn(`[tools/mmm-pools] ME tx for ${poolKey} is ${src.data.length} bytes (> ${TX_WIRE_LIMIT}), isPNFT=${isPNFT} creators=${meta.creators.length}`);
+        if (hasRealCosigner) {
+          // ME's tx already carries their own cosigner signature over this
+          // exact message — we cannot rebuild it as v0+ALT ourselves
+          // without invalidating that signature (a versioned message
+          // compiles to different bytes even for an equivalent account
+          // set), and we have no way to get ME to re-sign a smaller one.
+          // Genuine dead end, not a bug we can route around here.
+          throw new Error(
+            `me_tx_too_large_cosigned: ME-built tx is ${src.data.length} bytes (limit ${TX_WIRE_LIMIT}) `
+            + `and this pool requires ME's cosigner signature, so it can't be rebuilt as a versioned/ALT tx client-side`);
+        }
+        // No real cosigner required — ME's tx isn't load-bearing for
+        // signing, only for correctness. Discard it and fall through to
+        // the on-chain ALT-based builder below, same as an ME API failure.
+        console.log('[tools/mmm-pools] oversized ME tx + no cosigner required — falling through to on-chain ALT builder');
       }
+    } else {
+      // ME API failed — fall through to on-chain builder
+      console.warn(`[tools/mmm-pools] ME API ${r.status} for ${poolKey}, trying on-chain builder`);
     }
-    // ME API failed — fall through to on-chain builder
-    console.warn(`[tools/mmm-pools] ME API ${r.status} for ${poolKey}, trying on-chain builder`);
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith('me_tx_too_large_cosigned')) throw e;
     console.warn(`[tools/mmm-pools] ME API error for ${poolKey}:`, e);
   }
 
-  // On-chain fallback: read pool, verify no ME cosigner required
+  // On-chain fallback: verify no ME cosigner required (pool already looked
+  // up above, before the ME API attempt).
   console.log('[fallback] PATH=onchain poolKey=%s seller=%s mint=%s', poolKey, seller, mint);
 
-  let poolResult: Awaited<ReturnType<typeof lookupSinglePool>>;
-  try {
-    poolResult = await lookupSinglePool(poolKey);
-  } catch (e) {
-    console.error('[fallback] lookupSinglePool threw:', (e instanceof Error ? e.stack : String(e)));
-    throw e;
-  }
-  console.log('[fallback] lookupSinglePool type=%s', poolResult.type);
-  if (poolResult.type !== 'pool') throw new Error('pool_not_found');
-
-  const pool = poolResult.pool;
-  console.log('[fallback] pool decoded: owner=%s cosigner=%s referral=%s spotPriceSol=%s expiry=%s isMIP1=%s',
-    pool.owner, pool.cosigner, pool.referral, pool.spotPriceSol, pool.expiry, pool.isMIP1);
-  console.log('[fallback] pool allowlists: %s', JSON.stringify(pool.allowlists));
-  console.log('[fallback] pool escrowPda=%s realEscrowSol=%s executable=%s', pool.escrowPda, pool.realEscrowSol, pool.executable);
-
-  if (pool.cosigner !== SystemProgram.programId.toBase58()) {
+  if (hasRealCosigner) {
     console.log('[fallback] BLOCKED: pool requires a real cosigner signature, cosigner=%s', pool.cosigner);
     throw new Error('me_cosigner_required: ME API unavailable for this pool and it requires a cosigner signature (on-chain builder cannot provide one)');
   }
@@ -1690,16 +1749,13 @@ export function createMmmPoolsRouter(): Router {
         // was silently hiding real, fulfillable underfunded pools.
         emit('progress', { msg: `Fetching all MMM pools${fast ? ' [fast mode]' : ''}...` });
 
-        const accounts = await rpcPost('getProgramAccounts', [
-          MMM_PROGRAM_ID.toBase58(),
-          {
-            encoding:   'base64',
-            commitment: 'confirmed',
-            filters: [
-              { dataSize: POOL_SIZE },
-            ],
-          },
-        ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+        const accounts = await getProgramAccountsPaginated(MMM_PROGRAM_ID.toBase58(), {
+          encoding:   'base64',
+          commitment: 'confirmed',
+          filters: [
+            { dataSize: POOL_SIZE },
+          ],
+        }, 180_000);
 
         emit('progress', { msg: `Got ${accounts.length} pools, parsing...` });
 
@@ -1913,16 +1969,13 @@ export function createMmmPoolsRouter(): Router {
           // having a past/nonzero expiry, so excluding those pools at the RPC level
           // was silently hiding real, fulfillable underfunded pools.
           emit('progress', { msg: `Fetching all MMM pools${fast ? ' [fast]' : ''}…` });
-          const accounts = await rpcPost('getProgramAccounts', [
-            MMM_PROGRAM_ID.toBase58(),
-            {
-              encoding:   'base64',
-              commitment: 'confirmed',
-              filters: [
-                { dataSize: POOL_SIZE },
-              ],
-            },
-          ], 180_000) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+          const accounts = await getProgramAccountsPaginated(MMM_PROGRAM_ID.toBase58(), {
+            encoding:   'base64',
+            commitment: 'confirmed',
+            filters: [
+              { dataSize: POOL_SIZE },
+            ],
+          }, 180_000);
 
           emit('progress', { msg: `${accounts.length} pools — filtering candidates…` });
 
@@ -2238,17 +2291,14 @@ export function createMmmPoolsRouter(): Router {
 
         for (let slot = 0; slot < 6; slot++) {
           const offset = OFF_AL + slot * 33;
-          const result = await rpcPost('getProgramAccounts', [
-            MMM_PROGRAM_ID.toBase58(),
-            {
-              encoding:   'base64',
-              commitment: 'confirmed',
-              filters: [
-                { dataSize: POOL_SIZE },
-                { memcmp: { offset, bytes: matchB58 } },
-              ],
-            },
-          ]) as Array<{ pubkey: string; account: { data: [string, string] } }>;
+          const result = await getProgramAccountsPaginated(MMM_PROGRAM_ID.toBase58(), {
+            encoding:   'base64',
+            commitment: 'confirmed',
+            filters: [
+              { dataSize: POOL_SIZE },
+              { memcmp: { offset, bytes: matchB58 } },
+            ],
+          });
           for (const acct of result) seen.set(acct.pubkey, acct);
         }
       }
