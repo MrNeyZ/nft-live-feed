@@ -29,7 +29,7 @@ import { useEffect, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom, signAllAndSend, signSendAndConfirm } from '@/wallet/phantom';
 import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
-import { VL, VLText, ALPHA, alpha, rgb } from '@/lib/palette';
+import { VL, VLText, ALPHA, alpha, rgb, hex } from '@/lib/palette';
 import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 
 interface MintLimitStatus {
@@ -46,6 +46,8 @@ interface GuardGroupSummary {
   supported: boolean;
   solPaymentLamports: string | null;
   mintLimit: MintLimitStatus | null;
+  startDateUnix: string | null;
+  endDateUnix:   string | null;
 }
 
 type CandyMintFamily = 'core' | 'legacy';
@@ -123,6 +125,20 @@ function humanizeBackendError(code: string | undefined, httpStatus?: number): st
     return BACKEND_ERROR_MESSAGES[base] ?? code;
   }
   return httpStatus ? `Request failed (HTTP ${httpStatus}).` : 'Request failed. Please try again.';
+}
+
+// Two-unit countdown (d/h -> h/m -> m/s) — granularity shrinks as the
+// target gets closer, standard countdown-UX convention. `msRemaining` is
+// clamped to 0 by the caller checking `notYetLive` before rendering this.
+function formatCountdown(msRemaining: number): string {
+  const total = Math.max(0, Math.floor(msRemaining / 1000));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
 }
 
 function humanizeThrownError(message: string): string {
@@ -483,7 +499,32 @@ export default function CandyMintPage() {
   const soldOut = loaded != null
     && loaded.inspection.itemsRedeemed != null && loaded.inspection.itemsAvailable != null
     && loaded.inspection.itemsRedeemed === loaded.inspection.itemsAvailable;
-  const mintDisabled = !wallet || busy || !loaded || !loaded.inspection.alive || soldOut || !selected?.supported || mintExhausted;
+
+  // Live countdown for a group whose `startDate` guard hasn't hit yet, and
+  // the symmetric case — a group whose `endDate` has already passed. Both
+  // are guaranteed on-chain failures if attempted, not a maybe: a not-yet-
+  // live group bot-taxes (MintNotLive), and — confirmed live against a real
+  // candy machine (FNYji1B78vKk7QrzCoEAKkS6NkDGsKUGdCV9feM4xmr1, group
+  // "public") — an already-ended group hard-reverts with AnchorError
+  // AfterEndDate (code 6024), no tax, just a dead simulate. `supported`
+  // only tells you the guard *type* is satisfiable from a wallet signature;
+  // it says nothing about whether the date window is open right now, so
+  // this needs its own gate. Neither state is "closed" (the group still
+  // exists and is otherwise mintable), so it must not read identically to
+  // the sold-out/closed StatusNotices. Ticks once a second; the guard's own
+  // on-chain date is the only source of truth, this just formats/gates
+  // against it.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const startsAtMs = selected?.startDateUnix != null ? Number(selected.startDateUnix) * 1000 : null;
+  const endsAtMs   = selected?.endDateUnix   != null ? Number(selected.endDateUnix)   * 1000 : null;
+  const notYetLive = startsAtMs != null && nowMs < startsAtMs;
+  const stageEnded = endsAtMs   != null && nowMs >= endsAtMs;
+
+  const mintDisabled = !wallet || busy || !loaded || !loaded.inspection.alive || soldOut || !selected?.supported || mintExhausted || notYetLive || stageEnded;
   const quantityCap = Math.max(1, selected?.mintLimit?.remaining ?? 25);
 
   // Keeps the selected quantity in bounds as `remaining` shrinks (each
@@ -622,7 +663,7 @@ export default function CandyMintPage() {
                       key={g.label ?? '__root__'}
                       label={g.label ?? '(root)'}
                       active={selectedGroup === g.label}
-                      color={g.supported ? rgb(VL.greenStrong) : rgb(VL.redStrong)}
+                      color={g.supported ? hex(VL.greenStrong) : hex(VL.redStrong)}
                       onClick={() => setSelectedGroup(g.label)}
                       title={g.supported ? g.enabledGuards.join(', ') : `unsupported: ${g.unsupportedGuards.join(', ')}`}
                     />
@@ -669,6 +710,18 @@ export default function CandyMintPage() {
                   ) : mintExhausted ? (
                     <StatusNotice>
                       You've hit your mint limit on this wallet ({selected?.mintLimit?.limit}/{selected?.mintLimit?.limit}) — switch wallets to mint more.
+                    </StatusNotice>
+                  ) : notYetLive ? (
+                    <StatusNotice>
+                      {selected?.label ? `"${selected.label}"` : 'This stage'} opens in{' '}
+                      <span style={{ ...MONO, fontWeight: 700, color: rgb(VL.purpleTint) }}>
+                        {formatCountdown(startsAtMs! - nowMs)}
+                      </span>
+                      {priceLabel ? ` — ${priceLabel}` : ''}
+                    </StatusNotice>
+                  ) : stageEnded ? (
+                    <StatusNotice>
+                      {selected?.label ? `"${selected.label}"` : 'This stage'} has ended — pick another group above, if one's still open.
                     </StatusNotice>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

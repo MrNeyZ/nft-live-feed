@@ -41,6 +41,7 @@ import {
 } from '@metaplex-foundation/mpl-candy-machine';
 import { fetchMetadata, findMetadataPda } from '@metaplex-foundation/mpl-token-metadata';
 import { inspectCandyMachine } from './guard-config';
+import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
 
 // Every guard's *MintArgs type is `Omit<FullArgs, 'lamports' | 'amount' |
@@ -65,12 +66,15 @@ function resolveMintArgs(guards: GuardSetLike): Record<string, unknown> {
   return mintArgs;
 }
 
+// See guard-merge.ts for why base and group guards must be merged rather
+// than the group's set used standalone.
 function activeGuardSet<G extends { guards: GuardSetLike; groups: { label: string; guards: GuardSetLike }[] }>(
   candyGuard: G,
   group: string | null,
 ): GuardSetLike {
   if (group == null) return candyGuard.guards;
-  return candyGuard.groups.find((g) => g.label === group)?.guards ?? candyGuard.guards;
+  const groupGuards = candyGuard.groups.find((g) => g.label === group)?.guards ?? candyGuard.guards;
+  return mergeGuardSets(candyGuard.guards, groupGuards);
 }
 
 function rpcUrl(): string {
@@ -184,8 +188,26 @@ async function finalizeTx(
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
 
   const walletPk = new PublicKey(input.wallet);
+  // Legacy, not v0 — tried switching to VersionedTransaction to see if it
+  // improved Phantom's "unrecognized transaction" preview (its simulation
+  // pipeline is built primarily around versioned messages). Verified live:
+  // no difference — a byte-perfect v0 tx (confirmed via manual wire-format
+  // decode) still showed the same generic warning. That isolates the cause
+  // to the multi-signer / pre-filled-cosigner shape itself (Phantom can't
+  // produce the fresh asset keypair's own signature, so it's always stuck
+  // on the `signTransaction`-only path regardless of tx format — see the
+  // ME-cosigner comments in phantom.ts), not legacy-vs-versioned. Reverted
+  // rather than carry the versioned-tx complexity for no benefit.
+  //
+  // Same compute-budget convention as the DotLand mint tool
+  // (tools-dotland.ts) — a candy-machine mint is exactly the contested,
+  // time-sensitive scenario a zero-priority-fee tx loses in: no
+  // setComputeUnitPrice meant this tx competed for block space at the
+  // same priority as an idle wallet transfer against other minters (and
+  // MEV/bot searchers) who do tip, on the drops this tool exists for.
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
     ...web3Ixs,
   );
   tx.feePayer = walletPk;

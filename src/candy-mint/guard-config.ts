@@ -40,6 +40,7 @@ import {
   safeFetchMintCounter as safeFetchLegacyMintCounter,
   type DefaultGuardSet as LegacyDefaultGuardSet,
 } from '@metaplex-foundation/mpl-candy-machine';
+import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
 
 function rpcUrl(): string {
@@ -92,6 +93,11 @@ export interface GuardGroupSummary {
   supported: boolean;
   solPaymentLamports: string | null;
   mintLimit: MintLimitStatus | null;
+  /** Unix seconds, as decimal strings (guard dates are on-chain i64/u64 —
+   *  stringified the same way solPaymentLamports is to survive JSON without
+   *  precision loss). Null when the guard isn't set for this group. */
+  startDateUnix: string | null;
+  endDateUnix:   string | null;
 }
 
 export interface CandyMachineInspection {
@@ -112,6 +118,8 @@ function summarizeGuardSet(
   const unsupported: string[] = [];
   let solPaymentLamports: string | null = null;
   let mintLimit: MintLimitStatus | null = null;
+  let startDateUnix: string | null = null;
+  let endDateUnix: string | null = null;
   for (const [name, wrapped] of Object.entries(guards)) {
     const opt = wrapped as { __option: 'Some' | 'None'; value?: unknown } | undefined;
     if (!opt || opt.__option !== 'Some') continue;
@@ -125,6 +133,14 @@ function summarizeGuardSet(
       const v = opt.value as { id: number; limit: number };
       mintLimit = { id: v.id, limit: v.limit, used: null, remaining: null };
     }
+    if (name === 'startDate') {
+      const v = opt.value as { date?: bigint } | undefined;
+      if (v?.date != null) startDateUnix = v.date.toString();
+    }
+    if (name === 'endDate') {
+      const v = opt.value as { date?: bigint } | undefined;
+      if (v?.date != null) endDateUnix = v.date.toString();
+    }
   }
   return {
     label,
@@ -133,6 +149,8 @@ function summarizeGuardSet(
     supported: unsupported.length === 0,
     solPaymentLamports,
     mintLimit,
+    startDateUnix,
+    endDateUnix,
   };
 }
 
@@ -191,7 +209,7 @@ async function inspectCore(candyMachineAddr: string, candyGuardAddr: string, wal
   const guard = await safeFetchCoreCandyGuard(umi, umiPublicKey(candyGuardAddr));
   if (guard) {
     if (guard.groups.length === 0) groups.push(summarizeGuardSet(null, guard.guards));
-    else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, g.guards));
+    else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, mergeGuardSets(guard.guards, g.guards)));
     if (wallet) await fillMintLimitUsage('core', umi, groups, candyMachineAddr, candyGuardAddr, wallet);
   } else {
     alive = false;
@@ -226,7 +244,7 @@ async function inspectLegacy(candyMachineAddr: string, candyGuardAddr: string, w
   const guard = await safeFetchLegacyCandyGuard(umi, umiPublicKey(candyGuardAddr));
   if (guard) {
     if (guard.groups.length === 0) groups.push(summarizeGuardSet(null, guard.guards));
-    else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, g.guards));
+    else for (const g of guard.groups) groups.push(summarizeGuardSet(g.label, mergeGuardSets(guard.guards, g.guards)));
     if (wallet) await fillMintLimitUsage('legacy', umi, groups, candyMachineAddr, candyGuardAddr, wallet);
   } else {
     alive = false;

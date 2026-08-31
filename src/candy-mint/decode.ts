@@ -106,12 +106,21 @@ export async function decodeCandyMintSignature(signature: string): Promise<Decod
     ...(tx.meta?.loadedAddresses?.readonly ?? []),
   ];
 
-  const outerCore = tx.transaction.message.instructions.find(
-    (ix) => keys[ix.programIdIndex] === CORE_CANDY_GUARD_PROGRAM,
-  );
-  const outerLegacy = outerCore ? undefined : tx.transaction.message.instructions.find(
-    (ix) => keys[ix.programIdIndex] === CANDY_GUARD_PROGRAM,
-  );
+  // Search outer AND inner instructions, not just top-level: several
+  // launchpads (LaunchMyNFT's own front-door program among them) invoke
+  // Candy Guard via a CPI rather than calling it directly, so a
+  // top-level-only scan misses those and wrongly reports
+  // no_candy_guard_instruction_found on a mint that IS really a candy
+  // machine underneath. Same flattening mint-analyzer/analyze.ts already
+  // does for `inferMintPrimitive` — kept independent here rather than
+  // imported since this only needs the program-id search, not the full
+  // classifier.
+  const allIx = [
+    ...tx.transaction.message.instructions,
+    ...(tx.meta?.innerInstructions ?? []).flatMap((g) => g.instructions),
+  ];
+  const outerCore = allIx.find((ix) => keys[ix.programIdIndex] === CORE_CANDY_GUARD_PROGRAM);
+  const outerLegacy = outerCore ? undefined : allIx.find((ix) => keys[ix.programIdIndex] === CANDY_GUARD_PROGRAM);
   const family: CandyMintFamily | null = outerCore ? 'core' : outerLegacy ? 'legacy' : null;
   const outer = outerCore ?? outerLegacy;
   if (!family || !outer) return { ok: false, error: 'no_candy_guard_instruction_found' };

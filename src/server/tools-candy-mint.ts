@@ -120,7 +120,9 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] inspect error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      // 200, not 502/503/504 — Cloudflare replaces the body of those statuses
+      // with its own generic error page, hiding this JSON from the client.
+      return res.status(200).json({ ok: false, error: msg });
     }
   });
 
@@ -151,7 +153,7 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] build-tx error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(200).json({ ok: false, error: msg });
     }
   });
 
@@ -162,12 +164,12 @@ export function createCandyMintRouter(): Router {
         return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
       }
       const result = await simulateCandyMintTx(transactionBase64, wallet);
-      if (!result.ok) return res.status(502).json(result);
+      if (!result.ok) return res.status(200).json(result);
       return res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] simulate-tx error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(200).json({ ok: false, error: msg });
     }
   });
 
