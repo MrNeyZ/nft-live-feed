@@ -218,3 +218,50 @@ export async function requestMmmInstruction(params: BridgeParams): Promise<Bridg
     windowOpened: !hadWindow,
   };
 }
+
+// ── ME personal-offer accept (Sell+ExecuteSaleV2 batch) ─────────────────────
+// Same popup/window plumbing as requestMmmInstruction (reuses ensureReady's
+// shared _meWindow) — routes the accept call through a real authenticated
+// magiceden.io browser session instead of our own server, because the
+// server-side path can hit a "bidding too old to be accepted" business rule
+// ME's backend enforces (confirmed 2026-08-24; the M2 program itself has no
+// such check) plus general IP-level throttling under heavy testing volume.
+export interface MeSellBridgeParams {
+  seller: string; tokenMint: string; tokenATA: string;
+  auctionHouseAddress: string; buyer: string; newPrice: number;
+  sellerExpiry?: number; sellerReferral?: string; buyerReferral?: string;
+  buyerExpiry?: number; // milliseconds
+}
+
+export async function requestMeSellAccept(params: MeSellBridgeParams): Promise<BridgeResult> {
+  console.log(TAG, 'requestMeSellAccept called', params);
+  const t0 = performance.now();
+  const hadWindow = !!activeWindow();
+
+  const w = await ensureReady();
+  const id = crypto.randomUUID();
+
+  const responseP = waitForMessage(
+    e => fromMe(w)(e) && e.data?.type === 'VL_MESELL_RESPONSE' && e.data?.id === id,
+    REQUEST_TIMEOUT_MS,
+    'mesell-response',
+    w,
+  );
+
+  w.postMessage({ type: 'VL_MESELL_REQUEST', id, payload: params }, ME_ORIGIN);
+  console.log(TAG, 'VL_MESELL_REQUEST sent');
+
+  const e = await responseP;
+  const elapsedMs = Math.round(performance.now() - t0);
+  const d = e.data as { ok: boolean; status?: number; body?: unknown; rawBody?: string; error?: string };
+
+  return {
+    ok:           d.ok,
+    status:       d.status ?? null,
+    elapsedMs,
+    body:         d.body ?? null,
+    rawBody:      d.rawBody ?? null,
+    error:        d.error ?? null,
+    windowOpened: !hadWindow,
+  };
+}

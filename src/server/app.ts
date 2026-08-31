@@ -22,6 +22,7 @@ import { createRuntimeRouter } from './runtime';
 import { createRetardioOffersRouter } from './tools-retardio-offers';
 import { createRareFeedRouter } from './tools-rare-feed';
 import { createMintAnalyzerRouter } from './tools-mint-analyzer';
+import { createMeCollectionRefreshRouter } from './tools-me-collection-refresh';
 import { createTrendingCollectionsRouter } from './tools-trending-collections';
 import { createSnsRouter } from './tools-sns';
 import { createHoldersRouter } from './tools-holders';
@@ -33,7 +34,9 @@ import { createTensorFloorScanRouter } from './tools-tensor-floor-scan';
 import { createOfferFloorSweepRouter } from './tools-offer-floor-sweep';
 import { createDotlandRouter } from './tools-dotland';
 import { createCandyMintRouter } from './tools-candy-mint';
+import { createDirectMintRouter } from './tools-direct-mint';
 import { createMeBidsRouter } from './tools-me-bids';
+import { createMeSellRouter } from './tools-me-sell';
 import { createTensorTakeBidRouter } from './tools-tensor-take-bid';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
 import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
@@ -170,6 +173,11 @@ export function createApp() {
   // GET /api/tools/mint-analyzer/analyze?sig=<signature>
   app.use('/api', createMintAnalyzerRouter());
 
+  // ME Collection Refresh tool — batches ME's own per-NFT re-sync call
+  // across every mint in a collection. See tools-me-collection-refresh.ts.
+  // POST /api/tools/me-collection-refresh?collectionAddress=<address>
+  app.use('/api', createMeCollectionRefreshRouter());
+
   // Trending Collections tool — read-only ME pre-aggregated stats proxy.
   // GET /api/tools/trending-collections?range=1d&sort=volume&limit=100
   app.use('/api', createTrendingCollectionsRouter());
@@ -213,11 +221,23 @@ export function createApp() {
   // mint from a landed signature or raw candyMachine/candyGuard addresses.
   app.use('/api', createCandyMintRouter());
 
+  // CreateV2 tool — personal use, requireAuth-gated on every route (see
+  // tools-direct-mint.ts header comment). Bare Token Metadata create+mint,
+  // no Candy Machine/Guard — the shape a self-authored 1-of-1 mint is.
+  app.use('/api', createDirectMintRouter());
+
   // Magic Eden item-level bid tool — personal use, requireAuth-gated on
   // every route (see tools-me-bids.ts header comment). Never handles a
   // private key; build-only until the client signs via Phantom and submits
   // through the existing /api/tools/mmm-pools/send-tx proxy.
   app.use('/api', createMeBidsRouter());
+
+  // Magic Eden item-level offer ACCEPT tool — counterpart to tools-me-bids.ts
+  // (which only places/cancels/withdraws OUR OWN bids). Personal use,
+  // requireAuth-gated (see tools-me-sell.ts header comment). Isolated from
+  // tools-me-bids.ts: SELL always carries an ME cosigner (2 signers), unlike
+  // buy/cancel/withdraw's confirmed 1-signer contract.
+  app.use('/api', createMeSellRouter());
 
   // Tensor Take Bid tool — personal use, requireAuth-gated on every route
   // (see tools-tensor-take-bid.ts header comment). Reads a live Tensor

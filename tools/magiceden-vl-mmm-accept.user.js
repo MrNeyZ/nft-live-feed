@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         VL MMM Bid Accept Bridge
 // @namespace    https://vl.nikki.gg
-// @version      0.5.9
-// @description  VictoryLabs MMM bridge — v0.5.9: ME's response always carries both a legacy variant (tx/txSigned) and a versioned ALT variant (v0.tx/v0.txSigned) in one call; ALT detection now reads the v0 field instead of the always-legacy top-level tx field, removing the pointless retry loop from v0.5.8
+// @version      0.6.0
+// @description  VictoryLabs MMM+ME bridge — v0.6.0: adds VL_MESELL_REQUEST/RESPONSE for personal item-level offer accept via /instructions/batch (routes around the server-side "bidding too old to be accepted" business rule + any IP-level throttling, since this runs in a real authenticated browser session). v0.5.9 MMM behaviour unchanged.
 // @author       VictoryLabs
 // @match        https://magiceden.io/*
 // @match        https://www.magiceden.io/*
@@ -15,6 +15,18 @@
 
   const ME_IXS       = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-fulfill-buy';
   const ME_IXS_CNFT  = 'https://api-mainnet.magiceden.io/v2/instructions/mmm/sol-cnft-fulfill-buy';
+  // Personal item-level offer ACCEPT (Sell+ExecuteSaleV2 bundle). ME's own
+  // frontend calls THIS batch wrapper, not the single /instructions/sell_now
+  // endpoint — confirmed 2026-08-24 from a real captured HAR: the single
+  // endpoint only ever returns the listing half (Sell/Mip1Sell), while batch
+  // (even with one entry in `q`) returns the full 4-instruction bundle
+  // (2x ComputeBudget + Sell + ExecuteSaleV2, the latter referencing the
+  // buyer directly, cosigner already signed). Server-side calls with our own
+  // API key can additionally hit a "bidding too old to be accepted" business
+  // rule ME's backend enforces (not an on-chain constraint — the M2 program
+  // itself has no such check) — routing through this real browser session
+  // instead is the whole reason this bridge exists for this call.
+  const ME_SELL_BATCH = 'https://api-mainnet.magiceden.io/v2/instructions/batch';
   const TAG         = '[VL-userscript]';
 
   // Both known VL origins -- strict allowlist, not a wildcard
@@ -24,7 +36,7 @@
   ]);
 
   // Version + allowlist confirmation -- check this in the ME console first
-  console.log(TAG, 'VERSION=0.5.9 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
+  console.log(TAG, 'VERSION=0.6.0 loaded - origin=' + location.origin + ' opener=' + (window.opener ? 'present' : 'null'));
   console.log(TAG, 'VL_ORIGINS allowlist:', Array.from(VL_ORIGINS));
 
   function buildIxUrl(params, withTokenStandard) {
@@ -119,6 +131,36 @@
     const v0Bytes = result.data?.v0?.txSigned?.data ?? result.data?.v0?.tx?.data;
     const alts = result.ok && v0Bytes ? parseALTCount(v0Bytes) : -1;
     console.log(TAG, 'fetch ok=' + result.ok + ' v0AltCount=' + alts);
+    return result;
+  }
+
+  // Personal offer accept — builds the /instructions/batch URL and fetches
+  // it. Response is an ARRAY (Promise.allSettled shape): [{status:
+  // 'fulfilled', value: {tx, v0, txSigned, blockhashData}}]. Normalizes to
+  // the same {ok,status,data,...} shape as doFetchIx by unwrapping index 0
+  // so downstream code (in-popup ALT signing, response forwarding) doesn't
+  // need to know about the batch envelope.
+  async function vlMeSellAccept(params) {
+    const { seller, tokenMint, tokenATA, auctionHouseAddress, buyer, newPrice, sellerExpiry = 0, sellerReferral, buyerReferral, buyerExpiry } = params ?? {};
+    if (!seller || !tokenMint || !tokenATA || !auctionHouseAddress || !buyer || newPrice == null) {
+      return { ok: false, status: null, elapsedMs: 0, url: null, data: null, rawBody: null,
+        error: 'Missing required param(s): seller, tokenMint, tokenATA, auctionHouseAddress, buyer, newPrice' };
+    }
+    const ins = { sellerExpiry, auctionHouseAddress, buyer, seller, tokenMint, tokenATA, newPrice };
+    if (sellerReferral) ins.sellerReferral = sellerReferral;
+    if (buyerReferral) ins.buyerReferral = buyerReferral;
+    if (buyerExpiry) ins.buyerExpiry = buyerExpiry; // milliseconds, per real ME frontend traffic
+    const q = encodeURIComponent(JSON.stringify([{ type: 'sell_now', ins }]));
+    const url = ME_SELL_BATCH + '?q=' + q + '&prioFeeMicroLamports=20000&maxPrioFeeLamports=10000000';
+    const result = await doFetchIx(url);
+    if (result.ok && Array.isArray(result.data) && result.data[0]) {
+      const entry = result.data[0];
+      if (entry.status !== 'fulfilled' || !entry.value) {
+        return { ...result, ok: false, error: 'me_batch_entry_not_fulfilled: ' + JSON.stringify(entry.reason ?? entry.status) };
+      }
+      // Unwrap so the caller sees the same {tx,v0,txSigned,blockhashData} shape doFetchIx normally returns directly.
+      return { ...result, data: entry.value };
+    }
     return result;
   }
 
@@ -317,6 +359,39 @@
         error:   result.error,
       }, event.origin);
     }
+
+    if (type === 'VL_MESELL_REQUEST') {
+      console.log(TAG, 'MESELL REQUEST received id=' + id, payload);
+      const result = await vlMeSellAccept(payload);
+
+      const v0Bytes = result.data?.v0?.txSigned?.data ?? result.data?.v0?.tx?.data;
+      if (result.ok && v0Bytes) {
+        const signResult = await trySignInPopup(v0Bytes);
+        if (signResult?.signature) {
+          postToVl(event.source, { type: 'VL_MESELL_RESPONSE', id, ok: true, status: 200,
+            body: { presigned: true, signature: signResult.signature },
+            rawBody: JSON.stringify({ presigned: true, signature: signResult.signature }), error: null }, event.origin);
+          return;
+        }
+        if (signResult?.signedTxBase64) {
+          postToVl(event.source, { type: 'VL_MESELL_RESPONSE', id, ok: true, status: 200,
+            body: { presignedUnsent: true, signedTxBase64: signResult.signedTxBase64 },
+            rawBody: JSON.stringify({ presignedUnsent: true }), error: null }, event.origin);
+          return;
+        }
+      }
+
+      console.log(TAG, 'sending MESELL_RESPONSE id=' + id + ' ok=' + result.ok + ' status=' + result.status);
+      postToVl(event.source, {
+        type:    'VL_MESELL_RESPONSE',
+        id,
+        ok:      result.ok,
+        status:  result.status,
+        body:    result.data,
+        rawBody: result.rawBody,
+        error:   result.error,
+      }, event.origin);
+    }
   });
 
   // Announce ready to opener if present (not relied upon -- ping handshake is primary)
@@ -333,5 +408,6 @@
   }
 
   window.vlMmmFulfillBuy = vlMmmFulfillBuy;
-  console.log(TAG, 'MMM bridge v0.5.9 ready - postMessage listener active - waiting for PING from VL');
+  window.vlMeSellAccept = vlMeSellAccept;
+  console.log(TAG, 'MMM+ME bridge v0.6.0 ready - postMessage listener active - waiting for PING from VL');
 })();

@@ -37,6 +37,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
       { href: '/tools/solanart-accept-offer', title: 'Solanart',              desc: 'Accept a funded 2021-2022 Solanart bid directly on-chain — the marketplace itself has been dead since ~2022.' },
       { href: '/tools/solsea-accept-bid',     title: 'SolSea',                desc: 'Accept a funded SolSea bid directly on-chain — native SOL bids only, the marketplace frontend/API is dead.' },
       { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
+      { href: '/tools/me-sell',               title: 'ME Offer Accept',      desc: 'Accept a personal item-level ME offer ME’s own UI won’t show — escrow top-up, build via ME’s instruction API, sign & submit.' },
       { href: '/tools/ghostbid',              title: 'Ghost Bid',             desc: 'Forgotten M2 + Solanart bids ranked by profit — Refresh re-checks live escrow balances (ME shared escrow, Solanart self-funded) and re-ranks.' },
     ],
   },
@@ -77,6 +78,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
     color: '#f472b6',
     tools: [
       { href: '/tools/candy-mint',            title: 'Candy Mint',           desc: 'Reconstruct a Core Candy Guard mint from a signature and mint directly, if still alive.' },
+      { href: '/tools/create-v2',             title: 'CreateV2',             desc: 'Bare Token Metadata create+mint — no Candy Machine, self-authored 1-of-1 style mint.' },
       { href: '/tools/critters-mint-timer',   title: 'Critters Timer',       desc: 'Upcoming cheap edition mints from critters.quest, sorted by soonest start — read-only, no wallet.' },
       { href: '/tools/vvv',                   title: 'VVV Stages',           desc: 'Paste a vvv.so mint link — whitelist stages + eligible collections, structured.' },
       // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
