@@ -8,9 +8,11 @@
 // Cloudflare edge had cached an HTML 404 (text/html) under the old stable
 // chunk URL during a past live `.next` wipe, which survived hard refresh.
 
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { VL, alpha } from '@/lib/palette';
 // import { VictoryLabsLogo } from './VictoryLabsLogo'; // preserved, not used — SVGs serve the logo
 import {
   CATEGORY_LAYER, Marketplace,
@@ -452,6 +454,93 @@ export function CtaButton({
   );
 }
 
+/* ─── Custom hover popover (glass panel) ─────────────────────────────────────
+ * Extracted from the SUPPLY/MINTS cell popovers in
+ * `mints/components/MintsTableRow.tsx` (previously duplicated inline there,
+ * once per cell) so any page can swap a native `title=""` tooltip — which
+ * can't be restyled, clips inside scroll containers, and pops up with a
+ * jarring OS-native delay/box — for this crisp portaled panel instead.
+ * Usage: attach `useHoverPopover()`'s `ref`/`open`/`close` handlers directly
+ * to the hoverable element (no wrapping DOM node needed), then render
+ * `<HoverPopoverPanel state={hover}>…</HoverPopoverPanel>` as a sibling. */
+export interface HoverPopoverState { x: number; y: number; flip: boolean }
+
+export function useHoverPopover<T extends HTMLElement = HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [state, setState] = useState<HoverPopoverState | null>(null);
+  // Same ~150px headroom heuristic as the mints table: flip the panel
+  // below the trigger when there isn't enough room above it.
+  const open = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const flip = r.top < 150;
+    setState({ x: r.left + r.width / 2, y: flip ? r.bottom + 6 : r.top - 6, flip });
+  }, []);
+  const close = useCallback(() => setState(null), []);
+  return { ref, state, open, close };
+}
+
+export const POPOVER_PANEL_STYLE: React.CSSProperties = {
+  position:               'fixed',
+  zIndex:                 9999,
+  pointerEvents:          'none',
+  minWidth:               160,
+  background:             'linear-gradient(158deg, rgba(30,23,52,0.97) 0%, rgba(17,13,30,0.97) 100%)',
+  border:                 `1px solid ${alpha(VL.purpleTint, 0.46)}`,
+  borderRadius:           9,
+  padding:                '9px 12px 10px',
+  textAlign:              'left',
+  color:                  '#ece7f8',
+  boxShadow:              `0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.32), 0 0 16px ${alpha(VL.purpleDeep, 0.15)}`,
+  backdropFilter:         'blur(11px)',
+  WebkitBackdropFilter:   'blur(11px)',
+};
+export const POPOVER_HEADER_STYLE: React.CSSProperties = {
+  fontSize:       9.5,
+  fontWeight:     700,
+  letterSpacing:  '1.3px',
+  textTransform:  'uppercase',
+  color:          '#8a81b0',
+  marginBottom:   7,
+  paddingBottom:  6,
+  borderBottom:   `1px solid ${alpha(VL.purpleTint, 0.15)}`,
+};
+
+/** Label-left / value-right row inside a popover panel — value dominates
+ *  (large, bright, monospace + tabular), label is small and muted. */
+export function PopRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 22, padding: '2px 0' }}>
+      <span style={{ fontSize: 10.5, fontWeight: 500, letterSpacing: '0.2px', color: '#7e7799', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{
+        fontSize: highlight ? 15 : 14, fontWeight: highlight ? 800 : 700,
+        color: highlight ? '#cdc2f2' : '#f2eefb', fontFamily: "'SF Mono','Fira Code',monospace",
+        fontVariantNumeric: 'tabular-nums', lineHeight: 1.15, whiteSpace: 'nowrap',
+      }}>{value}</span>
+    </div>
+  );
+}
+
+export function HoverPopoverPanel({ state, header, children }: { state: HoverPopoverState | null; header?: string; children: React.ReactNode }) {
+  if (!state || typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      role="tooltip"
+      style={{
+        ...POPOVER_PANEL_STYLE,
+        top: state.y,
+        left: state.x,
+        transform: state.flip ? 'translateX(-50%)' : 'translate(-50%, -100%)',
+      }}
+    >
+      {header && <div style={POPOVER_HEADER_STYLE}>{header}</div>}
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 /* ─── Canonical VictoryLabs settings system ──────────────────────────────────
  * One visual language for every settings/filter panel (Live Feed, Mint Tracker,
  * Dashboard, Rare Feed, future tools). The layout primitives live as shared CSS
@@ -714,6 +803,7 @@ const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
       { label: 'SOLANART',              href: '/tools/solanart-accept-offer' },
       { label: 'SOLSEA',                href: '/tools/solsea-accept-bid' },
       { label: 'POOL LOOKUP',           href: '/tools/mmm-pool-lookup' },
+      { label: 'OFFER ACCEPT',          href: '/tools/me-sell' },
       { label: 'GHOST BID',             href: '/tools/ghostbid' },
     ],
   },
@@ -742,12 +832,14 @@ const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
       { label: 'HOLDERS',              href: '/tools/holders' },
       { label: 'COLLECTION',           href: '/tools/collection-analyzer' },
       { label: 'RARE',                 href: '/tools/rare-feed' },
+      { label: 'ME REFRESH',           href: '/tools/me-collection-refresh' },
     ],
   },
   {
     label: 'Minting', color: '#f472b6',
     items: [
       { label: 'CANDYMINT', href: '/tools/candy-mint' },
+      { label: 'CREATEV2', href: '/tools/create-v2' },
       { label: 'CRITTERS TIMER', href: '/tools/critters-mint-timer' },
       { label: 'VVV STAGES', href: '/tools/vvv' },
     ],
@@ -814,7 +906,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/vvv', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/me-sell', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/me-collection-refresh', '/tools/vvv', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);

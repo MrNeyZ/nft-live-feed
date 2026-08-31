@@ -2526,59 +2526,151 @@ a.vl-srcchip{ cursor:pointer; }
   box-shadow: 0 3px 10px -4px rgba(192, 57, 43, 0.45);
 }
 
-/* ===== /tools/vvv — stage rows =====
-   Single JSX tree, no separate mobile render path: `.vvv-stage-row-top` /
-   `-bottom` are flex rows that wrap+reverse to a stacked card below the
-   tablet boundary (matches src/lib/breakpoints.ts tabletMax). Keeps every
-   field (name/status/price/minted/cap/wallet-limit/window/eligibility)
-   present at every width — narrow screens stack instead of losing data. */
-.vvv-stage-row {
-  padding: 12px 14px;
-  border-radius: 9px;
-  border: 1px solid rgb(var(--vl-purple-tint) / 0.14);
-  background: rgba(255, 255, 255, 0.015);
-  position: relative;
-  transition: transform 200ms ease-out, background 200ms ease-out, border-color 200ms ease-out, opacity 180ms ease-out;
-}
-.vvv-stage-row + .vvv-stage-row { margin-top: 8px; }
-/* Same lift+ring+glow recipe as `.feed-card:hover` (globals.css ~L929) —
-   requested explicitly over the row's previous left-border-fade hover,
-   which read as too weak. Byte-identical values, own selector (not
-   shared with the live feed's :has() cross-dim behavior). */
-.vvv-stage-row:hover {
-  transform: translateY(-1px) scale(1.005);
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgb(var(--vl-purple-tint) / var(--hover-ring-alpha, 0.40));
-  box-shadow:
-    0 0 0 1px rgb(var(--vl-purple-tint) / var(--hover-ring-alpha, 0.40)) inset,
-    0 0 var(--hover-glow-blur, 18px) rgb(var(--vl-purple-deep) / var(--hover-glow-alpha, 0.22));
-  z-index: 1;
-}
-.vvv-stage-row--live {
-  border-left: 2px solid var(--vl-green-primary);
-  background: rgb(var(--vl-green) / 0.045);
-}
-.vvv-stage-row--upcoming { border-left: 2px solid var(--vl-gold-primary); }
-.vvv-stage-row--ended { opacity: 0.5; }
-.vvv-stage-row--ended:hover { opacity: 0.85; }
+/* ===== /tools/vvv — MINT STAGES ============================================
+   Structural redesign (not a padding pass): 13 stages used to render as 13
+   independent bordered/rounded cards with status conveyed by a left border +
+   background tint and PRICE/MINTED/LIMIT labels repeated inside every row —
+   a lot of chrome for sparse content, and a visually dead ~300px gap between
+   the left identity block and the metrics pinned to the far right edge.
 
-.vvv-stage-row-top,
-.vvv-stage-row-bottom {
-  display: flex;
+   Now: one shared panel (`.vvv-stages-panel`, reuses the app's PANEL
+   surface) containing a single column header (`.vvv-stages-header`) and a
+   list of hairline-separated rows — no per-row border/radius/background box.
+   STATUS/STAGE/WINDOW/PRICE/MINTED/LIMIT are CSS Grid areas so every row
+   shares the exact same column positions as the header (`.vvv-stage-row`'s
+   grid-template-columns MUST stay in sync with `.vvv-stages-header`'s — both
+   are annotated below). Eligibility is a second grid row under STAGE/WINDOW/
+   metrics (indented past STATUS) — quiet single line for generic allowlist
+   stages, wraps to 2 lines only for multi-condition stages (TRINITY-style),
+   so row height is NOT uniform: simple stages stay compact, complex ones
+   grow only as much as their content needs.
+
+   Mobile (≤768px, matches src/lib/breakpoints.ts tabletMax) redefines the
+   SAME grid-area names onto a 3-column stacked template instead of hiding/
+   duplicating markup — see the media query at the bottom. */
+
+/* Contrast pass: the panel previously filled with `--vl-gray-surface`
+   (#1A1530 — noticeably purple) behind every row, so the whole dense
+   list read as one large violet rectangle instead of body content sitting
+   IN the terminal. Body now sits close to the page's own near-black
+   (`--vl-gray-base` #08060C) with only a hairline neutral lift for
+   "subtly elevated" — purple is reserved for the border/header/hover
+   accents below, not the fill. */
+.vvv-stages-panel {
+  border-radius: 10px;
+  border: 1px solid rgb(var(--vl-purple-tint) / 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, rgba(255, 255, 255, 0.004) 100%), var(--vl-gray-base);
+  overflow: hidden;
+}
+
+/* Column template — KEEP IN SYNC with `.vvv-stage-row` below. */
+.vvv-stages-header {
+  display: grid;
+  grid-template-columns: 58px minmax(180px, 1fr) 96px 62px 86px 82px;
+  gap: 16px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgb(var(--vl-purple-tint) / 0.20);
+  /* Header keeps a deliberate, visible violet tint — the one place
+     purple is meant to read, establishing hierarchy over the darker
+     body rows below it. */
+  background: rgb(var(--vl-purple-tint) / 0.05);
 }
-.vvv-stage-row-bottom {
-  margin-top: 7px;
-  padding-top: 7px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+.vvv-stages-header > span:nth-child(4),
+.vvv-stages-header > span:nth-child(5),
+.vvv-stages-header > span:nth-child(6) { text-align: right; }
+
+.vvv-stages-list { display: flex; flex-direction: column; }
+
+.vvv-stage-row {
+  display: grid;
+  /* Same 6 columns as `.vvv-stages-header`, plus a 2nd row for eligibility
+     (indented — the leading "." leaves the STATUS column empty on that
+     row so eligibility text visually sits under the stage name). */
+  grid-template-columns: 58px minmax(180px, 1fr) 96px 62px 86px 82px;
+  grid-template-areas:
+    "status stage  window price  minted limit"
+    ".      elig   elig   elig   elig   elig";
+  column-gap: 16px;
+  row-gap: 3px;
+  padding: 8px 12px;
+  position: relative;
+  transition: background 0.14s ease-out;
+}
+.vvv-stages-list > .vvv-stage-row + .vvv-stage-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+}
+/* Hover reads as violet (the one accent moment on an otherwise neutral
+   row) rather than a flat white lift. LIVE/UPCOMING carry zero row-wide
+   tint now — the StatusDot (dot + colored label) is the only signal;
+   painting the whole row green/gold again was the earlier complaint. */
+.vvv-stage-row:hover { background: rgb(var(--vl-purple-tint) / 0.055); }
+/* Was `opacity: 0.55` on the whole row — that's opacity on a container
+   that holds text, which is exactly the anti-pattern that makes a page
+   read as washed-out (it dims the stage name, price, every value, not
+   just the status). ENDED is now differentiated ONLY by its status-dot
+   color (already muted, see STATUS_META in page.tsx) — everything else
+   in the row keeps full contrast. */
+.vvv-cell-status { grid-area: status; display: flex; align-items: center; justify-content: center; min-width: 0; }
+.vvv-cell-stage {
+  grid-area: stage; min-width: 0; display: flex; align-items: center;
+  font-size: 13px; font-weight: 700; color: var(--vl-text-primary); letter-spacing: -0.1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vvv-stage-row--ended .vvv-cell-stage { color: var(--vl-text-muted); }
+.vvv-cell-window {
+  grid-area: window; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-family: 'SF Mono','Fira Code',monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vvv-window-main { display: flex; align-items: baseline; gap: 5px; }
+/* Date and time used to render as one undifferentiated run of digits
+   ("18.08 18:00") — hard to parse at a glance. Date is now a visibly
+   smaller/dimmer prefix; time keeps its exact prior size/color (10.5px,
+   --vl-text-muted) unchanged on purpose. */
+.vvv-window-date { font-size: 9px; color: #63637A; }
+.vvv-window-time { font-size: 10.5px; color: var(--vl-text-muted); }
+/* Countdown — UPCOMING rows only. Gold to tie back to the UPCOMING status
+   dot's color. This is the one case a row grows a 2nd line in this cell —
+   consistent with the eligibility row already making complex stages
+   taller than simple ones; row height was never meant to be perfectly
+   uniform, just not padded out for its own sake. */
+.vvv-window-countdown { font-size: 9px; font-weight: 700; letter-spacing: 0.2px; color: var(--vl-gold-primary); }
+.vvv-cell-price  { grid-area: price;  min-width: 0; }
+.vvv-cell-minted { grid-area: minted; min-width: 0; }
+.vvv-cell-limit  { grid-area: limit;  min-width: 0; }
+.vvv-cell-elig   { grid-area: elig;   min-width: 0; display: flex; align-items: center; }
+
+/* Per-row metric labels (PRICE/MINTED/LIMIT) are redundant on desktop —
+   `.vvv-stages-header` says it once for the whole list. Shown again on
+   mobile, where each stage is a standalone stacked block with no shared
+   header to lean on. */
+.vvv-metric-label { display: none; }
+
+@media (max-width: 768px) {
+  .vvv-stages-header { display: none; }
+  .vvv-metric-label { display: block; }
+
+  .vvv-stage-row {
+    grid-template-columns: auto 1fr 1fr;
+    grid-template-areas:
+      "status stage  stage"
+      "price  minted limit"
+      "window window window"
+      "elig   elig   elig";
+    row-gap: 5px;
+    column-gap: 10px;
+    padding: 10px 12px;
+  }
+  .vvv-cell-window { white-space: normal; }
 }
 
+/* ===== /tools/vvv — toolbar icon button ===================================
+   Refresh — deliberately smaller/quieter than the primary CTA button next
+   to it (ghost fill, no label, muted color until hover). */
 .vvv-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: 36px; height: 36px; flex-shrink: 0;
   border-radius: 7px; cursor: pointer;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgb(var(--vl-purple-tint) / 0.24);
@@ -2594,12 +2686,3 @@ a.vl-srcchip{ cursor:pointer; }
 .vvv-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .vvv-icon-btn--spin svg { animation: vvv-spin 0.9s linear infinite; }
 @keyframes vvv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-@media (max-width: 768px) {
-  .vvv-stage-row-top,
-  .vvv-stage-row-bottom {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-}
