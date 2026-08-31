@@ -714,7 +714,7 @@ const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
       { label: 'SOLANART',              href: '/tools/solanart-accept-offer' },
       { label: 'SOLSEA',                href: '/tools/solsea-accept-bid' },
       { label: 'POOL LOOKUP',           href: '/tools/mmm-pool-lookup' },
-      { label: 'BID LIST',              href: '/tools/bid-list' },
+      { label: 'GHOST BID',             href: '/tools/ghostbid' },
     ],
   },
   {
@@ -814,7 +814,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/bid-list', '/tools/critters-mint-timer', '/tools/vvv', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/vvv', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);

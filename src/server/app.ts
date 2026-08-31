@@ -38,7 +38,7 @@ import { createTensorTakeBidRouter } from './tools-tensor-take-bid';
 import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
 import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
 import { createSolseaAcceptBidRouter } from './tools-solsea-accept-bid';
-import { createBidListRouter } from './tools-bid-list';
+import { createGhostBidRouter } from './tools-ghostbid';
 import { createCrittersMintTimerRouter, startCrittersMintTimerRefreshLoop } from './tools-critters-mint-timer';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
@@ -298,10 +298,9 @@ export function createApp() {
   // frontend has been dead since ~2022. Native-SOL bids only for now.
   app.use('/api', createSolseaAcceptBidRouter());
 
-  // Bid List — static snapshot of forgotten Solanart/SolSea bids sitting on
-  // NFTs currently held by real, active personal wallets. Read-only, see
-  // tools-bid-list.ts header comment.
-  app.use('/api', createBidListRouter());
+  // Ghost Bid — forgotten M2/Solanart bids ranked by profit, with an
+  // on-demand live escrow-balance refresh. See tools-ghostbid.ts header.
+  app.use('/api', createGhostBidRouter());
 
   // Critters.quest mint timer — read-only catalog of upcoming cheap NFT
   // edition mints. No wallet/signing here; the actual sniper bot lives on

@@ -37,7 +37,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
       { href: '/tools/solanart-accept-offer', title: 'Solanart',              desc: 'Accept a funded 2021-2022 Solanart bid directly on-chain — the marketplace itself has been dead since ~2022.' },
       { href: '/tools/solsea-accept-bid',     title: 'SolSea',                desc: 'Accept a funded SolSea bid directly on-chain — native SOL bids only, the marketplace frontend/API is dead.' },
       { href: '/tools/mmm-pool-lookup',       title: 'MMM Pool Lookup',       desc: 'Look up a pool, connect a wallet, accept a bid directly.' },
-      { href: '/tools/bid-list',              title: 'Bid List',              desc: 'Forgotten Solanart/SolSea bids sitting on NFTs held by real active wallets — marketplace escrows and locked/delegated NFTs filtered out.' },
+      { href: '/tools/ghostbid',              title: 'Ghost Bid',             desc: 'Forgotten M2 + Solanart bids ranked by profit — Refresh re-checks live escrow balances (ME shared escrow, Solanart self-funded) and re-ranks.' },
     ],
   },
   {
