@@ -2070,11 +2070,19 @@ export async function ingestMintRaw(
               priceLamports,
               ...paymentFieldsFrom(tx),
               minter:            v2.minter,
-              // Authority-gated direct CreateV2 (collection authority
-              // co-signed, e.g. LMNFT pack-reveal mints) gets its own
-              // `Pack` label → gold PACK badge. Plain bare mints keep
-              // the existing `Metaplex Core` label → CORE badge.
-              sourceLabel:       v2.authorityGated ? 'Pack' : 'Metaplex Core',
+              // `authorityGated` (collection authority co-signed) was
+              // assumed unique to LMNFT pack-reveal mints and used to
+              // pick the gold PACK badge. False: the same signal fires
+              // for ordinary LMNFT hidden/gated direct mints, since the
+              // co-signer is often a platform-shared delegate wallet
+              // reused across unrelated collections (confirmed live:
+              // BJQik5cKC29xM2oHHfKyeN5AFYVJvFwH57eHRvPyxmEL co-signs
+              // both "CarBox Core Collection" and "Car Core Collection"
+              // mints — two different projects, neither a pack product).
+              // Not a reliable pack indicator; always use the plain
+              // `Metaplex Core` label until a real pack-specific signal
+              // is found.
+              sourceLabel:       'Metaplex Core',
             });
             if (emitted) enqueueMintEnrichment(groupingKey, v2.mintAddress);
             // Parser already supplied a collection address. Schedule
