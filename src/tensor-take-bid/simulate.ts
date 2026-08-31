@@ -52,6 +52,7 @@ export async function simulateTakeBidTx(
           sigVerify: false,
           replaceRecentBlockhash: true,
           commitment: 'processed',
+          maxSupportedTransactionVersion: 0,
           accounts: { encoding: 'base64', addresses: [seller] },
         },
       ],

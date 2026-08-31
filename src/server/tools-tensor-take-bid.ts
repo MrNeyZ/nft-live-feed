@@ -19,8 +19,16 @@
  * gate) — this endpoint is not meant to be reachable by anyone outside the
  * operator's own allowed wallet.
  *
+ *   GET  /api/tools/tensor-take-bid/resolve    ?asset=&bidder=
  *   POST /api/tools/tensor-take-bid/build     { bidState, asset, wallet, priority?, compute? }
  *   POST /api/tools/tensor-take-bid/simulate  { transactionBase64, wallet }
+ *
+ * /resolve looks up the live bidState PDA for a (mint, bidder) pair via
+ * Tensor's `collections/nft_bids` endpoint (same one used for the forgotten-
+ * bid scan this tool feeds off of), so the caller only needs the two things
+ * a discovery scan actually produces — the NFT and who placed the bid — same
+ * shape as /tools/me-sell's mint+buyer entry point, instead of having to
+ * separately go find the bidState account address by hand.
  */
 
 import { Router, Request, Response } from 'express';
@@ -29,16 +37,62 @@ import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
 import { buildTakeBidTx } from '../tensor-take-bid/build';
 import { simulateTakeBidTx } from '../tensor-take-bid/simulate';
+import { tensorFetch } from './listings-store';
 
 function isValidPubkey(s: unknown): s is string {
   if (typeof s !== 'string') return false;
   try { new PublicKey(s); return true; } catch { return false; }
 }
 
+interface TensorNftBid {
+  address: string;
+  bidder: string;
+  expiry: string;
+  margin: string | null;
+  price: string;
+  validFrom: string;
+}
+
 export function createTensorTakeBidRouter(): Router {
   const router = Router();
+  const resolveLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/tensor-take-bid/resolve' });
   const buildLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/tensor-take-bid/build' });
   const simulateLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/tensor-take-bid/simulate' });
+
+  router.get('/tools/tensor-take-bid/resolve', resolveLimit, requireAuth, async (req: Request, res: Response) => {
+    try {
+      const asset = req.query.asset;
+      const bidder = req.query.bidder;
+      if (!isValidPubkey(asset) || !isValidPubkey(bidder)) {
+        return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
+      }
+      if (!process.env.TENSOR_API_KEY) {
+        return res.status(502).json({ ok: false, error: 'tensor_api_key_not_configured' });
+      }
+      const tr = await tensorFetch(
+        `https://api.mainnet.tensordev.io/api/v1/collections/nft_bids?mints=${encodeURIComponent(asset)}&limit=50`,
+      );
+      if (!tr.ok) {
+        return res.status(502).json({ ok: false, error: `tensor_nft_bids_http_${tr.status}` });
+      }
+      const body = await tr.json() as Array<{ mint: string; bids: TensorNftBid[] }>;
+      const entry = body.find((e) => e.mint === asset);
+      const bid = entry?.bids.find((b) => b.bidder === bidder);
+      if (!bid) {
+        return res.status(404).json({ ok: false, error: 'no_live_bid_from_this_bidder_on_this_asset' });
+      }
+      return res.json({
+        ok: true,
+        bidState: bid.address,
+        priceSol: Number(bid.price) / 1e9,
+        expiryUnix: Math.floor(new Date(bid.expiry).getTime() / 1000),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/tensor-take-bid] resolve error', msg);
+      return res.status(502).json({ ok: false, error: msg });
+    }
+  });
 
   router.post('/tools/tensor-take-bid/build', buildLimit, requireAuth, async (req: Request, res: Response) => {
     try {

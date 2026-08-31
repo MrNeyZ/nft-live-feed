@@ -25,7 +25,10 @@
  */
 
 import * as anchor from '@coral-xyz/anchor';
-import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import {
+  AddressLookupTableAccount, Connection, Keypair, PublicKey,
+  TransactionInstruction, TransactionMessage, VersionedTransaction,
+} from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
 import { TCompSDK } from '@tensor-oss/tcomp-sdk';
 import BN from 'bn.js';
@@ -33,6 +36,23 @@ import { simulateTakeBidTx } from './simulate';
 
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const MPL_CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
+
+// Shared Address Lookup Table holding the program IDs that appear
+// identically in every take-bid tx (TCOMP, TensorSwap, Token Metadata,
+// Auth Rules, SPL Token(+2022), ATA, System, Instructions sysvar, MPL
+// Core) — compresses each from 32 bytes to a 1-byte index so legacy/pNFT
+// take-bid txs (which carry ~30 accounts) fit under Solana's 1232-byte
+// wire limit. Created once (2026-08-15), read-only from here on; no
+// per-request setup cost. See tensor-takebid-tool/infra/create-alt.js.
+const TAKE_BID_ALT_ADDRESS = new PublicKey('GEYwX8PAdQghWef4zUD4RWwpGn3zWYx4REDPxuG9SrFU');
+let cachedAlt: AddressLookupTableAccount | null = null;
+async function getTakeBidAlt(connection: Connection): Promise<AddressLookupTableAccount> {
+  if (cachedAlt) return cachedAlt;
+  const res = await connection.getAddressLookupTable(TAKE_BID_ALT_ADDRESS);
+  if (!res.value) throw new Error('take_bid_alt_not_found');
+  cachedAlt = res.value;
+  return cachedAlt;
+}
 
 function rpcUrl(): string {
   const key = process.env.HELIUS_API_KEY;
@@ -183,10 +203,22 @@ export async function buildTakeBidTx(opts: {
 
     const buildIxs = isCore ? buildCoreIxs : buildLegacyIxs;
 
+    // Versioned (v0) tx referencing the shared ALT (see top of file) instead
+    // of a legacy Transaction — legacy/pNFT take-bid carries ~30 accounts
+    // and blows past Solana's 1232-byte wire limit ("Transaction too large")
+    // without the ~250 bytes the ALT saves by compressing the constant
+    // program-ID accounts. Frontend's signSendAndConfirm already
+    // auto-detects versioned vs legacy, no client change needed.
     async function serialize(ixs: TransactionInstruction[]): Promise<{ txBase64: string; blockhash: string; lastValidBlockHeight: number }> {
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-      const transaction = new Transaction({ feePayer: seller, blockhash, lastValidBlockHeight }).add(...ixs);
-      const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+      const alt = await getTakeBidAlt(connection);
+      const message = new TransactionMessage({
+        payerKey: seller,
+        recentBlockhash: blockhash,
+        instructions: ixs,
+      }).compileToV0Message([alt]);
+      const transaction = new VersionedTransaction(message);
+      const serialized = Buffer.from(transaction.serialize());
       return { txBase64: serialized.toString('base64'), blockhash, lastValidBlockHeight };
     }
 

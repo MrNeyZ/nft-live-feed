@@ -15,8 +15,10 @@
 // Same connect -> paste -> build -> sign flow rhythm as the other /tools
 // wallet-signing pages (candy-mint, mmm-pool-lookup), using the shared
 // PANEL/ToolTextInput/CtaButton utility chrome rather than a launchpad-drop
-// hero — this tool's input shape (a specific bidState + asset pair, no
-// quantity/collection-browsing concept) doesn't map onto that layout.
+// hero — this tool's input shape (asset + bidder, same mint+buyer entry
+// point as /tools/me-sell) doesn't map onto that layout. bidState itself is
+// resolved server-side from the (asset, bidder) pair via /resolve, not typed
+// in directly — see tools-tensor-take-bid.ts.
 
 import { useEffect, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
@@ -59,7 +61,8 @@ function humanizeError(message: string): string {
   const m = message.toLowerCase();
   if (m.includes('bid_already_fully_filled')) return 'This bid is already fully filled — nothing left to take.';
   if (m.includes('asset_account_not_found')) return 'Asset account not found on-chain — check the mint address.';
-  if (m.includes('missing_or_invalid_fields')) return 'Enter a valid Bid State address and Asset (NFT mint) address.';
+  if (m.includes('missing_or_invalid_fields')) return 'Enter a valid Asset (NFT mint) address and Bidder wallet address.';
+  if (m.includes('no_live_bid_from_this_bidder_on_this_asset')) return 'No live bid found from that bidder on that asset — check both addresses, or the bid may have expired/been cancelled.';
   if (m.includes('insufficient')) return 'Not enough SOL to cover network fees.';
   if (m.includes('user rejected') || m.includes('rejected the request')) return 'Transaction cancelled.';
   if (m.includes('blockhash not found') || m.includes('block height exceeded')) {
@@ -73,7 +76,7 @@ export default function TensorTakeBidPage() {
   useEffect(() => { document.title = 'Tensor Take Bid | VictoryLabs'; }, []);
 
   const [wallet, setWallet] = useState<string | null>(null);
-  const [bidState, setBidState] = useState('');
+  const [bidder, setBidder] = useState('');
   const [asset, setAsset] = useState('');
   const [flow, setFlow] = useState<FlowState>({ kind: 'idle' });
   const [now, setNow] = useState(() => Date.now());
@@ -106,13 +109,22 @@ export default function TensorTakeBidPage() {
   }
 
   async function handleBuild() {
-    if (!wallet || !ADDR_RE.test(bidState.trim()) || !ADDR_RE.test(asset.trim())) return;
+    if (!wallet || !ADDR_RE.test(bidder.trim()) || !ADDR_RE.test(asset.trim())) return;
     setFlow({ kind: 'building' });
     try {
+      const resolveR = await fetch(
+        `${API_BASE}/api/tools/tensor-take-bid/resolve?asset=${encodeURIComponent(asset.trim())}&bidder=${encodeURIComponent(bidder.trim())}`,
+        { headers: { ...authHeaders() } },
+      );
+      const resolveJ = await resolveR.json() as { ok: boolean; bidState?: string; error?: string };
+      if (!resolveR.ok || !resolveJ.ok || !resolveJ.bidState) {
+        setFlow({ kind: 'error', message: humanizeError(resolveJ.error ?? `resolve failed (HTTP ${resolveR.status})`) });
+        return;
+      }
       const r = await fetch(`${API_BASE}/api/tools/tensor-take-bid/build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ bidState: bidState.trim(), asset: asset.trim(), wallet }),
+        body: JSON.stringify({ bidState: resolveJ.bidState, asset: asset.trim(), wallet }),
       });
       const j = await r.json() as { ok: boolean; txBase64?: string; bidInfo?: TakeBidInfo; error?: string };
       if (!j.ok || !j.txBase64 || !j.bidInfo) {
@@ -156,7 +168,7 @@ export default function TensorTakeBidPage() {
   }
 
   const busy = flow.kind === 'building' || flow.kind === 'signing';
-  const inputsValid = ADDR_RE.test(bidState.trim()) && ADDR_RE.test(asset.trim());
+  const inputsValid = ADDR_RE.test(bidder.trim()) && ADDR_RE.test(asset.trim());
   const blockhashAgeMs = flow.kind === 'ready' ? now - flow.builtAtMs : 0;
   const blockhashStale = flow.kind === 'ready' && blockhashAgeMs > BLOCKHASH_STALE_MS;
 
@@ -169,7 +181,7 @@ export default function TensorTakeBidPage() {
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, fontSize: 11, color: VLText.muted }}>
             <LiveDot />
-            <span>accept any live Tensor collection bid — reads live chain state, no API key needed</span>
+            <span>accept any live Tensor bid (collection or personal) — paste mint + bidder wallet</span>
           </div>
         </div>
         {wallet ? (
@@ -181,23 +193,23 @@ export default function TensorTakeBidPage() {
 
       <div style={{ ...PANEL, padding: 16 }}>
         <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: VLText.muted, marginBottom: 6 }}>
-          Bid State account
-        </label>
-        <ToolTextInput
-          value={bidState}
-          onChange={(e) => setBidState(e.target.value)}
-          placeholder="the specific bid you're taking"
-          disabled={busy}
-          style={{ width: '100%' }}
-        />
-
-        <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: VLText.muted, marginTop: 14, marginBottom: 6 }}>
-          Asset (NFT mint you're selling)
+          Asset (NFT mint you&apos;re selling)
         </label>
         <ToolTextInput
           value={asset}
           onChange={(e) => setAsset(e.target.value)}
           placeholder="the asset mint address (Core or legacy/pNFT)"
+          disabled={busy}
+          style={{ width: '100%' }}
+        />
+
+        <label style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.5px', textTransform: 'uppercase', color: VLText.muted, marginTop: 14, marginBottom: 6 }}>
+          Bidder wallet (who placed the offer)
+        </label>
+        <ToolTextInput
+          value={bidder}
+          onChange={(e) => setBidder(e.target.value)}
+          placeholder="the wallet that placed the bid"
           disabled={busy}
           style={{ width: '100%' }}
         />
@@ -208,7 +220,7 @@ export default function TensorTakeBidPage() {
             disabled={!wallet || busy || !inputsValid}
             big
           >
-            {flow.kind === 'building' ? 'reading live bid…' : 'Build'}
+            {flow.kind === 'building' ? 'resolving bid + building…' : 'Build'}
           </CtaButton>
           {!wallet && (
             <span style={{ marginLeft: 10, fontSize: 11, color: VLText.faint }}>connect a wallet first</span>
