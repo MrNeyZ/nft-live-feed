@@ -654,8 +654,9 @@ export function MktIconBadge({ mp, href }: { mp: Marketplace; href?: string | nu
   // the text `ORBIS` badge instead of rendering a broken image.
   const [imgFailed, setImgFailed] = useState(false);
   const src = mp === 'me' ? '/brand/me.png'
-    : mp === 'tensor' ? '/brand/tensor.png'
-    : mp === 'orbis'  ? '/brand/orbis.png'
+    : mp === 'tensor'  ? '/brand/tensor.png'
+    : mp === 'orbis'   ? '/brand/orbis.png'
+    : mp === 'opensea' ? '/brand/opensea.png'
     : null;
   if (!src || imgFailed) return <MktBadge mp={mp} href={href} />;
   const chip: React.CSSProperties = {
@@ -705,8 +706,15 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
     background: '#2bb6a320', color: '#5fd6c4', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
-  const style = mp === 'me' ? meStyle : mp === 'orbis' ? oStyle : tStyle;
-  const label = mp === 'me' ? 'ME' : mp === 'orbis' ? 'ORBIS' : 'T';
+  // OpenSea — brand blue (#2081E2), same chrome as the others.
+  const osStyle = {
+    display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
+    padding: '1px 6px', borderRadius: 3, border: '1px solid #2081e248',
+    background: '#2081e220', color: '#5ba8ec', letterSpacing: '0.2px',
+    flexShrink: 0, lineHeight: '14px',
+  } as const;
+  const style = mp === 'me' ? meStyle : mp === 'orbis' ? oStyle : mp === 'opensea' ? osStyle : tStyle;
+  const label = mp === 'me' ? 'ME' : mp === 'orbis' ? 'ORBIS' : mp === 'opensea' ? 'OS' : 'T';
   if (href) {
     return (
       <a

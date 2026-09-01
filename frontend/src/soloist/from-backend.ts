@@ -32,6 +32,7 @@ function collectionMeta(name: string | null): { abbr: string; color: string } {
 function mapMarketplace(mp: string): Marketplace {
   if (mp === 'tensor' || mp === 'tensor_amm') return 'tensor';
   if (mp === 'orbis') return 'orbis';
+  if (mp === 'opensea') return 'opensea';
   return 'me';
 }
 
@@ -166,6 +167,12 @@ export function marketplaceUrl(event: FeedEvent): string | null {
     const orbisSlug = name ? toOrbisSlug(name) : '';
     if (orbisSlug) return `https://www.orbisonsol.io/marketplace/${orbisSlug}`;
     return null;
+  }
+  // OpenSea (OS2) — no collection-slug enrichment yet, so mint → item page
+  // is the only reliable link; bare opensea.io as the last resort.
+  if (event.marketplace === 'opensea') {
+    if (event.mintAddress) return `https://opensea.io/assets/solana/${event.mintAddress}`;
+    return 'https://opensea.io';
   }
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
   // bare ME homepage as the last resort so the badge always links somewhere

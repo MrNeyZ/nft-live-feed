@@ -91,10 +91,11 @@ const DENSITY_COLORS: Record<Density, string> = {
   compact: 'var(--vl-purple-tint)', // purple — default
   tape:    '#5fa8e6', // blue   — dense/fast
 };
-const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis', string> = {
-  me:     hex(VL.pink), // pink — MagicEden
-  tensor: '#a0a0a8', // gray — Tensor
-  orbis:  '#5fa8e6', // blue — Orbis
+const MARKET_COLORS: Record<'me' | 'tensor' | 'orbis' | 'opensea', string> = {
+  me:      hex(VL.pink), // pink — MagicEden
+  tensor:  '#a0a0a8', // gray — Tensor
+  orbis:   '#5fa8e6', // blue — Orbis
+  opensea: '#2081e2', // brand blue — OpenSea
 };
 
 
@@ -212,7 +213,7 @@ export default function FeedPage() {
   // single-select behavior of these three filters.
   const [typeSet, setTypeSet] = useState<Set<TypeKey>>(() => new Set());
   const [priceSet, setPriceSet] = useState<Set<'p001' | 'p01' | 'p1'>>(() => new Set());
-  const [marketSet, setMarketSet] = useState<Set<'me' | 'tensor' | 'orbis'>>(() => new Set());
+  const [marketSet, setMarketSet] = useState<Set<'me' | 'tensor' | 'orbis' | 'opensea'>>(() => new Set());
   // Generic toggle for a Set-valued multi-select filter.
   function toggleInSet<T>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, key: T) {
     setter(prev => {
@@ -867,7 +868,7 @@ export default function FeedPage() {
       if (candidate < minThreshold) return false;
     }
     // Marketplace gate — empty set = all. OR across selected marketplaces.
-    if (marketSet.size > 0 && !marketSet.has(e.marketplace as 'me' | 'tensor' | 'orbis')) return false;
+    if (marketSet.size > 0 && !marketSet.has(e.marketplace as 'me' | 'tensor' | 'orbis' | 'opensea')) return false;
     // Type gate — empty set = all types. Map the raw sale type to a pill key
     // and require membership. Listings aren't emitted by the backend, so a
     // listings-only selection (no key matches) shows nothing — unchanged.
@@ -1116,9 +1117,10 @@ export default function FeedPage() {
                         <span className="feed-srow-lbl">Market</span>
                         <div className="feed-srow-ctl feed-seg">
                           {([
-                            { key: 'me',     label: 'MagicEden'  },
-                            { key: 'tensor', label: 'Tensor'     },
-                            { key: 'orbis',  label: 'Orbis'      },
+                            { key: 'me',      label: 'MagicEden' },
+                            { key: 'tensor',  label: 'Tensor'    },
+                            { key: 'orbis',   label: 'Orbis'     },
+                            { key: 'opensea', label: 'OpenSea'   },
                           ] as const).map(m => {
                             const isActive = marketSet.has(m.key);
                             const mc = MARKET_COLORS[m.key];
