@@ -80,11 +80,20 @@ function allowedWallets(): Set<string> | null {
   return new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
 }
 
+// EventSource can't set custom headers, so the frontend's SSE scans
+// (mmm-pools triage-stream/pool-stream, offer-floor-sweep) pass the token
+// as `?token=` instead of an Authorization header — fall back to that when
+// no header is present. Confirmed live: pool-stream 401'd immediately with
+// `reason: "missing"` even with a fresh token because this fallback didn't
+// exist, so every EventSource-based scan on this server was unusable.
 function extractBearer(req: Request): string | null {
   const h = req.header('authorization') ?? req.header('Authorization');
-  if (!h) return null;
-  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
-  return m ? m[1].trim() : null;
+  if (h) {
+    const m = /^Bearer\s+(.+)$/i.exec(h.trim());
+    if (m) return m[1].trim();
+  }
+  const q = req.query['token'];
+  return typeof q === 'string' && q.length > 0 ? q : null;
 }
 
 // ── Signed-token auth ──────────────────────────────────────────────────────
