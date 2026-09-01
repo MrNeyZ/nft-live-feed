@@ -57,6 +57,9 @@ export function deriveSaleType(input: SaleTypeInput): SaleType {
   }
   // Orbis: only verified path is a delegate-mode listing buy → normal sale.
   if (parser === 'orbis_raw') return 'normal_sale';
+  if (parser === 'opensea_raw') {
+    return dir === 'takeBid' ? 'bid_sell' : 'normal_sale';
+  }
 
   // ── Helius fast-path hint ───────────────────────────────────────────────
   // ME's AMM bid system can emit saleType strings containing both "AMM" and

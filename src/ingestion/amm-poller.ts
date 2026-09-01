@@ -19,6 +19,8 @@ import { ingestMeRaw, rpcLimiterAbortQueued } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { ingestOrbisRaw } from './orbis-raw/ingest';
 import { ORBIS_PROGRAM } from './orbis-raw/programs';
+import { ingestOpenseaRaw } from './opensea-raw/ingest';
+import { OPENSEA_PROGRAM } from './opensea-raw/programs';
 import { getLastSig, setLastSig, clearLastSig } from '../db/poller-state';
 import { trace } from '../trace';
 import { Priority } from './concurrency';
@@ -51,6 +53,7 @@ const TARGETS: PollTarget[] = [
   { name: 'poll:tcomp', program: 'TCMPhJdwDryooaGtiocG1u3xcYbRpiJzb283XfCZsDp', ingest: ingestTensorRaw },
   { name: 'poll:tamm',  program: 'TAMM6ub33ij1mbetoMyVBLeKY5iP41i4UPUJQGkhfsg', ingest: ingestTensorRaw },
   { name: 'poll:orbis', program: ORBIS_PROGRAM,                                  ingest: ingestOrbisRaw  },
+  { name: 'poll:opensea', program: OPENSEA_PROGRAM,                              ingest: ingestOpenseaRaw },
 ];
 
 // Healthy-state sweep cadence. The poller is the AMM gap-healer/backstop —

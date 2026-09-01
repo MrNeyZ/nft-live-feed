@@ -18,6 +18,8 @@ import { ingestTensorRaw } from './tensor-raw/ingest';
 import { ingestOrbisRaw } from './orbis-raw/ingest';
 import { ORBIS_PROGRAM, ORBIS_SALE_INSTRUCTIONS } from './orbis-raw/programs';
 import { noteOrbisUncoveredFromLogs } from './orbis-raw/uncovered-watch';
+import { ingestOpenseaRaw } from './opensea-raw/ingest';
+import { OPENSEA_PROGRAM, OPENSEA_SALE_INSTRUCTIONS } from './opensea-raw/programs';
 import {
   ingestMintRaw,
   hasMintInstructionLog,
@@ -92,6 +94,16 @@ const TARGETS: Target[] = [
     name:    'orbis',
     program: ORBIS_PROGRAM,
     ingest:  ingestOrbisRaw,
+  },
+  {
+    // OpenSea (OS2) marketplace, live on Solana since ~2026-08-30. Own
+    // program (not a routing layer over ME/Tensor/Orbis) — see
+    // opensea-raw/programs.ts for how it was reverse-engineered/verified.
+    // Currently high-volume (~45 tx/h observed) — same prefilter shape as
+    // Tensor/Orbis sheds list/delist/edit/bid/cancel before RPC.
+    name:    'opensea',
+    program: OPENSEA_PROGRAM,
+    ingest:  ingestOpenseaRaw,
   },
   // ─── Mint targets ─────────────────────────────────────────────────────────
   // MPL Core: low-volume, allow both WS + cursor poll like sales programs.
@@ -715,6 +727,26 @@ function hasOrbisSaleInstruction(logs: unknown): boolean {
   return false;
 }
 
+// ─── OpenSea (OS2) log prefilter ────────────────────────────────────────────
+//
+// Same shape as the Tensor/Orbis prefilters: OS2 emits Anchor
+// `Instruction: <name>` log lines, so every non-sale tx (list/delist/edit/
+// bid/cancel/…) is shed before paying for getTransaction. Fail-OPEN when
+// logs are absent so a sale is never silently dropped.
+const OPENSEA_PREFILTER_TARGETS: ReadonlySet<string> = new Set(['opensea']);
+
+/** Scan WS logs for an OpenSea (OS2) sale Anchor instruction. Fail-open if logs absent. */
+function hasOpenseaSaleInstruction(logs: unknown): boolean {
+  if (!Array.isArray(logs) || logs.length === 0) return true;
+  for (const line of logs as string[]) {
+    const lower = (line ?? '').toLowerCase();
+    if (!lower.startsWith(LOG_IX_PREFIX)) continue;
+    const ix = lower.slice(LOG_IX_PREFIX.length);
+    if (OPENSEA_SALE_INSTRUCTIONS.has(ix)) return true;
+  }
+  return false;
+}
+
 // Per-target skip counters are routed into the aggregated [telemetry] line in
 // src/ingestion/telemetry.ts so the console stays at one summary line / min.
 
@@ -1005,6 +1037,21 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'orbis_no_sale_ix' });
         saleDebug('mark_fetched',   sig, { reason: 'orbis_prefilter_skip' });
+      }
+      markSeen(sig);
+      markSigFetched(sig);
+      return;
+    }
+
+    // OpenSea (OS2) log prefilter. Same deterministic Anchor-log basis as
+    // Tensor/Orbis — skip non-sale OS2 txs (list/delist/edit/bid/cancel/…)
+    // before fetchRawTx.
+    if (OPENSEA_PREFILTER_TARGETS.has(target.name) && !hasOpenseaSaleInstruction(value.logs)) {
+      stats.filtered++;
+      incPrefilterSkip();
+      if (isSigTarget(sig)) {
+        saleDebug('prefilter_skip', sig, { program: target.name, reason: 'opensea_no_sale_ix' });
+        saleDebug('mark_fetched',   sig, { reason: 'opensea_prefilter_skip' });
       }
       markSeen(sig);
       markSigFetched(sig);
