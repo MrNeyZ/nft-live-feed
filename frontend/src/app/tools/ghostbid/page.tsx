@@ -8,8 +8,8 @@
 // sitting on NFTs currently held by real wallets. Same criteria/columns as
 // the manually-built forgotten-bids top-100 table (see
 // forgotten-bids-2026-08-25/ on the research VPS): rank by profit, one row
-// per bid, identity columns (sns/matrica/discord/twitter/pumpfun/me) filled
-// where a 5-source scan found a match, ME rows tagged when 2+ share one
+// per bid, identity columns (sns/matrica/discord/twitter/pumpfun/me/galxe)
+// filled where a multi-source scan found a match, ME rows tagged when 2+ share one
 // buyer's escrow (only the first accepted actually pays — the rest drain
 // to zero).
 //
@@ -51,6 +51,7 @@ interface GhostBidRow {
   twitter: string | null;
   pumpfun: string | null;
   me: string | null;
+  galxe: string | null;
 }
 interface ApiResult {
   ok: true;
@@ -61,7 +62,7 @@ interface ApiResult {
   checked?: { meBuyers: number; meResolved: number; solanartAccounts: number; solanartResolved: number; owners: number; ownerActivityResolved: number };
 }
 
-type SortCol = 'profit' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me';
+type SortCol = 'profit' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
 
 // Deterministic color per shared-escrow buyer — same buyer always gets the
 // same dot, distinct buyers get visibly distinct hues (matches the
@@ -244,7 +245,7 @@ export default function GhostBidPage() {
   // keeps each list's cached/live-refreshed state independently.
   const [activeList, setActiveList] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const [listMenuOpen, setListMenuOpen] = useState(false);
-  const LIST_COUNTS: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = { 1: 100, 2: 100, 3: 100, 4: 100, 5: 100, 6: 100, 7: 100, 8: 57 };
+  const LIST_COUNTS: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = { 1: 96, 2: 94, 3: 95, 4: 95, 5: 91, 6: 91, 7: 95, 8: 47 };
 
   const load = useCallback(() => {
     setBusy(true);
@@ -319,7 +320,7 @@ export default function GhostBidPage() {
       if (marketplaceFilter !== 'all' && r.marketplace !== marketplaceFilter) return false;
       if (groupedOnly && !r.sharedEscrowGroup) return false;
       if (q) {
-        const hay = `${r.nft} ${r.mint} ${r.owner} ${r.sns ?? ''} ${r.matrica ?? ''} ${r.discord ?? ''} ${r.twitter ?? ''} ${r.pumpfun ?? ''} ${r.me ?? ''}`.toLowerCase();
+        const hay = `${r.nft} ${r.mint} ${r.owner} ${r.sns ?? ''} ${r.matrica ?? ''} ${r.discord ?? ''} ${r.twitter ?? ''} ${r.pumpfun ?? ''} ${r.me ?? ''} ${r.galxe ?? ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -331,6 +332,7 @@ export default function GhostBidPage() {
         case 'social':  return (r.twitter || r.discord) ? 1 : 0;
         case 'pumpfun': return r.pumpfun ? 1 : 0;
         case 'me':      return r.me ? 1 : 0;
+        case 'galxe':   return r.galxe ? 1 : 0;
         default:        return 0;
       }
     };
@@ -497,7 +499,7 @@ export default function GhostBidPage() {
                     short, centered content in every column. Sizing the
                     table to its actual content width and letting it sit
                     left-aligned in the panel fixes that outright. */}
-                <table style={{ width: 1320, borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+                <table style={{ width: 1430, borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
                   <colgroup>
                     <col style={{ width: 40 }} />{/* # */}
                     <col style={{ width: 230 }} />{/* NFT */}
@@ -511,6 +513,7 @@ export default function GhostBidPage() {
                     <col style={{ width: 140 }} />{/* Twitter/Discord — merged, stacked when a row has both */}
                     <col style={{ width: 110 }} />{/* Pumpfun */}
                     <col style={{ width: 110 }} />{/* ME */}
+                    <col style={{ width: 110 }} />{/* Galxe */}
                   </colgroup>
                   <thead>
                     <tr>
@@ -526,6 +529,7 @@ export default function GhostBidPage() {
                       {sortHeader('social', 'TWITTER/DISCORD')}
                       {sortHeader('pumpfun', 'PUMPFUN')}
                       {sortHeader('me', 'ME')}
+                      {sortHeader('galxe', 'GALXE')}
                     </tr>
                   </thead>
                   <tbody>
@@ -623,6 +627,7 @@ export default function GhostBidPage() {
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.pumpfun)}</td>
                         <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.me)}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.galxe)}</td>
                       </tr>
                     ))}
                   </tbody>

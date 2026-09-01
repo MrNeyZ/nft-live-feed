@@ -87,6 +87,7 @@ interface BaseRow {
   twitter: string | null;
   pumpfun: string | null;
   me: string | null;
+  galxe: string | null;
 }
 
 export interface GhostBidRow extends BaseRow {
@@ -234,20 +235,79 @@ async function fetchSolanartEscrowBalances(offerAccounts: readonly string[]): Pr
 }
 
 interface SignaturesForAddressResp {
-  result?: Array<{ blockTime?: number | null }>;
+  result?: Array<{ signature: string; blockTime?: number | null }>;
 }
 
-/** Unix seconds of the owner wallet's most recent signature (any tx, not
+interface TransactionResp {
+  result?: {
+    transaction?: {
+      message?: {
+        accountKeys?: string[];
+        header?: { numRequiredSignatures?: number };
+      };
+    };
+  };
+}
+
+const OWNER_ACTIVITY_SIG_WINDOW = 8;
+
+/** `getSignaturesForAddress` returns any tx the owner appears in as ANY
+ *  account key — including ones where it's a passive participant (dust/spam
+ *  token airdrops, or an M2 sale filled by a buyer against a listing the
+ *  owner delegated ages ago and never touched again). That produced real
+ *  false "active 1 day ago" rows while the owner's true last SIGNED tx was
+ *  months old (confirmed against forgotten-bids-2026-08-25's holder-outreach
+ *  scan — see project memory on the "no-signer" bug). Signers are always
+ *  the first `header.numRequiredSignatures` entries of `accountKeys`,
+ *  regardless of tx version or address-lookup-tables (those only ever add
+ *  non-signer keys), so checking that slice is reliable even for v0 txs. */
+async function findLastSignedActivity(owner: string): Promise<number | null> {
+  const r = await fetch(rpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'getSignaturesForAddress',
+      params: [owner, { limit: OWNER_ACTIVITY_SIG_WINDOW }],
+    }),
+    signal: AbortSignal.timeout(OWNER_ACTIVITY_TIMEOUT_MS),
+  });
+  if (!r.ok) return null;
+  const data = await r.json() as SignaturesForAddressResp;
+  const sigs = data.result;
+  if (!Array.isArray(sigs)) return null;
+
+  for (const { signature, blockTime } of sigs) {
+    if (typeof blockTime !== 'number') continue;
+    try {
+      const tr = await fetch(rpcUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'getTransaction',
+          params: [signature, { encoding: 'json', maxSupportedTransactionVersion: 0 }],
+        }),
+        signal: AbortSignal.timeout(OWNER_ACTIVITY_TIMEOUT_MS),
+      });
+      if (!tr.ok) continue;
+      const txData = await tr.json() as TransactionResp;
+      const msg = txData.result?.transaction?.message;
+      const keys = msg?.accountKeys;
+      const numSigners = msg?.header?.numRequiredSignatures ?? 0;
+      if (Array.isArray(keys) && keys.slice(0, numSigners).includes(owner)) return blockTime;
+    } catch {
+      // this signature unresolved — try the next one back
+    }
+  }
+  return null; // no real signed tx in the checked window — leave unresolved, base snapshot's value is kept
+}
+
+/** Unix seconds of the owner wallet's most recent SIGNED tx (any tx, not
  *  scoped to this mint) — same "is this wallet still alive" signal the
  *  original offline scan used, just re-derived live on Refresh so a wallet
  *  that's moved since the snapshot was built shows up immediately instead
- *  of waiting for the next full rebuild. Deliberately cheap: one
- *  `getSignaturesForAddress(limit:1)` per unique owner — no pagination, no
- *  full history walk — spread over a small worker pool (this hits our own
- *  Helius RPC, not a rate-limit-happy third-party REST API, so concurrency
- *  is fine unlike the sequential ME calls above). The day-count itself is
- *  computed on the frontend from this timestamp, not here, so it keeps
- *  ticking up with real time between refreshes instead of freezing. */
+ *  of waiting for the next full rebuild. The day-count itself is computed
+ *  on the frontend from this timestamp, not here, so it keeps ticking up
+ *  with real time between refreshes instead of freezing. */
 async function fetchOwnerLastActiveAt(owners: readonly string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   const queue = [...owners];
@@ -257,18 +317,7 @@ async function fetchOwnerLastActiveAt(owners: readonly string[]): Promise<Map<st
       const owner = queue.shift();
       if (!owner) return;
       try {
-        const r = await fetch(rpcUrl(), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0', id: 1, method: 'getSignaturesForAddress',
-            params: [owner, { limit: 1 }],
-          }),
-          signal: AbortSignal.timeout(OWNER_ACTIVITY_TIMEOUT_MS),
-        });
-        if (!r.ok) continue;
-        const data = await r.json() as SignaturesForAddressResp;
-        const blockTime = data.result?.[0]?.blockTime;
+        const blockTime = await findLastSignedActivity(owner);
         if (typeof blockTime === 'number') out.set(owner, blockTime);
       } catch {
         // leave unresolved — the base snapshot's `lastActiveAt` is kept for this owner
