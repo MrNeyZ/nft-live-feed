@@ -337,10 +337,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
       style={{
-        // Halved again (0.022 → 0.011, visual-weight pass) — every row was
-        // reading as its own heavy horizontal block. Still a perceptible 1px
-        // hairline, not removed.
-        borderBottom: '1px solid rgba(255,255,255,0.011)',
+        // Calibration round 2: 0.011 was too weak (separators disappeared
+        // almost entirely). Settled at 0.020, between the pre-pass 0.022 and
+        // the overcorrected 0.011 — separators were never the primary
+        // source of heaviness, rows just need enough of a line to scan fast.
+        borderBottom: '1px solid rgba(255,255,255,0.020)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values

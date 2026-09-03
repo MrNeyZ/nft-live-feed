@@ -2343,18 +2343,17 @@ export default function MintsPage() {
       {!embedded && (
       <div className="mints-collections-panel" style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
-        // Visual-weight pass: the flat `--vl-gray-surface` (#1A1530, visibly
-        // purple) fill behind header AND body made the whole panel read as
-        // one giant violet slab. Body now sits close to the page's own
-        // near-black (`--vl-gray-base` #08060C, mirrors the same fix already
-        // applied to `.vvv-stages-panel`) with only a hairline neutral lift —
-        // purple is reserved for the header strip below (its own bg) and the
-        // left accent rails, not the body fill. Outer border softened
-        // 0.32 → 0.10 to match (was previously softened once already,
-        // 0.65 → 0.32; this is a second, larger pass specifically to stop
-        // the body from reading as an enclosed purple rectangle).
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.004) 100%), var(--vl-gray-base)',
-        border: `1px solid ${alpha(VL.purpleTint,0.10)}`,
+        // Visual-weight pass, calibration round 2 (commit 936f7ef went too
+        // far toward page-background near-black, losing the panel's surface
+        // identity). Body settles at #141120 — a blend roughly 60% of the
+        // way from `--vl-gray-base` (#08060C) to the original
+        // `--vl-gray-surface` (#1A1530) — dark/quiet enough that it no
+        // longer reads as a purple slab, but still clearly a distinct
+        // surface sitting above the page. Purple stays concentrated in the
+        // header strip below. Outer border brought back up 0.10 → 0.19
+        // (original was 0.32) for a perceptible-but-subtle container edge.
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.004) 100%), #141120',
+        border: `1px solid ${alpha(VL.purpleTint,0.19)}`,
         borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
         overflow: 'hidden',
