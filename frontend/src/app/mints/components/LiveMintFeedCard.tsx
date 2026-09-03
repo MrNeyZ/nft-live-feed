@@ -517,13 +517,14 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
       onMouseEnter={onPauseEnter}
       onMouseLeave={onPauseLeave}
       style={{
-        // Card chrome — was an exact mirror of /feed `.feed-card` (10/12
-        // padding, 12 px gap, 56 px thumb, 1 px hairline border, 7 px
-        // radius, faint background). Vertical padding trimmed 10 → 8
-        // (hierarchy/density pass, colors untouched) so the feed reads
-        // slightly more compact/secondary next to the tracker — width
-        // (horizontal 12px) and every color/border/glow value are
-        // unchanged. Hover tint via the className rule in globals.css.
+        // Card chrome — exact mirror of /feed `.feed-card`: 10/12
+        // padding, 12 px gap, 56 px thumb, 1 px hairline border,
+        // 7 px radius, faint background. Hover tint via the
+        // className rule in globals.css.
+        // (Padding was briefly trimmed to 8px vertical in 88c7d3e as a
+        // density experiment — reverted; it read as MORE cramped, not
+        // lighter. Right panel is being evaluated separately, unchanged
+        // in this pass.)
         // Collection accent — 1:1 with /feed sales cards: a colored 2px
         // border-left/right (the layer that wraps the rounded corners into
         // the small corner "hooks") + a brighter ::before/::after glow bar.
@@ -531,7 +532,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         // `--mint-accent` var below. The border is intentionally NOT set
         // inline — an inline `border` would override the CSS colored sides.
         display: 'flex', alignItems: 'center', gap: 10,
-        padding: '8px 12px',
+        padding: '10px 12px',
         // Collection-create reuses the existing side-accent layer but pins it to
         // a fixed purple-blue so the card reads as a "collection created" event,
         // not a per-collection-tinted mint. Color-only → no layout change.

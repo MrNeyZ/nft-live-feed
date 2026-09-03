@@ -469,8 +469,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           {/* trailing 1fr cell: icons + source only. SHOW lives in its
               own dedicated <td> after this cell (see below), so no
               positioning hacks are needed here — icons+source simply
-              hug their content at the start of the trailing zone. */}
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+              hug their content at the start of the trailing zone.
+              Grouping pass: marginLeft separates this metadata cluster
+              from the collection name a bit more than the grid's shared
+              6px columnGap (name→cluster now ~10px); internal gap
+              tightened 4→3 so ME/Tensor/X/source read as one unit
+              rather than four evenly-spaced siblings. No row-height or
+              column-width change. */}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, marginLeft: 4 }}>
             {/* Tiny ME icon — replaces the removed LINKS column.
                 Only renders when we have a stable on-chain anchor
                 (collectionAddress); when null (e.g. groupingKind =
@@ -769,7 +775,12 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onMouseLeave={closeSupplyPopover}
               onFocus={openSupplyPopover}
               onBlur={closeSupplyPopover}
-              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 700, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              // Hierarchy pass: 700 put SUPPLY (secondary data, per the
+              // header comment above) at the same weight as the strong-data
+              // columns. Color is deliberately UNCHANGED (kept "bright" —
+              // see the comment above re: not wanting a fade-level ladder);
+              // 500 does the tier separation through weight only.
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 13, color, fontWeight: 500, fontFamily: "'SF Mono','Fira Code',monospace", fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {display}
             </td>

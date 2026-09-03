@@ -2363,7 +2363,11 @@ export default function MintsPage() {
             "VIEW" label; tabs/count/timeframe integrated on one line so the
             filter section below stays short and the table starts high. */}
         <div style={{
-          padding: '6px 12px',
+          // Vertical padding trimmed 6 → 4 (geometry-only, ~4px total
+          // height saved) — the strip's content (title/dot/count/tabs)
+          // was already dictating most of its height; this just tightens
+          // the breathing room around it. Background/border unchanged.
+          padding: '4px 12px',
           // Restore purple-tinted control strip identity (v2 ivory
           // wash detached this from the rest of the palette). Hue
           // back to purple but quieter than original (bg 0.04 → 0.025,
