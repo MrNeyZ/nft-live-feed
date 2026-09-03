@@ -2304,31 +2304,6 @@ export default function MintsPage() {
           owns the title context. Compact vertical padding (16/8 instead
           of 20/14) to tighten the gap between the title and the table
           grid below — matches /tools' denser feel. */}
-      {!embedded && (
-        <div style={{ padding: '16px 4px 8px', flexShrink: 0, width: '100%', maxWidth: 'var(--mints-max, 1400px)', margin: '0 auto', alignSelf: 'center', transform: embedded ? undefined : 'translateX(10px)', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div>
-              <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>
-                Live mint tracker
-              </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                <LiveDot />
-                <span style={{ fontSize: 11, color: rgb(VL.green) }}>
-                  {(() => {
-                    if (displaySorted.length === 0) return 'No active mints';
-                    const active = displaySorted.filter(r => r.displayState === 'shown').length;
-                    const watch  = displaySorted.length - active;
-                    if (watch === 0) return `${active} active`;
-                    if (active === 0) return `${watch} watch`;
-                    return `${active} active · ${watch} watch`;
-                  })()}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 2-column grid: LEFT (large) Mint Collections + RIGHT (narrow)
           Live Mint Feed.
             • PC / Laptop: ~68 / 32 split via
@@ -2398,8 +2373,11 @@ export default function MintsPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <LiveDot />
+            <span style={{ fontSize: 12, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px' }}>
+              Live mint tracker
+            </span>
             {/* Shared PAUSED chip — same hoverPaused state as the Live
                 Mint Feed header; appears here so the tracker table also
                 reflects the freeze. */}
@@ -2653,7 +2631,7 @@ export default function MintsPage() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: 'auto' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }} className="scroll-area mints-tracker-scroll collection-table-scroll">
           <table className="collections-table" style={{
             // Table cap (COLLECTION 300 + SHOW ~216 + metrics 426 = 942):
             // aggressive first pass — raised from 834 so the flexible SHOW
