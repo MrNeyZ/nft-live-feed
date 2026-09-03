@@ -2331,6 +2331,7 @@ export default function MintsPage() {
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
         margin: '0 auto',
+        marginTop: embedded ? 0 : 14,
         alignSelf: embedded ? 'stretch' : 'center',
         transform: embedded ? undefined : 'translateX(10px)',
         paddingBottom: embedded ? 0 : 8,
