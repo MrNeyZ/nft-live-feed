@@ -337,11 +337,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
       style={{
-        // Calibration round 2: 0.011 was too weak (separators disappeared
-        // almost entirely). Settled at 0.020, between the pre-pass 0.022 and
-        // the overcorrected 0.011 — separators were never the primary
-        // source of heaviness, rows just need enough of a line to scan fast.
-        borderBottom: '1px solid rgba(255,255,255,0.020)',
+        // Softened further (0.022 → 0.014) so the separators recede just
+        // enough to let the ambient accent wash breathe and the rows feel
+        // less boxed-in — still a visible 1 px hairline keeping table
+        // structure intact, not removed.
+        borderBottom: '1px solid rgba(255,255,255,0.022)',
         // Full opacity across all states — the WATCH / ACTIVE /
         // SOLD distinction is already conveyed by the inline status
         // pill, so dimming the row body only made images and values
@@ -661,7 +661,11 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               onMouseLeave={closeMintsPopover}
               onFocus={openMintsPopover}
               onBlur={closeMintsPopover}
-              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 800, color: rgb(VL.green), letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              // Hierarchy pass: 800 made MINTS (a secondary metric) visually
+              // louder than the collection name itself (weight 600). 700
+              // keeps it the row's most prominent number (still bold, still
+              // its own green) without outweighing the primary identity.
+              style={{ padding: '11px 10px', textAlign: 'center', verticalAlign: 'middle', fontSize: 14, fontWeight: 700, color: rgb(VL.green), letterSpacing: '-0.2px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
             >
               {tfCount.toLocaleString()}
             </td>

@@ -2343,17 +2343,17 @@ export default function MintsPage() {
       {!embedded && (
       <div className="mints-collections-panel" style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
-        // Visual-weight pass, calibration round 2 (commit 936f7ef went too
-        // far toward page-background near-black, losing the panel's surface
-        // identity). Body settles at #141120 — a blend roughly 60% of the
-        // way from `--vl-gray-base` (#08060C) to the original
-        // `--vl-gray-surface` (#1A1530) — dark/quiet enough that it no
-        // longer reads as a purple slab, but still clearly a distinct
-        // surface sitting above the page. Purple stays concentrated in the
-        // header strip below. Outer border brought back up 0.10 → 0.19
-        // (original was 0.32) for a perceptible-but-subtle container edge.
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.004) 100%), #141120',
-        border: `1px solid ${alpha(VL.purpleTint,0.19)}`,
+        // Restore the VictoryLabs dark-purple panel identity (the v2
+        // strong-pass de-saturated this to cold #15121f/#0f0c19 which
+        // detached the page from the rest of the app). Original was
+        // var(--vl-gray-surface) → var(--vl-gray-surface) with a loud 0.65 purple border and a 0.15
+        // outer purple aura — kept the hue, trimmed the excess. New:
+        // same purple gradient, border alpha 0.65 → 0.32 (half),
+        // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
+        // the same purple terminal panel /feed and /dashboard ship,
+        // just with less neon ring around it.
+        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
+        border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
         borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
         overflow: 'hidden',
@@ -2364,14 +2364,15 @@ export default function MintsPage() {
             filter section below stays short and the table starts high. */}
         <div style={{
           padding: '6px 12px',
-          // Header strip keeps (and now leads) the purple identity now that
-          // the body below it dropped to near-black — bumped 0.025 → 0.05
-          // (matches `.vvv-stages-header`'s same header/body split) so the
-          // header still reads as "clearly defined" against the quieter body.
+          // Restore purple-tinted control strip identity (v2 ivory
+          // wash detached this from the rest of the palette). Hue
+          // back to purple but quieter than original (bg 0.04 → 0.025,
+          // border 0.12 → 0.08) so the panel surface still reads
+          // matte rather than glassy.
           borderBottom: `1px solid ${alpha(VL.purpleTint,0.08)}`,
           flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: alpha(VL.purpleTint,0.05), flexWrap: 'wrap', gap: '6px 8px',
+          background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>
@@ -3010,13 +3011,14 @@ function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
 // keeps the three pages aligned without a CSS-class round-trip.
 // The Live Mint Feed (.mints-feed-row) on this page's right pane
 // uses different sizing and stays denser by design.
-// Visual-weight pass (mints-only, NOT mirrored to dashboard): vertical
-// padding trimmed 12 → 9 so the column-header band reads as table
-// metadata rather than a second full-height header row.
+// Hierarchy-only pass (colors/background untouched, kept from the
+// reverted 936f7ef/d9c448b experiment): vertical padding 12 → 9 and
+// weight 700 → 600 so the column-header band reads as table metadata,
+// not a second full-strength header. Size/uppercase/color unchanged.
 const thStyle: React.CSSProperties = {
   padding: '9px 10px',
   fontSize: 11,
-  fontWeight: 700,
+  fontWeight: 600,
   color: VLText.muted,
   letterSpacing: '0.6px',
   // Numeric columns are centered over their fixed-width cells (COLLECTION
