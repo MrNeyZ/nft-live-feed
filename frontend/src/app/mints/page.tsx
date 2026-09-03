@@ -2321,13 +2321,25 @@ export default function MintsPage() {
         flex: 1,
         minHeight: 0,
         display: 'grid',
-        // Left-column cap is a token (`--mints-table-max`, default 942px) so the
-        // PC tier alone can widen the collections table; the right Live Mint
-        // Feed track is the `fr` column, so it auto-shrinks by exactly the
-        // amount the left cap grows (no separate right-width change needed).
-        // Laptop/tablet/phone never set the token → fall back to 942px.
-        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, var(--mints-table-max, 942px)) minmax(420px, 0.95fr)',
-        gap: 10,
+        // Composition A/B test (isolated to geometry only — no color/
+        // border/typography touched): tracker was reading as an almost
+        // equally substantial surface to the feed (~68/32 at the laptop-
+        // default tier — 942px left cap / 1400px container). Left cap
+        // raised 942 → 1000 and the right track's floor lowered
+        // 420 → 390 so the pair lands ~72/28 instead — the feed still
+        // clears every content requirement (56px thumb + name + price +
+        // timestamp) at 390px, just no longer reads as a second primary
+        // workspace. `html[data-layout="pc"]` keeps its own explicit
+        // --mints-table-max (1015px) override untouched — its right
+        // column was already well above the 420px floor (~530px), so
+        // this floor change has no visible effect there. Phone still
+        // forces a single 1fr column via the !important rule in
+        // globals.css, bypassing both values entirely.
+        gridTemplateColumns: embedded ? '1fr' : 'minmax(0, var(--mints-table-max, 1000px)) minmax(390px, 0.95fr)',
+        // Gap widened 10 → 15 (shared across tiers, same reasoning as the
+        // floor above) so the two panels read as separate components
+        // rather than one continuous strip.
+        gap: 15,
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
         margin: '0 auto',
@@ -2654,8 +2666,10 @@ export default function MintsPage() {
             // left-column cap so the table actually fills the reclaimed space on
             // PC (COLLECTION is the auto/remainder column, so it absorbs the
             // extra width — metric cols + row height/fonts unchanged). Default
-            // 942px keeps laptop/tablet/phone identical.
-            width: '100%', maxWidth: 'var(--mints-table-max, 942px)', borderCollapse: 'collapse', tableLayout: 'fixed',
+            // fallback raised 942 -> 1000 in lockstep with the grid's left-cap
+            // change above (composition A/B test) so the table actually fills
+            // the wider left track instead of leaving a dead gap beside it.
+            width: '100%', maxWidth: 'var(--mints-table-max, 1000px)', borderCollapse: 'collapse', tableLayout: 'fixed',
             // Inner table-frame hairline at the row-content right edge.
             // `.scroll-area` reserves the scrollbar via `scrollbar-gutter:
             // stable`, so the table's right edge already lands just left
