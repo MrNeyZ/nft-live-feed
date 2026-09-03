@@ -168,10 +168,19 @@ export function marketplaceUrl(event: FeedEvent): string | null {
     if (orbisSlug) return `https://www.orbisonsol.io/marketplace/${orbisSlug}`;
     return null;
   }
-  // OpenSea (OS2) — no collection-slug enrichment yet, so mint → item page
-  // is the only reliable link; bare opensea.io as the last resort.
+  // OpenSea (OS2) — no OpenSea-native collection-slug enrichment, but its
+  // Solana collection URLs are the same hyphenated-name pattern as Orbis
+  // (confirmed live: ME's "doge_capital" -> opensea.io/collection/doge-capital),
+  // so reuse the same name-first / meCollectionSlug-fallback + toOrbisSlug
+  // normalizer. Falls through to the mint item page, then bare opensea.io,
+  // exactly mirroring Tensor/ME's own fallback chain above.
   if (event.marketplace === 'opensea') {
-    if (event.mintAddress) return `https://opensea.io/assets/solana/${event.mintAddress}`;
+    const name = event.collectionName && event.collectionName !== 'Unknown'
+      ? event.collectionName
+      : event.meCollectionSlug;
+    const osSlug = name ? toOrbisSlug(name) : '';
+    if (osSlug)             return `https://opensea.io/collection/${osSlug}`;
+    if (event.mintAddress)  return `https://opensea.io/assets/solana/${event.mintAddress}`;
     return 'https://opensea.io';
   }
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
