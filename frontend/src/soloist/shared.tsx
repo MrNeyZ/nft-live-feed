@@ -831,6 +831,7 @@ const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
       { label: 'OFFER SWEEP',  href: '/tools/offer-floor-sweep' },
       { label: 'LOW FLOOR',    href: '/tools/tensor-low-floor' },
       { label: 'SPL20',        href: '/tools/spl20' },
+      { label: 'OPENSEA',      href: '/tools/opensea' },
     ],
   },
   {
@@ -914,7 +915,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/me-sell', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/me-collection-refresh', '/tools/vvv', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/me-sell', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/me-collection-refresh', '/tools/vvv', '/tools/opensea', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);

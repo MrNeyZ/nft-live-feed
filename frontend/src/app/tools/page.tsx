@@ -59,6 +59,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
       { href: '/tools/offer-floor-sweep',     title: 'Offer > Floor Sweep',  desc: 'Full-market sweep for ME personal offers priced above the current listing ask.' },
       { href: '/tools/tensor-low-floor',      title: 'Tensor Low Floor',     desc: 'Full-market scan for legacy/pNFT collections under a floor threshold — Core/cNFT/SFT/Token-2022 excluded.' },
       { href: '/tools/spl20',                 title: 'SPL20',                desc: 'Resolve a ticker’s CA + unredeemed NFT inventory on-chain, spread it against an ME floor.' },
+      { href: '/tools/opensea',               title: 'OpenSea vs ME Flip',   desc: 'Full sweep of live OS2 (OpenSea Solana) MPL Core listings vs Magic Eden floor + top MMM bid.' },
     ],
   },
   {

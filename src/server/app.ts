@@ -32,6 +32,7 @@ import { createMeTensorArbRouter } from './tools-me-tensor-arb';
 import { createSpl20Router } from './tools-spl20';
 import { createTensorFloorScanRouter } from './tools-tensor-floor-scan';
 import { createOfferFloorSweepRouter } from './tools-offer-floor-sweep';
+import { createOpenseaArbRouter } from './tools-opensea-arb';
 import { createDotlandRouter } from './tools-dotland';
 import { createCandyMintRouter } from './tools-candy-mint';
 import { createDirectMintRouter } from './tools-direct-mint';
@@ -211,6 +212,11 @@ export function createApp() {
   // comment). GET /api/tools/tensor-floor-scan/scan-stream (SSE)
   app.use('/api', createTensorFloorScanRouter());
   app.use('/api', createOfferFloorSweepRouter());
+
+  // OpenSea Solana (OS2) <-> Magic Eden cross-market flip scanner —
+  // read-only full-market sweep (see tools-opensea-arb.ts header comment).
+  // GET /api/tools/opensea-arb/scan-stream (SSE)
+  app.use('/api', createOpenseaArbRouter());
 
   // DotLand direct-mint tool — personal use, requireAuth-gated on every
   // route (see tools-dotland.ts header comment).
