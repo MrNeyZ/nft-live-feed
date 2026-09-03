@@ -2343,17 +2343,18 @@ export default function MintsPage() {
       {!embedded && (
       <div className="mints-collections-panel" style={{
         display: 'flex', flexDirection: 'column', minHeight: 0,
-        // Restore the VictoryLabs dark-purple panel identity (the v2
-        // strong-pass de-saturated this to cold #15121f/#0f0c19 which
-        // detached the page from the rest of the app). Original was
-        // var(--vl-gray-surface) → var(--vl-gray-surface) with a loud 0.65 purple border and a 0.15
-        // outer purple aura — kept the hue, trimmed the excess. New:
-        // same purple gradient, border alpha 0.65 → 0.32 (half),
-        // inner sheen 0.08 → 0.06, outer aura 0.15 → 0.10. Reads as
-        // the same purple terminal panel /feed and /dashboard ship,
-        // just with less neon ring around it.
-        background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
-        border: `1px solid ${alpha(VL.purpleTint,0.32)}`,
+        // Visual-weight pass: the flat `--vl-gray-surface` (#1A1530, visibly
+        // purple) fill behind header AND body made the whole panel read as
+        // one giant violet slab. Body now sits close to the page's own
+        // near-black (`--vl-gray-base` #08060C, mirrors the same fix already
+        // applied to `.vvv-stages-panel`) with only a hairline neutral lift —
+        // purple is reserved for the header strip below (its own bg) and the
+        // left accent rails, not the body fill. Outer border softened
+        // 0.32 → 0.10 to match (was previously softened once already,
+        // 0.65 → 0.32; this is a second, larger pass specifically to stop
+        // the body from reading as an enclosed purple rectangle).
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.004) 100%), var(--vl-gray-base)',
+        border: `1px solid ${alpha(VL.purpleTint,0.10)}`,
         borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep,0.10)}`,
         overflow: 'hidden',
@@ -2364,15 +2365,14 @@ export default function MintsPage() {
             filter section below stays short and the table starts high. */}
         <div style={{
           padding: '6px 12px',
-          // Restore purple-tinted control strip identity (v2 ivory
-          // wash detached this from the rest of the palette). Hue
-          // back to purple but quieter than original (bg 0.04 → 0.025,
-          // border 0.12 → 0.08) so the panel surface still reads
-          // matte rather than glassy.
+          // Header strip keeps (and now leads) the purple identity now that
+          // the body below it dropped to near-black — bumped 0.025 → 0.05
+          // (matches `.vvv-stages-header`'s same header/body split) so the
+          // header still reads as "clearly defined" against the quieter body.
           borderBottom: `1px solid ${alpha(VL.purpleTint,0.08)}`,
           flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
+          background: alpha(VL.purpleTint,0.05), flexWrap: 'wrap', gap: '6px 8px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>
@@ -3011,8 +3011,11 @@ function sortArrow(active: SortKey, dir: SortDir, key: SortKey) {
 // keeps the three pages aligned without a CSS-class round-trip.
 // The Live Mint Feed (.mints-feed-row) on this page's right pane
 // uses different sizing and stays denser by design.
+// Visual-weight pass (mints-only, NOT mirrored to dashboard): vertical
+// padding trimmed 12 → 9 so the column-header band reads as table
+// metadata rather than a second full-height header row.
 const thStyle: React.CSSProperties = {
-  padding: '12px 10px',
+  padding: '9px 10px',
   fontSize: 11,
   fontWeight: 700,
   color: VLText.muted,

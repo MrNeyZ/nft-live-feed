@@ -1867,7 +1867,7 @@ body[data-bottombar="1"] .feed-root {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(28,22,48,0.96);
+  background: rgba(11,9,17,0.96);
   z-index: 0;
   pointer-events: none;
 }
@@ -1882,7 +1882,7 @@ body[data-bottombar="1"] .feed-root {
    in thStyle so we don't have to thread a per-cell prop. Label position
    unchanged (paddingLeft:9 stays in the th inline style). */
 .collections-table thead th:first-child {
-  background: rgba(28,22,48,0.96) !important;
+  background: rgba(11,9,17,0.96) !important;
 }
 
 /* Base rail in the gap above the first row. CSS pseudo on the scroll
@@ -2044,19 +2044,18 @@ body[data-bottombar="1"] .feed-root {
      `-recent` outer halo can extend past the card box. Tracker rows
      get the same containment via `.tools-offer-row` (see above). */
   contain: layout style;
-  /* Base hairline border — 1:1 with `.feed-card`: same `--accent-card-alpha`
-     token (resolves ~0.10–0.16 per breakpoint), NOT a literal 0.06, so the
-     hairline reads at the same strength as Live Events. top/bottom stay this
-     hairline and flip to lilac on :hover; left/right are recolored to the
-     accent by `.mints-feed-row.mints-feed-row` below — exactly how /feed's
-     `.feed-card` (hairline) + `.buy-card`/`.sell-card` (colored sides) layer. */
-  border: 1px solid rgba(255, 255, 255, var(--accent-card-alpha, 0.06));
-  /* Base inset rim shadow — identical to `.feed-card`: faint top highlight +
-     bottom shadow so the border edges blend the same way (overridden by the
-     -recent halo / :hover ring, same as /feed). Not transitioned (snaps). */
+  /* Base hairline border — visual-weight pass: was 1:1 with `.feed-card`
+     (the shared `--accent-card-alpha` token, ~0.10–0.16 per breakpoint).
+     Mints Live Feed is deliberately DE-tuned below that now — a flat, lower
+     literal instead of the shared token — so the tracker (left) reads as
+     the primary surface and the feed (right) reads as secondary/auxiliary.
+     `.feed-card` itself (used on /feed) is untouched. */
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  /* Base inset rim shadow — softened alongside the border for the same
+     "secondary surface" reason (was identical to `.feed-card`'s 0.04/0.24). */
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.24);
+    inset 0 1px 0 rgba(255, 255, 255, 0.025),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
   /* Positioned ancestor for the two-sided edge-accent pseudo-elements
      below (paint is intentionally NOT contained, so the -2px stripes and
      the -recent halo extend past the card box). */
@@ -2081,11 +2080,12 @@ body[data-bottombar="1"] .feed-root {
   pointer-events: none;
   border-radius: 1px;
   background: var(--mint-accent, rgb(var(--vl-purple-tint)));
-  /* Glow EXACTLY matching /feed's `.buy-card::before/::after`: `0 0 4px`
-     at 0.45 alpha. Fallback first (full-color) for browsers without
-     color-mix; modern browsers use the alpha-reduced glow. */
-  box-shadow: 0 0 4px var(--mint-accent, rgb(var(--vl-purple-tint) / 0.45));
-  box-shadow: 0 0 4px color-mix(in srgb, var(--mint-accent, rgb(var(--vl-purple-tint))) 45%, transparent);
+  /* Glow softened for the same "secondary surface" pass — was 1:1 with
+     /feed's `.buy-card::before/::after` (0 0 4px @ 0.45). Solid bar color
+     above is UNCHANGED (status/buy/sell/core colors stay full-strength);
+     only the surrounding glow blur/alpha is reduced. */
+  box-shadow: 0 0 3px var(--mint-accent, rgb(var(--vl-purple-tint) / 0.28));
+  box-shadow: 0 0 3px color-mix(in srgb, var(--mint-accent, rgb(var(--vl-purple-tint))) 28%, transparent);
 }
 .mints-feed-row::before { left:  -2px; }
 .mints-feed-row::after  { right: -2px; }
