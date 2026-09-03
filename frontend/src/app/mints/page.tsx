@@ -2373,10 +2373,15 @@ export default function MintsPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           background: alpha(VL.purpleTint,0.025), flexWrap: 'wrap', gap: '6px 8px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <LiveDot />
-            <span style={{ fontSize: 12, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>
               Live mint tracker
+            </h1>
+            <LiveDot />
+            {/* Count styling matches Live Mint Feed / Live events —
+                dimmed, supplementary, not the primary read. */}
+            <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
+              ({displaySorted.length.toLocaleString()})
             </span>
             {/* Shared PAUSED chip — same hoverPaused state as the Live
                 Mint Feed header; appears here so the tracker table also
