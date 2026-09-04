@@ -114,6 +114,7 @@ export function fromBackend(b: BackendEvent): FeedEvent {
     imageUrl: b.imageUrl ?? null,
     collectionAddress: b.collectionAddress ?? null,
     resizeStatus:      b.resizeStatus ?? null,
+    rentRefund:        b.rentRefund ?? null,
     mintedAtMs:        b.mintedAtMs ?? null,
     poolType:          b.poolType ?? null,
     ammFill:           b.ammFill ?? null,
@@ -168,19 +169,13 @@ export function marketplaceUrl(event: FeedEvent): string | null {
     if (orbisSlug) return `https://www.orbisonsol.io/marketplace/${orbisSlug}`;
     return null;
   }
-  // OpenSea (OS2) — no OpenSea-native collection-slug enrichment, but its
-  // Solana collection URLs are the same hyphenated-name pattern as Orbis
-  // (confirmed live: ME's "doge_capital" -> opensea.io/collection/doge-capital),
-  // so reuse the same name-first / meCollectionSlug-fallback + toOrbisSlug
-  // normalizer. Falls through to the mint item page, then bare opensea.io,
-  // exactly mirroring Tensor/ME's own fallback chain above.
+  // OpenSea (OS2) — reverted 2026-09-04: the toOrbisSlug(collectionName)
+  // guess at OpenSea's collection-slug pattern doesn't reliably match
+  // OpenSea's actual slugs (broken/wrong-collection links in practice), so
+  // back to the item page unconditionally. No OpenSea-native collection-slug
+  // enrichment exists — don't reintroduce the guessed-slug link without one.
   if (event.marketplace === 'opensea') {
-    const name = event.collectionName && event.collectionName !== 'Unknown'
-      ? event.collectionName
-      : event.meCollectionSlug;
-    const osSlug = name ? toOrbisSlug(name) : '';
-    if (osSlug)             return `https://opensea.io/collection/${osSlug}`;
-    if (event.mintAddress)  return `https://opensea.io/assets/solana/${event.mintAddress}`;
+    if (event.mintAddress) return `https://opensea.io/assets/solana/${event.mintAddress}`;
     return 'https://opensea.io';
   }
   // Magic Eden (me / me_amm) — slug → collection page; mint → item page;
