@@ -87,7 +87,8 @@ const SALE_TYPE_EXTRACTS = `
   raw_data->>'_direction' AS _direction_extract,
   raw_data->>'_subtype'   AS _subtype_extract,
   raw_data->'events'->'nft'->>'saleType' AS _helius_sale_type_extract,
-  (raw_data->>'_ammFill')::boolean AS _amm_fill_extract
+  (raw_data->>'_ammFill')::boolean AS _amm_fill_extract,
+  (raw_data->>'_offerAccept')::boolean AS _offer_accept_extract
 `.trim();
 
 // See UPDATE_META_SQL in insert.ts — frozen FRESH MINT fact, stored in
@@ -106,6 +107,7 @@ interface SaleEventRowRaw extends SaleEventRow {
   _helius_sale_type_extract: string | null;
   _minted_at_checked_extract: boolean;
   _amm_fill_extract:         boolean | null;
+  _offer_accept_extract:     boolean | null;
 }
 
 // Canonical read-side classifier: overwrite each row's `sale_type` with the
@@ -120,6 +122,7 @@ function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
       direction:      r._direction_extract,
       heliusSaleType: r._helius_sale_type_extract,
       subtype:        r._subtype_extract,
+      offerAccept:    r._offer_accept_extract,
     });
     r.minted_at_checked = r._minted_at_checked_extract;
     // Tri-state passthrough — see SaleEventRow.amm_fill. Do NOT collapse
@@ -133,6 +136,7 @@ function applySaleType(rows: SaleEventRowRaw[]): SaleEventRow[] {
     delete (r as Partial<SaleEventRowRaw>)._helius_sale_type_extract;
     delete (r as Partial<SaleEventRowRaw>)._minted_at_checked_extract;
     delete (r as Partial<SaleEventRowRaw>)._amm_fill_extract;
+    delete (r as Partial<SaleEventRowRaw>)._offer_accept_extract;
     return r;
   });
 }
@@ -243,6 +247,7 @@ export async function getCanonicalSaleMetaBySignatures(
       direction:      r._direction_extract,
       heliusSaleType: r._helius_sale_type_extract,
       subtype:        r._subtype_extract,
+      offerAccept:    r._offer_accept_extract,
     });
     out.set(r.signature, {
       signature:   r.signature,
