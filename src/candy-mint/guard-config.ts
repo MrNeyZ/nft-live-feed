@@ -98,6 +98,13 @@ export interface GuardGroupSummary {
    *  precision loss). Null when the guard isn't set for this group. */
   startDateUnix: string | null;
   endDateUnix:   string | null;
+  /** From `tokenPayment` (legacy SPL Token) or `token2022Payment` — same
+   *  {amount, mint, destinationAta} shape on-chain for both. `amount` is
+   *  the raw on-chain integer (no decimals applied — the mint's own
+   *  `decimals` field isn't part of the guard, so the UI must fetch that
+   *  separately to render a human amount). Null when neither guard is set
+   *  for this group. */
+  tokenPayment: { mint: string; amount: string; destinationAta: string } | null;
 }
 
 export interface CandyMachineInspection {
@@ -120,6 +127,7 @@ function summarizeGuardSet(
   let mintLimit: MintLimitStatus | null = null;
   let startDateUnix: string | null = null;
   let endDateUnix: string | null = null;
+  let tokenPayment: { mint: string; amount: string; destinationAta: string } | null = null;
   for (const [name, wrapped] of Object.entries(guards)) {
     const opt = wrapped as { __option: 'Some' | 'None'; value?: unknown } | undefined;
     if (!opt || opt.__option !== 'Some') continue;
@@ -128,6 +136,12 @@ function summarizeGuardSet(
     if (name === 'solPayment') {
       const v = opt.value as { lamports?: { basisPoints?: bigint } } | undefined;
       if (v?.lamports?.basisPoints != null) solPaymentLamports = v.lamports.basisPoints.toString();
+    }
+    if (name === 'tokenPayment' || name === 'token2022Payment') {
+      const v = opt.value as { mint?: unknown; amount?: bigint; destinationAta?: unknown } | undefined;
+      if (v?.mint != null && v.amount != null && v.destinationAta != null) {
+        tokenPayment = { mint: String(v.mint), amount: v.amount.toString(), destinationAta: String(v.destinationAta) };
+      }
     }
     if (name === 'mintLimit') {
       const v = opt.value as { id: number; limit: number };
@@ -151,6 +165,7 @@ function summarizeGuardSet(
     mintLimit,
     startDateUnix,
     endDateUnix,
+    tokenPayment,
   };
 }
 
