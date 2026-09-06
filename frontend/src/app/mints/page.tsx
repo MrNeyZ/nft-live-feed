@@ -659,7 +659,7 @@ if (typeof window !== 'undefined') {
 /** Proxy size for live-feed thumbnails — 64×64, matches the spec's
  *  /thumb URL form. compressImage() defaults to 200×200; the live
  *  feed uses this smaller size to halve bandwidth on rolling rows. */
-import { thumb64, shortKey } from './lib/format';
+import { thumb64, shortKey, resolveReceivedAt } from './lib/format';
 
 import { MintsTableRow } from './components/MintsTableRow';
 import { LiveMintFeedCard } from './components/LiveMintFeedCard';
@@ -1308,9 +1308,7 @@ export default function MintsPage() {
         const fetched: MintEvent[] = results.flatMap(data =>
           data.events.map(ev => ({
             ...(ev as unknown as MintEvent),
-            receivedAt: typeof ev.blockTime === 'string' && ev.blockTime
-              ? Date.parse(ev.blockTime as string)
-              : Date.now(),
+            receivedAt: resolveReceivedAt(ev.blockTime),
           })),
         );
         fetched.sort((a, b) => b.receivedAt - a.receivedAt);
@@ -1552,10 +1550,7 @@ export default function MintsPage() {
         const body = await res.json() as { events?: Array<Omit<MintEvent, 'receivedAt'>> };
         if (cancelled || !Array.isArray(body.events)) return;
         const server: MintEvent[] = body.events
-          .map(m => {
-            const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-            return { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() } as MintEvent;
-          })
+          .map(m => ({ ...m, receivedAt: resolveReceivedAt(m.blockTime) } as MintEvent))
           // Boundary filter — keep blacklisted mints out of the hydration
           // snapshot so they never enter state on refresh (no flash).
           .filter(ev => !isMintEventBlacklisted(ev, blacklistSetRef.current));
@@ -1701,10 +1696,11 @@ export default function MintsPage() {
           // arrival was making every replay row read as "just now"
           // even when the underlying mint happened minutes ago. Using
           // blockTime keeps the timestamp truthful across reconnects;
-          // we fall back to wall-clock only when blockTime is missing
-          // or unparseable.
-          const blockTimeMs = m.blockTime ? Date.parse(m.blockTime) : NaN;
-          const receivedAt  = Number.isFinite(blockTimeMs) ? blockTimeMs : Date.now();
+          // we fall back to wall-clock when blockTime is missing,
+          // unparseable, or implausibly in the future (see resolveReceivedAt —
+          // a bad RPC frame once pinned a row to the top as "just now" for
+          // the whole session and froze the tracker's LAST-mint age).
+          const receivedAt = resolveReceivedAt(m.blockTime);
           // Wall-clock arrival gates the fresh-mint flash. `receivedAt` is
           // anchored to blockTime (already older than the 2.5 s flash window
           // by paint time), so the flash must key off this instead.

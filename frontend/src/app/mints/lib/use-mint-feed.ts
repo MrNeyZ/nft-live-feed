@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MintEvent, MintStatus } from './types';
+import { resolveReceivedAt } from './format';
 import { useBlacklist, MINTS_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { isMintEventBlacklisted, isMintStatusBlacklisted } from '@/soloist/blacklist-filter';
 import type { StreamSubscribe } from '@/app/multi-native/lib/sale-event-stream';
@@ -57,10 +58,7 @@ export function useMintFeed(subscribe?: StreamSubscribe | null): UseMintFeed {
         const body = await res.json() as { events?: Array<Omit<MintEvent, 'receivedAt'>> };
         if (cancelled || !Array.isArray(body.events)) return;
         const server: MintEvent[] = body.events
-          .map(m => {
-            const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-            return { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now() } as MintEvent;
-          })
+          .map(m => ({ ...m, receivedAt: resolveReceivedAt(m.blockTime) } as MintEvent))
           .filter(ev => !isMintEventBlacklisted(ev, blRef.current));
         setEvents(prev => {
           const seen = new Set(server.map(evKey));
@@ -103,9 +101,9 @@ export function useMintFeed(subscribe?: StreamSubscribe | null): UseMintFeed {
         const m = JSON.parse(e.data) as Omit<MintEvent, 'receivedAt'>;
         if (!m.signature) return;
         if (isMintEventBlacklisted(m, blRef.current)) return;
-        const bt = m.blockTime ? Date.parse(m.blockTime) : NaN;
-        // Wall-clock arrival gates the fresh-mint flash (`receivedAt` is blockTime).
-        const ev: MintEvent = { ...m, receivedAt: Number.isFinite(bt) ? bt : Date.now(), clientArrivedAt: Date.now() };
+        // Wall-clock arrival gates the fresh-mint flash (`receivedAt` is blockTime,
+        // future-clamped by resolveReceivedAt so one bad frame can't pin the row).
+        const ev: MintEvent = { ...m, receivedAt: resolveReceivedAt(m.blockTime), clientArrivedAt: Date.now() };
         setEvents(prev => {
           const key = evKey(ev);
           if (prev.some(p => evKey(p) === key)) return prev;

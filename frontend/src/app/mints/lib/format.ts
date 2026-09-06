@@ -131,6 +131,27 @@ function trimTrailingZeros(s: string): string {
   return trimmed ? `${intPart}.${trimmed}${suffix}` : `${intPart}${suffix}`;
 }
 
+/** Wire `blockTime` (ISO 8601 string) → ms anchor used for feed ordering
+ *  and age display. Falls back to wall-clock `Date.now()` when the value
+ *  is missing, unparseable, OR implausibly far in the future.
+ *
+ *  The future guard matters: a single bad RPC frame (block time handed
+ *  back already in ms, i.e. ~1000x ahead — or plain validator/client
+ *  clock skew) would otherwise pin that event to the very top of the
+ *  Live Mint Feed reading "just now" for the whole session, and freeze
+ *  the collection's LAST-mint age in the tracker table — the left row
+ *  does `lastMintAt = Math.max(prev, receivedAt)`, so a future anchor is
+ *  never overtaken by real later mints. Past values are left untouched:
+ *  an old replayed mint legitimately sorts down and reads "3h ago". */
+const RECEIVED_AT_FUTURE_SKEW_MS = 120_000; // 2 min — covers normal clock drift
+export function resolveReceivedAt(blockTime: unknown): number {
+  const now = Date.now();
+  if (typeof blockTime !== 'string' || blockTime.length === 0) return now;
+  const ms = Date.parse(blockTime);
+  if (!Number.isFinite(ms) || ms > now + RECEIVED_AT_FUTURE_SKEW_MS) return now;
+  return ms;
+}
+
 export function fmtAge(ts: number): string {
   // Defensive: invalid timestamp → em-dash; future / negative ages
   // collapse into the "just now" branch via the `< 5_000` check

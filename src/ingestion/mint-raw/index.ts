@@ -379,6 +379,25 @@ function detectSourceLabel(
 
 export const MPL_CORE_PROGRAM       = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
 export const TOKEN_METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';
+
+/** On-chain `tx.blockTime` (unix SECONDS) → ISO 8601 string for the mint
+ *  wire. Guards against a misbehaving RPC that hands the value back in
+ *  milliseconds (×1000 → year ~58000) or otherwise implausibly ahead of
+ *  now: anything more than 2 min in the future — or missing / non-finite —
+ *  falls back to the ingest wall-clock. A single future frame otherwise
+ *  pins that mint to the top of the Live Mint Feed reading "just now" for
+ *  the whole client session and freezes the tracker row's LAST-mint age
+ *  (`lastMintAt = Math.max(prev, receivedAt)` never clears a future value).
+ *  Past values pass through untouched — a late gap-healed mint legitimately
+ *  reads "3h ago". */
+function blockTimeToIso(blockTime: unknown): string {
+  const nowMs = Date.now();
+  if (typeof blockTime === 'number' && Number.isFinite(blockTime)) {
+    const ms = blockTime * 1000;
+    if (ms > 0 && ms <= nowMs + 120_000) return new Date(ms).toISOString();
+  }
+  return new Date(nowMs).toISOString();
+}
 /** Re-export so the listener can subscribe to Candy Guard directly
  *  as a dedicated low-volume target. Source of truth is the
  *  launchpad-detector module; this mirror keeps the listener's
@@ -1799,9 +1818,7 @@ export async function ingestMintRaw(
     // it with a bogus ×N badge — a deploy mints zero NFTs.
     if (lp && lp.collectionCreate === true && lp.collectionAddress) {
       const groupingKey = `collection:${lp.collectionAddress}`;
-      const blockTime = tx.blockTime
-        ? new Date((tx.blockTime as number) * 1000).toISOString()
-        : new Date().toISOString();
+      const blockTime = blockTimeToIso(tx.blockTime);
       console.log(
         `[mints/launchpad] accept source=${lp.source} type=COLLECTION_CREATE ix=${lp.matchedNeedle ?? '—'} ` +
         `collection=${lp.collectionAddress} deployer=${lp.minter ?? 'null'} sig=${sig}`,
@@ -1844,9 +1861,7 @@ export async function ingestMintRaw(
         const priceLamports = extractMintPriceLamports(tx);
         const mintType      = classifyMintType(priceLamports);
         const groupingKey   = `collection:${me.collectionAddress}`;
-        const blockTime = tx.blockTime
-          ? new Date((tx.blockTime as number) * 1000).toISOString()
-          : new Date().toISOString();
+        const blockTime = blockTimeToIso(tx.blockTime);
         const emitted = rec({
           signature:         sig,
           blockTime,
@@ -1912,9 +1927,7 @@ export async function ingestMintRaw(
           const priceLamports = perMintPriceLamports;
           const mintType      = classifyMintType(priceLamports);
           const groupingKey   = `collection:${cm.collectionAddress}`;
-          const blockTime = tx.blockTime
-            ? new Date((tx.blockTime as number) * 1000).toISOString()
-            : new Date().toISOString();
+          const blockTime = blockTimeToIso(tx.blockTime);
           const emitted = rec({
             signature:         sig,
             blockTime,
@@ -1994,9 +2007,7 @@ export async function ingestMintRaw(
         const priceLamports = extractMintPriceLamports(tx);
         const mintType      = classifyMintType(priceLamports);
         const groupingKey   = `collection:${gen.collectionAddress}`;
-        const blockTime = tx.blockTime
-          ? new Date((tx.blockTime as number) * 1000).toISOString()
-          : new Date().toISOString();
+        const blockTime = blockTimeToIso(tx.blockTime);
         // Candy Labs (`foRGE…`) is a known, named wrapper despite having no
         // dedicated tx-shape detector — its name coincidentally collides
         // with Metaplex's "Candy Machine" but the two are unrelated
@@ -2055,9 +2066,7 @@ export async function ingestMintRaw(
             const mintType      = classifyMintType(priceLamports);
             const groupingKey   = `collection:${v2.collectionAddress}`;
             const groupingKind: MintEventWire['groupingKind'] = 'collection';
-            const blockTime = tx.blockTime
-              ? new Date((tx.blockTime as number) * 1000).toISOString()
-              : new Date().toISOString();
+            const blockTime = blockTimeToIso(tx.blockTime);
             const emitted = rec({
               signature:         sig,
               blockTime,
@@ -2120,9 +2129,7 @@ export async function ingestMintRaw(
         const priceLamports = extractMintPriceLamports(tx);
         const mintType      = classifyMintType(priceLamports);
         const groupingKey   = `collection:${tm.collectionAddress}`;
-        const blockTime = tx.blockTime
-          ? new Date((tx.blockTime as number) * 1000).toISOString()
-          : new Date().toISOString();
+        const blockTime = blockTimeToIso(tx.blockTime);
         const emitted = rec({
           signature:         sig,
           blockTime,
@@ -2173,9 +2180,7 @@ export async function ingestMintRaw(
         const priceLamports = extractMintPriceLamports(tx);
         const mintType      = classifyMintType(priceLamports);
         const groupingKey   = `collection:${tmUnified.collectionAddress}`;
-        const blockTime = tx.blockTime
-          ? new Date((tx.blockTime as number) * 1000).toISOString()
-          : new Date().toISOString();
+        const blockTime = blockTimeToIso(tx.blockTime);
         const emitted = rec({
           signature:         sig,
           blockTime,
@@ -2227,9 +2232,7 @@ export async function ingestMintRaw(
       const mintType      = classifyMintType(priceLamports);
       const groupingKey   = `collection:${lp.collectionAddress}`;
       const groupingKind: MintEventWire['groupingKind'] = 'collection';
-      const blockTime = tx.blockTime
-        ? new Date((tx.blockTime as number) * 1000).toISOString()
-        : new Date().toISOString();
+      const blockTime = blockTimeToIso(tx.blockTime);
       console.log(
         `[mints/launchpad] accept source=${lp.source} type=cNFT ix=${lp.matchedNeedle ?? '—'} ` +
         `tree=${lp.collectionAddress} mint=${lp.mintAddress ?? 'null'} ` +
@@ -2322,9 +2325,7 @@ export async function ingestMintRaw(
     const mintType      = classifyMintType(priceLamports);
     const groupingKey   = `collection:${collectionAddress}`;
     const groupingKind: MintEventWire['groupingKind'] = 'collection';
-    const blockTime = tx.blockTime
-      ? new Date((tx.blockTime as number) * 1000).toISOString()
-      : new Date().toISOString();
+    const blockTime = blockTimeToIso(tx.blockTime);
     if (sig === DEBUG_SIG) {
       console.log(
         `[mints/debug-sig] sig=${sig} decision=accept_${standardLabel.toLowerCase()} ` +
@@ -2622,9 +2623,7 @@ export async function ingestMintRaw(
     updateAuthority   ? 'updateAuthority' :
     'programSource';
 
-  const blockTime = tx.blockTime
-    ? new Date((tx.blockTime as number) * 1000).toISOString()
-    : new Date().toISOString();
+  const blockTime = blockTimeToIso(tx.blockTime);
 
   const sourceLabel = detectSourceLabel(hit.programSource, accountKeys);
 
