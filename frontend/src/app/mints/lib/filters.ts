@@ -63,12 +63,31 @@ export function matchesSource(sel: ReadonlySet<SourceKey>, sourceLabel: string):
   );
 }
 
+/** SOLD-out test — the planned cap is fully minted.
+ *
+ *  Uses the AUTHORITATIVE minted count (`supplyMinted` from the on-chain
+ *  CollectionV1.num_minted / CMv3 items_redeemed decoder, falling back to
+ *  the DAS-resolved `mintedCount`) — the exact same value the SUPPLY
+ *  column renders. It must NOT key off `observedMints`: that is a
+ *  session-only event tally (backend process lifetime, and the /mints
+ *  live-mirror bumps it again client-side), so it drifts above `maxSupply`
+ *  on a busy near-complete drop and flip-flops the badge between SOLD and
+ *  ACTIVE every time a `mint_status` frame resets it. When neither count
+ *  is known we can't prove sold-out → treat as not sold-out. */
+export function isCollectionSoldOut(r: MintStatus): boolean {
+  const cap = typeof r.maxSupply === 'number' && r.maxSupply > 0 ? r.maxSupply : null;
+  if (cap === null) return false;
+  const minted = (typeof r.supplyMinted === 'number' && r.supplyMinted >= 0) ? r.supplyMinted
+               : (typeof r.mintedCount  === 'number' && r.mintedCount  >= 0) ? r.mintedCount
+               : null;
+  return minted !== null && minted >= cap;
+}
+
 /** Collection lifecycle state — SAME rule the row badge uses (MintsTableRow):
  *  SOLD when the planned cap is fully minted, else ACTIVE when promoted
  *  (displayState 'shown'), else WATCH (incubating). */
 export function deriveRowState(r: MintStatus): StatusKey {
-  const soldOut = typeof r.maxSupply === 'number' && r.maxSupply > 0 && r.observedMints >= r.maxSupply;
-  return soldOut ? 'sold' : (r.displayState === 'shown' ? 'active' : 'watch');
+  return isCollectionSoldOut(r) ? 'sold' : (r.displayState === 'shown' ? 'active' : 'watch');
 }
 
 /** STATUS axis for a ROW. Empty set = Any. */

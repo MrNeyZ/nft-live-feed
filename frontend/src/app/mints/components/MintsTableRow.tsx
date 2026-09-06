@@ -16,6 +16,7 @@ import { MINT_TF_MS } from '../lib/types';
 import { colorForCollection, isSolPubkey } from '../lib/palette';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 import { fmtAgeShort, fmtMintPrice, shortKey, thumb64, isNewCollection } from '../lib/format';
+import { isCollectionSoldOut } from '../lib/filters';
 import { MintsSourceBadge } from './MintsSourceBadge';
 import { NewCollectionBadge } from './NewCollectionBadge';
 
@@ -272,13 +273,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
   const primaryImg  = imgCandidates[0] ?? null;
   const fallbackImg = imgCandidates[1] ?? null;
   // SOLD takes priority over ACTIVE / WATCH: when the launchpad's
-  // planned drop has been fully minted (or exceeded due to dup
-  // events), the row is a completed event, not "still cooking".
-  // Clamp display via the raw comparison — even observedMints >
-  // maxSupply hits this branch and renders SOLD.
-  const isSoldOut = typeof r.maxSupply === 'number'
-    && r.maxSupply > 0
-    && r.observedMints >= r.maxSupply;
+  // planned drop has been fully minted, the row is a completed event,
+  // not "still cooking". Keyed off the AUTHORITATIVE minted count
+  // (`supplyMinted` / `mintedCount` — the same values the SUPPLY cell
+  // shows), NOT `observedMints`: that session tally drifts past
+  // `maxSupply` on a busy near-complete drop and flip-flopped the badge
+  // between SOLD (■) and ACTIVE (▲). See isCollectionSoldOut.
+  const isSoldOut = isCollectionSoldOut(r);
   // Row state — drives the per-state row className
   // (`.mints-tracker-row-{active,watch,sold}`) and the alpha applied
   // to the per-collection accent border on the COLLECTION cell. Same
