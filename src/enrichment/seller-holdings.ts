@@ -113,11 +113,51 @@
  */
 
 import { getOwnerCollectionDeepCount } from './helius-das';
+import { getOwnerCollectionCountViaMe } from './me-wallet-collection-count';
+import { getOwnerCollectionCountViaTensor } from './tensor-wallet-collection-count';
+import { resolveTensorCollectionSlug } from './enrich';
 import {
   atomicDecrementSellerHolding,
   seedSellerHolding,
   overwriteSellerHolding,
 } from '../db/insert';
+
+// Magic-Eden-slug fallback key prefix — see sse.ts's `resolveCollectionForMint`
+// fallback for mints with no verified on-chain Collection. Same string used
+// there to build the `collection` key passed into this module.
+const ME_KEY_PREFIX = 'me:';
+
+/**
+ * Default scan primitive: tries the Tensor wallet-portfolio count first
+ * (covers listings on BOTH Tensor and Magic Eden in one cheap per-wallet
+ * call — see tensor-wallet-collection-count.ts's doc comment for the
+ * 2026-09-02 verification), falling back to the on-chain-only sources
+ * (DAS deep scan, or the ME wallet-tokens endpoint for the `me:`-prefixed
+ * key) when Tensor has no data. Handles both key shapes `collection` can
+ * take so every caller can rely on this single default rather than
+ * picking a scan fn per key shape (which risked seeding/reconciling one
+ * key with two different sources — see the module doc comment above).
+ */
+async function getOwnerCollectionCountCombined(
+  seller: string,
+  collection: string,
+): Promise<{ count: number | null }> {
+  if (collection.startsWith(ME_KEY_PREFIX)) {
+    const meSlug = collection.slice(ME_KEY_PREFIX.length);
+    const tensorSlug = await resolveTensorCollectionSlug(meSlug, null);
+    if (tensorSlug) {
+      const viaTensor = await getOwnerCollectionCountViaTensor(seller, tensorSlug);
+      if (viaTensor.count != null) return viaTensor;
+    }
+    return getOwnerCollectionCountViaMe(seller, meSlug);
+  }
+  const tensorSlug = await resolveTensorCollectionSlug(null, collection);
+  if (tensorSlug) {
+    const viaTensor = await getOwnerCollectionCountViaTensor(seller, tensorSlug);
+    if (viaTensor.count != null) return viaTensor;
+  }
+  return getOwnerCollectionDeepCount(seller, collection);
+}
 
 const RECONCILE_TTL_MS               = 6 * 60 * 60_000; // 6h
 const RECONCILE_LOW_COUNT_THRESHOLD  = 3;                // matches the frontend's >=3 render gate
@@ -238,7 +278,7 @@ function reconciliationDue(row: { count: number; decrementsSinceScan: number; pr
 export async function getAndDecrementSellerHolding(
   seller: string,
   collection: string,
-  scan: HoldingsScanFn = getOwnerCollectionDeepCount,
+  scan: HoldingsScanFn = getOwnerCollectionCountCombined,
 ): Promise<number | null> {
   const decremented = await atomicDecrementSellerHolding(seller, collection);
 

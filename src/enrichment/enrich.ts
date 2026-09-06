@@ -48,7 +48,7 @@ const tensorSlugMissCache = new TtlCache<string, true>(10 * 60_000, 60_000);
  *  Uses ME slug or collection address as the filter key. Requires TENSOR_API_KEY.
  *  Returns null when the key is absent, the collection isn't on Tensor, or on
  *  any network error. Never throws. */
-async function resolveTensorCollectionSlug(
+export async function resolveTensorCollectionSlug(
   meSlug: string | null | undefined,
   collectionAddress: string | null | undefined,
 ): Promise<string | null> {
