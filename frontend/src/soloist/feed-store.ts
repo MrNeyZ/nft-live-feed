@@ -206,6 +206,18 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
       const applyPatch = (ev: FeedEvent): FeedEvent => {
         const nextName = patch.collectionName ?? ev.collectionName;
         const vis      = collectionMeta(patch.collectionName);
+        // `matches` above accepts a mintAddress-only hit so NFT-level fields
+        // (name/image/collection) still backfill a row whose signature isn't
+        // on the patch yet. floorDelta/offerDelta are PER-SALE (price-
+        // dependent), not per-mint — a mintAddress-only match fans this same
+        // patch out to every OTHER row of the same NFT still visible in the
+        // feed (a flip/re-sale), overwriting an earlier sale's correct delta
+        // with the later sale's value. Found live: Fox #6565 sold twice
+        // (29% then 1% floor delta) — both cards rendered "+1%" because the
+        // second sale's meta patch matched the first sale's row by
+        // mintAddress alone. Gate these two fields to an exact signature
+        // match so each sale keeps its own delta.
+        const isSigMatch = ev.signature === patch.signature;
         return {
           ...ev,
           mintAddress:      patch.mintAddress     || ev.mintAddress,
@@ -221,8 +233,8 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
           // FloorChip in FeedCard renders once the value is known.
           // `??` semantics keep any previously-applied non-null value
           // when a later patch arrives without one.
-          floorDelta:       patch.floorDelta      ?? ev.floorDelta,
-          offerDelta:       patch.offerDelta      ?? ev.offerDelta,
+          floorDelta:       isSigMatch ? (patch.floorDelta ?? ev.floorDelta) : ev.floorDelta,
+          offerDelta:       isSigMatch ? (patch.offerDelta ?? ev.offerDelta) : ev.offerDelta,
           mintedAtMs:       patch.mintedAtMs      ?? ev.mintedAtMs,
         };
       };
