@@ -16,6 +16,7 @@ import { checkAndRecordRepeatFloorBuyer } from './repeat-floor-buyer-cache';
 const FAILURE_TTL_MS = 60 * 1000;       // 60 seconds — retry quickly after a transient DAS error
 const FLOOR_TTL_MS   = 2 * 60 * 1000;  // 2 minutes — floor prices change frequently
 const FLOOR_MISS_TTL_MS = 90 * 1000; // 90s — backoff after a floor lookup miss (was 5 min, reduced so transient 429s recover faster)
+const FLOOR_WARM_WAIT_MS = 4_000;    // cap on computeFloorDelta's wait for a cold-cache warmFloorCache — see call site
 
 // 60s backoff after a complete enrichment failure (DAS + all fallbacks exhausted).
 // Prevents re-running the full fallback chain (Metaplex onchain, Tensor, ME) within
@@ -714,10 +715,19 @@ export async function computeFloorDelta(
     // Cold cache (collection not tracked in listings-store + no recent ME/Tensor
     // floor cached) — synchronously warm it via ME→Tensor (warmFloorCache, same
     // path the /latest snapshot uses) so THIS sale still gets a floor chip
-    // instead of only the next one. No Helius/RPC involved — ME/Tensor HTTP only,
-    // bounded by their own timeouts (~4s worst case), and deduped/cached same as
-    // before so a burst of sales for one cold slug still does one lookup.
-    await warmFloorCache(slug);
+    // instead of only the next one. warmFloorCache itself funnels through
+    // getMeStats' single global 300ms-spaced dispatch chain shared by every
+    // collection in the feed — under load that queue, not the 4s per-call
+    // timeout, is the real worst case. Bounded here to FLOOR_WARM_WAIT_MS so a
+    // backed-up queue can only cost this sale its floor chip, never the whole
+    // enrich() watchdog budget (which would also wipe already-resolved
+    // name/image — see incident 2026-09-02, warmFloorCache became awaited here
+    // in 2ae1e7e without this cap). warmFloorCache keeps running in the
+    // background past the cap and still populates floorCache for later sales.
+    await Promise.race([
+      warmFloorCache(slug),
+      new Promise<void>((resolve) => setTimeout(resolve, FLOOR_WARM_WAIT_MS)),
+    ]);
     cachedMe = floorCache.get(slug) ?? null;
     floorLamports = cachedMe;
     floorSource = cachedMe != null ? 'me_api' : 'none';
