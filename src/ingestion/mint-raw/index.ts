@@ -1000,8 +1000,28 @@ function extractRawMintPriceLamports(tx: RawSolanaTx): number | null {
   const fromTransfers = extractMintPriceFromTransfers(tx);
   if (fromTransfers != null && fromTransfers > 0) return fromTransfers;
   const fromRelayer = extractRelayerSingleMintPrice(tx);
-  if (fromRelayer != null && fromRelayer > 0) return fromRelayer;
-  const fromSigner = extractSignerLamportsPaid(tx);
+  const fromSigner  = extractSignerLamportsPaid(tx);
+  if (fromRelayer != null && fromRelayer > 0) {
+    // extractRelayerSingleMintPrice only sums `transfer` legs (treasury +
+    // platform fee) — it was built for the shape where accountKeys[0] IS
+    // the relayer and net-RECEIVES a reimbursement, leaving fromSigner at
+    // 0 (see that function's doc comment). Some launchpads (LaunchMyNFT
+    // observed live) use a DIFFERENT shape: accountKeys[0] is the real
+    // minter, who funds an intermediate session/relayer account that pays
+    // treasury + fee + rent (createAccount legs, which the relayer-transfer
+    // scan never sees) and refunds only the leftover change. There,
+    // fromSigner (a raw balance delta) already captures the minter's true
+    // total spend including that rent, and is strictly more complete than
+    // the relayer-leg sum — so prefer it when it's larger. When
+    // accountKeys[0] really is the reimbursed relayer, fromSigner stays
+    // 0/null and the original relayer-sum wins unchanged (TurtleToddlers /
+    // Narrrfs World Genesis regression cases). Verified live: LMNFT
+    // relayer-mediated mint sig 4XYwqjUX… (relayer-sum 15,750,000 vs true
+    // signer spend 20,423,760 — signer wins) against sig 41fx7U8R…
+    // (TurtleToddlers, signer delta 0 — relayer-sum wins).
+    if (fromSigner != null && fromSigner > fromRelayer) return fromSigner;
+    return fromRelayer;
+  }
   if (fromSigner != null && fromSigner > 0) return fromSigner;
   const fromCoreDeposit = extractCoreCreateDepositLamports(tx);
   if (fromCoreDeposit != null && fromCoreDeposit > 0) return fromCoreDeposit;
