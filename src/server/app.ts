@@ -43,6 +43,7 @@ import { createMmmCollectionBidsRouter } from './tools-mmm-collection-bids';
 import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
 import { createSolseaAcceptBidRouter } from './tools-solsea-accept-bid';
 import { createGhostBidRouter } from './tools-ghostbid';
+import { createCnftRevokeDelegateRouter } from './tools-cnft-revoke-delegate';
 import { createCrittersMintTimerRouter, startCrittersMintTimerRefreshLoop } from './tools-critters-mint-timer';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
@@ -327,6 +328,11 @@ export function createApp() {
   // Ghost Bid — forgotten M2/Solanart bids ranked by profit, with an
   // on-demand live escrow-balance refresh. See tools-ghostbid.ts header.
   app.use('/api', createGhostBidRouter());
+
+  // cNFT delegate-revoke — throwaway. Lets the leaf owner of an airdropped
+  // compressed NFT clear a project delegate so it can be listed. See
+  // tools-cnft-revoke-delegate.ts header.
+  app.use('/api', createCnftRevokeDelegateRouter());
 
   // Critters.quest mint timer — read-only catalog of upcoming cheap NFT
   // edition mints. No wallet/signing here; the actual sniper bot lives on

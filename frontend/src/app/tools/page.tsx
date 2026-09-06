@@ -82,6 +82,7 @@ const CATEGORIES: ReadonlyArray<ToolCategory> = [
       { href: '/tools/create-v2',             title: 'CreateV2',             desc: 'Bare Token Metadata create+mint — no Candy Machine, self-authored 1-of-1 style mint.' },
       { href: '/tools/critters-mint-timer',   title: 'Critters Timer',       desc: 'Upcoming cheap edition mints from critters.quest, sorted by soonest start — read-only, no wallet.' },
       { href: '/tools/vvv',                   title: 'VVV Stages',           desc: 'Paste a vvv.so mint link — whitelist stages + eligible collections, structured.' },
+      { href: '/tools/cnft-revoke-delegate',  title: 'cNFT Unlock',          desc: 'Airdropped compressed NFT stuck with a project delegate — revoke it with one Bubblegum instruction so ME / Tensor will list it.' },
       // Pixel Forge temporarily pulled — route still live at /tools/pixel-forge, just unlisted.
       // { href: '/tools/pixel-forge',        title: 'Pixel Forge',          desc: 'AI pixel-art trait generator, collection-aware.' },
     ],
