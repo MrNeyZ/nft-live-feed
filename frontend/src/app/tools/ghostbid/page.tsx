@@ -52,6 +52,7 @@ interface GhostBidRow {
   pumpfun: string | null;
   me: string | null;
   galxe: string | null;
+  listingStatus: string | null;
 }
 interface ApiResult {
   ok: true;
@@ -63,6 +64,23 @@ interface ApiResult {
 }
 
 type SortCol = 'profit' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
+
+// `listingStatus` null / 'LISTED_ME' / 'LISTED_TENSOR' → owner is a real,
+// resolved wallet (either the actual holder, or that mint's real seller —
+// still actionable). Anything else ('LISTED_SOLANART_STUCK' or
+// 'STUCK_OTHER:<programId>') means `owner` is a program-owned escrow/vault
+// with no resolvable real wallet — a dead Solanart listing (no working
+// delist path) or an unrelated staking contract. Not actionable; the row
+// stays in the list (so the profit math is still visible) but gets a red
+// wash so it reads as "skip" at a glance.
+function isStuckListing(status: string | null): boolean {
+  return !!status && status !== 'LISTED_ME' && status !== 'LISTED_TENSOR';
+}
+function stuckReason(status: string | null): string {
+  if (status === 'LISTED_SOLANART_STUCK') return 'Held in Solanart’s dead-marketplace escrow — no working delist path, owner can’t move it';
+  if (status?.startsWith('STUCK_OTHER:')) return `Held by an unresolved on-chain program (${status.slice('STUCK_OTHER:'.length)}) — likely staked, not a real wallet`;
+  return 'Not actionable';
+}
 
 // Deterministic color per shared-escrow buyer — same buyer always gets the
 // same dot, distinct buyers get visibly distinct hues (matches the
@@ -114,7 +132,13 @@ function EscrowDot({ buyer, color }: { buyer: string; color: string }) {
       <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: color, cursor: 'default' }} />
       {open && (
         <div style={{
-          position: 'absolute', bottom: '160%', left: '50%', transform: 'translateX(-50%)',
+          // Anchored to the dot's LEFT edge, opening rightward and downward —
+          // the dot lives in the leftmost column hard against the table edge,
+          // so a centered (translateX(-50%)) tooltip spilled its left half
+          // past the scroll-area / TABLE_PANEL `overflow:hidden` and got
+          // clipped. Opening into the table body keeps it fully visible;
+          // dropping below the row also clears the sticky header.
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0,
           background: 'rgba(13,10,22,0.98)', border: '1px solid rgba(255,255,255,0.14)',
           borderRadius: 6, padding: '6px 10px', fontSize: 11, whiteSpace: 'nowrap', zIndex: 10,
           boxShadow: '0 10px 28px rgba(0,0,0,0.55)', ...MONO,
@@ -206,13 +230,23 @@ function shortAddr(s: string): string {
 // Owner = green (who to contact), Mint = blue (the asset itself) — same
 // tokens as everywhere else on the site, dimmed via opacity (not a washed-
 // out hex) so they sit quietly next to Profit/Days, brightening on hover.
-function AddrLink({ href, addr, title, hue }: { href: string; addr: string; title: string; hue: RGB }) {
+function AddrLink({ href, addr, title, hue, copyOnClick }: { href: string; addr: string; title: string; hue: RGB; copyOnClick?: boolean }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" title={title}
-      style={{ fontSize: 11.5, ...MONO, color: rgb(hue), textDecoration: 'none', fontWeight: 600, opacity: 0.72, transition: 'opacity 0.12s' }}
+    <a href={href} target="_blank" rel="noopener noreferrer"
+      title={copyOnClick ? `${title} — click to copy, shift-click to open` : title}
+      style={{ fontSize: 11.5, ...MONO, color: copied ? rgb(VL.green) : rgb(hue), textDecoration: 'none', fontWeight: 600, opacity: copied ? 1 : 0.72, transition: 'opacity 0.12s' }}
+      onClick={(e) => {
+        if (!copyOnClick || e.shiftKey || e.metaKey || e.ctrlKey) return;
+        e.preventDefault();
+        navigator.clipboard.writeText(addr).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 900);
+        }).catch(() => {});
+      }}
       onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.72'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
-      {shortAddr(addr)}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = copied ? '1' : '0.72'; (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'; }}>
+      {copied ? 'copied!' : shortAddr(addr)}
     </a>
   );
 }
@@ -533,14 +567,21 @@ export default function GhostBidPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.map((r, i) => (
+                    {visibleRows.map((r, i) => {
+                      const stuck = isStuckListing(r.listingStatus);
+                      const baseBg = stuck
+                        ? 'rgb(var(--vl-red-glow) / 0.14)'
+                        : (i % 2 === 1 ? 'rgba(255,255,255,0.028)' : 'transparent');
+                      const hoverBg = stuck ? 'rgb(var(--vl-red-glow) / 0.20)' : 'rgba(196,184,232,0.10)';
+                      return (
                       <tr key={`${r.marketplace}-${r.mint}-${r.buyer}`}
+                        title={stuck ? stuckReason(r.listingStatus) : undefined}
                         style={{
-                          background: i % 2 === 1 ? 'rgba(255,255,255,0.028)' : 'transparent',
+                          background: baseBg,
                           borderBottom: '1px solid rgba(255,255,255,0.07)',
                         }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(196,184,232,0.10)'; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 1 ? 'rgba(255,255,255,0.028)' : 'transparent'; }}>
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hoverBg; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = baseBg; }}>
                         <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontSize: 11, color: 'var(--vl-text-muted)' }}>
                           {i + 1}
                         </td>
@@ -607,7 +648,7 @@ export default function GhostBidPage() {
                         })()}
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                            <AddrLink href={`https://magiceden.io/u/${r.owner}`} addr={r.owner} title="Owner's ME profile" hue={VL.green} />
+                            <AddrLink href={`https://magiceden.io/u/${r.owner}`} addr={r.owner} title="Owner's ME profile" hue={VL.green} copyOnClick />
                             <a href={`https://solscan.io/account/${r.owner}`} target="_blank" rel="noopener noreferrer"
                               title="View owner on Solscan" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0, opacity: 0.55 }}
                               onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
@@ -629,7 +670,8 @@ export default function GhostBidPage() {
                         <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.me)}</td>
                         <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.galxe)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

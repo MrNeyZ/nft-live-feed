@@ -88,6 +88,14 @@ interface BaseRow {
   pumpfun: string | null;
   me: string | null;
   galxe: string | null;
+  /** null = normal wallet. 'LISTED_ME' / 'LISTED_TENSOR' = owner is that
+   *  mint's real seller (already resolved off the marketplace's own API,
+   *  not the shared escrow PDA) — still actionable. 'LISTED_SOLANART_STUCK'
+   *  / 'STUCK_OTHER:<programId>' = owner is a program-owned escrow/vault
+   *  (dead Solanart listing or an unrelated per-collection staking
+   *  contract) that couldn't be resolved to a real wallet — not
+   *  actionable, frontend should visually de-emphasize these rows. */
+  listingStatus: string | null;
 }
 
 export interface GhostBidRow extends BaseRow {
@@ -361,7 +369,14 @@ export function createGhostBidRouter(): Router {
       const solanartAccounts = [...new Set(
         rows.filter(r => r.marketplace === 'Solanart' && r.offerAccount).map(r => r.offerAccount as string)
       )];
-      const owners = [...new Set(rows.map(r => r.owner))];
+      // Stuck rows' `owner` is a program-owned escrow/vault, not a real
+      // wallet (LISTED_ME/LISTED_TENSOR rows already carry the resolved
+      // real seller in `owner`, so those stay in the refresh set) —
+      // re-checking a stuck escrow's signature history just reproduces the
+      // shared-escrow false-"recently active" bug this field exists to
+      // avoid. Skip them; `lastActiveAt` stays null from the base snapshot.
+      const isStuck = (r: BaseRow) => !!r.listingStatus && r.listingStatus !== 'LISTED_ME' && r.listingStatus !== 'LISTED_TENSOR';
+      const owners = [...new Set(rows.filter(r => !isStuck(r)).map(r => r.owner))];
 
       const [meBalances, solanartBalances, ownerActivity] = await Promise.all([
         fetchMeEscrowBalances(meBuyers),
