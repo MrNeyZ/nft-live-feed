@@ -2300,6 +2300,44 @@ export default function MintsPage() {
           owns the title context. Compact vertical padding (16/8 instead
           of 20/14) to tighten the gap between the title and the table
           grid below — matches /tools' denser feel. */}
+      {/* Compact top context strip — ergonomic vertical spacer only, not a
+          title. Replaces the old large page header's job of pushing the
+          first live rows down away from the navbar (the header itself is
+          gone for good; this is deliberately not a hero/card). Pure
+          text row, no background/border, so it doesn't compete visually
+          with the two panels below. Hidden in embed mode (multi-tab pane
+          chrome owns that context there) and collapsed on phone via
+          `.mints-top-strip` in globals.css so it doesn't eat scroll room
+          on small screens. Occupies the same 14px top offset the grid
+          used to start at, plus its own ~48px height + 8px gap — pushes
+          the grid (and its first row) down ~56px net vs. before. */}
+      {!embedded && (
+        <div className="mints-top-strip" style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          maxWidth: 'var(--mints-max, 1400px)',
+          margin: '0 auto',
+          marginTop: 14,
+          marginBottom: 8,
+          minHeight: 48,
+          transform: 'translateX(10px)',
+          boxSizing: 'border-box',
+        }}>
+          <span className="mints-top-strip-label" style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+            color: VLText.muted, textTransform: 'uppercase',
+          }}>
+            Mints
+          </span>
+          <span className="mints-top-strip-summary" style={{
+            fontSize: 11, fontWeight: 500, color: VLText.muted, opacity: 0.75,
+          }}>
+            {sorted.length} active · {visibleEvents.length} live events · {mintTf}
+          </span>
+        </div>
+      )}
       {/* 2-column grid: LEFT (large) Mint Collections + RIGHT (narrow)
           Live Mint Feed.
             • PC / Laptop: ~68 / 32 split via
@@ -2307,12 +2345,12 @@ export default function MintsPage() {
             • Phone (globals.css rule): single column.
             • Embed mode (multi-tab): single column.
           `flex: 1` + `minHeight: 0` lets the grid fill all the height
-          left over by `.feed-root`'s flex column (TopNav + header are
-          its other children; the persistent BottomStatusBar reserves
-          its own 36 px via `body[data-bottombar="1"]`'s padding-bottom
-          rule on .feed-root). Both panels stretch to that full
-          height; internal scroll inside each handles overflow so the
-          page itself never grows. */}
+          left over by `.feed-root`'s flex column (TopNav + the top strip
+          above are its other children; the persistent BottomStatusBar
+          reserves its own 36 px via `body[data-bottombar="1"]`'s
+          padding-bottom rule on .feed-root). Both panels stretch to that
+          full height; internal scroll inside each handles overflow so
+          the page itself never grows. */}
       <div className="mints-grid" style={{
         flex: 1,
         minHeight: 0,
@@ -2327,7 +2365,7 @@ export default function MintsPage() {
         width: '100%',
         maxWidth: embedded ? 'none' : 'var(--mints-max, 1400px)',
         margin: '0 auto',
-        marginTop: embedded ? 0 : 14,
+        marginTop: embedded ? 0 : 0,
         alignSelf: embedded ? 'stretch' : 'center',
         transform: embedded ? undefined : 'translateX(10px)',
         paddingBottom: embedded ? 0 : 8,

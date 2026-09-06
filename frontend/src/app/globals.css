@@ -1603,6 +1603,29 @@ html[data-layout="phone"] [data-page="collection"] .trade-row {
 html[data-layout="phone"] [data-page="mints"] .mints-grid {
   grid-template-columns: 1fr !important;
 }
+/* Top context strip is a desktop/laptop ergonomic spacer (pushes the
+   first live row down from the navbar). On phone that vertical space
+   is precious, so collapse it to a thin label-only row instead of the
+   ~48px desktop height — matches the mobile tier (≤480) from
+   src/lib/breakpoints.ts. */
+html[data-layout="phone"] [data-page="mints"] .mints-top-strip {
+  min-height: 0 !important;
+  margin-top: 8px !important;
+  margin-bottom: 4px !important;
+}
+html[data-layout="phone"] [data-page="mints"] .mints-top-strip-summary {
+  display: none !important;
+}
+@media (max-width: 480px) {
+  [data-page="mints"] .mints-top-strip {
+    min-height: 0 !important;
+    margin-top: 8px !important;
+    margin-bottom: 4px !important;
+  }
+  [data-page="mints"] .mints-top-strip-summary {
+    display: none !important;
+  }
+}
 /* Same fallback for narrow widths even when layout-mode hasn't been
    explicitly set to phone — covers PC users who shrink the window.
    Aligned with the centralized tablet breakpoint (≤768) from
