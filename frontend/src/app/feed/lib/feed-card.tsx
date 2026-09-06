@@ -907,6 +907,7 @@ export const FeedCard = memo(function FeedCard({
               // borderTone (the KIND_STYLES axis), so Rare Feed's neutral
               // override gets a neutral edge.
               const tagBorder =
+                kind === 'sellPersonal'      ? alpha(VL.gold, ALPHA.borderStrong) :
                 style.borderTone === 'sell' ? alpha(VL.redStrong, ALPHA.borderStrong) :
                 style.borderTone === 'buy'  ? alpha(VL.greenStrong, ALPHA.borderStrong) :
                                               'rgba(255,255,255,0.12)';

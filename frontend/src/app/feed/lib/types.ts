@@ -22,7 +22,12 @@ export type FilterKey = 'all' | Side | 'buyAmm' | 'sellAmm' | 'listing';
  *  `Side` (the wire-level buy/sell signal) because pool-routed trades
  *  visually cluster under their own AMM label even when the
  *  underlying side maps to buy/sell. */
-export type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'unknown';
+/** `sellPersonal` — seller instantly matched a standing buy offer
+ *  (ME v2 Sell/CoreSell/Mip1Sell + ExecuteSaleV2 bundle, same tx) rather
+ *  than a plain collection-bid/AMM-pool instant sell. Still a SELL
+ *  economically, styled distinctly (gold, not red) — see KIND_STYLES.
+ *  No AMM variant: personal offers don't route through a pool. */
+export type SaleKind = 'buy' | 'sell' | 'buyAmm' | 'sellAmm' | 'sellPersonal' | 'unknown';
 
 /** Style descriptor for the BUY / SELL / AMM badge in a FeedCard.
  *  Pulled out of the card so palette tweaks live in one place. */

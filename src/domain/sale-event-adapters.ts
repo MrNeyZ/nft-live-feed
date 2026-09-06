@@ -16,6 +16,7 @@ export function saleTypeFromRawData(rawData: Record<string, unknown>): SaleType 
     direction:      rawData._direction as string | undefined,
     heliusSaleType: nft?.saleType      as string | undefined,
     subtype:        rawData._subtype   as string | undefined,
+    offerAccept:    rawData._offerAccept as boolean | undefined,
   });
 }
 

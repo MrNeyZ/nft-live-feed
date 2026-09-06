@@ -16,6 +16,12 @@ export const SALE_TYPE_BUY_AMM  = 'pool_buy';    // buy from AMM/pool
 export const SALE_TYPE_SELL_AMM = 'pool_sale';   // sell into AMM/pool
 export const SALE_TYPE_LUCKY    = 'lucky_buy';   // ME Lucky Buy raffle settlement
 export const SALE_TYPE_PACK     = 'pack_open';   // ME Packs — buyer opened a pack
+// Seller instantly matched a standing buy order (Sell+ExecuteSaleV2 bundle,
+// same tx) rather than a buyer purchasing an already-standing listing — see
+// src/domain/sale-type.ts / me-raw/parser.ts's isMeV2OfferAcceptBundle.
+// Renders as the gold 'sellPersonal' badge (see KIND_STYLES) rather than
+// the usual red SELL.
+export const SALE_TYPE_OFFER_ACCEPT = 'offer_accept';
 
 
 // Solid-capsule action palette (live-feed-final.html reference).
@@ -63,6 +69,13 @@ export const KIND_STYLES: Record<SaleKind, KindStyle> = {
   sell:    { label: 'SELL', fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
   buyAmm:  { label: 'AMM',  fg: rgb(VL.greenStrong), bg: alpha(VL.greenStrong, ALPHA.tint), borderTone: 'buy'  },
   sellAmm: { label: 'AMM',  fg: rgb(VL.redStrong),   bg: alpha(VL.redStrong, ALPHA.tint),   borderTone: 'sell' },
+  // Seller instantly matched a standing personal/collection offer
+  // (offer_accept) rather than a bid/pool instant sell — same SELL
+  // semantics (right-edge red card stripe unchanged, borderTone stays
+  // 'sell'), but the badge itself reads gold instead of red so it's
+  // visually distinct from a bid_sell/pool_sale dump. Gold = the same
+  // VL.gold token the LMNFT badge uses on /mints.
+  sellPersonal: { label: 'SELL', fg: rgb(VL.gold), bg: alpha(VL.gold, ALPHA.tint), borderTone: 'sell' },
   unknown: { label: '—',    fg: VLText.muted, bg: 'rgba(255,255,255,0.05)', borderTone: 'neutral' },
 };
 
@@ -137,6 +150,10 @@ export function saleKind(
     // a pack and received this NFT. The 🃏 marker next to the NFT
     // name communicates the pack-origin separately.
     case SALE_TYPE_PACK:     return 'buy';
+    // Personal/targeted offer accept — a SELL (seller-initiated), never
+    // AMM (ME v2 fixed-price only, not a pool marketplace) — see
+    // SaleKind's doc comment.
+    case SALE_TYPE_OFFER_ACCEPT: return 'sellPersonal';
     default:                 return 'unknown';
   }
 }

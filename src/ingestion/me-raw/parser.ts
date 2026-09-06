@@ -130,6 +130,29 @@ function readMeV2PriceFromLogs(logs: unknown): bigint | null {
   return bare;
 }
 
+// A plain listing purchase (buyer buys an already-standing listing) has
+// exactly ONE M2 instruction in the tx — the terminal execute-sale. An
+// "accept offer" bundle — the seller instantly matching a standing buy
+// order for this mint, whether that offer targeted this specific NFT or
+// (per ME's own accept-offer flow) the collection — is always TWO M2
+// instructions: the listing half (Sell / SellV2 / Mip1Sell / CoreSell)
+// immediately followed, same tx, by the execute half. Confirmed both by
+// our own ME Offer Accept tool (tools-me-sell.ts: "A real accept-offer
+// bundle is always TWO M2 instructions") and live 2026-09-02 on
+// qAhgaHGZT5Ai4Kvw8YovJGR6shH49gFoNKe3MAu1wWbPDRjjtRwXGs4NTbWPrxkiamLXb5aHXfXQBwRKU882fm4
+// (logs: "Instruction: CoreSell" then "Instruction: CoreExecuteSaleV2").
+// ME's own UI does not visually distinguish this from a normal sale
+// either — this flag only marks the on-chain shape, not a UI claim.
+const OFFER_ACCEPT_SELL_IX = /Instruction:\s*(CoreSell|Sell|SellV2|Mip1Sell)\b/;
+
+function isMeV2OfferAcceptBundle(logs: unknown): boolean {
+  if (!Array.isArray(logs)) return false;
+  for (const line of logs) {
+    if (typeof line === 'string' && OFFER_ACCEPT_SELL_IX.test(line)) return true;
+  }
+  return false;
+}
+
 function txHasProgram(tx: RawSolanaTx, programId: string): boolean {
   const msg = tx.transaction?.message;
   if (!msg) return false;
@@ -362,6 +385,11 @@ function parseMeV2Sale(
       // signals; checking pack first preserves intent if both ever
       // co-occur in a future ME product (currently they don't).
       ...(isPackOpenTx(tx) ? { _subtype: 'pack_open' as const } : luckyBuy ? { _subtype: 'lucky_buy' as const } : {}),
+      // See isMeV2OfferAcceptBundle's doc comment above — true when this
+      // tx bundles a Sell/CoreSell/Mip1Sell instruction alongside the
+      // terminal execute (seller instantly matched a standing offer),
+      // false for a plain "buyer bought an existing listing" sale.
+      _offerAccept: isMeV2OfferAcceptBundle(tx.meta?.logMessages),
     },
     nftName:           null,
     imageUrl:          null,

@@ -17,7 +17,7 @@
  * with a known `_parser` ignores `heliusSaleType` even if present.
  */
 
-export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy' | 'lucky_buy' | 'pack_open';
+export type SaleType = 'normal_sale' | 'pool_sale' | 'bid_sell' | 'pool_buy' | 'lucky_buy' | 'pack_open' | 'offer_accept';
 
 export interface SaleTypeInput {
   parser?:         string | null;
@@ -27,6 +27,12 @@ export interface SaleTypeInput {
    *  Takes precedence over `parser` so a Lucky-Buy ME v2 row resolves
    *  to `'lucky_buy'` instead of the default `'normal_sale'`. */
   subtype?:        string | null;
+  /** ME v2 only (raw_data._offerAccept) — true when the tx bundles a
+   *  Sell/CoreSell/Mip1Sell instruction alongside the terminal execute,
+   *  i.e. the seller instantly matched a standing buy order rather than
+   *  a buyer purchasing an already-standing listing. See
+   *  me-raw/parser.ts's isMeV2OfferAcceptBundle doc comment. */
+  offerAccept?:    boolean | null;
 }
 
 export function deriveSaleType(input: SaleTypeInput): SaleType {
@@ -41,7 +47,7 @@ export function deriveSaleType(input: SaleTypeInput): SaleType {
   if (subtype === 'pack_open') return 'pack_open';
 
   // ── Raw-parser branches (program address is authoritative) ──────────────
-  if (parser === 'me_v2_raw') return 'normal_sale';
+  if (parser === 'me_v2_raw') return input.offerAccept ? 'offer_accept' : 'normal_sale';
   if (parser === 'mmm_raw') {
     if (dir === 'fulfillSell') return 'pool_buy';
     if (dir === 'takeBid')     return 'bid_sell';
