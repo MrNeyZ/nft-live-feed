@@ -877,6 +877,26 @@ export const FeedCard = memo(function FeedCard({
                 }}
               >RESIZE</span>
             )}
+            {/* RENT dot — SIMD-0437 rent-refund availability. Backend
+                rent-refund-resolver flags the NFT when its mint account still
+                holds un-skimmed surplus over the current rent-exempt minimum
+                (funded pre-reduction, never withdrawn via WithdrawExcessLamports).
+                Deliberately understated: a 6 px gold dot, no text — same gold
+                family as the LMNFT badge. cNFT / Core never schedule the lookup
+                so never show it. */}
+            {event.rentRefund === 'has_refund' && (
+              <span
+                aria-label="SIMD-0437 rent refund available"
+                title="SIMD-0437 rent refund available (un-skimmed account surplus)"
+                style={{
+                  display: 'inline-block', flexShrink: 0,
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: rgb(VL.gold),
+                  boxShadow: `0 0 5px ${alpha(VL.gold, 0.5)}`,
+                  opacity: 0.85,
+                }}
+              />
+            )}
             <FreshBadge mintedAtMs={event.mintedAtMs} />
             {effectiveFloorDelta != null && <FloorChip delta={effectiveFloorDelta} />}
             {(() => {

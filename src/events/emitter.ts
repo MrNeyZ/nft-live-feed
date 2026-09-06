@@ -11,6 +11,17 @@ export interface ResizeStatusPatch {
   resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
+/** Per-sale SIMD-0437 rent-refund patch. Emitted by `rent-refund-resolver`
+ *  after the mint-account surplus check completes. Carries the originating
+ *  sale `signature` so the feed reducer targets the exact row — same
+ *  shape/contract as `ResizeStatusPatch`. Only ever emitted with
+ *  `rentRefund: 'has_refund'` (the resolver never patches a 'none'). */
+export interface RentRefundPatch {
+  signature:  string;
+  mint:       string;
+  rentRefund: 'none' | 'has_refund';
+}
+
 /** Per-sale AMM pool-type patch. Emitted by `mmm-pool-type-resolver` after
  *  an async classification lookup resolves for a pool involved in a recent
  *  sale. Carries the originating `signature` so the feed reducer can target
@@ -514,6 +525,19 @@ class SaleEventBus extends EventEmitter {
   }
   offResizeStatusPatch(listener: (patch: ResizeStatusPatch) => void): this {
     return this.off('resize_status', listener);
+  }
+
+  /** SIMD-0437 rent-refund availability resolved (or refreshed) for a mint
+   *  that was the subject of a recent sale. SSE forwards on the `rent_refund`
+   *  channel; the feed reducer applies it by `signature`. */
+  emitRentRefundPatch(patch: RentRefundPatch): void {
+    this.emit('rent_refund', patch);
+  }
+  onRentRefundPatch(listener: (patch: RentRefundPatch) => void): this {
+    return this.on('rent_refund', listener);
+  }
+  offRentRefundPatch(listener: (patch: RentRefundPatch) => void): this {
+    return this.off('rent_refund', listener);
   }
 
   /** AMM pool-type resolved (or refreshed) for a pool that was the subject

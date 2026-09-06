@@ -266,6 +266,7 @@ function buildSaleFrame(event: SaleEvent): string {
     floorDelta:            event.floorDelta             ?? null,
     offerDelta:        event.offerDelta        ?? null,
     resizeStatus:      event.resizeStatus      ?? null,
+    rentRefund:        event.rentRefund        ?? null,
     mintedAtMs:        event.mintedAtMs         ?? null,
     // Authoritative, synchronous AMM-fill signal (see sale-event-adapters.ts) —
     // unlike `poolType` (async, SSE-only, ME-lookup-derived), this is set at
@@ -563,6 +564,10 @@ saleEventBus.onMetaUpdate(     (update) => enqueue(buildMetaFrame(update)));
 saleEventBus.onRemove(         (sig)    => enqueue(`event: remove\ndata: ${JSON.stringify({ signature: sig })}\n\n`));
 saleEventBus.onRawPatch(       (patch)  => enqueue(`event: rawpatch\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onResizeStatusPatch((patch) => enqueue(`event: resize_status\ndata: ${JSON.stringify(patch)}\n\n`));
+// SIMD-0437 rent-refund patch — rent-refund-resolver emits this when the
+// mint-account surplus check resolves to 'has_refund'. Frontend renders the
+// small RENT dot on that value only (see feed-card.tsx).
+saleEventBus.onRentRefundPatch((patch) => enqueue(`event: rent_refund\ndata: ${JSON.stringify(patch)}\n\n`));
 // AMM pool-type patch — mmm-pool-type-resolver emits this on a successful
 // exact poolKey match. Frontend renders the AMM glyph ONLY when the
 // patched value is 'two_sided' (see sale-kind.ts).

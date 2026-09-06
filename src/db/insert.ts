@@ -12,6 +12,7 @@ import { logSellerNetDiff, logSellerNetAudit, logAmmSellPriceMode } from '../ing
 import { slugForMint, nameForMint } from '../server/listings-store';
 import { getSseClientCount } from '../server/sse';
 import { enqueueResizeLookup, getCachedResizeStatus } from '../mints/resize-status-resolver';
+import { enqueueRentRefundLookup, getCachedRentRefundStatus } from '../mints/rent-refund-resolver';
 import { enqueuePoolTypeLookup, getCachedPoolType } from '../ingestion/mmm-pool-type-resolver';
 import { getMintedAt } from '../mints/fresh-mint-cache';
 
@@ -482,6 +483,9 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   // resolved this mint. Misses still go out as undefined and are
   // patched later via the `resize_status` SSE event.
   const cachedResize = event.mintAddress ? getCachedResizeStatus(event.mintAddress) : null;
+  // Same sync-hit / async-patch shape as resize-status: a fresh cache hit
+  // rides the first frame; misses are patched later via `rent_refund` SSE.
+  const cachedRentRefund = event.mintAddress ? getCachedRentRefundStatus(event.mintAddress) : null;
   // AMM badge classification — fresh cache hit only (stale/missing stays
   // null and is patched later via the `pool_type` SSE event, same
   // sync-hit/async-patch shape as resize-status above).
@@ -504,6 +508,7 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
       magicEdenUrl,
       meCollectionSlug: frameSlug,
       resizeStatus: cachedResize ?? undefined,
+      rentRefund: cachedRentRefund ?? undefined,
       poolType: cachedPoolType ?? undefined,
       // FRESH-badge timestamp — a plain in-memory Map lookup (no I/O), so
       // it's correct on the very first frame rather than waiting for the
@@ -627,6 +632,10 @@ export async function insertSaleEvent(event: SaleEvent): Promise<string | null> 
   if ((event.nftType === 'legacy' || event.nftType === 'pnft')
       && event.priceLamports <= 30_000_000n) {
     enqueueResizeLookup(event.mintAddress, event.signature);
+    // Same prefilter, same call site: SIMD-0437 rent-refund availability
+    // (mint-account surplus over the current rent-exempt minimum). One
+    // getAccountInfo per mint, TTL-cached — see rent-refund-resolver.ts.
+    enqueueRentRefundLookup(event.mintAddress, event.signature);
   }
 
   // ── AMM pool-type lookup (Live Feed AMM badge) ────────────────────────────

@@ -18,6 +18,7 @@ import { startMintDetector } from './mints/detector';
 import { startCoreSupplyRefresher } from './mints/core-supply-refresher';
 import { startCollectionCreatedResolver } from './mints/collection-created-resolver';
 import { startResizeStatusResolver } from './mints/resize-status-resolver';
+import { startRentRefundResolver } from './mints/rent-refund-resolver';
 import { startMmmPoolTypeResolver } from './ingestion/mmm-pool-type-resolver';
 import { startMintEventPersistence } from './mints/event-store';
 import { isMintTrackerEnabled, getMode } from './runtime/mode';
@@ -167,6 +168,11 @@ async function main() {
   // 'metaplex_resized_unclaimed' so the Live Feed can render the RESIZE
   // badge after the fact.
   void startResizeStatusResolver();
+  // SIMD-0437 rent-refund resolver: 1 getAccountInfo per prefilter-matching
+  // mint (same legacy/pNFT ≤ 0.03 SOL gate), TTL-cached in DB. Emits a
+  // `rent_refund` SSE patch when a mint's account still carries un-skimmed
+  // surplus over the current rent-exempt minimum, so /feed shows the RENT dot.
+  void startRentRefundResolver();
   // MMM pool-type resolver: AMM badge classification for live/recent MMM
   // sales only (bid_sell/pool_buy/pool_sale). No DB migration, no
   // historical backfill — see mmm-pool-type-resolver.ts header for the

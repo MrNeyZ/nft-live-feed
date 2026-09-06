@@ -106,6 +106,15 @@ export interface ResizeStatusPatch {
   resizeStatus: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
 }
 
+/** SIMD-0437 rent-refund patch — late-arriving result from the backend
+ *  rent-refund-resolver. Matches by originating sale signature. Only
+ *  'has_refund' lights the RENT dot. */
+export interface RentRefundPatch {
+  signature:  string;
+  mint:       string;
+  rentRefund: 'none' | 'has_refund';
+}
+
 /** Late-resolved rarity patch — backend `rarity` SSE channel. The live `sale`
  *  frame can go out without rarity (the backend sync getter is in-process-only
  *  and misses while cold); the backend resolves it async and emits this so the
@@ -136,6 +145,7 @@ export type FeedAction =
   | { type: 'rawpatch';      patch:  RawPatch }
   | { type: 'seller_count';  patch:  SellerCountPatch }
   | { type: 'resize_status'; patch:  ResizeStatusPatch }
+  | { type: 'rent_refund';   patch:  RentRefundPatch }
   | { type: 'rarity';        patch:  RarityPatch }
   | { type: 'pool_type';     patch:  PoolTypePatch }
   | { type: 'remove';        signature: string }
@@ -332,6 +342,15 @@ export function feedReducer(state: FeedState, action: FeedAction): FeedState {
         state,
         ev => ev.signature === patch.signature,
         ev => ev.resizeStatus === patch.resizeStatus ? ev : { ...ev, resizeStatus: patch.resizeStatus },
+      );
+    }
+    case 'rent_refund': {
+      // Same signature-match + sticky-merge shape as resize_status.
+      const { patch } = action;
+      return patchWhere(
+        state,
+        ev => ev.signature === patch.signature,
+        ev => ev.rentRefund === patch.rentRefund ? ev : { ...ev, rentRefund: patch.rentRefund },
       );
     }
     case 'pool_type': {

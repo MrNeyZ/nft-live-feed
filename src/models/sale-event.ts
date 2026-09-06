@@ -87,6 +87,14 @@ export interface SaleEvent {
    *  — a `resize_status` SSE patch event will arrive later if it
    *  resolves to the actionable value. */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized';
+  /** SIMD-0437 rent-refund availability at sale-frame time. Resolved
+   *  out-of-band by `rent-refund-resolver` (one getAccountInfo on the mint
+   *  account: does it hold surplus over the current rent-exempt minimum?).
+   *  Frontend renders the small RENT dot ONLY when value is `has_refund`.
+   *  Undefined = no lookup scheduled (prefilter didn't match) or not yet
+   *  returned — a `rent_refund` SSE patch arrives later if it resolves
+   *  to `has_refund`. */
+  rentRefund?: 'none' | 'has_refund';
   /**
    * FRESH MINT badge support. Set when this sale's `mintAddress` matches a
    * `mint_events` row observed within the last 4h (NFT-level join only — see

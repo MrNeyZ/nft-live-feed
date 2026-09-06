@@ -55,6 +55,11 @@ export interface FeedEvent {
    *  didn't pass prefilter) or pending. May arrive later via a
    *  `resize_status` SSE patch. */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
+  /** SIMD-0437 rent-refund availability from the backend rent-refund-resolver.
+   *  'has_refund' = the NFT's mint account still holds un-skimmed surplus over
+   *  the current rent-exempt minimum → the small RENT dot renders. Absent /
+   *  null / 'none' = no dot. May arrive later via a `rent_refund` SSE patch. */
+  rentRefund?: 'none' | 'has_refund' | null;
   /** FRESH MINT badge. Set when this sale's mint_address matched a
    *  mint_events row observed within the last 4h (NFT-level join only, no
    *  collection heuristics). Null = no match — unknown mint, older than the
@@ -121,6 +126,9 @@ export interface RestRow {
   /** Resize-status stamped on the REST snapshot from the resolver
    *  cache (which is DB-preloaded on boot). Survives a page refresh. */
   resize_status?: string | null;
+  /** Non-persisted — stamped from the backend's in-process rent-refund cache
+   *  (same pattern as resize_status). 'has_refund' → the RENT dot. */
+  rent_refund?: string | null;
   /** Non-persisted — stamped from the backend's in-process fresh-mint cache
    *  (same pattern as resize_status/floor_delta above). Absent = no match. */
   minted_at_ms?: number | null;
@@ -169,6 +177,7 @@ export function fromRow(row: RestRow): FeedEvent {
     raritySource:     row.rarity_source ?? null,
     oneOfOne:         row.one_of_one ?? false,
     resizeStatus: (row.resize_status as FeedEvent['resizeStatus']) ?? null,
+    rentRefund: (row.rent_refund as FeedEvent['rentRefund']) ?? null,
     mintedAtMs: row.minted_at_ms ?? null,
     ammFill: row.amm_fill ?? null,
   };

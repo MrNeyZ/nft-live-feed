@@ -132,6 +132,12 @@ export interface FeedEvent {
    *  triggers the RESIZE chip in the Live Feed. Null/undefined = no
    *  signal yet (prefilter didn't match or resolver still running). */
   resizeStatus?: 'none' | 'metaplex_resized_unclaimed' | 'claimed' | 'user_resized' | null;
+  /** SIMD-0437 rent-refund availability (backend rent-refund-resolver). Only
+   *  'has_refund' renders the small RENT dot in the Live Feed — the NFT's mint
+   *  account still holds un-skimmed surplus over the current rent-exempt
+   *  minimum. Null/undefined/'none' = no dot. May arrive via a `rent_refund`
+   *  SSE patch after the first frame. */
+  rentRefund?: 'none' | 'has_refund' | null;
   /** FRESH MINT badge. Wall-clock time (ms) this NFT's mint was observed by
    *  our backend, when the sale's mint_address matched a mint_events row
    *  within the last 4h (NFT-level join only — see

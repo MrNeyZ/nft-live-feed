@@ -5,6 +5,7 @@ import { getLatestEvents, getEventsByCollection } from '../db/queries';
 import { getPool } from '../db/client';
 import { peekCachedFloorLamports, warmFloorCache } from '../enrichment/enrich';
 import { getCachedResizeStatus } from '../mints/resize-status-resolver';
+import { getCachedRentRefundStatus } from '../mints/rent-refund-resolver';
 import { getMintedAt } from '../mints/fresh-mint-cache';
 import { rarityForMints } from './rarity-lookup';
 import { rateLimit, isValidSlug } from './rate-limit';
@@ -125,9 +126,9 @@ function stampFromCache<T extends {
   price_lamports: number | string | bigint;
   mint_address: string | null;
   floor_delta?: number | null;
-}>(rows: T[]): Array<T & { floor_delta?: number | null; resize_status?: string | null; minted_at_ms?: number | null }> {
+}>(rows: T[]): Array<T & { floor_delta?: number | null; resize_status?: string | null; rent_refund?: string | null; minted_at_ms?: number | null }> {
   return rows.map((r) => {
-    let row: T & { floor_delta?: number | null; resize_status?: string | null; minted_at_ms?: number | null } = r;
+    let row: T & { floor_delta?: number | null; resize_status?: string | null; rent_refund?: string | null; minted_at_ms?: number | null } = r;
     // Prefer the value persisted at enrichment time (migration 017).
     // Only fall back to the live floor cache when the DB has no value —
     // this keeps badges consistent across reloads even when the floor cache
@@ -144,6 +145,9 @@ function stampFromCache<T extends {
     if (r.mint_address) {
       const rs = getCachedResizeStatus(r.mint_address);
       if (rs) row = { ...row, resize_status: rs };
+      // SIMD-0437 RENT dot — same non-persisted in-process-cache stamp.
+      const rr = getCachedRentRefundStatus(r.mint_address);
+      if (rr) row = { ...row, rent_refund: rr };
       // FRESH badge — same non-persisted, in-process-cache-only pattern as
       // resize_status above. NFT-level join only (see fresh-mint-cache.ts);
       // null when the mint isn't cached (unknown / older than 4h / cNFT sale
