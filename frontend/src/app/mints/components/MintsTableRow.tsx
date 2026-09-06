@@ -7,7 +7,7 @@
 // have no other consumer; the SOURCE pill is the existing
 // `<MintsSourceBadge>`.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ItemThumb } from '@/soloist/shared';
 import { playUiSelect } from '@/soloist/use-ui-sound';
@@ -226,6 +226,25 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     setMintsHover({ x: r2.left + r2.width / 2, y: flip ? r2.bottom + 6 : r2.top - 6, flip });
   };
   const closeMintsPopover = () => setMintsHover(null);
+  // ── Unmount-safe hover teardown ──────────────────────────────────
+  // The parent re-keys this row as `${groupingKey}:${lastMintAt}` (so
+  // the fresh-mint flash animation replays from frame 0), which means a
+  // new mint for the collection under the cursor — or a live re-sort —
+  // unmounts the row mid-hover. The browser never fires mouseleave on a
+  // removed node, so `onHoverLeave` / `onPauseLeave` would never run and
+  // the feed's hover-scope (chip + dim) and hover-pause counter would
+  // latch on until some other row happened to clear them. Track whether
+  // an enter is still outstanding and replay the matching leave on
+  // unmount. `onHoverLeave` keeps its own `prev === groupingKey` guard,
+  // so replaying it can't clobber a scope another row has since set.
+  const hoverActiveRef = useRef(false);
+  const pauseActiveRef = useRef(false);
+  const leaveCbRef = useRef({ onHoverLeave, onPauseLeave });
+  leaveCbRef.current = { onHoverLeave, onPauseLeave };
+  useEffect(() => () => {
+    if (hoverActiveRef.current) leaveCbRef.current.onHoverLeave?.();
+    if (pauseActiveRef.current) leaveCbRef.current.onPauseLeave?.();
+  }, []);
   // Belt-and-suspenders against whitespace-only names that pre-date
   // the backend trim (still cached in localStorage) or that slip
   // through any future enrichment path. `??` alone wouldn't catch
@@ -332,8 +351,8 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
       // Hover-pause fires from the row body only (mouseenter/leave do not
       // bubble through children), so passing through child cells / icons
       // never produces a leave/enter flicker.
-      onMouseEnter={onPauseEnter}
-      onMouseLeave={onPauseLeave}
+      onMouseEnter={() => { pauseActiveRef.current = true; onPauseEnter?.(); }}
+      onMouseLeave={() => { pauseActiveRef.current = false; onPauseLeave?.(); }}
       // Row hover no longer scopes the live feed — only the SHOW button does
       // (onHoverEnter/onHoverLeave are wired to SHOW below). The CSS hover
       // lift (tools-offer-row) still applies on row hover.
@@ -564,6 +583,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
             onMouseEnter={(e) => {
+              hoverActiveRef.current = true;
               onHoverEnter?.();
               if (!isPinned) {
                 const b = e.currentTarget;
@@ -573,6 +593,7 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
               }
             }}
             onMouseLeave={(e) => {
+              hoverActiveRef.current = false;
               onHoverLeave?.();
               if (!isPinned) {
                 const b = e.currentTarget;
