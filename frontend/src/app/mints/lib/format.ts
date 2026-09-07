@@ -27,19 +27,19 @@ export function thumb64(url: string | null | undefined): string | null {
   if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
   return `/thumb?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=png`;
 }
-/** Proxy size for the live-mint card thumbnails — 200×200 source. The
- *  card display size stays around the existing 56–64 px footprint, so
- *  the larger source is purely for crisp rendering on hi-DPI displays
- *  (and matches the spec's "200×200 source if available"). */
-export function thumb200(url: string | null | undefined): string | null {
+/** Proxy size for the live-mint card thumbnails — 128×128 source, 1:1
+ *  with /feed's default `compressImage()`. The card display size is 56 px,
+ *  so 128 covers 2× DPI without over-fetching. The click-to-open preview
+ *  uses `thumb256` instead. */
+export function thumb128(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith('data:')) return url;
   if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
-  return `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=png`;
+  return `/thumb?url=${encodeURIComponent(url)}&w=128&h=128&fit=cover&output=png`;
 }
 /** Proxy size for the click-to-open image preview overlay — 256×256
  *  source, matching /feed's `compressImage(url, 256)`. The overlay renders
- *  at 200 px; the card thumbnail stays on `thumb200` and is untouched. */
+ *  at 200 px; the card thumbnail stays on `thumb128` and is untouched. */
 export function thumb256(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith('data:')) return url;

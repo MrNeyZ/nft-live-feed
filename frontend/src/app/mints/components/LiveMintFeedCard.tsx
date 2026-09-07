@@ -13,7 +13,7 @@ import type { MintEvent, MintStatus, PaymentTokenInfo } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb200, thumb256, isNewCollection } from '../lib/format';
+import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb128, thumb256, isNewCollection } from '../lib/format';
 import { sourceHref, sourceBadge } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -426,7 +426,7 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   const cardFallback = heroImg ?? repImg ?? null;
   // Preview overlay source — dedicated 256 px render (matches /feed's
   // `compressImage(url, 256)`), fetched only when the overlay opens. The
-  // in-list thumbnail keeps its own smaller `thumb200` source, unchanged.
+  // in-list thumbnail keeps its own smaller `thumb128` source, unchanged.
   const previewImg = thumb256(cardImage ?? cardFallback);
   if (group?.name === 'Flork') {
     // Temporary Flork-only trace — confirms which tier the chain
@@ -579,10 +579,10 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
         // bare style literal, so assert the whole object as CSSProperties.
       } as CSSProperties}
     >
-      {/* 56×56 thumbnail rendered from a 200×200 /thumb source so
-          hi-DPI displays render crisply without enlarging the card
-          footprint. Falls back to the shared abbr/color placeholder
-          when no image yet. */}
+      {/* 56×56 thumbnail rendered from a 128×128 /thumb source (1:1 with
+          /feed) — covers 2× DPI without over-fetching. Click opens the
+          256px preview overlay. Falls back to the shared abbr/color
+          placeholder when no image yet. */}
       <span
         onClick={previewImg && onPreview ? () => onPreview(previewImg) : undefined}
         style={{
@@ -593,10 +593,10 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
       {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
       {isNewCollection(group?.collectionCreatedAt, group?.firstSeenAt) && <NewCollectionBadge size="feed" />}
       <ItemThumb
-        imageUrl={thumb200(cardImage)}
+        imageUrl={thumb128(cardImage)}
         /* 2nd-tier URL tried (with its own proxy→raw retry) before
            initials — see cardFallback above. */
-        fallbackImageUrl={thumb200(cardFallback)}
+        fallbackImageUrl={thumb128(cardFallback)}
         /* When a real per-NFT image lands we keep the collection-
            color tint behind it (matches the row accent stripe).
            When it's the placeholder path we seed by `mintAddress`
