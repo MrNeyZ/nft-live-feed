@@ -19,6 +19,7 @@ import {
   partitionRebuildResults,
   hasBlockhashHeadroom,
   BLOCKHASH_SAFETY_MARGIN_BLOCKS,
+  retryOnce,
   type ConfirmClass,
   type RebuildOutcome,
 } from './logic';
@@ -332,10 +333,58 @@ function headroomChecks() {
   });
 }
 
+// ── retryOnce (block-height guard's retry-after-one-blip contract) ───────
+async function retryOnceChecks() {
+  console.log('retryOnce');
+  await checkAsync('first attempt succeeds -> no second call, no delay paid', async () => {
+    let calls = 0;
+    const t0 = Date.now();
+    const out = await retryOnce(async () => { calls++; return 42; }, 300);
+    assert.strictEqual(out, 42);
+    assert.strictEqual(calls, 1);
+    assert.ok(Date.now() - t0 < 100, 'should not have waited for the retry delay');
+  });
+  await checkAsync('first null, second succeeds -> exactly 2 calls, first non-null wins', async () => {
+    let calls = 0;
+    const out = await retryOnce(async () => { calls++; return calls === 1 ? null : 7; }, 10);
+    assert.strictEqual(out, 7);
+    assert.strictEqual(calls, 2);
+  });
+  await checkAsync('both null -> null, exactly 2 calls (not more)', async () => {
+    let calls = 0;
+    const out = await retryOnce(async () => { calls++; return null; }, 10);
+    assert.strictEqual(out, null);
+    assert.strictEqual(calls, 2);
+  });
+  await checkAsync('both throw -> null, not rejected (caller need not try/catch)', async () => {
+    let calls = 0;
+    const out = await retryOnce(async () => { calls++; throw new Error('boom'); }, 10);
+    assert.strictEqual(out, null);
+    assert.strictEqual(calls, 2);
+  });
+  await checkAsync('first throws, second succeeds -> recovers', async () => {
+    let calls = 0;
+    const out = await retryOnce(async () => {
+      calls++;
+      if (calls === 1) throw new Error('transient');
+      return 99;
+    }, 10);
+    assert.strictEqual(out, 99);
+    assert.strictEqual(calls, 2);
+  });
+  await checkAsync('actually waits ~delayMs between attempts (not immediate)', async () => {
+    const t0 = Date.now();
+    await retryOnce(async () => null, 120);
+    assert.ok(Date.now() - t0 >= 110, `expected >=110ms elapsed, got ${Date.now() - t0}ms`);
+  });
+}
+
 partitionChecks();
 headroomChecks();
 
-runBoundedChecks().then(() => {
-  console.log(`\n${passed} checks passed`);
-  if (process.exitCode) { console.error('SOME CHECKS FAILED'); }
-});
+runBoundedChecks()
+  .then(retryOnceChecks)
+  .then(() => {
+    console.log(`\n${passed} checks passed`);
+    if (process.exitCode) { console.error('SOME CHECKS FAILED'); }
+  });

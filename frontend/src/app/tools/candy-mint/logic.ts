@@ -215,6 +215,26 @@ export function hasBlockhashHeadroom(
   return lastValidBlockHeight - currentBlockHeight >= marginBlocks;
 }
 
+// Generic "try once, wait, try again" retry — the shape `page.tsx`'s
+// fetchCurrentBlockHeight uses for the guard's block-height read: a single
+// transient RPC blip shouldn't make the guard fail open for the whole rest
+// of the batch (see the send-loop investigation — a real retry is cheap
+// relative to the send loop's own budget). Returns the first non-null
+// result; null only if BOTH attempts return null or throw. `attempt`'s own
+// network/parsing details live in the caller — this only owns the "try,
+// wait, try again" contract, which is what's actually risky to get right
+// (and, unlike the network call itself, is unit-testable without mocking
+// fetch).
+export async function retryOnce<T>(
+  attempt: () => Promise<T | null>,
+  delayMs: number,
+): Promise<T | null> {
+  const first = await attempt().catch(() => null);
+  if (first != null) return first;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  return attempt().catch(() => null);
+}
+
 // The headline price for a guard group. Shows SOL and/or token, joined —
 // never silently drops the non-SOL leg. `solLamports === '0'` renders as
 // "0 SOL" (a real free-mint signal), any other value to 3dp.

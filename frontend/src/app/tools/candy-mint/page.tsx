@@ -34,7 +34,7 @@ import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 import {
   classifyConfirmation, normalizeMintErr, pickInitialGroup, inspectDisabled,
   buildPriceLabel, tokenCostLabel as tokenCostLabelFor,
-  runBounded, partitionRebuildResults, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS,
+  runBounded, partitionRebuildResults, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS, retryOnce,
   type ConfirmClass, type TokenPaymentView, type RebuildOutcome,
 } from './logic';
 
@@ -249,18 +249,23 @@ async function waitForConfirmation(signature: string): Promise<ConfirmResult> {
 }
 
 // One cheap read for the batch-mint post-sign blockhash-headroom guard (see
-// handleMintBatch's `shouldSend`). Null on any failure — the guard fails
-// OPEN (still sends) rather than blocking a batch on an auxiliary read
-// hiccup; see the guard's own comment for why.
+// handleMintBatch's `shouldSend`). One retry after a short delay (via
+// logic.ts's retryOnce — cheap insurance against a single transient blip,
+// measured to be well within the send loop's own budget: send-loop
+// investigation found the max-batch send loop is ~190ms/1 block against an
+// 18-block margin). Null after both attempts -> the guard fails OPEN
+// (still sends) rather than blocking a batch on an auxiliary read outage
+// unrelated to whether that batch is actually stale; see shouldSend's own
+// comment for the full reasoning. The caller (not this function) is
+// responsible for surfacing that bypass — it knows the batch size, this
+// doesn't.
 async function fetchCurrentBlockHeight(): Promise<number | null> {
-  try {
+  return retryOnce(async () => {
     const r = await fetch(`${API_BASE}/api/tools/candy-mint/block-height`, { headers: { ...authHeaders() } });
     if (!r.ok) return null;
     const d = await r.json() as { ok: boolean; blockHeight?: number };
     return d.ok && typeof d.blockHeight === 'number' ? d.blockHeight : null;
-  } catch {
-    return null;
-  }
+  }, 300);
 }
 
 export default function CandyMintPage() {
@@ -643,7 +648,24 @@ export default function CandyMintPage() {
       let cachedHeight: number | null | undefined;
       const shouldSend = async (pos: number): Promise<boolean> => {
         const i = signableItemIndexes[pos];
-        if (cachedHeight === undefined) cachedHeight = await fetchCurrentBlockHeight();
+        if (cachedHeight === undefined) {
+          cachedHeight = await fetchCurrentBlockHeight();
+          if (cachedHeight == null) {
+            // Both attempts (fetchCurrentBlockHeight's own retry) failed —
+            // fail open rather than block a promptly-signed batch over an
+            // unrelated auxiliary-endpoint outage (see the send-loop
+            // investigation: a genuinely stale tx sent anyway is caught
+            // cleanly by phase 3's confirmation handling either way, never
+            // counted as a mint). Not silent, though — this is the one
+            // case the guard provides zero protection, worth being able to
+            // find in the logs.
+            console.warn(
+              '[candy-mint] batch blockhash guard unavailable after retry — '
+              + `block-height read failed twice (batch size=${signableItemIndexes.length}); `
+              + 'guard bypassed, continuing without headroom validation',
+            );
+          }
+        }
         const lastValid = lastValidByItem.get(i);
         if (cachedHeight == null || lastValid == null) return true; // can't evaluate -> fail open, see fetchCurrentBlockHeight's comment
         if (hasBlockhashHeadroom(lastValid, cachedHeight, BLOCKHASH_SAFETY_MARGIN_BLOCKS)) return true;
