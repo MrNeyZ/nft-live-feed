@@ -917,6 +917,17 @@ export default function MintsPage() {
   // backend replays the snapshot on connect). Keyed by mint address.
   const [paymentTokens, setPaymentTokens] = useState<Map<string, PaymentTokenInfo>>(() => new Map());
 
+  // Image-preview overlay for the LIVE MINT FEED — 1:1 with /feed's
+  // `preview` state. One overlay per page; clicking another thumb replaces
+  // the URL. Cleared on backdrop click or Escape.
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!imgPreview) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImgPreview(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [imgPreview]);
+
   // Hover-pause for the LIVE MINT FEED panel — mirrors the
   // /feed page's hoverPaused pattern. While the cursor is over the
   // feed scroll container, incoming `mint` SSE events are buffered
@@ -3023,6 +3034,7 @@ export default function MintsPage() {
                   embedded={embedded}
                   onPauseEnter={enterPauseZone}
                   onPauseLeave={leavePauseZone}
+                  onPreview={setImgPreview}
                 />
               );
             }); })()}
@@ -3030,6 +3042,38 @@ export default function MintsPage() {
         </div>
       )}
       </div>
+
+      {/* Live Mint Feed image preview — single overlay shared by every
+       *  LiveMintFeedCard. Backdrop click and Escape close it; the <img>
+       *  stops propagation. Reuses the 200 px /thumb URL already rendered
+       *  in the card, so no extra network request. Mirrors /feed. */}
+      {imgPreview && (
+        <div
+          onClick={() => setImgPreview(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.75)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+          role="dialog"
+          aria-label="Preview"
+        >
+          <img
+            src={imgPreview}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 200, height: 200, objectFit: 'contain',
+              borderRadius: 8, background: 'var(--vl-gray-base)',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+              cursor: 'default',
+            }}
+          />
+        </div>
+      )}
 
     </div>
   );

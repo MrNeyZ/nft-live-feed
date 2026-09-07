@@ -91,6 +91,9 @@ interface Props {
    *  so the LEFT and RIGHT panes share one `hoverPaused` state. */
   onPauseEnter?: () => void;
   onPauseLeave?: () => void;
+  /** LMB on the thumbnail → centered image preview overlay. Mirrors the
+   *  `/feed` card behaviour (see feed-card.tsx `handleThumbClick`). */
+  onPreview?: (url: string) => void;
 }
 
 // ── Minter-wallet hover tooltip ──────────────────────────────────────
@@ -249,7 +252,7 @@ function MinterWalletLink({ wallet }: { wallet: string }) {
   );
 }
 
-export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed = false, embedded = false, onPauseEnter, onPauseLeave }: Props) {
+export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed = false, embedded = false, onPauseEnter, onPauseLeave, onPreview }: Props) {
   // NFT name vs. collection name. Per the targeted-mode spec, these
   // are distinct lines on the card: the NFT's own name is the
   // prominent first line; the collection name (when known) sits
@@ -421,6 +424,10 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   // instead of degrading to initials. heroImg is preferred over repImg
   // (repImg is typically the same placeholder as the primary).
   const cardFallback = heroImg ?? repImg ?? null;
+  // Preview overlay source — reuses the exact 200×200 /thumb URL already
+  // rendered in the card, so opening the preview costs no extra request
+  // (same rationale as `/feed`, which renders its overlay at 200 px).
+  const previewImg = thumb200(cardImage ?? cardFallback);
   if (group?.name === 'Flork') {
     // Temporary Flork-only trace — confirms which tier the chain
     // picks for the current Bu8x… debugging session. Remove once
@@ -576,7 +583,13 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
           hi-DPI displays render crisply without enlarging the card
           footprint. Falls back to the shared abbr/color placeholder
           when no image yet. */}
-      <span style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      <span
+        onClick={previewImg && onPreview ? () => onPreview(previewImg) : undefined}
+        style={{
+          position: 'relative', display: 'inline-flex', flexShrink: 0,
+          cursor: previewImg && onPreview ? 'pointer' : undefined,
+        }}
+      >
       {/* NEW — circular indicator overlaid on the thumbnail (UI-only). */}
       {isNewCollection(group?.collectionCreatedAt, group?.firstSeenAt) && <NewCollectionBadge size="feed" />}
       <ItemThumb
