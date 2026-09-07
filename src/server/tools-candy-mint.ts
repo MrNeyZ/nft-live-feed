@@ -26,6 +26,9 @@
  *      also gets `used`/`remaining` filled in against that specific wallet)
  *   POST /api/tools/candy-mint/build-tx   { family, candyMachine, candyGuard, collection, collectionUpdateAuthority?, group, wallet }
  *   POST /api/tools/candy-mint/simulate-tx { transactionBase64, wallet }
+ *   GET  /api/tools/candy-mint/block-height  -> { blockHeight }
+ *      Batch-mint post-sign blockhash-headroom guard only (see page.tsx
+ *      handleMintBatch) — one call per batch, not per item.
  *
  * Broadcast reuses the existing generic `/api/tools/mmm-pools/send-tx` proxy
  * (same pattern as tools-dotland.ts / tools-me-bids.ts).
@@ -40,6 +43,7 @@ import { inspectCandyMachine } from '../candy-mint/guard-config';
 import { buildCandyMintTx } from '../candy-mint/build';
 import { simulateCandyMintTx } from '../candy-mint/simulate';
 import { getTokenDecimalsMany } from '../candy-mint/token-decimals';
+import { getCurrentBlockHeight } from '../candy-mint/block-height';
 import { getAsset } from '../enrichment/helius-das';
 
 function isValidPubkey(s: unknown): s is string {
@@ -56,10 +60,13 @@ export function createCandyMintRouter(): Router {
   // partway through, which build-tx/simulate-tx surfaced as a plain "error"
   // (no on-chain trace, since the tx was never even built) — looked like a
   // silent random failure. Separate limiters, sized for this tool's actual
-  // usage (quantity can go up to 25 = up to 50 build+simulate calls).
+  // usage — quantity up to 25 now means 25 build-tx (pre-check) + 25
+  // simulate-tx (pre-check) + up to 25 more build-tx (rebuild-before-sign,
+  // see page.tsx handleMintBatch) = up to 75 calls across the batch.
   const inspectLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'tools/candy-mint/inspect' });
   const buildLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/build-tx' });
   const simulateLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/simulate-tx' });
+  const blockHeightLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/candy-mint/block-height' });
 
   router.get('/tools/candy-mint/inspect', inspectLimit, requireAuth, async (req: Request, res: Response) => {
     try {
@@ -191,6 +198,17 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] simulate-tx error', msg);
+      return res.status(200).json({ ok: false, error: msg });
+    }
+  });
+
+  router.get('/tools/candy-mint/block-height', blockHeightLimit, requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const blockHeight = await getCurrentBlockHeight();
+      return res.json({ ok: true, blockHeight });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] block-height error', msg);
       return res.status(200).json({ ok: false, error: msg });
     }
   });

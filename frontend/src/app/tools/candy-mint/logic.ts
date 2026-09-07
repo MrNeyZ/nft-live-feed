@@ -129,6 +129,92 @@ export function tokenCostLabel(
   return `${formatTokenAmount(tp.amount, tp.decimals)} ${shortMint(tp.mint)}`;
 }
 
+// ── batch rebuild (Option B: rebuild-before-sign blockhash freshness) ─────
+// Phase 1 (build+simulate) only proves the mint is *satisfiable*; its built
+// transaction is discarded. Right before the single signAllTransactions,
+// every still-ready item is rebuilt (bounded concurrency) for a fresh
+// blockhash. Rebuild is otherwise a no-op on transaction contents — see
+// the investigation: two independent builds of the same input differ in
+// exactly the recentBlockhash and the fresh asset/nftMint pubkey Umi's
+// generateSigner() creates per build. That pubkey is the ACTUAL address
+// that will be minted, and it must be threaded through everywhere a mint
+// identity is shown or recorded — never the discarded phase-1 one (which
+// this module never even receives, so it structurally can't leak back in).
+export interface RebuildOutcome {
+  itemIndex: number;
+  ok: boolean;
+  transactionBase64?: string;
+  mint?: string;
+  blockhash?: string;
+  lastValidBlockHeight?: number;
+  error?: string;
+}
+
+// Bounded-concurrency worker pool. Used for the rebuild wave (measured:
+// full-parallel vs bounded(5) differ by ~89ms at 25 items — bounded
+// concurrency costs almost nothing here while keeping RPC load predictable).
+export async function runBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function run(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, run));
+  return results;
+}
+
+// Splits a rebuild wave's outcomes into what's safe to hand to
+// signAllTransactions (in original submission order, matching
+// `readyIndexes`) vs what failed to rebuild. `signableItemIndexes[k]`
+// corresponds to `signableTxs[k]` — the exact mapping signAllAndSend's
+// onSubmitted(position, signature) callback needs to update the right
+// BatchItem, and each entry carries ITS OWN rebuild's `mint`, so the
+// actual minted address is always sourced from the outcome that produced
+// the transaction actually being signed, not from phase 1.
+export function partitionRebuildResults(
+  readyIndexes: readonly number[],
+  outcomes: readonly RebuildOutcome[],
+): { signableItemIndexes: number[]; signableTxs: string[]; failed: RebuildOutcome[] } {
+  const byIndex = new Map(outcomes.map((o) => [o.itemIndex, o]));
+  const signableItemIndexes: number[] = [];
+  const signableTxs: string[] = [];
+  const failed: RebuildOutcome[] = [];
+  for (const i of readyIndexes) {
+    const o = byIndex.get(i);
+    if (o?.ok && o.transactionBase64) {
+      signableItemIndexes.push(i);
+      signableTxs.push(o.transactionBase64);
+    } else if (o) {
+      failed.push(o);
+    }
+  }
+  return { signableItemIndexes, signableTxs, failed };
+}
+
+// ── post-sign block-height guard ──────────────────────────────────────────
+// A conservative safety MARGIN (blocks), not a landing guarantee — see the
+// investigation: real measured decay was ~317ms/block just now, so ~18
+// blocks is ~5.7s of buffer against the sequential send loop and any last
+// stretch of user delay between signing and send. Explicit and adjustable
+// in one place.
+export const BLOCKHASH_SAFETY_MARGIN_BLOCKS = 18;
+
+export function hasBlockhashHeadroom(
+  lastValidBlockHeight: number,
+  currentBlockHeight: number,
+  marginBlocks: number = BLOCKHASH_SAFETY_MARGIN_BLOCKS,
+): boolean {
+  return lastValidBlockHeight - currentBlockHeight >= marginBlocks;
+}
+
 // The headline price for a guard group. Shows SOL and/or token, joined —
 // never silently drops the non-SOL leg. `solLamports === '0'` renders as
 // "0 SOL" (a real free-mint signal), any other value to 3dp.

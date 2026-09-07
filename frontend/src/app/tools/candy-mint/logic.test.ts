@@ -15,12 +15,21 @@ import {
   buildPriceLabel,
   tokenCostLabel,
   shortMint,
+  runBounded,
+  partitionRebuildResults,
+  hasBlockhashHeadroom,
+  BLOCKHASH_SAFETY_MARGIN_BLOCKS,
   type ConfirmClass,
+  type RebuildOutcome,
 } from './logic';
 
 let passed = 0;
 function check(label: string, fn: () => void) {
   try { fn(); passed++; console.log(`  ok  ${label}`); }
+  catch (e) { console.error(`FAIL  ${label}\n      ${(e as Error).message}`); process.exitCode = 1; }
+}
+async function checkAsync(label: string, fn: () => Promise<void>) {
+  try { await fn(); passed++; console.log(`  ok  ${label}`); }
   catch (e) { console.error(`FAIL  ${label}\n      ${(e as Error).message}`); process.exitCode = 1; }
 }
 
@@ -191,5 +200,142 @@ check('long mint truncated', () => {
 });
 check('short string untouched', () => { assert.strictEqual(shortMint('abc'), 'abc'); });
 
-console.log(`\n${passed} checks passed`);
-if (process.exitCode) { console.error('SOME CHECKS FAILED'); }
+// ── runBounded (rebuild-wave concurrency) ─────────────────────────────────
+async function runBoundedChecks() {
+  console.log('runBounded');
+  await checkAsync('preserves result order regardless of completion order', async () => {
+    const delays = [30, 5, 20, 1, 15];
+    const out = await runBounded(delays, 3, async (ms, idx) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return idx;
+    });
+    assert.deepStrictEqual(out, [0, 1, 2, 3, 4]);
+  });
+  await checkAsync('respects the concurrency cap', async () => {
+    let inFlight = 0; let maxInFlight = 0;
+    await runBounded(Array.from({ length: 12 }, (_, i) => i), 4, async (i) => {
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return i;
+    });
+    assert.ok(maxInFlight <= 4, `maxInFlight=${maxInFlight} exceeded cap of 4`);
+  });
+  await checkAsync('limit >= length runs everything (effectively full parallel)', async () => {
+    let maxInFlight = 0; let inFlight = 0;
+    const out = await runBounded([1, 2, 3], 100, async (n) => {
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return n * 2;
+    });
+    assert.deepStrictEqual(out, [2, 4, 6]);
+    assert.strictEqual(maxInFlight, 3);
+  });
+  await checkAsync('limit=1 runs strictly sequentially', async () => {
+    let concurrent = 0; let sawOverlap = false;
+    await runBounded([1, 2, 3, 4], 1, async (n) => {
+      concurrent++; if (concurrent > 1) sawOverlap = true;
+      await new Promise((r) => setTimeout(r, 2));
+      concurrent--;
+      return n;
+    });
+    assert.strictEqual(sawOverlap, false);
+  });
+  await checkAsync('empty input resolves to empty output', async () => {
+    const out = await runBounded([], 5, async (n) => n);
+    assert.deepStrictEqual(out, []);
+  });
+}
+
+// ── partitionRebuildResults (rebuild item mapping + mint identity) ───────
+function partitionChecks() {
+  console.log('partitionRebuildResults');
+  check('all succeed: signable list matches readyIndexes order, mint per item preserved', () => {
+    const readyIndexes = [2, 5, 7];
+    const outcomes: RebuildOutcome[] = [
+      { itemIndex: 5, ok: true, transactionBase64: 'tx5', mint: 'MINT5', lastValidBlockHeight: 100 },
+      { itemIndex: 2, ok: true, transactionBase64: 'tx2', mint: 'MINT2', lastValidBlockHeight: 100 },
+      { itemIndex: 7, ok: true, transactionBase64: 'tx7', mint: 'MINT7', lastValidBlockHeight: 100 },
+    ];
+    const { signableItemIndexes, signableTxs, failed } = partitionRebuildResults(readyIndexes, outcomes);
+    assert.deepStrictEqual(signableItemIndexes, [2, 5, 7]); // original submission order, not outcome order
+    assert.deepStrictEqual(signableTxs, ['tx2', 'tx5', 'tx7']); // txs line up positionally with signableItemIndexes
+    assert.strictEqual(failed.length, 0);
+    // each position's tx corresponds to the outcome carrying ITS OWN mint —
+    // never a different item's, never phase 1's (which never enters this fn)
+    const byIndex = new Map(outcomes.map((o) => [o.itemIndex, o]));
+    signableItemIndexes.forEach((itemIndex, pos) => {
+      assert.strictEqual(signableTxs[pos], byIndex.get(itemIndex)!.transactionBase64);
+    });
+  });
+  check('mixed success/failure: failed items excluded from signable, present in failed', () => {
+    const readyIndexes = [0, 1, 2];
+    const outcomes: RebuildOutcome[] = [
+      { itemIndex: 0, ok: true, transactionBase64: 'tx0', mint: 'MINT0', lastValidBlockHeight: 50 },
+      { itemIndex: 1, ok: false, error: 'candy_machine_closed' },
+      { itemIndex: 2, ok: true, transactionBase64: 'tx2', mint: 'MINT2', lastValidBlockHeight: 50 },
+    ];
+    const { signableItemIndexes, signableTxs, failed } = partitionRebuildResults(readyIndexes, outcomes);
+    assert.deepStrictEqual(signableItemIndexes, [0, 2]);
+    assert.deepStrictEqual(signableTxs, ['tx0', 'tx2']);
+    assert.strictEqual(failed.length, 1);
+    assert.strictEqual(failed[0].itemIndex, 1);
+  });
+  check('ok:true with no transactionBase64 is treated as failed (defensive)', () => {
+    const outcomes: RebuildOutcome[] = [{ itemIndex: 3, ok: true }];
+    const { signableItemIndexes, failed } = partitionRebuildResults([3], outcomes);
+    assert.deepStrictEqual(signableItemIndexes, []);
+    assert.strictEqual(failed.length, 1);
+  });
+  check('missing outcome for a ready index (should not happen, but is handled) is silently dropped from both lists', () => {
+    const { signableItemIndexes, failed } = partitionRebuildResults([0, 1], [{ itemIndex: 0, ok: true, transactionBase64: 'tx0' }]);
+    assert.deepStrictEqual(signableItemIndexes, [0]);
+    assert.strictEqual(failed.length, 0); // index 1 has no outcome at all — neither signable nor failed
+  });
+}
+
+// ── hasBlockhashHeadroom (post-sign guard: sufficient vs insufficient) ───
+function headroomChecks() {
+  console.log('hasBlockhashHeadroom');
+  check('plenty of headroom -> true', () => {
+    assert.strictEqual(hasBlockhashHeadroom(1000, 800, BLOCKHASH_SAFETY_MARGIN_BLOCKS), true);
+  });
+  check('exactly at the margin -> true (>=, not >)', () => {
+    assert.strictEqual(hasBlockhashHeadroom(1000 + BLOCKHASH_SAFETY_MARGIN_BLOCKS, 1000, BLOCKHASH_SAFETY_MARGIN_BLOCKS), true);
+  });
+  check('one block short of the margin -> false', () => {
+    assert.strictEqual(hasBlockhashHeadroom(1000 + BLOCKHASH_SAFETY_MARGIN_BLOCKS - 1, 1000, BLOCKHASH_SAFETY_MARGIN_BLOCKS), false);
+  });
+  check('already past lastValidBlockHeight -> false', () => {
+    assert.strictEqual(hasBlockhashHeadroom(900, 1000, BLOCKHASH_SAFETY_MARGIN_BLOCKS), false);
+  });
+  check('default margin applies when omitted', () => {
+    assert.strictEqual(hasBlockhashHeadroom(1000 + BLOCKHASH_SAFETY_MARGIN_BLOCKS, 1000), true);
+    assert.strictEqual(hasBlockhashHeadroom(1000 + BLOCKHASH_SAFETY_MARGIN_BLOCKS - 1, 1000), false);
+  });
+  check('partial batch: mixed headroom across a batch skips only the short ones', () => {
+    const currentHeight = 1000;
+    const items = [
+      { itemIndex: 0, lastValidBlockHeight: 1030 }, // 30 headroom -> send
+      { itemIndex: 1, lastValidBlockHeight: 1010 }, // 10 headroom -> skip
+      { itemIndex: 2, lastValidBlockHeight: 1025 }, // 25 headroom -> send
+      { itemIndex: 3, lastValidBlockHeight: 995 },  // already past -> skip
+    ];
+    const decisions = items.map((it) => ({ itemIndex: it.itemIndex, send: hasBlockhashHeadroom(it.lastValidBlockHeight, currentHeight) }));
+    assert.deepStrictEqual(decisions, [
+      { itemIndex: 0, send: true },
+      { itemIndex: 1, send: false },
+      { itemIndex: 2, send: true },
+      { itemIndex: 3, send: false },
+    ]);
+  });
+}
+
+partitionChecks();
+headroomChecks();
+
+runBoundedChecks().then(() => {
+  console.log(`\n${passed} checks passed`);
+  if (process.exitCode) { console.error('SOME CHECKS FAILED'); }
+});

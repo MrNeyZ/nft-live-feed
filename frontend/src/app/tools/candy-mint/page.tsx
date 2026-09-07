@@ -34,7 +34,8 @@ import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 import {
   classifyConfirmation, normalizeMintErr, pickInitialGroup, inspectDisabled,
   buildPriceLabel, tokenCostLabel as tokenCostLabelFor,
-  type ConfirmClass, type TokenPaymentView,
+  runBounded, partitionRebuildResults, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS,
+  type ConfirmClass, type TokenPaymentView, type RebuildOutcome,
 } from './logic';
 
 interface MintLimitStatus {
@@ -85,15 +86,34 @@ interface LoadedMachine {
   referenceCollectionUpdateAuthority: string | null;
 }
 
-// 'unconfirmed' is deliberately its own state, distinct from 'error': it
-// means the transaction landed status was never observed within the poll
-// budget, NOT that it definitely failed on-chain. Conflating the two would
-// present a possibly-still-landing mint as a hard failure.
-type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'ready' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error' | 'unconfirmed';
+// Each cause of "this item did not become a mint" gets its own status
+// rather than one shared 'error' bucket — pre-check, rebuild, an expiring
+// blockhash, a rejected approval, and a confirmed on-chain failure are all
+// different facts and shouldn't read as interchangeable:
+//   precheck_failed  — phase 1 build/simulate failed (never had a real tx)
+//   blocked          — phase 1 bot-tax detected (never built for real)
+//   rebuild_failed   — phase 1.5 rebuild (fresh blockhash + asset) failed
+//   sign_rejected    — signAllTransactions itself was rejected/threw
+//   expired          — signed, but skipped at send time: insufficient
+//                       blockhash headroom (see BLOCKHASH_SAFETY_MARGIN_BLOCKS)
+//                       — NOT submitted, never got a signature
+//   unconfirmed      — submitted, landed status never observed in budget
+//   confirmed_failed — submitted, landed with err != null (reverted / guard)
+//   success          — submitted, landed with err == null — the only mint
+type BatchItemStatus =
+  | 'pending' | 'building' | 'simulating' | 'ready'
+  | 'rebuilding' | 'signing' | 'expired' | 'confirming'
+  | 'success' | 'blocked'
+  | 'precheck_failed' | 'rebuild_failed' | 'sign_rejected' | 'confirmed_failed' | 'unconfirmed';
 
 interface BatchItem {
   status: BatchItemStatus;
   sig?: string;
+  /** The ACTUAL asset/nftMint address this item will mint into — always
+   *  from the rebuild that produced the signed transaction, never phase 1's
+   *  (discarded) build. Set once rebuild succeeds; the definitive identity
+   *  for this item from that point on. */
+  mint?: string;
   solDeltaLamports?: number | null;
   tokenCostLabel?: string | null;
   message?: string;
@@ -226,6 +246,21 @@ async function waitForConfirmation(signature: string): Promise<ConfirmResult> {
   // the tx was submitted but we never observed it land. See
   // outcomeFromPolls / its tests for the timeout contract.
   return { status: 'unknown' };
+}
+
+// One cheap read for the batch-mint post-sign blockhash-headroom guard (see
+// handleMintBatch's `shouldSend`). Null on any failure — the guard fails
+// OPEN (still sends) rather than blocking a batch on an auxiliary read
+// hiccup; see the guard's own comment for why.
+async function fetchCurrentBlockHeight(): Promise<number | null> {
+  try {
+    const r = await fetch(`${API_BASE}/api/tools/candy-mint/block-height`, { headers: { ...authHeaders() } });
+    if (!r.ok) return null;
+    const d = await r.json() as { ok: boolean; blockHeight?: number };
+    return d.ok && typeof d.blockHeight === 'number' ? d.blockHeight : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function CandyMintPage() {
@@ -440,13 +475,27 @@ export default function CandyMintPage() {
     }
   }
 
-  // Batch mint: build + simulate every item first (same safety rails as a
-  // single mint, same bot-tax abort — stops queuing further items the
-  // moment one comes back blocked/errored), THEN sign every clean item
-  // with ONE Phantom approval (signAllAndSend) instead of one popup per
-  // item. Packing all N mints into a single on-chain transaction doesn't
-  // fit (measured: 10 MintV1 instructions serialize to ~1830 bytes, over
-  // the 1232-byte legacy wire limit) — this is what "one click mints 10"
+  // Batch mint — three phases, ONE Phantom approval, per the Option B
+  // blockhash-freshness investigation (session doc):
+  //
+  //   1. pre-check: build + simulate every item, stop at the first bad one
+  //      (unchanged from before). Proves the mint is satisfiable and prices
+  //      it; its built transaction is discarded — never signed, never sent.
+  //   1.5 rebuild: every still-ready item is rebuilt (bounded concurrency)
+  //      immediately before signing, for a fresh blockhash. Measured: two
+  //      independent builds of the same input differ ONLY in recentBlockhash
+  //      and the fresh asset/nftMint pubkey Umi generates per build — so
+  //      phase 1's cost figures stay valid and don't need re-simulating,
+  //      only the transaction bytes need replacing. That fresh asset pubkey
+  //      is the ACTUAL mint address and is threaded onto the item from here
+  //      on — phase 1's is discarded and never stored anywhere.
+  //   2. one Phantom approval (signAllAndSend) for every rebuilt item, with
+  //      a post-sign blockhash-headroom guard (see `shouldSend` below)
+  //      gating the broadcast step per item — never a second approval.
+  //
+  // Packing all N mints into a single on-chain transaction doesn't fit
+  // (measured: 10 MintV1 instructions serialize to ~1830 bytes, over the
+  // 1232-byte legacy wire limit) — this is what "one click mints 10"
   // actually is on real candy-machine sites: N separate transactions,
   // signed together.
   async function handleMintBatch() {
@@ -460,8 +509,17 @@ export default function CandyMintPage() {
     const items: BatchItem[] = Array.from({ length: total }, () => ({ status: 'pending' }));
     setFlow({ kind: 'batch', total, items: [...items] });
 
-    // ── phase 1: build + simulate every item, stop at the first bad one ──
-    const readyTxs: string[] = [];
+    const buildPayload = () => ({
+      family,
+      candyMachine: inspection.candyMachine,
+      candyGuard: inspection.candyGuard,
+      collection,
+      collectionUpdateAuthority: referenceCollectionUpdateAuthority,
+      group: selectedGroup,
+      wallet,
+    });
+
+    // ── phase 1 (pre-check): build + simulate, stop at the first bad one ──
     for (let i = 0; i < total; i++) {
       items[i] = { status: 'building' };
       setFlow({ kind: 'batch', total, items: [...items] });
@@ -469,19 +527,11 @@ export default function CandyMintPage() {
         const r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
-            family,
-            candyMachine: inspection.candyMachine,
-            candyGuard: inspection.candyGuard,
-            collection,
-            collectionUpdateAuthority: referenceCollectionUpdateAuthority,
-            group: selectedGroup,
-            wallet,
-          }),
+          body: JSON.stringify(buildPayload()),
         });
         const j = await r.json() as { ok: boolean; transactionBase64?: string; error?: string };
         if (!j.ok || !j.transactionBase64) {
-          items[i] = { status: 'error', message: humanizeBackendError(j.error, r.status) };
+          items[i] = { status: 'precheck_failed', message: humanizeBackendError(j.error, r.status) };
           setFlow({ kind: 'batch', total, items: [...items] });
           break;
         }
@@ -497,7 +547,7 @@ export default function CandyMintPage() {
           ok: boolean; solDeltaLamports?: number | null; botTaxDetected?: boolean; error?: string;
         };
         if (!simJ.ok) {
-          items[i] = { status: 'error', message: humanizeBackendError(simJ.error, simR.status) };
+          items[i] = { status: 'precheck_failed', message: humanizeBackendError(simJ.error, simR.status) };
           setFlow({ kind: 'batch', total, items: [...items] });
           break;
         }
@@ -507,40 +557,122 @@ export default function CandyMintPage() {
           break;
         }
 
+        // Phase 1's transactionBase64 is intentionally NOT retained —
+        // rebuild replaces it below.
         items[i] = { status: 'ready', solDeltaLamports: simJ.solDeltaLamports ?? null, tokenCostLabel: batchTokenCost };
         setFlow({ kind: 'batch', total, items: [...items] });
-        readyTxs.push(j.transactionBase64);
       } catch (err) {
-        items[i] = { status: 'error', message: humanizeThrownError((err as Error).message) };
+        items[i] = { status: 'precheck_failed', message: humanizeThrownError((err as Error).message) };
         setFlow({ kind: 'batch', total, items: [...items] });
         break;
       }
     }
 
-    if (readyTxs.length === 0) {
+    const readyIndexes = items.map((it, i) => (it.status === 'ready' ? i : -1)).filter((i) => i >= 0);
+    if (readyIndexes.length === 0) {
       setFlow({ kind: 'batch', total, items: [...items], done: true });
       return;
     }
 
-    // ── phase 2: one Phantom approval for every ready item ──────────────
-    const readyIndexes = items
-      .map((it, i) => (it.status === 'ready' ? i : -1))
-      .filter((i) => i >= 0);
+    // ── phase 1.5 (rebuild): fresh blockhash + fresh asset per item, ──────
+    // bounded concurrency (measured: full-parallel vs bounded(5) differed
+    // by only ~89ms at 25 items — bounded keeps RPC load predictable for
+    // effectively free).
+    const REBUILD_CONCURRENCY = 6;
+    for (const i of readyIndexes) items[i] = { ...items[i], status: 'rebuilding' };
+    setFlow({ kind: 'batch', total, items: [...items] });
+
+    const outcomes = await runBounded(readyIndexes, REBUILD_CONCURRENCY, async (i): Promise<RebuildOutcome> => {
+      try {
+        const r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(buildPayload()),
+        });
+        const j = await r.json() as {
+          ok: boolean; transactionBase64?: string; blockhash?: string;
+          lastValidBlockHeight?: number; asset?: string; error?: string;
+        };
+        if (!j.ok || !j.transactionBase64 || j.lastValidBlockHeight == null) {
+          return { itemIndex: i, ok: false, error: humanizeBackendError(j.error, r.status) };
+        }
+        return {
+          itemIndex: i, ok: true, transactionBase64: j.transactionBase64,
+          mint: j.asset, blockhash: j.blockhash, lastValidBlockHeight: j.lastValidBlockHeight,
+        };
+      } catch (err) {
+        return { itemIndex: i, ok: false, error: humanizeThrownError((err as Error).message) };
+      }
+    });
+
+    // Attach each item's ACTUAL rebuilt mint address now — this is the only
+    // place `mint` is ever set, always from that item's own rebuild.
+    for (const o of outcomes) {
+      items[o.itemIndex] = o.ok
+        ? { ...items[o.itemIndex], mint: o.mint }
+        : { ...items[o.itemIndex], status: 'rebuild_failed', message: `rebuild failed: ${o.error}` };
+    }
+    setFlow({ kind: 'batch', total, items: [...items] });
+
+    const { signableItemIndexes, signableTxs } = partitionRebuildResults(readyIndexes, outcomes);
+    const lastValidByItem = new Map(
+      outcomes.filter((o): o is RebuildOutcome & { lastValidBlockHeight: number } => o.ok && o.lastValidBlockHeight != null)
+        .map((o) => [o.itemIndex, o.lastValidBlockHeight]),
+    );
+
+    if (signableItemIndexes.length === 0) {
+      setFlow({ kind: 'batch', total, items: [...items], done: true });
+      return;
+    }
+
+    // ── phase 2: one Phantom approval for every rebuilt item ────────────
     try {
-      for (const i of readyIndexes) items[i] = { ...items[i], status: 'signing' };
+      for (const i of signableItemIndexes) items[i] = { ...items[i], status: 'signing' };
       setFlow({ kind: 'batch', total, items: [...items] });
 
-      await signAllAndSend(readyTxs, (readyPos, signature) => {
-        const i = readyIndexes[readyPos];
-        items[i] = { ...items[i], status: 'confirming', sig: signature };
+      // Post-sign blockhash-headroom guard: everything below is ALREADY
+      // signed by the time this runs (one approval covers the whole list
+      // unconditionally) — this only gates the broadcast step. One
+      // current-block-height read for the whole batch (memoized on first
+      // call; signAllAndSend invokes shouldSend in submission order, so
+      // this fires exactly once), then each item's OWN lastValidBlockHeight
+      // from ITS OWN rebuild is checked against it with a conservative,
+      // explicit margin. A safety heuristic, not a landing guarantee — see
+      // BLOCKHASH_SAFETY_MARGIN_BLOCKS. A skipped item never gets a
+      // signature, is never marked minted, and is never auto-retried.
+      let cachedHeight: number | null | undefined;
+      const shouldSend = async (pos: number): Promise<boolean> => {
+        const i = signableItemIndexes[pos];
+        if (cachedHeight === undefined) cachedHeight = await fetchCurrentBlockHeight();
+        const lastValid = lastValidByItem.get(i);
+        if (cachedHeight == null || lastValid == null) return true; // can't evaluate -> fail open, see fetchCurrentBlockHeight's comment
+        if (hasBlockhashHeadroom(lastValid, cachedHeight, BLOCKHASH_SAFETY_MARGIN_BLOCKS)) return true;
+        items[i] = {
+          ...items[i], status: 'expired',
+          message: `not sent — blockhash headroom too low (${lastValid - cachedHeight} blocks, need ${BLOCKHASH_SAFETY_MARGIN_BLOCKS}+)`,
+        };
         setFlow({ kind: 'batch', total, items: [...items] });
-      });
+        return false;
+      };
 
-      // ── phase 3: wait for each to actually land, in submission order ──
-      // A confirmed tx with err != null (reverted / guard hard-error) or one
-      // that never lands within the budget is NOT a mint — mark it failed,
-      // keep its signature, and don't bump the counter.
-      for (const i of readyIndexes) {
+      await signAllAndSend(
+        signableTxs,
+        (pos, signature) => {
+          const i = signableItemIndexes[pos];
+          items[i] = { ...items[i], status: 'confirming', sig: signature };
+          setFlow({ kind: 'batch', total, items: [...items] });
+        },
+        shouldSend,
+      );
+
+      // ── phase 3: wait for each SENT item to land, in submission order ──
+      // Items the headroom guard skipped never got a signature (`sig`
+      // stays unset) and are correctly excluded here — they were never
+      // broadcast, so there's nothing to confirm. A confirmed tx with
+      // err != null (reverted / guard hard-error) or one that never lands
+      // within the budget is NOT a mint — mark it accordingly, keep its
+      // signature, never bump the counter.
+      for (const i of signableItemIndexes) {
         const sig = items[i].sig;
         if (!sig) continue;
         const res = await waitForConfirmation(sig);
@@ -548,21 +680,20 @@ export default function CandyMintPage() {
           items[i] = { ...items[i], status: 'success' };
           bumpMintedCount();
         } else if (res.status === 'failed') {
-          items[i] = { ...items[i], status: 'error', message: normalizeMintErr(res.err) };
+          items[i] = { ...items[i], status: 'confirmed_failed', message: normalizeMintErr(res.err) };
         } else {
-          // Never observed landing — NOT a known failure. Its own status
-          // (not 'error') so it doesn't render as a definite on-chain failure.
           items[i] = { ...items[i], status: 'unconfirmed', message: 'confirmation not observed — status unknown, check signature' };
         }
         setFlow({ kind: 'batch', total, items: [...items] });
       }
     } catch (err) {
-      // signAllTransactions rejected (e.g. user cancelled the approval) —
-      // none of the ready items got sent; mark them back as blocked rather
-      // than stuck on "signing" forever.
+      // signAllTransactions rejected (e.g. user cancelled the approval), or
+      // a send call threw mid-loop — anything not already terminal never
+      // got sent. Never auto-retried; re-running Mint builds fresh items.
       const message = humanizeThrownError((err as Error).message);
-      for (const i of readyIndexes) {
-        if (items[i].status !== 'success') items[i] = { ...items[i], status: 'error', message };
+      const terminal: BatchItemStatus[] = ['success', 'expired', 'confirmed_failed', 'unconfirmed'];
+      for (const i of signableItemIndexes) {
+        if (!terminal.includes(items[i].status)) items[i] = { ...items[i], status: 'sign_rejected', message };
       }
       setFlow({ kind: 'batch', total, items: [...items] });
     }
@@ -895,17 +1026,44 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
   building: VLText.muted,
   simulating: VLText.muted,
   ready: VLText.muted,
+  rebuilding: VLText.muted,
   signing: rgb(VL.purpleTint),
   confirming: rgb(VL.purpleTint),
   success: rgb(VL.greenStrong),
   blocked: rgb(VL.redStrong),
-  error: rgb(VL.redStrong),
-  // Neutral lavender, not red — status genuinely unknown, not a failure.
+  precheck_failed: rgb(VL.redStrong),
+  rebuild_failed: rgb(VL.redStrong),
+  sign_rejected: rgb(VL.redStrong),
+  confirmed_failed: rgb(VL.redStrong),
+  // Neutral lavender, not red — status genuinely unknown / deliberately not
+  // sent, not a known failure.
+  expired: rgb(VL.purpleTint),
   unconfirmed: rgb(VL.purpleTint),
 };
 
+// Compact display text — several statuses are named for precision
+// (precheck_failed vs rebuild_failed vs confirmed_failed) but don't need
+// that much width in a dense per-item row.
+const BATCH_STATUS_LABEL: Record<BatchItemStatus, string> = {
+  pending: 'pending',
+  building: 'building',
+  simulating: 'simulating',
+  ready: 'ready',
+  rebuilding: 'rebuilding',
+  signing: 'signing',
+  confirming: 'confirming',
+  success: 'success',
+  blocked: 'blocked',
+  precheck_failed: 'pre-check failed',
+  rebuild_failed: 'rebuild failed',
+  sign_rejected: 'rejected',
+  expired: 'not sent',
+  confirmed_failed: 'failed',
+  unconfirmed: 'unconfirmed',
+};
+
 function BatchStatusBadge({ status }: { status: BatchItemStatus }) {
-  return <span style={{ color: BATCH_STATUS_COLOR[status], minWidth: 70, display: 'inline-block' }}>{status}</span>;
+  return <span style={{ color: BATCH_STATUS_COLOR[status], minWidth: 92, display: 'inline-block' }}>{BATCH_STATUS_LABEL[status]}</span>;
 }
 
 // A boxed, bordered notice — distinct from the collection's own description
@@ -973,9 +1131,17 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
           <span style={{ color: VLText.faint, width: 22 }}>#{i + 1}</span>
           <BatchStatusBadge status={it.status} />
-          {it.solDeltaLamports != null && ['ready', 'signing', 'confirming', 'success'].includes(it.status) && (
+          {it.solDeltaLamports != null
+            && (['ready', 'rebuilding', 'signing', 'confirming', 'success'] as BatchItemStatus[]).includes(it.status) && (
             <span style={{ color: rgb(VL.greenStrong), fontWeight: 600 }}>
               {(it.solDeltaLamports / 1e9).toFixed(5)} SOL{it.tokenCostLabel ? ` + ${it.tokenCostLabel}` : ''}
+            </span>
+          )}
+          {/* The ACTUAL rebuilt asset address — set once rebuild succeeds,
+              never the discarded phase-1 build's. */}
+          {it.mint && (
+            <span style={{ color: VLText.faint }} title={it.mint}>
+              → {short(it.mint)}
             </span>
           )}
           {it.sig && (

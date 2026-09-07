@@ -217,10 +217,21 @@ export async function signSendAndConfirm(
  * `onSubmitted` fires the moment each tx's signature comes back from the
  * send (not confirmation) so a caller can update per-item UI incrementally
  * instead of waiting for the whole batch to land.
+ *
+ * `shouldSend`, if given, is consulted right before EACH item's send —
+ * everything is already signed by that point (one approval covers the
+ * whole list, unconditionally), this only gates the broadcast step. Built
+ * for the Candy Mint batch's post-sign blockhash-headroom guard: called in
+ * order (0, 1, 2, ...) so a caller that does one lazy/memoized RPC read on
+ * its first invocation gets exactly one call for the whole batch, not one
+ * per item. A skipped item is simply absent from both the callback firings
+ * and the returned array — existing callers that pass neither parameter
+ * are unaffected (default accepts every item, byte-identical to before).
  */
 export async function signAllAndSend(
   txBase64List: string[],
   onSubmitted?: (index: number, signature: string) => void,
+  shouldSend?: (index: number) => Promise<boolean> | boolean,
 ): Promise<string[]> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
@@ -232,6 +243,10 @@ export async function signAllAndSend(
 
   const signatures: string[] = [];
   for (let i = 0; i < signed.length; i++) {
+    if (shouldSend && !(await shouldSend(i))) {
+      console.log(TAG, `signAllAndSend: skipping item ${i} — shouldSend declined (not broadcasting)`);
+      continue;
+    }
     const serialized = (signed[i] as Transaction).serialize();
     const signature = await backendSendRaw(serialized);
     signatures.push(signature);
