@@ -31,6 +31,11 @@ import { connectPhantom, eagerConnectPhantom, getPhantom, signAllAndSend, signSe
 import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
 import { VL, VLText, ALPHA, alpha, rgb, hex } from '@/lib/palette';
 import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
+import {
+  classifyConfirmation, normalizeMintErr, pickInitialGroup, inspectDisabled,
+  buildPriceLabel, tokenCostLabel as tokenCostLabelFor,
+  type ConfirmClass, type TokenPaymentView,
+} from './logic';
 
 interface MintLimitStatus {
   id: number;
@@ -48,6 +53,9 @@ interface GuardGroupSummary {
   mintLimit: MintLimitStatus | null;
   startDateUnix: string | null;
   endDateUnix:   string | null;
+  // Present for token-priced groups (tokenPayment / token2022Payment guard).
+  // `decimals` is resolved server-side; null when that lookup missed.
+  tokenPayment: TokenPaymentView | null;
 }
 
 type CandyMintFamily = 'core' | 'legacy';
@@ -77,12 +85,17 @@ interface LoadedMachine {
   referenceCollectionUpdateAuthority: string | null;
 }
 
-type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'ready' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error';
+// 'unconfirmed' is deliberately its own state, distinct from 'error': it
+// means the transaction landed status was never observed within the poll
+// budget, NOT that it definitely failed on-chain. Conflating the two would
+// present a possibly-still-landing mint as a hard failure.
+type BatchItemStatus = 'pending' | 'building' | 'simulating' | 'ready' | 'signing' | 'confirming' | 'success' | 'blocked' | 'error' | 'unconfirmed';
 
 interface BatchItem {
   status: BatchItemStatus;
   sig?: string;
   solDeltaLamports?: number | null;
+  tokenCostLabel?: string | null;
   message?: string;
 }
 
@@ -92,16 +105,23 @@ interface BatchItem {
 type FlowState =
   | { kind: 'idle' }
   | { kind: 'inspecting' }
-  | { kind: 'minting'; step: 'building' | 'simulating' | 'signing' }
+  | { kind: 'minting'; step: 'building' | 'simulating' | 'signing' | 'confirming' }
   | {
       kind: 'ready_to_sign';
       transactionBase64: string;
       solDeltaLamports: number | null;
       botTaxDetected: boolean;
+      /** Fixed token price of the selected group (tokenPayment guard), already
+       *  human-formatted — the SOL delta above never reflects an SPL spend. */
+      tokenCostLabel: string | null;
     }
   | { kind: 'batch'; total: number; items: BatchItem[]; done?: boolean }
   | { kind: 'success'; sig: string }
-  | { kind: 'error'; message: string };
+  // `sig` present when the failure happened after broadcast (landed-but-failed,
+  // or unconfirmed) so the user can still inspect the transaction. `unknown`
+  // marks the "never observed landing" case — NOT a known on-chain failure —
+  // so the renderer can avoid presenting it as a definite failure.
+  | { kind: 'error'; message: string; sig?: string; unknown?: boolean };
 
 const BACKEND_ERROR_MESSAGES: Record<string, string> = {
   invalid_signature: 'Not a valid transaction signature.',
@@ -116,12 +136,22 @@ const BACKEND_ERROR_MESSAGES: Record<string, string> = {
   group_not_found: 'Selected guard group not found.',
   missing_or_invalid_fields: 'Missing or invalid fields.',
   collection_update_authority_unresolved: 'Could not resolve the collection\'s update authority (legacy mint).',
+  candy_guard_not_found: 'Candy Guard account not found on-chain — the drop may have been closed.',
   rate_limited: 'Rate limited — wait a few seconds and try again (or resume with a smaller quantity).',
 };
 
 function humanizeBackendError(code: string | undefined, httpStatus?: number): string {
   if (code) {
     const base = code.split(':')[0].trim();
+    // `unsupported_guards: gatekeeper, allowList` — keep the guard names
+    // (they explain *why* this drop can't be minted here) but wrap them in
+    // a sentence instead of surfacing the raw code.
+    if (base === 'unsupported_guards') {
+      const guards = code.slice(code.indexOf(':') + 1).trim();
+      return guards
+        ? `This drop needs more than a wallet signature (${guards}) — it can't be minted from this tool.`
+        : 'This drop needs more than a wallet signature — it can\'t be minted from this tool.';
+    }
     return BACKEND_ERROR_MESSAGES[base] ?? code;
   }
   return httpStatus ? `Request failed (HTTP ${httpStatus}).` : 'Request failed. Please try again.';
@@ -149,32 +179,53 @@ function humanizeThrownError(message: string): string {
   return message;
 }
 
-// signSendAndConfirm returns as soon as Phantom submits the tx — it doesn't
-// actually wait for it to land (public RPC WSS confirm is unreliable, see
-// its own doc comment). Reuses the same tx-status endpoint the MMM pool
-// buy flow polls (collection/[slug]/page.tsx) rather than hitting RPC
-// directly from the browser. Best-effort: gives up after ~15s either way,
-// since the next item's own simulate would just show a wrong number, not
-// cause any real harm.
-async function waitForConfirmation(signature: string): Promise<void> {
-  // 'confirmed' typically lands within ~1 slot (~400-800ms) — a flat 3s gap
-  // between polls meant every item paid a 2-3s tax even in the fast common
-  // case (measured: felt like it dropped from ~500ms to 2-3s per item after
-  // this was added). Poll tighter; 15x300ms keeps roughly the same ~4.5s
-  // worst-case budget but resolves the common case in 1-2 polls instead.
+// Both `signSendAndConfirm` and `signAllAndSend` return as soon as Phantom /
+// the RPC accept the transaction — they do NOT wait for it to land (public
+// RPC WSS confirm is unreliable, see phantom.ts). This is the ONE shared
+// confirmation primitive for both the single and batch flows: it polls the
+// same tx-status endpoint the MMM pool buy flow uses, and classifies each
+// poll via `classifyConfirmation` (landed + err == null is the only
+// success; landed + err != null is a real on-chain failure).
+//
+// Outcome:
+//   { status: 'success' }            landed, no error
+//   { status: 'failed', err }        landed, on-chain error (reverted / guard hard-error)
+//   { status: 'unknown' }            never observed landed within the budget
+// 'unknown' is treated as a non-success by every caller (never "Minted",
+// never bumps a counter) but reported distinctly from a known failure.
+type ConfirmResult =
+  | { status: 'success' }
+  | { status: 'failed'; err: unknown }
+  | { status: 'unknown' };
+
+async function waitForConfirmation(signature: string): Promise<ConfirmResult> {
+  // 'confirmed' typically lands within ~1 slot (~400-800ms). 15x300ms keeps a
+  // ~4.5s worst-case budget while resolving the common case in 1-2 polls.
   for (let attempt = 0; attempt < 15; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 300));
+    let cls: ConfirmClass = 'pending';
+    let err: unknown = null;
     try {
       const r = await fetch(`${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`, {
         headers: { ...authHeaders() },
       });
-      if (!r.ok) continue;
-      const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null };
-      if (d.ok && d.found && (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized')) return;
+      if (r.ok) {
+        const d = await r.json() as {
+          ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown;
+        };
+        cls = classifyConfirmation(d);
+        err = d.err;
+      }
     } catch {
-      // transient — retry
+      // transient — treated as pending, retry
     }
+    if (cls === 'success') return { status: 'success' };
+    if (cls === 'failed') return { status: 'failed', err };
   }
+  // Every poll stayed 'pending' (the loop returns early on any terminal) —
+  // the tx was submitted but we never observed it land. See
+  // outcomeFromPolls / its tests for the timeout contract.
+  return { status: 'unknown' };
 }
 
 export default function CandyMintPage() {
@@ -268,8 +319,10 @@ export default function CandyMintPage() {
         referenceCollectionUpdateAuthority: j.referenceCollectionUpdateAuthority ?? null,
       });
       setFlow({ kind: 'idle' });
-      const firstSupported = j.inspection.groups.find((g) => g.supported);
-      if (firstSupported) setSelectedGroup(firstSupported.label);
+      // Always land on a concrete group (see pickInitialGroup): a lone
+      // unsupported group is still selected so its "needs more than a wallet
+      // signature" reason renders instead of a dead hero.
+      setSelectedGroup(pickInitialGroup(j.inspection.groups));
     } catch (err) {
       setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
     }
@@ -322,6 +375,7 @@ export default function CandyMintPage() {
         transactionBase64,
         solDeltaLamports: simJ.solDeltaLamports ?? null,
         botTaxDetected: simJ.botTaxDetected ?? false,
+        tokenCostLabel: tokenCostLabelFor(selected?.tokenPayment ?? null),
       });
     } catch (err) {
       setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
@@ -357,12 +411,32 @@ export default function CandyMintPage() {
   async function handleConfirmSign() {
     if (flow.kind !== 'ready_to_sign') return;
     setFlow({ kind: 'minting', step: 'signing' });
+    let signature: string;
     try {
       const result = await signSendAndConfirm(flow.transactionBase64);
-      setFlow({ kind: 'success', sig: result.signature });
-      bumpMintedCount();
+      signature = result.signature;
     } catch (err) {
+      // Rejected / failed before broadcast — no signature to inspect.
       setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
+      return;
+    }
+    // Broadcast != minted. Only a landed transaction with no on-chain error is
+    // a success; a landed-but-failed or never-observed tx is an error that
+    // still surfaces the signature, and never bumps the minted counter.
+    setFlow({ kind: 'minting', step: 'confirming' });
+    const res = await waitForConfirmation(signature);
+    if (res.status === 'success') {
+      setFlow({ kind: 'success', sig: signature });
+      bumpMintedCount();
+    } else if (res.status === 'failed') {
+      setFlow({ kind: 'error', message: normalizeMintErr(res.err), sig: signature });
+    } else {
+      setFlow({
+        kind: 'error',
+        message: 'Confirmation not observed — status unknown. It may still land; check the signature before retrying.',
+        sig: signature,
+        unknown: true,
+      });
     }
   }
 
@@ -382,6 +456,7 @@ export default function CandyMintPage() {
     if (!collection) { setFlow({ kind: 'error', message: 'No collection address resolved.' }); return; }
 
     const total = Math.max(1, Math.floor(quantity));
+    const batchTokenCost = tokenCostLabelFor(selected?.tokenPayment ?? null);
     const items: BatchItem[] = Array.from({ length: total }, () => ({ status: 'pending' }));
     setFlow({ kind: 'batch', total, items: [...items] });
 
@@ -432,7 +507,7 @@ export default function CandyMintPage() {
           break;
         }
 
-        items[i] = { status: 'ready', solDeltaLamports: simJ.solDeltaLamports ?? null };
+        items[i] = { status: 'ready', solDeltaLamports: simJ.solDeltaLamports ?? null, tokenCostLabel: batchTokenCost };
         setFlow({ kind: 'batch', total, items: [...items] });
         readyTxs.push(j.transactionBase64);
       } catch (err) {
@@ -462,13 +537,24 @@ export default function CandyMintPage() {
       });
 
       // ── phase 3: wait for each to actually land, in submission order ──
+      // A confirmed tx with err != null (reverted / guard hard-error) or one
+      // that never lands within the budget is NOT a mint — mark it failed,
+      // keep its signature, and don't bump the counter.
       for (const i of readyIndexes) {
         const sig = items[i].sig;
         if (!sig) continue;
-        await waitForConfirmation(sig);
-        items[i] = { ...items[i], status: 'success' };
+        const res = await waitForConfirmation(sig);
+        if (res.status === 'success') {
+          items[i] = { ...items[i], status: 'success' };
+          bumpMintedCount();
+        } else if (res.status === 'failed') {
+          items[i] = { ...items[i], status: 'error', message: normalizeMintErr(res.err) };
+        } else {
+          // Never observed landing — NOT a known failure. Its own status
+          // (not 'error') so it doesn't render as a definite on-chain failure.
+          items[i] = { ...items[i], status: 'unconfirmed', message: 'confirmation not observed — status unknown, check signature' };
+        }
         setFlow({ kind: 'batch', total, items: [...items] });
-        bumpMintedCount();
       }
     } catch (err) {
       // signAllTransactions rejected (e.g. user cancelled the approval) —
@@ -494,6 +580,10 @@ export default function CandyMintPage() {
   }
 
   const busy = flow.kind === 'inspecting' || flow.kind === 'minting' || (flow.kind === 'batch' && !flow.done);
+  // One predicate for the Inspect button's `disabled` AND the inputs'
+  // Enter-key handler, so keyboard and click can't drift apart (they did:
+  // onKeyDown called handleInspect unconditionally, re-firing while busy).
+  const inspectBlocked = inspectDisabled(busy, sig);
   const selected = loaded?.inspection.groups.find((g) => g.label === selectedGroup) ?? null;
   const mintExhausted = selected?.mintLimit != null && selected.mintLimit.remaining === 0;
   const soldOut = loaded != null
@@ -538,9 +628,11 @@ export default function CandyMintPage() {
   }, [quantityCap]);
 
   const heroTitle = loaded?.collectionMeta?.name ?? (loaded ? short(loaded.inspection.candyMachine) : null);
-  const priceLabel = selected?.solPaymentLamports != null
-    ? `${(Number(selected.solPaymentLamports) / 1e9).toFixed(selected.solPaymentLamports === '0' ? 0 : 3)} SOL`
-    : null;
+  // SOL and/or token — buildPriceLabel never silently drops a non-SOL leg.
+  const priceLabel = buildPriceLabel(
+    selected?.solPaymentLamports ?? null,
+    selected?.tokenPayment ?? null,
+  );
 
   return (
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '32px 20px 60px', ...MONO }}>
@@ -557,11 +649,11 @@ export default function CandyMintPage() {
             <ToolTextInput
               value={sig}
               onChange={(e) => setSig(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void handleInspect(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !inspectBlocked) void handleInspect(); }}
               placeholder="load a different drop by reference tx signature"
               style={{ width: 340, maxWidth: '100%' }}
             />
-            <CtaButton onClick={handleInspect} disabled={busy || !sig.trim()}>
+            <CtaButton onClick={handleInspect} disabled={inspectBlocked}>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
             </CtaButton>
           </>
@@ -589,12 +681,12 @@ export default function CandyMintPage() {
             <ToolTextInput
               value={sig}
               onChange={(e) => setSig(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void handleInspect(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !inspectBlocked) void handleInspect(); }}
               placeholder="mint transaction signature"
               big
               style={{ flex: 1 }}
             />
-            <CtaButton onClick={handleInspect} disabled={busy || !sig.trim()} big>
+            <CtaButton onClick={handleInspect} disabled={inspectBlocked} big>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
             </CtaButton>
           </div>
@@ -614,8 +706,15 @@ export default function CandyMintPage() {
             boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${alpha(VL.purpleDeep, 0.12)}`,
           }}
         >
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, padding: 32 }}>
-            <div style={{ width: 340, height: 340, flexShrink: 0, borderRadius: 16, overflow: 'hidden', margin: '0 auto' }}>
+          {/* padding/gap clamp + min(340px,100%) square thumb so the hero
+              never forces horizontal page scroll below ~400px; desktop
+              (>=~800px inner width) still gets the full 32px / 340px. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'clamp(16px, 4vw, 32px)', padding: 'clamp(16px, 4vw, 32px)' }}>
+            <div style={{
+              width: 'min(340px, 100%)', aspectRatio: '1 / 1', flexShrink: 0,
+              borderRadius: 16, overflow: 'hidden', margin: '0 auto',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
               <ItemThumb
                 imageUrl={loaded.collectionMeta?.image ?? null}
                 color={rgb(VL.purpleTint)}
@@ -624,7 +723,7 @@ export default function CandyMintPage() {
               />
             </div>
 
-            <div style={{ flex: '1 1 340px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ flex: '1 1 340px', minWidth: 'min(280px, 100%)', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <LiveDot color={loaded.inspection.alive ? rgb(VL.greenStrong) : rgb(VL.gray)} />
                 <span style={{
@@ -747,7 +846,19 @@ export default function CandyMintPage() {
                     </div>
                   )}
                   {flow.kind === 'error' && (
-                    <div style={{ fontSize: 12, color: rgb(VL.redStrong), marginTop: 10 }}>{flow.message}</div>
+                    // 'unknown' (never observed landing) renders neutral, not
+                    // red — it must not read as a definite on-chain failure.
+                    <div style={{ fontSize: 12, color: flow.unknown ? rgb(VL.purpleTint) : rgb(VL.redStrong), marginTop: 10 }}>
+                      {flow.message}
+                      {flow.sig && (
+                        <>
+                          {' — '}
+                          <a href={`https://solscan.io/tx/${flow.sig}`} target="_blank" rel="noopener noreferrer" style={{ color: rgb(VL.purpleTint) }}>
+                            {short(flow.sig)}
+                          </a>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -789,6 +900,8 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
   success: rgb(VL.greenStrong),
   blocked: rgb(VL.redStrong),
   error: rgb(VL.redStrong),
+  // Neutral lavender, not red — status genuinely unknown, not a failure.
+  unconfirmed: rgb(VL.purpleTint),
 };
 
 function BatchStatusBadge({ status }: { status: BatchItemStatus }) {
@@ -819,7 +932,7 @@ function StatusNotice({ tone = 'neutral', children }: { tone?: 'neutral' | 'warn
 // exactly where the Mint button was, per how a real launchpad's own button
 // morphs into a confirm state rather than opening a separate view.
 function ReadyToSignControl({ flow, busy, onConfirm, onCancel }: {
-  flow: { kind: 'ready_to_sign'; solDeltaLamports: number | null; botTaxDetected: boolean };
+  flow: { kind: 'ready_to_sign'; solDeltaLamports: number | null; botTaxDetected: boolean; tokenCostLabel: string | null };
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -828,10 +941,15 @@ function ReadyToSignControl({ flow, busy, onConfirm, onCancel }: {
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{ fontSize: 10.5, color: VLText.muted }}>
-          {flow.botTaxDetected ? '⚠ bot-tax path — do not sign' : 'Simulated cost (pre-signature)'}
+          {flow.botTaxDetected
+            ? '⚠ bot-tax path — do not sign'
+            : flow.tokenCostLabel
+              ? 'Simulated SOL change + fixed token price'
+              : 'Simulated cost (pre-signature)'}
         </span>
         <span style={{ fontSize: 15, fontWeight: 700, color: flow.botTaxDetected ? rgb(VL.redStrong) : rgb(VL.greenStrong) }}>
           {flow.solDeltaLamports != null ? `${(flow.solDeltaLamports / 1e9).toFixed(5)} SOL` : 'unknown'}
+          {flow.tokenCostLabel ? ` + ${flow.tokenCostLabel}` : ''}
         </span>
       </div>
       <CtaButton onClick={onConfirm} disabled={busy || flow.botTaxDetected} big>
@@ -857,7 +975,7 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
           <BatchStatusBadge status={it.status} />
           {it.solDeltaLamports != null && ['ready', 'signing', 'confirming', 'success'].includes(it.status) && (
             <span style={{ color: rgb(VL.greenStrong), fontWeight: 600 }}>
-              {(it.solDeltaLamports / 1e9).toFixed(5)} SOL
+              {(it.solDeltaLamports / 1e9).toFixed(5)} SOL{it.tokenCostLabel ? ` + ${it.tokenCostLabel}` : ''}
             </span>
           )}
           {it.sig && (
@@ -865,7 +983,9 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
               {short(it.sig)}
             </a>
           )}
-          {it.message && <span style={{ color: rgb(VL.redStrong) }}>{it.message}</span>}
+          {/* Message color follows the row's own status color — an
+              'unconfirmed' message must not read as red/definite-failure. */}
+          {it.message && <span style={{ color: BATCH_STATUS_COLOR[it.status] }}>{it.message}</span>}
         </div>
       ))}
     </div>

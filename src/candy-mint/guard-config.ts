@@ -98,13 +98,20 @@ export interface GuardGroupSummary {
    *  precision loss). Null when the guard isn't set for this group. */
   startDateUnix: string | null;
   endDateUnix:   string | null;
-  /** From `tokenPayment` (legacy SPL Token) or `token2022Payment` — same
-   *  {amount, mint, destinationAta} shape on-chain for both. `amount` is
-   *  the raw on-chain integer (no decimals applied — the mint's own
-   *  `decimals` field isn't part of the guard, so the UI must fetch that
-   *  separately to render a human amount). Null when neither guard is set
-   *  for this group. */
-  tokenPayment: { mint: string; amount: string; destinationAta: string } | null;
+  /** From `tokenPayment` (classic SPL Token) or `token2022Payment` — same
+   *  {amount, mint, destinationAta} shape on-chain for both, distinguished
+   *  by `kind`. `amount` is the raw on-chain integer; `decimals` is resolved
+   *  separately (see token-decimals.ts) and filled in by the inspect router
+   *  — it is `null` here as produced by summarizeGuardSet, and `null` again
+   *  if that lookup fails (caller then shows the raw integer). Null (the
+   *  whole field) when neither guard is set for this group. */
+  tokenPayment: {
+    mint: string;
+    amount: string;
+    destinationAta: string;
+    decimals: number | null;
+    kind: 'spl' | 'token2022';
+  } | null;
 }
 
 export interface CandyMachineInspection {
@@ -127,7 +134,7 @@ function summarizeGuardSet(
   let mintLimit: MintLimitStatus | null = null;
   let startDateUnix: string | null = null;
   let endDateUnix: string | null = null;
-  let tokenPayment: { mint: string; amount: string; destinationAta: string } | null = null;
+  let tokenPayment: GuardGroupSummary['tokenPayment'] = null;
   for (const [name, wrapped] of Object.entries(guards)) {
     const opt = wrapped as { __option: 'Some' | 'None'; value?: unknown } | undefined;
     if (!opt || opt.__option !== 'Some') continue;
@@ -140,7 +147,13 @@ function summarizeGuardSet(
     if (name === 'tokenPayment' || name === 'token2022Payment') {
       const v = opt.value as { mint?: unknown; amount?: bigint; destinationAta?: unknown } | undefined;
       if (v?.mint != null && v.amount != null && v.destinationAta != null) {
-        tokenPayment = { mint: String(v.mint), amount: v.amount.toString(), destinationAta: String(v.destinationAta) };
+        tokenPayment = {
+          mint: String(v.mint),
+          amount: v.amount.toString(),
+          destinationAta: String(v.destinationAta),
+          decimals: null,
+          kind: name === 'token2022Payment' ? 'token2022' : 'spl',
+        };
       }
     }
     if (name === 'mintLimit') {

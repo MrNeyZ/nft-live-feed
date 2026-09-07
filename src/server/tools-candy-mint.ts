@@ -39,6 +39,7 @@ import { decodeCandyMintSignature, detectFamilyFromGuardAddress, type CandyMintF
 import { inspectCandyMachine } from '../candy-mint/guard-config';
 import { buildCandyMintTx } from '../candy-mint/build';
 import { simulateCandyMintTx } from '../candy-mint/simulate';
+import { getTokenDecimalsMany } from '../candy-mint/token-decimals';
 import { getAsset } from '../enrichment/helius-das';
 
 function isValidPubkey(s: unknown): s is string {
@@ -92,6 +93,27 @@ export function createCandyMintRouter(): Router {
       }
 
       const inspection = await inspectCandyMachine(family, candyMachine, candyGuard, wallet);
+
+      // Fill in tokenPayment decimals so the UI can render a human price for
+      // token-priced drops (the guard only stores the raw integer). Cheap
+      // (one getTokenSupply per distinct mint, process-cached) and
+      // best-effort — a miss leaves decimals null and the UI shows the raw
+      // amount. Never blocks or fails the inspect.
+      const tokenMints = inspection.groups
+        .map((g) => g.tokenPayment?.mint)
+        .filter((m): m is string => typeof m === 'string');
+      if (tokenMints.length > 0) {
+        try {
+          const decimalsByMint = await getTokenDecimalsMany(tokenMints);
+          for (const g of inspection.groups) {
+            if (g.tokenPayment) {
+              g.tokenPayment.decimals = decimalsByMint.get(g.tokenPayment.mint) ?? null;
+            }
+          }
+        } catch {
+          // leave decimals null — raw amount is still shown
+        }
+      }
 
       // Best-effort — the launchpad-style hero (image/name/creator) is a
       // display nicety, not a gate. A DAS miss (fresh/never-indexed
