@@ -108,6 +108,56 @@ export function RowLinkOverlay({ href }: { href: string | null }) {
   );
 }
 
+/**
+ * Full-screen centered image preview overlay. Shared by `/feed` and
+ * `/mints` (identical behaviour): backdrop click or Escape closes it; the
+ * <img> stops propagation so a click on the picture itself doesn't dismiss.
+ *
+ * The in-list card thumbnail stays small (56 px) — this only opens on an
+ * explicit click. Callers pass a dedicated 256 px source
+ * (`compressImage(url, 256)` / `thumb256(url)`); the card's own 128–200 px
+ * thumb would upscale to mush in the 200 px modal box.
+ */
+export function ImagePreviewOverlay({ src, onClose }: { src: string | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!src) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // `onClose` is a stable setState wrapper at every call site; keying on
+    // `src` alone avoids re-subscribing on each parent feed tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+  if (!src) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.75)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'zoom-out',
+      }}
+      role="dialog"
+      aria-label="Preview"
+    >
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 200, height: 200, objectFit: 'contain',
+          borderRadius: 8, background: 'var(--vl-gray-base)',
+          boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
+          cursor: 'default',
+        }}
+      />
+    </div>
+  );
+}
+
 export function rowLinkHandlers(href: string, onLeftClick: () => void) {
   return {
     onClick: (e: React.MouseEvent) => {

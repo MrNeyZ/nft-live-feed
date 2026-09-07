@@ -13,7 +13,7 @@ import type { MintEvent, MintStatus, PaymentTokenInfo } from '../lib/types';
 import {
   colorForCollection, colorForWallet, isSolPubkey,
 } from '../lib/palette';
-import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb200, isNewCollection } from '../lib/format';
+import { fmtAge, fmtMintPrice, formatTokenAmount, shortMint, shortKey, thumb64, thumb200, thumb256, isNewCollection } from '../lib/format';
 import { sourceHref, sourceBadge } from '../lib/source';
 import { shortenNftName } from '@/app/feed/lib/nft-name';
 import { NewCollectionBadge } from './NewCollectionBadge';
@@ -424,10 +424,10 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   // instead of degrading to initials. heroImg is preferred over repImg
   // (repImg is typically the same placeholder as the primary).
   const cardFallback = heroImg ?? repImg ?? null;
-  // Preview overlay source — reuses the exact 200×200 /thumb URL already
-  // rendered in the card, so opening the preview costs no extra request
-  // (same rationale as `/feed`, which renders its overlay at 200 px).
-  const previewImg = thumb200(cardImage ?? cardFallback);
+  // Preview overlay source — dedicated 256 px render (matches /feed's
+  // `compressImage(url, 256)`), fetched only when the overlay opens. The
+  // in-list thumbnail keeps its own smaller `thumb200` source, unchanged.
+  const previewImg = thumb256(cardImage ?? cardFallback);
   if (group?.name === 'Flork') {
     // Temporary Flork-only trace — confirms which tier the chain
     // picks for the current Bu8x… debugging session. Remove once

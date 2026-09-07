@@ -9,7 +9,7 @@ import { fromBackend, fromRow } from '@/soloist/from-backend';
 import { useBlacklist, FEED_BLACKLIST_KEY } from '@/soloist/blacklist-store';
 import { isFeedEventBlacklisted } from '@/soloist/blacklist-filter';
 import type { BackendEvent, LatestApiResponse } from '@/soloist/from-backend';
-import { LiveDot, Pill, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle } from '@/soloist/shared';
+import { LiveDot, Pill, EVENTS_COUNT_EVENT, SETTINGS_PILL_INACTIVE, settingsPillActive, SettingsToggle, ImagePreviewOverlay } from '@/soloist/shared';
 import { PALETTE_TOGGLE_PAUSE_EVENT, PALETTE_TOGGLE_SETTINGS_EVENT } from '@/soloist/CommandPalette';
 import { useInclusiveFees } from '@/soloist/price-mode';
 import { useFloorBySlug } from '@/soloist/floor-cache';
@@ -265,14 +265,9 @@ export default function FeedPage() {
   const sseStatusRef = useRef<'connecting' | 'open' | 'error'>('connecting');
   const meStale = sourceState.magiceden === 'stale';
   // Avatar-preview overlay state. One modal per page; clicking another thumb
-  // just replaces the URL. Cleared on backdrop click or Escape key.
+  // just replaces the URL. Close (backdrop click / Escape) is owned by the
+  // shared ImagePreviewOverlay.
   const [preview, setPreview] = useState<string | null>(null);
-  useEffect(() => {
-    if (!preview) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [preview]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Command palette (⌘K) delegates Pause/Settings here — see CommandPalette.tsx.
   useEffect(() => {
@@ -1336,37 +1331,10 @@ export default function FeedPage() {
           so the parent page can own the chrome; the full-bleed `100vw`
           would otherwise escape its grid cell. */}
 
-      {/* Avatar preview — single overlay shared by every FeedCard. Backdrop
-       *  click and Escape close it. The <img> stops propagation so clicks on
-       *  the picture itself don't dismiss. Reuses the already-fetched wsrv
-       *  URL from `compressImage`, so no extra network request. */}
-      {preview && (
-        <div
-          onClick={() => setPreview(null)}
-          style={{
-            position: 'fixed', inset: 0, zIndex: 1000,
-            background: 'rgba(0,0,0,0.75)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'zoom-out',
-          }}
-          role="dialog"
-          aria-label="Preview"
-        >
-          <img
-            src={preview}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: 200, height: 200, objectFit: 'contain',
-              borderRadius: 8, background: 'var(--vl-gray-base)',
-              boxShadow: '0 16px 40px rgba(0,0,0,0.6)',
-              cursor: 'default',
-            }}
-          />
-        </div>
-      )}
+      {/* Image preview — single overlay shared by every FeedCard (and the
+       *  same component /mints uses). FeedCard passes a dedicated 256 px
+       *  source so the 200 px modal stays sharp. */}
+      <ImagePreviewOverlay src={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }

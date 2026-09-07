@@ -37,6 +37,15 @@ export function thumb200(url: string | null | undefined): string | null {
   if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
   return `/thumb?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=png`;
 }
+/** Proxy size for the click-to-open image preview overlay — 256×256
+ *  source, matching /feed's `compressImage(url, 256)`. The overlay renders
+ *  at 200 px; the card thumbnail stays on `thumb200` and is untouched. */
+export function thumb256(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith('data:')) return url;
+  if (url.startsWith('/thumb?') || url.startsWith('/api/thumb?')) return url;
+  return `/thumb?url=${encodeURIComponent(url)}&w=256&h=256&fit=cover&output=png`;
+}
 export function shortMint(addr: string | null): string {
   if (!addr) return '—';
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
