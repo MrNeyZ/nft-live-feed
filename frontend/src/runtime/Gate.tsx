@@ -169,9 +169,9 @@ function PersistentBottomStatusBar() {
     pathname.startsWith('/access') ||
     embedded;
 
-  // Mark the body so the CSS rule reserves 36 px of bottom padding on
-  // .feed-root only when the bar is actually present. Cleared on
-  // unmount + on every route that doesn't show the bar.
+  // Mark the body so the CSS rule reserves bottom padding on .feed-root
+  // only when the bar is actually present. Cleared on unmount + on every
+  // route that doesn't show the bar.
   useEffect(() => {
     if (typeof document === 'undefined') return;
     if (hidden) document.body.removeAttribute('data-bottombar');
@@ -179,9 +179,32 @@ function PersistentBottomStatusBar() {
     return () => { document.body.removeAttribute('data-bottombar'); };
   }, [hidden]);
 
+  // Measure the bar's real rendered height into `--bottombar-h` so the
+  // `.feed-root` padding-bottom reserve tracks it exactly — the prior
+  // hard-coded 36 px under-reserved once layout-mode zoom / font tier /
+  // chip wrapping nudged the bar taller, sliding the last scroll row
+  // behind the fixed bar. CSS falls back to 36 px until this lands.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (hidden || typeof document === 'undefined') return;
+    const el = barRef.current;
+    if (!el) return;
+    const apply = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) document.body.style.setProperty('--bottombar-h', `${h}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.body.style.removeProperty('--bottombar-h');
+    };
+  }, [hidden]);
+
   if (hidden) return null;
   return (
-    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90, pointerEvents: 'none' }}>
+    <div ref={barRef} style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 90, pointerEvents: 'none' }}>
       <div style={{ pointerEvents: 'auto' }}>
         <BottomStatusBar />
       </div>

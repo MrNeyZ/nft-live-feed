@@ -1790,14 +1790,18 @@ html[data-layout="phone"] .mints-collections-panel::after {
 }
 
 /* Persistent BottomStatusBar — when the shell renders the bar, mark
-   the body so any `.feed-root` reserves 36 px of bottom padding to
-   keep page content from sliding behind the fixed bar. The 36 px
-   matches the bar's previous in-flex height (Discord/Twitter row +
-   6 px vertical padding). On routes where the bar is hidden (/multi,
-   /access, embed-mode iframes) the attribute is absent and pages
-   render edge-to-edge as before. */
+   the body so any `.feed-root` reserves bottom padding to keep page
+   content (and the inner scroll containers) from sliding behind the
+   fixed bar. `--bottombar-h` is measured from the bar's real rendered
+   height by PersistentBottomStatusBar (ResizeObserver); the 36 px
+   fallback matches the bar's nominal height and applies until that
+   lands / on the first paint. Tracking the real height fixes the last
+   scroll row being clipped once zoom / font tier / chip wrapping makes
+   the bar taller than 36 px. On routes where the bar is hidden (/access,
+   embed-mode iframes) the attribute is absent and pages render
+   edge-to-edge as before. */
 body[data-bottombar="1"] .feed-root {
-  padding-bottom: 36px;
+  padding-bottom: var(--bottombar-h, 36px);
 }
 
 /* ── Embed mode (multi-tab iframes) ───────────────────────────────────
