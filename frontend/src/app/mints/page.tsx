@@ -2320,7 +2320,8 @@ export default function MintsPage() {
         <div className="mints-top-strip" style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-start',
+          gap: 10,
           width: '100%',
           maxWidth: 'var(--mints-max, 1400px)',
           margin: '0 auto',
@@ -2331,13 +2332,24 @@ export default function MintsPage() {
           boxSizing: 'border-box',
         }}>
           <span className="mints-top-strip-label" style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.7px',
             color: VLText.muted, textTransform: 'uppercase',
+            flexShrink: 0,
           }}>
             Mints
           </span>
+          {/* Hairline divider — groups the label + summary into one quiet
+              operator strip aligned to the left panel edge (was pinned to
+              opposite corners by justify-content: space-between, which read
+              as an unfinished / stray line). */}
+          <span aria-hidden="true" style={{
+            width: 1, height: 12, flexShrink: 0,
+            background: alpha(VL.purpleTint, 0.28),
+          }} />
           <span className="mints-top-strip-summary" style={{
-            fontSize: 11, fontWeight: 500, color: VLText.muted, opacity: 0.75,
+            fontSize: 11, fontWeight: 500, color: VLText.faint,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            minWidth: 0,
           }}>
             {sorted.length} active · {visibleEvents.length} live events · {mintTf}
           </span>
