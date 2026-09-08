@@ -132,9 +132,41 @@ function PersistentTopNav() {
     if (typeof window === 'undefined') return;
     setEmbedded(new URLSearchParams(window.location.search).get('embed') === '1');
   }, [pathname]);
-  if (embedded) return null;
-  if (pathname.startsWith('/access')) return null;
-  return <TopNav />;
+
+  const hidden = embedded || pathname.startsWith('/access');
+
+  // Publish the nav's real rendered height into `--topnav-h`. `.feed-root`
+  // is `height: calc(100vh - var(--topnav-h))`: it sits BELOW this in-flow
+  // bar inside a `display:block; overflow:hidden` body, so a bare
+  // `height: 100vh` pushed feed-root's bottom (and the last row of any
+  // inner scroll container) below the fold, behind the fixed status bar.
+  // Measured (not hard-coded) so the phone tier's shorter bar is handled.
+  const navRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    // No bar on this route (embed iframe / /access) → the reserve is 0,
+    // so `.feed-root` fills the full viewport height.
+    if (hidden) {
+      document.body.style.setProperty('--topnav-h', '0px');
+      return () => { document.body.style.removeProperty('--topnav-h'); };
+    }
+    const el = navRef.current;
+    if (!el) return;
+    const apply = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) document.body.style.setProperty('--topnav-h', `${h}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.body.style.removeProperty('--topnav-h');
+    };
+  }, [hidden]);
+
+  if (hidden) return null;
+  return <div ref={navRef}><TopNav /></div>;
 }
 
 // ── Persistent BottomStatusBar ────────────────────────────────────────────

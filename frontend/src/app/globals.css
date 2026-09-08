@@ -725,7 +725,18 @@ html { background-color: var(--vl-gray-base); color-scheme: dark; }
 body { display: block; height: 100vh; }
 
 #__next, .feed-root {
-  height: 100vh;
+  /* Fit between the in-flow TopNav and the viewport bottom. `body` is
+     `display:block; overflow:hidden; height:100vh` with the TopNav as a
+     normal-flow first child, so a bare `height:100vh` here made this box
+     overflow the viewport by the nav's height — clipping the bottom of
+     every inner scroll container (last /mints collection row sat under
+     the fixed status bar). `--topnav-h` is measured by PersistentTopNav;
+     the 52px fallback is the desktop bar's nominal height, covering only
+     the sub-second gap before hydration measures the real value. Embed
+     iframes (no TopNav) reset it to 0 in the [data-embedded] rule below.
+     The bottom status bar is reserved separately via the padding-bottom
+     rule further down. */
+  height: calc(100vh - var(--topnav-h, 52px));
   width: 100%;
   margin: 0;
   display: flex;
