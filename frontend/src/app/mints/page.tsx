@@ -1592,6 +1592,9 @@ export default function MintsPage() {
   // no header status slot for connection state. Held in a ref so
   // transitions don't trigger re-renders nobody reads.
   const sseStatusRef = useRef<'connecting' | 'open' | 'error'>('connecting');
+  // Re-rendering mirror of the socket status for the page header's
+  // LiveDot + "Live" / "Reconnecting…" line (mirrors /multi's MultiHeader).
+  const [sseConnected, setSseConnected] = useState(false);
   useEffect(() => {
     let es: EventSource | null = null;
     let cancelled = false;
@@ -1618,6 +1621,7 @@ export default function MintsPage() {
       es = new EventSource(`${API_BASE}/api/events/stream`);
       es.addEventListener('open', () => {
         sseStatusRef.current = 'open';
+        setSseConnected(true);
         attempt = 0;
         console.debug('[sse/mints] connected');
       });
@@ -1939,6 +1943,7 @@ export default function MintsPage() {
       });
       es.addEventListener('error', () => {
         sseStatusRef.current = 'error';
+        setSseConnected(false);
         es?.close();
         scheduleReconnect();
       });
@@ -2301,58 +2306,40 @@ export default function MintsPage() {
     <div className="feed-root page-transition" data-page="mints" data-embedded={embedded ? '1' : undefined}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
-      {/* Header — hidden in embed mode so the multi-tab pane chrome
-          owns the title context. Compact vertical padding (16/8 instead
-          of 20/14) to tighten the gap between the title and the table
-          grid below — matches /tools' denser feel. */}
-      {/* Compact top context strip — ergonomic vertical spacer only, not a
-          title. Replaces the old large page header's job of pushing the
-          first live rows down away from the navbar (the header itself is
-          gone for good; this is deliberately not a hero/card). Pure
-          text row, no background/border, so it doesn't compete visually
-          with the two panels below. Hidden in embed mode (multi-tab pane
-          chrome owns that context there) and collapsed on phone via
+      {/* Page header — "Mint Tracker" H1 + LiveDot status line, matching
+          /multi's MultiHeader so both two-panel-dashboard pages share one
+          framing language. Hidden in embed mode (multi-tab pane chrome
+          owns the title there). Margins collapse on phone via
           `.mints-top-strip` in globals.css so it doesn't eat scroll room
-          on small screens. Occupies the same 14px top offset the grid
-          used to start at, plus its own ~48px height + 8px gap — pushes
-          the grid (and its first row) down ~56px net vs. before. */}
+          on small screens. Also frames the grid below away from the
+          navbar (its old ergonomic-spacer job). */}
       {!embedded && (
         <div className="mints-top-strip" style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          gap: 10,
+          // 1:1 with /multi's MultiHeader: 16px top / 8px bottom padding,
+          // no vertical margins. Horizontal alignment via the shared
+          // --mints-max envelope + translateX(10px) so it lines up with
+          // `.mints-grid` below (feed-root already supplies the page gutter).
+          padding: '16px 0 8px',
           width: '100%',
           maxWidth: 'var(--mints-max, 1400px)',
           margin: '0 auto',
-          marginTop: 14,
-          marginBottom: 8,
-          minHeight: 48,
           transform: 'translateX(10px)',
           boxSizing: 'border-box',
+          flexShrink: 0,
         }}>
-          <span className="mints-top-strip-label" style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.7px',
-            color: VLText.muted, textTransform: 'uppercase',
-            flexShrink: 0,
-          }}>
-            Mints
-          </span>
-          {/* Hairline divider — groups the label + summary into one quiet
-              operator strip aligned to the left panel edge (was pinned to
-              opposite corners by justify-content: space-between, which read
-              as an unfinished / stray line). */}
-          <span aria-hidden="true" style={{
-            width: 1, height: 12, flexShrink: 0,
-            background: alpha(VL.purpleTint, 0.28),
-          }} />
-          <span className="mints-top-strip-summary" style={{
-            fontSize: 11, fontWeight: 500, color: VLText.faint,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            minWidth: 0,
-          }}>
-            {sorted.length} active · {visibleEvents.length} live events · {mintTf}
-          </span>
+          {/* Page-level header — same H1 + LiveDot status line as /multi's
+              MultiHeader, so the two two-panel-dashboard pages read as one
+              product. Title only ("Mint Tracker"); the per-panel inner
+              headers carry the counts / timeframe. */}
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>
+            Mint Tracker
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <LiveDot color={sseConnected ? rgb(VL.green) : rgb(VL.gold)} />
+            <span style={{ fontSize: 11, color: sseConnected ? rgb(VL.green) : rgb(VL.gold) }}>
+              {sseConnected ? 'Live' : 'Reconnecting…'}
+            </span>
+          </div>
         </div>
       )}
       {/* 2-column grid: LEFT (large) Mint Collections + RIGHT (narrow)
@@ -2431,7 +2418,7 @@ export default function MintsPage() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>
-              Live mint tracker
+              Collections
             </h1>
             <LiveDot />
             {/* Count styling matches Live Mint Feed / Live events —
@@ -2903,7 +2890,7 @@ export default function MintsPage() {
                   (title · live dot · count · status pill) so the LEFT and
                   RIGHT /multi columns read as one component family. Only
                   the naming is mint-specific. */}
-              <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Live Mint Feed</h1>
+              <h1 style={{ fontSize: 15, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.2px', margin: 0 }}>Feed</h1>
               <LiveDot />
               <span style={{ fontSize: 11, fontWeight: 500, color: VLText.muted, marginLeft: 4 }}>
                 ({visibleEvents.length.toLocaleString()})
