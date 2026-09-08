@@ -724,13 +724,28 @@ export default function Dashboard() {
 
   return (
     <div className="feed-root page-transition" data-page="dashboard">
-      {/* TopNav rendered persistently by Gate (anti-flash). Single-card
-          structure matching /feed and /multi's DashboardCollectionsPanel —
-          no separate outer page title/subtitle block; the card's own
-          header bar carries the title + live count + tabs + timeframe. */}
+      {/* Page header — "Dashboard" H1 + LiveDot status line, matching
+          /multi's MultiHeader and /mints so the app's pages share one
+          framing language. The card below keeps its own "Trending
+          Collections" header bar (count + timeframe). */}
+      <div style={{
+        padding: '16px 0 8px', width: '100%',
+        maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto',
+        boxSizing: 'border-box', flexShrink: 0,
+      }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: VLText.primary, letterSpacing: '-0.5px' }}>
+          Dashboard
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          <LiveDot color={loaded && !error ? rgb(VL.green) : rgb(VL.gold)} />
+          <span style={{ fontSize: 11, color: loaded && !error ? rgb(VL.green) : rgb(VL.gold) }}>
+            {loaded && !error ? 'Live' : 'Loading…'}
+          </span>
+        </div>
+      </div>
       <div style={{
         flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, width: '100%',
-        maxWidth: 'var(--dashboard-max, 1200px)', margin: '14px auto 16px',
+        maxWidth: 'var(--dashboard-max, 1200px)', margin: '0 auto 16px',
         background: 'linear-gradient(180deg, var(--vl-gray-surface) 0%, var(--vl-gray-surface) 100%)',
         border: `1px solid ${alpha(VL.purpleTint, 0.65)}`, borderRadius: 12,
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 16px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 28px ${alpha(VL.purpleDeep, 0.15)}`,
