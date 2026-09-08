@@ -901,6 +901,7 @@ const TOOLS_MENU_GROUPS: ReadonlyArray<ToolsMenuGroup> = [
       { label: 'CREATEV2', href: '/tools/create-v2' },
       { label: 'CRITTERS TIMER', href: '/tools/critters-mint-timer' },
       { label: 'VVV STAGES', href: '/tools/vvv' },
+      { label: 'CNFT REVOKER', href: '/tools/cnft-revoke-delegate' },
     ],
   },
   {
@@ -965,7 +966,7 @@ export function TopNav({ active }: { active?: Page } = {}) {
   // <Link> prefetch below stays a no-op on already-warmed routes.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/me-sell', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/me-collection-refresh', '/tools/vvv', '/tools/opensea', '/feed'];
+    const HREFS = ['/dashboard', '/multi', '/mints', '/tools', '/tools/offers', '/tools/rare-feed', '/tools/mint-analyzer', '/tools/candy-mint', '/tools/tensor-take-bid', '/tools/holders', '/tools/collection-analyzer', '/tools/mmm-pools', '/tools/mmm-pool-lookup', '/tools/me-sell', '/tools/mmm-collection-scanner', '/tools/pixel-forge', '/tools/me-tensor-arb', '/tools/spl20', '/tools/mmm-collection-bids', '/tools/offer-floor-sweep', '/tools/solanart-accept-offer', '/tools/solsea-accept-bid', '/tools/ghostbid', '/tools/critters-mint-timer', '/tools/me-collection-refresh', '/tools/vvv', '/tools/opensea', '/tools/cnft-revoke-delegate', '/feed'];
     const hasRic = 'requestIdleCallback' in window;
     const schedule = (cb: () => void): number =>
       hasRic ? window.requestIdleCallback(cb, { timeout: 2000 }) : window.setTimeout(cb, 200);
