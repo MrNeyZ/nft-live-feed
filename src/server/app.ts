@@ -44,7 +44,6 @@ import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
 import { createSolseaAcceptBidRouter } from './tools-solsea-accept-bid';
 import { createGhostBidRouter } from './tools-ghostbid';
 import { createCnftRevokeDelegateRouter } from './tools-cnft-revoke-delegate';
-import { createCrittersMintTimerRouter, startCrittersMintTimerRefreshLoop } from './tools-critters-mint-timer';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
 import { createPixelForgeGenerateSourceRouter } from './tools-pixel-forge-generate-source';
@@ -333,12 +332,6 @@ export function createApp() {
   // compressed NFT clear a project delegate so it can be listed. See
   // tools-cnft-revoke-delegate.ts header.
   app.use('/api', createCnftRevokeDelegateRouter());
-
-  // Critters.quest mint timer — read-only catalog of upcoming cheap NFT
-  // edition mints. No wallet/signing here; the actual sniper bot lives on
-  // a different VPS. See tools-critters-mint-timer.ts header comment.
-  app.use('/api', createCrittersMintTimerRouter());
-  startCrittersMintTimerRefreshLoop();
 
   // VictoryLabs Internal Bot API v1 — private, versioned, read-only market
   // data for the vl-nft-bots consumer. Bot-auth-gated on every route (see
