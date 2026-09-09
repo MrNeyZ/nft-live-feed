@@ -17,12 +17,15 @@
  *     them in a single RPC call.
  *
  * effectiveBidSol = min(originalBidSol, liveEscrowBalanceSol). Profit and
- * rank are recomputed from that, so a drained shared-escrow bid falls
- * toward the bottom instead of showing a stale, uncollectable profit.
+ * rank are recomputed from that; a live-checked row whose profit has gone
+ * <= 0 (escrow spent down by other accepted offers, or by accepting this
+ * bid) is dropped from the list entirely — the static snapshot keeps every
+ * row since nothing has been re-checked yet.
  *
  * GET  /api/tools/ghostbid          — cached snapshot (last refresh, or the
  *                                     static original if never refreshed)
- * POST /api/tools/ghostbid/refresh  — re-checks live balances, re-ranks
+ * POST /api/tools/ghostbid/refresh  — re-checks live balances, drops
+ *                                     now-unprofitable rows, re-ranks
  *
  * Read-only: no wallet connect, no signing, no tx building.
  */
@@ -132,8 +135,9 @@ function toGhostRows(
   liveBalances: Map<string, number> | null,
   ownerActivity: Map<string, number> | null,
 ): GhostBidRow[] {
-  const groups = computeSharedGroups(rows);
-  return rows.map(r => {
+  // Pass 1 — recompute each row's live economics against the real escrow
+  // balance (when a live-checked pass supplied one).
+  const priced = rows.map(r => {
     const escrowKey = r.marketplace === 'ME' ? r.buyer : r.offerAccount;
     let liveBidSol = r.bidSol;
     let drained = false;
@@ -150,15 +154,30 @@ function toGhostRows(
     // BID (paid by whoever fulfills it), not added on top of the floor.
     const net = liveBidSol * (1 - r.royaltyBp / 10000 - r.feeBp / 10000);
     const profitSol = r.floorSol == null ? null : Math.round((net - r.floorSol) * 1e6) / 1e6;
-    return {
-      ...r,
-      lastActiveAt: ownerActivity?.get(r.owner) ?? r.lastActiveAt,
-      liveBidSol: Math.round(liveBidSol * 1e6) / 1e6,
-      profitSol,
-      drained,
-      sharedEscrowGroup: r.marketplace === 'ME' ? (groups.get(r.buyer) ?? null) : null,
-    };
-  }).sort((a, b) => (b.profitSol ?? -Infinity) - (a.profitSol ?? -Infinity));
+    return { r, liveBidSol, drained, profitSol };
+  });
+
+  // Pass 2 — on a live-checked pass, drop any row whose profit has gone
+  // <= 0 once the escrow is clamped to its real balance: a shared M2
+  // escrow spent down by other accepted offers (or by the owner accepting
+  // this very bid) leaves the row uncollectable, and it has no business in
+  // a "profitable forgotten bids" table. The static snapshot keeps every
+  // row (its rows were all profitable when the list was built offline;
+  // nothing has been re-checked yet). profitSol == null (no floor) is kept
+  // — undetermined, not disproven.
+  const kept = liveBalances
+    ? priced.filter(p => p.profitSol == null || p.profitSol > 0)
+    : priced;
+
+  const groups = computeSharedGroups(kept.map(p => p.r));
+  return kept.map(({ r, liveBidSol, drained, profitSol }) => ({
+    ...r,
+    lastActiveAt: ownerActivity?.get(r.owner) ?? r.lastActiveAt,
+    liveBidSol: Math.round(liveBidSol * 1e6) / 1e6,
+    profitSol,
+    drained,
+    sharedEscrowGroup: r.marketplace === 'ME' ? (groups.get(r.buyer) ?? null) : null,
+  })).sort((a, b) => (b.profitSol ?? -Infinity) - (a.profitSol ?? -Infinity));
 }
 
 function getSnapshot(list: ListId): { updatedAt: number; rows: GhostBidRow[] } {
