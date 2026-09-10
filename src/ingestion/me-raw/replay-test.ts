@@ -152,6 +152,25 @@ const CASES: TestCase[] = [
     expectInstruction: 'mip1ExecuteSaleV2',
   },
   {
+    // Regression (2026-09-10): feed showed the ME Lucky Buy commit signer
+    // (NTYeYJ… = ME treasury) as the buyer instead of the raffle winner.
+    // Root cause: coreExecuteSaleV2 runs as a CPI under the LUCK57 wrapper, so
+    // extractCoreNewOwnerFromInnerIx (message.instructions.indexOf → -1) missed
+    // it and buyer fell through to the SOL-flow payer. Fixed via
+    // extractCoreNewOwnerLastTransfer — last mpl-core TransferV1 newOwner.
+    sig:               '4iQSzN6bMDzg53GFcfXTmQTxDWwNLEnLpRY5vAb5CrTct4vTcbQz5BBhQ5NyRG8JkgUYhKop1kaRidhLiYYVee42',
+    label:             'Core lucky-buy — winner attribution (ME v2 — coreExecuteSaleV2 via LUCK57 wrapper)',
+    expectOk:          true,
+    expectMarketplace: 'magic_eden',
+    expectNftType:     'core',
+    expectMint:        '8B74vo8TQzp6D4uBQ8AF8AR9C8HJUBMH1mT5HcUPbDd7',
+    expectSeller:      '5uvxoHj2NTqh1agKpAvSpBJFfqZcLXz4onnZko3U6Q7n',
+    expectBuyer:       '453RsqHmuZSiWZdHLXXwfYBzs4suCJyyC7RTCMhBBjDt',
+    expectPriceGte:    0.12,
+    expectPriceLte:    0.13,
+    expectInstruction: 'coreExecuteSaleV2',
+  },
+  {
     sig:      'QTGPCUYbQW89JBtwq8YUSUGJKozGUDqmnDEanqMFsN3a9fHTL4Aqh6Gi86jh11aVAoBmV9dKPYMtzm52iPYQepX',
     label:    'Tensor Core sale — expect SKIP (no ME program)',
     expectOk: false,

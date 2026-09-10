@@ -255,6 +255,39 @@ export function extractCoreNewOwnerFromInnerIx(
   return null;
 }
 
+/** mpl-core `TransferV1` instruction discriminator (single leading byte). */
+const MPL_CORE_TRANSFER_V1_DISC = 14;
+
+/**
+ * Final NFT recipient from the LAST mpl-core `TransferV1` CPI anywhere in the
+ * transaction. Fallback for `extractCoreNewOwnerFromInnerIx` when the matched
+ * sale instruction is itself a CPI (an inner instruction) — as in a Magic Eden
+ * "Lucky Buy" (`LUCK57…`) or Pack (`METApx…`) wrapper, where the ME v2
+ * `coreExecuteSaleV2` runs nested under the wrapper program and
+ * `message.instructions.indexOf(match.ix)` is -1, so the inner-ix-group lookup
+ * finds nothing.
+ *
+ * A lucky-buy settles seller → M2 escrow → winner as two sequential Core
+ * transfers; the LAST transfer's `newOwner` (fixed account index 4) is the
+ * asset's terminal owner = the raffle winner. Restricted to disc-14 TransferV1
+ * so non-ownership Core CPIs (UpdateV1, AddPlugin, …) can't be mistaken for it.
+ */
+export function extractCoreNewOwnerLastTransfer(tx: RawSolanaTx): string | null {
+  let newOwner: string | null = null;
+  for (const group of tx.meta?.innerInstructions ?? []) {
+    for (const ix of group.instructions) {
+      if (resolveAccountKey(tx, ix.programIdIndex) !== MPL_CORE_PROGRAM) continue;
+      if (ix.accounts.length < 5) continue; // newOwner is index 4
+      let disc: number;
+      try { disc = decodeIxData(ix.data)[0]; } catch { continue; }
+      if (disc !== MPL_CORE_TRANSFER_V1_DISC) continue;
+      const candidate = resolveAccountKey(tx, ix.accounts[4]);
+      if (candidate) newOwner = candidate;
+    }
+  }
+  return newOwner;
+}
+
 // ─── Asset type classification ────────────────────────────────────────────────
 
 /**

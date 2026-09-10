@@ -29,6 +29,7 @@ import {
   findMeCnftSaleIx,
   extractCoreAssetFromInnerIx,
   extractCoreNewOwnerFromInnerIx,
+  extractCoreNewOwnerLastTransfer,
 } from './decoder';
 import {
   extractPaymentInfo,
@@ -295,7 +296,14 @@ function parseMeV2Sale(
     return { ok: false, reason: `me_v2(${match.instructionName}): could not determine price` };
   }
 
-  const coreNewOwner = nftType === 'core' ? extractCoreNewOwnerFromInnerIx(tx, match.ix) : null;
+  // For a plain ME v2 core sale the matched instruction is top-level and its
+  // own inner-ix group carries the ownership transfer. For a Lucky Buy / Pack
+  // wrapper the sale ix is itself a CPI, so that lookup misses — fall back to
+  // the last mpl-core TransferV1 in the whole tx (the asset's terminal owner =
+  // the raffle winner), never the SOL-flow payer (the ME commit signer).
+  const coreNewOwner = nftType === 'core'
+    ? extractCoreNewOwnerFromInnerIx(tx, match.ix) ?? extractCoreNewOwnerLastTransfer(tx)
+    : null;
 
   const seller = payment.seller ?? tkSeller;
   const buyer  = tkBuyer ?? coreNewOwner ?? payment.buyer;
