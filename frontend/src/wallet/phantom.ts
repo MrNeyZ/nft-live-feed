@@ -21,10 +21,13 @@ export interface PhantomProvider {
   signAndSendTransaction<T extends Transaction | VersionedTransaction>(tx: T, opts?: { skipPreflight?: boolean; preflightCommitment?: string; maxRetries?: number }): Promise<{ signature: string }>;
 }
 
-/** Send a serialized transaction via our backend proxy (avoids browser→public RPC 403). */
-async function backendSendRaw(serialized: Uint8Array): Promise<string> {
+/** Send a serialized transaction via a backend proxy (avoids browser→public
+ *  RPC 403). `sendPath` lets a tool use its own rate-limited proxy instead of
+ *  the shared MMM one (Candy Mint batches need this — the shared 10/min
+ *  limiter deterministically 429s a 25-item batch). */
+async function backendSendRaw(serialized: Uint8Array, sendPath = '/api/tools/mmm-pools/send-tx'): Promise<string> {
   const txBase64 = Buffer.from(serialized).toString('base64');
-  const r = await fetch('/api/tools/mmm-pools/send-tx', {
+  const r = await fetch(sendPath, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ tx: txBase64 }),
@@ -32,6 +35,25 @@ async function backendSendRaw(serialized: Uint8Array): Promise<string> {
   const j = await r.json() as { ok: boolean; signature?: string; message?: string };
   if (!j.ok || !j.signature) throw new Error(j.message ?? `send-tx HTTP ${r.status}`);
   return j.signature;
+}
+
+/** The wallet Phantom currently has active, as base58 — or null. Used to
+ *  fail closed before requesting a signature when the connected account has
+ *  changed since a mint intent was frozen (Phantom fires no event we listen
+ *  for; this is the pre-sign check). */
+export function currentPhantomPublicKey(): string | null {
+  const sol = getPhantom();
+  return sol?.publicKey?.toBase58() ?? null;
+}
+
+/** Throws unless Phantom's currently-active pubkey equals `expected`. Call
+ *  immediately before signTransaction / signAllTransactions. */
+export function assertPhantomWallet(expected: string): void {
+  const active = currentPhantomPublicKey();
+  if (active == null) throw new Error('Phantom is not connected — reconnect and try again.');
+  if (active !== expected) {
+    throw new Error('Connected wallet changed since this mint was reviewed — reconnect and start the mint again.');
+  }
 }
 
 declare global {
@@ -88,9 +110,12 @@ const TAG = '[VL-phantom]';
  */
 export async function signSendAndConfirm(
   txBase64: string,
+  opts: { sendPath?: string; expectWallet?: string } = {},
 ): Promise<SignSendResult> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
+  // Fail closed if the active account drifted since the caller froze intent.
+  if (opts.expectWallet) assertPhantomWallet(opts.expectWallet);
 
   const raw = Buffer.from(txBase64, 'base64');
   let tx: Transaction | VersionedTransaction;
@@ -146,7 +171,7 @@ export async function signSendAndConfirm(
       const coSignersMissing = vtx.signatures.some((s, i) => i !== mySlot && s.every(b => b === 0));
       if (allFilled) {
         console.log(TAG, 'tx fully pre-signed — sending raw via backend proxy');
-        signature = await backendSendRaw(vtx.serialize());
+        signature = await backendSendRaw(vtx.serialize(), opts.sendPath);
       } else if (coSignersMissing) {
         console.error(TAG, 'ME cosigner slot empty (mySlot=' + mySlot + ', numReqSig=' + numReqSig + ')');
         throw new Error('ME did not co-sign — pool is likely underfunded. Check escrow balance and try again.');
@@ -154,7 +179,7 @@ export async function signSendAndConfirm(
         const signed = await sol.signTransaction(vtx);
         const serialized = (signed as VersionedTransaction).serialize();
         console.log(TAG, 'signTransaction resolved — sending raw tx via backend proxy...');
-        signature = await backendSendRaw(serialized);
+        signature = await backendSendRaw(serialized, opts.sendPath);
       }
     } else {
       const ltx = tx as Transaction;
@@ -172,7 +197,7 @@ export async function signSendAndConfirm(
         console.log(TAG, 'legacy multi-signer: co-signers filled — using signTransaction + backendSendRaw');
         const signed = await sol.signTransaction(ltx);
         const serialized = (signed as Transaction).serialize();
-        signature = await backendSendRaw(serialized);
+        signature = await backendSendRaw(serialized, opts.sendPath);
       } else if (hasMultipleSigners && mySlot >= 0 && !allCoSignersFilled) {
         const emptySlots = ltxSigsRaw.filter((s, i) => i !== mySlot && !s.filled).map(s => s.key.slice(0, 8));
         console.error(TAG, 'ME co-signer slot(s) empty:', emptySlots);
@@ -232,9 +257,13 @@ export async function signAllAndSend(
   txBase64List: string[],
   onSubmitted?: (index: number, signature: string) => void,
   shouldSend?: (index: number) => Promise<boolean> | boolean,
+  opts: { sendPath?: string; expectWallet?: string } = {},
 ): Promise<string[]> {
   const sol = getPhantom();
   if (!sol) throw new Error('Phantom wallet not connected.');
+  // Fail closed if the active account drifted since intent was frozen —
+  // BEFORE the single approval that covers the whole list.
+  if (opts.expectWallet) assertPhantomWallet(opts.expectWallet);
 
   const txs = txBase64List.map((b64) => Transaction.from(Buffer.from(b64, 'base64')));
   console.log(TAG, `signAllTransactions: signing ${txs.length} txs with one approval...`);
@@ -248,7 +277,7 @@ export async function signAllAndSend(
       continue;
     }
     const serialized = (signed[i] as Transaction).serialize();
-    const signature = await backendSendRaw(serialized);
+    const signature = await backendSendRaw(serialized, opts.sendPath);
     signatures.push(signature);
     onSubmitted?.(i, signature);
   }

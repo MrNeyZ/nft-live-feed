@@ -25,18 +25,28 @@
 // simulated-cost / Sign & Send control renders inline in the exact spot the
 // quantity+Mint row occupied, not as a separate panel further down the page.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authHeaders } from '@/runtime/auth';
-import { connectPhantom, eagerConnectPhantom, getPhantom, signAllAndSend, signSendAndConfirm } from '@/wallet/phantom';
+import {
+  connectPhantom, eagerConnectPhantom, getPhantom, currentPhantomPublicKey,
+  signAllAndSend, signSendAndConfirm,
+} from '@/wallet/phantom';
 import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mmm-shared';
 import { VL, VLText, ALPHA, alpha, rgb, hex } from '@/lib/palette';
 import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 import {
   classifyConfirmation, normalizeMintErr, pickInitialGroup, inspectDisabled,
   buildPriceLabel, tokenCostLabel as tokenCostLabelFor,
-  runBounded, partitionRebuildResults, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS, retryOnce,
-  type ConfirmClass, type TokenPaymentView, type RebuildOutcome,
+  runBounded, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS, retryOnce,
+  CONFIRMATION_BUDGET_MS, CONFIRMATION_POLL_INTERVAL_MS, shouldKeepPolling,
+  classifyReconcile, reconcileAllowsRebuild, hasUnresolvedTxns, foldReconcileResults,
+  type ConfirmClass, type TokenPaymentView, type UnresolvedTx, type OneReconcileResult,
 } from './logic';
+import {
+  freezeMintIntent, buildTxBody, paymentAuthorizationMatches, guardSetMatches, emptyPayment,
+  type FrozenMintIntent, type ResolvedGuardPayment, type PaymentAuthorization,
+} from './intent';
+import { auditCandyMintTx } from './audit';
 
 interface MintLimitStatus {
   id: number;
@@ -51,12 +61,20 @@ interface GuardGroupSummary {
   unsupportedGuards: string[];
   supported: boolean;
   solPaymentLamports: string | null;
+  solPaymentDestination: string | null;
+  solFixedFeeLamports: string | null;
+  solFixedFeeDestination: string | null;
+  addressGateAddress: string | null;
   mintLimit: MintLimitStatus | null;
   startDateUnix: string | null;
   endDateUnix:   string | null;
   // Present for token-priced groups (tokenPayment / token2022Payment guard).
   // `decimals` is resolved server-side; null when that lookup missed.
   tokenPayment: TokenPaymentView | null;
+  // The COMPLETE payment authorization for this group (all payment-affecting
+  // guards' amounts + destinations, incl. freeze*). Frozen into the mint
+  // intent and re-checked EXACTLY against the FINAL build.
+  payment: PaymentAuthorization;
 }
 
 type CandyMintFamily = 'core' | 'legacy';
@@ -97,23 +115,38 @@ interface LoadedMachine {
 //   expired          — signed, but skipped at send time: insufficient
 //                       blockhash headroom (see BLOCKHASH_SAFETY_MARGIN_BLOCKS)
 //                       — NOT submitted, never got a signature
-//   unconfirmed      — submitted, landed status never observed in budget
+//   audit_failed     — phase 1.75 structural audit of the FINAL bytes failed
+//                       — never signed
+//   unconfirmed      — submitted, landed status never observed in budget —
+//                       retains its exact signature + lastValidBlockHeight for
+//                       reconciliation (H2); a blind re-Mint is blocked while
+//                       this exists
 //   confirmed_failed — submitted, landed with err != null (reverted / guard)
-//   success          — submitted, landed with err == null — the only mint
+//   confirmed_no_asset — landed err==null but the asset provably never got
+//                       created (bot-tax / no mint) — NOT a success, no bump
+//   asset_unverified — landed err==null but the asset read is temporarily
+//                       unavailable — NOT claimed minted, re-checkable
+//   success          — landed, err == null, AND the asset exists — the only mint
 type BatchItemStatus =
   | 'pending' | 'building' | 'simulating' | 'ready'
-  | 'rebuilding' | 'signing' | 'expired' | 'confirming'
+  | 'rebuilding' | 'auditing' | 'signing' | 'expired' | 'confirming' | 'verifying'
   | 'success' | 'blocked'
-  | 'precheck_failed' | 'rebuild_failed' | 'sign_rejected' | 'confirmed_failed' | 'unconfirmed';
+  | 'precheck_failed' | 'rebuild_failed' | 'audit_failed' | 'sign_rejected'
+  | 'confirmed_failed' | 'tax_no_mint' | 'not_observed' | 'unconfirmed';
 
 interface BatchItem {
   status: BatchItemStatus;
   sig?: string;
   /** The ACTUAL asset/nftMint address this item will mint into — always
-   *  from the rebuild that produced the signed transaction, never phase 1's
-   *  (discarded) build. Set once rebuild succeeds; the definitive identity
-   *  for this item from that point on. */
+   *  from the FINAL rebuild that produced the signed transaction, never
+   *  phase 1's (discarded) build. */
   mint?: string;
+  /** From the FINAL rebuild — retained so the post-sign headroom guard and
+   *  (if it goes unconfirmed) reconciliation can check this exact tx. */
+  lastValidBlockHeight?: number;
+  /** Set when this item is submitted but its landing was never observed.
+   *  While any item has this, a blind fresh Mint is blocked (H2). */
+  unresolved?: UnresolvedTx | null;
   solDeltaLamports?: number | null;
   tokenCostLabel?: string | null;
   message?: string;
@@ -125,23 +158,29 @@ interface BatchItem {
 type FlowState =
   | { kind: 'idle' }
   | { kind: 'inspecting' }
-  | { kind: 'minting'; step: 'building' | 'simulating' | 'signing' | 'confirming' }
+  | { kind: 'minting'; step: 'building' | 'simulating' | 'finalizing' | 'auditing' | 'signing' | 'confirming' | 'verifying' }
+  | { kind: 'reconciling' }
   | {
       kind: 'ready_to_sign';
-      transactionBase64: string;
+      // The PRE-CHECK build's cost — its bytes are discarded; handleConfirmSign
+      // does a FINAL fresh rebuild + audit from `intent` before signing.
       solDeltaLamports: number | null;
       botTaxDetected: boolean;
-      /** Fixed token price of the selected group (tokenPayment guard), already
-       *  human-formatted — the SOL delta above never reflects an SPL spend. */
       tokenCostLabel: string | null;
+      /** The single frozen mint intent for this attempt. Everything from here
+       *  on (final rebuild, audit, wallet check) reads from this, not live
+       *  React state (M1-freeze). */
+      intent: FrozenMintIntent;
     }
-  | { kind: 'batch'; total: number; items: BatchItem[]; done?: boolean }
+  | { kind: 'batch'; total: number; items: BatchItem[]; intent: FrozenMintIntent; done?: boolean }
   | { kind: 'success'; sig: string }
-  // `sig` present when the failure happened after broadcast (landed-but-failed,
-  // or unconfirmed) so the user can still inspect the transaction. `unknown`
-  // marks the "never observed landing" case — NOT a known on-chain failure —
-  // so the renderer can avoid presenting it as a definite failure.
-  | { kind: 'error'; message: string; sig?: string; unknown?: boolean };
+  // `sig` present when the failure happened after broadcast. `unknown` marks
+  // "never observed landing" — NOT a known failure. `unresolved` (+ `intent`)
+  // is retained for exact-signature reconciliation and blocks a blind re-Mint.
+  | {
+      kind: 'error'; message: string; sig?: string; unknown?: boolean;
+      unresolved?: UnresolvedTx | null; intent?: FrozenMintIntent;
+    };
 
 const BACKEND_ERROR_MESSAGES: Record<string, string> = {
   invalid_signature: 'Not a valid transaction signature.',
@@ -218,34 +257,222 @@ type ConfirmResult =
   | { status: 'failed'; err: unknown }
   | { status: 'unknown' };
 
-async function waitForConfirmation(signature: string): Promise<ConfirmResult> {
-  // 'confirmed' typically lands within ~1 slot (~400-800ms). 15x300ms keeps a
-  // ~4.5s worst-case budget while resolving the common case in 1-2 polls.
-  for (let attempt = 0; attempt < 15; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 300));
-    let cls: ConfirmClass = 'pending';
-    let err: unknown = null;
-    try {
-      const r = await fetch(`${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`, {
-        headers: { ...authHeaders() },
-      });
-      if (r.ok) {
-        const d = await r.json() as {
-          ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown;
-        };
-        cls = classifyConfirmation(d);
-        err = d.err;
-      }
-    } catch {
-      // transient — treated as pending, retry
+// One tx-status poll for `signature`. The backend's /tx-status already uses
+// getSignatureStatuses(searchTransactionHistory:true), so this is a valid
+// exact-signature check for reconciliation of an older submission too.
+async function pollTxStatus(signature: string): Promise<{ cls: ConfirmClass; err: unknown }> {
+  try {
+    const url = `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`;
+    const r = await fetch(url, { headers: { ...authHeaders() } });
+    if (r.ok) {
+      const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
+      return { cls: classifyConfirmation(d), err: d.err };
     }
+  } catch {
+    // transient — treated as pending
+  }
+  return { cls: 'pending', err: null };
+}
+
+async function waitForConfirmation(signature: string): Promise<ConfirmResult> {
+  // ELAPSED-TIME budget (M3), not a fixed attempt count. 'confirmed' usually
+  // lands in ~1 slot, but a congested drop — the exact scenario this tool
+  // exists for — can take much longer; a premature timeout turns a real mint
+  // into `unknown`, which then gates the Mint button behind reconciliation.
+  const startedAt = Date.now();
+  let firstPoll = true;
+  while (firstPoll || shouldKeepPolling(startedAt, Date.now())) {
+    if (!firstPoll) await new Promise((r) => setTimeout(r, CONFIRMATION_POLL_INTERVAL_MS));
+    firstPoll = false;
+    const { cls, err } = await pollTxStatus(signature);
     if (cls === 'success') return { status: 'success' };
     if (cls === 'failed') return { status: 'failed', err };
   }
-  // Every poll stayed 'pending' (the loop returns early on any terminal) —
-  // the tx was submitted but we never observed it land. See
-  // outcomeFromPolls / its tests for the timeout contract.
+  // Submitted but never observed to land. Reconciliation (exact signature +
+  // block height) is the only safe way forward — never a blind rebuild.
   return { status: 'unknown' };
+}
+
+// ── post-confirmation mint verification (H1) ─────────────────────────────────
+// A landed Candy Guard bot-tax transaction has err==null but mints nothing —
+// and a clean account-null is NOT proof of "no mint" (RPC lag / load-balanced
+// nodes, see verify-asset.ts). So:
+//   'minted'       — asset account exists, right owner
+//   'tax_no_mint'  — asset absent AND the confirmed tx's OWN logs carry the
+//                    bot-tax marker (strong evidence from the transaction)
+//   'not_observed' — asset absent, logs clean / not fetchable / RPC error —
+//                    NEITHER minted NOR bot-tax; caller keeps the signature,
+//                    allows an exact re-check, never bumps the counter
+type MintVerdict = 'minted' | 'tax_no_mint' | 'not_observed';
+async function verifyMint(asset: string, family: 'core' | 'legacy', signature: string): Promise<MintVerdict> {
+  try {
+    const r = await fetch(
+      `${API_BASE}/api/tools/candy-mint/verify-asset?asset=${encodeURIComponent(asset)}&family=${family}&sig=${encodeURIComponent(signature)}`,
+      { headers: { ...authHeaders() } },
+    );
+    const d = await r.json() as { ok: boolean; verdict?: MintVerdict };
+    if (!d.ok || !d.verdict) return 'not_observed';
+    return d.verdict;
+  } catch {
+    return 'not_observed';
+  }
+}
+
+// Resolve a submitted signature to a terminal disposition — including the
+// H1 mint check when it lands cleanly. Shared by single + batch + reconcile.
+type SubmittedDisposition =
+  | { kind: 'minted' }
+  | { kind: 'tax_no_mint' }
+  | { kind: 'not_observed' }
+  | { kind: 'confirmed_failed'; err: unknown }
+  | { kind: 'unresolved'; unresolved: UnresolvedTx };
+
+async function resolveSubmitted(
+  signature: string,
+  final: { asset: string; lastValidBlockHeight: number; family: 'core' | 'legacy' },
+): Promise<SubmittedDisposition> {
+  const res = await waitForConfirmation(signature);
+  if (res.status === 'failed') return { kind: 'confirmed_failed', err: res.err };
+  if (res.status === 'unknown') {
+    return {
+      kind: 'unresolved',
+      unresolved: { signature, lastValidBlockHeight: final.lastValidBlockHeight, asset: final.asset, family: final.family },
+    };
+  }
+  const verdict = await verifyMint(final.asset, final.family, signature);
+  if (verdict === 'minted') return { kind: 'minted' };
+  if (verdict === 'tax_no_mint') return { kind: 'tax_no_mint' };
+  return { kind: 'not_observed' };
+}
+
+// Is a blind fresh Mint currently blocked because an earlier submission's
+// fate is unknown (H2)? True while any retained unresolved signature exists.
+function hasUnresolvedInFlow(flow: FlowState): boolean {
+  if (flow.kind === 'error') return !!flow.unresolved;
+  if (flow.kind === 'batch') return hasUnresolvedTxns(flow.items);
+  return false;
+}
+function collectUnresolved(flow: FlowState): UnresolvedTx[] {
+  if (flow.kind === 'error' && flow.unresolved) return [flow.unresolved];
+  if (flow.kind === 'batch') {
+    return flow.items.map((it) => it.unresolved).filter((u): u is UnresolvedTx => u != null);
+  }
+  return [];
+}
+
+// ── FINAL fresh build + audit (M2, M4, M5) ──────────────────────────────────
+// Rebuild the transaction from the FROZEN intent right before signing (fresh
+// blockhash + fresh ephemeral asset), simulate the FINAL bytes, then
+// structurally audit the FINAL bytes. Only the ephemeral identity may change
+// between the pre-check build and this one — target/payment intent is frozen.
+interface FinalBuild {
+  transactionBase64: string;
+  asset: string;
+  lastValidBlockHeight: number;
+  solDeltaLamports: number | null;
+  botTaxDetected: boolean;
+}
+async function buildAndAuditFinal(
+  intent: FrozenMintIntent,
+): Promise<{ ok: true; build: FinalBuild } | { ok: false; error: string }> {
+  // wallet-switch guard: the tx will be built for intent.wallet; if Phantom's
+  // active account has drifted, stop now (before any RPC spend).
+  const active = currentPhantomPublicKey();
+  if (active && active !== intent.wallet) {
+    return { ok: false, error: 'Connected wallet changed since this mint was reviewed — reconnect and start over.' };
+  }
+  let r: Response;
+  try {
+    r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(buildTxBody(intent, intent.wallet)),
+    });
+  } catch (err) {
+    return { ok: false, error: humanizeThrownError((err as Error).message) };
+  }
+  const j = await r.json() as {
+    ok: boolean; transactionBase64?: string; asset?: string; lastValidBlockHeight?: number;
+    resolvedGuardPayment?: ResolvedGuardPayment; resolvedEnabledGuards?: string[]; error?: string;
+  };
+  if (!j.ok || !j.transactionBase64 || !j.asset || j.lastValidBlockHeight == null
+      || !j.resolvedGuardPayment || !Array.isArray(j.resolvedEnabledGuards)) {
+    return { ok: false, error: humanizeBackendError(j.error, r.status) };
+  }
+  const finalTx = j.transactionBase64;
+  const finalAsset = j.asset;
+
+  // EXACT enabled-guard-SET equality — the FINAL build re-read the live
+  // base∪group merged guard set; if a guard was added, removed, or
+  // substituted since review (even a 0-remaining-account one, or a same-
+  // count swap the auditor's account count can't see), fail closed.
+  const guardMatch = guardSetMatches(intent.enabledGuards, j.resolvedEnabledGuards);
+  if (!guardMatch.ok) {
+    return { ok: false, error: `Candy Guard configuration changed since review (${guardMatch.reason}). Re-inspect and review the mint again.` };
+  }
+
+  // EXACT payment-authorization check — the FINAL build re-read live guard
+  // state; if the mint PRICE (amount or destination, SOL or token) or the
+  // address gate differs from what the user reviewed, fail closed. No
+  // tolerance — a changed price means a fresh review, not a silent sign.
+  const payMatch = paymentAuthorizationMatches(intent.payment, j.resolvedGuardPayment);
+  if (!payMatch.ok) {
+    return { ok: false, error: `Mint payment ${payMatch.reason}. Not signing — re-inspect the drop and review again.` };
+  }
+
+  // simulate the FINAL bytes (never reuse the pre-check simulation)
+  let simJ: { ok: boolean; solDeltaLamports?: number | null; botTaxDetected?: boolean; error?: string };
+  try {
+    const simR = await fetch(`${API_BASE}/api/tools/candy-mint/simulate-tx`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ transactionBase64: finalTx, wallet: intent.wallet }),
+    });
+    simJ = await simR.json();
+  } catch (err) {
+    return { ok: false, error: humanizeThrownError((err as Error).message) };
+  }
+  if (!simJ.ok) return { ok: false, error: humanizeBackendError(simJ.error) };
+
+  // structural audit of the FINAL bytes against the FROZEN intent
+  const audit = auditCandyMintTx(finalTx, intent, {
+    expectedAsset: finalAsset,
+    connectedWallet: currentPhantomPublicKey() ?? undefined,
+  });
+  if (!audit.ok) {
+    return { ok: false, error: `Transaction failed a safety check and was not signed: ${audit.reason}` };
+  }
+
+  return {
+    ok: true,
+    build: {
+      transactionBase64: finalTx,
+      asset: finalAsset,
+      lastValidBlockHeight: j.lastValidBlockHeight,
+      solDeltaLamports: simJ.solDeltaLamports ?? null,
+      botTaxDetected: simJ.botTaxDetected ?? false,
+    },
+  };
+}
+
+// NOTE: the pre-vs-final SOL-DELTA is deliberately NOT gated by a tolerance.
+// Mint-price authorization is enforced EXACTLY via paymentAuthorizationMatches
+// (amounts + destinations from the backend's fresh guard read vs the frozen
+// intent). The simulated SOL delta only reports protocol overhead (base fee +
+// priority + asset-account rent), which legitimately varies slot to slot and
+// is shown to the user, not gated.
+
+// Post-sign, pre-broadcast blockhash-headroom check for the SINGLE flow (M2 /
+// §12) — mirrors the batch guard. Fail-OPEN on a height-read outage (a
+// genuinely stale tx is still caught by confirmation and never counted as a
+// mint; this policy is deliberately separate from reconciliation's fail-CLOSED
+// block-height policy). Reuses the same `fetchCurrentBlockHeight` (retryOnce)
+// the batch flow uses.
+async function singleFlowHeadroomOk(lastValidBlockHeight: number): Promise<{ ok: boolean; blocksLeft?: number }> {
+  const height = await fetchCurrentBlockHeight();
+  if (height == null) return { ok: true }; // fail open
+  if (hasBlockhashHeadroom(lastValidBlockHeight, height, BLOCKHASH_SAFETY_MARGIN_BLOCKS)) return { ok: true };
+  return { ok: false, blocksLeft: lastValidBlockHeight - height };
 }
 
 // One cheap read for the batch-mint post-sign blockhash-headroom guard (see
@@ -275,6 +502,9 @@ export default function CandyMintPage() {
   const [quantity, setQuantity] = useState(1);
   const [loaded, setLoaded] = useState<LoadedMachine | null>(null);
   const [flow, setFlow] = useState<FlowState>({ kind: 'idle' });
+  // Re-entrancy guard for the mint handlers — `disabled` derived from async
+  // state has a render-timing race; this ref closes it deterministically.
+  const mintRunningRef = useRef(false);
 
   useEffect(() => {
     void eagerConnectPhantom().then((pk) => { if (pk) setWallet(pk); });
@@ -368,40 +598,55 @@ export default function CandyMintPage() {
     }
   }
 
-  async function handleMint() {
-    if (!wallet || !loaded || selectedGroup === undefined) return;
+  // Freeze the one mint intent for this attempt from the currently-inspected
+  // machine + selected group. Null when a required field is missing.
+  function freezeCurrentIntent(quantity: number): FrozenMintIntent | null {
+    if (!wallet || !loaded || selectedGroup === undefined || !selected) return null;
     const { family, inspection, referenceCollection, referenceCollectionUpdateAuthority } = loaded;
-    const collection = inspection.collection ?? referenceCollection;
-    if (!collection) { setFlow({ kind: 'error', message: 'No collection address resolved.' }); return; }
+    return freezeMintIntent({
+      wallet, family,
+      candyMachine: inspection.candyMachine,
+      candyGuard: inspection.candyGuard,
+      collection: inspection.collection ?? referenceCollection,
+      collectionUpdateAuthority: referenceCollectionUpdateAuthority,
+      group: selectedGroup,
+      quantity,
+      selectedGroup: {
+        label: selected.label,
+        // The backend's complete extracted payment authorization for this
+        // group — frozen verbatim, re-checked EXACTLY at final build.
+        payment: selected.payment ?? emptyPayment(),
+        enabledGuards: selected.enabledGuards ?? [],
+      },
+    });
+  }
+
+  async function handleMint() {
+    if (mintRunningRef.current) return;
+    if (hasUnresolvedInFlow(flow)) { return; } // blocked — reconcile first (H2)
+    const intent = freezeCurrentIntent(1);
+    if (!intent) { setFlow({ kind: 'error', message: 'Could not read the mint parameters — re-inspect the drop.' }); return; }
+    mintRunningRef.current = true;
     setFlow({ kind: 'minting', step: 'building' });
     try {
+      // PRE-CHECK: build + simulate to prove the mint is satisfiable and
+      // price it. These bytes are DISCARDED — handleConfirmSign does a FINAL
+      // fresh build + structural audit from `intent` right before signing.
       const r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          family,
-          candyMachine: inspection.candyMachine,
-          candyGuard: inspection.candyGuard,
-          collection,
-          collectionUpdateAuthority: referenceCollectionUpdateAuthority,
-          group: selectedGroup,
-          wallet,
-        }),
+        body: JSON.stringify(buildTxBody(intent, intent.wallet)),
       });
       const j = await r.json() as { ok: boolean; transactionBase64?: string; error?: string };
       if (!j.ok || !j.transactionBase64) {
         setFlow({ kind: 'error', message: humanizeBackendError(j.error, r.status) });
         return;
       }
-      const transactionBase64 = j.transactionBase64;
-
-      // Phantom won't preview balance changes for an unverified dApp — simulate
-      // server-side instead and show the real cost before asking for a signature.
       setFlow({ kind: 'minting', step: 'simulating' });
       const simR = await fetch(`${API_BASE}/api/tools/candy-mint/simulate-tx`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ transactionBase64, wallet }),
+        body: JSON.stringify({ transactionBase64: j.transactionBase64, wallet: intent.wallet }),
       });
       const simJ = await simR.json() as {
         ok: boolean; solDeltaLamports?: number | null; botTaxDetected?: boolean; error?: string;
@@ -412,13 +657,15 @@ export default function CandyMintPage() {
       }
       setFlow({
         kind: 'ready_to_sign',
-        transactionBase64,
         solDeltaLamports: simJ.solDeltaLamports ?? null,
         botTaxDetected: simJ.botTaxDetected ?? false,
         tokenCostLabel: tokenCostLabelFor(selected?.tokenPayment ?? null),
+        intent,
       });
     } catch (err) {
       setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
+    } finally {
+      mintRunningRef.current = false;
     }
   }
 
@@ -428,7 +675,9 @@ export default function CandyMintPage() {
   // stuck/buggy counter, but it was just never being updated at all).
   // Bumped optimistically per confirmed signature: we know for certain our
   // own mint landed, so there's nothing to wait on a re-fetch for.
-  function bumpMintedCount() {
+  // Bumped ONLY after a mint is verified (landed + asset exists) — a landed
+  // bot-tax tx must not move this. `groupLabel` comes from the frozen intent.
+  function bumpMintedCount(groupLabel: string | null) {
     setLoaded((prev) => {
       if (!prev) return prev;
       return {
@@ -439,7 +688,7 @@ export default function CandyMintPage() {
             ? String(Number(prev.inspection.itemsRedeemed) + 1)
             : prev.inspection.itemsRedeemed,
           groups: prev.inspection.groups.map((g) => {
-            if (g.label !== selectedGroup || !g.mintLimit) return g;
+            if (g.label !== groupLabel || !g.mintLimit) return g;
             const used = (g.mintLimit.used ?? 0) + 1;
             return { ...g, mintLimit: { ...g.mintLimit, used, remaining: Math.max(0, g.mintLimit.limit - used) } };
           }),
@@ -449,34 +698,95 @@ export default function CandyMintPage() {
   }
 
   async function handleConfirmSign() {
-    if (flow.kind !== 'ready_to_sign') return;
-    setFlow({ kind: 'minting', step: 'signing' });
-    let signature: string;
+    if (mintRunningRef.current || flow.kind !== 'ready_to_sign') return;
+    const intent = flow.intent;
+    mintRunningRef.current = true;
     try {
-      const result = await signSendAndConfirm(flow.transactionBase64);
-      signature = result.signature;
-    } catch (err) {
-      // Rejected / failed before broadcast — no signature to inspect.
-      setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message) });
-      return;
-    }
-    // Broadcast != minted. Only a landed transaction with no on-chain error is
-    // a success; a landed-but-failed or never-observed tx is an error that
-    // still surfaces the signature, and never bumps the minted counter.
-    setFlow({ kind: 'minting', step: 'confirming' });
-    const res = await waitForConfirmation(signature);
-    if (res.status === 'success') {
-      setFlow({ kind: 'success', sig: signature });
-      bumpMintedCount();
-    } else if (res.status === 'failed') {
-      setFlow({ kind: 'error', message: normalizeMintErr(res.err), sig: signature });
-    } else {
-      setFlow({
-        kind: 'error',
-        message: 'Confirmation not observed — status unknown. It may still land; check the signature before retrying.',
-        sig: signature,
-        unknown: true,
+      // ── FINAL fresh build + simulate + structural audit (M2/M4/M5) ──────
+      setFlow({ kind: 'minting', step: 'finalizing' });
+      const fb = await buildAndAuditFinal(intent);
+      if (!fb.ok) { setFlow({ kind: 'error', message: fb.error, intent }); return; }
+      const final = fb.build;
+
+      // A landed bot-tax on the FINAL sim -> never sign (do not fall back to
+      // the pre-check result). (Exact mint-price authorization is already
+      // enforced inside buildAndAuditFinal via paymentAuthorizationMatches.)
+      if (final.botTaxDetected) {
+        setFlow({ kind: 'error', message: 'Bot-tax path detected on the final transaction — not signing.', intent });
+        return;
+      }
+
+      // ── sign, THEN a real pre-broadcast headroom gate, THEN send ────────
+      // Reuse the batch primitive with a one-element list: one Phantom
+      // approval, `shouldSend` consulted BEFORE the broadcast, `expectWallet`
+      // re-checks Phantom's active account inside phantom.ts.
+      setFlow({ kind: 'minting', step: 'signing' });
+      let signature: string | undefined;
+      let staleBlocksLeft: number | null = null;
+      try {
+        const sigs = await signAllAndSend(
+          [final.transactionBase64],
+          (_pos, sig) => { signature = sig; },
+          async () => {
+            const fresh = await singleFlowHeadroomOk(final.lastValidBlockHeight);
+            if (!fresh.ok) staleBlocksLeft = fresh.blocksLeft ?? 0;
+            return fresh.ok;
+          },
+          { sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet },
+        );
+        signature = sigs[0] ?? signature;
+      } catch (err) {
+        setFlow({ kind: 'error', message: humanizeThrownError((err as Error).message), intent });
+        return;
+      }
+      if (!signature) {
+        // shouldSend declined — signed but never broadcast, never resigned (M2/§12).
+        setFlow({
+          kind: 'error', intent,
+          message: `Not sent — blockhash headroom too low (${staleBlocksLeft} blocks left, need ${BLOCKHASH_SAFETY_MARGIN_BLOCKS}+). Nothing was broadcast. Try Mint again to rebuild.`,
+        });
+        return;
+      }
+
+      setFlow({ kind: 'minting', step: 'confirming' });
+      const disp = await resolveSubmitted(signature, {
+        asset: final.asset, lastValidBlockHeight: final.lastValidBlockHeight, family: intent.family,
       });
+      const retained: UnresolvedTx = {
+        signature, lastValidBlockHeight: final.lastValidBlockHeight, asset: final.asset, family: intent.family,
+      };
+      if (disp.kind === 'minted') {
+        setFlow({ kind: 'success', sig: signature });
+        bumpMintedCount(intent.group);
+      } else if (disp.kind === 'not_observed') {
+        // Landed clean, but the mint could NOT be confirmed (asset not visible,
+        // no bot-tax evidence). NOT a success — keep the signature, gate a
+        // blind re-Mint, allow an exact Re-check.
+        setFlow({
+          kind: 'error', unknown: true, sig: signature, intent, unresolved: retained,
+          message: 'Transaction landed, but the mint could not be confirmed yet (the new asset is not visible on-chain). Use "Re-check unresolved" — do not Mint again until it resolves.',
+        });
+      } else if (disp.kind === 'tax_no_mint') {
+        setFlow({
+          kind: 'error', sig: signature, intent,
+          message: 'Transaction landed but no asset was minted — the Candy Guard bot-tax path fired (its logs confirm it). Nothing was created; you were not charged the mint price.',
+        });
+      } else if (disp.kind === 'confirmed_failed') {
+        setFlow({ kind: 'error', message: normalizeMintErr(disp.err), sig: signature, intent });
+      } else {
+        // unresolved — never observed landing. Keep the exact signature +
+        // lastValidBlockHeight for reconciliation; a blind re-Mint is blocked.
+        setFlow({
+          kind: 'error',
+          message: 'Confirmation not observed — status unknown. It may still land. Use "Re-check unresolved" before trying again.',
+          sig: signature,
+          unknown: true,
+          unresolved: disp.unresolved,
+          intent,
+        });
+      }
+    } finally {
+      mintRunningRef.current = false;
     }
   }
 
@@ -504,30 +814,33 @@ export default function CandyMintPage() {
   // actually is on real candy-machine sites: N separate transactions,
   // signed together.
   async function handleMintBatch() {
-    if (!wallet || !loaded || selectedGroup === undefined) return;
-    const { family, inspection, referenceCollection, referenceCollectionUpdateAuthority } = loaded;
-    const collection = inspection.collection ?? referenceCollection;
-    if (!collection) { setFlow({ kind: 'error', message: 'No collection address resolved.' }); return; }
-
+    if (mintRunningRef.current) return;
+    if (hasUnresolvedInFlow(flow)) return; // blocked — reconcile first (H2)
     const total = Math.max(1, Math.floor(quantity));
+    const intent = freezeCurrentIntent(total);
+    if (!intent) { setFlow({ kind: 'error', message: 'Could not read the mint parameters — re-inspect the drop.' }); return; }
+    mintRunningRef.current = true;
+    try {
+      await runMintBatch(intent, total);
+    } finally {
+      mintRunningRef.current = false;
+    }
+  }
+
+  async function runMintBatch(intent: FrozenMintIntent, total: number) {
     const batchTokenCost = tokenCostLabelFor(selected?.tokenPayment ?? null);
     const items: BatchItem[] = Array.from({ length: total }, () => ({ status: 'pending' }));
-    setFlow({ kind: 'batch', total, items: [...items] });
+    const setItems = () => setFlow({ kind: 'batch', total, items: [...items], intent });
+    setItems();
 
-    const buildPayload = () => ({
-      family,
-      candyMachine: inspection.candyMachine,
-      candyGuard: inspection.candyGuard,
-      collection,
-      collectionUpdateAuthority: referenceCollectionUpdateAuthority,
-      group: selectedGroup,
-      wallet,
-    });
+    const buildPayload = () => buildTxBody(intent, intent.wallet);
+    const wallet = intent.wallet;
+    const family = intent.family;
 
     // ── phase 1 (pre-check): build + simulate, stop at the first bad one ──
     for (let i = 0; i < total; i++) {
       items[i] = { status: 'building' };
-      setFlow({ kind: 'batch', total, items: [...items] });
+      setItems();
       try {
         const r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
           method: 'POST',
@@ -537,12 +850,12 @@ export default function CandyMintPage() {
         const j = await r.json() as { ok: boolean; transactionBase64?: string; error?: string };
         if (!j.ok || !j.transactionBase64) {
           items[i] = { status: 'precheck_failed', message: humanizeBackendError(j.error, r.status) };
-          setFlow({ kind: 'batch', total, items: [...items] });
+          setItems();
           break;
         }
 
         items[i] = { status: 'simulating' };
-        setFlow({ kind: 'batch', total, items: [...items] });
+        setItems();
         const simR = await fetch(`${API_BASE}/api/tools/candy-mint/simulate-tx`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -553,87 +866,83 @@ export default function CandyMintPage() {
         };
         if (!simJ.ok) {
           items[i] = { status: 'precheck_failed', message: humanizeBackendError(simJ.error, simR.status) };
-          setFlow({ kind: 'batch', total, items: [...items] });
+          setItems();
           break;
         }
         if (simJ.botTaxDetected) {
           items[i] = { status: 'blocked', message: 'bot-tax path detected — stopped, not signing' };
-          setFlow({ kind: 'batch', total, items: [...items] });
+          setItems();
           break;
         }
 
         // Phase 1's transactionBase64 is intentionally NOT retained —
         // rebuild replaces it below.
         items[i] = { status: 'ready', solDeltaLamports: simJ.solDeltaLamports ?? null, tokenCostLabel: batchTokenCost };
-        setFlow({ kind: 'batch', total, items: [...items] });
+        setItems();
       } catch (err) {
         items[i] = { status: 'precheck_failed', message: humanizeThrownError((err as Error).message) };
-        setFlow({ kind: 'batch', total, items: [...items] });
+        setItems();
         break;
       }
     }
 
     const readyIndexes = items.map((it, i) => (it.status === 'ready' ? i : -1)).filter((i) => i >= 0);
     if (readyIndexes.length === 0) {
-      setFlow({ kind: 'batch', total, items: [...items], done: true });
+      setFlow({ kind: 'batch', total, items: [...items], intent, done: true });
       return;
     }
 
-    // ── phase 1.5 (rebuild): fresh blockhash + fresh asset per item, ──────
-    // bounded concurrency (measured: full-parallel vs bounded(5) differed
-    // by only ~89ms at 25 items — bounded keeps RPC load predictable for
-    // effectively free).
+    // ── phase 1.5 + 1.75 (final build + validate, M4): one bounded wave per
+    //     item — FINAL fresh build (blockhash + asset), EXACT payment-
+    //     authorization check vs the frozen intent, FINAL-byte simulation,
+    //     FINAL-byte structural audit. Identical validation to the single
+    //     flow (buildAndAuditFinal). Only items that pass ALL of it — and are
+    //     not bot-taxed on the FINAL sim — become signable. No silent
+    //     fallback to a phase-1 result. Bounded concurrency preserved
+    //     (measured: full-parallel vs bounded(6) is ~free at 25 items).
     const REBUILD_CONCURRENCY = 6;
     for (const i of readyIndexes) items[i] = { ...items[i], status: 'rebuilding' };
-    setFlow({ kind: 'batch', total, items: [...items] });
+    setItems();
 
-    const outcomes = await runBounded(readyIndexes, REBUILD_CONCURRENCY, async (i): Promise<RebuildOutcome> => {
-      try {
-        const r = await fetch(`${API_BASE}/api/tools/candy-mint/build-tx`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify(buildPayload()),
-        });
-        const j = await r.json() as {
-          ok: boolean; transactionBase64?: string; blockhash?: string;
-          lastValidBlockHeight?: number; asset?: string; error?: string;
-        };
-        if (!j.ok || !j.transactionBase64 || j.lastValidBlockHeight == null) {
-          return { itemIndex: i, ok: false, error: humanizeBackendError(j.error, r.status) };
-        }
-        return {
-          itemIndex: i, ok: true, transactionBase64: j.transactionBase64,
-          mint: j.asset, blockhash: j.blockhash, lastValidBlockHeight: j.lastValidBlockHeight,
-        };
-      } catch (err) {
-        return { itemIndex: i, ok: false, error: humanizeThrownError((err as Error).message) };
+    const lastValidByItem = new Map<number, number>();
+    const finalTxByItem = new Map<number, string>();
+
+    await runBounded(readyIndexes, REBUILD_CONCURRENCY, async (i) => {
+      items[i] = { ...items[i], status: 'auditing' };
+      setItems();
+      const fb = await buildAndAuditFinal(intent);
+      if (!fb.ok) {
+        items[i] = { ...items[i], status: 'audit_failed', message: `final check failed: ${fb.error}` };
+        setItems();
+        return;
       }
+      if (fb.build.botTaxDetected) {
+        items[i] = { ...items[i], status: 'blocked', message: 'bot-tax path on the final transaction — not signing' };
+        setItems();
+        return;
+      }
+      lastValidByItem.set(i, fb.build.lastValidBlockHeight);
+      finalTxByItem.set(i, fb.build.transactionBase64);
+      items[i] = {
+        ...items[i], status: 'ready', mint: fb.build.asset,
+        lastValidBlockHeight: fb.build.lastValidBlockHeight,
+        solDeltaLamports: fb.build.solDeltaLamports ?? items[i].solDeltaLamports,
+      };
+      setItems();
     });
 
-    // Attach each item's ACTUAL rebuilt mint address now — this is the only
-    // place `mint` is ever set, always from that item's own rebuild.
-    for (const o of outcomes) {
-      items[o.itemIndex] = o.ok
-        ? { ...items[o.itemIndex], mint: o.mint }
-        : { ...items[o.itemIndex], status: 'rebuild_failed', message: `rebuild failed: ${o.error}` };
-    }
-    setFlow({ kind: 'batch', total, items: [...items] });
-
-    const { signableItemIndexes, signableTxs } = partitionRebuildResults(readyIndexes, outcomes);
-    const lastValidByItem = new Map(
-      outcomes.filter((o): o is RebuildOutcome & { lastValidBlockHeight: number } => o.ok && o.lastValidBlockHeight != null)
-        .map((o) => [o.itemIndex, o.lastValidBlockHeight]),
-    );
+    const signableItemIndexes = readyIndexes.filter((i) => finalTxByItem.has(i));
+    const signableTxs = signableItemIndexes.map((i) => finalTxByItem.get(i)!);
 
     if (signableItemIndexes.length === 0) {
-      setFlow({ kind: 'batch', total, items: [...items], done: true });
+      setFlow({ kind: 'batch', total, items: [...items], intent, done: true });
       return;
     }
 
-    // ── phase 2: one Phantom approval for every rebuilt item ────────────
+    // ── phase 2: one Phantom approval for every rebuilt+audited item ────
     try {
       for (const i of signableItemIndexes) items[i] = { ...items[i], status: 'signing' };
-      setFlow({ kind: 'batch', total, items: [...items] });
+      setItems();
 
       // Post-sign blockhash-headroom guard: everything below is ALREADY
       // signed by the time this runs (one approval covers the whole list
@@ -673,7 +982,7 @@ export default function CandyMintPage() {
           ...items[i], status: 'expired',
           message: `not sent — blockhash headroom too low (${lastValid - cachedHeight} blocks, need ${BLOCKHASH_SAFETY_MARGIN_BLOCKS}+)`,
         };
-        setFlow({ kind: 'batch', total, items: [...items] });
+        setItems();
         return false;
       };
 
@@ -682,57 +991,140 @@ export default function CandyMintPage() {
         (pos, signature) => {
           const i = signableItemIndexes[pos];
           items[i] = { ...items[i], status: 'confirming', sig: signature };
-          setFlow({ kind: 'batch', total, items: [...items] });
+          setItems();
         },
         shouldSend,
+        { sendPath: `${API_BASE}/api/tools/candy-mint/send-tx`, expectWallet: intent.wallet },
       );
 
-      // ── phase 3: wait for each SENT item to land, in submission order ──
-      // Items the headroom guard skipped never got a signature (`sig`
-      // stays unset) and are correctly excluded here — they were never
-      // broadcast, so there's nothing to confirm. A confirmed tx with
-      // err != null (reverted / guard hard-error) or one that never lands
-      // within the budget is NOT a mint — mark it accordingly, keep its
-      // signature, never bump the counter.
-      for (const i of signableItemIndexes) {
-        const sig = items[i].sig;
-        if (!sig) continue;
-        const res = await waitForConfirmation(sig);
-        if (res.status === 'success') {
+      // ── phase 3: confirm each SENT item, then verify its asset (H1) ────
+      // Bounded concurrency (each confirm is now an elapsed-time budget of up
+      // to ~35s — sequential over 25 items would be pathological). Items the
+      // headroom guard skipped never got a signature and are excluded. A
+      // landed tx with err != null, one whose asset provably wasn't created
+      // (bot-tax), or one that never lands in budget is NOT a mint — its
+      // signature + lastValidBlockHeight are retained for reconciliation, the
+      // counter is never bumped.
+      const toConfirm = signableItemIndexes.filter((i) => {
+        const it = items[i];
+        return it.sig && it.mint && it.lastValidBlockHeight != null;
+      });
+      for (const i of toConfirm) items[i] = { ...items[i], status: 'verifying' };
+      setItems();
+      await runBounded(toConfirm, 5, async (i) => {
+        const it = items[i];
+        const disp = await resolveSubmitted(it.sig!, {
+          asset: it.mint!, lastValidBlockHeight: it.lastValidBlockHeight!, family: intent.family,
+        });
+        if (disp.kind === 'minted') {
           items[i] = { ...items[i], status: 'success' };
-          bumpMintedCount();
-        } else if (res.status === 'failed') {
-          items[i] = { ...items[i], status: 'confirmed_failed', message: normalizeMintErr(res.err) };
+          bumpMintedCount(intent.group);
+        } else if (disp.kind === 'not_observed') {
+          // landed clean, mint unconfirmed — retain for exact Re-check, gate a re-Mint
+          items[i] = {
+            ...items[i], status: 'not_observed',
+            message: 'landed, mint not confirmed yet — Re-check unresolved',
+            unresolved: { signature: it.sig!, lastValidBlockHeight: it.lastValidBlockHeight!, asset: it.mint!, family: intent.family },
+          };
+        } else if (disp.kind === 'tax_no_mint') {
+          items[i] = { ...items[i], status: 'tax_no_mint', message: 'landed but no asset minted — bot-tax confirmed in logs' };
+        } else if (disp.kind === 'confirmed_failed') {
+          items[i] = { ...items[i], status: 'confirmed_failed', message: normalizeMintErr(disp.err) };
         } else {
-          items[i] = { ...items[i], status: 'unconfirmed', message: 'confirmation not observed — status unknown, check signature' };
+          items[i] = { ...items[i], status: 'unconfirmed', message: 'confirmation not observed — Re-check unresolved', unresolved: disp.unresolved };
         }
-        setFlow({ kind: 'batch', total, items: [...items] });
-      }
+        setItems();
+      });
     } catch (err) {
       // signAllTransactions rejected (e.g. user cancelled the approval), or
       // a send call threw mid-loop — anything not already terminal never
       // got sent. Never auto-retried; re-running Mint builds fresh items.
       const message = humanizeThrownError((err as Error).message);
-      const terminal: BatchItemStatus[] = ['success', 'expired', 'confirmed_failed', 'unconfirmed'];
+      const terminal: BatchItemStatus[] = [
+        'success', 'expired', 'confirmed_failed', 'tax_no_mint', 'not_observed', 'unconfirmed',
+      ];
       for (const i of signableItemIndexes) {
         if (!terminal.includes(items[i].status)) items[i] = { ...items[i], status: 'sign_rejected', message };
       }
-      setFlow({ kind: 'batch', total, items: [...items] });
+      setItems();
     }
 
     // Release the busy lock whether the batch ran to completion or stopped
     // early on an error/blocked item — otherwise `busy` (tied to
     // flow.kind === 'batch') never clears and the Mint control can't come
     // back to start a new batch.
-    setFlow({ kind: 'batch', total, items: [...items], done: true });
+    setFlow({ kind: 'batch', total, items: [...items], intent, done: true });
+  }
+
+  // ── Re-check unresolved (H2) ────────────────────────────────────────────
+  // Reconcile every retained unresolved signature by its EXACT signature
+  // (searchTransactionHistory) + a fresh block-height read against that tx's
+  // own lastValidBlockHeight. No wallet history, no auto-resend. While ANY
+  // signature stays ambiguous / can-still-land, the Mint button stays blocked.
+  async function handleRecheckUnresolved() {
+    if (mintRunningRef.current) return;
+    const unresolved = collectUnresolved(flow);
+    if (unresolved.length === 0) return;
+    const priorFlow = flow;
+    const priorIntent: FrozenMintIntent | undefined =
+      priorFlow.kind === 'batch' ? priorFlow.intent
+        : priorFlow.kind === 'error' ? priorFlow.intent
+          : undefined;
+    mintRunningRef.current = true;
+    setFlow({ kind: 'reconciling' });
+    try {
+      const height = await fetchCurrentBlockHeight(); // retryOnce; null on outage
+      // Each exact signature reconciled INDEPENDENTLY (bounded concurrency).
+      const results = await runBounded(unresolved, 4, async (u): Promise<OneReconcileResult> => {
+        const { cls } = await pollTxStatus(u.signature); // exact sig; backend uses searchTransactionHistory
+        const disp = classifyReconcile({ statusClass: cls, currentBlockHeight: height, lastValidBlockHeight: u.lastValidBlockHeight });
+        const mintVerdict = disp === 'landed_ok' ? await verifyMint(u.asset, u.family, u.signature) : null;
+        return { u, disp, mintVerdict };
+      });
+
+      // Pure fold (tested for idempotency in logic.test.ts): a signature can
+      // bump the counter at most once, and only on the pass that first sees
+      // 'minted' — which also drops it from stillUnresolved so the gate
+      // opens and a further Re-check is a no-op.
+      const fold = foldReconcileResults(results);
+      for (const _sig of fold.bumps) bumpMintedCount(priorIntent?.group ?? null);
+
+      if (fold.stillUnresolved.length > 0) {
+        setFlow({
+          kind: 'error', unknown: true, intent: priorIntent,
+          unresolved: fold.stillUnresolved[0], sig: fold.stillUnresolved[0].signature,
+          message: `${fold.stillUnresolved.length} transaction(s) still unresolved — Mint stays locked. ${fold.notes.join(' · ')}`,
+        });
+      } else if (fold.bumps.length > 0 && fold.resolvedFailed.length === 0) {
+        setFlow({ kind: 'success', sig: fold.bumps[0] });
+      } else {
+        setFlow({
+          kind: 'error', sig: results[0]?.u.signature,
+          message: `${fold.notes.join(' · ')} — you can Mint again now.`,
+        });
+      }
+    } catch (err) {
+      // Reconcile itself failed — restore the prior unresolved gate.
+      if (priorFlow.kind === 'error') {
+        setFlow({ ...priorFlow, message: `Re-check failed: ${humanizeThrownError((err as Error).message)}. ${priorFlow.message}` });
+      } else {
+        setFlow(priorFlow);
+      }
+    } finally {
+      mintRunningRef.current = false;
+    }
   }
 
   function handleMintClick() {
+    if (hasUnresolvedInFlow(flow)) { void handleRecheckUnresolved(); return; }
     if (quantity > 1) void handleMintBatch();
     else void handleMint();
   }
 
-  const busy = flow.kind === 'inspecting' || flow.kind === 'minting' || (flow.kind === 'batch' && !flow.done);
+  const busy = flow.kind === 'inspecting' || flow.kind === 'minting' || flow.kind === 'reconciling' || (flow.kind === 'batch' && !flow.done);
+  // A blind fresh Mint is blocked while any submitted transaction's fate is
+  // unknown (H2). The Mint button becomes a "Re-check unresolved" action.
+  const mintLockedByUnresolved = hasUnresolvedInFlow(flow);
   // One predicate for the Inspect button's `disabled` AND the inputs'
   // Enter-key handler, so keyboard and click can't drift apart (they did:
   // onKeyDown called handleInspect unconditionally, re-firing while busy).
@@ -768,6 +1160,10 @@ export default function CandyMintPage() {
   const stageEnded = endsAtMs   != null && nowMs >= endsAtMs;
 
   const mintDisabled = !wallet || busy || !loaded || !loaded.inspection.alive || soldOut || !selected?.supported || mintExhausted || notYetLive || stageEnded;
+  // The Mint control's click target: when unresolved txns exist it re-checks
+  // them instead (and is NOT disabled by the mint-eligibility gates, only by
+  // `busy`).
+  const mintCtaDisabled = mintLockedByUnresolved ? busy : mintDisabled;
   const quantityCap = Math.max(1, selected?.mintLimit?.remaining ?? 25);
 
   // Keeps the selected quantity in bounds as `remaining` shrinks (each
@@ -950,7 +1346,16 @@ export default function CandyMintPage() {
               {/* ── mint control — the ONE spot that morphs through the flow ── */}
               {loaded.inspection.alive && !soldOut && selected?.supported && (
                 <div style={{ marginTop: 8 }}>
-                  {flow.kind === 'ready_to_sign' ? (
+                  {mintLockedByUnresolved ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <CtaButton onClick={() => void handleRecheckUnresolved()} disabled={busy} big>
+                        {flow.kind === 'reconciling' ? 're-checking…' : 'Re-check unresolved'}
+                      </CtaButton>
+                      <span style={{ fontSize: 11, color: rgb(VL.purpleTint) }}>
+                        Mint is locked — an earlier transaction hasn&apos;t been confirmed and could still land.
+                      </span>
+                    </div>
+                  ) : flow.kind === 'ready_to_sign' ? (
                     <ReadyToSignControl
                       flow={flow}
                       busy={busy}
@@ -959,6 +1364,8 @@ export default function CandyMintPage() {
                     />
                   ) : flow.kind === 'batch' && !flow.done ? (
                     <BatchControl flow={flow} />
+                  ) : flow.kind === 'reconciling' ? (
+                    <StatusNotice>Re-checking unresolved transactions…</StatusNotice>
                   ) : mintExhausted ? (
                     <StatusNotice>
                       You've hit your mint limit on this wallet ({selected?.mintLimit?.limit}/{selected?.mintLimit?.limit}) — switch wallets to mint more.
@@ -1049,18 +1456,23 @@ const BATCH_STATUS_COLOR: Record<BatchItemStatus, string> = {
   simulating: VLText.muted,
   ready: VLText.muted,
   rebuilding: VLText.muted,
+  auditing: VLText.muted,
   signing: rgb(VL.purpleTint),
   confirming: rgb(VL.purpleTint),
+  verifying: rgb(VL.purpleTint),
   success: rgb(VL.greenStrong),
   blocked: rgb(VL.redStrong),
   precheck_failed: rgb(VL.redStrong),
   rebuild_failed: rgb(VL.redStrong),
+  audit_failed: rgb(VL.redStrong),
   sign_rejected: rgb(VL.redStrong),
   confirmed_failed: rgb(VL.redStrong),
+  tax_no_mint: rgb(VL.redStrong),
   // Neutral lavender, not red — status genuinely unknown / deliberately not
   // sent, not a known failure.
   expired: rgb(VL.purpleTint),
   unconfirmed: rgb(VL.purpleTint),
+  not_observed: rgb(VL.purpleTint),
 };
 
 // Compact display text — several statuses are named for precision
@@ -1072,16 +1484,21 @@ const BATCH_STATUS_LABEL: Record<BatchItemStatus, string> = {
   simulating: 'simulating',
   ready: 'ready',
   rebuilding: 'rebuilding',
+  auditing: 'auditing',
   signing: 'signing',
   confirming: 'confirming',
+  verifying: 'verifying',
   success: 'success',
   blocked: 'blocked',
   precheck_failed: 'pre-check failed',
   rebuild_failed: 'rebuild failed',
+  audit_failed: 'audit failed',
   sign_rejected: 'rejected',
   expired: 'not sent',
   confirmed_failed: 'failed',
+  tax_no_mint: 'no asset minted',
   unconfirmed: 'unconfirmed',
+  not_observed: 'asset unverified',
 };
 
 function BatchStatusBadge({ status }: { status: BatchItemStatus }) {
@@ -1142,7 +1559,7 @@ function ReadyToSignControl({ flow, busy, onConfirm, onCancel }: {
   );
 }
 
-function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: BatchItem[] } }) {
+function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: BatchItem[]; intent: FrozenMintIntent } }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ fontSize: 11, color: VLText.muted }}>
@@ -1154,7 +1571,7 @@ function BatchControl({ flow }: { flow: { kind: 'batch'; total: number; items: B
           <span style={{ color: VLText.faint, width: 22 }}>#{i + 1}</span>
           <BatchStatusBadge status={it.status} />
           {it.solDeltaLamports != null
-            && (['ready', 'rebuilding', 'signing', 'confirming', 'success'] as BatchItemStatus[]).includes(it.status) && (
+            && (['ready', 'rebuilding', 'auditing', 'signing', 'confirming', 'verifying', 'success'] as BatchItemStatus[]).includes(it.status) && (
             <span style={{ color: rgb(VL.greenStrong), fontWeight: 600 }}>
               {(it.solDeltaLamports / 1e9).toFixed(5)} SOL{it.tokenCostLabel ? ` + ${it.tokenCostLabel}` : ''}
             </span>

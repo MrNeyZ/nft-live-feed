@@ -38,13 +38,25 @@ import { Router, Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
+import { rpcPost } from './tools-mmm-pools';
 import { decodeCandyMintSignature, detectFamilyFromGuardAddress, type CandyMintFamily } from '../candy-mint/decode';
 import { inspectCandyMachine } from '../candy-mint/guard-config';
 import { buildCandyMintTx } from '../candy-mint/build';
 import { simulateCandyMintTx } from '../candy-mint/simulate';
 import { getTokenDecimalsMany } from '../candy-mint/token-decimals';
 import { getCurrentBlockHeight } from '../candy-mint/block-height';
+import { verifyMintAsset } from '../candy-mint/verify-asset';
 import { getAsset } from '../enrichment/helius-das';
+
+// The largest batch quantity the frontend stepper allows when no per-wallet
+// mintLimit narrows it (page.tsx `quantityCap`). The batch flow broadcasts
+// one send per item, sequentially, right after a single signAllTransactions —
+// so the send limiter has to clear one full max-size batch in a window, plus
+// headroom for a couple of "Retry unresolved" re-sends within the same
+// minute. The generic /tools/mmm-pools/send-tx limiter (10/min, shared with
+// every MMM read endpoint) deterministically 429s a batch past item ~10;
+// this dedicated limiter is the fix (M1).
+export const MAX_CANDY_MINT_BATCH = 25;
 
 function isValidPubkey(s: unknown): s is string {
   if (typeof s !== 'string') return false;
@@ -67,6 +79,11 @@ export function createCandyMintRouter(): Router {
   const buildLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/build-tx' });
   const simulateLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/candy-mint/simulate-tx' });
   const blockHeightLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/candy-mint/block-height' });
+  // One max-size batch = 25 sends back-to-back, + headroom for "Retry
+  // unresolved" re-sends and the single-flow. NOT the shared 10/min MMM
+  // limiter (M1).
+  const sendLimit = rateLimit({ limit: MAX_CANDY_MINT_BATCH * 2 + 10, windowMs: 60_000, label: 'tools/candy-mint/send-tx' });
+  const verifyLimit = rateLimit({ limit: MAX_CANDY_MINT_BATCH * 4, windowMs: 60_000, label: 'tools/candy-mint/verify-asset' });
 
   router.get('/tools/candy-mint/inspect', inspectLimit, requireAuth, async (req: Request, res: Response) => {
     try {
@@ -209,6 +226,57 @@ export function createCandyMintRouter(): Router {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/candy-mint] block-height error', msg);
+      return res.status(200).json({ ok: false, error: msg });
+    }
+  });
+
+  // Dedicated broadcast proxy (M1) — same behavior as the generic
+  // /tools/mmm-pools/send-tx (sendTransaction, skipPreflight, base64) but on
+  // this tool's own limiter, sized so one full 25-item batch clears in a
+  // window. Callers already run their own post-sign blockhash-headroom guard
+  // BEFORE hitting this; skipPreflight stays true to match that contract.
+  router.post('/tools/candy-mint/send-tx', sendLimit, requireAuth, async (req: Request, res: Response) => {
+    const { tx } = req.body as { tx?: string };
+    if (!tx || typeof tx !== 'string') {
+      return res.status(400).json({ ok: false, error: 'missing_tx' });
+    }
+    try {
+      const signature = await rpcPost('sendTransaction', [
+        tx, { encoding: 'base64', skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed' },
+      ]) as string;
+      return res.json({ ok: true, signature });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] send-tx error', msg);
+      return res.status(502).json({ ok: false, error: 'rpc_error', message: msg });
+    }
+  });
+
+  // Post-confirmation mint verification (H1) — after tx-status reports
+  // landed+err==null, the caller asks whether the FINAL asset/nftMint pubkey
+  // was actually minted. A landed Candy Guard bot-tax transaction has err==null
+  // but mints nothing, so "confirmed" alone is not "minted"; and a clean
+  // account-null is NOT proof of "no mint" (RPC lag / load-balanced nodes) —
+  // see verify-asset.ts header.
+  //   { verdict: 'minted' }        -> asset account exists, right owner
+  //   { verdict: 'tax_no_mint' }   -> asset absent AND the confirmed tx's logs
+  //                                   carry the bot-tax marker (strong evidence)
+  //   { verdict: 'not_observed' }  -> asset absent, logs clean / not fetchable
+  //                                   -> caller keeps the signature, re-checks,
+  //                                      never claims minted or bot-tax
+  router.get('/tools/candy-mint/verify-asset', verifyLimit, requireAuth, async (req: Request, res: Response) => {
+    const asset = req.query.asset as string | undefined;
+    const family = req.query.family as string | undefined;
+    const sig = req.query.sig as string | undefined;
+    if (!isValidPubkey(asset) || (family !== 'core' && family !== 'legacy') || typeof sig !== 'string' || !sig) {
+      return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
+    }
+    try {
+      const result = await verifyMintAsset(family, asset, sig);
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/candy-mint] verify-asset error', msg);
       return res.status(200).json({ ok: false, error: msg });
     }
   });

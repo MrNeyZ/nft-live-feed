@@ -50,6 +50,140 @@ export function outcomeFromPolls(polls: ConfirmClass[]): ConfirmOutcome {
   return 'unknown';
 }
 
+// ── confirmation polling budget (M3) ─────────────────────────────────────────
+// The old loop was `15 attempts × 300ms` ≈ 4.2s of wall time — commit
+// 7d6f12e cut it from the prior ~12s while its message claimed "same budget".
+// On a congested drop (exactly when this tool is used) `confirmed` routinely
+// takes longer than 4s, so that ceiling turned real mints into `unknown` far
+// too often, and `unknown` feeds the duplicate-retry path.
+//
+// Now: an ELAPSED-TIME budget. Poll at a brisk interval but keep going until
+// ~35s have passed. A timeout is still `unknown` (never `failed`) and enters
+// the exact-signature reconciliation flow.
+export const CONFIRMATION_BUDGET_MS = 35_000;
+export const CONFIRMATION_POLL_INTERVAL_MS = 500;
+
+export function shouldKeepPolling(startedAtMs: number, nowMs: number, budgetMs = CONFIRMATION_BUDGET_MS): boolean {
+  return nowMs - startedAtMs < budgetMs;
+}
+
+// ── exact-signature reconciliation (H2) ─────────────────────────────────────
+// For a submitted transaction whose landing we never observed, "getSignature
+// Statuses == null" is NOT on its own proof that a rebuild is safe — the
+// original may still be within its blockhash validity window and could land
+// after we rebuild, double-minting. Reconciliation combines the exact
+// signature's status with a fresh block-height read against the tx's OWN
+// retained lastValidBlockHeight. No wallet history, no getSignaturesForAddress.
+export type ReconcileDisposition =
+  // observed landed, err == null -> verify the asset, never rebuild this item
+  | 'landed_ok'
+  // observed landed, err != null -> definitive on-chain failure, rebuild is safe
+  | 'landed_failed'
+  // not landed, but blockHeight <= lastValidBlockHeight -> the original can
+  // STILL land. Stay unresolved. DO NOT rebuild / resend.
+  | 'still_valid_ambiguous'
+  // not landed, blockHeight > lastValidBlockHeight -> the original can never
+  // land now. Mark expired; rebuild is safe.
+  | 'expired_safe_to_retry'
+  // the block-height read itself failed -> we cannot prove the original is
+  // dead. Fail CLOSED for duplicate prevention: stay unresolved, DO NOT
+  // rebuild. (This is deliberately independent of the pre-broadcast freshness
+  // guard's fail-OPEN policy — see page.tsx.)
+  | 'unresolved_blockheight_unknown';
+
+export interface ReconcileInput {
+  statusClass: ConfirmClass;             // classifyConfirmation() of the exact-signature poll
+  currentBlockHeight: number | null;     // fresh getBlockHeight, null on read failure
+  lastValidBlockHeight: number;          // retained from the exact build that was signed
+}
+
+export function classifyReconcile(input: ReconcileInput): ReconcileDisposition {
+  if (input.statusClass === 'success') return 'landed_ok';
+  if (input.statusClass === 'failed') return 'landed_failed';
+  // statusClass === 'pending' (never observed landed)
+  if (input.currentBlockHeight == null) return 'unresolved_blockheight_unknown';
+  return input.currentBlockHeight > input.lastValidBlockHeight
+    ? 'expired_safe_to_retry'
+    : 'still_valid_ambiguous';
+}
+
+// Whether a rebuild/retry is permitted for an item after reconciliation.
+// The three "still might land / can't tell" dispositions are all NO.
+export function reconcileAllowsRebuild(d: ReconcileDisposition): boolean {
+  return d === 'landed_failed' || d === 'expired_safe_to_retry';
+}
+
+// A retained record of one submitted-but-unresolved transaction. Enough to
+// reconcile its EXACT signature later, and to know which asset to verify if
+// it turns out to have landed.
+export interface UnresolvedTx {
+  signature: string;
+  lastValidBlockHeight: number;
+  asset: string;                 // the FINAL build's asset/nftMint pubkey
+  family: 'core' | 'legacy';
+}
+
+// Duplicate-prevention gate (H2): while ANY unresolved transaction exists,
+// a blind fresh Mint is not allowed (it could duplicate one that still
+// lands). The user must run "Re-check unresolved" first — which either
+// resolves them or proves they're dead.
+export function hasUnresolvedTxns(items: ReadonlyArray<{ unresolved?: UnresolvedTx | null }>): boolean {
+  return items.some((it) => it.unresolved != null);
+}
+
+// ── Re-check-unresolved fold (H2 + H1) — idempotency-critical ──────────────
+// One reconcile pass produces a per-signature verdict. This folds the whole
+// set into the next UI state + how many counter bumps to apply.
+//
+// IDEMPOTENCY: a signature is bump-eligible ONLY on the pass that first sees
+// `verdict: 'minted'`, and that pass drops it from `stillUnresolved` — so the
+// flow resolves and `collectUnresolved` returns [], and a further Re-check is
+// a no-op (the caller returns early on an empty set). A signature can
+// therefore bump the counter AT MOST ONCE across any number of Re-checks.
+export type ReconcileMintVerdict = 'minted' | 'tax_no_mint' | 'not_observed';
+
+export interface OneReconcileResult {
+  u: UnresolvedTx;
+  disp: ReconcileDisposition;
+  // present only when disp === 'landed_ok' (the asset was checked)
+  mintVerdict?: ReconcileMintVerdict | null;
+}
+
+export interface ReconcileFold {
+  stillUnresolved: UnresolvedTx[];   // gate stays closed while non-empty
+  bumps: string[];                   // signatures that just became confirmed mints (bump once each)
+  resolvedFailed: string[];          // safe-to-retry now (landed-failed / expired / bot-tax)
+  notes: string[];                   // per-signature human summary
+}
+
+export function foldReconcileResults(results: readonly OneReconcileResult[]): ReconcileFold {
+  const stillUnresolved: UnresolvedTx[] = [];
+  const bumps: string[] = [];
+  const resolvedFailed: string[] = [];
+  const notes: string[] = [];
+  const shortSig = (s: string) => (s.length <= 10 ? s : `${s.slice(0, 4)}…${s.slice(-4)}`);
+
+  for (const { u, disp, mintVerdict } of results) {
+    const s = shortSig(u.signature);
+    if (disp === 'landed_ok' && mintVerdict === 'minted') {
+      bumps.push(u.signature); notes.push(`${s}: minted`);
+    } else if (disp === 'landed_ok' && mintVerdict === 'tax_no_mint') {
+      resolvedFailed.push(u.signature); notes.push(`${s}: landed, bot-tax confirmed in logs — no asset`);
+    } else if (disp === 'landed_ok') {
+      stillUnresolved.push(u); notes.push(`${s}: landed, mint not confirmed yet — re-check`);
+    } else if (disp === 'landed_failed') {
+      resolvedFailed.push(u.signature); notes.push(`${s}: reverted on-chain — safe to retry`);
+    } else if (disp === 'expired_safe_to_retry') {
+      resolvedFailed.push(u.signature); notes.push(`${s}: expired, never landed — safe to retry`);
+    } else if (disp === 'still_valid_ambiguous') {
+      stillUnresolved.push(u); notes.push(`${s}: still valid — could still land, not retrying`);
+    } else {
+      stillUnresolved.push(u); notes.push(`${s}: block height unavailable — not retrying`);
+    }
+  }
+  return { stillUnresolved, bumps, resolvedFailed, notes };
+}
+
 // Best-effort human string for a landed-but-failed transaction's raw
 // TransactionError. Candy Guard surfaces its own AnchorError codes here;
 // 6023/6024 are the date-window guards (MintNotLive / AfterEndDate) which is

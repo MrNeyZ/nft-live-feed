@@ -40,7 +40,7 @@ import {
   safeFetchCandyGuard as safeFetchLegacyCandyGuard,
 } from '@metaplex-foundation/mpl-candy-machine';
 import { fetchMetadata, findMetadataPda } from '@metaplex-foundation/mpl-token-metadata';
-import { inspectCandyMachine } from './guard-config';
+import { inspectCandyMachine, extractPaymentGuards, canonicalGuardNames, type PaymentGuardConfig } from './guard-config';
 import { mergeGuardSets } from './guard-merge';
 import type { CandyMintFamily } from './decode';
 
@@ -58,7 +58,7 @@ import type { CandyMintFamily } from './decode';
 // from the chain itself, nothing guessed or hand-picked per guard name.
 type GuardOption = { __option: 'Some' | 'None'; value?: unknown };
 type GuardSetLike = Record<string, GuardOption>;
-function resolveMintArgs(guards: GuardSetLike): Record<string, unknown> {
+export function resolveMintArgs(guards: GuardSetLike): Record<string, unknown> {
   const mintArgs: Record<string, unknown> = {};
   for (const [name, wrapped] of Object.entries(guards)) {
     if (wrapped?.__option === 'Some' && wrapped.value !== undefined) mintArgs[name] = wrapped.value;
@@ -105,6 +105,25 @@ export type BuildCandyMintResult =
       requiresSignatureFrom: string;
       asset: string;
       group: string | null;
+      /** The user-authorized MINT PAYMENT (amounts + destinations) this build
+       *  actually resolved from a FRESH read of live guard state — the base∪
+       *  group merged set, same extractor the inspect summary uses. The
+       *  frontend compares this EXACTLY against its FrozenMintIntent before
+       *  signing: any change to a mint-price amount or destination since the
+       *  user reviewed = fail closed, return to review. (Transaction fee /
+       *  rent / priority are NOT here — those are protocol overhead reported
+       *  separately by simulation.) */
+      resolvedGuardPayment: PaymentGuardConfig;
+      /** The canonical (sorted, unique) set of ENABLED guard names in the
+       *  EXACT base∪group merged guard set this build used — derived from the
+       *  SAME `mergedGuards` object handed to `resolveMintArgs` / the mint
+       *  instruction, via `canonicalGuardNames`. NOT from request data, NOT a
+       *  second fetch. The frontend rejects the signature if this differs
+       *  from the reviewed `FrozenMintIntent.enabledGuards` — an added,
+       *  removed, or substituted guard (even a 0-remaining-account one like
+       *  botTax, or a same-count swap like mintLimit↔allocation) that the
+       *  account-count check alone cannot see. */
+      resolvedEnabledGuards: string[];
     }
   | { ok: false; error: string };
 
@@ -125,6 +144,7 @@ async function buildCore(input: BuildCandyMintInput): Promise<BuildCandyMintResu
   const candyGuard = await safeFetchCoreCandyGuard(umi, umiPublicKey(input.candyGuard));
   if (!candyGuard) return { ok: false, error: 'candy_guard_not_found' };
 
+  const mergedGuards = activeGuardSet(candyGuard, input.group);
   const builder = mintV1(umi, {
     candyMachine: candyMachine.publicKey,
     candyGuard: candyGuard.publicKey,
@@ -134,10 +154,10 @@ async function buildCore(input: BuildCandyMintInput): Promise<BuildCandyMintResu
     minter: walletSigner,
     group: input.group ? some(input.group) : none(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- built dynamically from whatever guards are enabled on-chain; see resolveMintArgs
-    mintArgs: resolveMintArgs(activeGuardSet(candyGuard, input.group)) as any,
+    mintArgs: resolveMintArgs(mergedGuards) as any,
   });
 
-  return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner);
+  return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner, mergedGuards);
 }
 
 async function buildLegacy(input: BuildCandyMintInput): Promise<BuildCandyMintResult> {
@@ -163,6 +183,7 @@ async function buildLegacy(input: BuildCandyMintInput): Promise<BuildCandyMintRe
     }
   }
 
+  const mergedGuards = activeGuardSet(candyGuard, input.group);
   const builder = mintV2(umi, {
     candyMachine: candyMachine.publicKey,
     candyGuard: candyGuard.publicKey,
@@ -173,16 +194,17 @@ async function buildLegacy(input: BuildCandyMintInput): Promise<BuildCandyMintRe
     minter: walletSigner,
     group: input.group ? some(input.group) : none(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- built dynamically from whatever guards are enabled on-chain; see resolveMintArgs
-    mintArgs: resolveMintArgs(activeGuardSet(candyGuard, input.group)) as any,
+    mintArgs: resolveMintArgs(mergedGuards) as any,
   });
 
-  return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner);
+  return finalizeTx(builder.getInstructions().map((ix) => toWeb3JsInstruction(ix)), input, assetSigner, mergedGuards);
 }
 
 async function finalizeTx(
   web3Ixs: ReturnType<typeof toWeb3JsInstruction>[],
   input: BuildCandyMintInput,
   assetSigner: ReturnType<typeof generateSigner>,
+  mergedGuards: GuardSetLike,
 ): Promise<BuildCandyMintResult> {
   const conn = new Connection(rpcUrl(), 'confirmed');
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
@@ -225,6 +247,8 @@ async function finalizeTx(
     requiresSignatureFrom: input.wallet,
     asset: assetSigner.publicKey.toString(),
     group: input.group,
+    resolvedGuardPayment: extractPaymentGuards(mergedGuards as Record<string, { __option: 'Some' | 'None'; value?: unknown }>),
+    resolvedEnabledGuards: canonicalGuardNames(mergedGuards as Record<string, { __option: 'Some' | 'None'; value?: unknown }>),
   };
 }
 

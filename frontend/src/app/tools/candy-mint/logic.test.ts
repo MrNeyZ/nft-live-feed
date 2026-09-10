@@ -20,8 +20,18 @@ import {
   hasBlockhashHeadroom,
   BLOCKHASH_SAFETY_MARGIN_BLOCKS,
   retryOnce,
+  CONFIRMATION_BUDGET_MS,
+  CONFIRMATION_POLL_INTERVAL_MS,
+  shouldKeepPolling,
+  classifyReconcile,
+  reconcileAllowsRebuild,
+  hasUnresolvedTxns,
+  foldReconcileResults,
   type ConfirmClass,
   type RebuildOutcome,
+  type ReconcileDisposition,
+  type UnresolvedTx,
+  type OneReconcileResult,
 } from './logic';
 
 let passed = 0;
@@ -379,8 +389,159 @@ async function retryOnceChecks() {
   });
 }
 
+// ── confirmation polling budget (M3) — must not silently regress ─────────
+function confirmationBudgetChecks() {
+  console.log('confirmation budget (M3)');
+  check('budget is ~30-45s (not the accidental ~4s ceiling)', () => {
+    assert.ok(CONFIRMATION_BUDGET_MS >= 30_000 && CONFIRMATION_BUDGET_MS <= 45_000,
+      `CONFIRMATION_BUDGET_MS=${CONFIRMATION_BUDGET_MS} outside 30_000..45_000`);
+  });
+  check('poll interval is brisk (300-750ms)', () => {
+    assert.ok(CONFIRMATION_POLL_INTERVAL_MS >= 300 && CONFIRMATION_POLL_INTERVAL_MS <= 750);
+  });
+  check('shouldKeepPolling true while within budget', () => {
+    assert.strictEqual(shouldKeepPolling(1_000, 1_000 + CONFIRMATION_BUDGET_MS - 1), true);
+  });
+  check('shouldKeepPolling false once budget elapsed', () => {
+    assert.strictEqual(shouldKeepPolling(1_000, 1_000 + CONFIRMATION_BUDGET_MS), false);
+    assert.strictEqual(shouldKeepPolling(1_000, 1_000 + CONFIRMATION_BUDGET_MS + 5_000), false);
+  });
+  check('a timeout is NOT a failure — outcomeFromPolls(all pending) is still unknown', () => {
+    assert.strictEqual(outcomeFromPolls(['pending', 'pending', 'pending', 'pending']), 'unknown');
+  });
+}
+
+// ── exact-signature reconciliation state machine (H2) ───────────────────
+function reconcileChecks() {
+  console.log('classifyReconcile (H2 A/B/C/D/E)');
+  const LV = 1000;
+  check('A: landed ok -> landed_ok', () => {
+    assert.strictEqual(classifyReconcile({ statusClass: 'success', currentBlockHeight: 900, lastValidBlockHeight: LV }), 'landed_ok');
+  });
+  check('B: landed with err -> landed_failed', () => {
+    assert.strictEqual(classifyReconcile({ statusClass: 'failed', currentBlockHeight: 1200, lastValidBlockHeight: LV }), 'landed_failed');
+  });
+  check('C: not landed, height <= lastValid -> still_valid_ambiguous (DO NOT rebuild)', () => {
+    assert.strictEqual(classifyReconcile({ statusClass: 'pending', currentBlockHeight: LV, lastValidBlockHeight: LV }), 'still_valid_ambiguous');
+    assert.strictEqual(classifyReconcile({ statusClass: 'pending', currentBlockHeight: LV - 50, lastValidBlockHeight: LV }), 'still_valid_ambiguous');
+  });
+  check('D: not landed, height > lastValid -> expired_safe_to_retry', () => {
+    assert.strictEqual(classifyReconcile({ statusClass: 'pending', currentBlockHeight: LV + 1, lastValidBlockHeight: LV }), 'expired_safe_to_retry');
+  });
+  check('E: block-height read failed -> unresolved_blockheight_unknown (fail closed)', () => {
+    assert.strictEqual(classifyReconcile({ statusClass: 'pending', currentBlockHeight: null, lastValidBlockHeight: LV }), 'unresolved_blockheight_unknown');
+  });
+  check('E takes priority over C/D — a null height NEVER resolves to expired', () => {
+    // even if we "think" it might be expired, without a height we cannot prove it
+    assert.notStrictEqual(classifyReconcile({ statusClass: 'pending', currentBlockHeight: null, lastValidBlockHeight: 1 }), 'expired_safe_to_retry');
+  });
+
+  console.log('reconcileAllowsRebuild');
+  const rebuildOk: ReconcileDisposition[] = ['landed_failed', 'expired_safe_to_retry'];
+  const rebuildNo: ReconcileDisposition[] = ['landed_ok', 'still_valid_ambiguous', 'unresolved_blockheight_unknown'];
+  for (const d of rebuildOk) check(`${d} -> rebuild allowed`, () => assert.strictEqual(reconcileAllowsRebuild(d), true));
+  for (const d of rebuildNo) check(`${d} -> rebuild NOT allowed`, () => assert.strictEqual(reconcileAllowsRebuild(d), false));
+
+  console.log('hasUnresolvedTxns (duplicate-prevention gate)');
+  const u: UnresolvedTx = { signature: 'S', lastValidBlockHeight: 1, asset: 'A', family: 'core' };
+  check('an item with an unresolved record -> gate closed', () => {
+    assert.strictEqual(hasUnresolvedTxns([{ unresolved: u }, { unresolved: null }]), true);
+  });
+  check('no unresolved records -> gate open', () => {
+    assert.strictEqual(hasUnresolvedTxns([{ unresolved: null }, {}]), false);
+  });
+  check('empty -> gate open', () => {
+    assert.strictEqual(hasUnresolvedTxns([]), false);
+  });
+
+  // The concrete duplicate scenario the audit calls out:
+  check('unknown-before-expiry: gate stays closed, rebuild refused', () => {
+    const disp = classifyReconcile({ statusClass: 'pending', currentBlockHeight: 999, lastValidBlockHeight: 1000 });
+    assert.strictEqual(disp, 'still_valid_ambiguous');
+    assert.strictEqual(reconcileAllowsRebuild(disp), false);
+  });
+  check('unknown-after-expiry: gate opens, rebuild allowed', () => {
+    const disp = classifyReconcile({ statusClass: 'pending', currentBlockHeight: 1001, lastValidBlockHeight: 1000 });
+    assert.strictEqual(disp, 'expired_safe_to_retry');
+    assert.strictEqual(reconcileAllowsRebuild(disp), true);
+  });
+  check('blockHeight read failure keeps gate closed even long past lastValid', () => {
+    const disp = classifyReconcile({ statusClass: 'pending', currentBlockHeight: null, lastValidBlockHeight: 1000 });
+    assert.strictEqual(reconcileAllowsRebuild(disp), false);
+  });
+}
+
+// ── foldReconcileResults — H2/H1 idempotency (verification #6) ──────────
+function reconcileFoldChecks() {
+  console.log('foldReconcileResults (reconcile idempotency)');
+  const u = (sig: string, lvbh = 1000): UnresolvedTx => ({ signature: sig, lastValidBlockHeight: lvbh, asset: `ASSET_${sig}`, family: 'core' });
+  const R = (o: OneReconcileResult): OneReconcileResult => o;
+
+  check('landed_ok + minted -> one bump, drops from stillUnresolved', () => {
+    const f = foldReconcileResults([R({ u: u('S1'), disp: 'landed_ok', mintVerdict: 'minted' })]);
+    assert.deepStrictEqual(f.bumps, ['S1']);
+    assert.strictEqual(f.stillUnresolved.length, 0);
+  });
+  check('landed_ok + not_observed -> NO bump, STAYS unresolved (never minted without asset)', () => {
+    const f = foldReconcileResults([R({ u: u('S1'), disp: 'landed_ok', mintVerdict: 'not_observed' })]);
+    assert.strictEqual(f.bumps.length, 0);
+    assert.strictEqual(f.stillUnresolved.length, 1);
+  });
+  check('landed_ok + tax_no_mint -> NO bump, resolved (safe to retry)', () => {
+    const f = foldReconcileResults([R({ u: u('S1'), disp: 'landed_ok', mintVerdict: 'tax_no_mint' })]);
+    assert.strictEqual(f.bumps.length, 0);
+    assert.deepStrictEqual(f.resolvedFailed, ['S1']);
+    assert.strictEqual(f.stillUnresolved.length, 0);
+  });
+  check('still_valid_ambiguous / blockheight-unknown -> NO bump, STAYS unresolved', () => {
+    const f = foldReconcileResults([
+      R({ u: u('S1'), disp: 'still_valid_ambiguous' }),
+      R({ u: u('S2'), disp: 'unresolved_blockheight_unknown' }),
+    ]);
+    assert.strictEqual(f.bumps.length, 0);
+    assert.strictEqual(f.stillUnresolved.length, 2);
+  });
+  check('IDEMPOTENT: re-checking a not_observed then minted bumps exactly once total', () => {
+    // pass 1: not_observed -> stays unresolved, 0 bumps
+    const p1 = foldReconcileResults([R({ u: u('S1'), disp: 'landed_ok', mintVerdict: 'not_observed' })]);
+    assert.strictEqual(p1.bumps.length, 0);
+    // pass 2 (same sig, asset now visible): minted -> 1 bump, resolved
+    const p2 = foldReconcileResults([R({ u: p1.stillUnresolved[0], disp: 'landed_ok', mintVerdict: 'minted' })]);
+    assert.deepStrictEqual(p2.bumps, ['S1']);
+    assert.strictEqual(p2.stillUnresolved.length, 0);
+    // pass 3: the caller now has NO unresolved to feed -> fold of [] -> 0 bumps
+    const p3 = foldReconcileResults([]);
+    assert.strictEqual(p3.bumps.length, 0);
+  });
+  check('IDEMPOTENT: a batch of mixed sigs — each bumps at most once', () => {
+    const f = foldReconcileResults([
+      R({ u: u('A'), disp: 'landed_ok', mintVerdict: 'minted' }),
+      R({ u: u('B'), disp: 'landed_ok', mintVerdict: 'minted' }),
+      R({ u: u('C'), disp: 'landed_ok', mintVerdict: 'not_observed' }),
+      R({ u: u('D'), disp: 'landed_failed' }),
+    ]);
+    assert.deepStrictEqual(f.bumps.sort(), ['A', 'B']);
+    assert.deepStrictEqual(f.stillUnresolved.map((x) => x.signature), ['C']);
+    assert.deepStrictEqual(f.resolvedFailed, ['D']);
+  });
+  check('each unresolved record keeps its OWN asset/sig/lvbh (batch independence)', () => {
+    const a = u('A', 111); const b = u('B', 222);
+    assert.strictEqual(a.asset, 'ASSET_A'); assert.strictEqual(b.asset, 'ASSET_B');
+    assert.strictEqual(a.lastValidBlockHeight, 111); assert.strictEqual(b.lastValidBlockHeight, 222);
+    const f = foldReconcileResults([R({ u: a, disp: 'still_valid_ambiguous' }), R({ u: b, disp: 'still_valid_ambiguous' })]);
+    assert.deepStrictEqual(f.stillUnresolved, [a, b]); // exact records preserved
+  });
+  check('empty input -> nothing to do', () => {
+    const f = foldReconcileResults([]);
+    assert.deepStrictEqual(f, { stillUnresolved: [], bumps: [], resolvedFailed: [], notes: [] });
+  });
+}
+
 partitionChecks();
 headroomChecks();
+confirmationBudgetChecks();
+reconcileChecks();
+reconcileFoldChecks();
 
 runBoundedChecks()
   .then(retryOnceChecks)
