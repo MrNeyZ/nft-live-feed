@@ -328,16 +328,23 @@ export const TAMM_SALE_INSTRUCTIONS: TammIxDef[] = [
     coreAssetIdx:  14,
   },
   {
-    // ⚠️ UNVERIFIED — discriminator observed live (sig
-    //    2NFRJdpDckSaD3rV9FVDLjVfiFqdYXJApV4f2vXde8r6m9cG2VWCPSyRkJ3eG3k2WmzKZk8UnQXKtw5eepEhRFR4).
-    // IDL name: sell_nft_trade_pool (Anchor disc sha256("global:sell_nft_trade_pool")[:8]).
-    // Direction: user sells NFT into trade pool — pool receives NFT, user receives SOL.
+    // ✅ VERIFIED 2026-09-11 — legacy/pNFT "sell into trade pool" (two-sided
+    // AMM pool acting as buyer). IDL name: sell_nft_trade_pool.
+    // Previously null/null buyerAcctIdx+sellerAcctIdx sent this straight to
+    // the token-flow fallback, which resolves "buyer" to whoever's ATA
+    // receives the NFT — the POOL's token account, not the human pool
+    // owner — surfacing the wrong buyer on /feed for two-sided pool sales.
+    // Confirmed via sig 2Wa4oLxqNAxAzc1xb7qAhivuKuFrZQ5kq3GecXZFuGSpTfXLhErLn6QWRYs3ZeigEmQ3FVgmWNoxNGC2ZjM1WqpW:
+    // accounts[0] (getAccountInfo: System-owned, data_len=0) = pool owner
+    // (human wallet) = buyer; accounts[1] = signer = seller. Identical
+    // layout to the already-verified 'sellNftTokenPoolCore' entry above,
+    // just legacy/pNFT instead of Core.
     name:          'sellNftTradePool',
     disc:          Buffer.from('83527d4d0d9d245a', 'hex'),
-    verified:      false,
+    verified:      true,
     direction:     'sell',
-    buyerAcctIdx:  null,
-    sellerAcctIdx: null,
+    buyerAcctIdx:  0,
+    sellerAcctIdx: 1,
     coreAssetIdx:  null,
   },
   {
