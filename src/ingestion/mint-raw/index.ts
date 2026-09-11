@@ -359,6 +359,7 @@ function launchpadSourceLabel(s: LaunchpadSource): MintSourceLabel {
     case 'NftsGay':      return 'nfts.gay';
     case 'PRNT':         return 'PRNT';
     case 'Mallow':       return 'Mallow';
+    case 'ART':          return 'ART';
   }
 }
 

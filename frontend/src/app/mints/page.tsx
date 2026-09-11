@@ -689,6 +689,7 @@ const SOURCE_COLORS: Record<SourceKey, string> = {
   GRAVE: hex(VL.gray),  // GraveMint (card badge gray)
   CANDY: hex(VL.pink),  // Candy Guard (same as candy type)
   CORE:  hex(VL.purpleTint), // Core (hidden from UI)
+  ART:   hex(VL.violet),     // Artist Proof (card badge violet)
 };
 const STATUS_COLORS: Record<string, string> = {
   active: 'var(--vl-green-primary)', // VL.green

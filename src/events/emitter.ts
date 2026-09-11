@@ -206,6 +206,7 @@ export type MintSourceLabel =
   | 'PRNT'
   | 'SFT'
   | 'Mallow'
+  | 'ART'
   | 'Unknown';
 
 /** Per-mint event, fired once on detection. */

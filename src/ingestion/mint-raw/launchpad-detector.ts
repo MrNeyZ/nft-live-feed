@@ -229,6 +229,21 @@ export const CANDY_MACHINE_V3_PROGRAM    = 'CndyV3LdqHUfDLmE5naZjVN8rBZz4tqhdefb
 // this constant only exists so the generic-fallback caller in index.ts can
 // special-case its `sourceLabel` to 'Candy Labs' (frontend renders LABS)
 // instead of the generic 'Metaplex Core' — see CandyMint tool investigation.
+/** Artist Proof (ART) launchpad — own on-chain program invoked at the top
+ *  level (no CPI into MPL Core; Core's CreateV2 is a SEPARATE top-level ix
+ *  in the same tx, unlike LMNFT which CPIs into Core from its own program).
+ *  Program presence + a top-level Core CreateV2 is the fingerprint — same
+ *  class of signal as `GRAVEMINT_PROGRAM` Shape B (unspoofable without the
+ *  launchpad's upgrade authority). Confirmed on 2 mints from 2 distinct
+ *  collections. Reference txs:
+ *    MU6EV1f6UgjUWf8qQnkaT97WbmqKfL7eQCy7kXBpSiQuJDJa6pUVCQAcCEi1jFKyJQQ668B7ApW7SV4oavT2UvS
+ *    2ish1e6hXwYk1D2412t1QroyobXZL8ys9iVx75JQDbWFV7CG8fg6djSx3U4N6RJzgobfub9B9WLC6nSQyfuEjwTk */
+export const ART_PROOF_PROGRAM = 'L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95';
+/** ART platform co-signer — signer index 1 in both reference txs, across
+ *  two different collections. Diagnostic-only secondary evidence (the
+ *  program-presence gate above is primary and sufficient on its own). */
+export const ART_PROOF_PLATFORM_SIGNER = '9Cr4EZ3NUycbrA3uQacY1KCmYzwcfdd7NkeUhWaPfk5B';
+
 export const CANDY_LABS_WRAPPER_PROGRAM  = 'foRGEL4EUjeQMd8U2QL5Rx8je75ZFpmtLoWRyyAxxr7';
 export const PRNT_VESTING_PROGRAM        = 'SPL722x7RdCpb2WEDtkHmzfTypqXp92Ft5qkYWfMcBg';
 export const PRNT_CORE_CANDY_GUARD       = 'CMAGAKJ67e9hRZgfC5SFTbZH8MgEmtqazKXjmkaJjWTJ';
@@ -260,7 +275,7 @@ function prntVestingAssetIfPresent(shape: ParsedTxShape): string | null {
   return vestingAsset;
 }
 
-export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay' | 'PRNT' | 'Mallow';
+export type LaunchpadSource = 'LaunchMyNFT' | 'VVV' | 'GRAVE' | 'CandyMachine' | 'NftsGay' | 'PRNT' | 'Mallow' | 'ART';
 /** Underlying NFT standard for this hit.
  *   'core'           — MPL Core asset       (programSource = mpl_core)
  *   'cnft'           — Bubblegum compressed (programSource = bubblegum)
@@ -787,6 +802,18 @@ function isGraveMintTx(shape: ParsedTxShape): boolean {
   return false;
 }
 
+/** True iff `tx` matches the Artist Proof (ART) mint pattern: `ART_PROOF_PROGRAM`
+ *  present in accountKeys AND a top-level MPL Core `CreateV2` in the same tx.
+ *  The launchpad's own program never CPIs into Core itself (unlike LMNFT) —
+ *  it's invoked as a series of sibling top-level ixs alongside Core's create —
+ *  so the gate is program-presence + CreateV2 log, mirroring `isGraveMintTx`
+ *  Shape B rather than an inner-CPI check. */
+function isArtProofTx(shape: ParsedTxShape): boolean {
+  if (!shape.accountKeys.includes(ART_PROOF_PROGRAM)) return false;
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
+  return shape.logs.some((line) => line.includes('Instruction: CreateV2'));
+}
+
 /** System Program instruction index for `Transfer` (matches
  *  `SYS_TRANSFER_IX` in `mint-raw/index.ts` — duplicated locally rather
  *  than imported to avoid a circular import, since `index.ts` imports
@@ -1150,6 +1177,21 @@ export function detectLaunchpadMint(tx: RawSolanaTx): LaunchpadHit | null {
       // First signer is buyer; vvv.so platform signer is at index 2.
       minter:            shape.signerKeys[0] ?? null,
       matchedNeedle:     'Instruction: CreateV2',
+    };
+  }
+  // Artist Proof (ART) — own program fingerprint (no CPI into Core; Core
+  // CreateV2 is a sibling top-level ix), same class of signal as
+  // GRAVEMINT_PROGRAM Shape B. Checked after VVV, before mallow.
+  if (isArtProofTx(shape)) {
+    const core = extractCoreMintFromInner(tx, shape);
+    if (!core) return null;
+    return {
+      source:            'ART',
+      standard:          'core',
+      mintAddress:       core.mintAddress,
+      collectionAddress: core.collectionAddress,
+      minter:            shape.signerKeys[0] ?? null,
+      matchedNeedle:     'Instruction: CreateV2 (ART program)',
     };
   }
   // mallow.art "Buy Edition" (limited print) — own program fingerprint,

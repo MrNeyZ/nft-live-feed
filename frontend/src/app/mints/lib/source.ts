@@ -193,6 +193,9 @@ export function sourceBadge(
     // green/purpleTint/fuchsia/teal above). Otherwise unused by any
     // source badge.
     case 'Mallow':                 return { label: 'MALLOW',   bg: alpha(VL.redGlow, 0.15),  fg: rgb(VL.redGlow) };
+    // Artist Proof — violet, distinct from purpleTint (unknown-wrapper CORE /
+    // SFT) and from every other family in use above.
+    case 'ART':                    return { label: 'ART',      bg: alpha(VL.violet, 0.18),   fg: rgb(VL.violetLight) };
     default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }

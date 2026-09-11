@@ -23,11 +23,11 @@ import type { MintStatus } from './types';
 export type FeedTypeKey = 'cnft' | 'core' | 'candy';
 /** Unified launchpad-source keys — shared by table + feed (feed previously
  *  omitted CORE; now both honour it). */
-export type SourceKey   = 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY' | 'CORE';
+export type SourceKey   = 'LMNFT' | 'VVV' | 'GRAVE' | 'CANDY' | 'CORE' | 'ART';
 export type StatusKey   = 'active' | 'watch' | 'sold';
 
 export const TYPE_KEYS:   ReadonlyArray<FeedTypeKey> = ['cnft', 'core', 'candy'];
-export const SOURCE_KEYS: ReadonlyArray<SourceKey>   = ['LMNFT', 'VVV', 'GRAVE', 'CANDY', 'CORE'];
+export const SOURCE_KEYS: ReadonlyArray<SourceKey>   = ['LMNFT', 'VVV', 'GRAVE', 'CANDY', 'CORE', 'ART'];
 export const STATUS_KEYS: ReadonlyArray<StatusKey>   = ['active', 'watch', 'sold'];
 
 /** TYPE axis — identical for rows and events (both expose programSource +
@@ -59,7 +59,8 @@ export function matchesSource(sel: ReadonlySet<SourceKey>, sourceLabel: string):
     (sel.has('VVV')   && sourceLabel === 'VVV')                    ||
     (sel.has('GRAVE') && sourceLabel === 'GRAVE')                  ||
     (sel.has('CANDY') && sourceLabel === 'Metaplex Candy Machine') ||
-    (sel.has('CORE')  && sourceLabel === 'Metaplex Core')
+    (sel.has('CORE')  && sourceLabel === 'Metaplex Core')          ||
+    (sel.has('ART')   && sourceLabel === 'ART')
   );
 }
 
