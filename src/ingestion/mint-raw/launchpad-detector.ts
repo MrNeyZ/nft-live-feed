@@ -803,13 +803,20 @@ function isGraveMintTx(shape: ParsedTxShape): boolean {
 }
 
 /** True iff `tx` matches the Artist Proof (ART) mint pattern: `ART_PROOF_PROGRAM`
- *  present in accountKeys AND a top-level MPL Core `CreateV2` in the same tx.
- *  The launchpad's own program never CPIs into Core itself (unlike LMNFT) —
- *  it's invoked as a series of sibling top-level ixs alongside Core's create —
- *  so the gate is program-presence + CreateV2 log, mirroring `isGraveMintTx`
- *  Shape B rather than an inner-CPI check. */
+ *  present in accountKeys, `ART_PROOF_PLATFORM_SIGNER` an actual signer, AND a
+ *  top-level MPL Core `CreateV2` in the same tx. The launchpad's own program
+ *  never CPIs into Core itself (unlike LMNFT) — it's invoked as a series of
+ *  sibling top-level ixs alongside Core's create — so program-presence alone
+ *  isn't a safe fingerprint: `ART_PROOF_PROGRAM` is NOT ART-exclusive — it's
+ *  shared infra also present in Gravemint's own Shape B reference tx
+ *  (`AjieZ9mq…`, see `isGraveMintTx` doc above). A real Gravemint mint
+ *  (5SPG3jY8…) misclassified as ART on 2026-09-12 because the old gate only
+ *  checked program-presence, not the ART co-signer. The platform co-signer
+ *  check (previously "diagnostic-only") is now load-bearing, mirroring
+ *  Gravemint Shape A's unspoofable-signer gate. */
 function isArtProofTx(shape: ParsedTxShape): boolean {
   if (!shape.accountKeys.includes(ART_PROOF_PROGRAM)) return false;
+  if (!shape.signerKeys.includes(ART_PROOF_PLATFORM_SIGNER)) return false;
   if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return false;
   return shape.logs.some((line) => line.includes('Instruction: CreateV2'));
 }
