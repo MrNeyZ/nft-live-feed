@@ -23,6 +23,8 @@
     "test:candy-mint": "ts-node --transpile-only src/candy-mint/__tests__/candy-mint.test.ts",
     "test:candy-mint-frontend": "O=$(mktemp -d) && cd frontend && npx tsc src/app/tools/candy-mint/intent.ts src/app/tools/candy-mint/audit.ts src/app/tools/candy-mint/audit.test.ts src/app/tools/candy-mint/logic.ts src/app/tools/candy-mint/logic.test.ts --outDir \"$O\" --module commonjs --target es2020 --esModuleInterop --strict --skipLibCheck --resolveJsonModule --rootDir src && NODE_PATH=\"$PWD/node_modules\" node \"$O/app/tools/candy-mint/audit.test.js\" && NODE_PATH=\"$PWD/node_modules\" node \"$O/app/tools/candy-mint/logic.test.js\" && rm -rf \"$O\"",
     "capture:candy-mint-fixtures": "ts-node --transpile-only src/candy-mint/__tests__/capture-fixtures.ts",
+    "test:ghostbid-frontend": "O=$(mktemp -d) && cd frontend && npx tsc src/app/tools/ghostbid/logic.ts src/app/tools/ghostbid/logic.test.ts --outDir \"$O\" --module commonjs --target es2020 --esModuleInterop --strict --skipLibCheck --resolveJsonModule --rootDir src && NODE_PATH=\"$PWD/node_modules\" node \"$O/app/tools/ghostbid/logic.test.js\" && rm -rf \"$O\"",
+    "test:ghostbid": "ts-node src/server/__tests__/tools-ghostbid.test.ts",
     "test:holders-tool": "ts-node src/tools-holders/__tests__/analyze.test.ts",
     "test:collection-analyzer": "ts-node src/tools-collection-analyzer/__tests__/collection-analyzer.test.ts",
     "test:collection-analyzer-scan": "ts-node src/tools-collection-analyzer/__tests__/scan-pagination.test.ts",

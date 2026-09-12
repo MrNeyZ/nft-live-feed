@@ -30,7 +30,7 @@
  * Read-only: no wallet connect, no signing, no tx building.
  */
 import { Router, Request, Response } from 'express';
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { PublicKey } from '@solana/web3.js';
 import { rateLimit } from './rate-limit';
@@ -48,12 +48,23 @@ import { deriveBuyerEscrowPda, resolveEscrowBalances } from './me-bid-escrow';
 // across all of ranks ~101-500).
 const DATA_LIST_IDS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 type ListId = typeof DATA_LIST_IDS[number];
-function isListId(v: unknown): v is ListId {
+export function isListId(v: unknown): v is ListId {
   return typeof v === 'number' && (DATA_LIST_IDS as readonly number[]).includes(v);
 }
 function dataPathForList(list: ListId): string {
   const file = list === 1 ? 'ghostbid.json' : `ghostbid-list${list}.json`;
   return join(__dirname, '..', '..', 'data', file);
+}
+/** Shared by the Solanart escrow-account filter and the `/escrow-check`
+ *  buyer param — one named check instead of two duplicated try/catches. */
+export function isValidPubkey(s: string): boolean {
+  try { new PublicKey(s); return true; } catch { return false; }
+}
+/** No response ever echoes a raw error back to the client (GB-5) — detail
+ *  stays server-side in the log, the client gets a stable, generic string. */
+export function toClientError(err: unknown): string {
+  console.error('[ghostbid]', err);
+  return 'internal_error';
 }
 // Every ME v2 personal-item offer in this dataset funnels through the same
 // default auction house — cross-checked live: deriving the escrow PDA from
@@ -66,7 +77,7 @@ const RPC_CHUNK_MAX = 100;
 const OWNER_ACTIVITY_CONCURRENCY = 8;
 const OWNER_ACTIVITY_TIMEOUT_MS = 8_000;
 
-interface BaseRow {
+export interface BaseRow {
   mint: string;
   nft: string;
   image: string | null;
@@ -108,18 +119,28 @@ export interface GhostBidRow extends BaseRow {
   sharedEscrowGroup: string | null; // buyer wallet, when 2+ ME rows share it — for the frontend badge
 }
 
-const baseRowsByList = new Map<ListId, BaseRow[]>();
-function loadBase(list: ListId): BaseRow[] {
+interface BaseData {
+  rows: BaseRow[];
+  /** Unix ms mtime of this list's dataset file — the only signal we have
+   *  for "how stale is the floor data baked into these rows" (GB-2). Not
+   *  a per-row field; whole-list granularity is what the file gives us. */
+  snapshotAt: number;
+}
+const baseRowsByList = new Map<ListId, BaseData>();
+function loadBase(list: ListId): BaseData {
   const cached = baseRowsByList.get(list);
   if (cached) return cached;
-  const rows = JSON.parse(readFileSync(dataPathForList(list), 'utf-8')) as BaseRow[];
-  baseRowsByList.set(list, rows);
-  return rows;
+  const path = dataPathForList(list);
+  const rows = JSON.parse(readFileSync(path, 'utf-8')) as BaseRow[];
+  const snapshotAt = statSync(path).mtimeMs;
+  const data = { rows, snapshotAt };
+  baseRowsByList.set(list, data);
+  return data;
 }
 
 const liveStateByList = new Map<ListId, { updatedAt: number; rows: GhostBidRow[] }>();
 
-function computeSharedGroups(rows: BaseRow[]): Map<string, string> {
+export function computeSharedGroups(rows: BaseRow[]): Map<string, string> {
   const counts = new Map<string, number>();
   for (const r of rows) {
     if (r.marketplace !== 'ME') continue;
@@ -130,7 +151,7 @@ function computeSharedGroups(rows: BaseRow[]): Map<string, string> {
   return groups;
 }
 
-function toGhostRows(
+export function toGhostRows(
   rows: BaseRow[],
   liveBalances: Map<string, number> | null,
   ownerActivity: Map<string, number> | null,
@@ -183,7 +204,7 @@ function toGhostRows(
 function getSnapshot(list: ListId): { updatedAt: number; rows: GhostBidRow[] } {
   const cached = liveStateByList.get(list);
   if (cached) return cached;
-  const rows = toGhostRows(loadBase(list), null, null);
+  const rows = toGhostRows(loadBase(list).rows, null, null);
   const snapshot = { updatedAt: 0, rows }; // updatedAt=0 means "never live-checked"
   liveStateByList.set(list, snapshot);
   return snapshot;
@@ -231,9 +252,7 @@ interface MultipleAccountsResp {
  *  per offer, so one call covers every Solanart row in the list. */
 async function fetchSolanartEscrowBalances(offerAccounts: readonly string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  const valid = offerAccounts.filter(a => {
-    try { new PublicKey(a); return true; } catch { return false; }
-  });
+  const valid = offerAccounts.filter(isValidPubkey);
   for (let i = 0; i < valid.length; i += RPC_CHUNK_MAX) {
     const chunk = valid.slice(i, i + RPC_CHUNK_MAX);
     try {
@@ -373,9 +392,10 @@ export function createGhostBidRouter(): Router {
     if (list === null) { res.status(400).json({ ok: false, error: 'invalid_list' }); return; }
     try {
       const { updatedAt, rows } = getSnapshot(list);
-      res.json({ ok: true, list, updatedAt, count: rows.length, rows });
+      const { snapshotAt } = loadBase(list);
+      res.json({ ok: true, list, updatedAt, snapshotAt, count: rows.length, rows });
     } catch (err) {
-      res.status(500).json({ ok: false, error: String(err) });
+      res.status(500).json({ ok: false, error: toClientError(err) });
     }
   });
 
@@ -383,7 +403,7 @@ export function createGhostBidRouter(): Router {
     const list = parseList(req);
     if (list === null) { res.status(400).json({ ok: false, error: 'invalid_list' }); return; }
     try {
-      const rows = loadBase(list);
+      const { rows, snapshotAt } = loadBase(list);
       const meBuyers = [...new Set(rows.filter(r => r.marketplace === 'ME').map(r => r.buyer))];
       const solanartAccounts = [...new Set(
         rows.filter(r => r.marketplace === 'Solanart' && r.offerAccount).map(r => r.offerAccount as string)
@@ -411,6 +431,7 @@ export function createGhostBidRouter(): Router {
         ok: true,
         list,
         updatedAt,
+        snapshotAt,
         count: updated.length,
         checked: {
           meBuyers: meBuyers.length, meResolved: meBalances.size,
@@ -420,7 +441,7 @@ export function createGhostBidRouter(): Router {
         rows: updated,
       });
     } catch (err) {
-      res.status(500).json({ ok: false, error: String(err) });
+      res.status(500).json({ ok: false, error: toClientError(err) });
     }
   });
 
@@ -430,9 +451,7 @@ export function createGhostBidRouter(): Router {
   const escrowCheckLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'tools/ghostbid/escrow-check' });
   router.get('/tools/ghostbid/escrow-check', escrowCheckLimit, requireAuth, async (req: Request, res: Response) => {
     const buyer = typeof req.query.buyer === 'string' ? req.query.buyer : '';
-    try {
-      new PublicKey(buyer);
-    } catch {
+    if (!isValidPubkey(buyer)) {
       res.status(400).json({ ok: false, error: 'invalid_buyer' });
       return;
     }
@@ -445,7 +464,7 @@ export function createGhostBidRouter(): Router {
       }
       res.json({ ok: true, buyer, balanceSol });
     } catch (err) {
-      res.status(500).json({ ok: false, error: String(err) });
+      res.status(500).json({ ok: false, error: toClientError(err) });
     }
   });
 

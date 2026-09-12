@@ -29,6 +29,7 @@ import { compressImage } from '@/soloist/shared';
 import { VL, VLText, rgb, alpha, type RGB } from '@/lib/palette';
 import { API_BASE, MONO, PANEL, TH, ToolButton } from '@/app/tools/mmm-shared';
 import { authHeaders } from '@/runtime/auth';
+import { GhostBidRequestArbiter, floorSnapshotCaption } from './logic';
 
 interface GhostBidRow {
   mint: string;
@@ -58,6 +59,10 @@ interface ApiResult {
   ok: true;
   list?: number;
   updatedAt: number;
+  /** Unix ms mtime of this list's dataset file — see floorSnapshotCaption
+   *  in ./logic. Absent on a response from a not-yet-redeployed backend;
+   *  the caption falls back to honest un-dated wording in that case. */
+  snapshotAt?: number;
   count: number;
   rows: GhostBidRow[];
   checked?: { meBuyers: number; meResolved: number; solanartAccounts: number; solanartResolved: number; owners: number; ownerActivityResolved: number };
@@ -281,30 +286,61 @@ export default function GhostBidPage() {
   const [listMenuOpen, setListMenuOpen] = useState(false);
   const LIST_COUNTS: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = { 1: 96, 2: 94, 3: 95, 4: 95, 5: 91, 6: 91, 7: 95, 8: 47 };
 
+  // GB-1 fix: `result`/`error` are shared between load() and refresh(), and
+  // either can be in flight for either list at once (list-switch mid-fetch,
+  // a double refresh-click, or the auto-refresh effect firing right as the
+  // operator picks a different list). Two requests of the same OR different
+  // kind can resolve out of order — comparing the response's own `list`
+  // field against `activeList` doesn't catch same-list-different-request
+  // races (Refresh A vs Refresh B on the same list). The arbiter tracks one
+  // shared "most recently STARTED" generation for result/error, plus a
+  // per-kind latest-generation so a stale load/refresh can never clear the
+  // OTHER kind's — or a newer same-kind request's — loading flag. See
+  // ./logic.ts (GhostBidRequestArbiter) for the isolated, tested logic.
+  const requestArbiterRef = useRef(new GhostBidRequestArbiter());
+
   const load = useCallback(() => {
+    const arbiter = requestArbiterRef.current;
+    const gen = arbiter.beginLoad();
     setBusy(true);
     setError(null);
     fetch(`${API_BASE}/api/tools/ghostbid?list=${activeList}`, { headers: authHeaders() })
       .then(r => r.json())
       .then((data: ApiResult | { ok: false; error: string }) => {
+        if (!arbiter.isLatestOverall(gen)) return; // superseded — a newer load/refresh already painted
         if (!data.ok) { setError(data.error); return; }
         setResult(data);
       })
-      .catch(e => setError(String(e)))
-      .finally(() => setBusy(false));
+      .catch(e => {
+        if (!arbiter.isLatestOverall(gen)) return;
+        setError(String(e));
+      })
+      .finally(() => {
+        if (!arbiter.isLatestLoad(gen)) return; // a newer load owns `busy` now
+        setBusy(false);
+      });
   }, [activeList]);
 
   const refresh = useCallback(() => {
+    const arbiter = requestArbiterRef.current;
+    const gen = arbiter.beginRefresh();
     setRefreshing(true);
     setError(null);
     fetch(`${API_BASE}/api/tools/ghostbid/refresh?list=${activeList}`, { method: 'POST', headers: authHeaders() })
       .then(r => r.json())
       .then((data: ApiResult | { ok: false; error: string }) => {
+        if (!arbiter.isLatestOverall(gen)) return;
         if (!data.ok) { setError(data.error); return; }
         setResult(data);
       })
-      .catch(e => setError(String(e)))
-      .finally(() => setRefreshing(false));
+      .catch(e => {
+        if (!arbiter.isLatestOverall(gen)) return;
+        setError(String(e));
+      })
+      .finally(() => {
+        if (!arbiter.isLatestRefresh(gen)) return; // a newer refresh owns `refreshing` now
+        setRefreshing(false);
+      });
   }, [activeList]);
 
   // Re-fires whenever activeList changes (load/refresh both depend on it) —
@@ -506,6 +542,12 @@ export default function GhostBidPage() {
             background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5,
           }}>
             {error}
+          </div>
+        )}
+
+        {result && (
+          <div style={{ marginBottom: result.checked ? 4 : 12, fontSize: 10.5, color: VLText.faint, ...MONO }}>
+            {floorSnapshotCaption(result.snapshotAt)}
           </div>
         )}
 
