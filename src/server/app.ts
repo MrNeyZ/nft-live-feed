@@ -44,6 +44,7 @@ import { createSolanartAcceptOfferRouter } from './tools-solanart-accept-offer';
 import { createSolseaAcceptBidRouter } from './tools-solsea-accept-bid';
 import { createGhostBidRouter } from './tools-ghostbid';
 import { createCnftRevokeDelegateRouter } from './tools-cnft-revoke-delegate';
+import { createResizeClaimRouter } from './tools-resize-claim';
 import { createPixelForgeRouter } from './tools-pixel-forge';
 import { createPixelForgeRasterRouter } from './tools-pixel-forge-raster';
 import { createPixelForgeGenerateSourceRouter } from './tools-pixel-forge-generate-source';
@@ -332,6 +333,14 @@ export function createApp() {
   // compressed NFT clear a project delegate so it can be listed. See
   // tools-cnft-revoke-delegate.ts header.
   app.use('/api', createCnftRevokeDelegateRouter());
+
+  // Resize / Claim — personal use, requireAuth-gated on every route (see
+  // tools-resize-claim.ts header). Recovers the Metaplex "TM Resize" excess
+  // SOL for a wallet's legacy/pNFT NFTs: scans + resolves merkle proofs
+  // from Metaplex's proof server-action + checks ClaimReceipt PDAs, then
+  // returns unsigned DistributeToLegacyNft / Resize txs for the wallet to
+  // sign and submit. No key touches this process, no backend broadcast.
+  app.use('/api', createResizeClaimRouter());
 
   // VictoryLabs Internal Bot API v1 — private, versioned, read-only market
   // data for the vl-nft-bots consumer. Bot-auth-gated on every route (see
