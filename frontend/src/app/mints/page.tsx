@@ -2836,7 +2836,18 @@ export default function MintsPage() {
               )}
               {(() => { const now = Date.now(); return displaySorted.map((r, i) => (
                 <MintsTableRow
-                  key={`${r.groupingKey}:${r.lastMintAt}`}
+                  // groupingKey-only — do NOT append lastMintAt. Re-keying on
+                  // every mint force-remounts the row, tearing down the SHOW
+                  // button's hover listeners under the cursor. Chrome then
+                  // auto-fires a fresh mouseenter on the replacement node
+                  // (hit-test target changed under a stationary pointer),
+                  // which re-triggers the hover-scope → for a fast-minting
+                  // collection this loops forever: laggy re-renders and the
+                  // rest of the Live Mint Feed stuck dimmed. The flash
+                  // animation restart is now handled imperatively inside
+                  // MintsTableRow (see its lastMintAt effect) instead of via
+                  // remount.
+                  key={r.groupingKey}
                   row={r}
                   index={i}
                   now={now}

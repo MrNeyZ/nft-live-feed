@@ -326,18 +326,36 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
     ? `${accentColor}cc`
     : accentColor;
   // Fresh-mint flash — same green pulse the dashboard uses for fresh
-  // sales. Two parts:
-  //   1. `key` includes `r.lastMintAt` so React remounts the row
-  //      whenever a new mint lands in this collection — the CSS
-  //      animation replays from frame 0 each time.
-  //   2. `row-flash-up` class is applied when the most recent mint
-  //      is < 3.6 s old (the animation's duration). After the
-  //      window passes the class is dropped automatically on the
-  //      next `force()` tick (5 s cadence) — well beyond animation
-  //      end, so no visible cut-off.
+  // sales. `row-flash-up` class is applied (via className, React-driven)
+  // whenever the most recent mint is < 3.6 s old; dropped automatically
+  // on the next `force()` tick (5 s cadence) once the window passes.
+  //
+  // The row is NOT remounted on every `lastMintAt` change (it used to be
+  // keyed `${groupingKey}:${lastMintAt}` in the parent) — a fast-minting
+  // collection would tear down/rebuild the SHOW button under the cursor
+  // on every mint, and Chrome auto-fires mouseenter on the replacement
+  // node, re-triggering the hover-scope in a tight loop (laggy, feed
+  // stuck dimmed). Instead the CSS animation is restarted imperatively
+  // below (reflow trick) so the row/SHOW button's React state — and the
+  // DOM node itself — survives every mint.
   const isFreshMint = (now - r.lastMintAt) < 3600;
+  const rowRef = useRef<HTMLTableRowElement | null>(null);
+  const lastMintAtRef = useRef(r.lastMintAt);
+  useEffect(() => {
+    if (r.lastMintAt === lastMintAtRef.current) return;
+    lastMintAtRef.current = r.lastMintAt;
+    const el = rowRef.current;
+    if (!el) return;
+    // Only className is React-owned on this node; `style.animation` is
+    // touched nowhere else, so this can't desync the way the old
+    // imperative hover-style bug did (see isHovering above).
+    el.style.animation = 'none';
+    void el.offsetWidth; // force reflow so re-adding the animation replays it
+    el.style.animation = '';
+  }, [r.lastMintAt]);
   return (
     <tr
+      ref={rowRef}
       // Class stack:
       //   • `mints-tracker-row` — per-row background tint
       //     (globals.css) so each tracker row sits as a soft band
