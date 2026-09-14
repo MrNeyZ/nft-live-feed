@@ -25,7 +25,7 @@
 // Data: GET /api/tools/opensea-arb/scan-stream (SSE)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LiveDot, CtaButton } from '@/soloist/shared';
+import { LiveDot, CtaButton, MktIconBadge } from '@/soloist/shared';
 import { playUiConfirm } from '@/soloist/use-ui-sound';
 import { VL, VLText, rgb, alpha } from '@/lib/palette';
 import { API_BASE, MONO, PANEL, TH, TH_L } from '@/app/tools/mmm-shared';
@@ -34,6 +34,7 @@ interface ArbRow {
   name: string;
   collection: string;
   slug: string | null;
+  osSlug: string | null;
   osFloorSol: number;
   osCount: number;
   meFloorSol: number | null;
@@ -86,6 +87,7 @@ function ArbTable({ rows, buySide, sellSide, buyLabel, sellLabel, emptyMsg }: {
             <th style={TH}>ROYALTY</th>
             <th style={TH}>NET PROFIT</th>
             <th style={TH}>OS2 LISTED</th>
+            <th style={TH}></th>
           </tr>
         </thead>
         <tbody>
@@ -100,6 +102,12 @@ function ArbTable({ rows, buySide, sellSide, buyLabel, sellLabel, emptyMsg }: {
                 {r.profitNetSol > 0 ? '+' : ''}{fmtSol(r.profitNetSol)}
               </td>
               <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontSize: 11, color: 'var(--vl-text-muted)' }}>{r.osCount}</td>
+              <td style={{ padding: '6px 8px' }}>
+                <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                  <MktIconBadge mp="opensea" href={r.osSlug ? `https://opensea.io/collection/${r.osSlug}` : null} />
+                  <MktIconBadge mp="me" href={r.slug ? `https://magiceden.io/marketplace/${r.slug}` : null} />
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>

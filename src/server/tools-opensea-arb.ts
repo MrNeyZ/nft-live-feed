@@ -148,6 +148,29 @@ async function tensorMintMetaFor(mint: string): Promise<TensorMintMeta> {
   } catch { return { slug: null, royaltyBps: null }; }
 }
 
+/** Resolves the on-chain OS2 collection address to OpenSea's own collection
+ *  slug (`https://opensea.io/collection/<slug>`), via OpenSea's unified v2
+ *  API — verified live: `GET /api/v2/chain/solana/contract/{address}` returns
+ *  `{ collection: "<slug>" }` for both MPL Core and legacy Solana
+ *  collections (confirmed against "Collector Crypt" -> collector-crypt and
+ *  "Grimoire" -> grimoire-324808527, both resolving to a real 200 collection
+ *  page). This is the ONLY slug space this tool can use for an OS2 link —
+ *  Tensor's `slug` (used for the ME badge, since ME's symbol happens to
+ *  match it) is a different identifier and does not resolve on OpenSea. */
+async function openseaCollectionSlug(collectionAddress: string): Promise<string | null> {
+  const key = process.env.OPENSEA_API_KEY;
+  if (!key) return null;
+  try {
+    const r = await fetch(
+      `https://api.opensea.io/api/v2/chain/solana/contract/${encodeURIComponent(collectionAddress)}`,
+      { headers: { 'X-API-KEY': key }, signal: AbortSignal.timeout(6000) },
+    );
+    if (!r.ok) return null;
+    const j = await r.json() as { collection?: string };
+    return typeof j.collection === 'string' && j.collection.length > 0 ? j.collection : null;
+  } catch { return null; }
+}
+
 async function meFloorSol(slug: string): Promise<number | null> {
   try {
     const r = await fetch(`https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/stats`, { signal: AbortSignal.timeout(6000) });
@@ -180,6 +203,11 @@ export interface OpenseaArbRow {
   name: string;
   collection: string;
   slug: string | null;
+  /** OpenSea's own collection slug (`opensea.io/collection/<osSlug>`) —
+   *  resolved separately from `slug` (Tensor's, reused for the ME badge)
+   *  since the two marketplaces don't share a slug space. Null when
+   *  `OPENSEA_API_KEY` is unset or the lookup failed/missed. */
+  osSlug: string | null;
   osFloorSol: number;
   osCount: number;
   meFloorSol: number | null;
@@ -214,8 +242,12 @@ async function runFullScan(emit: Emit): Promise<ScanCacheShape> {
     i++;
     const { slug, royaltyBps } = await tensorMintMetaFor(c.sampleAsset);
     await new Promise(r => setTimeout(r, TENSOR_GAP_MS));
-    const [mFloor, mBid] = slug ? await Promise.all([meFloorSol(slug), meTopMmmBidSol(slug)]) : [null, null];
-    rows.push({ name: c.name ?? c.collection, collection: c.collection, slug, osFloorSol: c.osFloorSol, osCount: c.count, meFloorSol: mFloor, meTopBidSol: mBid, royaltyBps });
+    const [mFloor, mBid, osSlug] = await Promise.all([
+      slug ? meFloorSol(slug) : Promise.resolve(null),
+      slug ? meTopMmmBidSol(slug) : Promise.resolve(null),
+      openseaCollectionSlug(c.collection),
+    ]);
+    rows.push({ name: c.name ?? c.collection, collection: c.collection, slug, osSlug, osFloorSol: c.osFloorSol, osCount: c.count, meFloorSol: mFloor, meTopBidSol: mBid, royaltyBps });
     if (i % 10 === 0 || i === collections.length) {
       emit('progress', { msg: `Checked ${i}/${collections.length} collections against ME…` });
     }
