@@ -802,7 +802,15 @@ function collectSystemTransfers(tx: RawSolanaTx): SysTransfer[] {
  *  found (caller falls back to the legacy signer-delta). */
 function extractMintPriceFromTransfers(tx: RawSolanaTx): number | null {
   const feePayer  = resolveAccountKey(tx, 0);
-  const transfers = collectSystemTransfers(tx).filter(t => t.dest && t.dest !== feePayer);
+  const pre       = tx.meta?.preBalances;
+  const transfers = collectSystemTransfers(tx).filter(t =>
+    t.dest && t.dest !== feePayer &&
+    // Exclude transfers into an account with pre-balance 0: that's rent/storage
+    // top-up for a NEW account being created in this same tx (e.g. extra
+    // realloc lamports for the buyer's own Core asset), not a payment to a
+    // pre-existing treasury. Same convention as extractRelayerSingleMintPrice.
+    Array.isArray(pre) && Number.isFinite(pre[t.destIdx] as number) && (pre[t.destIdx] as number) > 0,
+  );
   if (transfers.length === 0) return null;
 
   // Group identical (destination, amount) legs → the repeated treasury payment.
