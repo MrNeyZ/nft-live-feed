@@ -183,7 +183,7 @@ export interface SourceStatusWire {
 // ─── Mint tracker ────────────────────────────────────────────────────────────
 
 export type MintProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
-export type MintType          = 'free' | 'paid' | 'unknown';
+export type MintType          = 'paid' | 'unknown';
 export type MintDisplayState  = 'incubating' | 'shown' | 'cooled';
 
 /** Best-effort launchpad / source label. Detection is conservative: a
@@ -400,7 +400,7 @@ export interface MintStatusWire {
    *  weeks/months before our tracker first observed a mint from them.
    *  Frontend prefers this over `firstSeenAt` when present. */
   collectionCreatedAt?: number;
-  mintType:          MintType | 'mixed';
+  mintType:          MintType;
   priceLamports:     number | null;
   sourceLabel:       MintSourceLabel;
   /** Visual subtype: true once a Core Candy Machine v3 / Core Candy Guard mint

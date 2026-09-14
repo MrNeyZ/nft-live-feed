@@ -445,17 +445,17 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   const perNftLamports = ev.priceLamports != null && isBulkMint
     ? ev.priceLamports / (ev.nftCount as number)
     : ev.priceLamports;
-  // `<= 0` (not `=== 0`): legacy DB rows can carry a negative priceLamports
-  // (signer net-received lamports); render those as FREE, never negative SOL.
-  // Collection-CREATE is NOT an NFT mint — it has no mint price, so it must
-  // never render FREE / a SOL amount / any mint-priced label. Blank string
-  // (not '—', which reads as "price unknown") keeps the 56px price column
-  // width so the card footprint is unchanged.
+  // No "free" price tier — fmtMintPrice floors legacy negative rows to 0 and
+  // shows a raw number regardless of how small. Collection-CREATE is NOT an
+  // NFT mint — it has no mint price, so it must never render a SOL amount /
+  // any mint-priced label. Blank string (not '—', which reads as "price
+  // unknown") keeps the 56px price column width so the card footprint is
+  // unchanged.
   const priceText      = isCollectionCreate
     ? ''
     : perNftLamports == null
     ? '—'
-    : perNftLamports <= 0 ? 'FREE' : fmtMintPrice(perNftLamports);
+    : fmtMintPrice(perNftLamports);
   // Total tx price (formatted) — only meaningful on a paid bulk mint, where
   // it differs from the per-NFT figure. Surfaced both in the `×N = TOTAL` pill
   // and in the price tooltip below. Null for single / free mints.

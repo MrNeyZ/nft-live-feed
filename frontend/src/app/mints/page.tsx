@@ -505,7 +505,6 @@ interface RebuildResult { rows: Map<string, MintStatus>; cnftCount: number }
 function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
   const now = Date.now();
   const out = new Map<string, MintStatus>();
-  const freeCount: Record<string, number> = {};
   const paidCount: Record<string, number> = {};
   for (const ev of events) {
     // Collection-CREATE is a deploy, not a mint — never count it toward a
@@ -552,7 +551,6 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
         // `mint_status` frame after SSE reconnect fills these in.
       };
       out.set(key, row);
-      freeCount[key] = 0;
       paidCount[key] = 0;
     }
     row.observedMints++;
@@ -560,22 +558,16 @@ function rebuildCollectionsFromEvents(events: MintEvent[]): RebuildResult {
     if (ev.mintAddress) row.lastMintAddress = ev.mintAddress;
     if (now - ev.receivedAt < 60_000)  row.v60++;
     if (now - ev.receivedAt < 300_000) row.v5m++;
-    if (ev.mintType === 'free')      freeCount[key]++;
-    else if (ev.mintType === 'paid') paidCount[key]++;
+    if (ev.mintType === 'paid') paidCount[key]++;
   }
   // Roll up mintType the same way the backend does (`rollupType` in
-  // src/mints/accumulator.ts): mostly-free / mostly-paid / mixed /
-  // unknown. Cheap pass over the per-group counters.
+  // src/mints/accumulator.ts): mostly-paid vs. unknown. Cheap pass over the
+  // per-group counters. No "free"/"mixed" tiers — see mint price rewrite.
   let cnftCount = 0;
   for (const [k, row] of out) {
     const obs = row.observedMints;
-    const f   = freeCount[k] ?? 0;
     const p   = paidCount[k] ?? 0;
-    if (obs === 0)            row.mintType = 'unknown';
-    else if (f / obs > 0.95)  row.mintType = 'free';
-    else if (p / obs > 0.95)  row.mintType = 'paid';
-    else if (f > 0 && p > 0)  row.mintType = 'mixed';
-    else                      row.mintType = 'unknown';
+    row.mintType = (obs === 0 || obs - p > p) ? 'unknown' : 'paid';
     if (row.programSource === 'bubblegum') cnftCount++;
   }
   return { rows: out, cnftCount };
@@ -703,9 +695,7 @@ const SORT_KEYS: readonly SortKey[] = ['collection', 'mints', 'supply', 'last', 
 
 function typeBadge(t: MintRollupType): { label: string; bg: string; fg: string } {
   switch (t) {
-    case 'free':    return { label: 'FREE',    bg: alpha(VL.greenGlow,0.15),  fg: rgb(VL.green) };
     case 'paid':    return { label: 'PAID',    bg: alpha(VL.purpleTint,0.15), fg: rgb(VL.purpleTint) };
-    case 'mixed':   return { label: 'MIXED',   bg: 'rgba(232,193,74,0.15)',  fg: rgb(VL.gold) };
     default:        return { label: 'UNKNOWN', bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }
@@ -2100,9 +2090,9 @@ export default function MintsPage() {
   // shows is "the most recent observed mint price for this row",
   // which naturally updates the moment a new event with a different
   // price arrives. priceLamports semantics:
-  //    null  → unknown (free or paid?); cell renders "—"
-  //    0     → confirmed free mint;     cell renders "FREE"
-  //    >0    → paid mint, lamports;     cell renders fmtSol(value)
+  //    null  → no price resolved; cell renders "—"
+  //    >=0   → resolved lamport figure; cell renders fmtSol(value) as-is,
+  //            no "free" bucket — a real mint always costs something
   //
   // No tfMs/timeframe dep — the latest price persists across tf
   // changes and only updates on a new event for the group.
@@ -2220,11 +2210,11 @@ export default function MintsPage() {
         }
         case 'price': {
           // Rows with no observed price (null) sink to the bottom of
-          // the ascending order so an asc-click clusters paid rows
+          // the ascending order so an asc-click clusters priced rows
           // first; a desc-click puts the highest mint price on top
-          // and pushes unknowns to the bottom. FREE (0 lamports) is
-          // a real observed value and sorts as 0 — appears at the
-          // top of an asc-click as "cheapest = free".
+          // and pushes unknowns to the bottom. A near-zero resolved
+          // price is a real observed value and sorts near 0 — appears
+          // near the top of an asc-click as "cheapest".
           const ap = lastPriceByKey.get(a.groupingKey);
           const bp = lastPriceByKey.get(b.groupingKey);
           const av = (typeof ap === 'number') ? ap : Number.POSITIVE_INFINITY;

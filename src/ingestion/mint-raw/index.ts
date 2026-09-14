@@ -20,11 +20,13 @@
  *   - Bubblegum              → deferred; cNFT mints will follow once cNFT
  *                              mint coverage is needed (lower priority).
  *
- * Price extraction (free/paid/unknown):
+ * Price extraction (paid/unknown):
  *   Sum of pre→post SOL delta on the payer (signer index 0) minus the
- *   tx fee. If positive (signer paid), classify as `paid`; zero ⇒ `free`;
- *   below MIN_PAID dust threshold ⇒ `unknown`. We use the same
- *   MIN_PAID_LAMPORTS as the accumulator (1 000 000 lamports).
+ *   tx fee. Any resolved lamport figure (however small) is shown as-is —
+ *   there is no "free" mint bucket: a real mint always costs at least
+ *   network fee + rent, so an apparent zero/near-zero price is surfaced as
+ *   the raw number, not specially labelled. `unknown` is reserved for
+ *   "couldn't determine a price at all" (no source matched).
  */
 
 import bs58 from 'bs58';
@@ -655,8 +657,6 @@ export function isCandyGuardMintLog(logs: unknown): boolean {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const MIN_PAID_LAMPORTS = 1_000_000;
-
 /** `variant` distinguishes AT LEAST: legacy CreateMetadataAccountV2/V3
  *  (`tm_legacy_create_needle`), the modern unified Token Metadata `Create`
  *  (`tm_unified_create_bare`), and MPL Core's create variants
@@ -753,9 +753,10 @@ function extractSignerLamportsPaid(tx: RawSolanaTx): number | null {
   const delta = (pre[0] as number) - (post[0] as number) - fee;
   if (!Number.isFinite(delta)) return null;   // invalid/missing balances → unknown
   // Clamp to 0: a negative delta means the fee-payer (accountKeys[0]) net-
-  // RECEIVED lamports (e.g. Metaplex Core free mints / fee-payer != minter),
-  // which is not a price. classifyMintType already maps <=0 to 'free'; clamping
-  // here stops a negative SOL value reaching priceLamports / the UI.
+  // RECEIVED lamports (e.g. a sponsored/reimbursed mint, fee-payer != minter),
+  // which is not a price. Clamping here stops a negative SOL value reaching
+  // priceLamports / the UI; classifyMintType still reports this as `paid`
+  // with a 0 lamport price, not a special "free" state.
   return delta > 0 ? delta : 0;
 }
 
@@ -976,31 +977,18 @@ function extractCoreCreateDepositLamports(tx: RawSolanaTx): number | null {
  *     distinct creator/treasury transfers) — recovers direct MPL Core CreateV2
  *     relayer mints the count>=2 batch rule misses.
  *  4. Signer net-delta — the minter's own SOL spend, when positive.
- *  5. Core asset-creation deposit — ONLY when the minter paid nothing: a direct
- *     MPL Core Create/CreateV2 still costs the create payer the asset's rent
- *     (sponsored / gasless mints), so show that deposit rather than FREE.
+ *  5. Core asset-creation deposit — ONLY when the minter paid nothing directly: a
+ *     direct MPL Core Create/CreateV2 still costs the create payer the asset's
+ *     rent (sponsored / gasless mints), so show that deposit rather than 0.
  *     Gated to Core asset creates; every paid path returns above it, so
  *     existing paid-mint behaviour is untouched.
  *
- *  Sub-threshold clamp: any extracted price in the range (0, MIN_PAID_LAMPORTS)
- *  is returned as 0 (FREE). These micro-amounts are not real mint prices — they
- *  arise from burn+mint fusion txes (e.g. burn 4 NFTs → mint 1) where the
- *  signer's net SOL outflow is just the rent slippage between burned and created
- *  accounts. Surfacing them as a price (e.g. "0.000019 SOL") is misleading. */
+ *  No sub-threshold clamp: whatever lamport figure a path resolves to is
+ *  returned as-is, including small/dust amounts (e.g. burn+mint fusion rent
+ *  slippage) — there is no "free" bucket to round dust into. `null` (no path
+ *  matched) is the only "we don't know" outcome. */
 export function extractMintPriceLamports(tx: RawSolanaTx): number | null {
-  const raw = extractRawMintPriceLamports(tx);
-  if (raw == null || raw <= 0) return raw;
-  // Sub-threshold clamp: a positive price below MIN_PAID_LAMPORTS is rent
-  // slippage, not a real price — e.g. burn-N-mint-1 fusion txes where the
-  // burned assets' reclaimed rent almost covers the new asset's rent, leaving a
-  // tiny positive residual. Applied to the RESULT regardless of which path
-  // produced it (escrow / repeated-transfer / relayer-transfer / signer-delta /
-  // Core-create-deposit all funnel through here) — only the signer-delta path
-  // used to get this clamp, so dust values from the other paths (e.g. a
-  // burn+mint fusion priced via the relayer-transfer or Core-deposit path)
-  // leaked through as misleading prices like "0.0000938 SOL". Return 0 (FREE)
-  // so the UI shows FREE, not a micro-SOL.
-  return raw >= MIN_PAID_LAMPORTS ? raw : 0;
+  return extractRawMintPriceLamports(tx);
 }
 
 function extractRawMintPriceLamports(tx: RawSolanaTx): number | null {
@@ -1162,10 +1150,7 @@ function paymentFieldsFrom(tx: RawSolanaTx): Partial<{
 }
 
 export function classifyMintType(priceLamports: number | null): MintType {
-  if (priceLamports == null) return 'unknown';
-  if (priceLamports <= 0)    return 'free';
-  if (priceLamports >= MIN_PAID_LAMPORTS) return 'paid';
-  return 'unknown';
+  return priceLamports == null ? 'unknown' : 'paid';
 }
 
 /** Token Metadata is NOT an Anchor program — its instruction discriminator

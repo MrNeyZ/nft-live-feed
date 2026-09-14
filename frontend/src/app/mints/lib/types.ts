@@ -36,7 +36,7 @@ export const MINT_TF_DESC: Record<MintTimeframe, string> = {
 };
 
 export type ProgramSource = 'mpl_token_metadata' | 'mpl_core' | 'bubblegum';
-export type MintRollupType = 'free' | 'paid' | 'unknown' | 'mixed';
+export type MintRollupType = 'paid' | 'unknown';
 export type SourceLabel =
   | 'LaunchMyNFT' | 'Pack' | 'VVV' | 'GRAVE' | 'ME'
   | 'Metaplex Candy Machine' | 'Core Candy Machine' | 'Metaplex Core' | 'Candy Labs' | 'Metaplex'
@@ -195,7 +195,7 @@ export interface MintEvent {
   collectionAddress: string | null;
   groupingKey:       string;
   groupingKind:      string;
-  mintType:          'free' | 'paid' | 'unknown';
+  mintType:          'paid' | 'unknown';
   /** SOL paid by the signer. For SPL-token-priced mints this is the rent
    *  paid for the new asset, NOT the real price — see paymentMint below. */
   priceLamports:     number | null;

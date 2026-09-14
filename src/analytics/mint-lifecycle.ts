@@ -204,8 +204,8 @@ interface MintedAtRow { minted_at_ms: string | null; program_source: string | nu
  *
  *  `program_source` ('mpl_core' | 'mpl_token_metadata' | 'bubblegum') is the
  *  NFT-standard-ish classifier on this table — NOT `mint_type`, which is a
- *  payment classifier ('paid' | 'free' | 'unknown', see
- *  src/mints/detector.ts), a naming trap this module deliberately avoids. */
+ *  payment classifier ('paid' | 'unknown', see src/mints/detector.ts), a
+ *  naming trap this module deliberately avoids. */
 async function fetchMintedAt(mintAddress: string): Promise<{ mintedAtMs: number | null; nftType: string | null; collectionAddress: string | null }> {
   const pool = getPool();
   const { rows } = await pool.query<MintedAtRow>(

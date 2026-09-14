@@ -884,9 +884,10 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
           stages. The cell updates the moment a new event with a
           different price arrives. Display tiers:
             null / map miss → "—" (muted, dim — no mint observed yet)
-            0 lamports      → "FREE" (green family)
-            > 0 lamports    → fmtSol value (default muted-bright,
-                              mirrors SUPPLY column tone) */}
+            resolved price  → fmtSol value (default muted-bright,
+                              mirrors SUPPLY column tone) — no "free"
+                              tier, every resolved price shows as a
+                              raw number, however small */}
       {(() => {
         // Deploy-only collection (collection-CREATE observed, no mints yet —
         // see the matching `observedMints === 0` check in MintsSourceBadge).
@@ -913,7 +914,6 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const price      = lastPriceByKey.get(r.groupingKey) ?? r.priceLamports;
         const solDisplay = (typeof price === 'number') ? fmtMintPrice(price) : '—';
         const isUnknown = solDisplay === '—';
-        const isFree    = solDisplay === 'FREE';
         const payment   = lastPaymentByKey?.get(r.groupingKey) ?? null;
         const tokenInfo = payment ? paymentTokens?.get(payment.mint) ?? null : null;
         // Format the token amount with the mint's decimals — keep at most
@@ -926,16 +926,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
         const display = (payment && showInToken && tokenAmount != null)
           ? `${tokenAmount} ${tokenLabel}`
           : solDisplay;
-        const cellColor = isFree     ? rgb(VL.green)
-                        : isUnknown  ? 'var(--vl-border-subtle)'
+        const cellColor = isUnknown  ? 'var(--vl-border-subtle)'
                         :              'var(--vl-white)';
         const tip = isUnknown
           ? `No mint price observed yet for this collection`
-          : isFree
-            ? `Latest observed mint: FREE`
-            : payment
-              ? `Mint paid in ${tokenInfo?.name ?? tokenLabel} (${tokenLabel}). SOL value shown is rent on the new asset, not the real price. Click the token icon to toggle.`
-              : `Latest observed mint price: ${solDisplay} SOL · not averaged — updates when a new mint event lands at a different price`;
+          : payment
+            ? `Mint paid in ${tokenInfo?.name ?? tokenLabel} (${tokenLabel}). SOL value shown is rent on the new asset, not the real price. Click the token icon to toggle.`
+            : `Latest observed mint price: ${solDisplay} SOL · not averaged — updates when a new mint event lands at a different price`;
         return (
           <td
             // UX audit (M8): `tip` was already computed with the right

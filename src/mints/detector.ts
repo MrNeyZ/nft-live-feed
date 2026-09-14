@@ -65,9 +65,7 @@ export function startMintDetector(): void {
       collectionAddress: mintCollection,
       groupingKey,
       groupingKind,
-      mintType:          event.priceLamports === 0n ? 'free'
-                          : event.priceLamports >= 1_000_000n ? 'paid'
-                          : 'unknown',
+      mintType:          'paid',
       priceLamports:     Number(event.priceLamports),
       minter:            event.buyer || null,
       sourceLabel:       'Bubblegum',

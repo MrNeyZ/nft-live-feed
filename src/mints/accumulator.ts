@@ -47,8 +47,6 @@ const WINDOW_60S            = 60_000;
 const WINDOW_5M             = 5 * 60_000;
 const ACC_IDLE_EVICT_MS     = 24 * 60 * 60_000;
 const SWEEP_INTERVAL_MS     = 30_000;
-/** Per-architecture: free/paid threshold (rent + fees usually < 0.001 SOL). */
-const MIN_PAID_LAMPORTS     = 1_000_000;
 
 /** Env-configurable thresholds. Defaults match the architecture spec
  *  exactly — change at runtime via env, no recompile needed. */
@@ -157,7 +155,6 @@ interface Accum {
    *  `collectionCreatedAt`. */
   collectionCreatedAt?: number;
 
-  freeCount:    number;
   paidCount:    number;
   unknownCount: number;
 
@@ -388,12 +385,9 @@ function trimWindow(arr: RingItem[], cutoff: number): RingItem[] {
   return i === 0 ? arr : arr.slice(i);
 }
 
-function rollupType(a: Accum): MintType | 'mixed' {
+function rollupType(a: Accum): MintType {
   if (a.observedMints === 0) return 'unknown';
-  if (a.freeCount / a.observedMints > 0.95) return 'free';
-  if (a.paidCount / a.observedMints > 0.95) return 'paid';
-  if (a.freeCount > 0 && a.paidCount > 0) return 'mixed';
-  return a.unknownCount > a.paidCount + a.freeCount ? 'unknown' : 'paid';
+  return a.unknownCount > a.paidCount ? 'unknown' : 'paid';
 }
 
 /** Throttled fire-and-forget refresher for the MINTED column. Reads the
@@ -500,10 +494,7 @@ function scheduleMintedCountRefresh(a: Accum, now: number): void {
 }
 
 function classifyMintType(priceLamports: number | null): MintType {
-  if (priceLamports == null) return 'unknown';
-  if (priceLamports === 0)   return 'free';
-  if (priceLamports >= MIN_PAID_LAMPORTS) return 'paid';
-  return 'unknown';
+  return priceLamports == null ? 'unknown' : 'paid';
 }
 
 function buildStatus(a: Accum, now: number): MintStatusWire {
@@ -736,7 +727,6 @@ export function recordMint(ev: MintEventWire): boolean {
       events5m:          [],
       firstObservedAt:   now,
       lastMintAt:        now,
-      freeCount:         0,
       paidCount:         0,
       unknownCount:      0,
       displayState:      'incubating',
@@ -814,8 +804,7 @@ export function recordMint(ev: MintEventWire): boolean {
   a.events5m  = trimWindow(a.events5m,  now - WINDOW_5M);
 
   const cls = classifyMintType(ev.priceLamports);
-  if (cls === 'free') a.freeCount++;
-  else if (cls === 'paid') a.paidCount++;
+  if (cls === 'paid') a.paidCount++;
   else a.unknownCount++;
 
   // Promote on threshold or burst (never demote here). Promotion is
@@ -1461,7 +1450,6 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       lastMintAt:        r.lastMintAt,
       collectionCreatedAt: typeof r.collectionCreatedAt === 'number' && r.collectionCreatedAt > 0
         ? r.collectionCreatedAt : undefined,
-      freeCount:         0,
       paidCount:         0,
       unknownCount:      0,
       displayState:      r.displayState,

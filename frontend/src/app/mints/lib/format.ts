@@ -84,22 +84,25 @@ function truncSol(lamports: number, dp: number): string {
 
 export function fmtSol(lamports: number | null): string {
   if (lamports == null) return '—';
-  // `<= 0` (not `=== 0`): legacy rows can carry a negative priceLamports
-  // (signer net-received lamports) — render FREE, never negative SOL.
-  if (lamports <= 0)    return 'FREE';
+  // No "free" price bucket — a real mint always costs at least network fee
+  // + rent, so we always show the raw resolved number, however small.
+  // Floor legacy negative rows (signer net-received lamports) to 0 rather
+  // than showing a negative SOL amount.
+  const clamped = lamports < 0 ? 0 : lamports;
   // Mint Tracker uses TRUNCATION, not rounding — so 0.0065 reads 0.006, never
   // 0.007. (The shared soloist `formatSol` rounds via toFixed and must stay
   // unchanged for the sale/listing feeds, so we do NOT call it here.)
   //   ≥ 0.001 SOL → 3 dp truncated  (0.0065 → 0.006, 0.0125 → 0.012)
   //   smaller     → keep more significant digits (0.00017 stays 0.00017)
-  if (lamports >= 1_000_000) return truncSol(lamports, 3);   // ≥ 0.001 SOL
-  if (lamports >= 100_000)   return truncSol(lamports, 5);   // ≥ 0.0001 SOL
-  return truncSol(lamports, 6);
+  if (clamped >= 1_000_000) return truncSol(clamped, 3);   // ≥ 0.001 SOL
+  if (clamped >= 100_000)   return truncSol(clamped, 5);   // ≥ 0.0001 SOL
+  return truncSol(clamped, 6);
 }
 
 /** Mint-price display rule shared by the Live Mint Feed card AND the Mint
  *  Tracker table price column (single source of truth — do not duplicate).
- *  Lamports in; null → '—', ≤0 → 'FREE' (same contract as `fmtSol`).
+ *  Lamports in; null → '—'. No "free" bucket (same contract as `fmtSol`):
+ *  every resolved lamport figure, however small, is shown as a raw number.
  *    • < 0.1 SOL → TRUNCATE (floor) to ≤3 decimals, never round
  *        0.00411 → 0.004 · 0.0036 → 0.003 · 0.059 → 0.059 · 0.0999 → 0.099
  *    • ≥ 0.1 SOL → shared `formatSol` (rounded), trailing zeros trimmed
@@ -122,11 +125,13 @@ export function formatTokenAmount(raw: string, decimals: number): string | null 
 
 export function fmtMintPrice(lamports: number | null): string {
   if (lamports == null) return '—';
-  if (lamports <= 0)    return 'FREE';
+  // No "free" price bucket — floor legacy negative rows to 0, otherwise
+  // show the raw resolved number regardless of how small it is.
+  const clamped = lamports < 0 ? 0 : lamports;
   // < 0.1 SOL, ≥ 0.001 SOL → floor to 3 dp (truncSol already trims zeros).
-  if (lamports < 100_000_000 && lamports >= 1_000_000) return truncSol(lamports, 3);
+  if (clamped < 100_000_000 && clamped >= 1_000_000) return truncSol(clamped, 3);
   // ≥ 0.1 SOL (or sub-0.001 fallback) → rounded formatSol, trailing zeros off.
-  return trimTrailingZeros(formatSol(lamports / 1e9));
+  return trimTrailingZeros(formatSol(clamped / 1e9));
 }
 
 /** Strip trailing zeros (and a now-bare decimal point) from a formatted
