@@ -31,8 +31,11 @@
  *      order book (real floor 0.735625 SOL); every other decoded listing
  *      for that same collection matched the real book exactly.
  * `openseaCollectionInfo()` re-verifies the floor (and count) against that
- * same real order-book endpoint per collection, and `runFullScan` skips any
- * collection where it can't confirm a real SOL listing — see
+ * same real order-book endpoint per collection, converting a USD-pegged-
+ * stablecoin floor (USDC/USDT — Collector Crypt's real case) to its SOL-
+ * equivalent at the live SOL/USD rate rather than dropping it — only a
+ * currency we truly can't price (no live rate, or an exotic symbol) or a
+ * collection with zero convertible listings gets excluded. See
  * `OpenseaCollectionInfo.verifiedFloorSol`'s doc comment for the full
  * writeup. `osFloorSol` on every row is therefore always order-book-
  * verified, never the raw decode.
@@ -141,6 +144,39 @@ async function groupListingsByCollection(listings: ListingRow[]): Promise<Collec
   return [...byColl.values()];
 }
 
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const JUP_PRICE_URL = 'https://lite-api.jup.ag/price/v3';
+
+/** Live SOL/USD rate — fetched ONCE per scan (not per collection) and
+ *  reused everywhere a USDC/USDT floor needs converting to SOL-equivalent.
+ *  Same Jupiter price endpoint already used elsewhere in this codebase
+ *  (tools-spl20.ts, wallet-quick-balance.ts). A single transient failure
+ *  here (one flaky request) would otherwise drop EVERY stablecoin-priced
+ *  collection from the whole scan, so this retries once after a short
+ *  delay before giving up — null only after both attempts fail, at which
+ *  point callers skip stablecoin-denominated listings for that scan rather
+ *  than guess a rate. */
+async function fetchSolUsdPrice(): Promise<number | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
+    const price = await fetchSolUsdPriceOnce();
+    if (price != null) return price;
+  }
+  return null;
+}
+
+async function fetchSolUsdPriceOnce(): Promise<number | null> {
+  try {
+    const r = await fetch(`${JUP_PRICE_URL}?ids=${SOL_MINT}`, {
+      headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json() as Record<string, { usdPrice?: unknown } | null>;
+    const p = j[SOL_MINT]?.usdPrice;
+    return typeof p === 'number' && p > 0 ? p : null;
+  } catch { return null; }
+}
+
 interface TensorMintMeta { slug: string | null; royaltyBps: number | null }
 
 /** `sellRoyaltyFeeBPS` rides along on the same `/mint` call already needed
@@ -211,51 +247,128 @@ interface OpenseaCollectionInfo {
    *
    *  Collections without either failure mode (verified: trencher-traits)
    *  have their on-chain floor match this endpoint's floor closely, so
-   *  this is a strict improvement, never a regression. */
+   *  this is a strict improvement, never a regression.
+   *
+   *  When the cheapest real listing is in a USD-pegged stablecoin (USDC/
+   *  USDT) rather than SOL — e.g. "Collector Crypt" (4.49 USDC) — this is
+   *  the SOL-equivalent of that price at the live SOL/USD rate, NOT a
+   *  dropped/excluded row: a stablecoin floor is still a real, comparable
+   *  price (buy in USDC — or swap SOL->USDC first — sell into ME's SOL
+   *  bid), so it belongs in the table with the rest, just converted. See
+   *  `osCurrency`/`osNativeFloor` for the original, unconverted figure. */
   verifiedFloorSol: number | null;
-  /** Count of SOL-denominated listings seen in the (single, ≤100-item)
-   *  page fetched — a floor on the true count when more than 100 exist,
-   *  not an exact total. Used for the OS2 LISTED display column instead
-   *  of the on-chain scan's raw count, for the same reason as
-   *  `verifiedFloorSol`: the raw on-chain count can include stale/ghost
-   *  or wrong-currency accounts OpenSea itself doesn't consider live. */
+  /** Count of listings seen in the (single, ≤100-item) page fetched that
+   *  were priced in a currency we could confidently convert (SOL/USDC/
+   *  USDT) — a floor on the true count when more than 100 exist, not an
+   *  exact total. Used for the OS2 LISTED display column instead of the
+   *  on-chain scan's raw count, for the same reason as `verifiedFloorSol`:
+   *  the raw on-chain count can include stale/ghost or wrong-currency
+   *  accounts OpenSea itself doesn't consider live. */
   verifiedCount: number;
+  /** Currency symbol of the cheapest listing actually used for
+   *  `verifiedFloorSol` (e.g. "SOL", "USDC"). Null only alongside a null
+   *  `verifiedFloorSol`. */
+  osCurrency: string | null;
+  /** The cheapest listing's price in its OWN currency, unconverted (e.g.
+   *  4.49 for a 4.49 USDC listing) — for display next to the SOL-converted
+   *  figure so a stablecoin-denominated floor is never silently presented
+   *  as if it were priced in SOL. Equal to `verifiedFloorSol` when
+   *  `osCurrency === 'SOL'`. */
+  osNativeFloor: number | null;
 }
 
 interface OpenseaListingsResp {
   listings?: Array<{ price?: { current?: { currency?: string; value?: string; decimals?: number } } }>;
 }
 
-async function openseaCollectionInfo(collectionAddress: string): Promise<OpenseaCollectionInfo> {
-  const NONE: OpenseaCollectionInfo = { slug: null, verifiedFloorSol: null, verifiedCount: 0 };
+/** USD-pegged stablecoins we're willing to convert to a SOL-equivalent
+ *  floor by treating them as exactly $1.00 (no extra price call needed —
+ *  USDC/USDT deviate from peg by fractions of a cent, immaterial next to
+ *  live SOL/USD volatility). Any OTHER non-SOL currency (ETH, a bridged
+ *  token, etc.) is skipped — we have no mint address from OpenSea's
+ *  listings response to price it confidently, only a symbol string. */
+const USD_STABLE_SYMBOLS = new Set(['USDC', 'USDT']);
+
+/** Two-hop lookup (contract->slug, then slug->listings) plus a `retryable`
+ *  flag for the caller. `retryable=true` specifically means the SLUG
+ *  resolution itself looked wrong, not just "no data": observed live —
+ *  `GET /chain/solana/contract/{address}` returned slug
+ *  "collector-crypt-406289238" for Collector Crypt's real on-chain
+ *  address, when 10+ separate manual calls for that exact same address
+ *  (before, during, and after that scan) all returned the correct
+ *  "collector-crypt" — a one-off stale/wrong slug from OpenSea's own API,
+ *  not a deterministic bug here. The listings call for the bad slug then
+ *  404s. Re-resolving the slug from scratch is the fix; `openseaCollectionInfo`
+ *  below does that retry once. */
+async function openseaCollectionInfoAttempt(
+  collectionAddress: string, solUsdPrice: number | null,
+): Promise<{ info: OpenseaCollectionInfo; retryable: boolean }> {
+  const NONE: OpenseaCollectionInfo = { slug: null, verifiedFloorSol: null, verifiedCount: 0, osCurrency: null, osNativeFloor: null };
   const key = process.env.OPENSEA_API_KEY;
-  if (!key) return NONE;
+  if (!key) return { info: NONE, retryable: false };
   try {
     const r = await fetch(
       `https://api.opensea.io/api/v2/chain/solana/contract/${encodeURIComponent(collectionAddress)}`,
       { headers: { 'X-API-KEY': key }, signal: AbortSignal.timeout(6000) },
     );
-    if (!r.ok) return NONE;
+    if (!r.ok) {
+      console.error(`[opensea-arb] contract lookup failed collection=${collectionAddress} status=${r.status} body=${(await r.text()).slice(0, 200)}`);
+      return { info: NONE, retryable: r.status >= 500 || r.status === 429 };
+    }
     const j = await r.json() as { collection?: string };
     const slug = typeof j.collection === 'string' && j.collection.length > 0 ? j.collection : null;
-    if (!slug) return NONE;
+    if (!slug) {
+      console.error(`[opensea-arb] contract lookup returned no slug collection=${collectionAddress} body=${JSON.stringify(j).slice(0, 200)}`);
+      return { info: NONE, retryable: false };
+    }
 
     const lr = await fetch(
       `https://api.opensea.io/api/v2/listings/collection/${encodeURIComponent(slug)}/all?limit=100`,
       { headers: { 'X-API-KEY': key }, signal: AbortSignal.timeout(8000) },
     );
-    if (!lr.ok) return { slug, verifiedFloorSol: null, verifiedCount: 0 };
+    if (!lr.ok) {
+      console.error(`[opensea-arb] listings lookup failed collection=${collectionAddress} slug=${slug} status=${lr.status} body=${(await lr.text()).slice(0, 200)}`);
+      // A 404 here (slug resolved, but that exact slug has no listings
+      // endpoint) is the specific stale/wrong-slug symptom — retryable.
+      // Any other status (5xx/429/etc) is also worth one retry.
+      return { info: { ...NONE, slug }, retryable: true };
+    }
     const lj = await lr.json() as OpenseaListingsResp;
-    const solPrices = (lj.listings ?? [])
-      .filter(l => l.price?.current?.currency === 'SOL')
-      .map(l => Number(l.price!.current!.value) / 10 ** (l.price!.current!.decimals ?? 9))
-      .filter(v => Number.isFinite(v) && v > 0);
+    if (!Array.isArray(lj.listings) || lj.listings.length === 0) {
+      console.error(`[opensea-arb] listings lookup returned no listings slug=${slug} body=${JSON.stringify(lj).slice(0, 200)}`);
+    }
+
+    const priced = (lj.listings ?? []).flatMap(l => {
+      const cur = l.price?.current;
+      const symbol = cur?.currency;
+      if (!symbol || cur?.value == null) return [];
+      const native = Number(cur.value) / 10 ** (cur.decimals ?? 9);
+      if (!Number.isFinite(native) || native <= 0) return [];
+      if (symbol === 'SOL') return [{ floorSol: native, symbol, native }];
+      if (USD_STABLE_SYMBOLS.has(symbol) && solUsdPrice) return [{ floorSol: native / solUsdPrice, symbol, native }];
+      return []; // unconvertible currency (no live SOL/USD rate, or an unsupported symbol) — skip this listing
+    });
+    if (priced.length === 0 && lj.listings && lj.listings.length > 0) {
+      const symbols = [...new Set(lj.listings.map(l => l.price?.current?.currency ?? 'null'))];
+      console.error(`[opensea-arb] slug=${slug} had ${lj.listings.length} listings but 0 priceable (symbols seen: ${symbols.join(',')}, solUsdPrice=${solUsdPrice})`);
+    }
+
+    if (priced.length === 0) return { info: { ...NONE, slug }, retryable: false };
+    priced.sort((a, b) => a.floorSol - b.floorSol);
+    const cheapest = priced[0];
     return {
-      slug,
-      verifiedFloorSol: solPrices.length > 0 ? Math.min(...solPrices) : null,
-      verifiedCount: solPrices.length,
+      info: { slug, verifiedFloorSol: cheapest.floorSol, verifiedCount: priced.length, osCurrency: cheapest.symbol, osNativeFloor: cheapest.native },
+      retryable: false,
     };
-  } catch { return NONE; }
+  } catch { return { info: NONE, retryable: false }; }
+}
+
+async function openseaCollectionInfo(collectionAddress: string, solUsdPrice: number | null): Promise<OpenseaCollectionInfo> {
+  const first = await openseaCollectionInfoAttempt(collectionAddress, solUsdPrice);
+  if (!first.retryable) return first.info;
+  await new Promise(r => setTimeout(r, 1000));
+  const second = await openseaCollectionInfoAttempt(collectionAddress, solUsdPrice);
+  return second.info;
 }
 
 async function meFloorSol(slug: string): Promise<number | null> {
@@ -303,6 +416,12 @@ export interface OpenseaArbRow {
    *  on-chain value. */
   osFloorSol: number;
   osCount: number;
+  /** Currency the cheapest real OpenSea listing was actually priced in
+   *  ("SOL", "USDC", "USDT"). `osFloorSol` above is always the SOL-
+   *  equivalent; when this isn't "SOL", `osNativeFloor` carries the
+   *  original, unconverted figure for display. */
+  osCurrency: string | null;
+  osNativeFloor: number | null;
   meFloorSol: number | null;
   meTopBidSol: number | null;
   /** Creator royalty in bps (Tensor's `sellRoyaltyFeeBPS`). Does NOT
@@ -324,7 +443,7 @@ interface ScanCacheShape {
 
 async function runFullScan(emit: Emit): Promise<ScanCacheShape> {
   emit('progress', { msg: 'Fetching live OS2 listings on-chain (getProgramAccounts)…' });
-  const listings = await scanListings();
+  const [listings, solUsdPrice] = await Promise.all([scanListings(), fetchSolUsdPrice()]);
   emit('progress', { msg: `${listings.length} live MPL Core listings — resolving collections via DAS…` });
   const collections = await groupListingsByCollection(listings);
   emit('progress', { msg: `${collections.length} distinct collections found — fetching Tensor slug + ME floor/bid for each (rate-limited, ~2s/collection)…` });
@@ -338,18 +457,20 @@ async function runFullScan(emit: Emit): Promise<ScanCacheShape> {
     const [mFloor, mBid, osInfo] = await Promise.all([
       slug ? meFloorSol(slug) : Promise.resolve(null),
       slug ? meTopMmmBidSol(slug) : Promise.resolve(null),
-      openseaCollectionInfo(c.collection),
+      openseaCollectionInfo(c.collection, solUsdPrice),
     ]);
-    // Only build a row when OpenSea's OWN order book confirms a real SOL
-    // listing exists — the raw on-chain `c.osFloorSol`/`c.count` (used only
-    // for discovery + picking a sampleAsset above) are provably untrustworthy
-    // on their own: see OpenseaCollectionInfo.verifiedFloorSol's doc comment
-    // for two independently-verified failure modes (wrong-currency
-    // collection, stale/ghost listing) this skips.
+    // Only build a row when OpenSea's OWN order book confirms a real,
+    // priceable listing exists — the raw on-chain `c.osFloorSol`/`c.count`
+    // (used only for discovery + picking a sampleAsset above) are provably
+    // untrustworthy on their own: see OpenseaCollectionInfo.verifiedFloorSol's
+    // doc comment for two independently-verified failure modes (stale/ghost
+    // listing; a currency we can't convert — either no live SOL/USD rate
+    // this run, or a non-SOL/USDC/USDT symbol) this skips.
     if (osInfo.verifiedFloorSol == null) continue;
     rows.push({
       name: c.name ?? c.collection, collection: c.collection, slug, osSlug: osInfo.slug,
       osFloorSol: osInfo.verifiedFloorSol, osCount: osInfo.verifiedCount,
+      osCurrency: osInfo.osCurrency, osNativeFloor: osInfo.osNativeFloor,
       meFloorSol: mFloor, meTopBidSol: mBid, royaltyBps,
     });
     if (i % 10 === 0 || i === collections.length) {

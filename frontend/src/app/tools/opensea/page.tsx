@@ -37,6 +37,11 @@ interface ArbRow {
   osSlug: string | null;
   osFloorSol: number;
   osCount: number;
+  /** Currency the cheapest real OpenSea listing was actually priced in
+   *  ("SOL", "USDC", "USDT"). `osFloorSol` is always the SOL-equivalent;
+   *  `osNativeFloor` carries the original figure when this isn't "SOL". */
+  osCurrency: string | null;
+  osNativeFloor: number | null;
   meFloorSol: number | null;
   meTopBidSol: number | null;
   royaltyBps: number | null;
@@ -64,12 +69,28 @@ function fmtPct(bps: number | null): string {
   return `${(bps / 100).toFixed(1)}%`;
 }
 
-function ArbTable({ rows, buySide, sellSide, buyLabel, sellLabel, emptyMsg }: {
+/** Shows the native (unconverted) currency figure under the SOL-equivalent
+ *  one when OpenSea's real cheapest listing wasn't priced in SOL (e.g.
+ *  "4.49 USDC") — so a stablecoin floor is never presented as if it were a
+ *  SOL price. */
+function NativeCurrencyNote({ r }: { r: ArbRow }) {
+  if (!r.osCurrency || r.osCurrency === 'SOL' || r.osNativeFloor == null) return null;
+  return (
+    <div style={{ fontSize: 9.5, color: 'var(--vl-text-muted)', marginTop: 1 }}>
+      {r.osNativeFloor} {r.osCurrency}
+    </div>
+  );
+}
+
+function ArbTable({ rows, buySide, sellSide, buyLabel, sellLabel, osSide, emptyMsg }: {
   rows: ArbRow[];
   buySide: (r: ArbRow) => number;
   sellSide: (r: ArbRow) => number;
   buyLabel: string;
   sellLabel: string;
+  /** Which column (buy or sell leg) is the OS2 side for this table — used
+   *  to attach the native-currency note to the right column. */
+  osSide: 'buy' | 'sell';
   emptyMsg: string;
 }) {
   if (rows.length === 0) {
@@ -94,8 +115,14 @@ function ArbTable({ rows, buySide, sellSide, buyLabel, sellLabel, emptyMsg }: {
           {rows.map((r) => (
             <tr key={r.collection} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
               <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--vl-text-primary)' }}>{r.name}</td>
-              <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, color: 'var(--vl-text-muted)' }}>{fmtSol(buySide(r))}</td>
-              <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>{fmtSol(sellSide(r))}</td>
+              <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, color: 'var(--vl-text-muted)' }}>
+                {fmtSol(buySide(r))}
+                {osSide === 'buy' && <NativeCurrencyNote r={r} />}
+              </td>
+              <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO }}>
+                {fmtSol(sellSide(r))}
+                {osSide === 'sell' && <NativeCurrencyNote r={r} />}
+              </td>
               <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontWeight: 700, color: rgb(VL.gold) }}>+{r.profitPct.toFixed(1)}%</td>
               <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontSize: 11, color: 'var(--vl-text-muted)' }}>{fmtPct(r.royaltyBps)}</td>
               <td style={{ padding: '6px 8px', textAlign: 'right', ...MONO, fontWeight: 700, color: r.profitNetSol > 0 ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>
@@ -258,6 +285,7 @@ export default function OpenseaArbPage() {
                 sellSide={(r) => r.meTopBidSol ?? 0}
                 buyLabel="OS2 FLOOR"
                 sellLabel="ME TOP BID"
+                osSide="buy"
                 emptyMsg="No collection currently cheaper on OS2 than ME's top bid."
               />
             </div>
@@ -272,6 +300,7 @@ export default function OpenseaArbPage() {
                 sellSide={(r) => r.osFloorSol}
                 buyLabel="ME FLOOR"
                 sellLabel="OS2 FLOOR"
+                osSide="sell"
                 emptyMsg="No collection currently cheaper on ME than OS2's floor."
               />
             </div>
@@ -285,7 +314,7 @@ export default function OpenseaArbPage() {
         )}
 
         <div style={{ fontSize: 10.5, color: '#6e6688', marginTop: 6 }}>
-          Read-only: no wallet connect, no signing, no tx sent. OS2 has no public IDL — listings were reverse-engineered byte-by-byte and verified against live instruction data; legacy (pre-Core) OS2 listings are not covered, MPL Core only. &quot;Dearer on OS2&quot; is floor-vs-floor (a list-and-wait flip), not bid-vs-bid — OS2&apos;s own collection-wide bids exist on-chain but carry an opaque off-chain collection ID with no general way to attribute a bid to a collection, so they&apos;re not scanned here.
+          Read-only: no wallet connect, no signing, no tx sent. OS2 has no public IDL — listings were reverse-engineered byte-by-byte and verified against live instruction data; legacy (pre-Core) OS2 listings are not covered, MPL Core only. &quot;Dearer on OS2&quot; is floor-vs-floor (a list-and-wait flip), not bid-vs-bid — OS2&apos;s own collection-wide bids exist on-chain but carry an opaque off-chain collection ID with no general way to attribute a bid to a collection, so they&apos;re not scanned here. OS2 FLOOR is always verified against OpenSea&apos;s own live order book, not a raw on-chain decode — a collection priced in USDC/USDT there (small note under the price) is converted to its SOL-equivalent at the live SOL/USD rate; any other non-SOL currency, or a collection with no order-book-confirmed listing at all, is left out of both tables rather than shown wrong.
         </div>
       </div>
       </div>
