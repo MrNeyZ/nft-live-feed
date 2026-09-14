@@ -18,6 +18,25 @@
  * asset account passed into the `listcore` ix. Legacy (pre-Core) listings
  * use a different, ALT-heavy account shape and are NOT covered here.
  *
+ * This raw on-chain decode is used ONLY for discovery (which collections
+ * currently have any OS2 activity + a sample asset for the Tensor slug
+ * lookup) — NOT as the row's floor. Two real failure modes were found live
+ * (both reported by a user against real rows, root-caused via OpenSea's own
+ * `/api/v2/listings/collection/{slug}/all` order-book endpoint):
+ *   1. "Collector Crypt" — OpenSea prices this collection in USDC, not SOL;
+ *      our decode still finds real on-chain-escrowed SOL "listings" that
+ *      simply aren't part of OpenSea's tradeable order book at all.
+ *   2. "Grimoire" — the single cheapest on-chain decode (0.59 SOL) was a
+ *      structurally-valid but STALE/ghost listing absent from OpenSea's own
+ *      order book (real floor 0.735625 SOL); every other decoded listing
+ *      for that same collection matched the real book exactly.
+ * `openseaCollectionInfo()` re-verifies the floor (and count) against that
+ * same real order-book endpoint per collection, and `runFullScan` skips any
+ * collection where it can't confirm a real SOL listing — see
+ * `OpenseaCollectionInfo.verifiedFloorSol`'s doc comment for the full
+ * writeup. `osFloorSol` on every row is therefore always order-book-
+ * verified, never the raw decode.
+ *
  * BIDS (collection-wide offers — `bid` instruction, 393-byte accounts,
  * discriminator 9bc50561bd3c08b7): bidder at offset 10, an opaque 32-byte
  * "collection field" at offset 42, escrow lamports minus a fixed
@@ -148,27 +167,95 @@ async function tensorMintMetaFor(mint: string): Promise<TensorMintMeta> {
   } catch { return { slug: null, royaltyBps: null }; }
 }
 
-/** Resolves the on-chain OS2 collection address to OpenSea's own collection
- *  slug (`https://opensea.io/collection/<slug>`), via OpenSea's unified v2
- *  API — verified live: `GET /api/v2/chain/solana/contract/{address}` returns
- *  `{ collection: "<slug>" }` for both MPL Core and legacy Solana
- *  collections (confirmed against "Collector Crypt" -> collector-crypt and
- *  "Grimoire" -> grimoire-324808527, both resolving to a real 200 collection
- *  page). This is the ONLY slug space this tool can use for an OS2 link —
- *  Tensor's `slug` (used for the ME badge, since ME's symbol happens to
- *  match it) is a different identifier and does not resolve on OpenSea. */
-async function openseaCollectionSlug(collectionAddress: string): Promise<string | null> {
+interface OpenseaCollectionInfo {
+  /** OpenSea's own collection slug (`https://opensea.io/collection/<slug>`).
+   *  Resolved via `GET /api/v2/chain/solana/contract/{address}` -> `{
+   *  collection: "<slug>" }`, verified live against "Collector Crypt" ->
+   *  collector-crypt and "Grimoire" -> grimoire-324808527, both resolving
+   *  to a real 200 collection page. This is the ONLY slug space this tool
+   *  can use for an OS2 link — Tensor's `slug` (used for the ME badge,
+   *  since ME's symbol happens to match it) is a different identifier and
+   *  does not resolve on OpenSea. */
+  slug: string | null;
+  /** The cheapest SOL-denominated price among OpenSea's own recognized
+   *  ACTIVE listings for this collection (`GET
+   *  /api/v2/listings/collection/{slug}/all`, which returns ascending-
+   *  sorted, currency-labeled, real order-book entries — this is the same
+   *  data a human buyer sees/can act on). Null when no such listing exists
+   *  (currency mismatch or genuinely unlisted) or the lookup failed.
+   *
+   *  This REPLACES the raw on-chain `listcore` price decode as the row's
+   *  floor — two real, independently-verified failure modes proved the
+   *  on-chain decode alone is not trustworthy as a "floor":
+   *
+   *  1. Currency mismatch — "Collector Crypt" (multichain physical-card
+   *     collection): our on-chain scan found real, on-chain-escrowed
+   *     listings at ~0.01 SOL (asset ownership independently confirmed
+   *     frozen under the exact listing PDA, so NOT stale/orphaned), yet
+   *     OpenSea's own order book for this collection carries zero SOL
+   *     listings — every real listing is USDC (confirmed via this same
+   *     endpoint: cheapest real listing 4.49 USDC, matching their /stats
+   *     floor exactly). The ~0.01 SOL accounts are real on-chain state but
+   *     not part of OpenSea's tradeable order book at all.
+   *  2. Stale/ghost on-chain listings — "Grimoire": our on-chain scan's
+   *     cheapest decode was 0.59 SOL (also asset-ownership-confirmed
+   *     escrowed under its listing PDA — structurally well-formed, NOT
+   *     merely garbage bytes), yet that exact listing PDA and asset are
+   *     ABSENT from OpenSea's own order book entirely — their real
+   *     cheapest listing is 0.735625 SOL. Every OTHER on-chain listing we
+   *     decoded for Grimoire (0.74, 0.74, 0.740439893 SOL, ...) DID match
+   *     real order-book entries exactly — only the single lowest one was a
+   *     ghost. No on-chain-only boolean flag reliably distinguishes this
+   *     (same class of problem as the ghost-bid detector) — cross-checking
+   *     against OpenSea's own book is the only reliable fix.
+   *
+   *  Collections without either failure mode (verified: trencher-traits)
+   *  have their on-chain floor match this endpoint's floor closely, so
+   *  this is a strict improvement, never a regression. */
+  verifiedFloorSol: number | null;
+  /** Count of SOL-denominated listings seen in the (single, ≤100-item)
+   *  page fetched — a floor on the true count when more than 100 exist,
+   *  not an exact total. Used for the OS2 LISTED display column instead
+   *  of the on-chain scan's raw count, for the same reason as
+   *  `verifiedFloorSol`: the raw on-chain count can include stale/ghost
+   *  or wrong-currency accounts OpenSea itself doesn't consider live. */
+  verifiedCount: number;
+}
+
+interface OpenseaListingsResp {
+  listings?: Array<{ price?: { current?: { currency?: string; value?: string; decimals?: number } } }>;
+}
+
+async function openseaCollectionInfo(collectionAddress: string): Promise<OpenseaCollectionInfo> {
+  const NONE: OpenseaCollectionInfo = { slug: null, verifiedFloorSol: null, verifiedCount: 0 };
   const key = process.env.OPENSEA_API_KEY;
-  if (!key) return null;
+  if (!key) return NONE;
   try {
     const r = await fetch(
       `https://api.opensea.io/api/v2/chain/solana/contract/${encodeURIComponent(collectionAddress)}`,
       { headers: { 'X-API-KEY': key }, signal: AbortSignal.timeout(6000) },
     );
-    if (!r.ok) return null;
+    if (!r.ok) return NONE;
     const j = await r.json() as { collection?: string };
-    return typeof j.collection === 'string' && j.collection.length > 0 ? j.collection : null;
-  } catch { return null; }
+    const slug = typeof j.collection === 'string' && j.collection.length > 0 ? j.collection : null;
+    if (!slug) return NONE;
+
+    const lr = await fetch(
+      `https://api.opensea.io/api/v2/listings/collection/${encodeURIComponent(slug)}/all?limit=100`,
+      { headers: { 'X-API-KEY': key }, signal: AbortSignal.timeout(8000) },
+    );
+    if (!lr.ok) return { slug, verifiedFloorSol: null, verifiedCount: 0 };
+    const lj = await lr.json() as OpenseaListingsResp;
+    const solPrices = (lj.listings ?? [])
+      .filter(l => l.price?.current?.currency === 'SOL')
+      .map(l => Number(l.price!.current!.value) / 10 ** (l.price!.current!.decimals ?? 9))
+      .filter(v => Number.isFinite(v) && v > 0);
+    return {
+      slug,
+      verifiedFloorSol: solPrices.length > 0 ? Math.min(...solPrices) : null,
+      verifiedCount: solPrices.length,
+    };
+  } catch { return NONE; }
 }
 
 async function meFloorSol(slug: string): Promise<number | null> {
@@ -208,6 +295,12 @@ export interface OpenseaArbRow {
    *  since the two marketplaces don't share a slug space. Null when
    *  `OPENSEA_API_KEY` is unset or the lookup failed/missed. */
   osSlug: string | null;
+  /** OpenSea's own verified order-book floor/count (`OpenseaCollectionInfo
+   *  .verifiedFloorSol`/`.verifiedCount`) — see that doc comment for why
+   *  this replaces the raw on-chain `listcore` decode. A row is only ever
+   *  built (see runFullScan) when this resolved to a real number, so
+   *  `osFloorSol` here is always OpenSea-order-book-verified, never a raw
+   *  on-chain value. */
   osFloorSol: number;
   osCount: number;
   meFloorSol: number | null;
@@ -242,12 +335,23 @@ async function runFullScan(emit: Emit): Promise<ScanCacheShape> {
     i++;
     const { slug, royaltyBps } = await tensorMintMetaFor(c.sampleAsset);
     await new Promise(r => setTimeout(r, TENSOR_GAP_MS));
-    const [mFloor, mBid, osSlug] = await Promise.all([
+    const [mFloor, mBid, osInfo] = await Promise.all([
       slug ? meFloorSol(slug) : Promise.resolve(null),
       slug ? meTopMmmBidSol(slug) : Promise.resolve(null),
-      openseaCollectionSlug(c.collection),
+      openseaCollectionInfo(c.collection),
     ]);
-    rows.push({ name: c.name ?? c.collection, collection: c.collection, slug, osSlug, osFloorSol: c.osFloorSol, osCount: c.count, meFloorSol: mFloor, meTopBidSol: mBid, royaltyBps });
+    // Only build a row when OpenSea's OWN order book confirms a real SOL
+    // listing exists — the raw on-chain `c.osFloorSol`/`c.count` (used only
+    // for discovery + picking a sampleAsset above) are provably untrustworthy
+    // on their own: see OpenseaCollectionInfo.verifiedFloorSol's doc comment
+    // for two independently-verified failure modes (wrong-currency
+    // collection, stale/ghost listing) this skips.
+    if (osInfo.verifiedFloorSol == null) continue;
+    rows.push({
+      name: c.name ?? c.collection, collection: c.collection, slug, osSlug: osInfo.slug,
+      osFloorSol: osInfo.verifiedFloorSol, osCount: osInfo.verifiedCount,
+      meFloorSol: mFloor, meTopBidSol: mBid, royaltyBps,
+    });
     if (i % 10 === 0 || i === collections.length) {
       emit('progress', { msg: `Checked ${i}/${collections.length} collections against ME…` });
     }
