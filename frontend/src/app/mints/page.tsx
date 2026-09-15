@@ -210,8 +210,8 @@ function isUsefulTrackerCollection(row: MintStatus): boolean {
  *       the backend detector / accumulator. Bubblegum is the cNFT
  *       program by design, never used for fungibles.
  *    2. `mintType === 'cnft'` — defensive; not currently on the wire
- *       (mintType is `free`/`paid`/`unknown`/`mixed`) but accepted in
- *       case a future backend revision starts emitting it.
+ *       (mintType is `paid`/`unknown`) but accepted in case a future
+ *       backend revision starts emitting it.
  *    3. `standard === 'cnft'` — defensive; same forward-compat rationale.
  *    4. LMNFT-without-mint-address heuristic: `mintAddress`/`lastMintAddress`
  *       missing AND `sourceLabel === 'LaunchMyNFT'` AND we have a real
@@ -1275,6 +1275,36 @@ export default function MintsPage() {
     if (hoveredKey) s.add(hoveredKey);
     return s;
   }, [pinnedKeys, hoveredKey]);
+  // Watchdog: `hoveredKey` is only ever supposed to clear via SHOW's
+  // onMouseLeave (or the row-unmount replay in MintsTableRow), but three
+  // separate root causes have each let a native mouseleave go missing —
+  // a remount under the cursor, a re-key on pin toggle, an unmount mid-
+  // hover — leaving the feed permanently dimmed until the next hover. Each
+  // was fixed individually and the symptom came back from a different
+  // trigger. Rather than keep hunting triggers one at a time, cross-check
+  // reality on every mouse move: if a key is "hovered" but the cursor isn't
+  // actually over that SHOW zone anymore, clear it. Self-heals regardless
+  // of cause, including ones not diagnosed yet.
+  useEffect(() => {
+    if (!hoveredKey) return;
+    const onMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const key = el?.closest('[data-show-key]')?.getAttribute('data-show-key') ?? null;
+      if (key !== hoveredKey) setHoveredKey(null);
+    };
+    // Cursor leaving the window entirely (relatedTarget null) fires no
+    // further mousemove — catch it explicitly so alt-tabbing away doesn't
+    // leave the dim latched until the pointer returns.
+    const onLeaveDoc = (e: MouseEvent) => {
+      if (e.relatedTarget === null) setHoveredKey(null);
+    };
+    window.addEventListener('mousemove', onMove);
+    document.documentElement.addEventListener('mouseleave', onLeaveDoc);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      document.documentElement.removeEventListener('mouseleave', onLeaveDoc);
+    };
+  }, [hoveredKey]);
   // Map any pinned/hovered groupingKey to its collectionAddress so feed
   // events that only carry the address still match.
   const scopeAddrs = useMemo(() => {
@@ -3020,7 +3050,18 @@ export default function MintsPage() {
               const { ev, dimmed } = item;
               return (
                 <LiveMintFeedCard
-                  key={ev.signature}
+                  // A multi-mint tx (e.g. a pack-reveal minting 2-3 real NFTs
+                  // in one signature — see mint-raw/index.ts's plural Core
+                  // launchpad detectors) now legitimately produces several
+                  // distinct events sharing the same `signature`. Keying on
+                  // signature alone collided React's reconciliation across
+                  // them (duplicate keys), which showed up live as a
+                  // lag/freeze under a burst of such mints — ages stopped
+                  // updating because React reused/misattributed DOM nodes
+                  // across same-keyed-but-different events. `mintAddress` is
+                  // the real per-row unique id (matches the DB's own
+                  // `(signature, mint_address)` uniqueness constraint).
+                  key={`${ev.signature}:${ev.mintAddress ?? i}`}
                   event={ev}
                   group={rows.get(ev.groupingKey)}
                   now={now}

@@ -79,6 +79,10 @@ export interface MintStatus {
    *  build the deep-link; either null falls back to a plain pill. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** artistproof.digital pack slug — builds
+   *  https://artistproof.digital/packs/{apSlug}. Null until the backend's
+   *  Artist Proof lookup resolves; falls back to a plain (unlinked) pill. */
+  apSlug?:            string | null;
   /** Total NFTs minted in this drop so far. Backend populates from
    *  on-chain MPL Core `CollectionV1.num_minted` (Core/VVV/GRAVE
    *  rows); until the core-supply refresher has visited the row this
@@ -233,6 +237,13 @@ export interface MintEvent {
   /** Number of NFTs minted by this tx. >1 → bulk mint (card appends
    *  " (N)" after the name). Absent/1 → single mint, no suffix. */
   nftCount?:         number;
+  /** True when `priceLamports` is already this row's real per-NFT price
+   *  (backend split the tx total across N recorded assets — Core Candy
+   *  Machine / generic Core launchpad bulk mints). Absent/false → the
+   *  older convention: `priceLamports` is the tx-wide total and the card
+   *  must divide by `nftCount` itself. See MintEventWire.pricePerMint
+   *  (src/events/emitter.ts) for the backend side of this contract. */
+  pricePerMint?:     boolean;
   /** Fee payer / deployer wallet (accountKeys[0]). Present when the backend
    *  parser detected it (all mpl_core paths). Used to detect mass-mint
    *  deployments where one wallet floods the feed across many collections. */

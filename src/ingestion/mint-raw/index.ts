@@ -64,6 +64,7 @@ import {
   detectCoreCandyMachineMints,
   detectMagicEdenCoreMint,
   detectGenericCoreLaunchpadMint,
+  detectGenericCoreLaunchpadMints,
   detectGenericTokenMetadataLaunchpadMint,
   DEFI_PROGRAM_BLACKLIST,
   nameLooksLikePool,
@@ -1961,6 +1962,10 @@ export async function ingestMintRaw(
             // it doesn't read as either generic CORE or legacy CNDY.
             sourceLabel:       'Core Candy Machine',
             coreLaunchpad:     true,
+            // priceLamports above is already this asset's split of the tx
+            // total (perMintPriceLamports) — tells the frontend not to
+            // divide by nftCount again. See MintEventWire.pricePerMint.
+            pricePerMint:      true,
           });
           // Core Candy Machine state account holds items_redeemed +
           // items_available — read those directly so the SUPPLY column
@@ -2015,48 +2020,81 @@ export async function ingestMintRaw(
       // the v2 scorer below) nor a tx a dedicated detector already owns.
       // Reaches us via the existing mpl_core WS/poll. Audit: collection
       // 7c3tY7n… / "little swag figures2" (wrapper 22NeePs5…).
-      const gen = detectGenericCoreLaunchpadMint(tx);
-      if (gen && gen.accept && gen.mintAddress && gen.collectionAddress) {
-        logV2CoreAccept(sig, gen.score, gen.reasons, gen.mintAddress, gen.collectionAddress);
-        const priceLamports = extractMintPriceLamports(tx);
-        const mintType      = classifyMintType(priceLamports);
-        const groupingKey   = `collection:${gen.collectionAddress}`;
-        const blockTime = blockTimeToIso(tx.blockTime);
-        // Candy Labs (`foRGE…`) is a known, named wrapper despite having no
-        // dedicated tx-shape detector — its name coincidentally collides
-        // with Metaplex's "Candy Machine" but the two are unrelated
-        // programs/teams. Label it distinctly (LABS) instead of the
-        // generic pink-tinted CORE badge every other unenumerated wrapper
-        // gets, so it doesn't read as a real Candy Guard mint.
-        const isCandyLabs = gen.wrapperProgramId === CANDY_LABS_WRAPPER_PROGRAM;
-        const emitted = rec({
-          signature:         sig,
-          blockTime,
-          programSource:     'mpl_core',
-          mintAddress:       gen.mintAddress,
-          collectionAddress: gen.collectionAddress,
-          groupingKey,
-          groupingKind:      'collection',
-          mintType,
-          priceLamports,
-          ...paymentFieldsFrom(tx),
-          minter:            gen.minter,
-          sourceLabel:       isCandyLabs ? 'Candy Labs' : 'Metaplex Core',
-          // Visual subtype only: Core launchpad mint (pink-tinted badge).
-          // Candy Labs reuses the same pink tint via its own sourceBadge
-          // case (frontend source.ts), so this stays true either way.
-          coreLaunchpad:     true,
-        });
-        if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress);
-        scheduleCollectionConfirmation(groupingKey, gen.mintAddress, gen.collectionAddress, sig);
-        // Collection-level identity — same pattern as the ME / Core CM
-        // branches above; without it the row only ever sees per-NFT DAS.
-        void enrichLaunchpadCollectionMeta(gen.collectionAddress, groupingKey, {
-          patchName: true,
-          logTag:    'generic-core-meta',
-        });
+      //
+      // Plural: mirrors the Core Candy Machine multi-mint fix above — a
+      // custom wrapper firing 2+ inner Core CreateV2s in one tx (e.g. a
+      // "pack reveal" minting several cards at once) used to only ever
+      // record the first asset and silently drop the rest. Found live: sig
+      // 4SJicVsep…UwPqXVTam (`FViLR6FU…` RevealAndMintPack, 2 CreateV2s, 1
+      // row previously recorded) — verified via decoded tx log + on-chain
+      // balance deltas, not inference.
+      const gens = detectGenericCoreLaunchpadMints(tx);
+      if (gens.length > 0) {
+        // Same single-vs-multi price rule as the Candy Machine branch above:
+        // one mint keeps the precise priority-chain price; 2+ mints split the
+        // unambiguous total signer spend evenly (the per-mint transfer-
+        // grouping heuristic undercounts multi-mint bundles — see
+        // extractTotalSignerSpendLamports's doc comment).
+        const totalPriceLamports = gens.length === 1
+          ? extractMintPriceLamports(tx)
+          : (extractTotalSignerSpendLamports(tx) ?? extractMintPriceLamports(tx));
+        const perMintPriceLamports = totalPriceLamports != null
+          ? Math.round(totalPriceLamports / gens.length)
+          : null;
+        for (const gen of gens) {
+          if (!gen.mintAddress || !gen.collectionAddress) continue;
+          logV2CoreAccept(sig, gen.score, gen.reasons, gen.mintAddress, gen.collectionAddress);
+          const priceLamports = perMintPriceLamports;
+          const mintType      = classifyMintType(priceLamports);
+          const groupingKey   = `collection:${gen.collectionAddress}`;
+          const blockTime = blockTimeToIso(tx.blockTime);
+          // Candy Labs (`foRGE…`) is a known, named wrapper despite having no
+          // dedicated tx-shape detector — its name coincidentally collides
+          // with Metaplex's "Candy Machine" but the two are unrelated
+          // programs/teams. Label it distinctly (LABS) instead of the
+          // generic pink-tinted CORE badge every other unenumerated wrapper
+          // gets, so it doesn't read as a real Candy Guard mint.
+          const isCandyLabs = gen.wrapperProgramId === CANDY_LABS_WRAPPER_PROGRAM;
+          const emitted = rec({
+            signature:         sig,
+            blockTime,
+            programSource:     'mpl_core',
+            mintAddress:       gen.mintAddress,
+            collectionAddress: gen.collectionAddress,
+            groupingKey,
+            groupingKind:      'collection',
+            mintType,
+            priceLamports,
+            ...paymentFieldsFrom(tx),
+            minter:            gen.minter,
+            sourceLabel:       isCandyLabs ? 'Candy Labs' : 'Metaplex Core',
+            // Visual subtype only: Core launchpad mint (pink-tinted badge).
+            // Candy Labs reuses the same pink tint via its own sourceBadge
+            // case (frontend source.ts), so this stays true either way.
+            coreLaunchpad:     true,
+            // priceLamports above is already this asset's split of the tx
+            // total (perMintPriceLamports) — tells the frontend not to
+            // divide by nftCount again. See MintEventWire.pricePerMint.
+            pricePerMint:      true,
+          });
+          if (emitted) enqueueMintEnrichment(groupingKey, gen.mintAddress);
+          scheduleCollectionConfirmation(groupingKey, gen.mintAddress, gen.collectionAddress, sig);
+          // Collection-level identity — same pattern as the ME / Core CM
+          // branches above; without it the row only ever sees per-NFT DAS.
+          // Cache-guarded internally, so repeating this per asset in a
+          // same-collection bundle costs one real DAS call, not N.
+          void enrichLaunchpadCollectionMeta(gen.collectionAddress, groupingKey, {
+            patchName: true,
+            logTag:    'generic-core-meta',
+          });
+        }
         return;
       }
+      // Reject-diagnostics only: the plural detector above doesn't carry
+      // reject reasons (it just returns [] on any gate failure), so reuse
+      // the singular detector here purely for its `rejectReason` — same
+      // gates, cheap pure function, no side effects, not used for emission.
+      const gen = detectGenericCoreLaunchpadMint(tx);
       if (gen && !gen.accept && gen.rejectReason
           && gen.rejectReason !== 'no_collection'
           && gen.rejectReason !== 'no_custom_wrapper') {

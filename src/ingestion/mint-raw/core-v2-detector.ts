@@ -699,6 +699,68 @@ export function detectGenericCoreLaunchpadMint(tx: RawSolanaTx): CoreV2Detection
   };
 }
 
+/** Plural sibling of `detectGenericCoreLaunchpadMint` — same gates, but loops
+ *  `findAllCreateV2Ix` instead of stopping at the first Create/CreateV2 ix, so
+ *  a custom wrapper that mints multiple Core assets in one tx (a "pack
+ *  reveal" firing 2+ inner CreateV2s, buy-N-in-one-click, etc.) records every
+ *  asset instead of silently dropping all but the first — the exact bug
+ *  already fixed once for the dedicated Candy Machine detector
+ *  (`detectCoreCandyMachineMints`), reproduced here for the generic fallback.
+ *  Verified live: sig 4SJicVsep…UwPqXVTam (`FViLR6FU…` "RevealAndMintPack"
+ *  wrapper) — 2 inner Core `CreateV2`s, singular detector only ever recorded
+ *  1 mint_events row; this returns both.
+ *
+ *  Tx-level gates (DeFi/Token-2022/ME-reward/agent-identity/no-wrapper) are
+ *  evaluated once for the whole tx, matching the singular version's
+ *  semantics — these signal "this tx isn't a real launchpad mint at all",
+ *  not a per-asset property. Only the per-asset checks (real collection,
+ *  freshness) run inside the loop. */
+export function detectGenericCoreLaunchpadMints(tx: RawSolanaTx): CoreV2Detection[] {
+  const shape = readShape(tx);
+  if (!shape) return [];
+  if (!shape.accountKeys.includes(MPL_CORE_PROGRAM)) return [];
+
+  for (const k of shape.accountKeys) {
+    if (DEFI_PROGRAM_BLACKLIST.has(k)) return [];
+  }
+  if (shape.accountKeys.includes(TOKEN_2022_PROGRAM)) return [];
+
+  const allFound = findAllCreateV2Ix(tx, shape.accountKeys, CORE_CREATE_DISCS);
+  if (allFound.length === 0) return [];
+
+  const invoked = collectInvokedPrograms(tx, shape.accountKeys);
+  for (const p of invoked) {
+    if (ME_REWARD_WRAPPER_PROGRAMS.has(p)) return [];
+    if (AGENT_IDENTITY_PROGRAMS.has(p)) return [];
+  }
+  let wrapper: string | null = null;
+  for (const p of invoked) { if (!PRIMITIVE_PROGRAMS.has(p)) { wrapper = p; break; } }
+  if (!wrapper) return [];
+
+  const minter = shape.signerKeys[0] ?? null;
+  const results: CoreV2Detection[] = [];
+  for (const found of allFound) {
+    const accIxs = found.accounts;
+    const asset      = accIxs.length > 0 && accIxs[0] >= 0 ? shape.accountKeys[accIxs[0]] ?? null : null;
+    const collection = accIxs.length > 1 && accIxs[1] >= 0 ? shape.accountKeys[accIxs[1]] ?? null : null;
+    if (!asset) continue;
+    const hasRealCollection = !!collection
+      && collection !== MPL_CORE_PROGRAM
+      && collection !== asset
+      && collection !== SYSTEM_PROGRAM;
+    if (!hasRealCollection) continue;
+    if (!isFresh(shape, asset)) continue;
+    results.push({
+      accept: true, score: 2, reasons: ['generic_core_launchpad', 'collection_present', `wrapper:${wrapper}`],
+      rejectReason: null,
+      mintAddress: asset, collectionAddress: collection, minter,
+      name: null, uri: null, pluginsCount: null,
+      wrapperProgramId: wrapper,
+    });
+  }
+  return results;
+}
+
 // ─── Legacy Metaplex Token Metadata generic launchpad fallback ────────────
 //
 // The generic Core detector above tracks unknown launchpads that CPI into

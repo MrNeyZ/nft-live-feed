@@ -123,7 +123,11 @@ export function MintFeedPanel() {
         )}
         {visible.map(ev => (
           <LiveMintFeedCard
-            key={ev.signature}
+            // See app/mints/page.tsx's identical key fix: a multi-mint tx
+            // (pack-reveal, Candy Machine bundle, ...) shares one signature
+            // across several distinct events — mintAddress is the real
+            // per-row unique id.
+            key={`${ev.signature}:${ev.mintAddress ?? ev.groupingKey}`}
             event={ev}
             group={rows.get(ev.groupingKey)}
             now={now}

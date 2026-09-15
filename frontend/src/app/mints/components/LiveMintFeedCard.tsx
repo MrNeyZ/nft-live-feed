@@ -48,7 +48,7 @@ const LONG_LABELS = new Set(['LMNFT', 'CANDY', 'GRAVE']);
 const XLONG_LABELS = new Set(['MALLOW']);
 /** 3-char labels — widened letter-spacing instead of a bigger font-size
  *  (see `.vl-srcchip--short` in globals.css). */
-const SHORT_LABELS = new Set(['NFT', 'VVV']);
+const SHORT_LABELS = new Set(['NFT', 'VVV', 'ART']);
 function srcChipClassName(label: string): string {
   if (XLONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--xlong';
   if (LONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--long';
@@ -436,13 +436,26 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
     // eslint-disable-next-line no-console
     console.debug(`[mints/flork] sig=${ev.signature.slice(0, 8)}… tier=${tier} url=${cardImage ?? '—'}`);
   }
-  // Per-NFT price. `priceLamports` is the signer's total SOL delta for the
-  // whole tx — for a bulk mint that's the SUM across N NFTs, which would
-  // otherwise make a bulk card show ~N× the real mint price and read as a
-  // different, expensive collection. Divide by `nftCount` so the PRICE column
-  // means the same thing (per-NFT) on single and bulk cards alike; the `×N`
-  // pill carries the multiplicity. Single mints (count 1/absent) are unchanged.
-  const perNftLamports = ev.priceLamports != null && isBulkMint
+  // Per-NFT price. Two backend conventions coexist (see MintEventWire
+  // .pricePerMint in src/events/emitter.ts):
+  //   - `pricePerMint: true` — a multi-mint detector (Core Candy Machine /
+  //     generic Core launchpad) already split the tx total across the N
+  //     rows it individually recorded, so `priceLamports` on THIS row IS
+  //     the real per-NFT price already. Dividing again here double-counted
+  //     nftCount — found live: a 2-mint pack-reveal correctly priced at
+  //     0.00166 SOL/asset rendered as 0.0007 (halved a second time).
+  //   - absent/false — the older convention: `priceLamports` is the
+  //     signer's total SOL delta for the WHOLE tx (every mint from that
+  //     detector still lands in one row), which would otherwise make a
+  //     bulk card show ~N× the real mint price. Divide by `nftCount` so
+  //     the PRICE column means the same thing (per-NFT) either way; the
+  //     `×N` pill carries the multiplicity. Single mints are unaffected by
+  //     either branch (nftCount<=1 → isBulkMint false).
+  const perNftLamports = ev.priceLamports == null
+    ? null
+    : ev.pricePerMint
+    ? ev.priceLamports
+    : isBulkMint
     ? ev.priceLamports / (ev.nftCount as number)
     : ev.priceLamports;
   // No "free" price tier — fmtMintPrice floors legacy negative rows to 0 and
@@ -459,8 +472,14 @@ export function LiveMintFeedCard({ event: ev, group, now, paymentTokens, dimmed 
   // Total tx price (formatted) — only meaningful on a paid bulk mint, where
   // it differs from the per-NFT figure. Surfaced both in the `×N = TOTAL` pill
   // and in the price tooltip below. Null for single / free mints.
-  const totalText      = isBulkMint && ev.priceLamports != null && ev.priceLamports > 0
-    ? fmtMintPrice(ev.priceLamports)
+  // `pricePerMint` rows only carry the per-NFT figure on the wire, so the
+  // total is reconstructed (perNft × nftCount) — exactly undoes the
+  // backend's own even split, off by at most a few lamports of rounding.
+  const totalLamportsForDisplay = ev.pricePerMint
+    ? (perNftLamports != null ? perNftLamports * (ev.nftCount as number) : null)
+    : ev.priceLamports;
+  const totalText      = isBulkMint && totalLamportsForDisplay != null && totalLamportsForDisplay > 0
+    ? fmtMintPrice(totalLamportsForDisplay)
     : null;
   // Tooltip shows the tx total when we divided, so the raw on-chain number is
   // still discoverable on hover. Null for single mints (no title).

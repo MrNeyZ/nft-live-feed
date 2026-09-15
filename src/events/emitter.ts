@@ -308,6 +308,24 @@ export interface MintEventWire {
    *  mint; >1 for bulk-mint txs (counted from per-NFT mint instructions
    *  in the tx logs). Absent on hydrated legacy rows → treated as 1. */
   nftCount?:         number;
+  /** True when `priceLamports` on THIS row is already the real per-NFT
+   *  price (a multi-mint detector split the tx's total spend across the N
+   *  assets it individually recorded — see the Core Candy Machine and
+   *  generic Core launchpad plural branches in mint-raw/index.ts). Absent/
+   *  false means the OLDER convention: `priceLamports` is the tx-WIDE
+   *  total, and the frontend must divide by `nftCount` itself to get the
+   *  per-NFT figure (still true for every detector that hasn't been
+   *  upgraded to emit one row per real asset).
+   *
+   *  Without this flag, a card for an already-split row got DOUBLE-divided
+   *  by the frontend's `priceLamports / nftCount` (both backend and
+   *  frontend independently dividing by N) — found live: a 2-mint pack-
+   *  reveal tx correctly priced at 0.00166 SOL/asset displayed as 0.0007
+   *  SOL (halved again by 2). Explicit is safer than inferring "already
+   *  split" from how many events share a signature, which the frontend
+   *  can't always see (SSE cards, DB replay, and the sampled feed ring can
+   *  each show a different subset of a bulk mint's rows). */
+  pricePerMint?:     boolean;
   /** Fee payer / deployer wallet (accountKeys[0]). Set on all mint paths.
    *  Used by the frontend to detect mass-mint deployments where one wallet
    *  floods the feed across many different collection addresses. */
@@ -357,6 +375,12 @@ export interface MintStatusWire {
    *  Either being null falls back to a plain-text source pill. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** artistproof.digital pack slug. Populated by the Artist Proof
+   *  enrichment lookup once the collection is found in their `drops` /
+   *  `editions` tables. Frontend uses it to build:
+   *    https://artistproof.digital/packs/{apSlug}
+   *  Null falls back to a plain-text source pill. */
+  apSlug?:            string | null;
   /** Total NFTs minted in this drop so far. For MPL Core collections
    *  populated from the on-chain CollectionV1 `num_minted` u32 by the
    *  core-supply refresher. Until the refresher has visited the
