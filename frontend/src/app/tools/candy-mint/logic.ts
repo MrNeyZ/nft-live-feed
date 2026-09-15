@@ -184,18 +184,26 @@ export function foldReconcileResults(results: readonly OneReconcileResult[]): Re
   return { stillUnresolved, bumps, resolvedFailed, notes };
 }
 
+// Candy Guard AnchorError codes we can name with confidence — shared between
+// the post-send confirmed-failed path (normalizeMintErr) and the pre-send
+// simulate-tx path (page.tsx's humanizeBackendError), since both surface the
+// same raw `{"InstructionError":[i,{"Custom":n}]}` shape stringified.
+export function describeCandyGuardCustomError(s: string): string | undefined {
+  if (/\b6024\b/.test(s)) return 'Mint stage had already ended when the transaction landed.';
+  if (/\b6023\b/.test(s)) return 'Mint stage was not live yet when the transaction landed.';
+  if (/\b6033\b/.test(s)) return 'This wallet is not on the allowed address list for this mint (address gate).';
+  return undefined;
+}
+
 // Best-effort human string for a landed-but-failed transaction's raw
-// TransactionError. Candy Guard surfaces its own AnchorError codes here;
-// 6023/6024 are the date-window guards (MintNotLive / AfterEndDate) which is
-// the failure this tool races against most often. Everything else falls back
-// to a truncated dump rather than pretending to know.
+// TransactionError. Everything not in describeCandyGuardCustomError falls
+// back to a truncated dump rather than pretending to know.
 export function normalizeMintErr(err: unknown): string {
   if (err == null) return 'Mint transaction failed on-chain.';
   let s: string;
   try { s = typeof err === 'string' ? err : JSON.stringify(err); } catch { return 'Mint transaction failed on-chain.'; }
-  if (/\b6024\b/.test(s)) return 'Mint stage had already ended when the transaction landed.';
-  if (/\b6023\b/.test(s)) return 'Mint stage was not live yet when the transaction landed.';
-  if (/\b6033\b/.test(s)) return 'This wallet is not on the allowed address list for this mint (address gate).';
+  const known = describeCandyGuardCustomError(s);
+  if (known) return known;
   if (/InsufficientFundsForRent|insufficient lamports|InsufficientFunds/i.test(s)) return 'Not enough SOL when the transaction landed.';
   return `Mint transaction failed on-chain (${s.length > 140 ? `${s.slice(0, 140)}…` : s}).`;
 }

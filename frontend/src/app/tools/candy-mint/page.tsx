@@ -35,7 +35,7 @@ import { API_BASE, MONO, ToolButton, ToolTextInput, short } from '@/app/tools/mm
 import { VL, VLText, ALPHA, alpha, rgb, hex } from '@/lib/palette';
 import { ItemThumb, LiveDot, Pill, CtaButton } from '@/soloist/shared';
 import {
-  classifyConfirmation, normalizeMintErr, pickInitialGroup, inspectDisabled,
+  classifyConfirmation, normalizeMintErr, describeCandyGuardCustomError, pickInitialGroup, inspectDisabled,
   buildPriceLabel, tokenCostLabel as tokenCostLabelFor,
   runBounded, hasBlockhashHeadroom, BLOCKHASH_SAFETY_MARGIN_BLOCKS, retryOnce,
   CONFIRMATION_BUDGET_MS, CONFIRMATION_POLL_INTERVAL_MS, shouldKeepPolling,
@@ -201,6 +201,12 @@ const BACKEND_ERROR_MESSAGES: Record<string, string> = {
 
 function humanizeBackendError(code: string | undefined, httpStatus?: number): string {
   if (code) {
+    // simulate-tx forwards a raw `{"InstructionError":[i,{"Custom":n}]}`
+    // dump as `error` on sim failure — decode it before falling through to
+    // the plain-code lookup below, which would otherwise split on the JSON's
+    // own colons and return it verbatim.
+    const guardMsg = describeCandyGuardCustomError(code);
+    if (guardMsg) return guardMsg;
     const base = code.split(':')[0].trim();
     // `unsupported_guards: gatekeeper, allowList` — keep the guard names
     // (they explain *why* this drop can't be minted here) but wrap them in
