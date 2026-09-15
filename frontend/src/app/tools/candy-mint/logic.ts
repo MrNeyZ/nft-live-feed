@@ -195,6 +195,7 @@ export function normalizeMintErr(err: unknown): string {
   try { s = typeof err === 'string' ? err : JSON.stringify(err); } catch { return 'Mint transaction failed on-chain.'; }
   if (/\b6024\b/.test(s)) return 'Mint stage had already ended when the transaction landed.';
   if (/\b6023\b/.test(s)) return 'Mint stage was not live yet when the transaction landed.';
+  if (/\b6033\b/.test(s)) return 'This wallet is not on the allowed address list for this mint (address gate).';
   if (/InsufficientFundsForRent|insufficient lamports|InsufficientFunds/i.test(s)) return 'Not enough SOL when the transaction landed.';
   return `Mint transaction failed on-chain (${s.length > 140 ? `${s.slice(0, 140)}…` : s}).`;
 }
