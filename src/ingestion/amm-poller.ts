@@ -28,10 +28,11 @@ import { HeliusEnhancedTransaction } from './helius/types';
 import { incSigListFetch } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { getMode, currentGeneration } from '../runtime/mode';
-import { dispatchMmmDeferred } from './mmm-prefilter';
+import { dispatchMmmDeferred, dispatchMmmDeferredAwaitable } from './mmm-prefilter';
 import { isSalesWsDead } from './listener';
 import { getAcceptedCount } from './poll-useful';
 import { incFired, sourceFromTargetName } from './source-stats';
+import { IngestOutcome, isTerminalSafe } from './ingest-outcome';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ type IngestFn = (
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority?: Priority,
-) => Promise<void>;
+) => Promise<IngestOutcome>;
 
 interface PollTarget {
   name:    string;   // used as cursor key + log prefix
@@ -89,6 +90,14 @@ const TICK_STAGGER_MS  = 600;
  *  drain can't spam getSignaturesForAddress at full 2.5 s rate. */
 const SLOW_INTERVAL_MS = 10_000;
 const PAGE_SIZE   = 20;
+/** Fresh-path dispatch concurrency at the amm-poller layer. The real
+ *  throttle is still the shared rpcLimiter downstream (4 concurrent /
+ *  75 ms gap) — this just bounds how many `target.ingest` calls this
+ *  sweep has in flight at once while awaiting their outcomes. Set to
+ *  PAGE_SIZE so an ordinary (non-MMM-lean) sweep dispatches its whole
+ *  fresh slice essentially at once, matching the previous fire-and-forget
+ *  throughput; rpcLimiter still serializes the actual RPC calls. */
+const FRESH_DISPATCH_CONCURRENCY = PAGE_SIZE;
 /** Hard ceiling on catch-up pages per sweep — protects against runaway loops. */
 // Per-sweep page budget — mode-dependent.
 //   Full mode      : up to 20 pages (catch-up ceiling for backlog drain)
@@ -115,15 +124,16 @@ function maxPagesForTarget(name: string): number {
   const cap  = MAX_PAGES_BY_TARGET[name];
   return cap != null ? Math.min(mode, cap) : mode;
 }
-/** Per-target fresh-path cutoff. Fresh-path sigs dispatch synchronously
- *  into rpcLimiter (page-1 fan-out); the rest go to the serial backlog
- *  drain. Lowering MMM's cutoff from PAGE_SIZE (20) to 10 cuts the
- *  worst-case 5-s tick burst in half without changing throughput. */
-const FRESH_CUTOFF_BY_TARGET: Record<string, number> = {
+/** Per-target BASELINE per-sweep synchronous dispatch budget (quiet-period
+ *  value, before any backlog-pressure escalation — see
+ *  `syncBudgetForSweep`). Lowering MMM's baseline from PAGE_SIZE (20) to 10
+ *  cuts the worst-case per-sweep burst in half during normal (low-backlog)
+ *  operation, without changing steady-state throughput. */
+const BASE_SYNC_BUDGET_BY_TARGET: Record<string, number> = {
   'poll:mmm': 10,
 };
-function freshCutoffForTarget(name: string): number {
-  return FRESH_CUTOFF_BY_TARGET[name] ?? PAGE_SIZE;
+function baseSyncBudgetForTarget(name: string): number {
+  return BASE_SYNC_BUDGET_BY_TARGET[name] ?? PAGE_SIZE;
 }
 /** Below this page count, a sweep is treated as near-realtime and never
  *  flagged as `saturated` even if every page returned full. Ordinary
@@ -150,6 +160,78 @@ function markLocalSeen(sig: string): boolean {
     localSeen.delete(evict);
   }
   return true;
+}
+
+// ─── Cross-sweep outcome memory (cursor-safety) ────────────────────────────
+//
+// The persisted `poller_state` cursor may only advance past a signature once
+// its ingestion reached a TERMINAL SAFE outcome — never merely because work
+// was dispatched. A signature dispatched THIS sweep on the fresh path has its
+// outcome known synchronously (awaited below). One dispatched to `backlog`,
+// or deferred via dispatchMmmDeferred, resolves LATER — a subsequent sweep
+// re-fetching the same (not-yet-advanced) window will see it again via
+// `markLocalSeen` returning false, and needs to recall what happened to it
+// without re-dispatching. This bounded FIFO is that memory. An entry falling
+// out of the window just means the sig gets a fresh dispatch attempt next
+// time it's seen — harmless, never incorrectly permissive (worst case is an
+// extra, idempotent re-fetch via `ON CONFLICT (signature) DO NOTHING`).
+const SIGNATURE_OUTCOME_MAX = 10_000;
+const signatureOutcomes = new Map<string, IngestOutcome>();
+function rememberOutcome(sig: string, outcome: IngestOutcome): void {
+  signatureOutcomes.set(sig, outcome);
+  if (signatureOutcomes.size <= SIGNATURE_OUTCOME_MAX) return;
+  const overflow = signatureOutcomes.size - SIGNATURE_OUTCOME_MAX;
+  const it = signatureOutcomes.keys();
+  for (let i = 0; i < overflow; i++) {
+    const r = it.next();
+    if (r.done) break;
+    signatureOutcomes.delete(r.value);
+  }
+}
+
+/** Runs `worker` over `items` with at most `concurrency` in flight at once.
+ *  The real throttle is still the shared `rpcLimiter` inside fetchRawTx
+ *  (4 concurrent / 75 ms gap) — this just bounds how many `target.ingest`
+ *  calls this loop has in flight at the JS level at any one time. */
+async function runBounded<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  async function runner(): Promise<void> {
+    while (next < items.length) {
+      const item = items[next++];
+      await worker(item);
+    }
+  }
+  const n = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: n }, () => runner()));
+}
+
+/** Given `page` (newest-first, index 0 = newest) and an index-aligned
+ *  `outcomes` array, returns the newest signature such that it AND every
+ *  signature newer than it in `page` resolved to a terminal-safe outcome —
+ *  i.e. the contiguous safe run walking from the OLDEST entry (highest
+ *  index) toward the newest (index 0). Returns null if even the oldest
+ *  entry isn't confirmed safe yet. `page` is newest-first because
+ *  `getSignaturesForAddress` returns results that way; a cursor value
+ *  asserts "everything newer than this is done", so walking from the old
+ *  end is what "advance through the contiguous completed prefix" means in
+ *  timeline terms — a single still-pending item anywhere in the range
+ *  blocks the cursor from passing it, no matter how many NEWER items in
+ *  the same concurrent dispatch batch already finished first. */
+function safeAdvanceSigFromPage(
+  page: SigInfo[],
+  outcomes: (IngestOutcome | undefined)[],
+): string | null {
+  let safe: string | null = null;
+  for (let i = page.length - 1; i >= 0; i--) {
+    const outcome = outcomes[i];
+    if (outcome === undefined || !isTerminalSafe(outcome)) break;
+    safe = page[i].signature;
+  }
+  return safe;
 }
 
 // ─── RPC ──────────────────────────────────────────────────────────────────────
@@ -311,78 +393,100 @@ async function fetchSinceCursor(
 /** Per-target re-entrancy guard: skip a tick if the previous sweep is still running. */
 const sweepInFlight = new Map<string, boolean>();
 
-// ─── Backlog (low-priority catch-up) queue ────────────────────────────────────
-// Sigs from pages 2+ of any sweep are drained here instead of flooding the
-// shared `rpcLimiter`. That keeps the limiter's slots free for the newest
-// (page-1) sigs of every sweep so fresh sales don't wait behind a deep
-// catch-up tail. Single-worker, 120ms inter-call gap — catch-up still
-// completes, just doesn't compete with live traffic.
-interface BacklogItem { sig: string; ingest: IngestFn; target: string }
-const backlog: BacklogItem[] = [];
-let backlogDraining = false;
-/** Gap between consecutive catch-up ingest calls; keeps rpcLimiter slots available for fresh sigs. */
-const BACKLOG_GAP_MS = 120;
-/** When the remaining backlog is at or above this threshold, dispatch each
- *  ingest at `medium` priority instead of `low`. Rationale: the rpcLimiter
- *  drops `low` tasks at admission once their queue wait exceeds STALE_LOW_MS
- *  (20 s). At BACKLOG_GAP_MS = 120 ms per dispatch, anything past item ~166
- *  in the queue meets that drop window. Steady-state catch-up (small
- *  backlogs) wants to keep `low` so live WS work always wins; gap-recovery
- *  catch-up (large backlogs after downtime) wants `medium` so the work
- *  actually executes instead of being silently sheared off. Live WS sigs
- *  enter the rpcLimiter at `high` and are unaffected either way. */
-const BACKLOG_LARGE_THRESHOLD = 200;
+// ─── Backlog scheduling fairness ───────────────────────────────────────────
+//
+// 2026-08-05 audit finding: the OLD model gave a page's newest
+// BASE_SYNC_BUDGET slots to fresh dispatch every sweep, unconditionally, and
+// pushed everything past that into a SEPARATE, un-prioritized, slow
+// (120 ms/item, single serial worker) async drain (`kickBacklogDrain`,
+// removed here). Under sustained high volume (fresh arrivals exceed the
+// budget every sweep — the everyday case for `poll:mmm`), the backlog's
+// OLDEST items never got priority over each new sweep's newest arrivals.
+// Since the cursor can only advance through a contiguous safe run starting
+// at the OLDEST pending item (`safeAdvanceSigFromPage` walks oldest→newest),
+// the persisted `until` cursor starved indefinitely and grew further behind
+// real time every sweep — even though every individual sale was still
+// eventually processed via backlog (loss-safe, but durability-weakening:
+// a longer unresolved window is a longer window a crash can wipe, and an
+// ever-growing backlog eventually pressures `signatureOutcomes`' bounded
+// eviction, see the note there).
+//
+// Fix: backlog draining is now INTEGRATED into each sweep's own
+// synchronous, AWAITED dispatch — no separate timer/loop — with a
+// GUARANTEED minimum share of that sweep's total budget reserved for the
+// OLDEST backlog items first, escalating toward the full budget (capped at
+// this sweep's already-fetched page size — never more RPC than before) as
+// backlog depth or the oldest item's age crosses thresholds. Per-target
+// queues (keyed by `target.name`) so one target's pressure can't starve
+// another's scheduling decisions.
+interface BacklogItem { sig: string; ingest: IngestFn; target: string; enqueuedAt: number }
+const backlogByTarget = new Map<string, BacklogItem[]>();
+function backlogFor(target: string): BacklogItem[] {
+  let q = backlogByTarget.get(target);
+  if (!q) { q = []; backlogByTarget.set(target, q); }
+  return q;
+}
+function totalBacklogSize(): number {
+  let n = 0;
+  for (const q of backlogByTarget.values()) n += q.length;
+  return n;
+}
 
-function kickBacklogDrain(): void {
-  if (backlogDraining) return;
-  backlogDraining = true;
-  const startGen = currentGeneration();
-  (async () => {
-    try {
-      while (backlog.length > 0) {
-        // HARD STOP. This loop is the primary source of continuous
-        // `getTransaction` traffic after OFF — one ingest call every
-        // BACKLOG_GAP_MS, for however many sigs were banked from the last
-        // pre-OFF sweep. Bail on mode flip or generation bump.
-        if (getMode() === 'off' || startGen !== currentGeneration()) break;
-        const item = backlog.shift()!;
-        // Pick priority based on how much work is still queued. Small
-        // backlogs stay 'low' (live WS keeps priority); large backlogs
-        // promote to 'medium' so STALE_LOW_MS doesn't kill the tail.
-        const priority: Priority =
-          backlog.length >= BACKLOG_LARGE_THRESHOLD ? 'medium' : 'low';
-        // Lean-mode MMM exception (same rationale as the fresh-path
-        // branch in sweepTarget): the poller has no log access so it
-        // can't shed noise pre-RPC. Hand the sig to the deferred-and-
-        // recheck shim instead of dispatching directly. The shim's
-        // 5 s wait gives WS time to mark the sig; on resolution we
-        // skip the RPC entirely. WS-missed sigs still flow through.
-        const m = getMode();
-        const isMmmLean =
-          item.target === 'poll:mmm' && (m === 'sales_only' || m === 'budget');
-        const backlogSource = sourceFromTargetName(item.target);
-        try {
-          if (isMmmLean) {
-            // deferred dispatch may skip the fetch; count fired from inside.
-            dispatchMmmDeferred(
-              item.sig,
-              (s) => { incFired(backlogSource); return item.ingest(s, undefined, priority); },
-              item.target,
-            );
-          } else {
-            incFired(backlogSource);
-            await item.ingest(item.sig, undefined, priority);
-          }
-        } catch (err: unknown) {
-          console.error(`[${item.target}] backlog ingest error  sig=${item.sig.slice(0, 12)}...`, err);
-        }
-        if (getMode() === 'off' || startGen !== currentGeneration()) break;
-        await new Promise((r) => setTimeout(r, BACKLOG_GAP_MS));
-      }
-    } finally {
-      backlogDraining = false;
-    }
-  })();
+/** Inserts `item` keeping `queue` sorted ascending by `enqueuedAt` (oldest
+ *  first), so `queue[0]` is always the true oldest and the reserve-dispatch
+ *  `shift()` loop stays correct. Used when a retryable failure gets
+ *  re-queued WITHOUT resetting its original enqueue time — a plain
+ *  `unshift`/`push` would let a just-failed (i.e. "now") retry jump ahead
+ *  of, or hide behind, genuinely older items already waiting. Queue sizes
+ *  here are the backlog-reserve budget's own scale (bounded, not chain-wide
+ *  volume), so an O(n) linear scan is cheap in practice. */
+function requeueOldestFirst(queue: BacklogItem[], item: BacklogItem): void {
+  let i = 0;
+  while (i < queue.length && queue[i].enqueuedAt <= item.enqueuedAt) i++;
+  queue.splice(i, 0, item);
+}
+
+const BACKLOG_RESERVE_MIN_SHARE = 0.3;      // floor whenever backlog is non-empty
+const BACKLOG_DEPTH_ESCALATE_1  = 20;       // -> 50% reserve share
+const BACKLOG_DEPTH_ESCALATE_2  = 60;       // -> 100% reserve share (backlog-only sweep)
+const BACKLOG_AGE_ESCALATE_1_MS = 30_000;   // oldest item > 30 s  -> 50% reserve share
+const BACKLOG_AGE_ESCALATE_2_MS = 120_000;  // oldest item > 2 min -> 100% reserve share
+
+/** Fraction of this sweep's total sync budget reserved for the OLDEST
+ *  backlog items, given current depth/age pressure. 0 when backlog is
+ *  empty — all budget goes to fresh. */
+function backlogReserveShare(depth: number, oldestAgeMs: number): number {
+  if (depth <= 0) return 0;
+  if (depth >= BACKLOG_DEPTH_ESCALATE_2 || oldestAgeMs >= BACKLOG_AGE_ESCALATE_2_MS) return 1;
+  if (depth >= BACKLOG_DEPTH_ESCALATE_1 || oldestAgeMs >= BACKLOG_AGE_ESCALATE_1_MS) return 0.5;
+  return BACKLOG_RESERVE_MIN_SHARE;
+}
+
+/** Total per-sweep synchronous dispatch budget (fresh + backlog-reserve
+ *  combined). Scales from the target's base budget up to the FULL fetched
+ *  page under backlog pressure — capped at `pageLen`, so this never spends
+ *  more RPC than the page/pages caps already committed to for this sweep. */
+function syncBudgetForSweep(target: string, depth: number, oldestAgeMs: number, pageLen: number): number {
+  const base = baseSyncBudgetForTarget(target);
+  if (depth >= BACKLOG_DEPTH_ESCALATE_2 || oldestAgeMs >= BACKLOG_AGE_ESCALATE_2_MS) return pageLen;
+  if (depth >= BACKLOG_DEPTH_ESCALATE_1 || oldestAgeMs >= BACKLOG_AGE_ESCALATE_1_MS) return Math.min(pageLen, base * 2);
+  return Math.min(pageLen, base);
+}
+
+/** Blocking reason for the cursor-safety metrics/log line — distinguishes a
+ *  genuine transient failure from "we simply didn't have capacity to
+ *  dispatch this signature yet this sweep" (capacity starvation). Mirrors
+ *  `safeAdvanceSigFromPage`'s walk direction. */
+function blockingReasonFromPage(
+  page: SigInfo[],
+  outcomes: (IngestOutcome | undefined)[],
+): 'retryable' | 'capacity_starved' | null {
+  for (let i = page.length - 1; i >= 0; i--) {
+    const outcome = outcomes[i];
+    if (outcome === undefined) return 'capacity_starved';
+    if (!isTerminalSafe(outcome)) return 'retryable';
+  }
+  return null;
 }
 
 /** Catch-up state, persisted in `poller_state` under
@@ -600,76 +704,165 @@ async function sweepTarget(target: PollTarget): Promise<void> {
       // WS-driven sale recover the cadence (acceptedDelta>0) and refresh due-ts.
       evaluateBackoff(
         target.name, 0,
-        isSalesWsDead() || saturated || backlog.length > 0 || lastSig === null,
+        isSalesWsDead() || saturated || backlogFor(target.name).length > 0 || lastSig === null,
         Date.now(),
       );
       return;
     }
 
-    // Priority split: page-1 (the PAGE_SIZE newest sigs) is "fresh" and goes
-    // straight to the shared rpcLimiter like before. Pages 2+ are catch-up
-    // backlog — they enter a low-priority serial queue so they don't crowd
-    // out fresh sigs arriving on subsequent sweeps. (kickBacklogDrain bumps
-    // priority to medium when the backlog grows past BACKLOG_LARGE_THRESHOLD
-    // so the rpcLimiter's stale-low admission drop doesn't shear off the
-    // tail of a gap-recovery walk.)
     const ordered = page;
-    const FRESH_CUTOFF = freshCutoffForTarget(target.name);
     const sourceLabel = sourceFromTargetName(target.name);
+    const m = getMode();
+    const isMmmLean = target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget');
+    const backlogQueue = backlogFor(target.name);
 
-    let unseen = 0, ingested = 0, skipped = 0, backlogged = 0;
+    // Backlog pressure snapshot (BEFORE this sweep adds anything to it) —
+    // drives both the reserve share and the total per-sweep budget below.
+    const backlogDepthBefore    = backlogQueue.length;
+    const oldestBacklogAgeMsBefore = backlogDepthBefore > 0 ? Date.now() - backlogQueue[0].enqueuedAt : 0;
+    const totalBudget  = syncBudgetForSweep(target.name, backlogDepthBefore, oldestBacklogAgeMsBefore, ordered.length);
+    const reserveShare = backlogReserveShare(backlogDepthBefore, oldestBacklogAgeMsBefore);
+    const backlogBudget = Math.min(backlogDepthBefore, Math.round(totalBudget * reserveShare));
+    const freshBudgetCap = Math.max(0, totalBudget - backlogBudget);
+
+    // outcomes[i] mirrors ordered[i] — undefined means "not resolved this
+    // sweep" (still queued in backlog past this sweep's reserve, or a
+    // locally-seen sig with no remembered outcome yet). Populated
+    // synchronously below for on-chain-failed and already-known sigs, then
+    // filled in for whatever this sweep's combined dispatch resolves.
+    const outcomes: (IngestOutcome | undefined)[] = new Array(ordered.length);
+    const pageIdxBySig = new Map<string, number>();
+    for (let i = 0; i < ordered.length; i++) pageIdxBySig.set(ordered[i].signature, i);
+
+    // Newly-discovered-this-sweep signatures, still in page order (newest
+    // first). Up to `freshBudgetCap` of the newest ones dispatch now; the
+    // rest are enqueued to backlog, OLDEST-of-this-batch first (reversed
+    // below) so the per-target FIFO stays genuinely oldest-first end to end.
+    const newThisSweep: SigInfo[] = [];
+
+    let unseen = 0, skipped = 0;
     for (let i = 0; i < ordered.length; i++) {
       const info = ordered[i];
-      if (!markLocalSeen(info.signature)) { skipped++; continue; }
+      if (info.err !== null && info.err !== undefined) {
+        // On-chain failed tx — never had any effect. Confirmed-safe,
+        // recomputed fresh from `info` every sweep — no memory needed,
+        // and no `markLocalSeen` gating required for this classification.
+        outcomes[i] = 'confirmed_irrelevant';
+        continue;
+      }
+      if (!markLocalSeen(info.signature)) {
+        skipped++;
+        // Already seen in an earlier sweep (this window hasn't advanced
+        // past it) — recall whatever outcome that earlier dispatch (fresh
+        // or backlog reserve) eventually recorded, if any.
+        outcomes[i] = signatureOutcomes.get(info.signature);
+        continue;
+      }
       unseen++;
-      if (info.err !== null && info.err !== undefined) continue; // on-chain failure: don't ingest
-
       trace(info.signature, 'poll:fetched', `target=${target.name}`);
       trace(info.signature, 'poll:ingest',  `target=${target.name}`);
-
-      if (i < FRESH_CUTOFF) {
-        // Fresh path — fire and forget through the shared rpcLimiter.
-        // Lean-mode MMM exception: poller has no log access so it can't
-        // run shouldSkipMmmLogsSalesOnly. Defer 5 s and re-check whether
-        // the WS path has marked the sig (recentSigs / inFlight). If yes,
-        // skip without RPC; if no, dispatch normally so WS-missed sigs
-        // are still recovered. Other targets (or full mode) dispatch
-        // immediately as before.
-        const m = getMode();
-        if (target.name === 'poll:mmm' && (m === 'sales_only' || m === 'budget')) {
-          // dispatchMmmDeferred may skip the fetch (WS-resolved or noise-shed);
-          // incFired is therefore done from inside the deferred dispatch lambda.
-          dispatchMmmDeferred(
-            info.signature,
-            (s) => { incFired(sourceLabel); return target.ingest(s); },
-            target.name,
-          );
-        } else {
-          incFired(sourceLabel);
-          target.ingest(info.signature).catch((err: unknown) =>
-            console.error(`[${target.name}] ingest error  sig=${info.signature.slice(0, 12)}...`, err)
-          );
-        }
-      } else {
-        // Catch-up path — enqueue for serial drain so it doesn't starve fresh.
-        backlog.push({ sig: info.signature, ingest: target.ingest, target: target.name });
-        backlogged++;
-      }
-      ingested++;
+      newThisSweep.push(info);
     }
-    if (backlogged > 0) kickBacklogDrain();
 
-    // Cursor advance — saturation-aware.
+    const freshNow    = newThisSweep.slice(0, freshBudgetCap);
+    const freshOverflow = newThisSweep.slice(freshBudgetCap);
+    if (freshOverflow.length > 0) {
+      const now = Date.now();
+      // Push oldest-of-this-overflow-batch first (reverse of newest-first
+      // page order) so the FIFO shift() below drains genuinely oldest-first.
+      for (let i = freshOverflow.length - 1; i >= 0; i--) {
+        backlogQueue.push({ sig: freshOverflow[i].signature, ingest: target.ingest, target: target.name, enqueuedAt: now });
+      }
+    }
+
+    // Reserve dispatch — the OLDEST items already waiting in this target's
+    // backlog (from earlier sweeps), taken BEFORE this sweep's own overflow
+    // above so a fresh overflow can never jump the queue ahead of older work.
+    const backlogNow: BacklogItem[] = [];
+    for (let i = 0; i < backlogBudget; i++) {
+      const item = backlogQueue.shift();
+      if (!item) break;
+      backlogNow.push(item);
+    }
+
+    const backlogDispatched = backlogNow.length;
+    const freshDispatched   = freshNow.length;
+
+    // Combined bounded-concurrency AWAITED dispatch — backlog-reserve items
+    // first (priority), then fresh. The persisted cursor cannot advance past
+    // ANY of these signatures until we actually know what happened to them
+    // (never merely because they were dispatched). Lean-mode MMM exception:
+    // poller has no log access, so it can't run shouldSkipMmmLogsSalesOnly
+    // pre-fetch. dispatchMmmDeferredAwaitable still gives WS a 5 s head
+    // start to resolve the sig for free (skips the real fetch only on an
+    // AUTHORITATIVE wasRecentlyFetched hit — a noise_shed guess is not
+    // authoritative enough for a cursor-safety decision, so it falls
+    // through to a real fetch instead of skipping).
+    //
+    // `enqueuedAt` travels with each item so a retryable failure can be
+    // re-queued at the FRONT of backlogQueue (top priority next sweep)
+    // WITHOUT resetting its age — a `signatureOutcomes`-remembered
+    // 'retryable_error' with nothing re-queued behind it would otherwise
+    // just sit there relying on `localSeen`'s unrelated FIFO eviction to
+    // ever get retried, which could take many sweeps under load. Requeuing
+    // makes convergence an active guarantee, not an accident of eviction
+    // timing.
+    const now0 = Date.now();
+    const toDispatch: { sig: string; enqueuedAt: number }[] = [
+      ...backlogNow.map(b => ({ sig: b.sig, enqueuedAt: b.enqueuedAt })),
+      ...freshNow.map(f => ({ sig: f.signature, enqueuedAt: now0 })),
+    ];
+    if (toDispatch.length > 0) {
+      await runBounded(toDispatch, FRESH_DISPATCH_CONCURRENCY, async ({ sig, enqueuedAt }) => {
+        incFired(sourceLabel);
+        let outcome: IngestOutcome;
+        try {
+          outcome = isMmmLean
+            ? await dispatchMmmDeferredAwaitable(sig, (s) => target.ingest(s), target.name)
+            : await target.ingest(sig);
+        } catch (err: unknown) {
+          console.error(`[${target.name}] ingest error  sig=${sig.slice(0, 12)}...`, err);
+          outcome = 'retryable_error';
+        }
+        rememberOutcome(sig, outcome);
+        const idx = pageIdxBySig.get(sig);
+        if (idx !== undefined) outcomes[idx] = outcome;
+        if (outcome === 'retryable_error') {
+          requeueOldestFirst(backlogQueue, { sig, ingest: target.ingest, target: target.name, enqueuedAt });
+        }
+      });
+    }
+
+    const ingested   = freshDispatched + backlogDispatched;
+    const backlogged = freshOverflow.length;
+
+    // Safe-prefix walk over THIS page's outcomes — see safeAdvanceSigFromPage.
+    const safeAdvanceSig = safeAdvanceSigFromPage(page, outcomes);
+    const blockedBy = safeAdvanceSig === (page[0]?.signature ?? null) ? null : blockingReasonFromPage(page, outcomes);
+
+    // Cursor advance — saturation-aware AND outcome-safety-gated.
     //
     //   saturated + no prior catchup:  enter catch-up. Capture page[0] as
     //     frozen_newest (the timeline anchor for post-catchup steady state),
-    //     save before = oldest of batch. Leave `until` untouched.
+    //     save before = oldest of batch. Leave `until` untouched. `before`
+    //     is a PAGINATION marker (how far back this walk has looked for the
+    //     gap boundary), not a completion claim — it always advances so the
+    //     catch-up walk makes forward progress; the sigs it covers are
+    //     safety-gated later, at promotion time below.
     //   saturated + prior catchup:     continue catch-up. Keep prior
     //     frozen_newest, advance before to the new oldest.
-    //   non-saturated + prior catchup: catch-up just finished on this
-    //     sweep. Promote frozen_newest to `until`, clear the marker.
-    //   non-saturated + no catchup:    steady state. Advance until to
-    //     newest of this batch (existing behaviour).
+    //   non-saturated + prior catchup: catch-up may be finishing on this
+    //     sweep. Promoting frozen_newest to `until` DOES assert "everything
+    //     up to here is safely done" — gated on this sweep's safe-prefix
+    //     reaching page[0]. Best-effort: only this final (small) sweep's
+    //     page is checked, not the full multi-sweep catch-up range: if it's
+    //     not fully safe yet, defer promotion — the catch-up marker stays
+    //     and a later sweep retries. Never loses data, only delays the
+    //     `until` promotion.
+    //   non-saturated + no catchup:    steady state. Advance until only as
+    //     far as the safe prefix reaches — may be older than page[0] if
+    //     some newer items in this same batch are still unresolved /
+    //     retryable; the next sweep re-fetches and re-evaluates the rest.
     if (saturated) {
       const newBefore = page[page.length - 1].signature;
       const fn        = catchup?.frozenNewest ?? page[0].signature;
@@ -679,26 +872,57 @@ async function sweepTarget(target: PollTarget): Promise<void> {
         `frozen_newest=${fn.slice(0, 12)}…  before=${newBefore.slice(0, 12)}…`
       );
     } else if (catchup && forceExitCatchup) {
-      // Streak exit — three consecutive low-page sweeps with a stale
-      // catch-up marker. Promote frozen_newest to `until` and clear.
-      await setLastSig(target.name, catchup.frozenNewest);
-      await clearLastSig(`${target.name}:catchup`);
-      console.log(
-        `[${target.name}] catchup force-exit (low-page streak)  ` +
-        `until=${catchup.frozenNewest.slice(0, 12)}…`,
-      );
+      if (safeAdvanceSig === page[0].signature) {
+        await setLastSig(target.name, catchup.frozenNewest);
+        await clearLastSig(`${target.name}:catchup`);
+        console.log(
+          `[${target.name}] catchup force-exit (low-page streak)  ` +
+          `until=${catchup.frozenNewest.slice(0, 12)}…`,
+        );
+      } else {
+        console.log(
+          `[${target.name}] catchup force-exit deferred — unresolved sigs still pending  ` +
+          `safe=${safeAdvanceSig?.slice(0, 12) ?? 'none'}`,
+        );
+      }
     } else if (catchup) {
-      await setLastSig(target.name, catchup.frozenNewest);
-      await clearLastSig(`${target.name}:catchup`);
-      console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+      if (safeAdvanceSig === page[0].signature) {
+        await setLastSig(target.name, catchup.frozenNewest);
+        await clearLastSig(`${target.name}:catchup`);
+        console.log(`[${target.name}] catchup complete  until=${catchup.frozenNewest.slice(0, 12)}…`);
+      } else {
+        console.log(
+          `[${target.name}] catchup completion deferred — unresolved sigs still pending  ` +
+          `safe=${safeAdvanceSig?.slice(0, 12) ?? 'none'}`,
+        );
+      }
+    } else if (safeAdvanceSig) {
+      await setLastSig(target.name, safeAdvanceSig);
     } else {
-      await setLastSig(target.name, page[0].signature);
+      console.log(`[${target.name}] cursor advance deferred — no safe prefix this sweep  blockedBy=${blockedBy ?? 'unknown'}`);
     }
 
+    // Cursor-lag metrics (2026-08-05 backlog-fairness audit): backlog depth
+    // + oldest-item age are the pressure signals that drive the reserve
+    // share/budget above; cursorLagSigs approximates "how many discovered-
+    // but-not-yet-terminal signatures are between `until` and now" (backlog
+    // depth is the durable component; `ordered.length - unseen - skipped`
+    // would double-count already-resolved ones, so backlog depth alone is
+    // the honest count). cursorLagMs is the dwell time of the single oldest
+    // such signature — the sharper "how stale is our worst-case recovery
+    // window" figure the durability contract cares about.
+    const backlogDepthAfter = backlogQueue.length;
+    const oldestBacklogAgeMsAfter = backlogDepthAfter > 0 ? Date.now() - backlogQueue[0].enqueuedAt : 0;
     console.log(
       `[${target.name}] fetched=${fetched} unseen=${unseen} ingested=${ingested}` +
-      `  fresh=${ingested - backlogged}  backlog=${backlogged}  skipped=${skipped}` +
+      `  fresh=${freshDispatched}  backlogDispatched=${backlogDispatched}  backlogEnqueued=${backlogged}  skipped=${skipped}` +
       (catchup || saturated ? `  catchup=${saturated ? 'active' : 'completing'}` : '')
+    );
+    console.log(
+      `[${target.name}/cursor-lag] backlogDepth=${backlogDepthAfter} ` +
+      `oldestBacklogAgeMs=${oldestBacklogAgeMsAfter} ` +
+      `budget=${totalBudget} reserveShare=${reserveShare.toFixed(2)} ` +
+      `advanced=${safeAdvanceSig ? 'yes' : 'no'} blockedBy=${blockedBy ?? 'none'}`,
     );
 
     // Useful-ratio backoff (poll:mmm / poll:me_v2 only). dispatched=ingested.
@@ -707,7 +931,7 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     // that did work but produced no sale.
     evaluateBackoff(
       target.name, ingested,
-      isSalesWsDead() || saturated || backlog.length > 0 || lastSig === null,
+      isSalesWsDead() || saturated || backlogDepthAfter > 0 || lastSig === null,
       Date.now(),
     );
   } catch (err: unknown) {
@@ -745,14 +969,13 @@ function tick(): void {
   if (mode === 'off') return;
   tickSeq++;
   console.log(`[sig/amm/tick] seq=${tickSeq}  ts=${new Date().toISOString()}  mode=${mode}`);
-  // Resume any backlog preserved across an OFF cycle. `kickBacklogDrain`
-  // is a no-op when the previous drain hasn't yet flipped `backlogDraining`
-  // back to false (it might still be unwinding from its own mode-off bail
-  // when `startAmmPoller` ran), so we re-attempt on every tick — the next
-  // tick (≤ INTERVAL_MS later) self-corrects the race.
-  if (backlog.length > 0 && !backlogDraining) {
-    console.log(`[poller] resuming preserved backlog  size=${backlog.length}`);
-    kickBacklogDrain();
+  // Any backlog preserved across an OFF cycle needs no explicit resume —
+  // it's now drained by each target's own sweep (the per-sweep backlog
+  // reserve, see backlogFor/syncBudgetForSweep), not a separate timer, so
+  // it just picks back up automatically on the next tick.
+  const preservedBacklog = totalBacklogSize();
+  if (preservedBacklog > 0) {
+    console.log(`[poller] resuming preserved backlog  size=${preservedBacklog}`);
   }
   // Emergency cost guard: degrade sales polling when the sales WS is dead.
   // Log once per state transition.
@@ -852,11 +1075,14 @@ export function startAmmPoller(): void {
  *      same sigs into backlog (fetchRawTx's `recentSigs` would still
  *      dedup at the RPC layer, but skipping the push is cheaper).
  *
- *  In-flight backlog item at the moment of OFF: if mode flips while
- *  `backlog.shift()` has just occurred and `await item.ingest(…)` is
- *  pending, the rpcLimiter's mode gate causes ingest to resolve null
- *  and that one shifted item is lost. Worst-case loss is O(1) per OFF
- *  event, not O(backlog.length). */
+ *  In-flight backlog item at the moment of OFF: if mode flips mid-sweep
+ *  while a reserved backlog item is awaited, the rpcLimiter's mode gate
+ *  causes ingest to resolve 'retryable_error' and the cursor simply
+ *  doesn't advance past it this sweep — no different from any other
+ *  retryable outcome, and the item stays durably queued (it was shifted
+ *  out of `backlogQueue` for this sweep's dispatch but never resolved
+ *  terminal-safe, so `signatureOutcomes` has no entry for it — the next
+ *  sweep's page-scan re-discovers and re-enqueues it normally). */
 export function stopAmmPoller(): void {
   if (tickHandle) {
     // tickHandle is now a setTimeout handle (self-rescheduling cadence);
@@ -864,10 +1090,39 @@ export function stopAmmPoller(): void {
     clearTimeout(tickHandle);
     tickHandle = null;
   }
-  const preservedBacklog = backlog.length;
+  const preservedBacklog = totalBacklogSize();
   const droppedLimiter   = rpcLimiterAbortQueued();
   sweepInFlight.clear();
   console.log(
     `[poller] stopped  backlog_preserved=${preservedBacklog}  rpcLimiter_dropped=${droppedLimiter}`
   );
 }
+
+export type { SigInfo };
+
+/** Test-only affordances. Inert in production — no production code path
+ *  references `__testHooks`. Exposes the pure cursor-safety algorithm
+ *  (`safeAdvanceSigFromPage`) for direct unit testing without mocking the
+ *  DB (`poller-state`) or RPC (`getSignaturesForAddress` / `getTransaction`)
+ *  layers sweepTarget otherwise depends on. */
+export const __testHooks = {
+  safeAdvanceSigFromPage,
+  blockingReasonFromPage,
+  rememberOutcome,
+  getRememberedOutcome: (sig: string): IngestOutcome | undefined => signatureOutcomes.get(sig),
+  signatureOutcomeCacheSize: (): number => signatureOutcomes.size,
+  runBounded,
+  // Backlog-fairness scheduling (2026-08-05 audit) — exposed so a test can
+  // drive the exact same multi-sweep scheduling decisions sweepTarget makes,
+  // with a synthetic ingest function, without mocking the DB/RPC layers.
+  backlogFor,
+  totalBacklogSize,
+  requeueOldestFirst,
+  backlogReserveShare,
+  syncBudgetForSweep,
+  clearBacklogForTest: (target: string): void => { backlogByTarget.delete(target); },
+  baseSyncBudgetForTarget,
+  signatureOutcomeMax: SIGNATURE_OUTCOME_MAX,
+  backlogDepthEscalate1: BACKLOG_DEPTH_ESCALATE_1,
+  backlogDepthEscalate2: BACKLOG_DEPTH_ESCALATE_2,
+};

@@ -83,6 +83,26 @@ export interface MeV2IxDef {
    * null for legacy / pNFT — derive mint from SPL token-balance changes instead.
    */
   coreAssetIdx: number | null;
+  /**
+   * Instruction-accounts index of the human buyer wallet, for variants where
+   * token-flow (extractPartiesFromTokenFlow) structurally cannot resolve a
+   * buyer — i.e. MPL Core sales, which have no SPL token-balance entries at
+   * all. null = not verified for this variant; parser falls back to the
+   * legacy SOL-flow heuristic (extractPaymentInfo — "largest SOL decrease").
+   *
+   * 2026-08-05 bug (reported live, sigs 5S3SApzu…/2TS9ugwN…/t9WL1dm2…):
+   * ME v2's `Deposit → BuyV2 → CoreExecuteSaleV2` flow lets a buyer draw
+   * from a PERSONAL ESCROW PDA that can carry a standing balance across
+   * transactions. When the escrow's single-instruction outflow (a
+   * near-constant ~3.56M-lamport figure observed across samples) exceeds
+   * the signer's own fresh top-up in THIS tx, "largest SOL decrease" picks
+   * the escrow PDA — a program-owned account with no signing authority of
+   * its own — instead of the real buyer. See parser.ts's `resolveCoreBuyer`
+   * for the fix and its safety gating (excludes Lucky-Buy-style relayed
+   * transactions, where accounts[0] is ME's own treasury, not the buyer;
+   * requires the candidate to independently verify as a real tx signer).
+   */
+  buyerAcctIdx: number | null;
 }
 
 // ─── Instruction priority ─────────────────────────────────────────────────────
@@ -103,25 +123,53 @@ export interface MeV2IxDef {
 export const ME_V2_SALE_INSTRUCTIONS: MeV2IxDef[] = [
   {
     // ✅ Confirmed live (2026-04-15): anchorDisc matches observed txs.
-    //    coreAssetIdx=null → extractCoreAssetFromInnerIx(); buyer/seller → SOL flow.
+    //    coreAssetIdx=null → extractCoreAssetFromInnerIx().
+    // ✅ buyerAcctIdx=0 confirmed 2026-08-05, but ONLY for the buyer-initiated
+    // `Deposit → BuyV2 → CoreExecuteSaleV2` flow — accounts[0] there is the
+    // tx signer/fee-payer AND the true buyer, cross-checked against 15+
+    // independent live transactions (14/15 direct matches; the one mismatch
+    // was itself a bug fixture below). Confirmed bug fixtures where the OLD
+    // SOL-flow heuristic picked the escrow PDA and accounts[0] resolves the
+    // true buyer instead:
+    //   5S3SApzuL3iSCwg6nG28QHwVW3rFjT6wh5DnaG76Hy98RDyTHpPpSnK5Q6WNbmDh1iFtHvUdzYW3PDDYu7SbueLn
+    //   5Nsxwxf4BGmtivwy85k15K3Nh3daX1VvgbRPh6ekY1gsFk1FaUFFuFjt2a5kds2oar3brU77MzZstyTXp7QESQtj
+    // IMPORTANT — accounts[0] is NOT universally the buyer for this
+    // instruction: a SELLER-initiated `CoreSell → CoreExecuteSaleV2` flow
+    // (filling an existing standing bid) ALSO matches this discriminator,
+    // with accounts[0] = the LISTING SELLER instead (confirmed live on sig
+    // t9WL1dm2juFBecShy7ZbeReZYHz7PQRjofq743eUyA43bzHLTUdWvSNA7jpVjovMWy6hAkYhNcCrPVhasY75EbY,
+    // where accounts[0] received +0.1995 SOL). parser.ts's `resolveCoreBuyer`
+    // guards against this — see its doc for the full gating (excludes Lucky
+    // Buy relays; requires a real signer; requires a net non-positive SOL
+    // delta on the candidate, which is what actually distinguishes the two
+    // flows without needing to detect the preceding CoreSell/BuyV2 ix).
     name: 'coreExecuteSaleV2',
     disc: anchorDisc('core_execute_sale_v2'),
     verified: true,
     coreAssetIdx: null,
+    buyerAcctIdx: 0,
   },
   {
     // ⚠️ Unverified: non-V2 Core execute sale; may exist for older ME Core listings.
+    // buyerAcctIdx left null — no live example to confirm the layout matches
+    // coreExecuteSaleV2's; falls back to the SOL-flow heuristic (fail closed).
     name: 'coreExecuteSale',
     disc: anchorDisc('core_execute_sale'),
     verified: false,
     coreAssetIdx: null,
+    buyerAcctIdx: null,
   },
   {
     // ✅ Confirmed: discriminator seen in pNFT sale + pNFT lucky-buy (2026-04-14).
+    // buyerAcctIdx left null — NOT needed: pNFT/mip1 sales have real SPL
+    // token-balance entries, so `tkBuyer` (token-flow, already the primary
+    // signal ahead of the SOL-flow fallback) resolves them correctly. The
+    // 2026-08-05 bug is specific to MPL Core, which has no token balances.
     name: 'mip1ExecuteSaleV2',
     disc: anchorDisc('mip1_execute_sale_v2'),  // eca3ccad4790eb76
     verified: true,
     coreAssetIdx: null,
+    buyerAcctIdx: null,
   },
   {
     // ⚠️ Unverified: computed discriminator; no live tx observed yet.
@@ -129,6 +177,7 @@ export const ME_V2_SALE_INSTRUCTIONS: MeV2IxDef[] = [
     disc: anchorDisc('execute_sale_v2'),        // 5bdc31dfcc8135c1
     verified: false,
     coreAssetIdx: null,
+    buyerAcctIdx: null,   // legacy SPL — token-flow already resolves buyer
   },
   {
     // ⚠️ Unverified: computed discriminator; no live tx observed yet.
@@ -136,6 +185,7 @@ export const ME_V2_SALE_INSTRUCTIONS: MeV2IxDef[] = [
     disc: anchorDisc('execute_sale'),           // 254ad99d4f312306
     verified: false,
     coreAssetIdx: null,
+    buyerAcctIdx: null,   // legacy SPL — token-flow already resolves buyer
   },
 ];
 
@@ -211,33 +261,31 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     poolAcctIdx:   4,
   },
   {
-    // ✅ CONFIRMED — computed disc matches observed; layout verified on pNFT AMM buy-from-pool
-    // accts[0]=buyer(fulfiller), accts[1]=pool OWNER (human wallet), accts[5]=buyside SOL
-    // escrow PDA, accts[6]=mint
-    // NOTE: raw 'json' encoding positions differ from jsonParsed — verified via raw instruction
-    // accounts array [0,2,1,17,3,4,5,...] where pos[5]=rawIdx[4]=buyside SOL escrow PDA.
-    //
-    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1 on sig
-    //   5TovHDBe12q1YEWii2Q1bo8G88DbbtDF1B6aJ8QWB7YbTeqmDk5Ux9xjUNULHBSDar2iEkZJNxfZkBcz3USsG1UN.
-    // accts[5] (6LnkHAUG…, the previous `sellerAcctIdx` target — received the sale
-    // proceeds, +0.026954952 SOL) is byte-for-byte `findProgramAddressSync(['mmm_buyside_sol_
-    // escrow_account', poolAddress], MMM_PROGRAM)` — the pool's OWN escrow PDA, not a human
-    // wallet. The real owner is accts[1] (5Cyucs2N…), which exactly matches the pool account's
-    // on-chain `owner` struct field at byte offset 121 (see tools-mmm-pools.ts's OFF_OWNER).
-    // Same pattern already used for every fulfillBuy variant's buyerAcctIdx=1 ("pool owner /
-    // bidder wallet") — fulfillSell mirrors it at the same local position. The previous
-    // "accts[1]=pool-state-PDA" claim (superseded when poolAcctIdx was corrected to 4) was
-    // half-right that accts[1] wasn't the pool state account, but never re-verified what it
-    // actually WAS — it silently left the wrong wallet (an escrow PDA) surfacing as the
-    // displayed "seller" on every AMM pool_buy card.
+    // ⚠️ SELLER CORRECTED 2026-07-15 — accts[1] is the REAL seller/depositor,
+    // NOT accts[5]. The previous "accts[5]=pool-owner(seller)" call was the
+    // same "largest SOL increase" heuristic mistake as coreFulfillSell below:
+    // accts[5] is the pool's SOL-payout wallet, which can differ from
+    // whoever actually deposited/listed the specific NFT that sold. Confirmed
+    // against Magic Eden's own `/v2/tokens/{mint}/activities` API (ground
+    // truth `seller` field) on 3 independent live transactions — ME reports
+    // accts[1] as `seller` every time, never accts[5]:
+    //   ZgCBkuiEkuP3LXKLHH3P7mSjvcxQsx7eR8USMcER3DBGWhEfYQtrRpw6MLEHXHArWKqQe7LpH9Aza9qNusznvAk
+    //   2ZzFvYk1711fDGPpu2f3h4gjakVqbDdh6tpaVzzNHigPJJ55CLqeHQTdfDbsnHQc5mV9apYekkPHDR6gjsTXWpAu
+    //   2ddbchfELQZUvhRPuBLYDCTB1ebvQEWZfRwCtD1CSHhdAC8GxQELW1mudfNjATLtMPHy6qq5tbHcDLJUnV8itvrL
+    // accts[5]'s rent-refund-sized delta (a closed per-listing state account,
+    // always exactly 3,285,120 lamports) lands on accts[1], confirming accts[1]
+    // is the account that created that listing — i.e. the depositor.
+    // accts[0]=buyer(fulfiller), accts[6]=mint.
     name:          'solMip1FulfillSell',
     disc:          anchorDisc('sol_mip1_fulfill_sell'), // 3b0b496b286940d2
     direction:     'fulfillSell',
-    sellerAcctIdx: 1,    // pool owner wallet — see fix note above
+    sellerAcctIdx: 1,    // real seller/depositor — confirmed via ME activities API (see above)
     buyerAcctIdx:  0,
     coreAssetIdx:  null,
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 1sr1i1ckSZWgJGfLX2Wrned2CpvmDnq7rsmiL2Xqon4v3pxNUoARowDDzJWoq1gGzEpqCHuRHhVtotf2bwtUJeM
-    // (accts[4] is mmm-program-owned/849B, the real pool account; a second MMM-owned 344B
+    // — this file's own "accts[1]=pool-state-PDA" comment above is WRONG: accts[1] is
+    // System-owned/0-byte (a wallet — the real seller, see above), accts[4] is
+    // mmm-program-owned/849B (the real pool account; a second MMM-owned 344B
     // sell-state account sat at accts[12]).
     poolAcctIdx:   4,
   },
@@ -262,25 +310,34 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     // ✅ CONFIRMED — discriminator observed in live Core buy-from-pool tx.
     // Actual Anchor name: sol_mpl_core_fulfill_sell (anchorDisc matches fce7c9b01ed57612).
     // Solscan displays this as "SolMplCoreFulfillSell" on MagicEden AMM.
-    // accts[0]=buyer(fulfiller), accts[1]=pool OWNER (human wallet), accts[5]=buyside SOL escrow PDA
     // Core asset position varies across txs (idx 4 in some, idx 6 in others — confirmed
     // against two live txs 2026-04-15). Use coreAssetIdx=null → parser falls back to
     // extractCoreAssetFromInnerIx() which reads MPL Core inner-CPI accounts[0] (stable).
     //
-    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1 on sig
-    //   5aRyvtxMJ7CdyJwmU7dGdreMyKUTJF7b35FdLyJzV347Af8ZxwEGwNwLDcLuq5e388i1K4LUdbniKV5sU6NbfxZS.
-    // accts[5] (EsRKTc1f…, the previous `sellerAcctIdx` target — received the sale proceeds,
-    // +0.019047616 SOL = exact `total_price`) is byte-for-byte
-    // `findProgramAddressSync(['mmm_buyside_sol_escrow_account', poolAddress], MMM_PROGRAM)` —
-    // the pool's OWN escrow PDA, not a human wallet. The real owner is accts[1] (7AacMPvC…),
-    // which exactly matches the pool account's on-chain `owner` struct field at byte offset 121
-    // (see tools-mmm-pools.ts's OFF_OWNER) — same position the fulfillBuy family already uses
-    // for buyerAcctIdx=1. "accts[1]=pool-owner" was correct all along here; only sellerAcctIdx
-    // was ever wrong. Same root-cause fix applied to solMip1FulfillSell (see its comment).
+    // ⚠️ SELLER CORRECTED 2026-07-15 — reported regression: a real sale (sig
+    //   4azix1bFd5SJ5MwfGpyRyX5SySs6QjSHy355Ktrzn2wdcRk4UuwFmAxuTPzQJzHtmiU9xRsQdduqC3sjbeKjFPf9)
+    // showed the wrong seller on /feed. Root cause: this entry's OLD
+    // "sellerAcctIdx=5, confirmed via SOL flow (+largest increase)" was a bad
+    // heuristic — accts[5] is the AMM pool's SOL-payout wallet, which receives
+    // the largest chunk of a sale's proceeds regardless of who deposited the
+    // specific NFT that sold. In a shared/aggregated pool that payout wallet
+    // is NOT the same identity as the depositor. The largest SOL recipient in
+    // an AMM fulfillSell is a payout destination, not necessarily a seller.
+    // Correct seller is accts[1] — confirmed against Magic Eden's own
+    // `/v2/tokens/{mint}/activities` API (ground truth `seller` field) on 4
+    // independent live transactions, including the reported one:
+    //   4azix1bFd5SJ5MwfGpyRyX5SySs6QjSHy355Ktrzn2wdcRk4UuwFmAxuTPzQJzHtmiU9xRsQdduqC3sjbeKjFPf9 (reported)
+    //   3soVWUoSGwrgcbAtL7KtZhnkBymb85vHvJyfZmBUsn8J2Kc5FZC38TXwT9MSQ2BiusksoQWWZxD65kxMqnooa1E8
+    //   5VBQgXr1GgJGsqH4TeHn6qeh921TNi2pu89VamJftFMHs49LUtu5atHPmdG1wF4jvEsaHrAgRm56p4sbtdewhe7
+    //   4M8exthohdZ6ksJMmL9AUvtFoYXmArjBrDoEhYjoj5otC6vG2bA1XUVXSQaHov8FNAD7YDMigWUjCfiaYinzea1o
+    // accts[5]'s rent-refund-sized delta (a closed per-listing state account,
+    // always exactly 3,285,120 lamports) lands on accts[1] in every sample,
+    // confirming accts[1] created that listing — i.e. the depositor.
+    // accts[0]=buyer(fulfiller), accts[1]=seller(real depositor).
     name:          'coreFulfillSell',
     disc:          Buffer.from('fce7c9b01ed57612', 'hex'),  // observed, name unconfirmed
     direction:     'fulfillSell',
-    sellerAcctIdx: 1,    // pool owner wallet — see fix note above
+    sellerAcctIdx: 1,    // real seller/depositor — confirmed via ME activities API (see above)
     buyerAcctIdx:  0,
     coreAssetIdx:  null, // variable position — extracted from MPL Core inner CPI instead
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 2pwXPPv3DhDEhynVmaCDTLqrKei2vqNHuipJUy3KUo1b3bULQkkBKKavA6yaeGNpcEGjEBtvZ5P7GmwEBiyyMFrL
@@ -307,33 +364,27 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     poolAcctIdx:   null,
   },
   {
-    // accs[1] = pool owner wallet (see fix note below). Without a
-    // sellerAcctIdx set, fulfillSell direction triggers poolSellAmbiguous
+    // ⚠️ SELLER CORRECTED 2026-07-15 — the 2026-05-29 "accts[5] = pool owner
+    // wallet ... took the largest SOL increase" verification was the same bad
+    // heuristic as coreFulfillSell/solMip1FulfillSell above: the largest SOL
+    // recipient in an AMM fulfillSell is the pool's payout wallet, which is
+    // NOT necessarily who deposited the specific NFT that sold. Re-verified
+    // against Magic Eden's own `/v2/tokens/{mint}/activities` API (ground
+    // truth `seller` field) on 3 independent live transactions, INCLUDING the
+    // original 2026-05-29 fixture — ME reports accts[1] as `seller` every
+    // time, never accts[5]:
+    //   4F79Zo1amYnuL5oZ1sMaAdbo4qjyTcriK4sumJT1jcvrH67txkikzSWy5C7mTvaojh2uQmQQS2Bs3gh4Hez3guMJ (aggregator-routed: outer = LUCK57…, inner CPI = MMM SolFulfillSell)
+    //   3tvj7TcFyinD8fSr2PYRP2do1BtvVeBAY6V1b4vWiGqUBRCWR3EfK2Ky6yD7pXTsbXiXE6QHdWZ535kRpTJsC9sP
+    //   3f6QRrz8vxyajxMrCAK7YtWSCbP7RwnMxEbYw3gLeaDvtw8WBp5GMRyAzzaV2x3qPZ9D7CE5asTh41y9UgAibRJ8
+    // accts[1] is System-owned (a wallet, not a PDA) in all 3. Without this,
+    // fulfillSell direction + sellerAcctIdx=null triggers poolSellAmbiguous
     // and the parser drops the sale ("could not determine parties"). Buyer
     // left null — token-flow fallback correctly resolves the end recipient
     // wallet in both direct and aggregator flows.
-    //
-    // ✅ SELLER FIX 2026-08-15 — sellerAcctIdx corrected 5 → 1, same root
-    // cause as solMip1FulfillSell/coreFulfillSell (see their comments):
-    // accs[5], previously claimed as "pool owner… getAccountInfo(owner) =
-    // System Program" (2026-05-29, sig 4F79Zo1amYnuL5oZ1sMaAdbo4qjyTcriK4
-    // sumJT1jcvrH67txkikzSWy5C7mTvaojh2uQmQQS2Bs3gh4Hez3guMJ), is
-    // `findProgramAddressSync(['mmm_buyside_sol_escrow_account', poolAddress],
-    // MMM_PROGRAM)` — the pool's OWN escrow PDA. A System-owned, zero-data PDA
-    // is indistinguishable from a plain wallet by `getAccountInfo(owner)`
-    // alone, and it legitimately takes the largest SOL increase (it's where
-    // the sale proceeds land before the pool owner withdraws them) — both
-    // signals that "confirmed" this were consistent with either account,
-    // and happened to pick the wrong one. accs[1] is the real owner —
-    // verified directly against the pool account's on-chain `owner` struct
-    // field (byte offset 121, see tools-mmm-pools.ts's OFF_OWNER) on both
-    // sibling instructions; not independently re-checked for this exact
-    // variant, but the account-layout convention is shared across all three
-    // MMM fulfillSell instructions.
     name:          'solFulfillSell',
     disc:          anchorDisc('sol_fulfill_sell'),   // a4b460c067e169e8
     direction:     'fulfillSell',
-    sellerAcctIdx: 1,
+    sellerAcctIdx: 1,    // real seller/depositor — confirmed via ME activities API (see above)
     buyerAcctIdx:  null,
     coreAssetIdx:  null,
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig TBgaYDpxVyMAEUxmWGFAeBMio9c1poP8qfmi7V6cPaNyQ81DcuDeL8CDE291hLvtTNnb2KyLZDRgWNiWhsc4pJm
@@ -385,21 +436,31 @@ export const MMM_SALE_INSTRUCTIONS: MmmIxDef[] = [
     poolAcctIdx:   4,
   },
   {
-    // ⚠️ UNVERIFIED — IDL-confirmed instruction (sol_ext_fulfill_sell = 7913c7be30f0b673).
-    // Ext pool sell: user buys NFT from pool. Account layout unconfirmed — null indices.
+    // ✅ SELLER CONFIRMED 2026-07-15 — same account layout as the other
+    // fulfillSell variants above (accts[0]=buyer, accts[1]=seller/depositor,
+    // accts[4]=pool state PDA, accts[5]=pool payout wallet). Before this fix
+    // sellerAcctIdx was null, and — because direction==='fulfillSell' —
+    // parser.ts's `poolSellAmbiguous` guard deliberately left `seller` null
+    // rather than risk defaulting to the pool payout wallet (accts[5]) or,
+    // worse, the pool state PDA itself (observed happening via a stale
+    // token-flow fallback on historical rows). Net effect: every
+    // solExtFulfillSell sale was SILENTLY DROPPED (parser returns
+    // ok:false, "could not determine parties") — zero solExtFulfillSell
+    // rows since 2026-05-24. Confirmed against Magic Eden's own
+    // `/v2/tokens/{mint}/activities` API (ground truth `seller` field) on 3
+    // independent live transactions — ME reports accts[1] as `seller` every
+    // time:
+    //   7HZaumrvZzPAT41oqVcFKhMcTYcKG6RFZTQ3dSQVSG7pFGMSf6CpVs93PcBV9RRCyoaKYfJprjfsvK3PHmZhfko
+    //   5JpaYP3XSHsi2cTXZ1LNRoZDmfGzqBsGemXfjnvs5yN1fLHaooqH1RVUsBR2pitcAKKKfpj7ZRA8oqDJ5gME6mqU
+    //   3f3oD7CthuH4TS7EPfUatsH2u8R2k5yCwgCW3bAfa12YEJHeyeuAQwzBuKuzqMKbTpoAw5n2zPJzZvx6FzaoM3kZ
     name:          'solExtFulfillSell',
     disc:          anchorDisc('sol_ext_fulfill_sell'),  // 7913c7be30f0b673
     direction:     'fulfillSell',
-    sellerAcctIdx: null,
-    buyerAcctIdx:  null,
+    sellerAcctIdx: 1,    // real seller/depositor — confirmed via ME activities API (see above)
+    buyerAcctIdx:  0,
     coreAssetIdx:  null,
     // ✅ poolAcctIdx=4 verified live 2026-07-11 on sig 7HZaumrvZzPAT41oqVcFKhMcTYcKG6RFZTQ3dSQVSG7pFGMSf6CpVs93PcBV9RRCyoaKYfJprjfsvK3PHmZhfko
     // (accts[4] owner=mmm program, dataLen=849; a second MMM-owned 344B sell-state account sat at accts[9]).
-    // NOTE: sellerAcctIdx is still null/unverified for this variant, so the resolver's
-    // owner lookup falls back to whatever `seller` the token/payment-flow resolved —
-    // the resolver's exact poolKey===poolAddress match makes a wrong owner guess safe
-    // (a mismatched owner's pool list simply won't contain this poolAddress, so
-    // nothing gets cached — never a wrong classification, just an unresolved one).
     poolAcctIdx:   4,
   },
   {

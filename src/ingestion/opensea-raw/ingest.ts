@@ -19,6 +19,7 @@ import { insertSaleEvent } from '../../db/insert';
 import { HeliusEnhancedTransaction } from '../helius/types';
 import { saleEventBus } from '../../events/emitter';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
+import { IngestOutcome } from '../ingest-outcome';
 
 /**
  * Fetch + parse + insert one OpenSea (OS2) transaction.
@@ -29,16 +30,17 @@ export async function ingestOpenseaRaw(
   sig: string,
   _heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
-): Promise<void> {
+): Promise<IngestOutcome> {
   let tx;
   try {
     tx = await fetchRawTx(sig, false, priority);
   } catch (err) {
     auditRecordOutcome(sig, 'error');
     console.error(`[opensea_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
-    return;
+    return 'retryable_error';
   }
-  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return; } // deduped / not found
+  // Not a confirmed verdict — see ingestMeRaw's identical comment.
+  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return 'retryable_error'; }
 
   const result = parseRawOpenseaTransaction(tx);
   if (!result.ok) {
@@ -49,25 +51,28 @@ export async function ingestOpenseaRaw(
     if (touched.length > 0) saleEventBus.emitTxMintsTouched({ mints: touched });
     auditRecordOutcome(sig, 'parser_drop');
     console.log(`[opensea_raw] DROP  sig=${sig.slice(0, 12)}  reason="${result.reason}"`);
-    return;
+    return 'confirmed_irrelevant';  // fetched + parsed: structurally not a sale
   }
 
   const ev = result.event;
+  let id: string | null;
   try {
-    const id = await insertSaleEvent(ev);
-    if (id) {
-      auditRecordOutcome(sig, 'accepted_sale');
-      // Accurate path inserted — block redundant raw-fetch from the other
-      // ingestion path (WS vs poller), same as the Tensor/Orbis accurate path.
-      markSigFetched(sig);
-      console.log(
-        `[opensea_raw] sale  opensea/${ev.nftType}  ${ev.priceSol.toFixed(4)} SOL` +
-        `  mint=${ev.mintAddress.slice(0, 8)}...  sig=${sig.slice(0, 12)}`,
-      );
-    } else {
-      console.log(`[opensea_raw] dup   sig=${sig.slice(0, 12)}...`);
-    }
+    id = await insertSaleEvent(ev);
   } catch (err) {
     console.error(`[opensea_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
+    return 'retryable_error';
   }
+  if (id) {
+    auditRecordOutcome(sig, 'accepted_sale');
+    // Accurate path inserted — block redundant raw-fetch from the other
+    // ingestion path (WS vs poller), same as the Tensor/Orbis accurate path.
+    markSigFetched(sig);
+    console.log(
+      `[opensea_raw] sale  opensea/${ev.nftType}  ${ev.priceSol.toFixed(4)} SOL` +
+      `  mint=${ev.mintAddress.slice(0, 8)}...  sig=${sig.slice(0, 12)}`,
+    );
+    return 'inserted';
+  }
+  console.log(`[opensea_raw] dup   sig=${sig.slice(0, 12)}...`);
+  return 'duplicate';
 }

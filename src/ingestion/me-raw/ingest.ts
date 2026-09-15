@@ -35,6 +35,7 @@ import { getMode, isAnyIngestActive } from '../../runtime/mode';
 import { recordOutcome as auditRecordOutcome } from '../sales-prefilter-audit';
 import { noteAcceptedSale } from '../poll-useful';
 import { incEmitted, incDropped, sourceFromMarketplace } from '../source-stats';
+import { IngestOutcome } from '../ingest-outcome';
 
 /** Map an ME parser's program-touched set to a source label for DROP stats.
  *  programsStr is comma-joined identifiers built from `scanMeInstructions`:
@@ -216,10 +217,15 @@ setInterval(() => {
 
 /**
  * Mark a signature as already processed in `scope` so subsequent fetchRawTx
- * calls in the SAME scope dedup-skip without firing RPC. Used by:
+ * calls in the SAME scope dedup-skip without firing RPC. Used ONLY at
+ * authoritative decision points — a real fetch/insert outcome, never a
+ * log-name heuristic guess:
  *   - Helius webhook fast path: marks 'sale' so listener raw-fetch is skipped.
- *   - Listener prefilter skip branches: marks 'sale' so the listener's own
- *     poll loop doesn't redundantly re-dispatch a WS-shed sig.
+ *   - This module's own fastPathInserted / accepted-sale return points, and
+ *     the equivalent points in tensor-raw / orbis-raw ingest.
+ * Listener prefilter skip branches (log-based deny/allow-list guesses)
+ * deliberately do NOT call this — see the comments at their call sites in
+ * listener.ts. They only call markSeen (listener-local, harmless).
  * Other scopes are unaffected — a 'sale' mark does NOT block a 'mint' fetch.
  *
  * Default scope='sale' preserves prior call-site behaviour. Tensor / ME
@@ -729,24 +735,34 @@ function tryBuildFastEvent(tx: HeliusEnhancedTransaction): SaleEvent | null {
  * Raw fetch runs only for transfer-based fast paths (me_xfer_fast), where
  * buyer/seller/price are approximate and need correction.
  *
- * Never throws — all errors are logged and swallowed so callers can fire-and-forget.
+ * Never throws — all errors are logged and swallowed so callers can
+ * fire-and-forget. Returns an `IngestOutcome` for callers (amm-poller's
+ * cursor-safety logic) that need to know whether this signature reached
+ * a terminal-safe state or must be retried later.
  */
 export async function ingestMeRaw(
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
-): Promise<void> {
-  await _ingestMeRaw(sig, heliusTx, priority);
+): Promise<IngestOutcome> {
+  return _ingestMeRaw(sig, heliusTx, priority);
 }
 
 async function _ingestMeRaw(
   sig: string,
   heliusTx?: HeliusEnhancedTransaction,
   priority: Priority = 'medium',
-): Promise<void> {
+): Promise<IngestOutcome> {
   // ── Fast path ───────────────────────────────────────────────────────────────
   let fastPathInserted = false;
   let fastParser: string | undefined;
+  // Set only when the fast-path branch actually ran (heliusTx supplied and
+  // tryBuildFastEvent succeeded) — distinguishes a genuine ON CONFLICT
+  // duplicate (insert resolved, id === null) from an insert that THREW
+  // (DB error, swallowed below) — those used to be indistinguishable from
+  // "nothing happened, safe to skip", which is exactly the ambiguity a
+  // cursor-safety caller cannot tolerate.
+  let fastPathOutcome: IngestOutcome | undefined;
 
   if (heliusTx) {
     const fast = tryBuildFastEvent(heliusTx);
@@ -755,9 +771,13 @@ async function _ingestMeRaw(
       try {
         const id = await insertSaleEvent(fast);
         fastPathInserted = id !== null;
+        fastPathOutcome  = fastPathInserted ? 'inserted' : 'duplicate';
       } catch (err) {
         console.log(`DEDUPE_DEBUG_SKIP ${fast.signature} insert_condition_failed(fast_path): ${(err as Error)?.message ?? 'unknown'}`);
-        // Fast path failure is non-fatal — raw path will insert normally.
+        // Fast path failure is non-fatal for the SSE card — raw path below
+        // still attempts a normal insert. Only becomes the final outcome if
+        // the raw path is skipped entirely (me_helius_fast, see below).
+        fastPathOutcome = 'retryable_error';
       }
     }
   }
@@ -781,7 +801,9 @@ async function _ingestMeRaw(
       // scope='mint' / markSigFetched(sig, 'mint').
       markSigFetched(sig, 'sale');
     }
-    return;
+    // fastPathOutcome is always set here — this branch requires fastParser
+    // truthy (fast block ran) per the needsRawFetch negation above.
+    return fastPathOutcome ?? 'retryable_error';
   }
 
   // ── Slow path: RPC fetch + raw parse ───────────────────────────────────────
@@ -793,10 +815,16 @@ async function _ingestMeRaw(
   } catch (err) {
     auditRecordOutcome(sig, 'error');
     console.error(`[me_raw] fetch error  sig=${sig.slice(0, 12)}...`, err);
-    return;
+    return 'retryable_error';
   }
 
-  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return; }  // deduped or not found — already processed elsewhere
+  // Deduped-by-another-scope, not-found, or transiently not-yet-indexed —
+  // NOT a confirmed verdict either way. Treated as retryable (not
+  // confirmed_irrelevant): the negative-cache TTL (NEG_TX_TTL_MS, 90s)
+  // already means a genuinely-missing sig gets re-tried; a cursor that
+  // treated this as terminal-safe could permanently skip a real sale that
+  // just hadn't landed in the RPC's index yet.
+  if (!tx) { auditRecordOutcome(sig, 'null_tx'); return 'retryable_error'; }
 
   // ── Per-tx debug: log every ME instruction discriminator seen ───────────────
   const ixScan = scanMeInstructions(tx);
@@ -805,6 +833,8 @@ async function _ingestMeRaw(
 
   const result = parseRawMeTransaction(tx);
   let recovered = false;  // set true if the unknown-candidate path inserts a sale
+  let candidateWasDuplicate = false;  // candidate insert resolved, id === null (ON CONFLICT)
+  let candidateInsertFailed = false;  // candidate insert THREW — retryable, not a confirmed drop
 
   if (!result.ok) {
     // Diagnostic for the pre-getTransaction prefilter audit: the WS deny-list
@@ -946,9 +976,11 @@ async function _ingestMeRaw(
           try {
             const id = await insertSaleEvent(event);
             if (id) { recovered = true; console.log(`[me_raw] CAND_INSERTED  sig=${sig.slice(0, 12)}`); }
+            else     { candidateWasDuplicate = true; }
           } catch (err) {
             console.log(`DEDUPE_DEBUG_SKIP ${event.signature} insert_condition_failed(candidate): ${(err as Error)?.message ?? 'unknown'}`);
             console.error(`[me_raw] CAND insert error  sig=${sig.slice(0, 12)}`, err);
+            candidateInsertFailed = true;
           }
         }
       }
@@ -957,7 +989,15 @@ async function _ingestMeRaw(
     // otherwise this fetch produced no sale → parser_drop.
     auditRecordOutcome(sig, recovered ? 'accepted_sale' : 'parser_drop');
     if (!recovered) incDropped(dropSourceFromPrograms(programsStr));
-    return;
+    // A candidate insert THROWING is a real DB failure masquerading as
+    // "confirmed not a sale" if we fell straight through to parser_drop —
+    // that's precisely the ambiguity a cursor-safety caller can't tolerate.
+    // Everything else here (real parse-drop, or a candidate that turned out
+    // to be a genuine duplicate) is a confirmed, fetched-and-inspected verdict.
+    if (candidateInsertFailed) return 'retryable_error';
+    if (recovered)             return 'inserted';
+    if (candidateWasDuplicate) return 'duplicate';
+    return 'confirmed_irrelevant';
   }
 
   // Step 4 — raw parser recognised this as a sale.
@@ -976,27 +1016,40 @@ async function _ingestMeRaw(
 
   console.log(`INSERT_DEBUG_PARSED ${result.event.signature} me_v2_raw ${result.event.marketplace} ${result.event.mintAddress}`);
 
+  let id: string | null;
   try {
-    const id = await insertSaleEvent(result.event);
-    if (id) {
-      console.log(
-        `[me_raw] sale  ${result.event.marketplace}/${result.event.nftType}` +
-        `  ${result.event.priceSol.toFixed(4)} SOL` +
-        `  mint=${result.event.mintAddress.slice(0, 8)}...` +
-        `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
-      );
-    } else if (fastPathInserted) {
+    id = await insertSaleEvent(result.event);
+  } catch (err) {
+    console.log(`DEDUPE_DEBUG_SKIP ${result.event.signature} insert_condition_failed: ${(err as Error)?.message ?? 'unknown'}`);
+    console.error(`[me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
+    return 'retryable_error';
+  }
+  if (id) {
+    console.log(
+      `[me_raw] sale  ${result.event.marketplace}/${result.event.nftType}` +
+      `  ${result.event.priceSol.toFixed(4)} SOL` +
+      `  mint=${result.event.mintAddress.slice(0, 8)}...` +
+      `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
+    );
+    return 'inserted';
+  }
+  // id === null → a row for this signature already exists (fast-path insert,
+  // or another ingestion path won the ON CONFLICT race). Row's existence is
+  // the safety-relevant fact for the caller; the optional enrichment patch
+  // below is best-effort and its failure doesn't change that.
+  if (fastPathInserted) {
+    try {
       await patchSaleEventRaw(result.event);
       console.log(
         `[me_raw] patch ${result.event.marketplace}/${result.event.nftType}` +
         `  mint=${result.event.mintAddress.slice(0, 8)}...` +
         `  ix=${(result.event.rawData as Record<string, unknown>)._instruction}`
       );
-    } else {
-      console.log(`[me_raw] dup   sig=${sig.slice(0, 12)}...`);
+    } catch (err) {
+      console.error(`[me_raw] patch error  sig=${sig.slice(0, 12)}...`, err);
     }
-  } catch (err) {
-    console.log(`DEDUPE_DEBUG_SKIP ${result.event.signature} insert_condition_failed: ${(err as Error)?.message ?? 'unknown'}`);
-    console.error(`[me_raw] insert error  sig=${sig.slice(0, 12)}...`, err);
+  } else {
+    console.log(`[me_raw] dup   sig=${sig.slice(0, 12)}...`);
   }
+  return 'duplicate';
 }

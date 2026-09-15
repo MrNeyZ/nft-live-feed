@@ -66,6 +66,8 @@ export interface MeV2Match {
    * null for legacy / pNFT — derive mint from SPL token-balance changes instead.
    */
   coreAssetIdx: number | null;
+  /** See `MeV2IxDef.buyerAcctIdx` in programs.ts. */
+  buyerAcctIdx: number | null;
   ix: RawInstruction;
   /** Resolved account pubkeys for this instruction (in order). */
   accounts: string[];
@@ -86,6 +88,7 @@ export function findMeV2SaleIx(tx: RawSolanaTx): MeV2Match | null {
           instructionName: def.name,
           verified: def.verified,
           coreAssetIdx: def.coreAssetIdx,
+          buyerAcctIdx: def.buyerAcctIdx,
           ix,
           accounts: ix.accounts.map((i) => resolveAccountKey(tx, i)),
         };

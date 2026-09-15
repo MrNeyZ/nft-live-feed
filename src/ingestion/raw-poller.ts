@@ -18,10 +18,11 @@ import { ingestMeRaw } from './me-raw/ingest';
 import { ingestTensorRaw } from './tensor-raw/ingest';
 import { getLastSig, setLastSig } from '../db/poller-state';
 import { Limiter } from './concurrency';
+import { IngestOutcome } from './ingest-outcome';
 
 // ─── Targets ─────────────────────────────────────────────────────────────────
 
-type IngestFn = (sig: string) => Promise<void>;
+type IngestFn = (sig: string) => Promise<IngestOutcome>;
 
 interface Target {
   name:    string;
