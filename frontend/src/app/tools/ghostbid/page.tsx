@@ -60,7 +60,7 @@ interface GhostBidRow {
 }
 interface ApiResult {
   ok: true;
-  list?: number;
+  list?: number | 'nofloor';
   updatedAt: number;
   /** Unix ms mtime of this list's dataset file — see floorSnapshotCaption
    *  in ./logic. Absent on a response from a not-yet-redeployed backend;
@@ -71,7 +71,8 @@ interface ApiResult {
   checked?: { meBuyers: number; meResolved: number; solanartAccounts: number; solanartResolved: number; owners: number; ownerActivityResolved: number; mints?: number; mintOwnersResolved?: number; filled?: number; ownerChanged?: number; ownerChangedActivityResolved?: number };
 }
 
-type SortCol = 'profit' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
+type SortCol = 'profit' | 'bid' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
+type ListSel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 'nofloor';
 
 // `listingStatus` null / 'LISTED_ME' / 'LISTED_TENSOR' → owner is a real,
 // resolved wallet (either the actual holder, or that mint's real seller —
@@ -285,9 +286,10 @@ export default function GhostBidPage() {
   // 5 static snapshots (ranks ~1-100 / 101-200 / 201-300 / 301-400 / 401-500,
   // combined M2+Solanart, same build methodology per list) — the backend
   // keeps each list's cached/live-refreshed state independently.
-  const [activeList, setActiveList] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
+  const [activeList, setActiveList] = useState<ListSel>(1);
   const [listMenuOpen, setListMenuOpen] = useState(false);
-  const LIST_COUNTS: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = { 1: 96, 2: 94, 3: 95, 4: 95, 5: 91, 6: 91, 7: 95, 8: 47 };
+  const LIST_COUNTS: Record<ListSel, number> = { 1: 89, 2: 91, 3: 91, 4: 93, 5: 91, 6: 89, 7: 93, 8: 45, nofloor: 20 };
+  const isNoFloorList = activeList === 'nofloor';
 
   // GB-1 fix: `result`/`error` are shared between load() and refresh(), and
   // either can be in flight for either list at once (list-switch mid-fetch,
@@ -358,7 +360,7 @@ export default function GhostBidPage() {
   // getSignaturesForAddress, one per unique owner) — cheap enough per
   // visit, but real cost if it fired on every render, hence the staleness
   // gate and the once-per-list ref reset below.
-  const autoRefreshedListRef = useRef<number | null>(null);
+  const autoRefreshedListRef = useRef<ListSel | null>(null);
   useEffect(() => {
     if (!result || autoRefreshedListRef.current === activeList) return;
     autoRefreshedListRef.current = activeList;
@@ -413,6 +415,7 @@ export default function GhostBidPage() {
       let av: number, bv: number;
       if (sortCol === 'days') { av = daysAgo(a.lastActiveAt) ?? -1; bv = daysAgo(b.lastActiveAt) ?? -1; }
       else if (sortCol === 'profit') { av = a.profitSol ?? -Infinity; bv = b.profitSol ?? -Infinity; }
+      else if (sortCol === 'bid') { av = a.liveBidSol; bv = b.liveBidSol; }
       else { av = presence(a); bv = presence(b); }
       return sortDir === 'asc' ? av - bv : bv - av;
     });
@@ -459,7 +462,7 @@ export default function GhostBidPage() {
                 borderRadius: 6, border: `1px solid ${alpha(VL.purpleTint, 0.30)}`,
                 background: alpha(VL.purpleTint, 0.10), color: rgb(VL.purpleTint), cursor: 'pointer',
               }}>
-              List {activeList}
+              {isNoFloorList ? 'NO FLOOR' : `List ${activeList}`}
               <span style={{ fontSize: 9, opacity: 0.7 }}>{listMenuOpen ? '▲' : '▼'}</span>
             </button>
             {listMenuOpen && (
@@ -470,7 +473,7 @@ export default function GhostBidPage() {
               }}>
                 {([1, 2, 3, 4, 5, 6, 7, 8] as const).map(n => (
                   <button key={n} type="button"
-                    onClick={() => { setActiveList(n); setListMenuOpen(false); }}
+                    onClick={() => { setActiveList(n); setSortCol('profit'); setListMenuOpen(false); }}
                     style={{
                       display: 'flex', justifyContent: 'space-between', width: '100%', padding: '9px 12px',
                       fontSize: 11.5, fontWeight: n === activeList ? 800 : 600, border: 'none', cursor: 'pointer',
@@ -483,6 +486,23 @@ export default function GhostBidPage() {
                     <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS[n]}</span>
                   </button>
                 ))}
+                <div style={{ height: 1, background: alpha(VL.purpleTint, 0.20) }} />
+                {/* No-floor rows can't be profit-ranked (no floor to subtract) — own
+                    bucket so they don't sit invisibly at the bottom of every other
+                    list. Sorted by raw bid size instead of profit. */}
+                <button type="button"
+                  onClick={() => { setActiveList('nofloor'); setSortCol('bid'); setListMenuOpen(false); }}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', width: '100%', padding: '9px 12px',
+                    fontSize: 11.5, fontWeight: isNoFloorList ? 800 : 600, border: 'none', cursor: 'pointer',
+                    background: isNoFloorList ? alpha(VL.purpleTint, 0.18) : 'transparent',
+                    color: isNoFloorList ? rgb(VL.purpleTint) : VLText.primary, textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => { if (!isNoFloorList) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                  onMouseLeave={(e) => { if (!isNoFloorList) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                  <span>No Floor</span>
+                  <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS.nofloor}</span>
+                </button>
               </div>
             )}
           </div>
@@ -606,7 +626,7 @@ export default function GhostBidPage() {
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>#</th>
                       <th style={{ ...THEAD_TH, textAlign: 'left' }}>NFT</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>MARKET</th>
-                      {sortHeader('profit', 'PROFIT (SOL)')}
+                      {isNoFloorList ? sortHeader('bid', 'BID (SOL)') : sortHeader('profit', 'PROFIT (SOL)')}
                       {sortHeader('days', 'DAYS')}
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>OWNER</th>
                       <th style={{ ...THEAD_TH, textAlign: 'center' }}>MINT</th>
@@ -678,17 +698,21 @@ export default function GhostBidPage() {
                               style={{ display: 'inline-block', objectFit: 'contain', borderRadius: 4, verticalAlign: 'middle' }} />
                           </a>
                         </td>
-                        {/* Profit — the only price number left, PRIMARY */}
-                        <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 16, fontWeight: 900,
-                          color: r.profitSol == null ? 'var(--vl-text-muted)' : r.profitSol > 0 ? '#ffd85e' : 'var(--vl-red-primary)' }}
-                          title={r.floorSol == null ? `No floor data — bid is ${fmtSol(r.bidSol)} SOL, profit not computable`
-                            : r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
-                          {r.floorSol == null ? (
-                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.3, color: 'var(--vl-text-muted)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '3px 6px' }}>
-                              NO FLOOR
-                            </span>
-                          ) : fmtSol(r.profitSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
-                        </td>
+                        {/* Profit — the only price number left, PRIMARY. On the No-Floor
+                            list there's nothing to subtract a floor from, so this shows
+                            the raw (live-clamped) bid size instead. */}
+                        {isNoFloorList ? (
+                          <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 16, fontWeight: 900, color: '#ffd85e' }}
+                            title={r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : 'No floor data for this collection — bid size shown, profit not computable'}>
+                            {fmtSol(r.liveBidSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
+                          </td>
+                        ) : (
+                          <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 16, fontWeight: 900,
+                            color: r.profitSol == null ? 'var(--vl-text-muted)' : r.profitSol > 0 ? '#ffd85e' : 'var(--vl-red-primary)' }}
+                            title={r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
+                            {r.profitSol == null ? '—' : fmtSol(r.profitSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
+                          </td>
+                        )}
                         {(() => {
                           const days = daysAgo(r.lastActiveAt);
                           return (
@@ -703,37 +727,39 @@ export default function GhostBidPage() {
                             </td>
                           );
                         })()}
-                        <td style={{ ...ROW_H, textAlign: 'center' }}>
+                        <td style={{ ...ROW_H, textAlign: 'center', position: 'relative' }}>
                           {(() => {
                             const shownOwner = r.ownerChanged && r.liveOwner ? r.liveOwner : r.owner;
                             const changeDays = r.ownerChanged ? daysAgo(r.ownerChangedAt) : null;
                             const recent = changeDays != null && changeDays <= 30;
                             const changeTitle = !r.ownerChanged ? undefined
                               : changeDays != null
-                                ? `Owner changed ${changeDays}d ago (was ${r.owner}) — table's snapshot owner is stale`
+                                ? `Owner changed — last mint activity ${changeDays}d ago (was ${r.owner}) — table's snapshot owner is stale`
                                 : `Owner changed since our snapshot (was ${r.owner}) — exact time unresolved`;
                             return (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <>
+                                {/* Small overlay dot, out of the cell's flow — doesn't push/resize
+                                    anything else in this (already narrow) column. */}
                                 {r.ownerChanged && (
                                   <span title={changeTitle}
                                     style={{
-                                      fontSize: 9, fontWeight: 800, lineHeight: 1, padding: '2px 4px', borderRadius: 4,
-                                      color: recent ? rgb(VL.redStrong) : VLText.faint,
-                                      background: recent ? 'rgb(var(--vl-red-glow) / 0.16)' : 'rgba(255,255,255,0.06)',
-                                      flexShrink: 0,
-                                    }}>
-                                    ⇄{changeDays != null ? `${changeDays}d` : ''}
-                                  </span>
+                                      position: 'absolute', top: 3, right: 6, width: 6, height: 6, borderRadius: '50%',
+                                      background: recent ? rgb(VL.redStrong) : VLText.faint,
+                                      boxShadow: recent ? '0 0 5px rgb(var(--vl-red-glow) / 0.75)' : 'none',
+                                      cursor: 'default',
+                                    }} />
                                 )}
-                                <AddrLink href={`https://magiceden.io/u/${shownOwner}`} addr={shownOwner} title={r.ownerChanged ? "Current owner's ME profile (live, not the snapshot owner)" : "Owner's ME profile"} hue={VL.green} copyOnClick />
-                                <a href={`https://solscan.io/account/${shownOwner}`} target="_blank" rel="noopener noreferrer"
-                                  title="View owner on Solscan" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0, opacity: 0.55 }}
-                                  onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
-                                  onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.55'; }}>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src="/brand/solscan.png" alt="Solscan" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'contain' }} />
-                                </a>
-                              </span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <AddrLink href={`https://magiceden.io/u/${shownOwner}`} addr={shownOwner} title={r.ownerChanged ? "Current owner's ME profile (live, not the snapshot owner)" : "Owner's ME profile"} hue={VL.green} copyOnClick />
+                                  <a href={`https://solscan.io/account/${shownOwner}`} target="_blank" rel="noopener noreferrer"
+                                    title="View owner on Solscan" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0, opacity: 0.55 }}
+                                    onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
+                                    onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.55'; }}>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src="/brand/solscan.png" alt="Solscan" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'contain' }} />
+                                  </a>
+                                </span>
+                              </>
                             );
                           })()}
                         </td>

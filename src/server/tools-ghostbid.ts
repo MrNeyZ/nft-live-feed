@@ -47,12 +47,20 @@ import { deriveBuyerEscrowPda, resolveEscrowBalances } from './me-bid-escrow';
 // valid rows; the source pool ran out (372 total valid candidates found
 // across all of ranks ~101-500).
 const DATA_LIST_IDS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
-type ListId = typeof DATA_LIST_IDS[number];
+// A 9th, non-numeric "list" — every row with no floor price at all (can't
+// rank by profit, so it doesn't belong mixed into 1-8's profit-sorted
+// tables). Physically split out 2026-09-15: these 20 rows used to sit
+// inside list 1-8, always sorting to the bottom (profitSol null), with no
+// visible signal of bid size either. Own file, own (bid-size) ordering.
+const NOFLOOR_LIST_ID = 'nofloor' as const;
+type ListId = typeof DATA_LIST_IDS[number] | typeof NOFLOOR_LIST_ID;
 export function isListId(v: unknown): v is ListId {
+  if (v === NOFLOOR_LIST_ID) return true;
   return typeof v === 'number' && (DATA_LIST_IDS as readonly number[]).includes(v);
 }
 function dataPathForList(list: ListId): string {
-  const file = list === 1 ? 'ghostbid.json' : `ghostbid-list${list}.json`;
+  const file = list === NOFLOOR_LIST_ID ? 'ghostbid-nofloor.json'
+    : list === 1 ? 'ghostbid.json' : `ghostbid-list${list}.json`;
   return join(__dirname, '..', '..', 'data', file);
 }
 /** Shared by the Solanart escrow-account filter and the `/escrow-check`
@@ -244,10 +252,11 @@ export function toGhostRows(
 const CURRENT_OWNERS_TTL_MS = 5 * 60_000;
 const currentOwnersCacheByList = new Map<ListId, { fetchedAt: number; owners: Map<string, string> }>();
 
-async function getCurrentOwnersCached(list: ListId, mints: readonly string[]): Promise<Map<string, string>> {
+async function getCurrentOwnersCached(list: ListId, rows: readonly BaseRow[]): Promise<Map<string, string>> {
   const cached = currentOwnersCacheByList.get(list);
   if (cached && Date.now() - cached.fetchedAt < CURRENT_OWNERS_TTL_MS) return cached.owners;
-  const owners = await fetchCurrentOwners(mints);
+  const raw = await fetchCurrentOwners(rows.map(r => r.mint));
+  const owners = await dropListingEscrowOwnerChanges(rows, raw);
   currentOwnersCacheByList.set(list, { fetchedAt: Date.now(), owners });
   return owners;
 }
@@ -260,7 +269,7 @@ async function getSnapshot(list: ListId): Promise<{ updatedAt: number; rows: Gho
   if (cached && cached.updatedAt > 0) return cached;
 
   const rows = loadBase(list).rows;
-  const currentOwners = await getCurrentOwnersCached(list, rows.map(r => r.mint));
+  const currentOwners = await getCurrentOwnersCached(list, rows);
   const ghostRows = toGhostRows(rows, null, null, currentOwners);
   const snapshot = { updatedAt: 0, rows: ghostRows }; // updatedAt=0 means "never fully refreshed"
   liveStateByList.set(list, snapshot);
@@ -381,6 +390,71 @@ async function fetchCurrentOwners(mints: readonly string[]): Promise<Map<string,
     }
   }
   return out;
+}
+
+/** Only the mints whose live owner differs from BOTH the snapshot's `owner`
+ *  and this row's `buyer` are worth an extra check — that's exactly the set
+ *  `ownerChanged` would otherwise flag. A "changed" owner that's actually a
+ *  marketplace/auction-house program (getting listed after our snapshot was
+ *  taken) is not a real "someone else now holds it" event — `LISTED_ME`/
+ *  `LISTED_TENSOR` rows already model "still the same seller, just listed"
+ *  correctly, but our static `listingStatus` field doesn't retroactively
+ *  update itself when a previously-unlisted row gets listed later. Confirmed
+ *  live 2026-09-15: "Toji 100 #451"'s owner is `1BWutmTvY...`, which is
+ *  System-Program owner **not** System, i.e. is a program account — that
+ *  program is M2 (`M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K`) itself, a
+ *  listing escrow, not a new holder. Strips those mints out of the returned
+ *  map (leaving `liveOwner`/`ownerChanged` as if unresolved) so only a real
+ *  wallet-to-wallet change surfaces the badge. */
+async function dropListingEscrowOwnerChanges(
+  rows: readonly BaseRow[],
+  currentOwners: Map<string, string>,
+): Promise<Map<string, string>> {
+  const candidates = rows.filter(r => {
+    const live = currentOwners.get(r.mint);
+    return live != null && live !== r.owner && live !== r.buyer;
+  });
+  if (candidates.length === 0) return currentOwners;
+
+  const liveOwnerAddrs = [...new Set(candidates.map(r => currentOwners.get(r.mint) as string))];
+  const realWallets = new Set<string>();
+  for (let i = 0; i < liveOwnerAddrs.length; i += RPC_CHUNK_MAX) {
+    const chunk = liveOwnerAddrs.slice(i, i + RPC_CHUNK_MAX);
+    try {
+      const r = await fetch(rpcUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'getMultipleAccounts',
+          params: [chunk, { encoding: 'base64' }],
+        }),
+        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+      });
+      if (!r.ok) continue;
+      const data = await r.json() as { result?: { value?: Array<{ owner?: string } | null> } };
+      const values = data.result?.value;
+      if (!Array.isArray(values)) continue;
+      for (let j = 0; j < chunk.length && j < values.length; j++) {
+        // System-owned + not itself a program account (space:0, not
+        // executable) is the signature of a normal wallet holding a token
+        // account's authority — anything else (owned by a program, or
+        // executable) is an escrow/vault/PDA, not a person.
+        if (values[j]?.owner === '11111111111111111111111111111111') realWallets.add(chunk[j]);
+      }
+    } catch {
+      // unresolved chunk — leave those mints' currentOwners entry as-is
+      // (conservative: keeps showing ownerChanged rather than silently
+      // hiding a possibly-real change because of a transient RPC failure)
+      for (const addr of chunk) realWallets.add(addr);
+    }
+  }
+
+  const filtered = new Map(currentOwners);
+  for (const r of candidates) {
+    const live = currentOwners.get(r.mint);
+    if (live && !realWallets.has(live)) filtered.delete(r.mint);
+  }
+  return filtered;
 }
 
 interface SignaturesForAddressResp {
@@ -532,6 +606,7 @@ export function createGhostBidRouter(): Router {
 
   function parseList(req: Request): ListId | null {
     if (req.query.list === undefined) return 1;
+    if (req.query.list === NOFLOOR_LIST_ID) return NOFLOOR_LIST_ID;
     const n = Number(req.query.list);
     return isListId(n) ? n : null;
   }
@@ -576,6 +651,11 @@ export function createGhostBidRouter(): Router {
       const merged = new Map<string, number>([...meBalances, ...solanartBalances]);
       const filledCount = rows.filter(r => currentOwners.get(r.mint) === r.buyer).length;
 
+      // Strips mints whose "changed" owner is actually a marketplace/
+      // auction-house listing escrow (got listed since our snapshot, not a
+      // real new holder) — see dropListingEscrowOwnerChanges' doc comment.
+      const currentOwnersFiltered = await dropListingEscrowOwnerChanges(rows, currentOwners);
+
       // Bounded second pass: only fetch mint-activity time for rows whose
       // live owner differs from both the snapshot's `owner` AND this row's
       // `buyer` (that combination is exactly `ownerChanged`, computed the
@@ -584,14 +664,14 @@ export function createGhostBidRouter(): Router {
       const ownerChangedMints = [...new Set(
         rows
           .filter(r => {
-            const live = currentOwners.get(r.mint);
+            const live = currentOwnersFiltered.get(r.mint);
             return live != null && live !== r.owner && live !== r.buyer;
           })
           .map(r => r.mint)
       )];
       const mintActivity = await fetchMintLastActivityAt(ownerChangedMints);
 
-      const updated = toGhostRows(rows, merged, ownerActivity, currentOwners, mintActivity);
+      const updated = toGhostRows(rows, merged, ownerActivity, currentOwnersFiltered, mintActivity);
       const updatedAt = Date.now();
       liveStateByList.set(list, { updatedAt, rows: updated });
       res.json({
