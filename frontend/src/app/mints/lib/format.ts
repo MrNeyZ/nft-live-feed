@@ -101,14 +101,17 @@ export function fmtSol(lamports: number | null): string {
 
 /** Mint-price display rule shared by the Live Mint Feed card AND the Mint
  *  Tracker table price column (single source of truth — do not duplicate).
- *  Lamports in; null → '—'. No "free" bucket (same contract as `fmtSol`):
- *  every resolved lamport figure, however small, is shown as a raw number.
- *    • < 0.1 SOL → TRUNCATE (floor) to ≤3 decimals, never round
+ *  Lamports in; null → '—'. Genuinely free (0 lamports) still shows `0`
+ *  (colored green elsewhere as "free") — this is not a free bucket, it's the
+ *  real resolved value.
+ *    • 0 SOL              → `0`
+ *    • (0, 0.001) SOL     → floored to the display minimum `0.001` — never
+ *      show more than 3 decimals just because the real value is tiny; a
+ *      real-but-tiny paid mint reads as "0.001", not "0.00079"/"0.0000004".
+ *    • [0.001, 0.1) SOL   → TRUNCATE (floor) to 3 decimals, never round
  *        0.00411 → 0.004 · 0.0036 → 0.003 · 0.059 → 0.059 · 0.0999 → 0.099
- *    • ≥ 0.1 SOL → shared `formatSol` (rounded), trailing zeros trimmed
- *        0.2 → 0.2 · 0.55 → 0.55 · 0.553 → 0.55 · 0.6 → 0.6 · 1.822 → 1.82
- *  A sub-0.001 SOL paid mint can't be shown in 3 dp, so it falls back to the
- *  rounded `formatSol` rather than reading as a bare 0. DB/raw value unchanged. */
+ *    • ≥ 0.1 SOL          → shared `formatSol` (rounded), trailing zeros trimmed
+ *        0.2 → 0.2 · 0.55 → 0.55 · 0.553 → 0.55 · 0.6 → 0.6 · 1.822 → 1.82 */
 /** Format a raw u64 token amount (as a decimal string) into a human amount
  *  using the token's decimals. Trims to 4 fractional digits, then drops
  *  trailing zeros. Returns null for a non-numeric input. Mirrors the
@@ -125,12 +128,16 @@ export function formatTokenAmount(raw: string, decimals: number): string | null 
 
 export function fmtMintPrice(lamports: number | null): string {
   if (lamports == null) return '—';
-  // No "free" price bucket — floor legacy negative rows to 0, otherwise
-  // show the raw resolved number regardless of how small it is.
+  // Floor legacy negative rows (signer net-received lamports) to 0.
   const clamped = lamports < 0 ? 0 : lamports;
-  // < 0.1 SOL, ≥ 0.001 SOL → floor to 3 dp (truncSol already trims zeros).
-  if (clamped < 100_000_000 && clamped >= 1_000_000) return truncSol(clamped, 3);
-  // ≥ 0.1 SOL (or sub-0.001 fallback) → rounded formatSol, trailing zeros off.
+  if (clamped === 0) return '0';
+  // (0, 0.001) SOL → display floor. A real paid mint this tiny still reads
+  // as "0.001", not padded out to 5-6 decimals just to show its true size —
+  // that extra precision reads as noise/inflated digits, not information.
+  if (clamped < 1_000_000) return '0.001';
+  // [0.001, 0.1) SOL → floor to 3 dp (truncSol already trims zeros).
+  if (clamped < 100_000_000) return truncSol(clamped, 3);
+  // ≥ 0.1 SOL → rounded formatSol, trailing zeros off.
   return trimTrailingZeros(formatSol(clamped / 1e9));
 }
 
