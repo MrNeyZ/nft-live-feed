@@ -117,6 +117,19 @@ export interface GhostBidRow extends BaseRow {
   profitSol: number | null;
   drained: boolean; // liveBidSol < bidSol (shared escrow spent elsewhere, or offer withdrawn)
   sharedEscrowGroup: string | null; // buyer wallet, when 2+ ME rows share it — for the frontend badge
+  /** Current on-chain owner (DAS `getAssetBatch`, same call that already
+   *  detects `filled`) — null until a Refresh has run for this list. Only
+   *  meaningfully differs from `owner` when the NFT moved to someone other
+   *  than this row's `buyer` (buyer-owned is `filled` and gets dropped
+   *  entirely, never reaches here) — a sale/transfer/listing the static
+   *  snapshot's `owner` never saw. */
+  liveOwner: string | null;
+  ownerChanged: boolean; // liveOwner != null && liveOwner != owner
+  /** Unix seconds of the most recent signature touching this mint — only
+   *  fetched for rows where `ownerChanged` is true (bounded cost), so it's
+   *  null both when unchanged and when a changed row's activity lookup
+   *  hasn't resolved yet. */
+  ownerChangedAt: number | null;
 }
 
 interface BaseData {
@@ -155,6 +168,8 @@ export function toGhostRows(
   rows: BaseRow[],
   liveBalances: Map<string, number> | null,
   ownerActivity: Map<string, number> | null,
+  currentOwners: Map<string, string> | null = null,
+  mintActivity: Map<string, number> | null = null,
 ): GhostBidRow[] {
   // Pass 1 — recompute each row's live economics against the real escrow
   // balance (when a live-checked pass supplied one).
@@ -169,43 +184,85 @@ export function toGhostRows(
         drained = liveBidSol < r.bidSol - 1e-6;
       }
     }
+    // The current owner already being the bid's own buyer means the
+    // previous owner already accepted this exact offer — the NFT changed
+    // hands, the escrow's already spent, and the offer no longer exists.
+    const liveOwner = currentOwners?.get(r.mint) ?? null;
+    const filled = liveOwner === r.buyer;
+    // Owner moved, but not to this row's buyer — a sale/transfer/listing
+    // the static snapshot never saw. Row stays (still may be profitable),
+    // but the frontend needs to know `owner` is stale.
+    const ownerChanged = liveOwner != null && liveOwner !== r.owner;
     // Known formula (verified against every original row's hand-computed
     // profit, 0 mismatches): net = bid * (1 - royaltyBp/10000 - feeBp/10000),
     // profit = net - floor. Royalty + marketplace fee both come out of the
     // BID (paid by whoever fulfills it), not added on top of the floor.
     const net = liveBidSol * (1 - r.royaltyBp / 10000 - r.feeBp / 10000);
     const profitSol = r.floorSol == null ? null : Math.round((net - r.floorSol) * 1e6) / 1e6;
-    return { r, liveBidSol, drained, profitSol };
+    return { r, liveBidSol, drained, profitSol, filled, liveOwner, ownerChanged };
   });
 
-  // Pass 2 — on a live-checked pass, drop any row whose profit has gone
-  // <= 0 once the escrow is clamped to its real balance: a shared M2
-  // escrow spent down by other accepted offers (or by the owner accepting
-  // this very bid) leaves the row uncollectable, and it has no business in
-  // a "profitable forgotten bids" table. The static snapshot keeps every
-  // row (its rows were all profitable when the list was built offline;
-  // nothing has been re-checked yet). profitSol == null (no floor) is kept
-  // — undetermined, not disproven.
-  const kept = liveBalances
-    ? priced.filter(p => p.profitSol == null || p.profitSol > 0)
-    : priced;
+  // Pass 2 — drop any row that's definitively dead:
+  //   - `filled`: the bid was already accepted (buyer now owns the mint) —
+  //     dropped unconditionally, independent of whether an escrow-balance
+  //     pass ran.
+  //   - on a live-checked (escrow-balance) pass, also drop any row whose
+  //     profit has gone <= 0 once the escrow is clamped to its real
+  //     balance: a shared M2 escrow spent down by other accepted offers
+  //     leaves the row uncollectable, and it has no business in a
+  //     "profitable forgotten bids" table.
+  // The static (never-refreshed) snapshot keeps every non-filled row (its
+  // rows were all profitable when the list was built offline). profitSol
+  // == null (no floor) is kept — undetermined, not disproven.
+  const kept = priced.filter(p => {
+    if (p.filled) return false;
+    if (liveBalances && !(p.profitSol == null || p.profitSol > 0)) return false;
+    return true;
+  });
 
   const groups = computeSharedGroups(kept.map(p => p.r));
-  return kept.map(({ r, liveBidSol, drained, profitSol }) => ({
+  return kept.map(({ r, liveBidSol, drained, profitSol, liveOwner, ownerChanged }) => ({
     ...r,
     lastActiveAt: ownerActivity?.get(r.owner) ?? r.lastActiveAt,
     liveBidSol: Math.round(liveBidSol * 1e6) / 1e6,
     profitSol,
     drained,
     sharedEscrowGroup: r.marketplace === 'ME' ? (groups.get(r.buyer) ?? null) : null,
+    liveOwner,
+    ownerChanged,
+    ownerChangedAt: ownerChanged ? (mintActivity?.get(r.mint) ?? null) : null,
   })).sort((a, b) => (b.profitSol ?? -Infinity) - (a.profitSol ?? -Infinity));
 }
 
-function getSnapshot(list: ListId): { updatedAt: number; rows: GhostBidRow[] } {
+// A plain GET (no Refresh click) used to serve `toGhostRows(rows, null, null)`
+// forever once computed once — filled bids (buyer already accepted, NFT
+// changed hands) never got dropped until someone manually hit Refresh on
+// that exact list. Found live 2026-09-15: 20 rows across all 8 lists were
+// already-executed bids that had sat in the static JSON for weeks. Every
+// GET now re-checks current owners too (cheap: one batched `getAssetBatch`
+// per list), TTL-cached so rapid repeat loads don't refetch every time.
+const CURRENT_OWNERS_TTL_MS = 5 * 60_000;
+const currentOwnersCacheByList = new Map<ListId, { fetchedAt: number; owners: Map<string, string> }>();
+
+async function getCurrentOwnersCached(list: ListId, mints: readonly string[]): Promise<Map<string, string>> {
+  const cached = currentOwnersCacheByList.get(list);
+  if (cached && Date.now() - cached.fetchedAt < CURRENT_OWNERS_TTL_MS) return cached.owners;
+  const owners = await fetchCurrentOwners(mints);
+  currentOwnersCacheByList.set(list, { fetchedAt: Date.now(), owners });
+  return owners;
+}
+
+async function getSnapshot(list: ListId): Promise<{ updatedAt: number; rows: GhostBidRow[] }> {
   const cached = liveStateByList.get(list);
-  if (cached) return cached;
-  const rows = toGhostRows(loadBase(list).rows, null, null);
-  const snapshot = { updatedAt: 0, rows }; // updatedAt=0 means "never live-checked"
+  // A real Refresh (updatedAt > 0) already did the full live check
+  // (escrow balances, owner activity, current owners) — trust it as-is,
+  // don't re-derive anything here.
+  if (cached && cached.updatedAt > 0) return cached;
+
+  const rows = loadBase(list).rows;
+  const currentOwners = await getCurrentOwnersCached(list, rows.map(r => r.mint));
+  const ghostRows = toGhostRows(rows, null, null, currentOwners);
+  const snapshot = { updatedAt: 0, rows: ghostRows }; // updatedAt=0 means "never fully refreshed"
   liveStateByList.set(list, snapshot);
   return snapshot;
 }
@@ -275,6 +332,52 @@ async function fetchSolanartEscrowBalances(offerAccounts: readonly string[]): Pr
       }
     } catch {
       // this chunk's accounts stay unresolved
+    }
+  }
+  return out;
+}
+
+interface GetAssetBatchResp {
+  result?: Array<{ id?: string; ownership?: { owner?: string } } | null>;
+}
+
+const GET_ASSET_BATCH_MAX = 1000;
+
+/** Batched Helius DAS `getAssetBatch` — resolves each mint's CURRENT
+ *  on-chain owner in as few calls as the list allows (Helius caps at 1000
+ *  ids/call, well above any list's row count). This is how a FILLED bid is
+ *  detected: if the mint's current owner equals the row's `buyer`, the
+ *  previous owner already accepted this exact offer and the NFT changed
+ *  hands — the offer no longer exists (escrow already spent), so the row
+ *  must be dropped, not just re-ranked. Works uniformly across legacy/pNFT/
+ *  MPL Core/cNFT since DAS classifies ownership the same way for all of
+ *  them. */
+async function fetchCurrentOwners(mints: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const valid = [...new Set(mints)].filter(isValidPubkey);
+  for (let i = 0; i < valid.length; i += GET_ASSET_BATCH_MAX) {
+    const chunk = valid.slice(i, i + GET_ASSET_BATCH_MAX);
+    try {
+      const r = await fetch(rpcUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'getAssetBatch',
+          params: { ids: chunk },
+        }),
+        signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
+      });
+      if (!r.ok) continue;
+      const data = await r.json() as GetAssetBatchResp;
+      const values = data.result;
+      if (!Array.isArray(values)) continue;
+      for (const asset of values) {
+        const id = asset?.id;
+        const owner = asset?.ownership?.owner;
+        if (id && typeof owner === 'string' && owner.length > 0) out.set(id, owner);
+      }
+    } catch {
+      // this chunk's mints stay unresolved — treated as "owner unknown", not filled
     }
   }
   return out;
@@ -376,6 +479,52 @@ async function fetchOwnerLastActiveAt(owners: readonly string[]): Promise<Map<st
   return out;
 }
 
+/** Unix seconds of the most recent signature touching a mint — unlike
+ *  `findLastSignedActivity` (owner wallets), no signer filter is needed
+ *  here: any tx naming the mint account (transfer, listing, sale) is real
+ *  activity on that specific NFT, and `getSignaturesForAddress`'s first
+ *  result is already the most recent one, so this is one RPC call per
+ *  mint, no follow-up `getTransaction`. Only called for rows already known
+ *  to be `ownerChanged` (a handful per list, not the whole table), so the
+ *  concurrency-8 fan-out stays cheap. */
+async function findMintLastActivity(mint: string): Promise<number | null> {
+  const r = await fetch(rpcUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'getSignaturesForAddress',
+      params: [mint, { limit: 1 }],
+    }),
+    signal: AbortSignal.timeout(OWNER_ACTIVITY_TIMEOUT_MS),
+  });
+  if (!r.ok) return null;
+  const data = await r.json() as SignaturesForAddressResp;
+  const blockTime = data.result?.[0]?.blockTime;
+  return typeof blockTime === 'number' ? blockTime : null;
+}
+
+async function fetchMintLastActivityAt(mints: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const queue = [...mints];
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      const mint = queue.shift();
+      if (!mint) return;
+      try {
+        const blockTime = await findMintLastActivity(mint);
+        if (typeof blockTime === 'number') out.set(mint, blockTime);
+      } catch {
+        // leave unresolved — ownerChangedAt stays null for this row
+      }
+    }
+  }
+
+  const workerCount = Math.min(OWNER_ACTIVITY_CONCURRENCY, mints.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return out;
+}
+
 export function createGhostBidRouter(): Router {
   const router = Router();
   const readLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'tools/ghostbid' });
@@ -387,11 +536,11 @@ export function createGhostBidRouter(): Router {
     return isListId(n) ? n : null;
   }
 
-  router.get('/tools/ghostbid', readLimit, requireAuth, (req: Request, res: Response) => {
+  router.get('/tools/ghostbid', readLimit, requireAuth, async (req: Request, res: Response) => {
     const list = parseList(req);
     if (list === null) { res.status(400).json({ ok: false, error: 'invalid_list' }); return; }
     try {
-      const { updatedAt, rows } = getSnapshot(list);
+      const { updatedAt, rows } = await getSnapshot(list);
       const { snapshotAt } = loadBase(list);
       res.json({ ok: true, list, updatedAt, snapshotAt, count: rows.length, rows });
     } catch (err) {
@@ -416,15 +565,33 @@ export function createGhostBidRouter(): Router {
       // avoid. Skip them; `lastActiveAt` stays null from the base snapshot.
       const isStuck = (r: BaseRow) => !!r.listingStatus && r.listingStatus !== 'LISTED_ME' && r.listingStatus !== 'LISTED_TENSOR';
       const owners = [...new Set(rows.filter(r => !isStuck(r)).map(r => r.owner))];
+      const mints = [...new Set(rows.map(r => r.mint))];
 
-      const [meBalances, solanartBalances, ownerActivity] = await Promise.all([
+      const [meBalances, solanartBalances, ownerActivity, currentOwners] = await Promise.all([
         fetchMeEscrowBalances(meBuyers),
         fetchSolanartEscrowBalances(solanartAccounts),
         fetchOwnerLastActiveAt(owners),
+        fetchCurrentOwners(mints),
       ]);
       const merged = new Map<string, number>([...meBalances, ...solanartBalances]);
+      const filledCount = rows.filter(r => currentOwners.get(r.mint) === r.buyer).length;
 
-      const updated = toGhostRows(rows, merged, ownerActivity);
+      // Bounded second pass: only fetch mint-activity time for rows whose
+      // live owner differs from both the snapshot's `owner` AND this row's
+      // `buyer` (that combination is exactly `ownerChanged`, computed the
+      // same way `toGhostRows` will compute it) — a handful of rows per
+      // list, not the whole table.
+      const ownerChangedMints = [...new Set(
+        rows
+          .filter(r => {
+            const live = currentOwners.get(r.mint);
+            return live != null && live !== r.owner && live !== r.buyer;
+          })
+          .map(r => r.mint)
+      )];
+      const mintActivity = await fetchMintLastActivityAt(ownerChangedMints);
+
+      const updated = toGhostRows(rows, merged, ownerActivity, currentOwners, mintActivity);
       const updatedAt = Date.now();
       liveStateByList.set(list, { updatedAt, rows: updated });
       res.json({
@@ -437,6 +604,8 @@ export function createGhostBidRouter(): Router {
           meBuyers: meBuyers.length, meResolved: meBalances.size,
           solanartAccounts: solanartAccounts.length, solanartResolved: solanartBalances.size,
           owners: owners.length, ownerActivityResolved: ownerActivity.size,
+          mints: mints.length, mintOwnersResolved: currentOwners.size, filled: filledCount,
+          ownerChanged: ownerChangedMints.length, ownerChangedActivityResolved: mintActivity.size,
         },
         rows: updated,
       });

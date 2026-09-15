@@ -174,6 +174,71 @@ check('profitSol == null (no floor) is always kept on a live-checked pass too', 
   assert.strictEqual(out[0].profitSol, null);
 });
 
+// ── toGhostRows: filled-bid dropping (current owner === buyer) ───────────
+console.log('toGhostRows — filled-bid dropping (currentOwners pass only)');
+check('current owner === buyer -> bid already accepted, row dropped', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'OldOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'B1']]));
+  assert.strictEqual(out.length, 0);
+});
+check('current owner !== buyer -> row kept', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'OldOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'SomeoneElse']]));
+  assert.strictEqual(out.length, 1);
+});
+check('mint missing from currentOwners map -> unresolved, kept (not disproven)', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1' })];
+  const out = toGhostRows(rows, null, null, new Map());
+  assert.strictEqual(out.length, 1);
+});
+check('currentOwners=null (never checked) -> never drops on this basis', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1' })];
+  const out = toGhostRows(rows, null, null, null);
+  assert.strictEqual(out.length, 1);
+});
+check('filled drop is unconditional even without a liveBalances pass', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', bidSol: 100, floorSol: 1 })]; // would be very profitable
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'B1']]));
+  assert.strictEqual(out.length, 0);
+});
+check('filled + still-profitable-after-clamp -> filled wins, row dropped', () => {
+  const rows = [row({ mint: 'M1', marketplace: 'ME', buyer: 'B1', bidSol: 100, floorSol: 1 })];
+  const out = toGhostRows(rows, new Map([['B1', 100]]), null, new Map([['M1', 'B1']]));
+  assert.strictEqual(out.length, 0);
+});
+
+// ── toGhostRows: ownerChanged / liveOwner (current owner !== snapshot owner, !== buyer) ──
+console.log('toGhostRows — ownerChanged (live owner diverged from stale snapshot)');
+check('current owner differs from both snapshot owner and buyer -> ownerChanged=true, row kept', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'OldOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'NewOwner']]));
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(out[0].ownerChanged, true);
+  assert.strictEqual(out[0].liveOwner, 'NewOwner');
+});
+check('current owner matches snapshot owner -> ownerChanged=false', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'SameOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'SameOwner']]));
+  assert.strictEqual(out[0].ownerChanged, false);
+  assert.strictEqual(out[0].liveOwner, 'SameOwner');
+});
+check('currentOwners=null (never checked) -> liveOwner null, ownerChanged false', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'SomeOwner' })];
+  const out = toGhostRows(rows, null, null, null);
+  assert.strictEqual(out[0].liveOwner, null);
+  assert.strictEqual(out[0].ownerChanged, false);
+});
+check('ownerChanged row picks up ownerChangedAt from the mintActivity map', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'OldOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'NewOwner']]), new Map([['M1', 1700000000]]));
+  assert.strictEqual(out[0].ownerChangedAt, 1700000000);
+});
+check('unchanged row never gets ownerChangedAt even if mintActivity has an entry for it', () => {
+  const rows = [row({ mint: 'M1', buyer: 'B1', owner: 'SameOwner' })];
+  const out = toGhostRows(rows, null, null, new Map([['M1', 'SameOwner']]), new Map([['M1', 1700000000]]));
+  assert.strictEqual(out[0].ownerChangedAt, null);
+});
+
 // ── computeSharedGroups (via toGhostRows' sharedEscrowGroup) ─────────────
 console.log('computeSharedGroups — ME buyer grouping, Solanart excluded');
 check('2+ ME rows sharing one buyer -> both get sharedEscrowGroup set to that buyer', () => {

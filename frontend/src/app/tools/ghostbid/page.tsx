@@ -46,6 +46,9 @@ interface GhostBidRow {
   profitSol: number | null;
   drained: boolean;
   sharedEscrowGroup: string | null;
+  liveOwner: string | null;
+  ownerChanged: boolean;
+  ownerChangedAt: number | null;
   sns: string | null;
   matrica: string | null;
   discord: string | null;
@@ -65,7 +68,7 @@ interface ApiResult {
   snapshotAt?: number;
   count: number;
   rows: GhostBidRow[];
-  checked?: { meBuyers: number; meResolved: number; solanartAccounts: number; solanartResolved: number; owners: number; ownerActivityResolved: number };
+  checked?: { meBuyers: number; meResolved: number; solanartAccounts: number; solanartResolved: number; owners: number; ownerActivityResolved: number; mints?: number; mintOwnersResolved?: number; filled?: number; ownerChanged?: number; ownerChangedActivityResolved?: number };
 }
 
 type SortCol = 'profit' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
@@ -556,6 +559,13 @@ export default function GhostBidPage() {
             checked {result.checked.meBuyers} ME buyers ({result.checked.meResolved} resolved) ·
             {' '}{result.checked.solanartAccounts} Solanart escrows ({result.checked.solanartResolved} resolved) ·
             {' '}{result.checked.owners} owner wallets ({result.checked.ownerActivityResolved} resolved)
+            {typeof result.checked.mints === 'number' && (
+              <>
+                {' '}· {result.checked.mints} mint owners ({result.checked.mintOwnersResolved} resolved
+                {typeof result.checked.filled === 'number' && result.checked.filled > 0
+                  ? `, ${result.checked.filled} filled → dropped` : ''})
+              </>
+            )}
           </div>
         )}
 
@@ -671,8 +681,13 @@ export default function GhostBidPage() {
                         {/* Profit — the only price number left, PRIMARY */}
                         <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 16, fontWeight: 900,
                           color: r.profitSol == null ? 'var(--vl-text-muted)' : r.profitSol > 0 ? '#ffd85e' : 'var(--vl-red-primary)' }}
-                          title={r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
-                          {r.profitSol == null ? '—' : fmtSol(r.profitSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
+                          title={r.floorSol == null ? `No floor data — bid is ${fmtSol(r.bidSol)} SOL, profit not computable`
+                            : r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
+                          {r.floorSol == null ? (
+                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.3, color: 'var(--vl-text-muted)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '3px 6px' }}>
+                              NO FLOOR
+                            </span>
+                          ) : fmtSol(r.profitSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
                         </td>
                         {(() => {
                           const days = daysAgo(r.lastActiveAt);
@@ -689,16 +704,38 @@ export default function GhostBidPage() {
                           );
                         })()}
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                            <AddrLink href={`https://magiceden.io/u/${r.owner}`} addr={r.owner} title="Owner's ME profile" hue={VL.green} copyOnClick />
-                            <a href={`https://solscan.io/account/${r.owner}`} target="_blank" rel="noopener noreferrer"
-                              title="View owner on Solscan" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0, opacity: 0.55 }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
-                              onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.55'; }}>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src="/brand/solscan.png" alt="Solscan" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'contain' }} />
-                            </a>
-                          </span>
+                          {(() => {
+                            const shownOwner = r.ownerChanged && r.liveOwner ? r.liveOwner : r.owner;
+                            const changeDays = r.ownerChanged ? daysAgo(r.ownerChangedAt) : null;
+                            const recent = changeDays != null && changeDays <= 30;
+                            const changeTitle = !r.ownerChanged ? undefined
+                              : changeDays != null
+                                ? `Owner changed ${changeDays}d ago (was ${r.owner}) — table's snapshot owner is stale`
+                                : `Owner changed since our snapshot (was ${r.owner}) — exact time unresolved`;
+                            return (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                {r.ownerChanged && (
+                                  <span title={changeTitle}
+                                    style={{
+                                      fontSize: 9, fontWeight: 800, lineHeight: 1, padding: '2px 4px', borderRadius: 4,
+                                      color: recent ? rgb(VL.redStrong) : VLText.faint,
+                                      background: recent ? 'rgb(var(--vl-red-glow) / 0.16)' : 'rgba(255,255,255,0.06)',
+                                      flexShrink: 0,
+                                    }}>
+                                    ⇄{changeDays != null ? `${changeDays}d` : ''}
+                                  </span>
+                                )}
+                                <AddrLink href={`https://magiceden.io/u/${shownOwner}`} addr={shownOwner} title={r.ownerChanged ? "Current owner's ME profile (live, not the snapshot owner)" : "Owner's ME profile"} hue={VL.green} copyOnClick />
+                                <a href={`https://solscan.io/account/${shownOwner}`} target="_blank" rel="noopener noreferrer"
+                                  title="View owner on Solscan" style={{ display: 'inline-flex', lineHeight: 0, flexShrink: 0, opacity: 0.55 }}
+                                  onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '1'; }}
+                                  onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.opacity = '0.55'; }}>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src="/brand/solscan.png" alt="Solscan" width={11} height={11} draggable={false} style={{ display: 'block', objectFit: 'contain' }} />
+                                </a>
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <AddrLink href={`https://magiceden.io/item-details/${r.mint}`} addr={r.mint} title="This NFT on ME" hue={VL.blue} />
