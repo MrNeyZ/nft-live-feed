@@ -1397,9 +1397,14 @@ export default function CandyMintPage() {
                 />
                 {(() => {
                   const site = safeExternalUrl(loaded.collectionMeta?.website);
-                  return site && (
+                  if (!site) return null;
+                  // Hostname only — the raw URL (protocol, path, trailing
+                  // slash) is clutter here; the full address is still the
+                  // hover title and the actual click target.
+                  const label = (() => { try { return new URL(site).hostname; } catch { return site; } })();
+                  return (
                     <Pill
-                      label="mint site"
+                      label={label}
                       color={hex(VL.greenStrong)}
                       onClick={() => window.open(site, '_blank', 'noopener,noreferrer')}
                       title={site}
