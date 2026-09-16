@@ -1367,10 +1367,20 @@ export default function CandyMintPage() {
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {loaded.collectionMeta?.creator && (
-                  <Pill label={`by ${short(loaded.collectionMeta.creator)}`} color={rgb(VL.purpleTint)} />
+                  <Pill
+                    label={`by ${short(loaded.collectionMeta.creator)}`}
+                    color={rgb(VL.purpleTint)}
+                    onClick={() => window.open(`https://solscan.io/account/${loaded.collectionMeta!.creator}`, '_blank', 'noopener,noreferrer')}
+                    title="Open deployer on Solscan"
+                  />
                 )}
                 <Pill label="on Solana" color={rgb(VL.purpleTint)} />
-                <Pill label={short(loaded.inspection.candyMachine)} title="candy machine" color={rgb(VL.gray)} />
+                <Pill
+                  label={short(loaded.inspection.candyMachine)}
+                  color={rgb(VL.gray)}
+                  onClick={() => window.open(`https://solscan.io/account/${loaded.inspection.candyMachine}`, '_blank', 'noopener,noreferrer')}
+                  title="candy machine — open on Solscan"
+                />
                 {loaded.siblings.length > 0 && (
                   <Pill
                     label={`${siblingsOpen ? '▾' : '▸'} siblings (${loaded.siblings.length})`}
