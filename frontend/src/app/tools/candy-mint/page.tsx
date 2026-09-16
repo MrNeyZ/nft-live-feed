@@ -1382,8 +1382,12 @@ export default function CandyMintPage() {
                 />
                 {loaded.siblings.length > 0 && (
                   <Pill
-                    label={`${siblingsOpen ? '▾' : '▸'} siblings (${loaded.siblings.length})`}
-                    active={siblingsOpen}
+                    label={`${siblingsOpen ? '▾' : '▸'} siblings`}
+                    // Always active/glowing when siblings exist — this is the
+                    // "there IS something here" signal, independent of
+                    // whether the panel is currently expanded (the arrow
+                    // glyph covers open/closed).
+                    active
                     color={rgb(VL.purpleTint)}
                     onClick={() => setSiblingsOpen((o) => !o)}
                     title="Other candy machines pointed at this same collection"
