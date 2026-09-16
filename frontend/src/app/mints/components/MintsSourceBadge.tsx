@@ -50,8 +50,9 @@ const LONG_LABELS = new Set(['LMNFT', 'CANDY', 'GRAVE']);
  *  — see `.vl-srcchip--xlong` in globals.css. */
 const XLONG_LABELS = new Set(['MALLOW']);
 /** 3-char labels — widened letter-spacing instead of a bigger font-size
- *  (see `.vl-srcchip--short` in globals.css). */
-const SHORT_LABELS = new Set(['NFT', 'VVV']);
+ *  (see `.vl-srcchip--short` in globals.css). ART is styled identically to
+ *  VVV per operator spec — same class, same letter-spacing, same font-size. */
+const SHORT_LABELS = new Set(['NFT', 'VVV', 'ART']);
 function srcChipClassName(label: string): string {
   if (XLONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--xlong';
   if (LONG_LABELS.has(label)) return 'vl-srcchip vl-srcchip--long';
@@ -122,7 +123,11 @@ export function MintsSourceBadge({ row, size = 'sm' }: { row: MintStatus; size?:
         ? 'Open on gravemint.io'
         : row.sourceLabel === 'Mallow'
           ? 'Open on mallow.art'
-          : row.sourceLabel;
+          : row.sourceLabel === 'ART'
+            ? 'Open on Artist Proof'
+            : row.sourceLabel === 'Core Candy Machine' || row.sourceLabel === 'Metaplex Candy Machine'
+              ? 'Open in Candy Mint tool'
+              : row.sourceLabel;
   const chip = href ? (
     <a
       href={href}

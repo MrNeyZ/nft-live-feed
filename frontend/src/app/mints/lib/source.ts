@@ -91,15 +91,43 @@ export function sourceHref(row: MintStatus): string | null {
       if (!isSolPubkey(addr)) return null;
       return `https://www.mallow.art/artwork/${addr}`;
     }
-    case 'Metaplex Core':
+    case 'ART': {
+      // artistproof.digital pack page. `apSlug` is a DB-assigned slug
+      // resolved backend-side (../enrichment/artproof.ts) — NOT derived
+      // from the collection name (confirmed non-trivial: e.g. "Happy
+      // Birthday AP" has slug "ap-bday", not a slugified name). Plain
+      // pill until the lookup resolves.
+      if (!row.apSlug) return null;
+      return `https://artistproof.digital/packs/${row.apSlug}`;
+    }
+    // Real Candy Guard mints (both program families) — route to our OWN
+    // direct-mint tool instead of Magic Eden. Reason: ME frequently never
+    // indexes the official mint page for these at all (the whole point of
+    // /tools/candy-mint existing — see its header comment), so the badge
+    // used to point at the closest thing we had, an ME item page for
+    // whatever NFT happened to mint first. Now that the tool can resolve
+    // straight from an asset address (see resolveEarliestSignatureForAsset
+    // on the backend), it can point at something actually useful: the same
+    // Inspect flow we use ourselves, pre-loaded and ready to mint from.
+    // `firstMintAddress` only (no stableMintAddress/lastMintAddress
+    // fallback like the ME case below) — any landed mint of this candy
+    // machine resolves the same candyMachine/candyGuard/collection, so
+    // there's no marketplace-indexer-lag reason to prefer a newer one.
     case 'Core Candy Machine':
+    case 'Metaplex Candy Machine': {
+      const addr = row.firstMintAddress;
+      if (!isSolPubkey(addr)) return null;
+      return `/tools/candy-mint?asset=${addr}`;
+    }
+    case 'Metaplex Core':
     case 'Candy Labs': {
       // Magic Eden item-details. Prefer firstMintAddress (the collection's
       // literal first mint, write-once, never drifts) over stableMintAddress
       // (older fallback for pre-firstMintAddress rows) over lastMintAddress
       // (drifts with every new mint — routinely 404s against a lagging ME
-      // indexer). Candy Labs mints are still plain MPL Core assets
-      // underneath, so the same ME deep link works.
+      // indexer). Neither of these is a real Candy Guard mint (bare Core /
+      // Candy Labs' own `foRGE…` contract) — our candy-mint tool can't
+      // decode either, so they keep the ME fallback.
       const addr = row.firstMintAddress ?? row.stableMintAddress ?? row.lastMintAddress;
       if (!isSolPubkey(addr)) return null;
       return `https://magiceden.io/item-details/${addr}`;
@@ -193,9 +221,9 @@ export function sourceBadge(
     // green/purpleTint/fuchsia/teal above). Otherwise unused by any
     // source badge.
     case 'Mallow':                 return { label: 'MALLOW',   bg: alpha(VL.redGlow, 0.15),  fg: rgb(VL.redGlow) };
-    // Artist Proof — violet, distinct from purpleTint (unknown-wrapper CORE /
-    // SFT) and from every other family in use above.
-    case 'ART':                    return { label: 'ART',      bg: alpha(VL.violet, 0.18),   fg: rgb(VL.violetLight) };
+    // Artist Proof — same blue as VVV (operator spec: match VVV's color,
+    // font-size, and letter-spacing exactly; only the label text differs).
+    case 'ART':                    return { label: 'ART',      bg: alpha(VL.blue, 0.15),     fg: rgb(VL.blue) };
     default:                       return { label: 'UNKNOWN',  bg: 'rgba(255,255,255,0.05)', fg: VLText.muted };
   }
 }

@@ -47,6 +47,8 @@ import { getTokenDecimalsMany } from '../candy-mint/token-decimals';
 import { getCurrentBlockHeight } from '../candy-mint/block-height';
 import { verifyMintAsset } from '../candy-mint/verify-asset';
 import { getAsset } from '../enrichment/helius-das';
+import { resolveEarliestSignatureForAsset } from '../candy-mint/resolve-asset-signature';
+import { findSiblingCandyMachines } from '../candy-mint/siblings';
 
 // The largest batch quantity the frontend stepper allows when no per-wallet
 // mintLimit narrows it (page.tsx `quantityCap`). The batch flow broadcasts
@@ -87,11 +89,23 @@ export function createCandyMintRouter(): Router {
 
   router.get('/tools/candy-mint/inspect', inspectLimit, requireAuth, async (req: Request, res: Response) => {
     try {
-      const sig = req.query.sig as string | undefined;
+      let sig = req.query.sig as string | undefined;
+      const assetQ = req.query.asset as string | undefined;
       const candyMachineQ = req.query.candyMachine as string | undefined;
       const candyGuardQ = req.query.candyGuard as string | undefined;
       const walletQ = req.query.wallet as string | undefined;
       const wallet = isValidPubkey(walletQ) ? walletQ : null;
+
+      // `asset` (an NFT mint address, from the /mints feed's Candy Machine
+      // badge — see MintStatusWire.firstMintAddress) resolves to its own
+      // earliest signature here rather than being threaded through the
+      // ingestion pipeline as a new field. One extra RPC, paid only when
+      // the tool is actually opened.
+      if (!sig && isValidPubkey(assetQ)) {
+        const resolved = await resolveEarliestSignatureForAsset(assetQ);
+        if (!resolved) return res.status(422).json({ ok: false, error: 'no_signature_history_for_asset' });
+        sig = resolved;
+      }
 
       let candyMachine: string; let candyGuard: string; let collection: string | null = null;
       let collectionUpdateAuthority: string | null = null; let group: string | null = null;
@@ -158,10 +172,23 @@ export function createCandyMintRouter(): Router {
         }
       }
 
+      // Best-effort — surfaces "phase 2" drops that reuse the same
+      // collection under a DIFFERENT candy machine (see CLOIDS,
+      // 2026-09-16: a second 1111-item CM sat unminted for 18 days because
+      // nothing pointed at it). An RPC miss here must never block Inspect.
+      let siblings: Awaited<ReturnType<typeof findSiblingCandyMachines>> = [];
+      if (collectionAddr) {
+        try {
+          siblings = await findSiblingCandyMachines(collectionAddr, candyMachine);
+        } catch {
+          // leave siblings empty — inspection result is still fully usable
+        }
+      }
+
       return res.json({
         ok: true, family, referenceCollection: collection,
         referenceCollectionUpdateAuthority: collectionUpdateAuthority,
-        referenceGroup: group, inspection, collectionMeta,
+        referenceGroup: group, inspection, collectionMeta, siblings,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

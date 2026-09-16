@@ -96,12 +96,24 @@ interface CollectionMeta {
   creator: string | null;
 }
 
+/** Another candy machine (either program family) pointing at the SAME
+ *  collection as the one being inspected — see siblings.ts. Surfaces
+ *  "phase 2" drops nothing else links to. */
+interface SiblingCandyMachine {
+  candyMachine:   string;
+  candyGuard:     string;
+  family:         CandyMintFamily;
+  itemsRedeemed:  number;
+  itemsAvailable: number;
+}
+
 interface LoadedMachine {
   family: CandyMintFamily;
   inspection: Inspection;
   collectionMeta: CollectionMeta | null;
   referenceCollection: string | null;
   referenceCollectionUpdateAuthority: string | null;
+  siblings: SiblingCandyMachine[];
 }
 
 // Each cause of "this item did not become a mint" gets its own status
@@ -501,6 +513,19 @@ async function fetchCurrentBlockHeight(): Promise<number | null> {
   }, 300);
 }
 
+/** Disambiguates a pasted base58 string as a tx signature (64 bytes, ~87-88
+ *  chars) vs an NFT/asset address (32 bytes, ~32-44 chars) purely by
+ *  length — same 64-char boundary the backend's own `isValidSignature`
+ *  (fetch-tx.ts) uses, so the two ranges never overlap. */
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]+$/;
+function classifyPastedRef(v: string): 'signature' | 'asset' | 'invalid' {
+  const t = v.trim();
+  if (!BASE58_RE.test(t)) return 'invalid';
+  if (t.length >= 64) return 'signature';
+  if (t.length >= 32) return 'asset';
+  return 'invalid';
+}
+
 export default function CandyMintPage() {
   const [wallet, setWallet] = useState<string | null>(null);
   const [sig, setSig] = useState('');
@@ -514,6 +539,25 @@ export default function CandyMintPage() {
 
   useEffect(() => {
     void eagerConnectPhantom().then((pk) => { if (pk) setWallet(pk); });
+  }, []);
+
+  // Deep-link from the /mints feed's Candy Machine badge: `?asset=` (an NFT
+  // mint address — the backend resolves its earliest signature itself, see
+  // resolve-asset-signature.ts) or `?sig=` (a raw tx signature). Either way
+  // this auto-fires Inspect once on mount so the badge click lands straight
+  // on a loaded drop instead of an empty box.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const assetParam = params.get('asset');
+    const sigParam = params.get('sig');
+    if (assetParam) {
+      setSig(assetParam);
+      void handleInspect({ asset: assetParam });
+    } else if (sigParam) {
+      setSig(sigParam);
+      void handleInspect({ sig: sigParam });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   // mintLimit's used/remaining is per-wallet — it was only ever fetched at
@@ -569,19 +613,39 @@ export default function CandyMintPage() {
     setQuantity(1);
   }
 
-  async function handleInspect() {
-    if (!sig.trim()) return;
+  async function handleInspect(override?: {
+    asset?: string; sig?: string; candyMachine?: string; candyGuard?: string;
+  }) {
+    let asset = override?.asset;
+    let sigValue = override?.sig;
+    const { candyMachine: cmOverride, candyGuard: cgOverride } = override ?? {};
+    if (!override) {
+      const kind = classifyPastedRef(sig);
+      if (kind === 'signature') sigValue = sig.trim();
+      else if (kind === 'asset') asset = sig.trim();
+      else return;
+    }
+    if (!asset && !sigValue && !(cmOverride && cgOverride)) return;
     setFlow({ kind: 'inspecting' });
     setSelectedGroup(undefined);
     setQuantity(1);
     try {
       const walletParam = wallet ? `&wallet=${encodeURIComponent(wallet)}` : '';
-      const r = await fetch(`${API_BASE}/api/tools/candy-mint/inspect?sig=${encodeURIComponent(sig.trim())}${walletParam}`, {
+      // Sibling candy machines (see SiblingCandyMachine) are loaded directly
+      // by address — a phase-2 CM may have zero mints yet, so there's no
+      // signature to resolve at all.
+      const refParam = (cmOverride && cgOverride)
+        ? `candyMachine=${encodeURIComponent(cmOverride)}&candyGuard=${encodeURIComponent(cgOverride)}`
+        : asset
+          ? `asset=${encodeURIComponent(asset)}`
+          : `sig=${encodeURIComponent(sigValue!)}`;
+      const r = await fetch(`${API_BASE}/api/tools/candy-mint/inspect?${refParam}${walletParam}`, {
         headers: { ...authHeaders() },
       });
       const j = await r.json() as {
         ok: boolean; family?: CandyMintFamily; inspection?: Inspection; collectionMeta?: CollectionMeta | null;
         referenceCollection?: string | null; referenceCollectionUpdateAuthority?: string | null; error?: string;
+        siblings?: SiblingCandyMachine[];
       };
       if (!j.ok || !j.inspection || !j.family) {
         setFlow({ kind: 'error', message: humanizeBackendError(j.error, r.status) });
@@ -593,6 +657,7 @@ export default function CandyMintPage() {
         collectionMeta: j.collectionMeta ?? null,
         referenceCollection: j.referenceCollection ?? null,
         referenceCollectionUpdateAuthority: j.referenceCollectionUpdateAuthority ?? null,
+        siblings: j.siblings ?? [],
       });
       setFlow({ kind: 'idle' });
       // Always land on a concrete group (see pickInitialGroup): a lone
@@ -1205,10 +1270,10 @@ export default function CandyMintPage() {
               value={sig}
               onChange={(e) => setSig(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !inspectBlocked) void handleInspect(); }}
-              placeholder="load a different drop by reference tx signature"
+              placeholder="load a different drop by tx signature or NFT address"
               style={{ width: 340, maxWidth: '100%' }}
             />
-            <CtaButton onClick={handleInspect} disabled={inspectBlocked}>
+            <CtaButton onClick={() => void handleInspect()} disabled={inspectBlocked}>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
             </CtaButton>
           </>
@@ -1230,18 +1295,18 @@ export default function CandyMintPage() {
           </div>
           <h1 style={{ fontSize: 24, fontWeight: 800, color: VLText.primary, margin: '0 0 10px' }}>Candy Machine Direct Mint</h1>
           <p style={{ fontSize: 12.5, color: VLText.muted, lineHeight: 1.6, margin: '0 0 22px' }}>
-            Direct on-chain minting, no frontend needed. Paste a recent mint tx to load the drop.
+            Direct on-chain minting, no frontend needed. Paste a recent mint tx signature — or any NFT address from the drop — to load it.
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <ToolTextInput
               value={sig}
               onChange={(e) => setSig(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !inspectBlocked) void handleInspect(); }}
-              placeholder="mint transaction signature"
+              placeholder="mint transaction signature or NFT address"
               big
               style={{ flex: 1 }}
             />
-            <CtaButton onClick={handleInspect} disabled={inspectBlocked} big>
+            <CtaButton onClick={() => void handleInspect()} disabled={inspectBlocked} big>
               {flow.kind === 'inspecting' ? 'checking…' : 'Inspect'}
             </CtaButton>
           </div>
@@ -1347,6 +1412,42 @@ export default function CandyMintPage() {
                 <StatusNotice>
                   Fully minted ({loaded.inspection.itemsRedeemed}/{loaded.inspection.itemsAvailable}) — nothing left to mint.
                 </StatusNotice>
+              )}
+
+              {/* Other candy machines on the SAME collection — catches
+                  "phase 2" drops nothing else links to (see CLOIDS,
+                  2026-09-16: a second CM sat fully unminted for 18 days).
+                  Shown regardless of this CM's own alive/sold-out state —
+                  a sold-out CM is exactly when a sibling matters most. */}
+              {loaded.siblings.length > 0 && (
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4,
+                  padding: '9px 11px', borderRadius: 8,
+                  background: alpha(VL.purpleTint, 0.06), border: `1px solid ${alpha(VL.purpleTint, ALPHA_BORDER)}`,
+                }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: VLText.muted }}>
+                    Other candy machines for this collection
+                  </span>
+                  {loaded.siblings.map((s) => {
+                    const open = s.itemsRedeemed < s.itemsAvailable;
+                    return (
+                      <div key={s.candyMachine} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+                        <span style={{ color: open ? rgb(VL.greenStrong) : VLText.muted }}>{open ? '●' : '○'}</span>
+                        <span style={{ color: VLText.primary, fontWeight: 600 }}>{short(s.candyMachine)}</span>
+                        <span style={{ color: VLText.muted }}>
+                          {s.itemsRedeemed}/{s.itemsAvailable} · {s.family === 'core' ? 'MPL CORE' : 'TOKEN METADATA'}
+                        </span>
+                        <div style={{ flex: 1 }} />
+                        <CtaButton
+                          onClick={() => void handleInspect({ candyMachine: s.candyMachine, candyGuard: s.candyGuard })}
+                          disabled={busy}
+                        >
+                          Load
+                        </CtaButton>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
 
               {/* ── mint control — the ONE spot that morphs through the flow ── */}
