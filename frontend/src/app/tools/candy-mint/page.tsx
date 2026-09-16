@@ -1388,7 +1388,13 @@ export default function CandyMintPage() {
                     // whether the panel is currently expanded (the arrow
                     // glyph covers open/closed).
                     active
-                    color={rgb(VL.purpleTint)}
+                    // Pill's active styles do `${color}55`/`${color}1c` string
+                    // concat — needs a bare 6-digit hex (hex()), NOT rgb(...)
+                    // (an "rgb(r,g,b)55" string is invalid CSS and drops the
+                    // whole border/background, falling back to the browser's
+                    // native button chrome). Every other Pill here passes
+                    // rgb() safely only because none of them ever set active.
+                    color={hex(VL.purpleTint)}
                     onClick={() => setSiblingsOpen((o) => !o)}
                     title="Other candy machines pointed at this same collection"
                   />
