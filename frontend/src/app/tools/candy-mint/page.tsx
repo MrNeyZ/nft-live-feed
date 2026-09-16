@@ -1374,7 +1374,6 @@ export default function CandyMintPage() {
                     title="Open deployer on Solscan"
                   />
                 )}
-                <Pill label="on Solana" color={rgb(VL.purpleTint)} />
                 <Pill
                   label={short(loaded.inspection.candyMachine)}
                   color={rgb(VL.gray)}
