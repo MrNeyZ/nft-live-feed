@@ -156,7 +156,7 @@ export function createCandyMintRouter(): Router {
       // Best-effort — the launchpad-style hero (image/name/creator) is a
       // display nicety, not a gate. A DAS miss (fresh/never-indexed
       // collection, rate limit) must never block minting itself.
-      let collectionMeta: { name: string | null; image: string | null; description: string | null; creator: string | null } | null = null;
+      let collectionMeta: { name: string | null; image: string | null; description: string | null; creator: string | null; website: string | null } | null = null;
       const collectionAddr = inspection.collection ?? collection;
       if (collectionAddr) {
         try {
@@ -166,6 +166,7 @@ export function createCandyMintRouter(): Router {
             image: meta.imageUrl,
             description: meta.description ?? null,
             creator: meta.verifiedCreators?.[0] ?? null,
+            website: meta.externalUrl ?? null,
           };
         } catch {
           // leave collectionMeta null — inspection result is still fully usable

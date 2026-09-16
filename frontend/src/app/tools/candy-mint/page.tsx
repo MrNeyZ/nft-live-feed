@@ -94,6 +94,7 @@ interface CollectionMeta {
   image: string | null;
   description: string | null;
   creator: string | null;
+  website: string | null;
 }
 
 /** Another candy machine (either program family) pointing at the SAME
@@ -518,6 +519,20 @@ async function fetchCurrentBlockHeight(): Promise<number | null> {
  *  length — same 64-char boundary the backend's own `isValidSignature`
  *  (fetch-tx.ts) uses, so the two ranges never overlap. */
 const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]+$/;
+/** `collectionMeta.website` comes from the project's own off-chain metadata
+ *  JSON — untrusted input. Only http(s) URLs are ever handed to
+ *  `window.open`; anything else (a `javascript:` URL, garbage) renders no
+ *  pill at all rather than a broken/dangerous one. */
+function safeExternalUrl(v: string | null | undefined): string | null {
+  if (!v) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function classifyPastedRef(v: string): 'signature' | 'asset' | 'invalid' {
   const t = v.trim();
   if (!BASE58_RE.test(t)) return 'invalid';
@@ -1380,6 +1395,17 @@ export default function CandyMintPage() {
                   onClick={() => window.open(`https://solscan.io/account/${loaded.inspection.candyMachine}`, '_blank', 'noopener,noreferrer')}
                   title="candy machine — open on Solscan"
                 />
+                {(() => {
+                  const site = safeExternalUrl(loaded.collectionMeta?.website);
+                  return site && (
+                    <Pill
+                      label="mint site"
+                      color={hex(VL.greenStrong)}
+                      onClick={() => window.open(site, '_blank', 'noopener,noreferrer')}
+                      title={site}
+                    />
+                  );
+                })()}
                 {loaded.siblings.length > 0 && (
                   <Pill
                     label={`${siblingsOpen ? '▾' : '▸'} siblings`}

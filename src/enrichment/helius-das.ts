@@ -35,6 +35,11 @@ export interface NftMetadata {
   /** DAS `content.metadata.description`, when present. Optional; absent on
    *  the empty/error metadata objects. */
   description?: string | null;
+  /** DAS `content.links.external_url` — the project's own site, when its
+   *  off-chain metadata sets one (e.g. a collection's `external_url`).
+   *  Optional; absent on the empty/error metadata objects, null when the
+   *  asset's metadata simply doesn't set one. */
+  externalUrl?: string | null;
 }
 
 // Minimal shape of the Helius DAS getAsset response we care about.
@@ -50,7 +55,7 @@ interface DasAsset {
       token_standard?: string;
       attributes?: Array<{ trait_type?: string; key?: string; value?: unknown }>;
     };
-    links?: { image?: string; animation_url?: string };
+    links?: { image?: string; animation_url?: string; external_url?: string };
     files?: Array<{ uri?: string; cdn_uri?: string; mime?: string }>;
     json_uri?: string;
   };
@@ -238,6 +243,7 @@ export async function getAsset(mintAddress: string, reason?: GetAssetSource): Pr
     verifiedCreators:  extractVerifiedCreators(asset),
     hasArtistAttribute: extractHasArtistAttribute(asset),
     description:       asset.content?.metadata?.description   ?? null,
+    externalUrl:       asset.content?.links?.external_url      ?? null,
   };
 }
 
