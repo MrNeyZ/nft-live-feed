@@ -533,6 +533,9 @@ export default function CandyMintPage() {
   const [quantity, setQuantity] = useState(1);
   const [loaded, setLoaded] = useState<LoadedMachine | null>(null);
   const [flow, setFlow] = useState<FlowState>({ kind: 'idle' });
+  // Collapsed by default — this is a secondary/bonus panel (see siblings.ts),
+  // not core to the mint flow, and was crowding the hero when always open.
+  const [siblingsOpen, setSiblingsOpen] = useState(false);
   // Re-entrancy guard for the mint handlers — `disabled` derived from async
   // state has a render-timing race; this ref closes it deterministically.
   const mintRunningRef = useRef(false);
@@ -629,6 +632,7 @@ export default function CandyMintPage() {
     setFlow({ kind: 'inspecting' });
     setSelectedGroup(undefined);
     setQuantity(1);
+    setSiblingsOpen(false);
     try {
       const walletParam = wallet ? `&wallet=${encodeURIComponent(wallet)}` : '';
       // Sibling candy machines (see SiblingCandyMachine) are loaded directly
@@ -1367,6 +1371,15 @@ export default function CandyMintPage() {
                 )}
                 <Pill label="on Solana" color={rgb(VL.purpleTint)} />
                 <Pill label={short(loaded.inspection.candyMachine)} title="candy machine" color={rgb(VL.gray)} />
+                {loaded.siblings.length > 0 && (
+                  <Pill
+                    label={`${siblingsOpen ? '▾' : '▸'} siblings (${loaded.siblings.length})`}
+                    active={siblingsOpen}
+                    color={rgb(VL.purpleTint)}
+                    onClick={() => setSiblingsOpen((o) => !o)}
+                    title="Other candy machines pointed at this same collection"
+                  />
+                )}
               </div>
 
               {loaded.collectionMeta?.description && (
@@ -1417,17 +1430,15 @@ export default function CandyMintPage() {
               {/* Other candy machines on the SAME collection — catches
                   "phase 2" drops nothing else links to (see CLOIDS,
                   2026-09-16: a second CM sat fully unminted for 18 days).
-                  Shown regardless of this CM's own alive/sold-out state —
-                  a sold-out CM is exactly when a sibling matters most. */}
-              {loaded.siblings.length > 0 && (
+                  Secondary/bonus info, not core to the mint flow — collapsed
+                  behind the "siblings (N)" pill above by default so it
+                  doesn't crowd the hero; expand state is per-Inspect only. */}
+              {siblingsOpen && loaded.siblings.length > 0 && (
                 <div style={{
                   display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4,
                   padding: '9px 11px', borderRadius: 8,
                   background: alpha(VL.purpleTint, 0.06), border: `1px solid ${alpha(VL.purpleTint, ALPHA_BORDER)}`,
                 }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: VLText.muted }}>
-                    Other candy machines for this collection
-                  </span>
                   {loaded.siblings.map((s) => {
                     const open = s.itemsRedeemed < s.itemsAvailable;
                     return (
