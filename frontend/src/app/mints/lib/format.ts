@@ -72,13 +72,21 @@ export function vvvSlugify(input: string): string {
   return s;
 }
 
-/** Truncate (floor) `lamports` to `dp` SOL decimals, then trim trailing zeros.
- *  Works from integer lamports (not `sol * 10**dp`) to avoid float-edge
- *  truncation bugs like 0.012 → 0.011. Mint-tracker only — TRUNCATION, not
- *  rounding. */
-function truncSol(lamports: number, dp: number): string {
+/** Round `lamports` to `dp` SOL decimals, then trim trailing zeros. Works
+ *  from integer lamports (not `sol * 10**dp`) to avoid float-edge rounding
+ *  bugs like 0.0125 → 0.0124999999.
+ *
+ *  Was TRUNCATION (floor) until 2026-09-16 — deliberately, per the old
+ *  comment here, so the tracker "never overstates" a mint's price. In
+ *  practice that read as a bug: a real CLOIDS mint costing 0.00298844 SOL
+ *  displayed as "0.002" (floor of 2.98844 is 2), which is further from the
+ *  true value than "0.003" (round of 2.98844 is 3) — the truncation didn't
+ *  just avoid overstating, it systematically understated by up to a whole
+ *  display unit. Ordinary rounding now, matching the shared soloist
+ *  `formatSol` used by every other feed. */
+function roundSol(lamports: number, dp: number): string {
   const lamportsPerUnit = 1e9 / 10 ** dp;             // lamports per smallest shown digit
-  const units           = Math.floor(lamports / lamportsPerUnit);
+  const units           = Math.round(lamports / lamportsPerUnit);
   return trimTrailingZeros((units / 10 ** dp).toFixed(dp));
 }
 
@@ -89,14 +97,11 @@ export function fmtSol(lamports: number | null): string {
   // Floor legacy negative rows (signer net-received lamports) to 0 rather
   // than showing a negative SOL amount.
   const clamped = lamports < 0 ? 0 : lamports;
-  // Mint Tracker uses TRUNCATION, not rounding — so 0.0065 reads 0.006, never
-  // 0.007. (The shared soloist `formatSol` rounds via toFixed and must stay
-  // unchanged for the sale/listing feeds, so we do NOT call it here.)
-  //   ≥ 0.001 SOL → 3 dp truncated  (0.0065 → 0.006, 0.0125 → 0.012)
+  //   ≥ 0.001 SOL → 3 dp, rounded  (0.0065 → 0.007, 0.0125 → 0.013, 0.00298844 → 0.003)
   //   smaller     → keep more significant digits (0.00017 stays 0.00017)
-  if (clamped >= 1_000_000) return truncSol(clamped, 3);   // ≥ 0.001 SOL
-  if (clamped >= 100_000)   return truncSol(clamped, 5);   // ≥ 0.0001 SOL
-  return truncSol(clamped, 6);
+  if (clamped >= 1_000_000) return roundSol(clamped, 3);   // ≥ 0.001 SOL
+  if (clamped >= 100_000)   return roundSol(clamped, 5);   // ≥ 0.0001 SOL
+  return roundSol(clamped, 6);
 }
 
 /** Mint-price display rule shared by the Live Mint Feed card AND the Mint
@@ -108,8 +113,8 @@ export function fmtSol(lamports: number | null): string {
  *    • (0, 0.001) SOL     → floored to the display minimum `0.001` — never
  *      show more than 3 decimals just because the real value is tiny; a
  *      real-but-tiny paid mint reads as "0.001", not "0.00079"/"0.0000004".
- *    • [0.001, 0.1) SOL   → TRUNCATE (floor) to 3 decimals, never round
- *        0.00411 → 0.004 · 0.0036 → 0.003 · 0.059 → 0.059 · 0.0999 → 0.099
+ *    • [0.001, 0.1) SOL   → rounded to 3 decimals
+ *        0.00411 → 0.004 · 0.0036 → 0.004 · 0.059 → 0.059 · 0.0999 → 0.1
  *    • ≥ 0.1 SOL          → shared `formatSol` (rounded), trailing zeros trimmed
  *        0.2 → 0.2 · 0.55 → 0.55 · 0.553 → 0.55 · 0.6 → 0.6 · 1.822 → 1.82 */
 /** Format a raw u64 token amount (as a decimal string) into a human amount
@@ -135,8 +140,8 @@ export function fmtMintPrice(lamports: number | null): string {
   // as "0.001", not padded out to 5-6 decimals just to show its true size —
   // that extra precision reads as noise/inflated digits, not information.
   if (clamped < 1_000_000) return '0.001';
-  // [0.001, 0.1) SOL → floor to 3 dp (truncSol already trims zeros).
-  if (clamped < 100_000_000) return truncSol(clamped, 3);
+  // [0.001, 0.1) SOL → round to 3 dp (roundSol already trims zeros).
+  if (clamped < 100_000_000) return roundSol(clamped, 3);
   // ≥ 0.1 SOL → rounded formatSol, trailing zeros off.
   return trimTrailingZeros(formatSol(clamped / 1e9));
 }
