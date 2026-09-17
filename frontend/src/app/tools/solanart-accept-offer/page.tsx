@@ -11,18 +11,26 @@
 // with a clear error rather than silently mis-built.
 //
 // Single signer: only your connected wallet needs to sign (no cosigner).
-// DRY RUN (build + simulate, no signature ever requested) is the default;
-// LIVE mode is gated first by the server.
+// No DRY RUN/LIVE toggle — matches /tools/me-sell's model exactly (removed
+// per operator request 2026-09-17): Simulate is the real pre-flight check,
+// Phantom's own confirmation screen is the real human checkpoint, Sign &
+// Submit always goes live. The server's SOLANART_ACCEPT_OFFER_ENABLE_LIVE
+// env var is still the actual enforcement boundary — submit fails closed
+// with a clear error if that's ever unset, no client-side gate needed on
+// top of it.
+//
+// Layout matches /tools/me-sell 1:1 (same PANEL/Row/ToolTextInput/LiveDot
+// primitives, same header → load-panel → info-panel → action-flow shape)
+// per operator request — this page's own state machine (build → simulate
+// → sign → submit) is unchanged, only the visual language moved over.
 
 import { useEffect, useState } from 'react';
 import { Transaction } from '@solana/web3.js';
 import { authHeaders } from '@/runtime/auth';
 import { connectPhantom, eagerConnectPhantom, getPhantom } from '@/wallet/phantom';
-import { API_BASE, MONO, PANEL, ADDR_RE, short } from '@/app/tools/mmm-shared';
-import { CtaButton } from '@/soloist/shared';
-import { VLText, alpha, VL } from '@/lib/palette';
+import { API_BASE, MONO, PANEL, ADDR_RE, ToolTextInput, short } from '@/app/tools/mmm-shared';
+import { CtaButton, LiveDot } from '@/soloist/shared';
 
-const LIVE_MODE_KEY = 'vl.solanartAcceptOffer.liveMode';
 const FIELDS_KEY = 'vl.solanartAcceptOffer.fields';
 
 interface OfferInfo {
@@ -55,8 +63,11 @@ function humanizeError(message: string): string {
   if (m.includes('mint_unresolvable_buyer_ata_closed')) return "Can't resolve the target NFT — the buyer's reference token account was closed. This offer's target mint is unrecoverable this way.";
   if (m.includes('legacy_token_standard_not_supported_yet')) return "This NFT is a legacy (pre-pNFT) token standard — this tool only supports pNFT targets right now.";
   if (m.includes('seller_does_not_hold_this_nft')) return "The connected wallet doesn't hold this exact NFT right now.";
-  if (m.includes('no_on_chain_creators_found')) return 'Could not read an on-chain creators list for this NFT.';
+  if (m.includes('no_on_chain_creators_found')) return 'Could not read an on-chain creators list for this NFT — this mint has none set, so a royalty-safe accept instruction cannot be built for it.';
   if (m.includes('invalid_offer_key')) return 'Enter a valid offer account address.';
+  if (m.includes('invalid_buyer')) return 'Enter a valid bidder wallet address.';
+  if (m.includes('invalid_mint')) return 'Enter a valid NFT mint address.';
+  if (m.includes('offer_not_found:')) return "No active offer from this bidder on this mint — check both addresses, or the bid may have already been accepted/cancelled.";
   if (m.includes('user rejected') || m.includes('rejected the request')) return 'Transaction cancelled.';
   if (m.includes('phantom wallet not found')) return 'Phantom wallet not found. Install the Phantom extension.';
   if (m.includes('live_mode_disabled_server_side')) return 'LIVE mode is disabled on the server (SOLANART_ACCEPT_OFFER_ENABLE_LIVE is not set to true).';
@@ -68,55 +79,45 @@ function humanizeError(message: string): string {
   return message;
 }
 
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '9px 16px',
+      borderBottom: '1px solid rgba(255,255,255,0.022)' }}>
+      <div style={{ width: 140, flexShrink: 0, fontSize: 10, color: 'var(--vl-text-muted)', fontWeight: 700,
+        textTransform: 'uppercase', letterSpacing: '0.5px', paddingTop: 1 }}>{label}</div>
+      <div style={{ ...MONO, fontSize: 12, color: 'var(--vl-text-primary)', fontWeight: 600, wordBreak: 'break-all', flex: 1 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function SolanartAcceptOfferPage() {
   const [wallet, setWallet] = useState<string | null>(null);
-  const [serverLiveEnabled, setServerLiveEnabled] = useState<boolean | null>(null);
-  const [liveMode, setLiveMode] = useState(false);
 
-  const [offerKey, setOfferKey] = useState('');
+  const [buyerAddr, setBuyerAddr] = useState('');
+  const [mintAddr, setMintAddr] = useState('');
   const [offerInfo, setOfferInfo] = useState<OfferInfo | null>(null);
   const [offerLookupError, setOfferLookupError] = useState<string | null>(null);
   const [offerLoading, setOfferLoading] = useState(false);
 
   const [uiState, setUiState] = useState<UiState>({ kind: 'idle' });
-  const [confirmChecked, setConfirmChecked] = useState(false);
 
   useEffect(() => {
-    setLiveMode(localStorage.getItem(LIVE_MODE_KEY) === '1');
     try {
       const raw = localStorage.getItem(FIELDS_KEY);
-      if (raw) { const f = JSON.parse(raw) as { offerKey?: string }; if (f.offerKey) setOfferKey(f.offerKey); }
+      if (raw) {
+        const f = JSON.parse(raw) as { buyer?: string; mint?: string };
+        if (f.buyer) setBuyerAddr(f.buyer);
+        if (f.mint) setMintAddr(f.mint);
+      }
     } catch { /* ignore */ }
     void eagerConnectPhantom().then((pk) => { if (pk) setWallet(pk); });
-    void fetch(`${API_BASE}/api/tools/solanart-accept-offer/status`, { headers: { ...authHeaders() } })
-      .then((r) => r.json())
-      .then((j: { ok: boolean; liveEnabled?: boolean }) => setServerLiveEnabled(j.ok ? !!j.liveEnabled : false))
-      .catch(() => setServerLiveEnabled(false));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(FIELDS_KEY, JSON.stringify({ offerKey }));
-  }, [offerKey]);
-
-  const liveAvailable = serverLiveEnabled === true && liveMode;
-
-  function handleToggleLiveMode() {
-    if (!serverLiveEnabled) return;
-    if (!liveMode) {
-      const ok = window.confirm(
-        'LIVE mode lets this tool ask your wallet to sign and submit a REAL, irreversible Solana ' +
-        'transaction that transfers your NFT and receives real SOL from a Solanart bid escrow — one ' +
-        'explicit confirmation, never automatic.\n\nDRY RUN (build + simulate, no signature requested) ' +
-        'stays available either way.\n\nEnable LIVE mode?'
-      );
-      if (!ok) return;
-      localStorage.setItem(LIVE_MODE_KEY, '1');
-      setLiveMode(true);
-    } else {
-      localStorage.setItem(LIVE_MODE_KEY, '0');
-      setLiveMode(false);
-    }
-  }
+    localStorage.setItem(FIELDS_KEY, JSON.stringify({ buyer: buyerAddr, mint: mintAddr }));
+  }, [buyerAddr, mintAddr]);
 
   async function handleConnect() {
     try { setWallet(await connectPhantom()); }
@@ -128,13 +129,17 @@ export default function SolanartAcceptOfferPage() {
     setUiState({ kind: 'idle' });
   }
 
-  async function lookupOffer(key: string) {
+  const busy = uiState.kind === 'building' || uiState.kind === 'simulating' || uiState.kind === 'signing';
+  const canLoad = ADDR_RE.test(buyerAddr) && ADDR_RE.test(mintAddr) && !offerLoading && !busy;
+
+  async function lookupOffer() {
+    if (!canLoad) return;
     setOfferLookupError(null);
     setOfferInfo(null);
-    if (!ADDR_RE.test(key)) return;
+    setUiState({ kind: 'idle' });
     setOfferLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/tools/solanart-accept-offer/offer?offerKey=${key}`, { headers: { ...authHeaders() } });
+      const r = await fetch(`${API_BASE}/api/tools/solanart-accept-offer/resolve-offer?buyer=${buyerAddr}&mint=${mintAddr}`, { headers: { ...authHeaders() } });
       const j = await r.json() as { ok: boolean; offer?: OfferInfo; error?: string };
       if (j.ok && j.offer) setOfferInfo(j.offer);
       else setOfferLookupError(humanizeError(j.error ?? `HTTP ${r.status}`));
@@ -145,20 +150,13 @@ export default function SolanartAcceptOfferPage() {
     }
   }
 
-  useEffect(() => {
-    const t = setTimeout(() => { void lookupOffer(offerKey); }, 400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offerKey]);
-
   async function handleBuild() {
-    if (!wallet || !ADDR_RE.test(offerKey)) return;
-    setConfirmChecked(false);
+    if (!wallet || !offerInfo) return;
     setUiState({ kind: 'building' });
     try {
       const r = await fetch(`${API_BASE}/api/tools/solanart-accept-offer/build`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ seller: wallet, offerKey }),
+        body: JSON.stringify({ seller: wallet, offerKey: offerInfo.offerKey, mint: offerInfo.mint }),
       });
       const j = await r.json() as {
         ok: boolean; tx?: string; digest?: string; expiresAt?: number; summary?: BuildSummary;
@@ -191,7 +189,7 @@ export default function SolanartAcceptOfferPage() {
   }
 
   async function handleSignSubmit() {
-    if ((uiState.kind !== 'built' && uiState.kind !== 'simulated') || !confirmChecked) return;
+    if (uiState.kind !== 'built' && uiState.kind !== 'simulated') return;
     const built: Built = uiState;
     if (Date.now() > built.expiresAt) { setUiState({ kind: 'error', message: 'This build expired — build again.' }); return; }
     setUiState({ kind: 'signing', ...built });
@@ -209,13 +207,11 @@ export default function SolanartAcceptOfferPage() {
       const j = await r.json() as { ok: boolean; signature?: string; error?: string };
       if (!j.ok || !j.signature) { setUiState({ kind: 'error', message: humanizeError(j.error ?? `HTTP ${r.status}`) }); return; }
       setUiState({ kind: 'success', sig: j.signature });
-      setConfirmChecked(false);
     } catch (err) {
       setUiState({ kind: 'error', message: humanizeError((err as Error).message) });
     }
   }
 
-  const busy = uiState.kind === 'building' || uiState.kind === 'simulating' || uiState.kind === 'signing';
   const built = uiState.kind === 'built' || uiState.kind === 'simulating' || uiState.kind === 'simulated' || uiState.kind === 'signing';
   const summary = built ? (uiState as Built).summary : null;
   const preflightLogs = built ? (uiState as Built).preflightLogs : [];
@@ -226,146 +222,123 @@ export default function SolanartAcceptOfferPage() {
   // under-report a real pNFT as legacy. Build itself authoritatively
   // re-checks against the connected seller wallet and returns a clear
   // 'legacy_token_standard_not_supported_yet' error if it truly isn't one.
-  const canBuild = !!wallet && !busy && ADDR_RE.test(offerKey) && !!offerInfo;
+  const canBuild = !!wallet && !busy && !!offerInfo;
 
   return (
     <div className="feed-root page-transition" data-page="solanart-accept-offer">
-    <div className="scroll-area" style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%', paddingBottom: 72 }}>
-    <div style={{ maxWidth: 640, margin: '40px auto', padding: '0 16px 60px', ...MONO }}>
-      <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Solanart Accept Offer</h1>
-      <p style={{ fontSize: 12, color: '#a8a2c0', marginBottom: 16 }}>
-        Solanart&apos;s marketplace has been offline since ~2022, but its on-chain program still holds
-        thousands of funded, never-cancelled bids from 2021-2022. If you hold the exact NFT one of
-        those bids targets, this builds the accept-offer transaction directly on-chain — single
-        signature, just your wallet. <b>pNFT targets only</b> for now.
-      </p>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', width: '100%' }}>
+        <div style={{ padding: '20px 4px 40px', width: '100%', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' }}>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        {!wallet ? (
-          <CtaButton onClick={handleConnect} style={{ marginBottom: 12 }}>Connect Phantom</CtaButton>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 12, color: '#0f0' }}>Connected: {short(wallet)}</div>
-            <DisconnectLink onClick={handleDisconnect} />
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--vl-text-primary)', letterSpacing: '-0.5px' }}>
+            Solanart Accept Offer
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, marginBottom: 16, fontSize: 11, color: 'var(--vl-text-muted)' }}>
+            <LiveDot />
+            <span>accept a forgotten 2021-2022 Solanart bid — paste bidder wallet / your NFT&apos;s mint. pNFT targets only.</span>
           </div>
-        )}
-        <ModeToggle liveMode={liveMode} serverLiveEnabled={serverLiveEnabled} onToggle={handleToggleLiveMode} />
-      </div>
-      {serverLiveEnabled === false && (
-        <div style={{ fontSize: 10.5, color: '#6e6688', marginBottom: 16 }}>
-          LIVE mode is disabled on the server (SOLANART_ACCEPT_OFFER_ENABLE_LIVE is not set) — build &amp; simulate only.
-        </div>
-      )}
 
-      <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>
-          offer account address
-          <input style={inputStyle} value={offerKey} onChange={(e) => setOfferKey(e.target.value)} placeholder="offer escrow address" disabled={busy} />
-        </label>
-        {offerLoading && <div style={{ fontSize: 10.5, color: '#8a84a4', marginTop: 4 }}>looking up…</div>}
-        {offerLookupError && <div style={{ fontSize: 10.5, color: '#f66', marginTop: 4 }}>{offerLookupError}</div>}
-        {offerInfo && <OfferInfoPanel info={offerInfo} />}
-      </div>
-
-      <CtaButton onClick={handleBuild} disabled={!canBuild} style={{ marginBottom: 12 }}>
-        {uiState.kind === 'building' ? 'building…' : 'Build (dry-run)'}
-      </CtaButton>
-
-      <div style={{ position: 'relative', zIndex: 1000 }}>
-      {summary && <SummaryPanel summary={summary} />}
-      {built && preflightLogs.length > 0 && (
-        <div style={{ fontSize: 10.5, color: 'var(--vl-green-primary)', marginTop: -8, marginBottom: 12 }}>
-          ✓ server-side preflight simulation passed at build time
-        </div>
-      )}
-
-      {built && (
-        <CtaButton onClick={handleSimulate} disabled={busy} style={{ marginBottom: 12 }}>
-          {uiState.kind === 'simulating' ? 'simulating…' : 'Simulate again'}
-        </CtaButton>
-      )}
-
-      {simulated && uiState.kind === 'simulated' && (
-        <SimResultPanel err={uiState.simErr} logs={uiState.simLogs} unitsConsumed={uiState.unitsConsumed} />
-      )}
-
-      {built && !liveAvailable && (
-        <div style={{ ...PANEL, padding: 12, fontSize: 11.5, color: VL_TEXT_MUTED }}>
-          DRY RUN mode — no signature has been requested.
-          {serverLiveEnabled ? ' Switch to LIVE mode above to sign & submit.' : ' LIVE mode is disabled on the server.'}
-        </div>
-      )}
-
-      {built && liveAvailable && (
-        <div style={{ ...PANEL, padding: 12 }}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11.5, color: '#e8e4f8', cursor: 'pointer' }}>
-            <input type="checkbox" checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)} style={{ marginTop: 2 }} />
-            <span>
-              I understand this will submit a <b>real, irreversible</b> on-chain transaction that
-              transfers my NFT to the buyer and pays the bid amount to me{simFailed ? ' — and the simulation above FAILED, so this will very likely fail too.' : '.'}
-            </span>
-          </label>
-          <div style={{ marginTop: 10 }}>
-            <CtaButton onClick={handleSignSubmit} disabled={!confirmChecked || busy} variant={simFailed ? 'danger' : 'purple'} style={{ marginBottom: 12 }}>
-              {busy ? 'signing…' : 'Sign & Submit'}
+          <div style={{ ...PANEL, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ToolTextInput value={mintAddr} onChange={(e) => setMintAddr(e.target.value)} placeholder="your NFT's mint address" style={{ fontSize: 12 }} disabled={busy} />
+            <ToolTextInput value={buyerAddr} onChange={(e) => setBuyerAddr(e.target.value)} placeholder="bidder wallet (who made the offer)" style={{ fontSize: 12 }} disabled={busy} />
+            <CtaButton onClick={() => void lookupOffer()} disabled={!canLoad}>
+              {offerLoading ? 'Loading…' : 'Load Offer'}
             </CtaButton>
           </div>
-        </div>
-      )}
 
-      {uiState.kind === 'success' && (
-        <div style={{ marginTop: 4, fontSize: 12, color: '#0f0' }}>
-          Confirmed:{' '}
-          <a href={`https://solscan.io/tx/${uiState.sig}`} target="_blank" rel="noopener noreferrer" style={{ color: '#6cf' }}>
-            {short(uiState.sig)}
-          </a>
+          {offerLookupError && (
+            <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+              background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5 }}>
+              {offerLookupError}
+            </div>
+          )}
+
+          {offerInfo && (
+            <div style={{ ...PANEL, marginTop: 16 }}>
+              <Row label="Price">{offerInfo.priceSol} SOL</Row>
+              <Row label="Buyer">{short(offerInfo.buyer)}</Row>
+              <Row label="Target mint">{short(offerInfo.mint)}</Row>
+              <Row label="Standard">
+                {offerInfo.tokenStandardPreview === 'pnft'
+                  ? <span style={{ color: 'var(--vl-green-primary)' }}>Programmable NFT (pNFT)</span>
+                  : <span style={{ color: 'var(--vl-text-muted)' }}>unconfirmed — Build will check for real</span>}
+              </Row>
+
+              <div style={{ padding: 16, borderTop: '1px solid rgb(var(--vl-purple-tint) / 0.08)' }}>
+                {!wallet ? (
+                  <CtaButton onClick={() => void handleConnect()} block>Connect Phantom</CtaButton>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 11, color: 'var(--vl-text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span>Seller wallet: <span style={{ ...MONO, color: 'var(--vl-text-primary)' }}>{short(wallet)}</span></span>
+                      <DisconnectLink onClick={handleDisconnect} />
+                    </div>
+
+                    <CtaButton onClick={() => void handleBuild()} disabled={!canBuild} block>
+                      {uiState.kind === 'building' ? 'Building…' : 'Build Accept Tx'}
+                    </CtaButton>
+
+                    {summary && (
+                      <div style={{ marginTop: 14, borderTop: '1px solid rgb(var(--vl-purple-tint) / 0.08)', paddingTop: 14 }}>
+                        <SummaryPanel summary={summary} />
+                        {preflightLogs.length > 0 && (
+                          <div style={{ fontSize: 10.5, color: 'var(--vl-green-primary)', marginTop: 8, marginBottom: 4 }}>
+                            ✓ server-side preflight simulation passed at build time
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: 14 }}>
+                          <CtaButton onClick={() => void handleSignSubmit()} disabled={busy} block>
+                            {busy ? 'Signing…' : `Sign & Submit — ${summary.priceSol} SOL`}
+                          </CtaButton>
+                        </div>
+
+                        {uiState.kind === 'success' && (
+                          <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 5, fontSize: 12,
+                            color: 'var(--vl-green-primary)', background: 'rgb(var(--vl-green-glow) / 0.08)', border: '1px solid rgb(var(--vl-green-glow) / 0.32)' }}>
+                            <div style={{ fontWeight: 700 }}>Confirmed</div>
+                            <div style={{ marginTop: 6 }}>
+                              <a href={`https://solscan.io/tx/${uiState.sig}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--vl-purple-tint)', ...MONO }}>
+                                {short(uiState.sig)}
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                        {uiState.kind === 'error' && (
+                          <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 5, fontSize: 12,
+                            color: 'var(--vl-red-primary)', background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)' }}>
+                            {uiState.message}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!summary && uiState.kind === 'error' && (
+                      <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 12, color: 'var(--vl-red-primary)',
+                        background: 'rgb(var(--vl-red-glow) / 0.08)', border: '1px solid rgb(var(--vl-red-glow) / 0.32)', borderRadius: 5 }}>
+                        {uiState.message}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
-      )}
-      {uiState.kind === 'error' && (
-        <div style={{ marginTop: 4, fontSize: 12, color: '#f66' }}>Error: {uiState.message}</div>
-      )}
       </div>
-    </div>
-    </div>
-    </div>
-  );
-}
-
-const VL_TEXT_MUTED = 'var(--vl-purple-tint)';
-
-function OfferInfoPanel({ info }: { info: OfferInfo }) {
-  const rows: Array<[string, string]> = [
-    ['buyer', short(info.buyer)],
-    ['target mint', short(info.mint)],
-    ['price', `${info.priceSol} SOL`],
-    ['token standard (preview)', info.tokenStandardPreview === 'pnft' ? 'pNFT' : 'unconfirmed — Build will check for real'],
-  ];
-  return (
-    <div style={{ ...PANEL, padding: 10, fontSize: 11, marginTop: 8, marginBottom: 0 }}>
-      {rows.map(([k, v]) => (
-        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '2px 0' }}>
-          <span style={{ color: '#8a84a4' }}>{k}</span>
-          <span style={{ color: '#e8e4f8', wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
-        </div>
-      ))}
     </div>
   );
 }
 
 function SummaryPanel({ summary }: { summary: BuildSummary }) {
-  const rows: Array<[string, string]> = [
-    ['seller (you)', short(summary.seller)], ['offer', short(summary.offerKey)], ['buyer', short(summary.buyer)],
-    ['mint', short(summary.mint)], ['price', `${summary.priceSol} SOL`],
-    ['creators', summary.creators.map((c) => `${short(c.address)} (${c.share}%)`).join(', ')],
-  ];
   return (
-    <div style={{ ...PANEL, padding: 12, fontSize: 11.5 }}>
-      {rows.map(([k, v]) => (
-        <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0', borderBottom: '1px solid rgb(var(--vl-purple-tint) / 0.10)' }}>
-          <span style={{ color: '#8a84a4' }}>{k}</span>
-          <span style={{ color: '#e8e4f8', wordBreak: 'break-all', textAlign: 'right' }}>{v}</span>
-        </div>
-      ))}
+    <div style={{ marginBottom: 14 }}>
+      <Row label="Seller (you)">{short(summary.seller)}</Row>
+      <Row label="Offer">{short(summary.offerKey)}</Row>
+      <Row label="Buyer">{short(summary.buyer)}</Row>
+      <Row label="Mint">{short(summary.mint)}</Row>
+      <Row label="Price">{summary.priceSol} SOL</Row>
+      <Row label="Creators">{summary.creators.map((c) => `${short(c.address)} (${c.share}%)`).join(', ')}</Row>
     </div>
   );
 }
@@ -373,46 +346,22 @@ function SummaryPanel({ summary }: { summary: BuildSummary }) {
 function SimResultPanel({ err, logs, unitsConsumed }: { err: unknown; logs: string[]; unitsConsumed: number | null }) {
   const ok = err == null;
   return (
-    <div style={{ ...PANEL, padding: 12, fontSize: 11.5 }}>
-      <div style={{ color: ok ? '#0f0' : '#f66', fontWeight: 700, marginBottom: 6 }}>
-        {ok ? '✓ simulation succeeded' : '✗ simulation failed'}
-      </div>
-      {!ok && <div style={{ color: '#f66', marginBottom: 6, wordBreak: 'break-all' }}>{JSON.stringify(err)}</div>}
-      {unitsConsumed != null && <div style={{ color: '#8a84a4', marginBottom: 6 }}>compute units: {unitsConsumed}</div>}
+    <div style={{ marginTop: 10, padding: '8px 12px', fontSize: 11, borderRadius: 5, ...MONO,
+      color: ok ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)',
+      background: ok ? 'rgb(var(--vl-green-glow) / 0.08)' : 'rgb(var(--vl-red-glow) / 0.08)',
+      border: `1px solid ${ok ? 'rgb(var(--vl-green-glow) / 0.32)' : 'rgb(var(--vl-red-glow) / 0.32)'}` }}>
+      <div style={{ fontWeight: 700 }}>{ok ? '✓ simulation succeeded' : '✗ simulation failed'}</div>
+      {!ok && <div style={{ marginTop: 4, wordBreak: 'break-all' }}>{JSON.stringify(err)}</div>}
+      {unitsConsumed != null && <div style={{ opacity: 0.7, marginTop: 4 }}>units: {unitsConsumed}</div>}
       {logs.length > 0 && (
-        <details>
+        <details style={{ marginTop: 6 }}>
           <summary style={{ cursor: 'pointer', color: 'var(--vl-purple-tint)' }}>program logs ({logs.length})</summary>
-          <pre style={{ fontSize: 10, color: '#8a84a4', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
+          <pre style={{ fontSize: 10, color: 'var(--vl-text-muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginTop: 6, maxHeight: 220, overflowY: 'auto' }}>
             {logs.join('\n')}
           </pre>
         </details>
       )}
     </div>
-  );
-}
-
-function ModeToggle({ liveMode, serverLiveEnabled, onToggle }: {
-  liveMode: boolean; serverLiveEnabled: boolean | null; onToggle: () => void;
-}) {
-  const disabled = serverLiveEnabled !== true;
-  const active = liveMode && serverLiveEnabled === true;
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      style={{
-        padding: '6px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.6px',
-        cursor: disabled ? 'not-allowed' : 'pointer', borderRadius: 6,
-        border: `1px solid ${active ? '#f66' : 'rgb(var(--vl-purple-tint) / 0.4)'}`,
-        background: active ? 'rgba(255,102,102,0.12)' : 'rgb(var(--vl-purple-tint) / 0.08)',
-        color: active ? '#f66' : 'var(--vl-purple-tint)',
-        opacity: disabled ? 0.5 : 1,
-      }}
-      title={disabled ? 'LIVE mode is disabled on the server (SOLANART_ACCEPT_OFFER_ENABLE_LIVE)' : active ? 'Click to switch back to DRY RUN' : 'Click to enable LIVE signing & submission'}
-    >
-      {active ? '● LIVE' : '○ DRY RUN'}
-    </button>
   );
 }
 
@@ -430,9 +379,3 @@ function DisconnectLink({ onClick, children }: { onClick: () => void; children?:
     </button>
   );
 }
-
-const labelStyle: React.CSSProperties = { fontSize: 11, color: VLText.muted, display: 'flex', flexDirection: 'column', gap: 4 };
-const inputStyle: React.CSSProperties = {
-  padding: '9px 12px', fontSize: 13, background: 'rgba(255,255,255,0.03)', color: VLText.primary, outline: 'none',
-  border: `1px solid ${alpha(VL.purpleTint, 0.28)}`, borderRadius: 5,
-};

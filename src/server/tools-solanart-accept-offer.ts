@@ -21,7 +21,13 @@
  *
  *   GET  /api/tools/solanart-accept-offer/status                  — { liveEnabled }
  *   GET  /api/tools/solanart-accept-offer/offer?offerKey=          — decoded offer + resolved mint + token standard
- *   POST /api/tools/solanart-accept-offer/build                    — { seller, offerKey }
+ *   GET  /api/tools/solanart-accept-offer/resolve-offer?buyer=&mint= — find the (buyer, mint) pair's offer account
+ *        directly via getProgramAccounts + a locally-derived expected ATA — never reads the buyer's ATA on-chain,
+ *        so it works even when that ATA has since been closed (see resolveMintFromOffer's doc comment below).
+ *   POST /api/tools/solanart-accept-offer/build                    — { seller, offerKey, mint? }
+ *        `mint` is optional — when supplied (e.g. from resolve-offer) it is used directly instead of
+ *        resolving it from the offer's buyer ATA, so a closed-ATA offer can still be built as long as
+ *        the caller already knows the target mint.
  *   POST /api/tools/solanart-accept-offer/simulate                 — { tx: base64 }
  *   POST /api/tools/solanart-accept-offer/submit                   — { signedTx: base64, digest }
  *
@@ -33,7 +39,7 @@
 import { Router, Request, Response, RequestHandler } from 'express';
 import { PublicKey, Connection, Transaction, TransactionInstruction, ComputeBudgetProgram } from '@solana/web3.js';
 import { createHash } from 'crypto';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction } from '@solana/spl-token';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
 import {
@@ -60,12 +66,15 @@ function rpcUrl(): string {
 // ── Chain access — injectable for tests ─────────────────────────────────
 
 export interface SimResult { err: unknown; logs: string[]; unitsConsumed: number | null }
+export interface ProgramAccount { pubkey: PublicKey; data: Buffer }
 export interface ChainClient {
   simulateTransaction(tx: Transaction): Promise<SimResult>;
   getBlockHeight(): Promise<number>;
   getAccountInfo(pubkey: PublicKey): Promise<{ data: Buffer; lamports: number } | null>;
   sendRawTransaction(tx: Transaction): Promise<string>;
   getLatestBlockhash(): Promise<BlockhashInfo>;
+  /** dataSize + memcmp filters only — matches what getProgramAccounts needs here. */
+  getProgramAccounts(programId: PublicKey, dataSize: number, memcmp: { offset: number; bytes: string }): Promise<ProgramAccount[]>;
 }
 
 function defaultChainClient(conn: Connection): ChainClient {
@@ -82,6 +91,13 @@ function defaultChainClient(conn: Connection): ChainClient {
     },
     sendRawTransaction: (tx) => conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }),
     getLatestBlockhash: () => conn.getLatestBlockhash('confirmed'),
+    async getProgramAccounts(programId, dataSize, memcmp) {
+      const accts = await conn.getProgramAccounts(programId, {
+        commitment: 'confirmed',
+        filters: [{ dataSize }, { memcmp: { offset: memcmp.offset, bytes: memcmp.bytes } }],
+      });
+      return accts.map((a) => ({ pubkey: a.pubkey, data: Buffer.from(a.account.data) }));
+    },
   };
 }
 
@@ -217,6 +233,31 @@ async function resolveMintFromOffer(chain: ChainClient, offerData: DecodedOffer)
   return new PublicKey(acct.data.subarray(0, 32));
 }
 
+/** Given a (buyer, mint) pair, find the buyer's active Solanart offer on
+ *  that mint WITHOUT ever reading the buyer's ATA on-chain — the target
+ *  ATA is deterministically derivable from (mint, buyer) via the standard
+ *  SPL associated-token-address formula, so we compute the one we're
+ *  looking for locally and match it against each candidate offer's stored
+ *  `buyerTargetAta` field. This is the fix for offers whose buyer ATA has
+ *  since been closed (see resolveMintFromOffer above): the mint is known
+ *  by the caller up front, so nothing ever needs to be read back out of
+ *  the (possibly-gone) ATA account itself. */
+async function findOfferByBuyerAndMint(
+  chain: ChainClient, buyer: PublicKey, mint: PublicKey,
+): Promise<{ offerKey: PublicKey; offer: DecodedOffer } | null> {
+  const expectedAta = getAssociatedTokenAddressSync(mint, buyer, true);
+  const candidates = await chain.getProgramAccounts(SOLANART_PROGRAM_ID, OFFER_ACCOUNT_SIZE, {
+    offset: 1, bytes: buyer.toBase58(),
+  });
+  for (const c of candidates) {
+    const decoded = decodeOffer(c.data);
+    if (decoded.state === 1 && decoded.buyerTargetAta.equals(expectedAta)) {
+      return { offerKey: c.pubkey, offer: decoded };
+    }
+  }
+  return null;
+}
+
 export interface SolanartAcceptOfferDeps {
   chain?: ChainClient;
   now?: () => number;
@@ -274,12 +315,39 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/solanart-accept-offer] offer read error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(422).json({ ok: false, error: msg });
+    }
+  });
+
+  // Given a bidder wallet + your NFT's mint, finds that bidder's active
+  // offer on this exact mint — no offer account address needed from the
+  // caller. Never reads the buyer's (possibly-closed) ATA — see
+  // findOfferByBuyerAndMint's doc comment.
+  router.get('/tools/solanart-accept-offer/resolve-offer', readLimit, authMw, async (req: Request, res: Response) => {
+    const buyerPk = parsePubkey(req.query.buyer);
+    const mintPk = parsePubkey(req.query.mint);
+    if (!buyerPk) return res.status(400).json({ ok: false, error: 'invalid_buyer' });
+    if (!mintPk) return res.status(400).json({ ok: false, error: 'invalid_mint' });
+    try {
+      const found = await findOfferByBuyerAndMint(chain, buyerPk, mintPk);
+      if (!found) return res.status(404).json({ ok: false, error: 'offer_not_found: this buyer has no active offer on this mint' });
+      const standard = await resolveTokenStandard(chain, mintPk, buyerPk);
+      return res.json({
+        ok: true,
+        offer: {
+          offerKey: found.offerKey.toBase58(), buyer: buyerPk.toBase58(), mint: mintPk.toBase58(),
+          priceSol: Number(found.offer.priceLamports) / 1e9, tokenStandardPreview: standard,
+        },
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[tools/solanart-accept-offer] resolve-offer error', msg);
+      return res.status(422).json({ ok: false, error: msg });
     }
   });
 
   router.post('/tools/solanart-accept-offer/build', buildLimit, authMw, async (req: Request, res: Response) => {
-    const { seller, offerKey } = req.body as { seller?: string; offerKey?: string };
+    const { seller, offerKey, mint: mintOverride } = req.body as { seller?: string; offerKey?: string; mint?: string };
     const sellerPk = parsePubkey(seller);
     const offerPk = parsePubkey(offerKey);
     if (!sellerPk) return res.status(400).json({ ok: false, error: 'invalid_seller' });
@@ -289,8 +357,10 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
       const offer = await readOffer(chain, offerPk);
       if (!offer) return res.status(404).json({ ok: false, error: 'offer_not_found_or_already_closed' });
       if (offer.state !== 1) return res.status(409).json({ ok: false, error: 'offer_not_active' });
-      const mint = await resolveMintFromOffer(chain, offer);
-      if (!mint) return res.status(409).json({ ok: false, error: 'mint_unresolvable_buyer_ata_closed' });
+      // A caller-supplied mint (from /resolve-offer) skips the buyer-ATA
+      // read entirely — this is what lets a closed-ATA offer still build.
+      const mint = mintOverride ? parsePubkey(mintOverride) : await resolveMintFromOffer(chain, offer);
+      if (!mint) return res.status(409).json({ ok: false, error: mintOverride ? 'invalid_mint' : 'mint_unresolvable_buyer_ata_closed' });
 
       const sellerAta = getAssociatedTokenAddressSync(mint, sellerPk, true);
       const sellerAtaAcct = await chain.getAccountInfo(sellerAta);
@@ -307,13 +377,40 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
 
       const metadataPda = deriveMetadataPda(mint);
       const metadataAcct = await chain.getAccountInfo(metadataPda);
-      if (!metadataAcct) return res.status(502).json({ ok: false, error: 'metadata_account_not_found' });
+      if (!metadataAcct) return res.status(422).json({ ok: false, error: 'metadata_account_not_found' });
+      // N=0 is a legitimate on-chain state (this mint's metadata simply
+      // records no creators), not a parse failure — parseMetadataCreators
+      // already distinguishes the two (an unset Option<Vec<Creator>> or a
+      // genuinely empty Vec both correctly return [], a real parse bug
+      // would throw or misread, not cleanly return an array). The account
+      // builders below spread `creators` as a variable-length "remaining
+      // accounts" tail (see solanart-raw-instructions.ts header) — N=0
+      // just means that tail is empty, the exact same mechanism already
+      // chain-verified for N=2/3/5, not a special case needing different
+      // code. Never chain-verified at N=0 specifically, so this is the one
+      // path relying on the mechanism's generality rather than a direct
+      // reference transaction — the mandatory preflight simulation right
+      // below is what actually proves it before any signature is ever
+      // requested.
       const creators = parseMetadataCreators(metadataAcct.data);
-      if (creators.length === 0) return res.status(502).json({ ok: false, error: 'no_on_chain_creators_found' });
 
       const ix: TransactionInstruction = standard === 'pnft'
         ? buildAcceptOfferIxPnft({ seller: sellerPk, offer: offerPk, offerData: offer, mint, creators })
         : buildAcceptOfferIxLegacy({ seller: sellerPk, offer: offerPk, offerData: offer, mint, creators });
+
+      // The real Solanart client always checks the buyer's ATA before
+      // building this instruction and prepends a create-ATA instruction
+      // (paid by the seller) when it's missing — a forgotten bid's buyer
+      // frequently never created it. Skipping this produces
+      // InvalidAccountData deep inside the program's inner SPL Token CPI
+      // (confirmed 2026-09-17 by extracting Solanart's own production JS
+      // bundle — see solanart-raw-instructions.ts header for the account
+      // layout this was cross-checked against).
+      const buyerAta = getAssociatedTokenAddressSync(mint, offer.buyer, true);
+      const buyerAtaAcct = await chain.getAccountInfo(buyerAta);
+      const createBuyerAtaIx = buyerAtaAcct
+        ? null
+        : createAssociatedTokenAccountInstruction(sellerPk, buyerAta, offer.buyer, mint);
 
       const { blockhash, lastValidBlockHeight } = await chain.getLatestBlockhash();
       // The Metaplex TransferV1 CPI this instruction makes routinely
@@ -321,7 +418,9 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
       // against a real live offer — fails with "exceeded CUs meter"
       // otherwise; ~203k consumed in practice).
       const cuIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
-      const tx = new Transaction().add(cuIx).add(ix);
+      const tx = new Transaction().add(cuIx);
+      if (createBuyerAtaIx) tx.add(createBuyerAtaIx);
+      tx.add(ix);
       tx.feePayer = sellerPk;
       tx.recentBlockhash = blockhash;
       // Populates tx.signatures (one empty slot for the seller) as a side
@@ -338,7 +437,7 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
 
       const preflight = await chain.simulateTransaction(tx);
       if (preflight.err != null) {
-        return res.status(502).json({ ok: false, error: 'preflight_simulation_failed', simErr: preflight.err, logs: preflight.logs });
+        return res.status(422).json({ ok: false, error: 'preflight_simulation_failed', simErr: preflight.err, logs: preflight.logs });
       }
 
       const validated = validateAcceptOfferStructure(tx, ctx, 'none');
@@ -360,7 +459,7 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/solanart-accept-offer] build error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(422).json({ ok: false, error: msg });
     }
   });
 
@@ -377,7 +476,7 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/solanart-accept-offer] simulate error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(422).json({ ok: false, error: msg });
     }
   });
 
@@ -412,7 +511,7 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
     let currentBlockHeight: number;
     try { currentBlockHeight = await chain.getBlockHeight(); } catch (err) {
       console.error('[tools/solanart-accept-offer] submit getBlockHeight error', err);
-      return res.status(502).json({ ok: false, error: 'block_height_unavailable' });
+      return res.status(422).json({ ok: false, error: 'block_height_unavailable' });
     }
     const freshness = checkBlockhashFreshness(tx, entry.blockhashInfo, currentBlockHeight, marginBlocks);
     if (!freshness.ok) return res.status(410).json({ ok: false, error: freshness.code, detail: freshness.detail });
@@ -433,7 +532,7 @@ export function createSolanartAcceptOfferRouter(deps: SolanartAcceptOfferDeps = 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/solanart-accept-offer] submit sendRawTransaction error', msg);
-      return res.status(502).json({ ok: false, error: msg });
+      return res.status(422).json({ ok: false, error: msg });
     }
   });
 
