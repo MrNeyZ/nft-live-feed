@@ -31,8 +31,19 @@ const DAS_PAGE_LIMIT = 1000;
 const DAS_MAX_PAGES = 25; // 25k owned assets — covers any realistic wallet
 const ACCT_BATCH = 100;
 
-/** DAS `interface` values that are Token-Metadata NFTs eligible for resize. */
-const ELIGIBLE_INTERFACES = new Set(['V1_NFT', 'LEGACY_NFT', 'ProgrammableNFT']);
+/** DAS `interface` values that are Token-Metadata NFTs eligible for resize.
+ *
+ *  'Custom' included deliberately: DAS falls back to it whenever a
+ *  Metadata account's `token_standard` field is absent — true of the
+ *  oldest pre-token_standard NFTs (Metaplex added that field after
+ *  launch), which are real, legacy, holder-owned MetadataV1 accounts,
+ *  not some other asset class. Verified directly on-chain against
+ *  R3PSSG7eGXc9T17w6s71423g3RFHfhJgFJYTka37LVM (SolBear #3297): Metadata
+ *  key byte = 4 (MetadataV1), owner = the real Token Metadata program,
+ *  607-byte account, `token_standard: null` — DAS reports it as
+ *  interface "Custom" and the old allowlist silently dropped it from
+ *  every scan. */
+const ELIGIBLE_INTERFACES = new Set(['V1_NFT', 'LEGACY_NFT', 'ProgrammableNFT', 'Custom']);
 
 export interface ClaimableItem {
   mint: string;
