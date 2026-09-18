@@ -311,10 +311,13 @@ function buildMetaFrame(u: MetaUpdate): string {
 // Authoritative list comes from `deriveSaleType` (src/domain/sale-type.ts):
 //   bid_sell  ← UI: SELL / BID SELL  (instant sell into a collection bid)
 //   pool_sale ← UI: AMM (red, sell side)  (seller dumped into an AMM/pool)
+//   offer_accept ← UI: gold SELL  (seller instantly matched a standing
+//                  personal/collection offer — same dump semantics as a
+//                  bid_sell, so it needs the same holdings badge)
 // `pool_sell` / `amm_sell` are kept for forward-compat with `mapSide` in
 // from-backend.ts — `deriveSaleType` does not currently emit them, so
 // they're harmless extras here.
-const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'pool_sale', 'pool_sell', 'amm_sell']);
+const SELL_TYPES_FOR_BADGE = new Set(['bid_sell', 'offer_accept', 'pool_sale', 'pool_sell', 'amm_sell']);
 
 // ── Recent seller_count replay buffer ───────────────────────────────────
 // The SELL-badge count is resolved asynchronously AFTER the `sale` frame
