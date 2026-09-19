@@ -129,8 +129,8 @@ interface Props {
    *  the live-feed event ring buffer in page.tsx. Drives the PRICE
    *  column. Map miss → row hasn't surfaced an event yet (cell
    *  renders "—"); value === null → most recent event had no price
-   *  (cell renders "—"); value === 0 → confirmed free; value > 0 →
-   *  paid (cell renders fmtSol). NOT an average. */
+   *  (cell renders "—"); any resolved value (however small) renders
+   *  via fmtSol as-is — no "free" tier. NOT an average. */
   lastPriceByKey: Map<string, number | null>;
   /** Latest custom-token payment per groupingKey. Null entry → most
    *  recent mint was SOL-priced. Map miss → no event yet. */
