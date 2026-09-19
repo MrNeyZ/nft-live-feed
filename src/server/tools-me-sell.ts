@@ -81,7 +81,8 @@ import {
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
-import { meAuthHeaders, hasMeApiKey, meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { meAuthHeaders, hasMeApiKey, setMeCooldown } from '../me-api-cooldown';
+import { meTradeCooldownActive, setMeTradeCooldown } from './me-trade-cooldown';
 import { deriveBuyerEscrowPda, lamportsToSol } from './me-bid-escrow';
 
 // order-info is called interactively for ONE offer at a time (never a bulk
@@ -108,13 +109,46 @@ import {
   decodeLegacyTxFromBytes, decodeLegacyTxFromBase64, messageHashHex,
   checkBlockhashFreshness, type BlockhashInfo, type ChainClient,
 } from './tools-me-bids';
+import {
+  auditMeSellTransaction, SUPPORTED_STANDARDS,
+  type FrozenMeSellIntent, type MeSellStandard,
+} from './me-sell-auditor';
 
 const ME_API_BASE = 'https://api-mainnet.magiceden.dev/v2';
 const FETCH_TIMEOUT_MS = 10_000;
-const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
-const M2_PROGRAM_ID = 'M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K';
-const ALLOWED_PROGRAM_IDS = new Set([COMPUTE_BUDGET_PROGRAM_ID, M2_PROGRAM_ID]);
 const ME_FEE_BP = 200; // confirmed 2026-08-11 (see project_me_ah_accept_offer_seller_covers_fee memory)
+
+/** No response ever echoes a raw error back to the client for a genuinely
+ *  UNEXPECTED failure — detail stays server-side in the log, the client
+ *  gets a stable, generic string (same pattern already applied to
+ *  GhostBid's tools-ghostbid.ts and Resize Claim's tools-resize-claim.ts —
+ *  this is the third occurrence of this gap, per the 2026-09-12 audit's
+ *  MS-9). Deliberate, typed, already-classified errors (MeApiError, the
+ *  auditor's own named rejection reasons, malformed-input 400s) are NOT
+ *  routed through this — only the "something we didn't anticipate threw"
+ *  catch-alls are. */
+function toClientError(err: unknown, tag: string): string {
+  console.error(`[me-sell/${tag}]`, err);
+  return 'internal_error';
+}
+
+/** Exact decimal SOL -> lamports, with NO floating-point multiplication
+ *  (MS-2's "freeze price as integer lamports" requirement). `toFixed(9)` is
+ *  a lossless string operation — SOL's own definition is exactly 9 decimal
+ *  places (1 lamport) — unlike `Math.round(priceSol * 1e9)`, which performs
+ *  a real floating-point multiply before rounding and was the tool's prior
+ *  (display-only-safe, but never meant to be an authorization primitive)
+ *  conversion. `priceSol` here is never operator-typed (this UI has no
+ *  price input box — see the audit's §28 finding) — it always originates
+ *  from ME's own `offers_made` response, so no free-text decimal-string
+ *  parser (exponents, commas, etc.) is needed; `Number.isFinite`+`>0`
+ *  (`parsePriceSol`) already guards the one real input shape (a JSON
+ *  number) before this ever runs. */
+export function solToExactLamports(priceSol: number): string {
+  const fixed = priceSol.toFixed(9);
+  const [whole, frac] = fixed.split('.');
+  return BigInt(whole + frac).toString();
+}
 
 function liveEnabledFromEnv(): boolean {
   return (process.env.ME_BIDS_ENABLE_LIVE ?? '').trim().toLowerCase() === 'true';
@@ -160,7 +194,16 @@ function defaultMeHttpTransport(authHeaders: () => Record<string, string>): MeHt
   };
 }
 function defaultMeApiKeyProvider(): MeApiKeyProvider {
-  return { hasKey: hasMeApiKey, authHeaders: meAuthHeaders, cooldownActive: meCooldownActive, setCooldown: setMeCooldown };
+  return {
+    hasKey: hasMeApiKey,
+    authHeaders: meAuthHeaders,
+    // Trade-scoped cooldown only — see me-trade-cooldown.ts. A background
+    // ME consumer (mmm-pool-type resolver, enrichment, me-stats) hitting a
+    // 429 must NOT make this hand-driven accept-offer flow refuse with
+    // me_api_cooldown_active before it tries its own request.
+    cooldownActive: meTradeCooldownActive,
+    setCooldown: (ms?: number) => { setMeTradeCooldown(ms); setMeCooldown(ms); },
+  };
 }
 function createMeGet(transport: MeHttpTransport, keys: MeApiKeyProvider) {
   return async function meGet<T>(path: string): Promise<T> {
@@ -168,7 +211,16 @@ function createMeGet(transport: MeHttpTransport, keys: MeApiKeyProvider) {
     if (keys.cooldownActive()) throw new MeApiError(429, 'me_api_cooldown_active');
     let res: { status: number; text: string };
     try { res = await transport(path); }
-    catch (err) { throw new MeApiError(504, `me_api_unreachable: ${err instanceof Error ? err.message : String(err)}`); }
+    catch (err) {
+      // MS-9: the underlying transport failure (DNS/TLS/connection-reset/…)
+      // is genuinely unexpected infra detail, not a deliberate ME-classified
+      // error — log it, don't interpolate it into the client-facing message
+      // the way this used to (contrast `parseMeErrorBody` below, which
+      // stays untouched: that's ME's OWN structured `{err: "..."}` JSON
+      // body, a deliberate upstream classification, not our own exception).
+      console.error('[me-sell/me-transport]', err);
+      throw new MeApiError(504, 'me_api_unreachable');
+    }
     if (res.status === 429) { keys.setCooldown(); throw new MeApiError(429, 'me_api_rate_limited'); }
     let json: unknown;
     try { json = JSON.parse(res.text); } catch { json = null; }
@@ -178,7 +230,16 @@ function createMeGet(transport: MeHttpTransport, keys: MeApiKeyProvider) {
   };
 }
 
-function defaultChainClient(conn: Connection): ChainClient {
+/** Extends the shared `ChainClient` (tools-me-bids.ts) with exact-signature
+ *  status reads — added HERE, not on the shared interface, so
+ *  tools-me-bids.ts (and its own test suite) are completely untouched by
+ *  this hardening pass. */
+export interface MeSellSignatureStatus { confirmationStatus: 'processed' | 'confirmed' | 'finalized' | null; err: unknown }
+export interface MeSellChainClient extends ChainClient {
+  getSignatureStatuses(signatures: string[]): Promise<Array<MeSellSignatureStatus | null>>;
+}
+
+function defaultChainClient(conn: Connection): MeSellChainClient {
   return {
     async simulateTransaction(tx: Transaction, includeAccounts?: PublicKey[]) {
       const sim = await conn.simulateTransaction(tx, undefined, includeAccounts);
@@ -189,6 +250,10 @@ function defaultChainClient(conn: Connection): ChainClient {
     },
     getBlockHeight: () => conn.getBlockHeight(),
     sendRawTransaction: (tx: Transaction) => conn.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 3 }),
+    async getSignatureStatuses(signatures: string[]) {
+      const res = await conn.getSignatureStatuses(signatures, { searchTransactionHistory: true });
+      return res.value.map((v) => (v ? { confirmationStatus: v.confirmationStatus ?? null, err: v.err ?? null } : null));
+    },
   };
 }
 
@@ -226,6 +291,49 @@ async function fetchRoyaltyBp(mint: string): Promise<number | null> {
     };
     if (j.result?.interface !== 'ProgrammableNFT') return 0;
     return typeof j.result?.royalty?.basis_points === 'number' ? j.result.royalty.basis_points : null;
+  } catch { return null; }
+}
+
+// ── Explicit supported-standard gate (MS-6) ────────────────────────────────
+//
+// The prior code had no standard check at all — it unconditionally assumed
+// legacy SPL Token-account derivation, which is meaningless for an MPL Core
+// asset (no ATA exists) and incomplete for a pNFT (no ruleset/token-record
+// awareness). Real evidence gathered during this hardening pass (see
+// me-sell-auditor.ts's header) PROVED pNFT and MPL Core accept-offer
+// bundles both work — `interface: "ProgrammableNFT"` and
+// `interface: "MplCoreAsset"` (confirmed live against a real Core asset
+// this session) map to the two allowed standards. Everything else
+// (`V1_NFT`/legacy, cNFT, Token-2022, SFT, or an unrecognized future
+// interface value) returns `null` — fails CLOSED, not routed by collection
+// name/symbol, per the spec's own instruction. No real evidence of a
+// working legacy accept-offer bundle was found despite scanning ~9,000
+// recent M2 signatures — legacy is deliberately NOT allowed until that
+// evidence exists (a real, intentional behavior change — see the
+// hardening report).
+/** Pure, independently testable — the actual DAS fetch below is not
+ *  injectable (same pre-existing, uninjectable-`fetch` pattern this file
+ *  already uses for `fetchRoyaltyBp`/`fetchNftDisplay`/`fetchEscrowBalanceFresh`;
+ *  not changed here), but the mapping this decision actually rests on is. */
+export function mapDasInterfaceToStandard(iface: string | undefined): MeSellStandard | null {
+  if (iface === 'ProgrammableNFT') return 'pnft';
+  if (iface === 'MplCoreAsset') return 'mplCore';
+  return null;
+}
+
+async function fetchNftStandard(mint: string): Promise<MeSellStandard | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const r = await fetch(`https://mainnet.helius-rpc.com/?api-key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json() as { result?: { interface?: string } };
+    return mapDasInterfaceToStandard(j.result?.interface);
   } catch { return null; }
 }
 
@@ -285,7 +393,14 @@ async function resolveOfferForMint(
   return offers.find((o) => o.tokenMint === mint) ?? null;
 }
 
-// ── 2-signer sell-tx structural validation ──────────────────────────────
+// ── canonical structural + exact-price auditor (see me-sell-auditor.ts) ──
+//
+// Every path that ever hands bytes to Phantom or broadcasts them —
+// build-accept, the bridge pre-sign check, submit, submit-bridge — calls
+// THIS one function. There is no separate, subtly-different validator per
+// path (that was the old design's real gap: build-accept and submit-bridge
+// each had their own hand-rolled presence-only checks, and price was never
+// checked anywhere — see docs/me-sell-audit-2026-09-12.md MS-1/MS-2).
 
 export interface ValidatedSellTx {
   tx: Transaction;
@@ -294,73 +409,18 @@ export interface ValidatedSellTx {
   cosignPrefilled: boolean;
 }
 
-/** Unlike tools-me-bids.ts's 1-signer validator, this expects exactly 2
- *  signature slots: the seller (unsigned at build time, filled at submit
- *  time) and a second slot (ME's cosigner) which — at BOTH build and submit
- *  time — must already carry a real signature; we never expect to fill it
- *  ourselves (we don't hold that key). `expectSellerSignature` distinguishes
- *  build (seller slot must be empty) from submit (seller slot must be
- *  filled) — the cosigner slot's fullness requirement never changes. */
-export interface SellValidationContext {
-  kind: 'sell';
-  expectedSeller: string;
-  expectedMint: string;
-  expectedAuctionHouse: string;
-  expectedBuyer: string;
-}
-
+/** Thin wrapper around `auditMeSellTransaction`: converts its
+ *  ok/reason result into the same throw-on-failure contract every call
+ *  site already expects, and additionally reports the cosigner slot's
+ *  identity/fill state (which the canonical auditor itself doesn't need to
+ *  know, but every caller here does). */
 export function validateSellStructure(
-  tx: Transaction, ctx: SellValidationContext, expectSellerSignature: 'absent' | 'present',
+  tx: Transaction, intent: FrozenMeSellIntent, expectSellerSignature: 'absent' | 'present',
 ): ValidatedSellTx {
-  if (tx.signatures.length !== 2) {
-    throw new Error(`unexpected_signer_count: expected 2, got ${tx.signatures.length}`);
-  }
-  const sellerEntry = tx.signatures.find((s) => s.publicKey.toBase58() === ctx.expectedSeller);
-  if (!sellerEntry) throw new Error('seller_not_in_signer_set');
-  const otherEntry = tx.signatures.find((s) => s.publicKey.toBase58() !== ctx.expectedSeller);
-  if (!otherEntry) throw new Error('cosigner_slot_missing');
+  const audited = auditMeSellTransaction(tx, intent, expectSellerSignature);
+  if (!audited.ok) throw new Error(audited.reason);
 
-  const sellerSigned = sellerEntry.signature != null;
-  if (expectSellerSignature === 'absent' && sellerSigned) {
-    throw new Error('unexpected_pre_filled_seller_signature');
-  }
-  if (expectSellerSignature === 'present' && !sellerSigned) {
-    throw new Error('missing_seller_signature');
-  }
-
-  if (!tx.feePayer || tx.feePayer.toBase58() !== ctx.expectedSeller) {
-    throw new Error('fee_payer_mismatch');
-  }
-
-  for (const ix of tx.instructions) {
-    const pid = ix.programId.toBase58();
-    if (!ALLOWED_PROGRAM_IDS.has(pid)) throw new Error(`unexpected_program_id: ${pid}`);
-  }
-  // A real accept-offer bundle is always TWO M2 instructions — the listing
-  // half (Sell/Mip1Sell/MplCoreSell) and the execute half (ExecuteSaleV2/
-  // Mip1ExecuteSaleV2/MplCoreExecuteSaleV2) — confirmed 2026-08-24 from a
-  // real captured ME frontend request/response (HAR): calling the single
-  // /instructions/sell_now endpoint directly only ever returns the listing
-  // half (empirically verified — a real submitted tx landed on-chain but
-  // only delegated the NFT, no SOL moved); /instructions/batch with a
-  // single sell_now entry in its `q` array returns the full 2-instruction
-  // bundle instead. Every instruction here must reference mint+auctionHouse;
-  // the buyer must appear in at least one (the execute half) — otherwise
-  // we can't be sure we're accepting the RIGHT buyer's offer.
-  const m2Instructions = tx.instructions.filter((ix) => ix.programId.toBase58() === M2_PROGRAM_ID);
-  if (m2Instructions.length !== 2) throw new Error(`unexpected_m2_instruction_count: expected 2, got ${m2Instructions.length}`);
-  for (const ix of m2Instructions) {
-    if (!ix.keys.some((k) => k.pubkey.toBase58() === ctx.expectedMint)) {
-      throw new Error('mint_missing_from_instruction');
-    }
-    if (!ix.keys.some((k) => k.pubkey.toBase58() === ctx.expectedAuctionHouse)) {
-      throw new Error('auction_house_missing_from_instruction');
-    }
-  }
-  if (!m2Instructions.some((ix) => ix.keys.some((k) => k.pubkey.toBase58() === ctx.expectedBuyer))) {
-    throw new Error('buyer_missing_from_instructions');
-  }
-
+  const otherEntry = tx.signatures.find((s) => s.publicKey.toBase58() !== intent.seller)!;
   return {
     tx,
     messageHash: messageHashHex(tx),
@@ -373,7 +433,7 @@ export function validateSellStructure(
 //    intentionally duplicated (separate router instance, separate cache) ──
 
 interface DigestEntry {
-  ctx: SellValidationContext;
+  intent: FrozenMeSellIntent;
   blockhashInfo: BlockhashInfo;
   expiresAt: number;
 }
@@ -407,12 +467,17 @@ class DigestCache {
 export interface MeSellDeps {
   meTransport?: MeHttpTransport;
   meApiKeyProvider?: MeApiKeyProvider;
-  chain?: ChainClient;
+  chain?: MeSellChainClient;
   now?: () => number;
   authMiddleware?: RequestHandler;
   liveEnabled?: boolean;
   blockhashMarginBlocks?: number;
   rateLimitsDisabled?: boolean;
+  /** Overrides the real Helius DAS standard lookup — injectable (unlike
+   *  the pre-existing royalty/display/escrow fetch helpers, left as-is)
+   *  because this is new code from the 2026-09-12 hardening pass and needs
+   *  a real, network-free regression test. */
+  fetchStandard?: (mint: string) => Promise<MeSellStandard | null>;
 }
 export interface MeSellTestHooks {
   digestCacheSize: () => number;
@@ -428,6 +493,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
   const authMw: RequestHandler = deps.authMiddleware ?? requireAuth;
   const liveEnabled = deps.liveEnabled ?? liveEnabledFromEnv();
   const marginBlocks = deps.blockhashMarginBlocks ?? blockhashMarginBlocksFromEnv();
+  const resolveStandard = deps.fetchStandard ?? fetchNftStandard;
 
   const router = Router() as Router & { __meSellTestHooks?: MeSellTestHooks };
   const noopLimit: RequestHandler = (_req, _res, next) => next();
@@ -462,8 +528,8 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
         pdaAddress: offer.pdaAddress ?? null, expiry: offer.expiry ?? 0,
       });
     } catch (err) {
-      const status = err instanceof MeApiError ? err.status : 502;
-      return res.status(status).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof MeApiError) return res.status(err.status).json({ ok: false, error: err.message });
+      return res.status(502).json({ ok: false, error: toClientError(err, 'resolve-offer') });
     }
   });
 
@@ -479,10 +545,11 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     const escrowPda = deriveBuyerEscrowPda(auctionHouse.toBase58(), buyer.toBase58());
     if (!escrowPda) return res.status(400).json({ ok: false, error: 'escrow_pda_derivation_failed' });
 
-    const [escrowLamports, royaltyBp, display] = await Promise.all([
+    const [escrowLamports, royaltyBp, display, standard] = await Promise.all([
       fetchEscrowBalanceFresh(escrowPda),
       fetchRoyaltyBp(mint.toBase58()),
       fetchNftDisplay(mint.toBase58()),
+      resolveStandard(mint.toBase58()),
     ]);
     const priceLamports = Math.round(priceSol * 1e9);
     const royaltyLamports = royaltyBp != null ? Math.floor(priceLamports * royaltyBp / 10000) : null;
@@ -507,6 +574,8 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       sellerProceedsLamports, sellerProceedsSol: sellerProceedsLamports / 1e9,
       meFeeBp: ME_FEE_BP,
       nft: display,
+      standard,
+      standardSupported: standard != null,
     });
   });
 
@@ -527,7 +596,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       const txBase64 = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
       return res.json({ ok: true, txBase64 });
     } catch (err) {
-      return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return res.status(200).json({ ok: false, error: toClientError(err, 'build-topup') });
     }
   });
 
@@ -545,6 +614,15 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     if (!sellerPk || !mintPk || !ahPk || !buyerPk || priceSol == null) {
       return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: seller, tokenMint, auctionHouseAddress, buyer, priceSol required' });
     }
+    // MS-6: independently re-derived server-side (never trusted from the
+    // client) — the canonical auditor below would also catch a mismatch via
+    // its own discriminator-based variant detection, but failing here is
+    // cheaper and gives a clearer reason before ever calling ME's API.
+    const standard = await resolveStandard(mintPk.toBase58());
+    if (!standard) {
+      return res.status(422).json({ ok: false, error: 'unsupported_standard', detail: 'This NFT is not a ProgrammableNFT or MPL Core asset — the only two standards this tool has real evidence of accepting offers on correctly.' });
+    }
+    const priceLamports = solToExactLamports(priceSol);
     const tokenAta = getAssociatedTokenAddressSync(mintPk, sellerPk, false, TOKEN_PROGRAM_ID);
 
     // The single /instructions/sell_now endpoint ONLY builds the listing
@@ -591,8 +669,8 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     try {
       batch = await meGet(path);
     } catch (err) {
-      const status = err instanceof MeApiError ? err.status : 502;
-      return res.status(status).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      if (err instanceof MeApiError) return res.status(err.status).json({ ok: false, error: err.message });
+      return res.status(502).json({ ok: false, error: toClientError(err, 'build-accept') });
     }
     if (!Array.isArray(batch) || batch.length !== 1) {
       return res.status(200).json({ ok: false, error: 'me_batch_response_shape_unexpected' });
@@ -614,14 +692,14 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
     try { tx = decodeLegacyTxFromBytes(Buffer.from(src.data)); }
     catch (err) { return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
 
-    const sellCtx: SellValidationContext = {
-      kind: 'sell', expectedSeller: sellerPk.toBase58(),
-      expectedMint: mintPk.toBase58(), expectedAuctionHouse: ahPk.toBase58(),
-      expectedBuyer: buyerPk.toBase58(),
+    const intent: FrozenMeSellIntent = {
+      seller: sellerPk.toBase58(), mint: mintPk.toBase58(),
+      auctionHouse: ahPk.toBase58(), buyer: buyerPk.toBase58(),
+      priceLamports, standard,
     };
     let validated: ValidatedSellTx;
     try {
-      validated = validateSellStructure(tx, sellCtx, 'absent');
+      validated = validateSellStructure(tx, intent, 'absent');
     } catch (err) {
       return res.status(422).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
@@ -640,7 +718,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
 
     const digest = validated.messageHash;
     digestCache.set(digest, {
-      ctx: sellCtx,
+      intent,
       blockhashInfo: { blockhash: tx.recentBlockhash!, lastValidBlockHeight },
       expiresAt: now() + DIGEST_TTL_MS,
     });
@@ -651,6 +729,9 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       txBase64: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64'),
       cosignerPubkey: validated.cosignerPubkey,
       priceSol,
+      priceLamports,
+      standard,
+      lastValidBlockHeight,
       expiresInMs: DIGEST_TTL_MS,
     });
   });
@@ -665,7 +746,61 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       const sim = await chain.simulateTransaction(decoded);
       return res.json({ ok: true, err: sim.err, logs: sim.logs, unitsConsumed: sim.unitsConsumed });
     } catch (err) {
-      return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return res.status(200).json({ ok: false, error: toClientError(err, 'simulate') });
+    }
+  });
+
+  // ── MS-1: read-only canonical structural+price audit for the
+  //    Tampermonkey-bridge path, BEFORE the seller ever signs anything.
+  //    The bridge previously handed bytes straight to Simulate/Sign&Submit
+  //    with zero validation — this is the SAME auditor build-accept/submit
+  //    use, just called earlier, on bridge-sourced bytes, before Phantom.
+  //    Never caches a digest (the bridge path doesn't use one) and never
+  //    touches chain state — pure decode + audit. ──────────────────────────
+  router.post('/tools/me-sell/audit-bridge', simLimit, authMw, (req: Request, res: Response) => {
+    const { tx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports, standard } = req.body as {
+      tx?: string; seller?: string; tokenMint?: string; auctionHouseAddress?: string;
+      buyer?: string; priceLamports?: string; standard?: string;
+    };
+    const sellerPk = parsePubkey(seller);
+    const mintPk = parsePubkey(tokenMint);
+    const ahPk = parsePubkey(auctionHouseAddress);
+    const buyerPk = parsePubkey(buyer);
+    if (!tx || typeof tx !== 'string' || !sellerPk || !mintPk || !ahPk || !buyerPk
+      || typeof priceLamports !== 'string' || !/^\d+$/.test(priceLamports)
+      || (standard !== 'pnft' && standard !== 'mplCore')) {
+      return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: tx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports(digit string), standard(pnft|mplCore) required' });
+    }
+    let decoded: Transaction;
+    try { decoded = decodeLegacyTxFromBase64(tx); }
+    catch (err) { return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
+    const intent: FrozenMeSellIntent = {
+      seller: sellerPk.toBase58(), mint: mintPk.toBase58(), auctionHouse: ahPk.toBase58(),
+      buyer: buyerPk.toBase58(), priceLamports, standard,
+    };
+    const audited = auditMeSellTransaction(decoded, intent, 'absent');
+    if (!audited.ok) return res.status(422).json({ ok: false, error: audited.reason });
+    return res.json({ ok: true });
+  });
+
+  // ── MS-4/14: exact-signature confirmation status + current blockheight.
+  //    Called with signatures:[] as a pure pre/post-sign freshness read, and
+  //    with real signatures while polling a submitted tx's outcome. ───────
+  router.post('/tools/me-sell/status', readLimit, authMw, async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { signatures?: unknown };
+    const sigs = body.signatures;
+    if (sigs !== undefined && (!Array.isArray(sigs) || !sigs.every((s) => typeof s === 'string'))) {
+      return res.status(400).json({ ok: false, error: 'invalid_signatures' });
+    }
+    if (Array.isArray(sigs) && sigs.length > 20) {
+      return res.status(400).json({ ok: false, error: 'too_many_signatures' });
+    }
+    try {
+      const blockHeight = await chain.getBlockHeight();
+      const statuses = Array.isArray(sigs) && sigs.length > 0 ? await chain.getSignatureStatuses(sigs) : [];
+      return res.json({ ok: true, blockHeight, statuses });
+    } catch (err) {
+      return res.status(200).json({ ok: false, error: toClientError(err, 'status') });
     }
   });
 
@@ -682,25 +817,47 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
   // digest-forgery concern this is meant to close.
   router.post('/tools/me-sell/submit-bridge', submitLimit, authMw, async (req: Request, res: Response) => {
     if (!liveEnabled) return res.status(403).json({ ok: false, error: 'live_mode_disabled_server_side' });
-    const { signedTx, seller, tokenMint, auctionHouseAddress, buyer } = req.body as {
+    const { signedTx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports, standard, lastValidBlockHeight } = req.body as {
       signedTx?: string; seller?: string; tokenMint?: string; auctionHouseAddress?: string; buyer?: string;
+      priceLamports?: string; standard?: string; lastValidBlockHeight?: number;
     };
     const sellerPk = parsePubkey(seller);
     const mintPk = parsePubkey(tokenMint);
     const ahPk = parsePubkey(auctionHouseAddress);
     const buyerPk = parsePubkey(buyer);
-    if (!signedTx || typeof signedTx !== 'string' || !sellerPk || !mintPk || !ahPk || !buyerPk) {
-      return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: signedTx, seller, tokenMint, auctionHouseAddress, buyer required' });
+    if (!signedTx || typeof signedTx !== 'string' || !sellerPk || !mintPk || !ahPk || !buyerPk
+      || typeof priceLamports !== 'string' || !/^\d+$/.test(priceLamports)
+      || (standard !== 'pnft' && standard !== 'mplCore')
+      || typeof lastValidBlockHeight !== 'number' || !Number.isFinite(lastValidBlockHeight)) {
+      return res.status(400).json({ ok: false, error: 'invalid_or_missing_params: signedTx, seller, tokenMint, auctionHouseAddress, buyer, priceLamports(digit string), standard(pnft|mplCore), lastValidBlockHeight(number, from the bridge\'s own blockhashData) required' });
     }
     let tx: Transaction;
     try { tx = decodeLegacyTxFromBase64(signedTx); }
     catch (err) { return res.status(400).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
 
+    // POST-SIGN freshness (MS-7-adjacent) — the bridge path has no
+    // build-time digest cache to read a blockhash snapshot from, but the
+    // caller now supplies the SAME `blockhashData.lastValidBlockHeight` ME's
+    // batch response carries (previously discarded by the frontend — see
+    // page.tsx). Checked against the tx's OWN embedded blockhash for a
+    // trivial tamper-check, then against a freshly-read height. Fails
+    // CLOSED if the height read itself fails — matches `submit`'s own
+    // established policy exactly, not a weaker variant for this path.
+    let currentBlockHeight: number;
+    try { currentBlockHeight = await chain.getBlockHeight(); }
+    catch (err) { return res.status(200).json({ ok: false, error: toClientError(err, 'submit-bridge-blockheight') }); }
+    if (!tx.recentBlockhash) return res.status(400).json({ ok: false, error: 'missing_recent_blockhash' });
+    const freshness = checkBlockhashFreshness(
+      tx, { blockhash: tx.recentBlockhash, lastValidBlockHeight }, currentBlockHeight, marginBlocks,
+    );
+    if (!freshness.ok) return res.status(410).json({ ok: false, error: freshness.code, detail: freshness.detail });
+
     let validated: ValidatedSellTx;
     try {
       validated = validateSellStructure(tx, {
-        kind: 'sell', expectedSeller: sellerPk.toBase58(), expectedMint: mintPk.toBase58(),
-        expectedAuctionHouse: ahPk.toBase58(), expectedBuyer: buyerPk.toBase58(),
+        seller: sellerPk.toBase58(), mint: mintPk.toBase58(),
+        auctionHouse: ahPk.toBase58(), buyer: buyerPk.toBase58(),
+        priceLamports, standard,
       }, 'present');
     } catch (err) {
       return res.status(409).json({ ok: false, error: `validation_failed: ${err instanceof Error ? err.message : String(err)}` });
@@ -715,7 +872,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       const signature = await chain.sendRawTransaction(tx);
       return res.json({ ok: true, signature });
     } catch (err) {
-      return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return res.status(200).json({ ok: false, error: toClientError(err, 'submit-bridge-send') });
     }
   });
 
@@ -744,7 +901,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
 
     let currentBlockHeight: number;
     try { currentBlockHeight = await chain.getBlockHeight(); }
-    catch (err) { return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) }); }
+    catch (err) { return res.status(200).json({ ok: false, error: toClientError(err, 'submit-blockheight') }); }
     const freshness = checkBlockhashFreshness(tx, entry.blockhashInfo, currentBlockHeight, marginBlocks);
     if (!freshness.ok) return res.status(410).json({ ok: false, error: freshness.code, detail: freshness.detail });
 
@@ -753,7 +910,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
 
     let validated: ValidatedSellTx;
     try {
-      validated = validateSellStructure(tx, entry.ctx, 'present');
+      validated = validateSellStructure(tx, entry.intent, 'present');
     } catch (err) {
       return res.status(409).json({ ok: false, error: `revalidation_failed: ${err instanceof Error ? err.message : String(err)}` });
     }
@@ -771,7 +928,7 @@ export function createMeSellRouter(deps: MeSellDeps = {}): Router & { __meSellTe
       const signature = await chain.sendRawTransaction(tx);
       return res.json({ ok: true, signature });
     } catch (err) {
-      return res.status(200).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return res.status(200).json({ ok: false, error: toClientError(err, 'submit-send') });
     }
   });
 

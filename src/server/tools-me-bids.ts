@@ -141,7 +141,8 @@ import {
 import { createHash, timingSafeEqual } from 'crypto';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
-import { meAuthHeaders, hasMeApiKey, meCooldownActive, setMeCooldown } from '../me-api-cooldown';
+import { meAuthHeaders, hasMeApiKey, setMeCooldown } from '../me-api-cooldown';
+import { meTradeCooldownActive, setMeTradeCooldown } from './me-trade-cooldown';
 import { deriveBuyerEscrowPda, resolveEscrowBalances, lamportsToSol } from './me-bid-escrow';
 
 const ME_API_BASE = 'https://api-mainnet.magiceden.dev/v2';
@@ -220,7 +221,18 @@ export interface MeApiKeyProvider {
 }
 
 function defaultMeApiKeyProvider(): MeApiKeyProvider {
-  return { hasKey: hasMeApiKey, authHeaders: meAuthHeaders, cooldownActive: meCooldownActive, setCooldown: setMeCooldown };
+  return {
+    hasKey: hasMeApiKey,
+    authHeaders: meAuthHeaders,
+    // Gate ONLY on the trade-scoped cooldown — a background consumer's 429
+    // on the shared window must not block a hand-driven trade call. See
+    // me-trade-cooldown.ts.
+    cooldownActive: meTradeCooldownActive,
+    // A real 429 on our own authed call sets BOTH: the trade window (so the
+    // next trade call backs off) and, as a courtesy, the shared window (so
+    // the keyless background callers back off from a throttled IP too).
+    setCooldown: (ms?: number) => { setMeTradeCooldown(ms); setMeCooldown(ms); },
+  };
 }
 
 function createMeGet(transport: MeHttpTransport, keys: MeApiKeyProvider) {
