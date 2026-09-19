@@ -33,6 +33,7 @@ import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID 
 import { TCompSDK } from '@tensor-oss/tcomp-sdk';
 import BN from 'bn.js';
 import { simulateTakeBidTx } from './simulate';
+import { describeTcompError } from './tcomp-errors';
 
 const SYSTEM_PROGRAM = '11111111111111111111111111111111';
 const MPL_CORE_PROGRAM_ID = new PublicKey('CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d');
@@ -85,7 +86,7 @@ export type BuildTakeBidResult =
       blockhash: string;
       lastValidBlockHeight: number;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; logs?: string[] };
 
 export async function buildTakeBidTx(opts: {
   bidStateAddr: string;
@@ -239,7 +240,21 @@ export async function buildTakeBidTx(opts: {
     const dryRunIxs = await buildIxs(new BN(0));
     const dryRun = await serialize(dryRunIxs);
     const sim = await simulateTakeBidTx(dryRun.txBase64, opts.sellerAddr);
-    if (!sim.ok) return { ok: false, error: `dry_run_simulate_failed: ${sim.error}` };
+    if (!sim.ok) {
+      // sim.error is the raw `{"InstructionError":[ix,{"Custom":code}]}`
+      // simulateTransaction blob (or an RPC/network error string) — decode
+      // the TCOMP error table when it's a recognized Custom code so the
+      // caller (and the UI) gets a real diagnosis instead of a code to
+      // hand-decode. Logs are attached too — see tcomp-errors.ts header for
+      // why this matters (FailedMerkleProofVerification / BadCosigner both
+      // look identical from the bare error code alone without them).
+      const decoded = describeTcompError(sim.error);
+      return {
+        ok: false,
+        error: decoded ? `dry_run_simulate_failed: ${decoded}` : `dry_run_simulate_failed: ${sim.error}`,
+        logs: sim.logs,
+      };
+    }
     if (sim.solDeltaLamports == null || sim.solDeltaLamports <= 0) {
       return { ok: false, error: 'dry_run_simulate_returned_no_net_proceeds' };
     }

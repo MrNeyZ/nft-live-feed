@@ -37,20 +37,11 @@ import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
 import { buildTakeBidTx } from '../tensor-take-bid/build';
 import { simulateTakeBidTx } from '../tensor-take-bid/simulate';
-import { tensorFetch } from './listings-store';
+import { resolveLiveBidOnChain } from '../tensor-take-bid/resolve';
 
 function isValidPubkey(s: unknown): s is string {
   if (typeof s !== 'string') return false;
   try { new PublicKey(s); return true; } catch { return false; }
-}
-
-interface TensorNftBid {
-  address: string;
-  bidder: string;
-  expiry: string;
-  margin: string | null;
-  price: string;
-  validFrom: string;
 }
 
 export function createTensorTakeBidRouter(): Router {
@@ -66,27 +57,18 @@ export function createTensorTakeBidRouter(): Router {
       if (!isValidPubkey(asset) || !isValidPubkey(bidder)) {
         return res.status(400).json({ ok: false, error: 'missing_or_invalid_fields' });
       }
-      if (!process.env.TENSOR_API_KEY) {
-        return res.status(502).json({ ok: false, error: 'tensor_api_key_not_configured' });
-      }
-      const tr = await tensorFetch(
-        `https://api.mainnet.tensordev.io/api/v1/collections/nft_bids?mints=${encodeURIComponent(asset)}&limit=50`,
-      );
-      if (!tr.ok) {
-        return res.status(502).json({ ok: false, error: `tensor_nft_bids_http_${tr.status}` });
-      }
-      const body = await tr.json() as Array<{ mint: string; bids: TensorNftBid[] }>;
-      const entry = body.find((e) => e.mint === asset);
-      const bid = entry?.bids.find((b) => b.bidder === bidder);
+      // On-chain search, not Tensor's `collections/nft_bids` REST endpoint —
+      // that endpoint only surfaces Target::AssetId bids and returns an
+      // empty array for Target::Whitelist (collection-wide) bids, which are
+      // the majority of real bid volume. See resolve.ts header for the full
+      // finding. TENSOR_API_KEY is still used inside (to resolve collId for
+      // the whitelist-target search) but degrades to AssetId-only search
+      // when unset, rather than hard-failing the route.
+      const bid = await resolveLiveBidOnChain(asset, bidder);
       if (!bid) {
         return res.status(404).json({ ok: false, error: 'no_live_bid_from_this_bidder_on_this_asset' });
       }
-      return res.json({
-        ok: true,
-        bidState: bid.address,
-        priceSol: Number(bid.price) / 1e9,
-        expiryUnix: Math.floor(new Date(bid.expiry).getTime() / 1000),
-      });
+      return res.json({ ok: true, ...bid });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[tools/tensor-take-bid] resolve error', msg);
