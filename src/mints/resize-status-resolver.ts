@@ -223,7 +223,15 @@ function shouldResolve(mint: string): boolean {
   if (inflight.has(mint) || queued.has(mint)) return false;
   const ce = cache.get(mint);
   if (!ce) return true;
-  if (ce.row.status !== 'none') return false;          // positive → never re-check
+  // 'claimed' / 'user_resized' are terminal — a claim can't be un-claimed.
+  // 'none' and 'metaplex_resized_unclaimed' are NOT terminal: the owner can
+  // run the resize-claim tool at any time after the resize is first seen,
+  // which should flip the badge off. Caching 'metaplex_resized_unclaimed'
+  // forever (as before) meant the RESIZE badge stuck permanently on any
+  // mint that got claimed after its first (pre-claim) resolve — exactly
+  // the case reported 2026-09-14 for 3jhDe54K…caaAXDwH, which showed
+  // unclaimed on a fresh sale despite a real claim tx weeks earlier.
+  if (ce.row.status === 'claimed' || ce.row.status === 'user_resized') return false;
   return (Date.now() - ce.row.checkedAtMs) >= NEG_TTL_MS;
 }
 
