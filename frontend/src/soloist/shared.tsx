@@ -704,9 +704,10 @@ export function MktIconBadge({ mp, href }: { mp: Marketplace; href?: string | nu
   // the text `ORBIS` badge instead of rendering a broken image.
   const [imgFailed, setImgFailed] = useState(false);
   const src = mp === 'me' ? '/brand/me.png'
-    : mp === 'tensor'  ? '/brand/tensor.png'
-    : mp === 'orbis'   ? '/brand/orbis.png'
-    : mp === 'opensea' ? '/brand/opensea.png'
+    : mp === 'tensor'   ? '/brand/tensor.png'
+    : mp === 'orbis'    ? '/brand/orbis.png'
+    : mp === 'opensea'  ? '/brand/opensea.png'
+    : mp === 'artproof' ? '/brand/artproof.png'
     : null;
   if (!src || imgFailed) return <MktBadge mp={mp} href={href} />;
   const chip: React.CSSProperties = {
@@ -763,8 +764,17 @@ export function MktBadge({ mp, href }: { mp: Marketplace; href?: string | null }
     background: '#2081e220', color: '#5ba8ec', letterSpacing: '0.2px',
     flexShrink: 0, lineHeight: '14px',
   } as const;
-  const style = mp === 'me' ? meStyle : mp === 'orbis' ? oStyle : mp === 'opensea' ? osStyle : tStyle;
-  const label = mp === 'me' ? 'ME' : mp === 'orbis' ? 'ORBIS' : mp === 'opensea' ? 'OS' : 'T';
+  // Artist Proof — brand is monochrome (black square, white glyph), so the
+  // text-fallback pill goes neutral white/gray instead of inventing a color
+  // that isn't theirs, distinct from every other family above.
+  const apStyle = {
+    display: 'inline-flex', alignItems: 'center', fontSize: 10, fontWeight: 700,
+    padding: '1px 6px', borderRadius: 3, border: '1px solid #ffffff30',
+    background: '#ffffff14', color: '#e8e8ee', letterSpacing: '0.2px',
+    flexShrink: 0, lineHeight: '14px',
+  } as const;
+  const style = mp === 'me' ? meStyle : mp === 'orbis' ? oStyle : mp === 'opensea' ? osStyle : mp === 'artproof' ? apStyle : tStyle;
+  const label = mp === 'me' ? 'ME' : mp === 'orbis' ? 'ORBIS' : mp === 'opensea' ? 'OS' : mp === 'artproof' ? 'AP' : 'T';
   if (href) {
     return (
       <a

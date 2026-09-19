@@ -3,7 +3,7 @@
 // subscription to the backend SSE stream when wiring up live data.
 
 export type Side = 'buy' | 'sell';
-export type Marketplace = 'me' | 'tensor' | 'orbis' | 'opensea';
+export type Marketplace = 'me' | 'tensor' | 'orbis' | 'opensea' | 'artproof';
 
 /** Approved CATEGORY_LAYER — the single source of truth for *generated*
  *  collection identity colors (deterministic hash → index). Drives the

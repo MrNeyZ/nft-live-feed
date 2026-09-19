@@ -33,6 +33,7 @@ function mapMarketplace(mp: string): Marketplace {
   if (mp === 'tensor' || mp === 'tensor_amm') return 'tensor';
   if (mp === 'orbis') return 'orbis';
   if (mp === 'opensea') return 'opensea';
+  if (mp === 'artproof') return 'artproof';
   return 'me';
 }
 

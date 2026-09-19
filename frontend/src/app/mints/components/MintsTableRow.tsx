@@ -541,21 +541,13 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
                 caught up yet — and it changes on every new mint, so a
                 link pinned to it never stays valid). See accumulator.ts. */}
             {/* ART (artistproof.digital) mints aren't indexed on Magic
-                Eden — the ME item-details link 404s. Swap in the
-                artistproof icon/link instead: per-pack page when apSlug
-                resolved, else the generic /discover page. */}
-            {r.sourceLabel === 'ART' ? (
-              <a
-                href={r.apSlug ? `https://artistproof.digital/packs/${r.apSlug}` : 'https://www.artistproof.digital/discover'}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, flexShrink: 0, opacity: 0.85, textDecoration: 'none' }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/brand/artproof.png" alt="Artist Proof" width={13} height={13} draggable={false} style={{ display: 'block', borderRadius: 2 }} />
-              </a>
-            ) : isSolPubkey(badgeMintAddress) && (
+                Eden — the ME item-details link 404s. No icon here for
+                ART rows at all: the artistproof link/logo duty is
+                already owned by the main source badge below
+                (MintsSourceBadge → sourceHref), so a second icon in this
+                slot was just a duplicate link to the same launchpad
+                page, not a marketplace link. */}
+            {r.sourceLabel !== 'ART' && isSolPubkey(badgeMintAddress) && (
               <a
                 href={`https://magiceden.io/item-details/${badgeMintAddress}`}
                 target="_blank"

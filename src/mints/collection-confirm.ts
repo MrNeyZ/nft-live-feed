@@ -33,13 +33,16 @@ import { isMintTrackerEnabled } from '../runtime/mode';
 import { fetchMetaFromJsonUri } from '../enrichment/metaplex-onchain';
 import { getLmnftInfoByMint } from '../enrichment/lmnft';
 import { getMagicEdenCollectionName } from '../enrichment/me-collection-name';
+import { resolveArtProofInfo } from '../enrichment/artproof';
 import {
   patchAccumulatorMeta,
   patchAccumulatorLmnft,
+  patchAccumulatorApSlug,
   patchAccumulatorRepresentativeImage,
   patchAccumulatorSharedPlaceholderImage,
   patchAccumulatorProvisionalImage,
   getAccumulatorName,
+  getAccumulatorSourceLabel,
 } from './accumulator';
 import { saleEventBus } from '../events/emitter';
 import { cleanName, nameLooksPerAsset } from './clean-name';
@@ -580,6 +583,17 @@ async function runAttempt(entry: Pending): Promise<void> {
         maxSupply:    lmntf.maxSupply,
         name:         lmntf.collectionName,
       });
+    }
+    // Artist Proof pack-slug lookup — gated on the row's current
+    // sourceLabel (not just "is Core") so this never fires an external
+    // fetch for the far more common LMNFT/CandyMachine/bare-Core rows.
+    // Fire-and-forget: the retry chain below doesn't wait on it, and a
+    // failed/negative lookup just leaves the pill non-clickable (same
+    // degrade as LMNFT's owner/collectionId being unresolved).
+    if (getAccumulatorSourceLabel(entry.groupingKey) === 'ART') {
+      void resolveArtProofInfo(dasCollection).then(info => {
+        if (info) patchAccumulatorApSlug(entry.groupingKey, { slug: info.slug, maxSupply: info.maxSupply });
+      }).catch(() => { /* best-effort — leave pill non-clickable / SUPPLY unpopulated */ });
     }
     // Image-only continuation. Collection is confirmed, so the row
     // is staying — but if this attempt either had no image or got the

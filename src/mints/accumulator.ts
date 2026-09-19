@@ -208,6 +208,10 @@ interface Accum {
    *  `patchAccumulatorLmnft` once the homepage-featured lookup returns. */
   lmntfOwner?:        string | null;
   lmntfCollectionId?: string | null;
+  /** artistproof.digital pack slug — `{slug}` in
+   *  `https://artistproof.digital/packs/{slug}`. Populated by
+   *  `patchAccumulatorApSlug` once the Artist Proof lookup returns. */
+  apSlug?:            string | null;
   /** Authoritative total minted in the drop, decoded from the MPL Core
    *  `CollectionV1.num_minted` u32 by the core-supply refresher. Null
    *  until the refresher visits this collection. Once set, increases
@@ -549,6 +553,7 @@ function buildStatus(a: Accum, now: number): MintStatusWire {
     mintedCount:       a.mintedCount ?? null,
     lmntfOwner:        a.lmntfOwner ?? null,
     lmntfCollectionId: a.lmntfCollectionId ?? null,
+    apSlug:            a.apSlug ?? null,
     // Authoritative on-chain count when the core-supply refresher has
     // visited; otherwise the session-local running count so the
     // frontend's SUPPLY column has something to show for Core/VVV/GRAVE
@@ -738,6 +743,19 @@ export function recordMint(ev: MintEventWire): boolean {
     a.collectionAddress = ev.collectionAddress;
     a.groupingKind      = 'collection';
   }
+  // Keep sourceLabel/coreLaunchpad in sync with the LATEST mint's
+  // classification, not just the group's first-ever mint. Without this, a
+  // group created (or rehydrated from the on-disk snapshot, see
+  // snapshot.ts) with a stale/generic classification — e.g. a launchpad
+  // detector landing after the group already existed — stays stuck on that
+  // label forever: every subsequent mint is correctly classified by
+  // `detectLaunchpadMint` in isolation, but the badge never picks it up
+  // because `ev.sourceLabel` was only ever applied at group-creation time.
+  // Self-heals within one mint of a detector fix or a poisoned snapshot
+  // restore. `patchAccumulatorSourceLabel`'s SFT override still applies on
+  // top of this — it's a later, out-of-band patch, not part of recordMint.
+  a.sourceLabel   = ev.sourceLabel;
+  a.coreLaunchpad = ev.coreLaunchpad === true;
   // Track the most-recent valid mintAddress so the frontend has
   // something safe to link to (collectionAddress / groupingKey can
   // be a non-NFT pubkey).
@@ -1269,6 +1287,36 @@ export function patchAccumulatorLmnft(
   saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
 }
 
+/** Read-only: current sourceLabel for a group, or null when the group
+ *  doesn't exist. Used by launchpad-specific enrichment (e.g. the Artist
+ *  Proof slug lookup in collection-confirm.ts) to gate a resolver call to
+ *  rows that actually need it, without collection-confirm.ts importing the
+ *  full `map` internals. */
+export function getAccumulatorSourceLabel(groupingKey: string): MintSourceLabel | null {
+  return map.get(groupingKey)?.sourceLabel ?? null;
+}
+
+/** Patch a group's artistproof.digital pack slug + planned cap once the
+ *  lookup resolves. Re-emits one mint_status frame so the source pill
+ *  becomes clickable and SUPPLY populates without waiting for the next
+ *  mint. Idempotent; sticky — never clobbers a resolved slug/maxSupply
+ *  with null (mirrors `patchAccumulatorLmnft`'s sticky-merge). */
+export function patchAccumulatorApSlug(
+  groupingKey: string,
+  patch: { slug: string | null | undefined; maxSupply?: number | null },
+): void {
+  const a = map.get(groupingKey);
+  if (!a) return;
+  const nextSlug = patch.slug || a.apSlug || null;
+  const nextSupply = (typeof patch.maxSupply === 'number' && patch.maxSupply > 0)
+    ? patch.maxSupply
+    : (a.maxSupply ?? null);
+  if (a.apSlug === nextSlug && a.maxSupply === nextSupply) return;
+  a.apSlug    = nextSlug;
+  a.maxSupply = nextSupply;
+  saleEventBus.emitMintStatus(buildStatus(a, Date.now()));
+}
+
 /** Patch a group's authoritative on-chain minted count. Called by the
  *  core-supply refresher once a CollectionV1 account has been decoded.
  *  Monotonic: never overwrites a higher previous value with a smaller
@@ -1463,6 +1511,7 @@ export function hydrateAccumulatorFromSnapshot(rows: MintStatusWire[]): number {
       mintedCount:       r.mintedCount ?? null,
       lmntfOwner:        r.lmntfOwner ?? null,
       lmntfCollectionId: r.lmntfCollectionId ?? null,
+      apSlug:            r.apSlug ?? null,
       supplyMintedOnChain:
         verified ? (r.supplyMinted as number) : null,
       supplyMintedLocal:
