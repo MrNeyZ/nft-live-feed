@@ -161,7 +161,14 @@ export function createResizeClaimRouter(): Router {
   // the EXACT final bytes the frontend is about to hand to Phantom. Never
   // signs, never sends. See resize-claim/verify.ts header for why this
   // exists (the frontend has no direct RPC access anywhere in this app).
-  const verifyLimit = rateLimit({ limit: 120, windowMs: 60_000, label: 'tools/resize-claim/verify' });
+  // requireAuth-gated to the single connected wallet (SIWS + UI_ALLOWED_WALLETS)
+  // — no public abuse surface, unlike a generic heartbeat endpoint. A bulk
+  // claim run legitimately needs one call per claimable NFT before any
+  // signature is requested; 120/min throttled a several-hundred-item wallet
+  // mid-audit (observed 236+ hits in 5s on a 795-claim run 2026-09-17),
+  // which the frontend was then mislabeling as a permanent audit failure
+  // instead of a transient throttle. 1000/min covers a full run in one burst.
+  const verifyLimit = rateLimit({ limit: 1000, windowMs: 60_000, label: 'tools/resize-claim/verify' });
   router.post('/tools/resize-claim/verify', verifyLimit, requireAuth, async (req: Request, res: Response) => {
     const { tx } = req.body as { tx?: string };
     if (!tx || typeof tx !== 'string') {
@@ -226,15 +233,37 @@ export function createResizeClaimRouter(): Router {
   // shared 10/min cap partway through a batch (same reasoning as
   // tools-candy-mint.ts's dedicated send-tx).
   const sendLimit = rateLimit({ limit: 200, windowMs: 60_000, label: 'tools/resize-claim/send-tx' });
+  // Bulk claim runs fire one sendTransaction per NFT back-to-back — enough
+  // to trip Helius's own sendTransaction rate limit mid-batch (observed
+  // 429s on a 100-claim window 2026-09-17), distinct from our own
+  // `sendLimit` above. Retrying the exact same already-signed bytes on a
+  // 429 is safe (same signature; Solana dedupes by signature, and the
+  // request never reached a leader to begin with) — unlike rpcPost's
+  // general retry allowlist, which deliberately excludes sendTransaction
+  // for methods where a retry could duplicate a *new* state-changing call.
+  const SEND_RETRY_BACKOFF_MS = [300, 700, 1500];
+  function sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
   router.post('/tools/resize-claim/send-tx', sendLimit, requireAuth, async (req: Request, res: Response) => {
     const { tx } = req.body as { tx?: string };
     if (!tx || typeof tx !== 'string') {
       return res.status(400).json({ ok: false, error: 'missing_tx' });
     }
     try {
-      const signature = await rpcPost('sendTransaction', [
-        tx, { encoding: 'base64', skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed' },
-      ]) as string;
+      let signature: string | undefined;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          signature = await rpcPost('sendTransaction', [
+            tx, { encoding: 'base64', skipPreflight: true, maxRetries: 3, preflightCommitment: 'confirmed' },
+          ]) as string;
+          break;
+        } catch (err) {
+          const is429 = err instanceof Error && err.message.includes('HTTP 429');
+          if (!is429 || attempt >= SEND_RETRY_BACKOFF_MS.length) throw err;
+          await sleep(SEND_RETRY_BACKOFF_MS[attempt]);
+        }
+      }
       return res.json({ ok: true, signature });
     } catch (err) {
       console.error('[resize-claim/send-tx]', err);

@@ -283,3 +283,43 @@ export async function signAllAndSend(
   }
   return signatures;
 }
+
+/**
+ * Versioned-transaction counterpart of `signAllAndSend` — same one-approval
+ * batch-sign-then-sequential-broadcast shape, but for `VersionedTransaction`s
+ * (v0 messages with Address Lookup Tables). Needed because `Transaction.from`
+ * cannot parse a versioned wire format (see `signSendAndConfirm`'s version
+ * sniff for the same distinction on the single-tx path) — resize-claim's
+ * `DistributeToLegacyNft` claims are versioned (they reference a shared ALT
+ * to fit the 25-node merkle proof under the wire limit), and a wallet with
+ * many claimable NFTs needs all of them signed in one Phantom approval, not
+ * one prompt per claim.
+ */
+export async function signAllVersionedAndSend(
+  txBase64List: string[],
+  onSubmitted?: (index: number, signature: string) => void,
+  shouldSend?: (index: number) => Promise<boolean> | boolean,
+  opts: { sendPath?: string; expectWallet?: string } = {},
+): Promise<string[]> {
+  const sol = getPhantom();
+  if (!sol) throw new Error('Phantom wallet not connected.');
+  if (opts.expectWallet) assertPhantomWallet(opts.expectWallet);
+
+  const txs = txBase64List.map((b64) => VersionedTransaction.deserialize(Buffer.from(b64, 'base64')));
+  console.log(TAG, `signAllTransactions (versioned): signing ${txs.length} txs with one approval...`);
+  const signed = await sol.signAllTransactions(txs);
+  console.log(TAG, 'signAllTransactions resolved — sending raw sequentially...');
+
+  const signatures: string[] = [];
+  for (let i = 0; i < signed.length; i++) {
+    if (shouldSend && !(await shouldSend(i))) {
+      console.log(TAG, `signAllVersionedAndSend: skipping item ${i} — shouldSend declined (not broadcasting)`);
+      continue;
+    }
+    const serialized = (signed[i] as VersionedTransaction).serialize();
+    const signature = await backendSendRaw(serialized, opts.sendPath);
+    signatures.push(signature);
+    onSubmitted?.(i, signature);
+  }
+  return signatures;
+}

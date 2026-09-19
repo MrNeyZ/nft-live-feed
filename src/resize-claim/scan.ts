@@ -84,18 +84,43 @@ function heliusRpcUrl(): string {
   return `https://beta.helius-rpc.com/?api-key=${key}`;
 }
 
+const DAS_TIMEOUT_MS = 30_000;
+const DAS_MAX_RETRIES = 3;
+const DAS_RETRY_BASE_MS = 800;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Large wallets make `getAssetsByOwner` pages slow on Helius's beta DAS
+ *  endpoint — an occasional page can exceed even a generous timeout.
+ *  Retry with backoff (same shape as proof.ts's fetchProofBatch) instead
+ *  of failing the whole scan on one slow page. */
 async function dasCall<T>(method: string, params: unknown): Promise<T> {
-  const res = await fetch(heliusRpcUrl(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 'resize-claim', method, params }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`${method} http ${res.status}`);
-  const json = (await res.json()) as { result?: T; error?: { message: string } };
-  if (json.error) throw new Error(`${method}: ${json.error.message}`);
-  if (json.result === undefined) throw new Error(`${method}: empty result`);
-  return json.result;
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < DAS_MAX_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(DAS_RETRY_BASE_MS * 2 ** (attempt - 1));
+    try {
+      const res = await fetch(heliusRpcUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 'resize-claim', method, params }),
+        signal: AbortSignal.timeout(DAS_TIMEOUT_MS),
+      });
+      if (res.status === 429 || res.status >= 500) {
+        lastErr = new Error(`${method} http ${res.status}`);
+        continue;
+      }
+      if (!res.ok) throw new Error(`${method} http ${res.status}`);
+      const json = (await res.json()) as { result?: T; error?: { message: string } };
+      if (json.error) throw new Error(`${method}: ${json.error.message}`);
+      if (json.result === undefined) throw new Error(`${method}: empty result`);
+      return json.result;
+    } catch (e) {
+      lastErr = e as Error;
+    }
+  }
+  throw lastErr ?? new Error(`${method} failed`);
 }
 
 /** All legacy/pNFT mints currently held by `wallet` (not compressed, not burnt). */
