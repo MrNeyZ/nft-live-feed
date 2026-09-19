@@ -1285,12 +1285,22 @@ export default function MintsPage() {
   // reality on every mouse move: if a key is "hovered" but the cursor isn't
   // actually over that SHOW zone anymore, clear it. Self-heals regardless
   // of cause, including ones not diagnosed yet.
+  //
+  // The guard SETS the key it finds under the cursor (null when none)
+  // instead of only clearing on mismatch. Row→row travel fires, in order:
+  // leave A, enter B (React schedules setHoveredKey(B) without flushing —
+  // mouseover/out are continuous-priority), then a native mousemove that
+  // still runs this listener's closure over A. The old "key !== hoveredKey
+  // → null" check saw B ≠ A and queued a null AFTER the enter's B, so every
+  // other A→B transition landed on no scope at all (the second hover
+  // "worked"). Writing the observed key is idempotent with the enter
+  // handler and also heals a missed enter.
   useEffect(() => {
     if (!hoveredKey) return;
     const onMove = (e: MouseEvent) => {
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const key = el?.closest('[data-show-key]')?.getAttribute('data-show-key') ?? null;
-      if (key !== hoveredKey) setHoveredKey(null);
+      setHoveredKey(key);
     };
     // Cursor leaving the window entirely (relatedTarget null) fires no
     // further mousemove — catch it explicitly so alt-tabbing away doesn't

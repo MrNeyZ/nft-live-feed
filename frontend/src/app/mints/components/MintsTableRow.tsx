@@ -622,7 +622,14 @@ export function MintsTableRow({ row: r, index: i, now, mintTf, tfStatsByKey, las
             role="button"
             tabIndex={0}
             data-uisnd="skip"
-            
+            // Watchdog anchor (see page.tsx's hoveredKey mousemove guard):
+            // whatever the specific cause of a missed mouseleave (remount,
+            // stacking, a Chrome hit-test quirk), the guard cross-checks the
+            // real element under the cursor against this attribute and
+            // self-heals the stuck-dimmed feed without having to find every
+            // individual trigger.
+            data-show-key={r.groupingKey}
+
             onClick={(e) => { e.stopPropagation(); playUiSelect(); onTogglePin(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playUiSelect(); onTogglePin(); } }}
             onMouseEnter={() => {
