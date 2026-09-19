@@ -167,18 +167,43 @@ function tokenRecordPda(mintPk: PublicKey, tokenAccountPk: PublicKey): PublicKey
   return pda;
 }
 
-function serializeFulfillBuyArgs(minPayment: number): Buffer {
-  // 21-byte SolFulfillBuyArgs body (asset_amount, min_payment_amount,
-  // allowlist_aux, maker_fee_bp, taker_fee_bp) — shared by sol_fulfill_buy
-  // and sol_mip1_fulfill_buy per the on-chain IDL; only the 8-byte
-  // instruction discriminator differs between the two.
-  const data = Buffer.alloc(21);
+/** SolFulfillBuyArgs body: asset_amount(u64), min_payment_amount(u64),
+ *  allowlist_aux: Option<String>, maker_fee_bp(i16), taker_fee_bp(i16) —
+ *  shared by sol_fulfill_buy and sol_mip1_fulfill_buy per the on-chain IDL;
+ *  only the 8-byte instruction discriminator differs between the two.
+ *  `aux` is the target NFT's own metadata URI — required (not a merkle
+ *  proof) for pools carrying a `metadata`-type allowlist entry. Decoded
+ *  2026-09-11 from real successful on-chain sol_fulfill_buy/sol_mpl_core_
+ *  fulfill_buy txs against metadata-allowlist pools: the "trait" targeting
+ *  those pools display in ME's UI is not enforced on-chain by this field —
+ *  every sampled metadata-allowlist pool also carries a separate FVCA/MCC/
+ *  core_collection entry that does the real gating (`.some()` in
+ *  assetMatchesAllowlist already matches on that), and `allowlist_aux` just
+ *  has to be Some(any real URI string) instead of None or the tx fails. */
+function serializeFulfillBuyArgs(minPayment: number, aux?: string | null): Buffer {
+  const auxBuf = aux != null ? Buffer.from(aux, 'utf8') : null;
+  const data = Buffer.alloc(auxBuf ? 21 + 4 + auxBuf.length : 21);
   data.writeBigUInt64LE(BigInt(1), 0);
   data.writeBigUInt64LE(BigInt(minPayment), 8);
-  data[16] = 0x00;               // allowlist_aux = None
-  data.writeInt16LE(-100, 17);   // maker_fee_bp
-  data.writeInt16LE(200, 19);    // taker_fee_bp
+  if (auxBuf) {
+    data[16] = 0x01;
+    data.writeUInt32LE(auxBuf.length, 17);
+    auxBuf.copy(data, 21);
+    data.writeInt16LE(-100, 21 + auxBuf.length);
+    data.writeInt16LE(200, 23 + auxBuf.length);
+  } else {
+    data[16] = 0x00;               // allowlist_aux = None
+    data.writeInt16LE(-100, 17);   // maker_fee_bp
+    data.writeInt16LE(200, 19);    // taker_fee_bp
+  }
   return data;
+}
+
+/** True if the pool has a `metadata`-type allowlist entry — the fulfill-buy
+ *  args must then carry Some(nft's own URI) for allowlist_aux instead of
+ *  None (see serializeFulfillBuyArgs doc). */
+function poolNeedsAllowlistAux(pool: MmmPool): boolean {
+  return pool.allowlists.some(a => a.type === 'metadata');
 }
 
 function creatorKeys(creators: DecodedMetadata['creators']) {
@@ -238,6 +263,24 @@ async function fetchCoreAssetInfo(assetMint: string): Promise<CoreAssetInfo> {
   }
 
   return { collection, creators };
+}
+
+/** DAS content.json_uri for a single asset — used as the metadata-allowlist
+ *  `allowlist_aux` value (see serializeFulfillBuyArgs doc). Only called for
+ *  pools that actually carry a `metadata`-type allowlist entry. */
+async function fetchAssetJsonUri(mint: string): Promise<string | null> {
+  try {
+    const r = await fetch(rpcUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getAsset', params: { id: mint } }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const j = await r.json() as { result?: { content?: { json_uri?: string } } };
+    return j.result?.content?.json_uri ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** sol_mpl_core_fulfill_buy — 11 fixed accounts + one remaining account per
@@ -838,6 +881,7 @@ function buildSolFulfillBuyIx(
   sellerPk: PublicKey,
   mintPk:   PublicKey,
   creators: DecodedMetadata['creators'],
+  assetUri?: string | null,
 ): TransactionInstruction {
   const MMM_PK     = MMM_PROGRAM_ID;
   const ownerPk    = new PublicKey(pool.owner);
@@ -865,7 +909,8 @@ function buildSolFulfillBuyIx(
 
   // min_payment_amount = spot * (10000 - taker_fee_bp) / 10000
   const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
-  const data = Buffer.concat([SOL_FULFILL_BUY_DISC, serializeFulfillBuyArgs(minPayment)]);
+  const data = Buffer.concat([SOL_FULFILL_BUY_DISC,
+    serializeFulfillBuyArgs(minPayment, poolNeedsAllowlistAux(pool) ? assetUri : null)]);
 
   return new TransactionInstruction({
     programId: MMM_PK,
@@ -906,6 +951,7 @@ function buildSolMip1FulfillBuyIx(
   mintPk:   PublicKey,
   creators: DecodedMetadata['creators'],
   ruleSet:  string | null,
+  assetUri?: string | null,
 ): TransactionInstruction {
   const MMM_PK     = MMM_PROGRAM_ID;
   const ownerPk    = new PublicKey(pool.owner);
@@ -940,7 +986,8 @@ function buildSolMip1FulfillBuyIx(
   const authorizationRulesPk = new PublicKey(ruleSet ?? METAPLEX_PROGRAM.toBase58());
 
   const minPayment = Math.floor(pool.spotPrice * 9800 / 10000);
-  const data = Buffer.concat([SOL_MIP1_FULFILL_BUY_DISC, serializeFulfillBuyArgs(minPayment)]);
+  const data = Buffer.concat([SOL_MIP1_FULFILL_BUY_DISC,
+    serializeFulfillBuyArgs(minPayment, poolNeedsAllowlistAux(pool) ? assetUri : null)]);
 
   return new TransactionInstruction({
     programId: MMM_PK,
@@ -1197,11 +1244,17 @@ export async function fetchBidAcceptTx(
   }
   console.log('[fallback] cosigner check passed (default/no cosigner)');
 
+  let assetUri: string | null = null;
+  if (poolNeedsAllowlistAux(pool)) {
+    assetUri = await fetchAssetJsonUri(mint);
+    console.log('[fallback] pool needs allowlist_aux (metadata allowlist entry), assetUri=%s', assetUri);
+  }
+
   let ix: TransactionInstruction;
   try {
     ix = isPNFT
-      ? buildSolMip1FulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators, meta.ruleSet)
-      : buildSolFulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators);
+      ? buildSolMip1FulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators, meta.ruleSet, assetUri)
+      : buildSolFulfillBuyIx(pool, poolPk, sellerPk, mintPk, meta.creators, assetUri);
     console.log('[fallback] build%sFulfillBuyIx OK (isPNFT=%s, %s creators)',
       isPNFT ? 'SolMip1' : 'SolFulfillBuy', isPNFT, meta.creators.length);
   } catch (e) {
@@ -1862,7 +1915,7 @@ export function createMmmPoolsRouter(): Router {
         // Populate flat pool cache for pool-stream
         rawPoolsCache = {
           builtAt: Date.now(),
-          pools: underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata') && !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
+          pools: underfunded.filter(p => !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
             const al = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const info = al ? fvcaInfoCache.get(al.pubkey) : undefined;
             return {
@@ -2021,7 +2074,7 @@ export function createMmmPoolsRouter(): Router {
           await batchResolveFvcaNames(uniqueFvcas);
 
           // Populate flat cache and resolve names from fvcaInfoCache
-          const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => a.type === 'metadata') && !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
+          const flatPools: FlatPool[] = underfunded.filter(p => !p.allowlists.some(a => FVCA_FEED_BLOCKLIST.has(a.pubkey))).map(p => {
             const al        = p.allowlists.find(a => COLL_AL_TYPES.has(a.type));
             const isAnyPool = !al && p.allowlists.some(a => a.type === 'any');
             const info      = al ? fvcaInfoCache.get(al.pubkey) : undefined;
