@@ -57,10 +57,11 @@ interface GhostBidRow {
   me: string | null;
   galxe: string | null;
   listingStatus: string | null;
+  newFields?: string[];
 }
 interface ApiResult {
   ok: true;
-  list?: number | 'nofloor';
+  list?: number | 'nofloor' | 'skipped';
   updatedAt: number;
   /** Unix ms mtime of this list's dataset file — see floorSnapshotCaption
    *  in ./logic. Absent on a response from a not-yet-redeployed backend;
@@ -72,7 +73,7 @@ interface ApiResult {
 }
 
 type SortCol = 'profit' | 'bid' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
-type ListSel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 'nofloor';
+type ListSel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 'nofloor' | 'skipped';
 
 // `listingStatus` null / 'LISTED_ME' / 'LISTED_TENSOR' → owner is a real,
 // resolved wallet (either the actual holder, or that mint's real seller —
@@ -87,6 +88,7 @@ function isStuckListing(status: string | null): boolean {
 }
 function stuckReason(status: string | null): string {
   if (status === 'LISTED_SOLANART_STUCK') return 'Held in Solanart’s dead-marketplace escrow — no working delist path, owner can’t move it';
+  if (status === 'PDA_HOLDER_UNRESOLVED') return 'Held by a PDA (AMM pool / vault / escrow) that could not be resolved to a wallet';
   if (status?.startsWith('STUCK_OTHER:')) return `Held by an unresolved on-chain program (${status.slice('STUCK_OTHER:'.length)}) — likely staked, not a real wallet`;
   return 'Not actionable';
 }
@@ -215,12 +217,28 @@ function fmtIdent(v: string | null): React.ReactNode {
 // `#1234` is the tell) without separate columns for two values that are
 // rarely both populated. When a row does have both, stack them instead of
 // picking one.
-function SocialCell({ twitter, discord }: { twitter: string | null; discord: string | null }) {
+// Small "NEW" tag for an identity value a later re-scan found — sits BEFORE
+// the value so the column's ellipsis can never clip it off.
+function NewTag() {
+  return (
+    <span title="Found by the 2026-09-19 identity re-scan — not contacted yet"
+      style={{
+        display: 'inline-block', marginRight: 5, padding: '0 4px', borderRadius: 3, fontSize: 8.5, fontWeight: 800,
+        letterSpacing: 0.4, verticalAlign: 'middle', color: rgb(VL.green), background: alpha(VL.green, 0.16),
+        border: `1px solid ${alpha(VL.green, 0.35)}`,
+      }}>NEW</span>
+  );
+}
+function identCell(v: string | null, isNew: boolean): React.ReactNode {
+  const usable = !!v && !WALLET_SHAPED_RE.test(v);
+  return <>{isNew && usable && <NewTag />}{fmtIdent(v)}</>;
+}
+function SocialCell({ twitter, discord, newTwitter, newDiscord }: { twitter: string | null; discord: string | null; newTwitter?: boolean; newDiscord?: boolean }) {
   if (!twitter && !discord) return <span style={{ opacity: 0.3 }}>—</span>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, lineHeight: 1.3 }}>
-      {discord && <span style={{ color: '#e7e2fa', fontWeight: 600 }}>{discord}</span>}
-      {twitter && <span style={{ color: '#e7e2fa', fontWeight: 600 }}>{twitter}</span>}
+      {discord && <span style={{ color: '#e7e2fa', fontWeight: 600 }}>{newDiscord && <NewTag />}{discord}</span>}
+      {twitter && <span style={{ color: '#e7e2fa', fontWeight: 600 }}>{newTwitter && <NewTag />}{twitter}</span>}
     </div>
   );
 }
@@ -288,8 +306,9 @@ export default function GhostBidPage() {
   // keeps each list's cached/live-refreshed state independently.
   const [activeList, setActiveList] = useState<ListSel>(1);
   const [listMenuOpen, setListMenuOpen] = useState(false);
-  const LIST_COUNTS: Record<ListSel, number> = { 1: 89, 2: 91, 3: 91, 4: 93, 5: 91, 6: 89, 7: 93, 8: 45, nofloor: 20 };
+  const LIST_COUNTS: Record<ListSel, number> = { 1: 89, 2: 91, 3: 91, 4: 93, 5: 91, 6: 89, 7: 93, 8: 45, nofloor: 20, skipped: 100 };
   const isNoFloorList = activeList === 'nofloor';
+  const isSkippedList = activeList === 'skipped';
 
   // GB-1 fix: `result`/`error` are shared between load() and refresh(), and
   // either can be in flight for either list at once (list-switch mid-fetch,
@@ -462,7 +481,7 @@ export default function GhostBidPage() {
                 borderRadius: 6, border: `1px solid ${alpha(VL.purpleTint, 0.30)}`,
                 background: alpha(VL.purpleTint, 0.10), color: rgb(VL.purpleTint), cursor: 'pointer',
               }}>
-              {isNoFloorList ? 'NO FLOOR' : `List ${activeList}`}
+              {isNoFloorList ? 'NO FLOOR' : isSkippedList ? 'SKIPPED' : `List ${activeList}`}
               <span style={{ fontSize: 9, opacity: 0.7 }}>{listMenuOpen ? '▲' : '▼'}</span>
             </button>
             {listMenuOpen && (
@@ -502,6 +521,22 @@ export default function GhostBidPage() {
                   onMouseLeave={(e) => { if (!isNoFloorList) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
                   <span>No Floor</span>
                   <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS.nofloor}</span>
+                </button>
+                {/* Skipped — profit-ranked forgotten bids the original scan never
+                    listed (its collection-floor lookups failed). Sorted by profit
+                    like lists 1-8. */}
+                <button type="button"
+                  onClick={() => { setActiveList('skipped'); setSortCol('profit'); setListMenuOpen(false); }}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', width: '100%', padding: '9px 12px',
+                    fontSize: 11.5, fontWeight: isSkippedList ? 800 : 600, border: 'none', cursor: 'pointer',
+                    background: isSkippedList ? alpha(VL.purpleTint, 0.18) : 'transparent',
+                    color: isSkippedList ? rgb(VL.purpleTint) : VLText.primary, textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => { if (!isSkippedList) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                  onMouseLeave={(e) => { if (!isSkippedList) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                  <span>Skipped</span>
+                  <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS.skipped}</span>
                 </button>
               </div>
             )}
@@ -766,14 +801,14 @@ export default function GhostBidPage() {
                         <td style={{ ...ROW_H, textAlign: 'center' }}>
                           <AddrLink href={`https://magiceden.io/item-details/${r.mint}`} addr={r.mint} title="This NFT on ME" hue={VL.blue} />
                         </td>
-                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.sns)}</td>
-                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.matrica)}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{identCell(r.sns, !!r.newFields?.includes('sns'))}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{identCell(r.matrica, !!r.newFields?.includes('matrica'))}</td>
                         <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          <SocialCell twitter={r.twitter} discord={r.discord} />
+                          <SocialCell twitter={r.twitter} discord={r.discord} newTwitter={!!r.newFields?.includes('twitter')} newDiscord={!!r.newFields?.includes('discord')} />
                         </td>
-                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.pumpfun)}</td>
-                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.me)}</td>
-                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtIdent(r.galxe)}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{identCell(r.pumpfun, !!r.newFields?.includes('pumpfun'))}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{identCell(r.me, !!r.newFields?.includes('me'))}</td>
+                        <td style={{ ...ROW_H, textAlign: 'center', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{identCell(r.galxe, !!r.newFields?.includes('galxe'))}</td>
                       </tr>
                       );
                     })}

@@ -56,6 +56,8 @@ function findRow(rows: GhostBidRow[], mint: string): GhostBidRow {
 // ── isListId ──────────────────────────────────────────────────────────────
 console.log('isListId');
 check('1-8 are valid', () => { for (let i = 1; i <= 8; i++) assert.strictEqual(isListId(i), true, `list ${i}`); });
+check('named lists nofloor + skipped are valid', () => { assert.strictEqual(isListId('nofloor'), true); assert.strictEqual(isListId('skipped'), true); });
+check('unknown named list is invalid', () => { assert.strictEqual(isListId('other'), false); });
 check('0 is invalid', () => { assert.strictEqual(isListId(0), false); });
 check('9 is invalid', () => { assert.strictEqual(isListId(9), false); });
 check('negative is invalid', () => { assert.strictEqual(isListId(-1), false); });

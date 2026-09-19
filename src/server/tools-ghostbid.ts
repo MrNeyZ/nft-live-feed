@@ -53,13 +53,19 @@ const DATA_LIST_IDS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 // inside list 1-8, always sorting to the bottom (profitSol null), with no
 // visible signal of bid size either. Own file, own (bid-size) ordering.
 const NOFLOOR_LIST_ID = 'nofloor' as const;
-type ListId = typeof DATA_LIST_IDS[number] | typeof NOFLOOR_LIST_ID;
+// A 10th named list — the top-100-by-profit forgotten M2 bids that were
+// never in lists 1-8 (2026-09-19 rescan; the original Aug scan lost the
+// collection floor lookups for them, so they never got ranked). Profit-ranked
+// like 1-8, own file.
+const SKIPPED_LIST_ID = 'skipped' as const;
+type ListId = typeof DATA_LIST_IDS[number] | typeof NOFLOOR_LIST_ID | typeof SKIPPED_LIST_ID;
 export function isListId(v: unknown): v is ListId {
-  if (v === NOFLOOR_LIST_ID) return true;
+  if (v === NOFLOOR_LIST_ID || v === SKIPPED_LIST_ID) return true;
   return typeof v === 'number' && (DATA_LIST_IDS as readonly number[]).includes(v);
 }
 function dataPathForList(list: ListId): string {
   const file = list === NOFLOOR_LIST_ID ? 'ghostbid-nofloor.json'
+    : list === SKIPPED_LIST_ID ? 'ghostbid-skipped.json'
     : list === 1 ? 'ghostbid.json' : `ghostbid-list${list}.json`;
   return join(__dirname, '..', '..', 'data', file);
 }
@@ -118,6 +124,12 @@ export interface BaseRow {
    *  contract) that couldn't be resolved to a real wallet — not
    *  actionable, frontend should visually de-emphasize these rows. */
   listingStatus: string | null;
+  /** Identity fields ('sns' | 'matrica' | 'twitter' | 'discord' | 'pumpfun' |
+   *  'me' | 'galxe') that a later identity re-scan filled in after the row
+   *  was first built. The frontend shows a NEW tag next to those values so
+   *  the operator can tell which contacts haven't been messaged yet. Absent
+   *  = nothing new. */
+  newFields?: string[];
 }
 
 export interface GhostBidRow extends BaseRow {
@@ -607,6 +619,7 @@ export function createGhostBidRouter(): Router {
   function parseList(req: Request): ListId | null {
     if (req.query.list === undefined) return 1;
     if (req.query.list === NOFLOOR_LIST_ID) return NOFLOOR_LIST_ID;
+    if (req.query.list === SKIPPED_LIST_ID) return SKIPPED_LIST_ID;
     const n = Number(req.query.list);
     return isListId(n) ? n : null;
   }
