@@ -200,6 +200,7 @@ const BACKEND_ERROR_MESSAGES: Record<string, string> = {
   signature_not_found: 'No transaction found for that signature.',
   reference_tx_failed_onchain: 'That reference transaction failed on-chain — try a different one.',
   no_candy_guard_instruction_found: 'No Candy Guard mint instruction (core or legacy) in that transaction.',
+  direct_candy_machine_mint_no_guard: 'Candy Machine minted directly without a Candy Guard — its mint authority is a private wallet (launchpad backend/airdrop) that must sign every mint. Not reproducible.',
   unexpected_account_count: 'Unrecognized instruction shape — not a plain mint call.',
   account_resolution_failed: 'Could not resolve accounts from that transaction.',
   unrecognized_candy_guard_program: 'That candyGuard address is not owned by either known Candy Guard program.',

@@ -36,8 +36,8 @@
  */
 
 import { fetchTransaction, isValidSignature } from '../mint-analyzer/fetch-tx';
-import { CORE_CANDY_GUARD_PROGRAM } from '../mint-analyzer/programs';
-import { CANDY_GUARD_PROGRAM } from '../ingestion/mint-raw/launchpad-detector';
+import { CORE_CANDY_GUARD_PROGRAM, CORE_CANDY_MACHINE_PROGRAM } from '../mint-analyzer/programs';
+import { CANDY_GUARD_PROGRAM, CANDY_MACHINE_V3_PROGRAM } from '../ingestion/mint-raw/launchpad-detector';
 import bs58 from 'bs58';
 
 export type CandyMintFamily = 'core' | 'legacy';
@@ -59,6 +59,18 @@ export interface DecodedCandyMint {
 export type DecodeResult =
   | { ok: true; decoded: DecodedCandyMint }
   | { ok: false; error: string };
+
+// Mint-instruction discriminators (same pins as the frontend auditor).
+// A guard program also exposes `Route` (allowList proof, freeze escrow
+// ops) which often precedes the mint in the same tx — matching by program
+// id alone picks that up instead of the mint.
+const CORE_MINT_V1_DISC = Buffer.from([145, 98, 192, 118, 184, 147, 118, 104]);
+const LEGACY_MINT_V2_DISC = Buffer.from([120, 121, 23, 146, 173, 110, 199, 205]);
+
+function hasDisc(dataB58: string, disc: Buffer): boolean {
+  const data = Buffer.from(bs58.decode(dataB58));
+  return data.length >= 8 && data.subarray(0, 8).equals(disc);
+}
 
 /** Reads Anchor's `Option<T>` tag (1 byte: 0=None, 1=Some) + payload. */
 function readOptionalString(data: Buffer, offset: number): { value: string | null; next: number } {
@@ -119,11 +131,20 @@ export async function decodeCandyMintSignature(signature: string): Promise<Decod
     ...tx.transaction.message.instructions,
     ...(tx.meta?.innerInstructions ?? []).flatMap((g) => g.instructions),
   ];
-  const outerCore = allIx.find((ix) => keys[ix.programIdIndex] === CORE_CANDY_GUARD_PROGRAM);
-  const outerLegacy = outerCore ? undefined : allIx.find((ix) => keys[ix.programIdIndex] === CANDY_GUARD_PROGRAM);
+  const outerCore = allIx.find((ix) => keys[ix.programIdIndex] === CORE_CANDY_GUARD_PROGRAM && hasDisc(ix.data, CORE_MINT_V1_DISC));
+  const outerLegacy = outerCore ? undefined : allIx.find((ix) => keys[ix.programIdIndex] === CANDY_GUARD_PROGRAM && hasDisc(ix.data, LEGACY_MINT_V2_DISC));
   const family: CandyMintFamily | null = outerCore ? 'core' : outerLegacy ? 'legacy' : null;
   const outer = outerCore ?? outerLegacy;
-  if (!family || !outer) return { ok: false, error: 'no_candy_guard_instruction_found' };
+  if (!family || !outer) {
+    // Candy Machine called directly with no guard: its mintAuthority is a
+    // plain wallet (launchpad backend / creator airdrop) that must sign
+    // every mint — nothing a third party can reproduce.
+    const direct = allIx.some((ix) => {
+      const pid = keys[ix.programIdIndex];
+      return pid === CORE_CANDY_MACHINE_PROGRAM || pid === CANDY_MACHINE_V3_PROGRAM;
+    });
+    return { ok: false, error: direct ? 'direct_candy_machine_mint_no_guard' : 'no_candy_guard_instruction_found' };
+  }
 
   const minAccounts = family === 'core' ? 13 : 25;
   if (outer.accounts.length < minAccounts) return { ok: false, error: 'unexpected_account_count' };
