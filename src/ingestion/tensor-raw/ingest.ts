@@ -19,6 +19,7 @@ import { Priority } from '../concurrency';
 import { extractNftMintsInvolved } from '../me-raw/price';
 import { saleEventBus } from '../../events/emitter';
 import { insertSaleEvent, patchSaleEventRaw } from '../../db/insert';
+import { isPhygitalsHeliusTx, isPhygitalsRawTx } from './phygitals';
 import { HeliusEnhancedTransaction } from '../helius/types';
 import { SaleEvent, Marketplace, NftType } from '../../models/sale-event';
 import { trace } from '../../trace';
@@ -177,6 +178,7 @@ export async function ingestTensorRaw(
 
   if (heliusTx) {
     const fast = tryBuildFastTensorEvent(heliusTx);
+    if (fast && fast.marketplace === 'tensor' && isPhygitalsHeliusTx(heliusTx)) fast.marketplace = 'phygitals';
     if (fast) {
       fastParser = fast.rawData._parser as string;
       try {
@@ -431,6 +433,7 @@ export async function ingestTensorRaw(
     return 'confirmed_irrelevant';
   }
 
+  if (result.event.marketplace === 'tensor' && isPhygitalsRawTx(tx)) result.event.marketplace = 'phygitals';
   const tag = (result.event.rawData as Record<string, unknown>)._parser ?? 'tensor_raw';
 
   auditRecordOutcome(sig, 'accepted_sale');

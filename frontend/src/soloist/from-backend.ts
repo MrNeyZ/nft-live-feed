@@ -34,6 +34,7 @@ function mapMarketplace(mp: string): Marketplace {
   if (mp === 'orbis') return 'orbis';
   if (mp === 'opensea') return 'opensea';
   if (mp === 'artproof') return 'artproof';
+  if (mp === 'phygitals') return 'phygitals';
   return 'me';
 }
 
@@ -175,6 +176,9 @@ export function marketplaceUrl(event: FeedEvent): string | null {
   // OpenSea's actual slugs (broken/wrong-collection links in practice), so
   // back to the item page unconditionally. No OpenSea-native collection-slug
   // enrichment exists — don't reintroduce the guessed-slug link without one.
+  // Phygitals: Tensor-protocol sales that tensor.trade never shows; their card
+  // pages sit behind a Cloudflare wall with no known URL pattern — homepage.
+  if (event.marketplace === 'phygitals') return 'https://www.phygitals.com';
   if (event.marketplace === 'opensea') {
     if (event.mintAddress) return `https://opensea.io/assets/solana/${event.mintAddress}`;
     return 'https://opensea.io';

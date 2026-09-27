@@ -708,6 +708,7 @@ export function MktIconBadge({ mp, href }: { mp: Marketplace; href?: string | nu
     : mp === 'orbis'    ? '/brand/orbis.png'
     : mp === 'opensea'  ? '/brand/opensea.png'
     : mp === 'artproof' ? '/brand/artproof.png'
+    : mp === 'phygitals' ? '/brand/phygitals.png'
     : null;
   if (!src || imgFailed) return <MktBadge mp={mp} href={href} />;
   const chip: React.CSSProperties = {

@@ -56,6 +56,7 @@ export function sourceFromMarketplace(marketplace: string): Source {
     case 'magic_eden':     return 'me_v2';
     case 'magic_eden_amm': return 'mmm';
     case 'tensor':         return 'tcomp';
+    case 'phygitals':      return 'tcomp';
     case 'tensor_amm':     return 'tamm';
     default:               return 'unknown';
   }

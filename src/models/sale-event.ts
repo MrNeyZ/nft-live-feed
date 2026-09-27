@@ -7,6 +7,7 @@ export type Marketplace =
   | 'tensor_amm'
   | 'orbis'
   | 'opensea'
+  | 'phygitals'
   | 'unknown';
 
 export type Currency = 'SOL' | 'USDC';
