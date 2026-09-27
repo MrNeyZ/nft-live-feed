@@ -58,10 +58,15 @@ interface GhostBidRow {
   galxe: string | null;
   listingStatus: string | null;
   newFields?: string[];
+  /** UNDERFUNDED lists only — see UF_LISTS below. */
+  underfunded?: boolean;
+  escrowSol?: number;
+  topupSol?: number | null;
+  floorAssumed?: boolean;
 }
 interface ApiResult {
   ok: true;
-  list?: number | 'nofloor' | 'skipped';
+  list?: ListSel;
   updatedAt: number;
   /** Unix ms mtime of this list's dataset file — see floorSnapshotCaption
    *  in ./logic. Absent on a response from a not-yet-redeployed backend;
@@ -73,7 +78,19 @@ interface ApiResult {
 }
 
 type SortCol = 'profit' | 'bid' | 'days' | 'sns' | 'matrica' | 'social' | 'pumpfun' | 'me' | 'galxe';
-type ListSel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 'nofloor' | 'skipped';
+type UfList = 'uf-unique-1' | 'uf-unique-2' | 'uf-shared-1' | 'uf-shared-2' | 'uf-shared-3' | 'uf-shared-4';
+type ListSel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 'nofloor' | 'skipped' | UfList;
+// UNDERFUNDED block — live M2 bids whose shared escrow holds less than the
+// bid. Topping the escrow up and filling in one bundle returns the top-up as
+// part of the bid, so profit = what was already in escrow − fees − NFT at
+// floor (see toGhostRows on the backend). Unique = buyer's only bid, Shared =
+// 2+ bids on one escrow (only the first fill pays).
+const UF_LISTS: { id: UfList; label: string }[] = [
+  { id: 'uf-unique-1', label: 'Unique 1' }, { id: 'uf-unique-2', label: 'Unique 2' },
+  { id: 'uf-shared-1', label: 'Shared 1' }, { id: 'uf-shared-2', label: 'Shared 2' },
+  { id: 'uf-shared-3', label: 'Shared 3' }, { id: 'uf-shared-4', label: 'Shared 4' },
+];
+function isUfList(l: ListSel): l is UfList { return typeof l === 'string' && l.startsWith('uf-'); }
 
 // `listingStatus` null / 'LISTED_ME' / 'LISTED_TENSOR' → owner is a real,
 // resolved wallet (either the actual holder, or that mint's real seller —
@@ -306,9 +323,11 @@ export default function GhostBidPage() {
   // keeps each list's cached/live-refreshed state independently.
   const [activeList, setActiveList] = useState<ListSel>(1);
   const [listMenuOpen, setListMenuOpen] = useState(false);
-  const LIST_COUNTS: Record<ListSel, number> = { 1: 89, 2: 91, 3: 91, 4: 93, 5: 91, 6: 89, 7: 93, 8: 45, nofloor: 20, skipped: 100 };
+  const LIST_COUNTS: Record<ListSel, number> = { 1: 89, 2: 91, 3: 91, 4: 93, 5: 91, 6: 89, 7: 93, 8: 45, nofloor: 20, skipped: 100,
+    'uf-unique-1': 100, 'uf-unique-2': 12, 'uf-shared-1': 92, 'uf-shared-2': 100, 'uf-shared-3': 100, 'uf-shared-4': 10 };
   const isNoFloorList = activeList === 'nofloor';
   const isSkippedList = activeList === 'skipped';
+  const isUf = isUfList(activeList);
 
   // GB-1 fix: `result`/`error` are shared between load() and refresh(), and
   // either can be in flight for either list at once (list-switch mid-fetch,
@@ -481,7 +500,7 @@ export default function GhostBidPage() {
                 borderRadius: 6, border: `1px solid ${alpha(VL.purpleTint, 0.30)}`,
                 background: alpha(VL.purpleTint, 0.10), color: rgb(VL.purpleTint), cursor: 'pointer',
               }}>
-              {isNoFloorList ? 'NO FLOOR' : isSkippedList ? 'SKIPPED' : `List ${activeList}`}
+              {isNoFloorList ? 'NO FLOOR' : isSkippedList ? 'SKIPPED' : isUf ? `UNDERFUNDED · ${UF_LISTS.find(l => l.id === activeList)?.label}` : `List ${activeList}`}
               <span style={{ fontSize: 9, opacity: 0.7 }}>{listMenuOpen ? '▲' : '▼'}</span>
             </button>
             {listMenuOpen && (
@@ -538,6 +557,29 @@ export default function GhostBidPage() {
                   <span>Skipped</span>
                   <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS.skipped}</span>
                 </button>
+                <div style={{ height: 1, background: alpha(VL.purpleTint, 0.20) }} />
+                <div style={{ padding: '8px 12px 4px', fontSize: 9, fontWeight: 800, letterSpacing: '1.2px', color: alpha(VL.gold, 0.7) }}
+                  title="Bids whose escrow holds less than the bid — top up + fill in one bundle">
+                  UNDERFUNDED
+                </div>
+                {UF_LISTS.map(({ id, label }) => {
+                  const on = activeList === id;
+                  return (
+                    <button key={id} type="button"
+                      onClick={() => { setActiveList(id); setSortCol('profit'); setListMenuOpen(false); }}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', width: '100%', padding: '9px 12px',
+                        fontSize: 11.5, fontWeight: on ? 800 : 600, border: 'none', cursor: 'pointer',
+                        background: on ? alpha(VL.purpleTint, 0.18) : 'transparent',
+                        color: on ? rgb(VL.purpleTint) : VLText.primary, textAlign: 'left',
+                      }}
+                      onMouseEnter={(e) => { if (!on) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                      onMouseLeave={(e) => { if (!on) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                      <span>{label}</span>
+                      <span style={{ ...MONO, fontSize: 10, opacity: 0.6 }}>{LIST_COUNTS[id]}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -744,8 +786,15 @@ export default function GhostBidPage() {
                         ) : (
                           <td style={{ ...ROW_H, textAlign: 'center', ...MONO, fontVariantNumeric: 'tabular-nums', fontSize: 16, fontWeight: 900,
                             color: r.profitSol == null ? 'var(--vl-text-muted)' : r.profitSol > 0 ? '#ffd85e' : 'var(--vl-red-primary)' }}
-                            title={r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
+                            title={r.underfunded
+                              ? `escrow ${fmtSol(r.escrowSol)} / bid ${fmtSol(r.bidSol)} — top up ${fmtSol(r.topupSol)} SOL, buy at floor ${fmtSol(r.floorSol)}${r.floorAssumed ? ' (assumed — no ME floor)' : ''}`
+                              : r.drained ? `bid dropped from ${fmtSol(r.bidSol)} to ${fmtSol(r.liveBidSol)} SOL — shared escrow spent elsewhere` : undefined}>
                             {r.profitSol == null ? '—' : fmtSol(r.profitSol)}{r.drained && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--vl-red-primary)' }}>▼</span>}
+                            {r.underfunded && (
+                              <div style={{ fontSize: 9.5, fontWeight: 600, color: VLText.faint, marginTop: 2, whiteSpace: 'nowrap' }}>
+                                {fmtSol(r.escrowSol)}/{fmtSol(r.bidSol)} · +{fmtSol(r.topupSol)}
+                              </div>
+                            )}
                           </td>
                         )}
                         {(() => {

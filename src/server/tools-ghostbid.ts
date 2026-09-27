@@ -58,14 +58,24 @@ const NOFLOOR_LIST_ID = 'nofloor' as const;
 // collection floor lookups for them, so they never got ranked). Profit-ranked
 // like 1-8, own file.
 const SKIPPED_LIST_ID = 'skipped' as const;
-type ListId = typeof DATA_LIST_IDS[number] | typeof NOFLOOR_LIST_ID | typeof SKIPPED_LIST_ID;
+// UNDERFUNDED block (2026-09-27) — live M2 bids whose shared escrow holds
+// LESS than the bid. Anyone can top the buyer's escrow up (plain SOL
+// transfer to the PDA) and fill in the same bundle; the top-up comes straight
+// back as part of the bid, so the edge is only what was already sitting in
+// the escrow. `unique` = buyer has exactly one such bid, `shared` = 2+ bids
+// on one escrow (only the first fill pays). Paged ~100 rows, shared pages
+// never split one buyer's group.
+const UF_LIST_IDS = ['uf-unique-1', 'uf-unique-2', 'uf-shared-1', 'uf-shared-2', 'uf-shared-3', 'uf-shared-4'] as const;
+type ListId = typeof DATA_LIST_IDS[number] | typeof NOFLOOR_LIST_ID | typeof SKIPPED_LIST_ID | typeof UF_LIST_IDS[number];
 export function isListId(v: unknown): v is ListId {
   if (v === NOFLOOR_LIST_ID || v === SKIPPED_LIST_ID) return true;
+  if (typeof v === 'string') return (UF_LIST_IDS as readonly string[]).includes(v);
   return typeof v === 'number' && (DATA_LIST_IDS as readonly number[]).includes(v);
 }
 function dataPathForList(list: ListId): string {
   const file = list === NOFLOOR_LIST_ID ? 'ghostbid-nofloor.json'
     : list === SKIPPED_LIST_ID ? 'ghostbid-skipped.json'
+    : typeof list === 'string' ? `ghostbid-${list}.json`
     : list === 1 ? 'ghostbid.json' : `ghostbid-list${list}.json`;
   return join(__dirname, '..', '..', 'data', file);
 }
@@ -130,9 +140,18 @@ export interface BaseRow {
    *  the operator can tell which contacts haven't been messaged yet. Absent
    *  = nothing new. */
   newFields?: string[];
+  /** UNDERFUNDED rows only: buyer's shared M2 escrow balance when the list
+   *  was built (< bidSol). Profit uses the live balance after a Refresh. */
+  escrowSol?: number;
+  underfunded?: boolean;
+  /** Collection had no ME floor — `floorSol` is an assumed 0.02. */
+  floorAssumed?: boolean;
 }
 
 export interface GhostBidRow extends BaseRow {
+  /** UNDERFUNDED rows only: SOL to transfer into the buyer's escrow so it
+   *  covers bid + royalty (null on regular rows). */
+  topupSol?: number | null;
   liveBidSol: number;
   profitSol: number | null;
   drained: boolean; // liveBidSol < bidSol (shared escrow spent elsewhere, or offer withdrawn)
@@ -197,6 +216,25 @@ export function toGhostRows(
     const escrowKey = r.marketplace === 'ME' ? r.buyer : r.offerAccount;
     let liveBidSol = r.bidSol;
     let drained = false;
+    if (r.underfunded) {
+      // Top-up economics: we fund escrow up to bid + royalty, sell into the
+      // bid (2% ME fee + pNFT royalty come out of that), buy the NFT at floor
+      // (2% + pNFT royalty on the buy side too). The bid itself nets out —
+      // profit is what was already in the escrow minus fees and the NFT.
+      const liveSol = liveBalances?.get(r.buyer);
+      const escrowSol = typeof liveSol === 'number' ? liveSol : (r.escrowSol ?? 0);
+      drained = escrowSol < (r.escrowSol ?? 0) - 1e-6;
+      const roy = r.royaltyBp / 10000, fee = r.feeBp / 10000;
+      const profit = r.floorSol == null ? null
+        : escrowSol - r.bidSol * (roy + fee) - r.floorSol * (1 + fee + roy);
+      const liveOwner = currentOwners?.get(r.mint) ?? null;
+      return {
+        r: { ...r, escrowSol: Math.round(escrowSol * 1e6) / 1e6 }, liveBidSol, drained,
+        profitSol: profit == null ? null : Math.round(profit * 1e6) / 1e6,
+        filled: liveOwner === r.buyer, liveOwner,
+        ownerChanged: liveOwner != null && liveOwner !== r.owner,
+      };
+    }
     if (liveBalances && escrowKey) {
       const liveSol = liveBalances.get(escrowKey);
       if (typeof liveSol === 'number') {
@@ -251,6 +289,9 @@ export function toGhostRows(
     liveOwner,
     ownerChanged,
     ownerChangedAt: ownerChanged ? (mintActivity?.get(r.mint) ?? null) : null,
+    topupSol: r.underfunded
+      ? Math.round(Math.max(0, r.bidSol * (1 + r.royaltyBp / 10000) - (r.escrowSol ?? 0)) * 1e6) / 1e6
+      : null,
   })).sort((a, b) => (b.profitSol ?? -Infinity) - (a.profitSol ?? -Infinity));
 }
 
@@ -620,6 +661,7 @@ export function createGhostBidRouter(): Router {
     if (req.query.list === undefined) return 1;
     if (req.query.list === NOFLOOR_LIST_ID) return NOFLOOR_LIST_ID;
     if (req.query.list === SKIPPED_LIST_ID) return SKIPPED_LIST_ID;
+    if (isListId(req.query.list)) return req.query.list;
     const n = Number(req.query.list);
     return isListId(n) ? n : null;
   }

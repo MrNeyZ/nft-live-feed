@@ -299,5 +299,35 @@ check('rows sorted by profitSol descending, nulls last', () => {
   assert.deepStrictEqual(out.map(r => r.mint), ['HIGH', 'LOW', 'NOFLOOR']);
 });
 
+// ── underfunded (top-up) rows ─────────────────────────────────────────────
+console.log('toGhostRows — underfunded');
+check('uf lists are valid list ids', () => {
+  assert.strictEqual(isListId('uf-unique-1'), true);
+  assert.strictEqual(isListId('uf-shared-4'), true);
+  assert.strictEqual(isListId('uf-shared-9'), false);
+});
+// TombStoned #1127 fill (2026-09-27): escrow 0.3975, bid 4.9, pNFT 5%,
+// bought at 0.014 — bot netted ~+0.04 before its buy-side fee.
+const uf = (o: Partial<BaseRow>) => row({ underfunded: true, escrowSol: 0.3975, bidSol: 4.9, floorSol: 0.014, royaltyBp: 500, feeBp: 200, ...o });
+check('profit = escrow - bid*(roy+fee) - floor*(1+fee+roy)', () => {
+  const [r] = toGhostRows([uf({})], null, null);
+  assert.ok(Math.abs((r.profitSol as number) - (0.3975 - 4.9 * 0.07 - 0.014 * 1.07)) < 1e-6);
+});
+check('topupSol = bid*(1+roy) - escrow', () => {
+  const [r] = toGhostRows([uf({})], null, null);
+  assert.ok(Math.abs((r.topupSol as number) - (4.9 * 1.05 - 0.3975)) < 1e-6);
+  assert.strictEqual(r.liveBidSol, 4.9);
+});
+check('refresh uses live escrow; drained escrow -> profit <= 0 -> dropped', () => {
+  const rich = toGhostRows([uf({ escrowSol: 5 })], new Map([['BuyerAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 5]]), null);
+  assert.strictEqual(rich.length, 1);
+  const dry = toGhostRows([uf({ escrowSol: 5 })], new Map([['BuyerAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 0.0025]]), null);
+  assert.strictEqual(dry.length, 0);
+});
+check('regular rows get topupSol null', () => {
+  const [r] = toGhostRows([row({})], null, null);
+  assert.strictEqual(r.topupSol, null);
+});
+
 console.log(`\n${passed} passed, ${failures} failed`);
 if (failures > 0) process.exit(1);
