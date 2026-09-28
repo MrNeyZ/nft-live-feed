@@ -1814,6 +1814,13 @@ html[data-layout="phone"] .mints-collections-panel::after {
 body[data-bottombar="1"] .feed-root {
   padding-bottom: var(--bottombar-h, 36px);
 }
+/* Collection drill-down isn't a .feed-root but fills the same viewport
+   height — without this its panes (and the chart's time axis) sat behind
+   the fixed bar. */
+body[data-bottombar="1"] [data-page="collection"] {
+  padding-bottom: var(--bottombar-h, 36px);
+  box-sizing: border-box;
+}
 
 /* ── Embed mode (multi-tab iframes) ───────────────────────────────────
    Each embedded page sets data-embedded="1" on its `.feed-root`. Inside

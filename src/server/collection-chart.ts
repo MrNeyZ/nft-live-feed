@@ -48,6 +48,17 @@ export interface ChartPoint {
   ts:    number;            // epoch ms
   price: number;            // SOL
   side:  'buy' | 'sell';
+  // Per-sale detail for the chart's hover/pin tooltip. Shipped inline
+  // (≈150 B/row, ≤ a few k rows per span) so hover needs no round-trip.
+  sig:    string;
+  mint:   string;
+  name:   string | null;
+  image:  string | null;
+  mp:     string;
+  buyer:  string;
+  seller: string;
+  rank:   number | null;
+  supply: number | null;
 }
 
 interface CacheEntry { points: ChartPoint[]; fetchedAt: number }
@@ -56,16 +67,20 @@ const inFlight = new Map<string, Promise<ChartPoint[]>>();
 
 const CHART_SQL = `
   SELECT
-    (EXTRACT(EPOCH FROM block_time) * 1000)::float8   AS ts_ms,
-    price_sol::float8                                  AS price,
-    raw_data->>'_parser'                                AS parser_extract,
-    raw_data->>'_direction'                             AS direction_extract,
-    raw_data->'events'->'nft'->>'saleType'              AS helius_sale_type_extract
-  FROM sale_events
-  WHERE me_collection_slug = $1
-    AND block_time >= $2
-    AND price_sol > 0
-  ORDER BY block_time DESC, id DESC
+    (EXTRACT(EPOCH FROM s.block_time) * 1000)::float8 AS ts_ms,
+    s.price_sol::float8                                AS price,
+    s.raw_data->>'_parser'                              AS parser_extract,
+    s.raw_data->>'_direction'                           AS direction_extract,
+    s.raw_data->'events'->'nft'->>'saleType'            AS helius_sale_type_extract,
+    s.signature, s.mint_address, s.nft_name, s.image_url, s.marketplace,
+    s.buyer, s.seller,
+    r.rarity_rank, r.total_supply
+  FROM sale_events s
+  LEFT JOIN mint_rarity_cache r ON r.mint_address = s.mint_address
+  WHERE s.me_collection_slug = $1
+    AND s.block_time >= $2
+    AND s.price_sol > 0
+  ORDER BY s.block_time DESC, s.id DESC
   LIMIT $3
 `;
 
@@ -75,6 +90,15 @@ interface Row {
   parser_extract:            string | null;
   direction_extract:         string | null;
   helius_sale_type_extract:  string | null;
+  signature:                 string;
+  mint_address:              string;
+  nft_name:                  string | null;
+  image_url:                 string | null;
+  marketplace:               string;
+  buyer:                     string;
+  seller:                    string;
+  rarity_rank:               number | null;
+  total_supply:              number | null;
 }
 
 function sideFromSaleType(st: ReturnType<typeof deriveSaleType>): 'buy' | 'sell' {
@@ -92,7 +116,13 @@ async function computeChart(slug: string, span: Span): Promise<ChartPoint[]> {
       direction:      r.direction_extract,
       heliusSaleType: r.helius_sale_type_extract,
     });
-    out.push({ ts: r.ts_ms, price: r.price, side: sideFromSaleType(st) });
+    out.push({
+      ts: r.ts_ms, price: r.price, side: sideFromSaleType(st),
+      sig: r.signature, mint: r.mint_address,
+      name: r.nft_name || null, image: r.image_url || null,
+      mp: r.marketplace, buyer: r.buyer, seller: r.seller,
+      rank: r.rarity_rank, supply: r.total_supply,
+    });
   }
   return out;
 }

@@ -33,7 +33,7 @@ import {
   compressImage, BarIconButton,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
-import { ScatterChart, type ScatterPoint } from '@/soloist/scatter-chart';
+import { SalesChart, type SalePoint } from '@/soloist/sales-chart';
 import {
   connectPhantom,
   eagerConnectPhantom,
@@ -62,9 +62,19 @@ const STATS_REFRESH_MS    = 60_000;
 const LISTINGS_REFRESH_MS = 5 * 60_000;
 
 const SPANS     = ['1H','4H','1D','7D','30D'] as const;
-const INTERVALS = ['1M','5M','15M','30M','1H'] as const;
 type Span     = typeof SPANS[number];
-type Interval = typeof INTERVALS[number];
+const SPAN_MS: Record<Span, number> = {
+  '1H': 3_600_000, '4H': 14_400_000, '1D': 86_400_000,
+  '7D': 604_800_000, '30D': 2_592_000_000,
+};
+
+/** Row shape of GET /api/collections/chart. */
+interface ChartApiPoint {
+  ts: number; price: number; side: 'buy' | 'sell';
+  sig: string; mint: string; name: string | null; image: string | null;
+  mp: string; buyer: string; seller: string;
+  rank: number | null; supply: number | null;
+}
 // SPAN_MS removed: span → window is now owned by the backend
 // (/api/collections/chart?span=…); frontend just passes the label through.
 
@@ -607,7 +617,6 @@ export default function CollectionPage() {
   // Tab + chart selectors (verbatim from original)
   const [tab, setTab] = useState<'live' | 'summary'>('live');
   const [span, setSpan] = useState<Span>('7D');
-  const [interval_, setInterval_] = useState<Interval>('5M');
   const [outliers, setOutliers] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [tradeFiltersOpen, setTradeFiltersOpen] = useState(false);
@@ -954,7 +963,7 @@ export default function CollectionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marketSignal]);
   const [buyStatuses,   setBuyStatuses]   = useState<Record<string, BuyStatus>>({});
-  const [chartPoints,   setChartPoints]   = useState<ScatterPoint[]>([]);
+  const [chartPoints,   setChartPoints]   = useState<ChartApiPoint[]>([]);
   // ── Progressive-reveal render caps ──────────────────────────────────────
   // The listings / trades state buffers are populated as before; the page
   // only paints this many rows per panel on first render, then grows in
@@ -1346,9 +1355,9 @@ export default function CollectionPage() {
 
   // ── Chart points (backend-derived; decoupled from TRADES buffer) ───────
   // Fetched per (slug, span) from /api/collections/chart so chart fidelity
-  // is no longer bounded by MAX_EVENTS. The `outliers` toggle stays in the
-  // UI but was already a no-op in the in-memory version; backend ships all
-  // points in-span (capped by MAX_POINTS server-side).
+  // is no longer bounded by MAX_EVENTS. Each point carries sale detail for
+  // the chart tooltip. Live SSE trades newer than the snapshot are merged
+  // in below so new sales land on the chart without a refetch.
   useEffect(() => {
     if (!slug) return;
     let cancelled = false;
@@ -1356,17 +1365,43 @@ export default function CollectionPage() {
       try {
         const res = await fetch(`${API_BASE}/api/collections/chart?slug=${encodeURIComponent(slug)}&span=${span}`);
         if (!res.ok) return;
-        const json = await res.json() as {
-          points: { ts: number; price: number; side: 'buy' | 'sell' }[];
-        };
+        const json = await res.json() as { points: ChartApiPoint[] };
         if (cancelled) return;
-        setChartPoints(json.points.map(p => ({ ts: p.ts, price: p.price, type: p.side })));
+        setChartPoints(json.points);
       } catch { /* transient */ }
     };
     load();
     return () => { cancelled = true; };
   }, [slug, span]);
-  void outliers;   // toggle retained in UI; server returns the full in-span set
+
+  const salePoints = useMemo<SalePoint[]>(() => {
+    const stem = nameStem ?? resolvedName ?? slug;
+    const seen = new Set<string>();
+    const out: SalePoint[] = [];
+    for (const p of chartPoints) {
+      seen.add(p.sig);
+      const d = resolveNftDisplay({ nftName: p.name, mint: p.mint, imageUrl: p.image, stem, imageByMint });
+      out.push({
+        ts: p.ts, price: p.price, side: p.side, sig: p.sig, mint: p.mint,
+        name: d.name, image: d.image, mp: p.mp, buyer: p.buyer, seller: p.seller,
+        rank: p.rank, supply: p.supply,
+      });
+    }
+    const cutoff = Date.now() - SPAN_MS[span];
+    for (const ev of events) {
+      if (ev.ts < cutoff || seen.has(ev.signature) || !(ev.grossPrice > 0)) continue;
+      if ((ev.currency ?? 'SOL') !== 'SOL') continue;
+      seen.add(ev.signature);
+      const d = resolveNftDisplay({ nftName: ev.nftName, mint: ev.mintAddress, imageUrl: ev.imageUrl, stem, imageByMint });
+      out.push({
+        ts: ev.ts, price: ev.grossPrice, side: ev.side === 'sell' ? 'sell' : 'buy',
+        sig: ev.signature, mint: ev.mintAddress, name: d.name, image: d.image,
+        mp: String(ev.marketplace), buyer: ev.buyer, seller: ev.seller,
+        rank: ev.rarityRank ?? null, supply: ev.totalSupply ?? null,
+      });
+    }
+    return out;
+  }, [chartPoints, events, span, nameStem, resolvedName, slug, imageByMint]);
 
   // ── Row-1/2 stat values (backend-derived; no in-memory reductions) ─────
   // `sales1dCount` label is the 24h window, matching the backend field.
@@ -1381,7 +1416,7 @@ export default function CollectionPage() {
   void tick;  // retained for TradeRowItem timeAgo refresh
 
   return (
-    <div className="page-transition" data-page="collection" style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+    <div className="page-transition" data-page="collection" style={{ display:'flex', flexDirection:'column', height:'calc(100% - var(--topnav-h, 0px))' }}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
 
       {/* Collection header (verbatim layout from collection.html) */}
@@ -1759,21 +1794,6 @@ export default function CollectionPage() {
           }}>
             <span style={{ fontSize:11, fontWeight:700, color:'var(--vl-text-muted)', letterSpacing:'0.5px' }}>TRADES</span>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              {/* Interval: dead control — bucketing / OHLC not implemented.
-                  Rendered as visually inactive so users don't mistake it for a
-                  working toggle. State hook kept in place as a no-op to keep
-                  the diff minimal. */}
-              <span  style={{ fontSize:11, color:'var(--stat-label-color, var(--vl-border-subtle))' }}>Interval</span>
-              <div  style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden', opacity:0.5 }}>
-                {INTERVALS.map(v => (
-                  <button key={v} disabled style={{
-                    padding:'1px 5px', fontSize:9, fontWeight:600, border:'none',
-                    background:'transparent',
-                    color:'var(--vl-border-subtle)',
-                    cursor:'default', borderRight:'1px solid #ffffff08',
-                  }}>{v}</button>
-                ))}
-              </div>
               <span style={{ fontSize:11, color:'#4d4d6e' }}>Span</span>
               <div style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden' }}>
                 {SPANS.map(v => (
@@ -1786,18 +1806,23 @@ export default function CollectionPage() {
                   }}>{v}</button>
                 ))}
               </div>
-              {/* Outliers: dead control — IQR / z-score filtering not
-                  implemented. Rendered forced-off and non-interactive. */}
-              <span  style={{ fontSize:11, color:'var(--stat-label-color, var(--vl-border-subtle))' }}>Outliers</span>
-              <div  style={{
-                width:32, height:16, borderRadius:8, cursor:'default',
-                background:'#ffffff0d', position:'relative', opacity:0.5,
-              }}>
-                <div style={{
-                  position:'absolute', top:2, left:2,
-                  width:12, height:12, borderRadius:'50%', background:'var(--vl-white)',
-                }} />
-              </div>
+              <button
+                onClick={() => setOutliers(v => !v)}
+                title={outliers ? 'Showing every sale (axis stretches to extremes)' : 'Extreme sales pinned to the chart edge'}
+                style={{ display:'flex', alignItems:'center', gap:6, background:'none', border:'none', padding:0, cursor:'pointer' }}>
+                <span style={{ fontSize:11, color: outliers ? 'var(--vl-text-muted)' : '#4d4d6e' }}>Outliers</span>
+                <span style={{
+                  width:28, height:14, borderRadius:7, position:'relative',
+                  background: outliers ? 'rgb(var(--vl-green) / .35)' : '#ffffff0d',
+                  transition:'background 120ms',
+                }}>
+                  <span style={{
+                    position:'absolute', top:2, left: outliers ? 16 : 2,
+                    width:10, height:10, borderRadius:'50%', background:'var(--vl-white)',
+                    transition:'left 120ms',
+                  }} />
+                </span>
+              </button>
             </div>
           </div>
 
@@ -1810,11 +1835,7 @@ export default function CollectionPage() {
             borderRadius:8,
             overflow:'hidden',
           }}>
-            {chartPoints.length >= 2
-              ? <ScatterChart trades={chartPoints} span={span} interval={interval_} />
-              : <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--vl-text-muted)', fontSize:11 }}>
-                  Need at least 2 sales in this span to plot.
-                </div>}
+            <SalesChart points={salePoints} spanMs={SPAN_MS[span]} floor={floorSol} showOutliers={outliers} />
           </div>
         </div>
       </div>
