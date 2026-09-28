@@ -1130,11 +1130,34 @@ async function fetchTensor(slug: string): Promise<Listing[]> {
   }
 }
 
+// tensorFetch is one process-wide 1 req/s chain shared with bids/trending,
+// so its queue can run minutes long. A snapshot (which holds one of the few
+// snapshot slots) must never wait on it: cap the wait, keep the last known
+// Tensor rows, and let the late result land for the next snapshot.
+const TENSOR_SNAPSHOT_WAIT_MS = 4_000;
+const tensorLast = new Map<string, Listing[]>();
+
+function fetchTensorBounded(slug: string): Promise<Listing[]> {
+  const live = fetchTensor(slug).then(rows => { tensorLast.set(slug, rows); return rows; });
+  const fallback = new Promise<Listing[]>(resolve => setTimeout(() => {
+    const prev = tensorLast.get(slug)
+      ?? getByCollectionRaw(slug).filter(l => l.source === 'TENSOR');
+    resolve(prev);
+  }, TENSOR_SNAPSHOT_WAIT_MS));
+  return Promise.race([live, fallback]);
+}
+
+function getByCollectionRaw(slug: string): Listing[] {
+  const out: Listing[] = [];
+  for (const id of byCollection.get(slug) ?? []) { const l = byId.get(id); if (l) out.push(l); }
+  return out;
+}
+
 async function fetchSnapshot(slug: string): Promise<Listing[]> {
   const [me, mmm, tensor] = await Promise.all([
     fetchMeDirect(slug),
     fetchMmmPools(slug),
-    fetchTensor(slug),
+    fetchTensorBounded(slug),
   ]);
   return [...me, ...mmm, ...tensor];
 }
