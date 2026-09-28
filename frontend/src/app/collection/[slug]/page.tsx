@@ -14,7 +14,7 @@
 // the original ListingRow's static price label gains a TypeBadge that
 // becomes the live Buy button.
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { authHeaders } from '@/runtime/auth';
 import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet } from '@/soloist/mock-data';
@@ -35,7 +35,7 @@ import {
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { useUiSoundEnabled, setUiSoundEnabled } from '@/soloist/use-ui-sound';
 import { SalesChart, type SalePoint } from '@/soloist/sales-chart';
-import { FeedCard, ListingCard, type ListingCardBuy } from '@/app/feed/lib/feed-card';
+import { FeedCard, ListingCard, PoolGroupCard, type ListingCardBuy } from '@/app/feed/lib/feed-card';
 import { useInclusiveFees } from '@/soloist/price-mode';
 import {
   connectPhantom,
@@ -92,6 +92,9 @@ interface ListingRow {
   tokenAta:     string;
   rank:         number | null;
   marketplace:  'me' | 'tensor';
+  /** MMM pool address for pool-hosted NFTs (grouped into one collapsed
+   *  row per pool), null for ordinary listings. */
+  poolKey?:     string | null;
   /** Epoch ms when the listing was created on-chain. Null when unavailable
    *  (MMM pool rows, Tensor listings not yet wired, or ME listings older
    *  than the 100-row activities window). */
@@ -276,10 +279,11 @@ function listingBuyProps(
   buyEnabled: boolean | null, onBuy: (l: ListingRow) => void,
 ): ListingCardBuy {
   const isMe = listing.marketplace === 'me';
+  const isPool = !!listing.poolKey;
   const busy = status.kind === 'busy', pending = status.kind === 'pending';
   const done = status.kind === 'done', errored = status.kind === 'error';
   // Buy execution is wired for ME only; Tensor rows keep a disabled BUY.
-  const disabled = !isMe || busy || pending || buyEnabled !== true || !walletConnected;
+  const disabled = !isMe || isPool || busy || pending || buyEnabled !== true || !walletConnected;
   const label =
     done    ? '✓'     :
     pending ? 'sent'  :
@@ -288,6 +292,7 @@ function listingBuyProps(
   const title = errored ? `error: ${status.message}`
     : pending            ? `Submitted, confirmation pending — https://solscan.io/tx/${status.signature}`
     : !isMe              ? 'Tensor buy flow not yet implemented'
+    : isPool             ? 'Buying from AMM pools is not implemented yet'
     : buyEnabled === false ? 'Buy unavailable: ME_API_KEY not set on server'
     : !walletConnected   ? 'Connect Phantom to buy'
     :                      `Buy ${formatSol(listing.priceSol)} SOL`;
@@ -847,6 +852,34 @@ export default function CollectionPage() {
   const INITIAL_REVEAL = 20;
   const GROW_STEP = 20;
   const [listingsShow, setListingsShow] = useState(INITIAL_REVEAL);
+  const [openPools, setOpenPools] = useState<Set<string>>(() => new Set());
+  // Pool-hosted NFTs collapse into one row per pool, placed where the pool's
+  // (shared) price sorts; expanding shows its NFTs right under it.
+  const listingItems = useMemo(() => {
+    // SSE snapshots arrive raw (unsorted, one row per source) — apply the
+    // same per-mint dedupe (ME > pool > Tensor) + price sort as the REST API.
+    const rank = (l: ListingRow) => l.marketplace === 'tensor' ? 2 : l.poolKey ? 1 : 0;
+    const byMint = new Map<string, ListingRow>();
+    for (const l of listings) {
+      const cur = byMint.get(l.mint);
+      if (!cur || rank(l) < rank(cur)) byMint.set(l.mint, l);
+    }
+    const sorted = Array.from(byMint.values()).sort((a, b) => a.priceSol - b.priceSol);
+    const byPool = new Map<string, ListingRow[]>();
+    for (const l of sorted) if (l.poolKey) {
+      const arr = byPool.get(l.poolKey);
+      if (arr) arr.push(l); else byPool.set(l.poolKey, [l]);
+    }
+    const out: ({ kind: 'row'; l: ListingRow } | { kind: 'pool'; poolKey: string; rows: ListingRow[] })[] = [];
+    const seen = new Set<string>();
+    for (const l of sorted) {
+      if (!l.poolKey) { out.push({ kind: 'row', l }); continue; }
+      if (seen.has(l.poolKey)) continue;
+      seen.add(l.poolKey);
+      out.push({ kind: 'pool', poolKey: l.poolKey, rows: byPool.get(l.poolKey)! });
+    }
+    return out;
+  }, [listings]);
   const [tradesShow,   setTradesShow]   = useState(INITIAL_REVEAL);
   useEffect(() => {
     dispatchFeed({ type: 'reset' });
@@ -1302,6 +1335,30 @@ export default function CollectionPage() {
   const vol24hSol     = statsData?.vol24h ?? null;
   void tick;  // retained for TradeRowItem timeAgo refresh
 
+  const renderListing = (l: ListingRow, nested = false) => {
+    const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
+    const card = (
+      <ListingCard
+        key={`${l.id}:${l.priceSol}`}
+        fallbackImageUrl={slug ? iconBySlug[slug] ?? null : null}
+        listing={{
+          id: l.id, mint: l.mint, seller: l.seller, priceSol: l.priceSol,
+          marketplace: l.marketplace, listedAt: l.listedAt,
+          baseName: d.baseName, num: d.num,
+          imageUrl: imageByMint.get(l.mint) ?? l.imageUrl,
+          rarityRank: l.rank, totalSupply: collectionSupply,
+        }}
+        floor={listingsFloor}
+        color={headerColor}
+        abbr={headerAbbr}
+        buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
+        onPreview={setPreview}
+        isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
+      />
+    );
+    return nested ? <div key={`${l.id}:${l.priceSol}`} style={{ paddingLeft: 14 }}>{card}</div> : card;
+  };
+
   return (
     <div className="page-transition" data-page="collection" style={{ display:'flex', flexDirection:'column', height:'calc(100% - var(--topnav-h, 0px))' }}>
       {/* TopNav rendered persistently by Gate (anti-flash). */}
@@ -1503,10 +1560,10 @@ export default function CollectionPage() {
             style={{ flex:1, overflowY:'auto' }}
             className="scroll-area"
             onScroll={(e) => {
-              if (listingsShow >= listings.length) return;
+              if (listingsShow >= listingItems.length) return;
               const el = e.currentTarget;
               if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-                setListingsShow(s => Math.min(s + GROW_STEP, listings.length));
+                setListingsShow(s => Math.min(s + GROW_STEP, listingItems.length));
               }
             }}
           >
@@ -1516,26 +1573,29 @@ export default function CollectionPage() {
               </div>
             )}
             <div className="feed-list feed-density-compact">
-              {listings.slice(0, listingsShow).map(l => {
-                const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
+              {listingItems.slice(0, listingsShow).map(it => {
+                if (it.kind === 'row') return renderListing(it.l);
+                const open = openPools.has(it.poolKey);
                 return (
-                  <ListingCard
-                    key={`${l.id}:${l.priceSol}`}
-                    fallbackImageUrl={slug ? iconBySlug[slug] ?? null : null}
-                    listing={{
-                      id: l.id, mint: l.mint, seller: l.seller, priceSol: l.priceSol,
-                      marketplace: l.marketplace, listedAt: l.listedAt,
-                      baseName: d.baseName, num: d.num,
-                      imageUrl: imageByMint.get(l.mint) ?? l.imageUrl,
-                      rarityRank: l.rank, totalSupply: collectionSupply,
-                    }}
-                    floor={listingsFloor}
-                    color={headerColor}
-                    abbr={headerAbbr}
-                    buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
-                    onPreview={setPreview}
-                    isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
-                  />
+                  <Fragment key={`pool:${it.poolKey}`}>
+                    <PoolGroupCard
+                      poolKey={it.poolKey}
+                      count={it.rows.length}
+                      priceSol={it.rows[0].priceSol}
+                      imageUrls={it.rows.slice(0, 3).map(r => imageByMint.get(r.mint) ?? r.imageUrl)}
+                      floor={listingsFloor}
+                      color={headerColor}
+                      abbr={headerAbbr}
+                      expanded={open}
+                      fallbackImageUrl={slug ? iconBySlug[slug] ?? null : null}
+                      onToggle={() => setOpenPools(prev => {
+                        const next = new Set(prev);
+                        if (next.has(it.poolKey)) next.delete(it.poolKey); else next.add(it.poolKey);
+                        return next;
+                      })}
+                    />
+                    {open && it.rows.map(r => renderListing(r, true))}
+                  </Fragment>
                 );
               })}
             </div>

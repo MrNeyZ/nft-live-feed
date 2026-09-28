@@ -36,6 +36,8 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { PublicKey } from '@solana/web3.js';
+import { rpcPost } from './tools-mmm-pools';
+import { ME_AMM_PROGRAM } from '../ingestion/me-raw/programs';
 import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
 import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
 import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
@@ -304,6 +306,7 @@ function toWire(l: Listing) {
     tokenAta:     l.tokenAta,
     rank:         l.rank,
     marketplace:  l.source === 'TENSOR' ? 'tensor' as const : 'me' as const,
+    poolKey:      l.type === 'pool' && l.source === 'MMM' ? l.id.split(':')[1] : null,
     listedAt:     l.listedAt,
     nftName:      l.nftName,
     imageUrl:     l.imageUrl,
@@ -823,6 +826,7 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
 
 interface MmmPoolRaw {
   poolType?:           string;
+  lpFeeBp?:            number;
   spotPrice?:          number;   // lamports (next-out quote)
   curveType?:          string;   // 'exp' | 'linear'
   curveDelta?:         number;   // bps for exp, lamports for linear
@@ -833,22 +837,47 @@ interface MmmPoolRaw {
 }
 
 /**
- * MMM bonding-curve price for the k-th NFT out (0-indexed). `spotPrice` is
- * the quote for the next NFT; each subsequent fill moves one step along the
- * curve. Ascending direction — sell-side pools compound spot upward as
- * inventory drains.
- *
- *   exp    : spot * (1 + delta/10000)^k
- *   linear : spot + delta * k
- *
- * Fees (lpFeeBp, creator royalty) are intentionally excluded — this is the
- * raw pool quote in lamports, converted to SOL exactly once at call site.
+ * MMM price of the NEXT NFT out of a pool — every NFT in a pool costs the same
+ * until one is bought (then the curve steps). Matches ME's own `/listings`
+ * price for pool NFTs (checked on bulltoshi: spot·1.05·1.08 = 0.232378195):
+ *   two_sided : one curve step above spot, plus the LP fee
+ *   otherwise : spot
+ * Creator royalty / taker fee are not included (ME's listed price excludes
+ * them too). ME's listed price wins when present; this is the fallback.
  */
-function mmmPriceLamports(spot: number, curveType: string | undefined, delta: number, k: number): number {
-  if (k === 0) return spot;
-  if (curveType === 'exp')    return spot * Math.pow(1 + delta / 10_000, k);
-  if (curveType === 'linear') return spot + delta * k;
-  return spot;
+function mmmNextBuyLamports(p: MmmPoolRaw): number {
+  const spot = p.spotPrice ?? 0;
+  if (p.poolType !== 'two_sided') return spot;
+  const d = p.curveDelta ?? 0;
+  const stepped = p.curveType === 'linear' ? spot + d : spot * (1 + d / 10_000);
+  return stepped * (1 + (p.lpFeeBp ?? 0) / 10_000);
+}
+
+const MMM_PK         = new PublicKey(ME_AMM_PROGRAM);
+const SELL_STATE_SEED = Buffer.from('mmm_sell_state');
+
+/** ME's pool index lags: sold / withdrawn NFTs keep showing in `mints` for a
+ *  long time. A deposited NFT always has a live sell_state PDA
+ *  ["mmm_sell_state", pool, mint], closed when it leaves the pool (verified
+ *  against Core asset owners: 77/77 agree). One getMultipleAccounts per 100
+ *  mints (1 credit). Returns the set of `${pool}:${mint}` actually in pool;
+ *  null when the RPC failed (caller keeps ME's list rather than dropping all). */
+async function liveMmmMints(pairs: { pool: string; mint: string }[]): Promise<Set<string> | null> {
+  const live = new Set<string>();
+  try {
+    for (let i = 0; i < pairs.length; i += 100) {
+      const chunk = pairs.slice(i, i + 100);
+      const keys = chunk.map(x => PublicKey.findProgramAddressSync(
+        [SELL_STATE_SEED, new PublicKey(x.pool).toBuffer(), new PublicKey(x.mint).toBuffer()], MMM_PK,
+      )[0].toBase58());
+      const r = await rpcPost('getMultipleAccounts', [keys, { encoding: 'base64', dataSlice: { offset: 0, length: 0 } }]) as { value: (unknown | null)[] };
+      chunk.forEach((x, j) => { if (r.value[j]) live.add(`${x.pool}:${x.mint}`); });
+    }
+  } catch (err) {
+    console.warn('[listings/mmm] sell_state check failed', (err as Error).message);
+    return null;
+  }
+  return live;
 }
 
 async function fetchMmmPools(slug: string): Promise<Listing[]> {
@@ -857,40 +886,38 @@ async function fetchMmmPools(slug: string): Promise<Listing[]> {
     const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
     if (!res.ok) return [];
     const json = await res.json() as { results?: MmmPoolRaw[] };
-    const pools = Array.isArray(json.results) ? json.results : [];
+    const pools = (Array.isArray(json.results) ? json.results : [])
+      .filter(p => p.poolKey && (p.poolOwner ?? p.poolKey) && (p.spotPrice ?? 0) > 0 && Array.isArray(p.mints) && p.mints.length > 0);
+    const pairs = pools.flatMap(p => p.mints!.filter(Boolean).map(mint => ({ pool: p.poolKey!, mint })));
+    const live = await liveMmmMints(pairs);
     const out: Listing[] = [];
+    let ghosts = 0;
     for (const p of pools) {
-      const mints = Array.isArray(p.mints) ? p.mints : [];
-      const spot  = typeof p.spotPrice === 'number' ? p.spotPrice : 0;
-      const owner = p.poolOwner ?? p.poolKey;
-      if (mints.length === 0 || spot <= 0 || !owner || !p.poolKey) continue;
-      const delta = typeof p.curveDelta === 'number' ? p.curveDelta : 0;
-      for (let i = 0; i < mints.length; i++) {
-        const mint = mints[i];
+      const priceSol = mmmNextBuyLamports(p) / 1e9;                 // ← single lamports→SOL conversion
+      for (const mint of p.mints!) {
         if (!mint) continue;
-        const lamports = mmmPriceLamports(spot, p.curveType, delta, i);
+        if (live && !live.has(`${p.poolKey}:${mint}`)) { ghosts++; continue; }
         out.push({
           id:           `MMM:${p.poolKey}:${mint}`,
           mint,
-          priceSol:     lamports / 1e9,                             // ← single lamports→SOL conversion
+          priceSol,
           source:       'MMM',
           type:         'pool',
-          seller:       owner,
+          seller:       p.poolOwner ?? p.poolKey!,
           slug,
           auctionHouse: '',                                          // MMM uses fulfill_sell, not AH buy_now
           tokenAta:     '',                                          // resolved at buy-build time
           rank:         null,                                        // pools don't carry rarity
           // Pool `updatedAt` is pool-wide (any spot change, any NFT add/remove)
-          // — not a per-mint deposit timestamp. Leave null so the UI shows "—"
-          // rather than a misleading relative time. No quality either —
-          // there's no per-mint timestamp here at all, exact or approximate.
+          // — not a per-mint deposit timestamp. Leave null so the UI shows "—".
           listedAt:        null,
           listedAtQuality: null,
-          nftName:      null,   // MMM pool response doesn't carry per-mint name
-          imageUrl:     null,   // likewise no per-mint image
+          nftName:      null,   // filled from ME's pool-hosted /listings rows in fetchSnapshot
+          imageUrl:     null,
         });
       }
     }
+    if (ghosts > 0) console.log(`[listings/mmm] slug=${slug} dropped ${ghosts} ghost pool NFT(s) (no sell_state)`);
     return out;
   } catch {
     return [];
@@ -1181,7 +1208,32 @@ async function fetchSnapshot(slug: string): Promise<Listing[]> {
   const tensor = tensorNow(slug);
   const [me, mmm] = await Promise.all([fetchMeDirect(slug), fetchMmmPools(slug)]);
   refreshTensorLate(slug);
-  return [...me, ...mmm, ...tensor];
+  // ME's /listings also returns pool-hosted NFTs (empty auctionHouse). The
+  // on-chain-verified MMM rows are the source of truth for those: ME's copy
+  // only lends name / image / its own price, and an ME pool row with no
+  // verified MMM row is a ghost (already sold / withdrawn) — dropped.
+  const mePool = new Map<string, Listing>();
+  const meAh: Listing[] = [];
+  for (const l of me) (l.auctionHouse ? meAh.push(l) : mePool.set(l.mint, l));
+  const poolPrice = new Map<string, number>();                     // poolKey → ME's next-buy price
+  for (const r of mmm) {
+    const m = mePool.get(r.mint);
+    if (!m) continue;
+    const pk = r.id.split(':')[1];
+    poolPrice.set(pk, Math.min(poolPrice.get(pk) ?? Infinity, m.priceSol));
+  }
+  const pools = mmm.map(r => {
+    const m = mePool.get(r.mint);
+    const pp = poolPrice.get(r.id.split(':')[1]);
+    return {
+      ...r,
+      priceSol: pp ?? r.priceSol,
+      nftName:  m?.nftName ?? null,
+      imageUrl: m?.imageUrl ?? null,
+      rank:     m?.rank ?? null,
+    };
+  });
+  return [...meAh, ...pools, ...tensor];
 }
 
 // ─── Public surface ──────────────────────────────────────────────────────────

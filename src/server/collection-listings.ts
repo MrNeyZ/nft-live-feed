@@ -59,6 +59,8 @@ export interface ListingOut {
   tokenAta:     string;     // empty string when resolved at buy time
   rank:         number | null;
   marketplace:  'me' | 'tensor';
+  /** MMM pool address for pool-hosted rows (UI groups them), else null. */
+  poolKey:      string | null;
   /** Epoch ms when the listing was created on-chain. Null when unavailable. */
   listedAt:     number | null;
   /** NFT item name (from ME `token.name`). Null when the source doesn't
@@ -81,6 +83,7 @@ function toListingOut(l: Listing): ListingOut {
     tokenAta:     l.tokenAta,
     rank:         l.rank,
     marketplace:  l.source === 'TENSOR' ? 'tensor' : 'me',
+    poolKey:      l.type === 'pool' && l.source === 'MMM' ? l.id.split(':')[1] : null,
     listedAt:     l.listedAt,
     nftName:      l.nftName,
     imageUrl:     l.imageUrl,

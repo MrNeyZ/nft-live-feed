@@ -1145,3 +1145,80 @@ export const ListingCard = memo(function ListingCard({
     </div>
   );
 });
+
+/** Collapsed MMM pool row in the listings pane — one row per pool (like ME /
+ *  Tensor), click toggles the pool's NFTs underneath. Every NFT in a pool
+ *  costs the same next-buy price, so the row shows that single price. */
+export const PoolGroupCard = memo(function PoolGroupCard({
+  poolKey, count, priceSol, imageUrls, floor, color, abbr, expanded, onToggle, fallbackImageUrl = null,
+}: {
+  poolKey:   string;
+  count:     number;
+  priceSol:  number;
+  /** Up to 3 NFT thumbnails from the pool. */
+  imageUrls: (string | null)[];
+  floor:     number | null;
+  color:     string;
+  abbr:      string;
+  expanded:  boolean;
+  onToggle:  () => void;
+  fallbackImageUrl?: string | null;
+}) {
+  const priceStr = formatFeedPrice(priceSol);
+  const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
+  const floorDelta = floor != null && floor > 0 && priceSol > 0 ? (priceSol - floor) / floor : null;
+  const pill = KIND_STYLES.buy;
+  return (
+    <div className="feed-row-wrap feed-row-wrap-cached">
+      <div className="feed-card listing-card" onClick={onToggle} style={{ cursor: 'pointer' }}
+        role="button" aria-expanded={expanded} title={expanded ? 'Hide pool NFTs' : 'Show pool NFTs'}>
+        <div className="feed-thumb" style={{ position: 'relative' }}>
+          <div draggable={false} style={FC_THUMB_INNER_STYLE}>
+            <ItemThumb imageUrl={compressImage(imageUrls[0] ?? null)} fallbackImageUrl={compressImage(fallbackImageUrl)} color={color} abbr={abbr} size={56} />
+          </div>
+          <span style={{
+            position: 'absolute', right: 2, bottom: 2, padding: '1px 4px', borderRadius: 4,
+            fontSize: 9.5, fontWeight: 800, lineHeight: 1.2, background: 'rgba(0,0,0,0.72)', color: VLText.primary,
+          }}>×{count}</span>
+        </div>
+
+        <div style={FC_MIDDLE_COL_STYLE}>
+          <div style={FC_NAME_ROW_STYLE}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3, height: 18, padding: '0 6px',
+              borderRadius: 5, fontSize: 10, fontWeight: 800, lineHeight: 1, letterSpacing: '0.2px',
+              background: pill.bg, color: pill.fg, border: `1px solid ${alpha(VL.greenStrong, ALPHA.borderStrong)}`,
+            }}>
+              <span aria-hidden="true" style={{ fontSize: 9, transform: 'translateY(-1px)' }}>{AMM_SYMBOL}</span>AMM
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: VLText.primary }}>{count} NFT{count === 1 ? '' : 's'}</span>
+          </div>
+          <div style={FC_PARTIES_COL_STYLE}>
+            <div style={FC_PARTY_ROW_STYLE}>
+              <span style={FC_PARTY_LABEL_STYLE}>pool:</span>
+              <a href={`https://solscan.io/account/${encodeURIComponent(poolKey)}`} target="_blank" rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()} style={{ color: VLText.muted, textDecoration: 'none' }}>
+                {poolKey.slice(0, 4)}…{poolKey.slice(-4)}
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div style={FC_RIGHT_COL_STYLE}>
+          <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
+            <span style={{ fontSize: 11, color: VLText.muted, transition: 'transform 150ms ease', display: 'inline-block', transform: expanded ? 'rotate(180deg)' : 'none' }}>▾</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, opacity: 0.78 }}>
+              <MktIconBadge mp="me" href={`https://magiceden.io/mmm/pool/${poolKey}`} />
+            </span>
+          </div>
+          <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
+            {floorDelta != null && Math.abs(floorDelta) >= 0.005 && <FloorChip delta={floorDelta} />}
+            <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+              {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
