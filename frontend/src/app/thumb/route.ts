@@ -139,6 +139,9 @@ async function probeImage(url: string): Promise<ProbeResult | null> {
 // the frontend's onError fires in ~2.5s instead of ~30s+. Cached per URL —
 // positive hits get the long TTL (content-addressed, immutable), negative
 // hits get a short TTL so a since-recovered gateway isn't pinned dead.
+/** Public IPFS gateway reachable from this server and from wsrv.nl. */
+const IPFS_FALLBACK_GATEWAY = 'ipfs.filebase.io';
+
 const DEAD_GATEWAY_HOST_SUFFIXES = ['.w3s.link', '.dweb.link', '.nftstorage.link'];
 const DEAD_GATEWAY_HOST_EXACT    = new Set(['w3s.link', 'nft.storage', 'dweb.link', 'nftstorage.link']);
 
@@ -359,6 +362,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       url = u.toString();
     }
   } catch { /* malformed URL — drop through to the existing bad-url guard above */ }
+
+  // ── Protocol Labs IPFS gateways → filebase ──────────────────────────────
+  // nftstorage.link / w3s.link / dweb.link / ipfs.io answer this server's IP
+  // (and wsrv's) with 429, so the probe below marked live art as "dead" and
+  // fast-404'd it — the content itself is fine (users' browsers load it).
+  // The CID is content-addressed, so any gateway serves identical bytes:
+  // hand wsrv the same CID+path on ipfs.filebase.io (verified 200 via wsrv).
+  try {
+    const fu = new URL(url);
+    const h  = fu.hostname.toLowerCase();
+    if (isDeadGatewayCandidate(h) || h === 'ipfs.io') {
+      let cidPath: string | null = null;
+      const sub = /^([a-z0-9]+)\.ipfs\./.exec(h);
+      if (sub) cidPath = `${sub[1]}${fu.pathname}`;
+      else if (fu.pathname.startsWith('/ipfs/')) cidPath = fu.pathname.slice('/ipfs/'.length);
+      if (cidPath) url = `https://${IPFS_FALLBACK_GATEWAY}/ipfs/${cidPath}`;
+    }
+  } catch { /* malformed URL — fall through unchanged */ }
 
   // ── Dead-gateway short-circuit ──────────────────────────────────────────
   // Runs after the irys/mypinata rewrite above so a w3s.link URL that got
