@@ -560,7 +560,7 @@ async function findLastSignedActivity(owner: string): Promise<number | null> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0', id: 1, method: 'getTransaction',
-          params: [signature, { encoding: 'json', maxSupportedTransactionVersion: 0 }],
+          params: [signature, { encoding: 'json', maxSupportedTransactionVersion: 1 }],
         }),
         signal: AbortSignal.timeout(OWNER_ACTIVITY_TIMEOUT_MS),
       });

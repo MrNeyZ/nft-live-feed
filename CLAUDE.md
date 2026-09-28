@@ -330,7 +330,7 @@ the live-feed ingestion path; shares no state with it.
   do not re-hardcode them in the analyzer.
 
 **Data source**
-- Helius `getTransaction`. `encoding=json`. `maxSupportedTransactionVersion=0`.
+- Helius `getTransaction`. `encoding=json`. `maxSupportedTransactionVersion=1` (tx v1 live since 2026-09-15).
 
 **Classification outputs**
 - `MintPrimitive`: `candy_machine_v3_mintv2` · `mpl_core_create_v2` ·

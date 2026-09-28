@@ -36,7 +36,7 @@ export async function fetchTransaction(signature: string): Promise<RawRpcTx | nu
       jsonrpc: '2.0',
       id: 1,
       method: 'getTransaction',
-      params: [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }],
+      params: [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 1 }],
     }),
   });
   if (!res.ok) throw new Error(`getTransaction RPC HTTP ${res.status}`);

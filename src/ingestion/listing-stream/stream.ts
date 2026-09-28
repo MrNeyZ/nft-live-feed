@@ -118,7 +118,7 @@ export function startListingStream(onAction: (a: StreamedListingAction) => void)
         params: [
           { accountInclude: [program], failed: false, vote: false },
           { commitment: 'processed', encoding: 'base64', transactionDetails: 'full',
-            showRewards: false, maxSupportedTransactionVersion: 0 },
+            showRewards: false, maxSupportedTransactionVersion: 1 },
         ],
       })));
       console.log(`[listing-stream] connected, subscribed ${STREAM_PROGRAMS.length} programs`);

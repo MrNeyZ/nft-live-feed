@@ -450,7 +450,7 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope
     params: [sig, {
       encoding: 'json',
       commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     }],
   });
 
@@ -531,6 +531,9 @@ async function _fetchRawTxRpc(sig: string, maxRetries: number, scope: FetchScope
 
       onFetchSuccess();
       const tx = json.result;
+      // Tx v1 (rolled out ~2026-09-16) — log full sig so parser coverage can
+      // be checked against real examples.
+      if (tx.version === 1) console.log(`[fetchRawTx] v1 tx  sig=${sig}  source=${txSource}`);
 
       // Versioned (v0) transactions load extra accounts from address lookup tables.
       // With raw 'json' encoding they arrive in meta.loadedAddresses, NOT in

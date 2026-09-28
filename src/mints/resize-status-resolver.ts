@@ -126,7 +126,7 @@ async function fetchTx(sig: string): Promise<ParsedTx | null> {
       body: JSON.stringify({
         jsonrpc: '2.0', id: 1,
         method: 'getTransaction',
-        params: [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }],
+        params: [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 1, commitment: 'confirmed' }],
       }),
       signal: ctl.signal,
     });

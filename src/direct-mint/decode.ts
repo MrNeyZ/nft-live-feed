@@ -120,7 +120,7 @@ interface DasAsset {
 export async function decodeDirectMintSignature(sig: string): Promise<DecodeDirectMintResult> {
   let tx: RawTx;
   try {
-    tx = await rpc<RawTx>('getTransaction', [sig, { encoding: 'json', maxSupportedTransactionVersion: 0 }]);
+    tx = await rpc<RawTx>('getTransaction', [sig, { encoding: 'json', maxSupportedTransactionVersion: 1 }]);
   } catch (err) {
     return { ok: false, error: `signature_lookup_failed: ${err instanceof Error ? err.message : String(err)}` };
   }
