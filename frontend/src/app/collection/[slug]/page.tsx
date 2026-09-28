@@ -33,6 +33,7 @@ import {
   compressImage, BarIconButton,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
+import { useUiSoundEnabled, setUiSoundEnabled } from '@/soloist/use-ui-sound';
 import { SalesChart, type SalePoint } from '@/soloist/sales-chart';
 import {
   connectPhantom,
@@ -641,7 +642,11 @@ export default function CollectionPage() {
   // click) so browser autoplay policies never block us. Each alert type has
   // an independent cooldown so signals fire at most once per window and
   // never turn into continuous noise.
-  const [soundOn, setSoundOn] = useState(true);
+  // Gated by the global site sound switch (bottom bar): with site sound
+  // off, these alerts stay silent regardless of the page-level toggle.
+  const [soundOnLocal, setSoundOn] = useState(true);
+  const siteSoundOn = useUiSoundEnabled();
+  const soundOn = siteSoundOn && soundOnLocal;
   const audioCtxRef       = useRef<AudioContext | null>(null);
   const lastAlertRef      = useRef<Record<'dump' | 'undercut' | 'buy', number>>({ dump: 0, undercut: 0, buy: 0 });
   const ALERT_COOLDOWN_MS = 12_000;
@@ -698,6 +703,9 @@ export default function CollectionPage() {
   function toggleSound(): void {
     const next = !soundOn;
     setSoundOn(next);
+    // Turning alerts on while site sound is muted unmutes the site too —
+    // otherwise the click would appear to do nothing.
+    if (next && !siteSoundOn) setUiSoundEnabled(true);
     // First toggle-on is a user gesture — seed the AudioContext now so the
     // next signal plays without a delay. Safari also needs resume() after a
     // user gesture the first time.
