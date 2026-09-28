@@ -567,6 +567,7 @@ export const FeedCard = memo(function FeedCard({
   nameChip,
   snsDomainAuto = false,
   crossHighlighted = false,
+  numOnly = false,
 }: FeedCardProps) {
   // Thumb size is the only density-driven inline value — every other
   // delta lives in CSS via the `.feed-density-X` parent class. TAPE
@@ -643,7 +644,9 @@ export const FeedCard = memo(function FeedCard({
   const { baseName, num, shortName } = shortenNftName(
     applyCollectionNameOverride(event.nftName, event.collectionAddress),
   );
-  const isTruncated = shortName != null;
+  // Single-collection contexts (Collection page) drop the redundant
+  // collection stem so the item number is never truncated away.
+  const isTruncated = shortName != null && !(numOnly && num);
 
   // Avatar click routing, local to the Live Feed card:
   //   LMB  → centered image preview (onPreview callback).
@@ -717,6 +720,8 @@ export const FeedCard = memo(function FeedCard({
               >
                 {isTruncated
                   ? shortName
+                  : numOnly && num
+                  ? <span style={FC_NAME_NUM_STYLE}>#{num}</span>
                   : <>{baseName}{num && <span style={FC_NAME_NUM_STYLE}> #{num}</span>}</>}
               </a>
             ) : (
@@ -977,6 +982,155 @@ export const FeedCard = memo(function FeedCard({
                 </span>
               );
             })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+// ── ListingCard ──────────────────────────────────────────────────────────────
+// Listing-side sibling of FeedCard for the Collection page's listings pane.
+// Same row wrapper, card chrome, thumb, name row, party row, time-ago and
+// price row as FeedCard (shared constants above), so both panes read as one
+// system. Differences: purple `listing-card` edge, `new-listing` flash, and
+// the action capsule is the live BUY button instead of a sale-kind label.
+
+export interface ListingCardData {
+  id:          string;
+  mint:        string;
+  seller:      string;
+  priceSol:    number;
+  marketplace: 'me' | 'tensor';
+  listedAt:    number | null;
+  baseName:    string;
+  num:         string;
+  imageUrl:    string | null;
+  rarityRank?: number | null;
+  totalSupply?: number | null;
+}
+
+export interface ListingCardBuy {
+  label:    string;
+  title:    string;
+  disabled: boolean;
+  busy:     boolean;
+  errored:  boolean;
+  onClick:  () => void;
+}
+
+const seenListingIds = new Set<string>();
+
+export const ListingCard = memo(function ListingCard({
+  listing, floor, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false,
+}: {
+  listing:   ListingCardData;
+  floor:     number | null;
+  color:     string;
+  abbr:      string;
+  buy:       ListingCardBuy;
+  onPreview: (src: string) => void;
+  /** Listing appeared live (not in the initial snapshot) → purple flash. */
+  isNew?:    boolean;
+  snsDomainAuto?: boolean;
+}) {
+  const [flash, setFlash] = useState(isNew);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(false), 6000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const isCached = useState(() => seenListingIds.has(listing.id))[0];
+  useEffect(() => {
+    seenListingIds.add(listing.id);
+    if (seenListingIds.size > SEEN_IDS_MAX) {
+      const oldest = seenListingIds.values().next().value;
+      if (oldest !== undefined) seenListingIds.delete(oldest);
+    }
+  }, [listing.id]);
+
+  const ts = listing.listedAt;
+  const ageMin = ts != null ? (Date.now() - ts) / 60_000 : Infinity;
+  const ageBucket = ageMin < 2 ? 'fresh' : ageMin < 5 ? 'mid' : 'old';
+  const floorDelta = floor != null && floor > 0 && listing.priceSol > 0 ? (listing.priceSol - floor) / floor : null;
+  const thumbImg   = compressImage(listing.imageUrl);
+  const previewImg = compressImage(listing.imageUrl, 256);
+  const priceStr = formatFeedPrice(listing.priceSol);
+  const priceFontSize = priceStr.length <= 4 ? 17.5 : priceStr.length === 5 ? 15 : 13.5;
+  const itemHref = listing.marketplace === 'tensor'
+    ? `https://www.tensor.trade/item/${listing.mint}`
+    : `https://magiceden.io/item-details/${listing.mint}`;
+  const pill = KIND_STYLES.buy;
+  const tagColor  = buy.errored ? rgb(VL.redStrong) : pill.fg;
+  const tagBg     = buy.errored ? alpha(VL.redStrong, ALPHA.tint) : pill.bg;
+  const tagBorder = buy.errored ? alpha(VL.redStrong, ALPHA.borderStrong) : alpha(VL.greenStrong, ALPHA.borderStrong);
+
+  return (
+    <div className={`feed-row-wrap${isCached ? ' feed-row-wrap-cached' : ''}${flash ? ' new-listing' : ''}`}>
+      <div className="feed-card listing-card" data-event-ts={ts ?? undefined} data-age-bucket={ageBucket}>
+        <div className="feed-thumb"
+          onClick={() => { if (previewImg) onPreview(previewImg); }}
+          style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}>
+          <div draggable={false} style={FC_THUMB_INNER_STYLE}>
+            <ItemThumb imageUrl={thumbImg} color={color} abbr={abbr} size={56} />
+          </div>
+        </div>
+
+        <div style={FC_MIDDLE_COL_STYLE}>
+          <div style={FC_NAME_ROW_STYLE}>
+            <a href={`https://solscan.io/token/${encodeURIComponent(listing.mint)}`}
+              target="_blank" rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={FC_NAME_LINK_STYLE}
+              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none'; }}>
+              {listing.num
+                ? <span style={FC_NAME_NUM_STYLE}>#{listing.num}</span>
+                : listing.baseName}
+            </a>
+            <RarityRankBadge rarityRank={listing.rarityRank ?? null} totalSupply={listing.totalSupply ?? null} />
+          </div>
+          <div style={FC_PARTIES_COL_STYLE}>
+            <div style={FC_PARTY_ROW_STYLE}>
+              <span style={FC_PARTY_LABEL_STYLE}>seller:</span>
+              <WalletLink wallet={listing.seller} snsDomainAuto={snsDomainAuto} />
+            </div>
+            {listing.rarityRank != null && (
+              <div style={FC_PARTY_ROW_STYLE}>
+                <span style={FC_PARTY_LABEL_STYLE}>rank:</span>
+                <span style={{ color: VLText.muted }}>#{listing.rarityRank}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={FC_RIGHT_COL_STYLE}>
+          <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
+            {ts != null ? <TimeAgo ts={ts} /> : <span style={{ fontSize: 11, color: VLText.muted }}>—</span>}
+            <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, opacity: 0.78 }}>
+              <MktIconBadge mp={listing.marketplace} href={itemHref} />
+            </span>
+          </div>
+          <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
+            {floorDelta != null && Math.abs(floorDelta) >= 0.005 && <FloorChip delta={floorDelta} />}
+            <button
+              onClick={(e) => { e.stopPropagation(); if (!buy.disabled) buy.onClick(); }}
+              disabled={buy.disabled}
+              title={buy.title}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: 52, height: 20, boxSizing: 'border-box', flexShrink: 0,
+                borderRadius: 5, fontSize: 10, fontWeight: 800, lineHeight: 1,
+                letterSpacing: '0.2px', textTransform: 'uppercase',
+                background: tagBg, color: tagColor, border: `1px solid ${tagBorder}`,
+                cursor: buy.disabled ? 'default' : 'pointer',
+                opacity: buy.disabled && !buy.busy ? 0.55 : 1,
+                padding: 0,
+              }}>{buy.label}</button>
+            <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+              {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
+            </span>
           </div>
         </div>
       </div>

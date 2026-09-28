@@ -92,4 +92,6 @@ export interface FeedCardProps {
    *  in globals.css — the highlight is byte-identical to a real mouse
    *  hover, not a separate approximation. */
   crossHighlighted?: boolean;
+  /** Render only `#num` in the name (single-collection views). */
+  numOnly?: boolean;
 }

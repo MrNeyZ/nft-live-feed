@@ -14,10 +14,10 @@
 // the original ListingRow's static price label gains a TypeBadge that
 // becomes the live Buy button.
 
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { authHeaders } from '@/runtime/auth';
-import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet, timeAgo } from '@/soloist/mock-data';
+import { CATEGORY_LAYER, FeedEvent, formatSol, shortWallet } from '@/soloist/mock-data';
 import {
   fromBackend,
   fromRow,
@@ -29,12 +29,14 @@ import {
   type MetaPatch, type RawPatch,
 } from '@/soloist/feed-store';
 import {
-  CollectionIcon, ItemThumb, LiveDot, MktBadge, Pill, RankBadge, TypeBadge,
-  compressImage, BarIconButton,
+  CollectionIcon, ItemThumb, LiveDot, Pill,
+  compressImage, BarIconButton, ImagePreviewOverlay,
 } from '@/soloist/shared';
 import { useCollectionIcons } from '@/soloist/collection-icons';
 import { useUiSoundEnabled, setUiSoundEnabled } from '@/soloist/use-ui-sound';
 import { SalesChart, type SalePoint } from '@/soloist/sales-chart';
+import { FeedCard, ListingCard, type ListingCardBuy } from '@/app/feed/lib/feed-card';
+import { useInclusiveFees } from '@/soloist/price-mode';
 import {
   connectPhantom,
   eagerConnectPhantom,
@@ -268,185 +270,29 @@ function resolveNftDisplay(input: {
   return { name, baseName, num, image };
 }
 
-// ── ListingRow (port of original; price label becomes the live Buy button) ─
-const ListingRowItem = memo(function ListingRowItem({
-  listing, nameStem, imageByMint, floor, abbr, color, status, walletConnected, buyEnabled, onBuy,
-}: {
-  listing: ListingRow;
-  nameStem: string | null;
-  imageByMint: Map<string, string>;
-  /** Cheapest priceSol across the currently-displayed listings. Used to
-   *  classify each row as strong/good/normal deal — parent computes once. */
-  floor: number | null;
-  abbr: string;
-  color: string;
-  status: BuyStatus;
-  walletConnected: boolean;
-  buyEnabled: boolean | null;
-  onBuy: (listing: ListingRow) => void;
-}) {
-  const { baseName, num, image } = resolveNftDisplay({
-    nftName:  listing.nftName,
-    mint:     listing.mint,
-    imageUrl: listing.imageUrl,
-    stem:     nameStem,
-    imageByMint,
-  });
+/** BUY capsule state for a listing (shared by ListingCard). */
+function listingBuyProps(
+  listing: ListingRow, status: BuyStatus, walletConnected: boolean,
+  buyEnabled: boolean | null, onBuy: (l: ListingRow) => void,
+): ListingCardBuy {
   const isMe = listing.marketplace === 'me';
-  const busy = status.kind === 'busy';
-  const pending = status.kind === 'pending';
-  const done = status.kind === 'done';
-  const errored = status.kind === 'error';
-  const serverDisabled = buyEnabled === false;
-  const probing        = buyEnabled === null;
-  // Buy execution is wired for ME only; Tensor rows render with the BUY
-  // button disabled (no buy flow yet) — same affordance shape, no layout change.
-  const disabled = !isMe || busy || pending || serverDisabled || probing || !walletConnected;
-  const buyLabel =
-    done            ? '✓'        :
-    pending         ? 'sent'     :
-    errored         ? 'retry'    :
-    busy            ? (status.step === 'signing' ? 'sign' : '…') :
-    !isMe           ? 'BUY'      :
-                      'BUY';
-  const buyTitle = errored
-    ? `error: ${(status as { kind: 'error'; message: string }).message}`
-    : pending
-    ? `Submitted, confirmation pending — https://solscan.io/tx/${(status as { kind: 'pending'; signature: string }).signature}`
-    : !isMe             ? 'Tensor buy flow not yet implemented'
-    : serverDisabled    ? 'Buy unavailable: ME_API_KEY not set on server'
-    : !walletConnected  ? 'Connect Phantom to buy'
-    :                     `Buy ${formatSol(listing.priceSol)} SOL`;
-  // Deal classification — purely cosmetic. `strong` = within +5 % of floor;
-  // `good` = within +10 %. Uses inset box-shadow + tinted background so
-  // there's zero layout shift (no border / outline / extra DOM nodes).
-  let dealLevel: 'strong' | 'good' | 'normal' = 'normal';
-  if (floor !== null && floor > 0 && listing.priceSol > 0) {
-    const ratio = listing.priceSol / floor;
-    if      (ratio <= 1.05) dealLevel = 'strong';
-    else if (ratio <= 1.10) dealLevel = 'good';
-  }
-  // Deal-level highlighting kept as a subtle background tint only — the
-  // earlier inset green ring was reading as a hard "outline/border"
-  // around every strong-deal card and overpowering the card chrome.
-  const dealStyle: React.CSSProperties =
-    dealLevel === 'strong' ? { background: 'rgb(var(--vl-green-glow) / 0.06)' }
-    : dealLevel === 'good' ? { background: 'rgb(var(--vl-green-glow) / 0.025)' }
-    : {};
-  return (
-    <div className="listing-row"
-      style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 10px', cursor:'pointer', ...dealStyle }}>
-      <ItemThumb imageUrl={image} color={color} abbr={abbr} size={56} />
-      <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
-        {/* Line 1: unified `{stem} #{num}` + listedAt on the right */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
-            <span style={{ fontWeight:600, color:'var(--vl-text-primary)' }}>{baseName}</span>
-            {num && <span style={{ color:'var(--vl-text-muted)', marginLeft:4 }}>#{num}</span>}
-          </span>
-          <span style={{ fontSize:12, color:'var(--vl-text-muted)', flexShrink:0 }}>{listing.listedAt ? timeAgo(listing.listedAt) : '—'}</span>
-        </div>
-        {/* Line 2: rank LEFT — price + buy + mkt RIGHT */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
-          {listing.rank != null ? <RankBadge rank={listing.rank} /> : <span style={{ width: 1 }} />}
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            {/* BEST near-floor badge temporarily removed — will return in a
-             *  cleaner form. Price + BUY + marketplace badge unchanged. */}
-            <span style={{ fontSize:13, fontWeight:700, color:'var(--vl-text-primary)' }}>{formatSol(listing.priceSol)}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (!disabled) onBuy(listing); }}
-              disabled={disabled}
-              
-              style={{
-                display:'inline-flex', alignItems:'center', fontSize:12, fontWeight:700,
-                padding:'2px 7px', borderRadius:3,
-                border:`1px solid ${errored ? 'rgb(var(--vl-red) / .28)' : 'rgb(var(--vl-green) / .28)'}`,
-                background: errored ? 'rgb(var(--vl-red) / .13)' : 'rgb(var(--vl-green) / .13)',
-                color: errored ? 'var(--vl-red-primary)' : 'var(--vl-green-primary)',
-                letterSpacing:'0.3px', flexShrink:0, lineHeight:'16px',
-                cursor: disabled ? 'default' : 'pointer',
-                opacity: disabled && !busy ? 0.55 : 1,
-              }}>{buyLabel}</button>
-            <MktBadge mp={listing.marketplace} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/**
- * Collection-page-only trade-row marketplace link. Per product requirement:
- *   Magic Eden trades → https://magiceden.io/item-details/<mint>
- *   Tensor trades     → https://www.tensor.trade/item/<mint>
- *
- * Kept local to this file so the shared `marketplaceUrl` (which routes to
- * the collection-marketplace page for ME-with-slug) remains unchanged for
- * Live Feed and any other consumer.
- */
-function tradeItemUrl(event: FeedEvent): string | null {
-  if (event.marketplace === 'tensor') {
-    return event.mintAddress
-      ? `https://www.tensor.trade/item/${event.mintAddress}`
-      : 'https://www.tensor.trade';
-  }
-  return event.mintAddress
-    ? `https://magiceden.io/item-details/${event.mintAddress}`
-    : 'https://magiceden.io';
+  const busy = status.kind === 'busy', pending = status.kind === 'pending';
+  const done = status.kind === 'done', errored = status.kind === 'error';
+  // Buy execution is wired for ME only; Tensor rows keep a disabled BUY.
+  const disabled = !isMe || busy || pending || buyEnabled !== true || !walletConnected;
+  const label =
+    done    ? '✓'     :
+    pending ? 'sent'  :
+    errored ? 'retry' :
+    busy    ? (status.step === 'signing' ? 'sign' : '…') : 'BUY';
+  const title = errored ? `error: ${status.message}`
+    : pending            ? `Submitted, confirmation pending — https://solscan.io/tx/${status.signature}`
+    : !isMe              ? 'Tensor buy flow not yet implemented'
+    : buyEnabled === false ? 'Buy unavailable: ME_API_KEY not set on server'
+    : !walletConnected   ? 'Connect Phantom to buy'
+    :                      `Buy ${formatSol(listing.priceSol)} SOL`;
+  return { label, title, disabled, busy, errored, onClick: () => onBuy(listing) };
 }
-
-// ── TradeRow (unified presentation via resolveNftDisplay + ItemThumb) ────
-const TradeRowItem = memo(function TradeRowItem({
-  event, tick, nameStem, imageByMint,
-}: {
-  event: FeedEvent;
-  tick: number;
-  nameStem: string | null;
-  imageByMint: Map<string, string>;
-}) {
-  void tick;  // re-render hook: parent bumps `tick` so timeAgo refreshes
-  const ago = event.ts > Date.now() - 10000 ? 'just now' : timeAgo(event.ts);
-  // Fresh-trade flash + pink accent gate on the wall-clock LIVE arrival
-  // (`clientArrivedAt`), NOT `event.ts` — `ts` is on-chain blockTime,
-  // already older than this 5 s window by paint time, so it never lit.
-  // Snapshot/history rows carry no `clientArrivedAt` → never flash.
-  const isNew = event.clientArrivedAt != null && event.clientArrivedAt > Date.now() - 5000;
-  // Shared presentation: same resolver as ListingRowItem. The imageByMint
-  // map is built from the current listings snapshot so an NFT that's both
-  // listed and trading shows the same thumbnail in both panels.
-  const collName = event.collectionName && event.collectionName !== 'Unknown' ? event.collectionName : null;
-  const stem = nameStem ?? collName ?? event.meCollectionSlug ?? null;
-  const { baseName, num, image } = resolveNftDisplay({
-    nftName:  event.nftName,
-    mint:     event.mintAddress,
-    imageUrl: event.imageUrl,
-    stem,
-    imageByMint,
-  });
-  return (
-    <div className={`trade-row${isNew ? ' new-row-trade' : ''}`}
-      style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 10px', cursor:'pointer' }}>
-      <ItemThumb imageUrl={image} color={event.color} abbr={event.abbr} size={56} />
-      <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:2 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>
-            <span style={{ fontWeight:600, color:'var(--vl-text-primary)' }}>{baseName}</span>
-            {num && <span style={{ color:'var(--vl-text-muted)', marginLeft:4 }}>#{num}</span>}
-          </span>
-          <span style={{ fontSize:12, color: isNew ? '#e87ab0' : 'var(--vl-text-muted)', flexShrink:0, fontWeight: isNew ? 600 : 400 }}>{ago}</span>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4 }}>
-          <span style={{ fontSize:12, color:'var(--vl-text-muted)' }}>{shortWallet(event.buyer)}</span>
-          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ fontSize:13, fontWeight:700, color: event.side === 'buy' ? 'var(--vl-green-primary)' : 'var(--vl-red-primary)' }}>{formatSol(event.price)}</span>
-            <TypeBadge type={event.side} />
-            <MktBadge mp={event.marketplace} href={tradeItemUrl(event)} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 // ── StatItem (verbatim port; flickers when value changes) ──────────────────
 function StatItem({ value, label, highlight, title }: { value: React.ReactNode; label: string; highlight?: string; title?: string }) {
@@ -617,6 +463,8 @@ export default function CollectionPage() {
 
   // Tab + chart selectors (verbatim from original)
   const [tab, setTab] = useState<'live' | 'summary'>('live');
+  const [preview, setPreview] = useState<string | null>(null);
+  const [inclusiveFees] = useInclusiveFees();
   const [span, setSpan] = useState<Span>('7D');
   const [outliers, setOutliers] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -803,6 +651,29 @@ export default function CollectionPage() {
     for (const l of listings) if (l.priceSol > 0 && l.priceSol < min) min = l.priceSol;
     return Number.isFinite(min) ? min : null;
   }, [listings]);
+
+  // Listing ids present in the first snapshot for this slug. Anything that
+  // shows up afterwards is a live arrival → ListingCard purple flash.
+  const listingBaselineRef = useRef<Set<string> | null>(null);
+  useEffect(() => { listingBaselineRef.current = null; }, [slug]);
+  useEffect(() => {
+    if (listingBaselineRef.current == null && listings.length > 0) {
+      listingBaselineRef.current = new Set(listings.map(l => l.id));
+    }
+  }, [listings]);
+
+  // Collection supply for rarity tiers (any trade that carried it).
+  const collectionSupply = useMemo<number | null>(() => {
+    for (const e of events) if (e.totalSupply) return e.totalSupply;
+    return null;
+  }, [events]);
+
+  // Trades rendered with the /feed FeedCard. Thumbnails fall back to the
+  // listings snapshot image when the trade row has none.
+  const tradeCards = useMemo(() => visibleEvents.map(e => {
+    const img = !e.imageUrl && e.mintAddress ? imageByMint.get(e.mintAddress) : undefined;
+    return img ? { ...e, imageUrl: img } : e;
+  }), [visibleEvents, imageByMint]);
 
   // ── Listing / undercut detector v2 ───────────────────────────────────────
   // Rolling window of actionable events (undercut / near-floor) emitted when
@@ -1636,21 +1507,29 @@ export default function CollectionPage() {
                 {buyEnabled === false ? 'No active ME listings.' : 'Loading listings…'}
               </div>
             )}
-            {listings.slice(0, listingsShow).map(l => (
-              <ListingRowItem
-                key={l.id}
-                listing={l}
-                nameStem={nameStem ?? (resolvedName ?? slug)}
-                imageByMint={imageByMint}
-                floor={listingsFloor}
-                abbr={headerAbbr}
-                color={headerColor}
-                status={buyStatuses[l.mint] ?? { kind: 'idle' }}
-                walletConnected={!!walletPubkey}
-                buyEnabled={buyEnabled}
-                onBuy={onBuyListing}
-              />
-            ))}
+            <div className="feed-list feed-density-compact">
+              {listings.slice(0, listingsShow).map(l => {
+                const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
+                return (
+                  <ListingCard
+                    key={l.id}
+                    listing={{
+                      id: l.id, mint: l.mint, seller: l.seller, priceSol: l.priceSol,
+                      marketplace: l.marketplace, listedAt: l.listedAt,
+                      baseName: d.baseName, num: d.num,
+                      imageUrl: imageByMint.get(l.mint) ?? l.imageUrl,
+                      rarityRank: l.rank, totalSupply: collectionSupply,
+                    }}
+                    floor={listingsFloor}
+                    color={headerColor}
+                    abbr={headerAbbr}
+                    buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
+                    onPreview={setPreview}
+                    isNew={listingBaselineRef.current != null && !listingBaselineRef.current.has(l.id)}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -1752,7 +1631,21 @@ export default function CollectionPage() {
                 No trades yet for <code>{slug}</code>
               </div>
             )}
-            {visibleEvents.slice(0, tradesShow).map(ev => <TradeRowItem key={ev.id} event={ev} tick={tick} nameStem={nameStem} imageByMint={imageByMint} />)}
+            <div className="feed-list feed-density-compact">
+              {tradeCards.slice(0, tradesShow).map(ev => (
+                <FeedCard
+                  key={ev.id}
+                  event={ev}
+                  onPreview={setPreview}
+                  inclusiveFees={inclusiveFees}
+                  slugFloor={floorSol}
+                  sellerSellCountInFeed={0}
+                  isNewestSellForSellerColl={false}
+                  density="compact"
+                  numOnly
+                />
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1836,6 +1729,7 @@ export default function CollectionPage() {
           </div>
         </div>
       </div>
+      <ImagePreviewOverlay src={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
