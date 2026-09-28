@@ -40,6 +40,7 @@ import { Router, Request, Response } from 'express';
 import { getEventsByCollection, getCanonicalSaleMetaBySignatures } from '../db/queries';
 import { rateLimit, isValidSlug } from './rate-limit';
 import { meAuthHeaders } from '../me-api-cooldown';
+import { getPool } from '../db/client';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE        = 500;
@@ -301,6 +302,32 @@ export function createCollectionTradeHistoryRouter(): Router {
         console.log(`[trade-history] overlay slug=${slug} rows=${events.length} overlaid=${overlaid} me_only=${events.length - overlaid}`);
       } catch (e) {
         console.warn(`[trade-history] overlay failed slug=${slug}:`, (e as Error).message);
+      }
+    }
+
+    // ME activities carry no item name — fill nft_name / collection_name /
+    // missing image from our own sale_events by mint (one batched query).
+    if (useMe && events.length > 0) {
+      try {
+        const mints = Array.from(new Set(events.map(e => e.mint_address).filter((m): m is string => !!m)));
+        const { rows } = await getPool().query<{ m: string; n: string | null; i: string | null; c: string | null }>(
+          `SELECT DISTINCT ON (mint_address) mint_address AS m, nft_name AS n, image_url AS i, collection_name AS c
+             FROM sale_events
+            WHERE mint_address = ANY($1) AND nft_name IS NOT NULL
+            ORDER BY mint_address, block_time DESC`, [mints]);
+        const byMint = new Map(rows.map(r => [r.m, r]));
+        const collName = rows.find(r => r.c)?.c ?? null;
+        events = events.map(e => {
+          const r = e.mint_address ? byMint.get(e.mint_address) : undefined;
+          return {
+            ...e,
+            nft_name:        e.nft_name ?? r?.n ?? null,
+            image_url:       e.image_url ?? r?.i ?? null,
+            collection_name: e.collection_name ?? r?.c ?? collName,
+          };
+        });
+      } catch (e) {
+        console.warn(`[trade-history] name overlay failed slug=${slug}:`, (e as Error).message);
       }
     }
 
