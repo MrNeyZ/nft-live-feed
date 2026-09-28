@@ -42,6 +42,7 @@
  */
 
 import { wasRecentlyFetched } from './me-raw/ingest';
+import { wasWsNonSale, verdictStats } from './ws-nonsale-verdict';
 import { getMode, currentGeneration } from '../runtime/mode';
 import { sweepOwnerCache } from './mmm-pool-type-resolver';
 import { IngestOutcome } from './ingest-outcome';
@@ -176,6 +177,9 @@ export function dispatchMmmDeferredAwaitable(
         return;
       }
       if (wasRecentlyFetched(sig, 'sale')) { wsResolved++; resolve('duplicate'); return; }
+      // Strict WS non-sale verdict (NOT the noise_shed guess) — see
+      // ws-nonsale-verdict.ts. ⚠️ Ask the user before removing.
+      if (wasWsNonSale(sig)) { verdictStats.used++; resolve('confirmed_irrelevant'); return; }
       fallbackFetch++;
       dispatch(sig)
         .then(resolve)

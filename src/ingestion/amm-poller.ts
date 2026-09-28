@@ -33,6 +33,7 @@ import { isSalesWsDead } from './listener';
 import { getAcceptedCount } from './poll-useful';
 import { incFired, sourceFromTargetName } from './source-stats';
 import { IngestOutcome, isTerminalSafe } from './ingest-outcome';
+import { wasWsNonSale, verdictStats } from './ws-nonsale-verdict';
 
 // ─── Targets ──────────────────────────────────────────────────────────────────
 
@@ -814,8 +815,19 @@ async function sweepTarget(target: PollTarget): Promise<void> {
     ];
     if (toDispatch.length > 0) {
       await runBounded(toDispatch, FRESH_DISPATCH_CONCURRENCY, async ({ sig, enqueuedAt }) => {
-        incFired(sourceLabel);
         let outcome: IngestOutcome;
+        // WS already proved (complete logs, every ix a known non-sale) this
+        // sig isn't a sale → terminal without getTransaction. ⚠️ Do NOT remove
+        // or bypass without asking the user: it's the ~5M credits/month that
+        // commit 584c0a5 lost. See ws-nonsale-verdict.ts for why it's safe.
+        if (wasWsNonSale(sig)) {
+          verdictStats.used++;
+          rememberOutcome(sig, 'confirmed_irrelevant');
+          const i = pageIdxBySig.get(sig);
+          if (i !== undefined) outcomes[i] = 'confirmed_irrelevant';
+          return;
+        }
+        incFired(sourceLabel);
         try {
           outcome = isMmmLean
             ? await dispatchMmmDeferredAwaitable(sig, (s) => target.ingest(s), target.name)

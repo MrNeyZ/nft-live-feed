@@ -33,6 +33,7 @@ import { Limiter, Priority } from './concurrency';
 import { incPrefilterSkip, incSigListFetch, getMplCoreParsedMints } from './telemetry';
 import { noteSigList } from './sig-list-audit';
 import { dispatchMmmDeferred, markMmmNoiseShed } from './mmm-prefilter';
+import { logsProveNonSale, markWsNonSale } from './ws-nonsale-verdict';
 import { recordDispatch as auditRecordDispatch, startSalesPrefilterAudit } from './sales-prefilter-audit';
 import { incFired, sourceFromTargetName, startSourceStats } from './source-stats';
 import { isSigTarget, saleDebug } from './sale-debug';
@@ -1042,6 +1043,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'tensor_no_sale_ix' });
       }
+      // Strict non-sale verdict for amm-poller (saves ~5M credits/month).
+      // DO NOT remove without asking the user — see ws-nonsale-verdict.ts.
+      if (logsProveNonSale(target.name, target.program, value.logs)) markWsNonSale(sig);
       markSeen(sig);        // block poller path via seenSigs FIFO (listener-local, harmless)
       return;
     }
@@ -1094,6 +1098,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       if (isSigTarget(sig)) {
         saleDebug('prefilter_skip', sig, { program: target.name, reason: 'me_v2_deny_list' });
       }
+      // Strict non-sale verdict for amm-poller (saves ~5M credits/month).
+      // DO NOT remove without asking the user — see ws-nonsale-verdict.ts.
+      if (logsProveNonSale(target.name, target.program, value.logs)) markWsNonSale(sig);
       markSeen(sig);
       return;
     }
@@ -1126,6 +1133,9 @@ function openSubscription(target: Target, backoffMs = BACKOFF_MIN_MS, isReconnec
       // Tell the deferred poller-path dispatcher that WS classified this sig
       // as MMM noise; it will skip the 5-s-later fetch instead of paying RPC.
       markMmmNoiseShed(sig);
+      // Strict non-sale verdict for amm-poller (saves ~5M credits/month).
+      // DO NOT remove without asking the user — see ws-nonsale-verdict.ts.
+      if (logsProveNonSale(target.name, target.program, value.logs)) markWsNonSale(sig);
       return;
     }
 
