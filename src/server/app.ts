@@ -11,6 +11,7 @@ import { createCollectionChartRouter } from './collection-chart';
 import { createCollectionTradeHistoryRouter } from './collection-trade-history';
 import { createListingsCheckRouter } from './listings-check';
 import { createBuyMeRouter } from './buy-me';
+import { createBuyTensorRouter } from './buy-tensor';
 import { createSubscribersRouter } from './subscribers';
 import { createWalletQuickBalanceRouter } from './wallet-quick-balance';
 import { createCollectionSearchRouter } from './collection-search';
@@ -354,6 +355,7 @@ export function createApp() {
   // route with no callers — removed to shrink the route table and reduce
   // attack surface.
   app.use('/api/buy', buyMeRouter);
+  app.use('/api/buy', createBuyTensorRouter());
 
   // Warm the verified-collection catalog in the background (loads persisted
   // rows from Postgres instantly, then fires a background refresh from ME).

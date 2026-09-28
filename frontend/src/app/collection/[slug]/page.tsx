@@ -279,11 +279,13 @@ function listingBuyProps(
   buyEnabled: boolean | null, onBuy: (l: ListingRow) => void,
 ): ListingCardBuy {
   const isMe = listing.marketplace === 'me';
+  const isTensor = listing.marketplace === 'tensor';
   const isPool = !!listing.poolKey;
   const busy = status.kind === 'busy', pending = status.kind === 'pending';
   const done = status.kind === 'done', errored = status.kind === 'error';
   // Buy execution is wired for ME only; Tensor rows keep a disabled BUY.
-  const disabled = !isMe || isPool || busy || pending || buyEnabled !== true || !walletConnected;
+  // buyEnabled = ME API key present; the Tensor path doesn't need it.
+  const disabled = !(isMe || isTensor) || isPool || busy || pending || (isMe && buyEnabled !== true) || !walletConnected;
   const label =
     done    ? '✓'     :
     pending ? 'sent'  :
@@ -291,9 +293,8 @@ function listingBuyProps(
     busy    ? (status.step === 'signing' ? 'sign' : '…') : 'BUY';
   const title = errored ? `error: ${status.message}`
     : pending            ? `Submitted, confirmation pending — https://solscan.io/tx/${status.signature}`
-    : !isMe              ? 'Tensor buy flow not yet implemented'
     : isPool             ? 'Buying from AMM pools is not implemented yet'
-    : buyEnabled === false ? 'Buy unavailable: ME_API_KEY not set on server'
+    : isMe && buyEnabled === false ? 'Buy unavailable: ME_API_KEY not set on server'
     : !walletConnected   ? 'Connect Phantom to buy'
     :                      `Buy ${formatSol(listing.priceSol)} SOL`;
   return { label, title, disabled, busy, errored, onClick: () => onBuy(listing) };
@@ -1209,26 +1210,29 @@ export default function CollectionPage() {
       // price + slippage, and on-tx checks (mint, lamports bound, signer
       // shape). We default slippage to 1% — users can currently only buy
       // the price we just showed them; any real-world move rejects here.
+      // Tensor: our own buy_core builder (no Tensor API); ME: buy_now.
+      const isTensor = listing.marketplace === 'tensor';
       const params = new URLSearchParams({
-        marketplace:      'magic_eden',
+        marketplace:      isTensor ? 'tensor' : 'magic_eden',
         mint:             listing.mint,
         buyer:            walletPubkey,
         collectionSlug:   slug,
         expectedPriceSol: String(listing.priceSol),
         maxSlippagePct:   '1',
       });
-      const url = `${API_BASE}/api/buy/me?${params.toString()}`;
+      const url = `${API_BASE}/api/buy/${isTensor ? 'tensor' : 'me'}?${params.toString()}`;
       const res = await fetch(url, { headers: { ...authHeaders() } });
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as Record<string, unknown>));
         if (res.status === 409 && (body as { currentPriceSol?: number }).currentPriceSol != null) {
           throw new Error(`price changed to ${(body as { currentPriceSol: number }).currentPriceSol} SOL`);
         }
-        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+        const b = body as { error?: string; message?: string };
+        throw new Error(b.message ?? b.error ?? `HTTP ${res.status}`);
       }
       const { txBase64, listing: serverListing } = await res.json() as {
         txBase64: string;
-        listing: { priceSol: number; seller: string; auctionHouse: string; tokenAta: string };
+        listing: { priceSol: number; seller: string; auctionHouse?: string; tokenAta?: string };
       };
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'signing' } }));
       const { signature, txType } = await signSendAndConfirm(txBase64, { sendPath: `${API_BASE}/api/buy/me/send` });
