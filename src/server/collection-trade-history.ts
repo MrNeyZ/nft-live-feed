@@ -259,19 +259,16 @@ export function createCollectionTradeHistoryRouter(): Router {
     // pick whichever returns more rows — ME's shallow-pagination weakness on
     // high-pool-churn collections (degods etc.) is still handled because
     // those also have rich DB history that wins on count.
-    let dbEvents: RestRow[] = [];
-    try {
-      dbEvents = await getEventsByCollection(slug, since, limit) as unknown as RestRow[];
-    } catch (dbErr) {
-      console.warn(`[trade-history] DB query failed slug=${slug}:`, (dbErr as Error).message);
-    }
-
-    let meEvents: RestRow[] = [];
-    try {
-      meEvents = await fetchMeActivities(slug, cutoffSec, limit);
-    } catch (err) {
-      console.warn(`[trade-history] ME fetch failed slug=${slug}:`, (err as Error).message);
-    }
+    const [dbEvents, meEvents] = await Promise.all([
+      (getEventsByCollection(slug, since, limit) as unknown as Promise<RestRow[]>).catch((dbErr: Error) => {
+        console.warn(`[trade-history] DB query failed slug=${slug}:`, dbErr.message);
+        return [] as RestRow[];
+      }),
+      fetchMeActivities(slug, cutoffSec, limit).catch((err: Error) => {
+        console.warn(`[trade-history] ME fetch failed slug=${slug}:`, err.message);
+        return [] as RestRow[];
+      }),
+    ]);
 
     if (dbEvents.length === 0 && meEvents.length === 0) {
       res.status(500).json({ error: 'internal' });

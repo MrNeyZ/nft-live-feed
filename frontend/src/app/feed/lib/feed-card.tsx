@@ -614,7 +614,9 @@ export const FeedCard = memo(function FeedCard({
   // mark the row as cached so the slideDown keyframe doesn't replay.
   // Computed once at mount; the set is updated immediately after so a
   // re-mount on a future route return sees the id and stays static.
-  const isCached = useState(() => seenFeedEventIds.has(event.id))[0];
+  // Snapshot rows (no live arrival stamp) never slide in — only SSE
+  // arrivals animate, so a first page open doesn't cascade the whole list.
+  const isCached = useState(() => arrivedAt == null || seenFeedEventIds.has(event.id))[0];
   useEffect(() => { rememberSeenEventId(event.id); }, [event.id]);
   const kind  = saleKind(event.saleTypeRaw, event.isPoolMarketplace, event.poolType, event.ammFill);
   const sellerCount = event.sellerRemainingCount;
@@ -1046,7 +1048,8 @@ export const ListingCard = memo(function ListingCard({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const isCached = useState(() => seenListingIds.has(listing.id))[0];
+  // Same rule as FeedCard: only live stream arrivals (isNew) slide in.
+  const isCached = useState(() => !isNew || seenListingIds.has(listing.id))[0];
   useEffect(() => {
     seenListingIds.add(listing.id);
     if (seenListingIds.size > SEEN_IDS_MAX) {
