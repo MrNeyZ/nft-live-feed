@@ -1262,11 +1262,79 @@ function mintForListState(ls: string): string | null {
   return listStateToMint.get(ls) ?? null;
 }
 
-const streamStats = { upsert: 0, remove: 0, cold: 0, unresolvedMint: 0, unresolvedEdit: 0 };
+const streamStats = { upsert: 0, remove: 0, cold: 0, unresolvedMint: 0, unresolvedEdit: 0, dasCalls: 0, dasHits: 0 };
 setInterval(() => {
   console.log(`[listings/stream] ${JSON.stringify(streamStats)}`);
   for (const k of Object.keys(streamStats) as Array<keyof typeof streamStats>) streamStats[k] = 0;
 }, 5 * 60_000).unref();
+
+// ─── DAS fallback for stream rows with no local metadata ─────────────────────
+//
+// Brand-new NFTs (never sold, so absent from sale_events) get name/image from
+// one getAssetBatch per flush window (10 credits per ≤1000 mints). Only warm
+// slugs reach here. Results — including misses — are cached per mint.
+
+const DAS_FLUSH_MS  = 1_500;
+const DAS_BATCH_MAX = 1000;
+const DAS_CACHE_MAX = 50_000;
+type DasMeta = { name: string | null; image: string | null };
+const dasCache = new Map<string, DasMeta>();
+const dasQueue = new Map<string, Set<string>>();   // mint → row ids waiting
+let dasTimer: NodeJS.Timeout | null = null;
+
+function queueDasMeta(mint: string, id: string): void {
+  const hit = dasCache.get(mint);
+  if (hit) { applyMeta(id, hit.name, hit.image); return; }
+  let ids = dasQueue.get(mint);
+  if (!ids) dasQueue.set(mint, ids = new Set());
+  ids.add(id);
+  dasTimer ??= setTimeout(() => void flushDasMeta(), DAS_FLUSH_MS);
+}
+
+async function flushDasMeta(): Promise<void> {
+  dasTimer = null;
+  const batch = Array.from(dasQueue.entries()).slice(0, DAS_BATCH_MAX);
+  for (const [m] of batch) dasQueue.delete(m);
+  if (dasQueue.size) dasTimer = setTimeout(() => void flushDasMeta(), DAS_FLUSH_MS);
+  const key = process.env.HELIUS_API_KEY;
+  if (!batch.length || !key) return;
+  try {
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${key}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 'listing-meta', method: 'getAssetBatch', params: { ids: batch.map(([m]) => m) } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const json = await res.json() as { result?: Array<{ id: string; content?: { metadata?: { name?: string }; links?: { image?: string }; files?: Array<{ uri?: string }> } } | null> };
+    streamStats.dasCalls++;
+    const found = new Map<string, DasMeta>();
+    for (const a of json.result ?? []) {
+      if (!a) continue;
+      streamStats.dasHits++;
+      found.set(a.id, {
+        name:  a.content?.metadata?.name?.trim() || null,
+        image: a.content?.links?.image || a.content?.files?.[0]?.uri || null,
+      });
+    }
+    for (const [mint, ids] of batch) {
+      const meta = found.get(mint) ?? { name: null, image: null };
+      if (dasCache.size >= DAS_CACHE_MAX) dasCache.delete(dasCache.keys().next().value!);
+      dasCache.set(mint, meta);
+      for (const id of ids) applyMeta(id, meta.name, meta.image);
+    }
+  } catch (err) {
+    console.warn('[listings/stream] das meta failed', (err as Error).message);
+  }
+}
+
+function applyMeta(id: string, name: string | null, image: string | null): void {
+  const cur = byId.get(id);
+  if (!cur || (cur.nftName && cur.imageUrl)) return;
+  const next: Listing = { ...cur, nftName: cur.nftName ?? name, imageUrl: cur.imageUrl ?? image };
+  if (next.nftName === cur.nftName && next.imageUrl === cur.imageUrl) return;
+  byId.set(id, next);
+  saleEventBus.emitListingUpsert({ slug: next.slug, listing: toWire(next) });
+}
 
 async function enrichStreamRow(id: string): Promise<void> {
   const l = byId.get(id);
@@ -1280,7 +1348,9 @@ async function enrichStreamRow(id: string): Promise<void> {
     );
     const r = rows[0];
     const cur = byId.get(id);
-    if (!r || !cur) return;
+    if (!cur) return;
+    if (!(cur.imageUrl ?? r?.image_url) || !(cur.nftName ?? r?.nft_name)) queueDasMeta(cur.mint, id);
+    if (!r) return;
     const next: Listing = {
       ...cur,
       nftName:  cur.nftName  ?? r.nft_name  ?? null,
@@ -1354,5 +1424,5 @@ export function applyStreamAction(a: StreamedListingAction): void {
   add(row);
   streamStats.upsert++;
   saleEventBus.emitListingUpsert({ slug, listing: toWire(row) });
-  if (!row.imageUrl || row.rank == null) void enrichStreamRow(id);
+  if (!row.imageUrl || !row.nftName || row.rank == null) void enrichStreamRow(id);
 }
