@@ -299,13 +299,19 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
 
     ctx.font = FONT;
 
-    // Y grid + labels
+    // Y grid + labels (labels that would collide with the floor / last-sale
+    // tags on the axis are skipped).
+    const tagYs: number[] = [];
+    if (floor != null && floor > 0 && floor >= y0 && floor <= y1) tagYs.push(y(floor));
+    const lastP = sorted.length ? sorted[sorted.length - 1].price : null;
+    if (lastP != null && lastP >= y0 && lastP <= y1) tagYs.push(y(lastP));
     const yStep = niceStep(y1 - y0, Math.max(3, Math.floor(plotH / 44)));
     ctx.lineWidth = 1;
     for (let v = Math.ceil(y0 / yStep) * yStep; v <= y1; v += yStep) {
       const yy = Math.round(y(v)) + 0.5;
       ctx.strokeStyle = C.grid;
       ctx.beginPath(); ctx.moveTo(PAD.l, yy); ctx.lineTo(PAD.l + plotW, yy); ctx.stroke();
+      if (tagYs.some(ty => Math.abs(ty - yy) < 14)) continue;
       ctx.fillStyle = C.axis;
       ctx.textAlign = 'left';
       ctx.fillText(fmtPrice(v), PAD.l + plotW + 8, yy + 3);
