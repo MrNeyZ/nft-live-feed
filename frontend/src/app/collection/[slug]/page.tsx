@@ -1783,18 +1783,7 @@ export default function CollectionPage() {
             <StatItem value={vol7dSol  != null ? formatSol(vol7dSol)  : '—'} label="7D Vol" />
             <StatItem value={vol24hSol != null ? formatSol(vol24hSol) : '—'} label="24H Vol" />
             <StatItem value={volumeAllSol != null ? `${(volumeAllSol/1000).toFixed(1)}K` : '—'} label="Total Volume" />
-            <StatItem value={events.length.toLocaleString()} label="Buffer" />
           </div>
-          {/* Info notice (verbatim) */}
-          <div style={{
-            padding:'3px 8px', borderBottom:'1px solid rgba(255,255,255,0.05)', flexShrink:0,
-            fontSize:10, color:'#4d4d6e', background:'rgba(255,255,255,0.02)',
-            display:'flex', alignItems:'center', gap:6,
-          }}>
-            <span style={{ color:'var(--vl-purple-primary)' }}>ⓘ</span>
-            Live + historical trades. Buffer: {events.length}.
-          </div>
-
           {/* Chart header (verbatim) */}
           <div style={{
             display:'flex', alignItems:'center', justifyContent:'space-between',
@@ -1806,10 +1795,10 @@ export default function CollectionPage() {
               <div style={{ display:'flex', background:'rgba(255,255,255,0.02)', border:'1px solid #ffffff08', borderRadius:4, overflow:'hidden' }}>
                 {SPANS.map(v => (
                   <button key={v} onClick={() => setSpan(v)} style={{
-                    padding:'1px 5px', fontSize:9, fontWeight:600, border:'none',
+                    padding:'2px 7px', fontSize:10, fontWeight:600, border:'none',
                     background: span === v ? 'rgb(var(--vl-green) / .13)' : 'transparent',
-                    borderRight: span === v ? '1px solid rgb(var(--vl-green) / .4)' : '1px solid #ffffff08',
-                    color: span === v ? 'var(--vl-green-primary)' : 'var(--vl-border-subtle)',
+                    borderRight: '1px solid #ffffff08',
+                    color: span === v ? 'var(--vl-green-primary)' : 'var(--vl-text-muted)',
                     cursor:'pointer',
                   }}>{v}</button>
                 ))}

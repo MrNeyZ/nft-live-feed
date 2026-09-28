@@ -4,12 +4,12 @@
 // points stays cheap), with an HTML tooltip overlay on top.
 //
 //   wheel / pinch     zoom time axis around the cursor
-//   wheel on Y axis   scale price around the cursor
+//   wheel on Y axis   scale price around the cursor (axis is on the right)
 //   drag              pan (TradingView-style: time + price; moving price
 //                     switches the Y axis from auto-fit to manual)
 //   drag on Y axis    stretch / squeeze price scale
 //   double-click      reset both axes
-//   hover             nearest sale → crosshair + tooltip
+//   hover             nearest sale → tooltip
 //   click a sale      pin tooltip (links become clickable); click empty / Esc unpins
 //
 // Y auto-fits to the sales inside the visible window. With `showOutliers`
@@ -43,7 +43,7 @@ interface Props {
   showOutliers: boolean;
 }
 
-const PAD = { l: 50, r: 12, t: 28, b: 22 };
+const PAD = { l: 8, r: 58, t: 26, b: 22 };
 const VOL_H = 34;
 const VOL_GAP = 8;
 const HIT_R = 14;
@@ -57,9 +57,8 @@ const C = {
   median:  alpha(VL.purpleTint, 0.75),
   floor:   alpha([240, 238, 248], 0.55),
   rare:    rgb(VL.goldBright),
-  grid:    'rgba(255,255,255,0.06)',
+  grid:    'rgba(255,255,255,0.045)',
   axis:    VLText.muted,
-  cross:   'rgba(255,255,255,0.28)',
   volBuy:  alpha(VL.greenStrong, 0.35),
   volSell: alpha(VL.redStrong, 0.35),
   labelBg: '#241F3B',
@@ -201,6 +200,18 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
     return { t0, t1 };
   }, [now, spanMs, sorted]);
 
+  // TradingView-style auto-scroll: a zoomed view parked at the live edge
+  // slides forward as time / new sales advance; a view panned into the
+  // past stays put.
+  const prevExtentT1 = useRef(extent.t1);
+  useEffect(() => {
+    const prev = prevExtentT1.current;
+    prevExtentT1.current = extent.t1;
+    const d = extent.t1 - prev;
+    if (d <= 0) return;
+    setView(v => (v && v.t1 >= prev - (v.t1 - v.t0) * 0.02 ? { t0: v.t0 + d, t1: v.t1 + d } : v));
+  }, [extent.t1]);
+
   const t0 = view ? view.t0 : extent.t0;
   const t1 = view ? view.t1 : extent.t1;
 
@@ -230,7 +241,10 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
     if (!showOutliers && prices.length >= 8) {
       const q1 = quantile(prices, 0.25), q3 = quantile(prices, 0.75);
       const iqr = Math.max(q3 - q1, q3 * 0.02);
-      const ra = Math.max(prices[0], q1 - 3 * iqr), rb = Math.min(b, q3 + 3 * iqr);
+      // Tukey fence (1.5·IQR), but never tighter than the 3rd–97th
+      // percentile so a genuine pump / dump cluster stays on-scale.
+      const ra = Math.max(prices[0], Math.min(q1 - 1.5 * iqr, quantile(prices, 0.03)));
+      const rb = Math.min(b, Math.max(q3 + 1.5 * iqr, quantile(prices, 0.97)));
       hidden = prices.filter(p => p < ra || p > rb).length;
       a = ra; b = rb;
     }
@@ -293,8 +307,8 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       ctx.strokeStyle = C.grid;
       ctx.beginPath(); ctx.moveTo(PAD.l, yy); ctx.lineTo(PAD.l + plotW, yy); ctx.stroke();
       ctx.fillStyle = C.axis;
-      ctx.textAlign = 'right';
-      ctx.fillText(fmtPrice(v), PAD.l - 6, yy + 3);
+      ctx.textAlign = 'left';
+      ctx.fillText(fmtPrice(v), PAD.l + plotW + 8, yy + 3);
     }
 
     // X ticks
@@ -307,8 +321,6 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
     ctx.textAlign = 'center';
     for (let t = first; t <= t1; t += tStep) {
       const xx = Math.round(x(t)) + 0.5;
-      ctx.strokeStyle = C.grid;
-      ctx.beginPath(); ctx.moveTo(xx, PAD.t); ctx.lineTo(xx, PAD.t + plotH); ctx.stroke();
       const d = new Date(t);
       const midnight = d.getHours() === 0 && d.getMinutes() === 0;
       const label = tStep >= 86_400_000 || midnight ? fmtMD(d) : fmtHM(d);
@@ -409,13 +421,6 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
     const ap = active != null ? sorted[active] : undefined;
     if (ap && ap.ts >= t0 && ap.ts <= t1 && ap.price >= y0 && ap.price <= y1) {
       const ax = x(ap.ts), ay = y(ap.price);
-      ctx.strokeStyle = C.cross;
-      ctx.setLineDash([2, 3]);
-      ctx.beginPath();
-      ctx.moveTo(PAD.l, ay); ctx.lineTo(PAD.l + plotW, ay);
-      ctx.moveTo(ax, PAD.t); ctx.lineTo(ax, PAD.t + plotH);
-      ctx.stroke();
-      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.arc(ax, ay, r + 4, 0, Math.PI * 2);
       ctx.strokeStyle = VLText.primary;
@@ -423,19 +428,32 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       ctx.stroke();
       ctx.lineWidth = 1;
     }
+    // Last sale: faint dotted level, TradingView "last price" line.
+    const last = sorted.length ? sorted[sorted.length - 1] : undefined;
+    const lastVisible = last && last.price >= y0 && last.price <= y1;
+    if (lastVisible) {
+      const ly = Math.round(y(last.price)) + 0.5;
+      ctx.strokeStyle = last.side === 'sell' ? alpha(VL.redStrong, 0.45) : alpha(VL.greenStrong, 0.45);
+      ctx.setLineDash([1, 3]);
+      ctx.beginPath(); ctx.moveTo(PAD.l, ly); ctx.lineTo(PAD.l + plotW, ly); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     ctx.restore();
 
     // Axis labels for floor + active point (drawn outside clip, over axis)
     const tag = (text: string, yy: number, bg: string, fg: string) => {
-      const tw = ctx.measureText(text).width + 8;
+      const ax0 = PAD.l + plotW + 2;
       ctx.fillStyle = bg;
-      ctx.fillRect(PAD.l - tw - 2, yy - 7, tw, 14);
+      ctx.fillRect(ax0, Math.round(yy) - 8, PAD.r - 4, 16);
       ctx.fillStyle = fg;
-      ctx.textAlign = 'right';
-      ctx.fillText(text, PAD.l - 6, yy + 3);
+      ctx.textAlign = 'left';
+      ctx.fillText(text, ax0 + 6, yy + 3.5);
     };
     if (floor != null && floor > 0 && floor >= y0 && floor <= y1) {
       tag(fmtPrice(floor), y(floor), '#3a3552', VLText.primary);
+    }
+    if (lastVisible && last) {
+      tag(fmtPrice(last.price), y(last.price), last.side === 'sell' ? C.sell : C.buy, '#0a0714');
     }
     if (ap && ap.ts >= t0 && ap.ts <= t1 && ap.price >= y0 && ap.price <= y1) {
       tag(fmtPrice(ap.price), y(ap.price), ap.side === 'sell' ? C.sell : C.buy, '#0a0714');
@@ -449,6 +467,17 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       ctx.fillText(tl, tx, axisY + 14);
     }
   }, [dims, sorted, lo, hi, t0, t1, yRange, yView, floor, medianLine, showMedian, hover, pinned, animTick]);
+
+  // Status line (visible window) — replaces a legend, like TV's OHLC row.
+  const stats = useMemo(() => {
+    const n = hi - lo;
+    if (n === 0) return null;
+    let vol = 0;
+    const ps: number[] = [];
+    for (let i = lo; i < hi; i++) { vol += sorted[i].price; ps.push(sorted[i].price); }
+    ps.sort((a, b) => a - b);
+    return { n, vol, med: quantile(ps, 0.5), min: ps[0], max: ps[ps.length - 1] };
+  }, [sorted, lo, hi]);
 
   // ── Interaction ──────────────────────────────────────────────────────
   // Refs mirror the live axes so rapid wheel / pointer events between
@@ -524,7 +553,7 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       const k = e.deltaMode === 1 ? 16 : 1;
       const dx = e.deltaX * k, dy = e.deltaY * k;
       const mx = e.clientX - el.getBoundingClientRect().left;
-      if (mx < PAD.l) { scaleYAt(e.clientY, Math.exp(dy * 0.0015)); return; }
+      if (mx > PAD.l + L.plotW) { scaleYAt(e.clientY, Math.exp(dy * 0.0015)); return; }
       // Horizontal trackpad swipe / shift+wheel → pan time.
       const horiz = Math.abs(dx) > Math.abs(dy) ? dx : e.shiftKey ? dy : 0;
       if (horiz) {
@@ -576,8 +605,9 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
     ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.current.size === 1) {
       const { mx } = localXY(e.clientX, e.clientY);
+      const plotRight = PAD.l + (layoutRef.current?.plotW ?? 0);
       drag.current = {
-        mode: mx < PAD.l ? 'yscale' : 'pan',
+        mode: mx > plotRight ? 'yscale' : 'pan',
         startX: e.clientX, startY: e.clientY,
         t: { ...tRef.current }, y: { ...yRef.current },
         yLocked: yView == null, moved: false,
@@ -626,7 +656,7 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
       return;
     }
     if (e.pointerType === 'mouse') {
-      setOverYAxis(localXY(e.clientX, e.clientY).mx < PAD.l);
+      setOverYAxis(localXY(e.clientX, e.clientY).mx > PAD.l + L!.plotW);
       setHover(hitTest(e.clientX, e.clientY));
     }
   };
@@ -724,15 +754,15 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
               {link(itemUrl(ap), 'Item ↗')}
               <span style={{ marginLeft: 'auto', color: VLText.faint }}>Esc to close</span>
             </div>
-          : <div style={{ color: VLText.faint }}>Click to pin</div>}
+          : null}
       </div>
     );
   }
 
   const zoomed = view != null || yView != null;
   const btn: React.CSSProperties = {
-    padding: '2px 7px', fontSize: 10, fontWeight: 600, borderRadius: 4,
-    border: '1px solid var(--vl-border-primary)', background: 'rgba(19,16,42,0.9)',
+    padding: '1px 6px', fontSize: 10, fontWeight: 500, borderRadius: 3,
+    border: '1px solid var(--vl-border-primary)', background: 'transparent',
     color: VLText.muted, cursor: 'pointer',
   };
 
@@ -754,28 +784,27 @@ export function SalesChart({ points, spanMs, floor, showOutliers }: Props) {
         onPointerLeave={e => { if (e.pointerType === 'mouse') setHover(null); }}
         onDoubleClick={() => { setView(null); setYView(null); setPinned(null); }}
       />
-      {/* Legend + zoom controls */}
+      {/* Status line (visible window) + minimal controls */}
       <div style={{
-        position: 'absolute', top: 6, left: PAD.l + 6, right: PAD.r + 6,
-        display: 'flex', alignItems: 'center', gap: 10, fontSize: 10, color: VLText.muted,
-        pointerEvents: 'none', flexWrap: 'wrap',
+        position: 'absolute', top: 6, left: PAD.l + 4, right: PAD.r + 4,
+        display: 'flex', alignItems: 'center', gap: 12, fontSize: 10, color: VLText.faint,
+        pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden',
+        fontFamily: '"SF Mono","Fira Code",ui-monospace,monospace',
       }}>
-        <span><span style={{ color: C.buy }}>●</span> Listing buy</span>
-        <span><span style={{ color: C.sell }}>●</span> Bid sell</span>
-        <button
-          onClick={() => setShowMedian(v => !v)}
-          title="Rolling median of recent sale prices — the 'typical price' trend without single outliers"
-          style={{ pointerEvents: 'auto', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, color: showMedian ? VLText.muted : VLText.faint }}>
-          <span style={{ color: showMedian ? C.median : VLText.faint }}>━</span> Median {showMedian ? 'on' : 'off'}
-        </button>
-        {floor != null && floor > 0 && <span><span style={{ color: C.floor }}>┄</span> Floor</span>}
-        <span><span style={{ color: C.rare }}>◯</span> Top 1%</span>
-        {yRange.hidden > 0 && !yView && <span style={{ color: VLText.faint }}>{yRange.hidden} outlier{yRange.hidden > 1 ? 's' : ''} at edge</span>}
+        {stats && <>
+          <span>Sales <b style={{ color: VLText.muted, fontWeight: 500 }}>{stats.n}</b></span>
+          <span>Vol <b style={{ color: VLText.muted, fontWeight: 500 }}>{formatSol(stats.vol)}</b></span>
+          <span>Med <b style={{ color: VLText.muted, fontWeight: 500 }}>{fmtPrice(stats.med)}</b></span>
+          <span>L <b style={{ color: VLText.muted, fontWeight: 500 }}>{fmtPrice(stats.min)}</b></span>
+          <span>H <b style={{ color: VLText.muted, fontWeight: 500 }}>{fmtPrice(stats.max)}</b></span>
+        </>}
+        {yRange.hidden > 0 && !yView && <span title="Extreme sales pinned to the chart edge (toggle Outliers to include)">+{yRange.hidden} off-scale</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 4, pointerEvents: 'auto' }}>
-          <button style={btn} onClick={() => zoomAt((canvasRef.current?.getBoundingClientRect().left ?? 0) + PAD.l + (layoutRef.current?.plotW ?? 0) / 2, 0.6)} title="Zoom in (or scroll)">+</button>
-          <button style={btn} onClick={() => zoomAt((canvasRef.current?.getBoundingClientRect().left ?? 0) + PAD.l + (layoutRef.current?.plotW ?? 0) / 2, 1 / 0.6)} title="Zoom out">−</button>
+          <button style={{ ...btn, color: showMedian ? VLText.primary : VLText.faint, borderColor: showMedian ? 'var(--vl-purple-tint)' : 'var(--vl-border-primary)' }}
+            onClick={() => setShowMedian(v => !v)}
+            title="Rolling median of recent sale prices">Median</button>
           {yView != null && <button style={btn} onClick={() => setYView(null)} title="Auto-fit price axis">Auto</button>}
-          {zoomed && <button style={btn} onClick={() => { setView(null); setYView(null); }} title="Reset both axes (double-click)">Reset</button>}
+          {zoomed && <button style={btn} onClick={() => { setView(null); setYView(null); }} title="Reset (double-click)">Reset</button>}
         </span>
       </div>
       {tip}
