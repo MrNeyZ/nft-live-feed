@@ -652,15 +652,11 @@ export default function CollectionPage() {
     return Number.isFinite(min) ? min : null;
   }, [listings]);
 
-  // Listing ids present in the first snapshot for this slug. Anything that
-  // shows up afterwards is a live arrival → ListingCard purple flash.
-  const listingBaselineRef = useRef<Set<string> | null>(null);
-  useEffect(() => { listingBaselineRef.current = null; }, [slug]);
-  useEffect(() => {
-    if (listingBaselineRef.current == null && listings.length > 0) {
-      listingBaselineRef.current = new Set(listings.map(l => l.id));
-    }
-  }, [listings]);
+  // Rows listed / repriced after this slug's page opened are live arrivals
+  // → ListingCard purple flash. Card key includes the price so a reprice
+  // remounts (and flashes) instead of silently changing a number.
+  const pageOpenedAtRef = useRef(Date.now());
+  useEffect(() => { pageOpenedAtRef.current = Date.now(); }, [slug]);
 
   // Collection supply for rarity tiers (any trade that carried it).
   const collectionSupply = useMemo<number | null>(() => {
@@ -964,6 +960,22 @@ export default function CollectionPage() {
           const d = JSON.parse(e.data) as { slug: string; id: string };
           if (d.slug !== slug) return;
           setListings(prev => prev.filter(l => l.id !== d.id));
+        } catch { /* skip */ }
+      });
+      // Live listing stream (Helius transactionSubscribe): a new listing or
+      // reprice for this slug. Newest-first list → the row moves to the top.
+      es.addEventListener('listing_upsert', (e: MessageEvent) => {
+        try {
+          const d = JSON.parse(e.data) as { slug: string; listing: ListingRow };
+          if (d.slug !== slug || !d.listing?.id) return;
+          setListings(prev => {
+            const was = prev.find(l => l.id === d.listing.id);
+            // Metadata-only patch (image / rank arrived): update in place.
+            if (was && was.priceSol === d.listing.priceSol) {
+              return prev.map(l => l.id === d.listing.id ? { ...l, ...d.listing, listedAt: was.listedAt } : l);
+            }
+            return [d.listing, ...prev.filter(l => l.id !== d.listing.id)];
+          });
         } catch { /* skip */ }
       });
       // Backend listings-store snapshot: full replacement for this slug,
@@ -1512,7 +1524,7 @@ export default function CollectionPage() {
                 const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
                 return (
                   <ListingCard
-                    key={l.id}
+                    key={`${l.id}:${l.priceSol}`}
                     listing={{
                       id: l.id, mint: l.mint, seller: l.seller, priceSol: l.priceSol,
                       marketplace: l.marketplace, listedAt: l.listedAt,
@@ -1525,7 +1537,7 @@ export default function CollectionPage() {
                     abbr={headerAbbr}
                     buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
                     onPreview={setPreview}
-                    isNew={listingBaselineRef.current != null && !listingBaselineRef.current.has(l.id)}
+                    isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
                   />
                 );
               })}

@@ -133,6 +133,13 @@ export interface ListingSnapshotDelta {
   listings: ListingOutWire[];
 }
 
+/** Single-row insert / replace from the live listing stream (new listing or
+ *  reprice). Frontend replaces the row with the same id or inserts it. */
+export interface ListingUpsertDelta {
+  slug:    string;
+  listing: ListingOutWire;
+}
+
 /**
  * Emitted by ingestion after parsing a program tx that was NOT a sale.
  * The listings-store uses this to flag potentially-affected collections for
@@ -606,6 +613,13 @@ class SaleEventBus extends EventEmitter {
 
   /** Full per-slug replacement, emitted by listings-store after a snapshot
    *  refresh or a dirty-triggered reconciliation. */
+  emitListingUpsert(delta: ListingUpsertDelta): void {
+    this.emit('listing_upsert', delta);
+  }
+  onListingUpsert(listener: (delta: ListingUpsertDelta) => void): this {
+    return this.on('listing_upsert', listener);
+  }
+
   emitListingSnapshot(delta: ListingSnapshotDelta): void {
     this.emit('listing_snapshot', delta);
   }

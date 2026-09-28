@@ -35,6 +35,10 @@ import { getCatalogEntry } from './collection-catalog';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
+import { PublicKey } from '@solana/web3.js';
+import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
+import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
+import { primeSlugMints, slugForCollection } from '../ingestion/listing-stream/collection-resolver';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -100,7 +104,9 @@ const MAX_CONCURRENT_SNAPSHOTS = 2;
 /** Soft cap on the long-lived mint→slug reverse index. Bounded so a
  *  long-running process can't grow unbounded as it ingests millions of
  *  sales. FIFO eviction — older associations fall out first. */
-const MINT_TO_SLUG_MAX  = 50_000;
+// Raised 50k → 300k: open collections now prime their full mint list
+// (listing stream). ~300k short strings ≈ tens of MB — acceptable.
+const MINT_TO_SLUG_MAX  = 300_000;
 
 // ─── Mint suppression (sold + delisted) ──────────────────────────────────────
 // onSale / onListingConfirmedDelist remove a mint's listings immediately, but
@@ -208,7 +214,14 @@ function replaceCollection(slug: string, listings: Listing[]): void {
 // without explicit open/close signals from the frontend.
 
 function touch(slug: string): void {
+  // First touch of a cold slug: load its full mint list so the live listing
+  // stream can resolve any listing in this collection (DAS, TTL-bounded).
+  if (!lastTouch.has(slug)) void primeSlugMints(slug, recordMintSlugs);
   lastTouch.set(slug, Date.now());
+}
+
+function recordMintSlugs(mints: string[], slug: string): void {
+  for (const m of mints) recordMintSlug(m, slug);
 }
 
 function evictSlug(slug: string): void {
@@ -1208,4 +1221,138 @@ export function getDerivedFloorLamports(slug: string): number | null {
   }
   if (!Number.isFinite(minSol)) return null;
   return Math.round(minSol * 1e9);
+}
+
+// ─── Live listing stream (Helius transactionSubscribe) ───────────────────────
+//
+// Market-wide list / delist / edit actions decoded from ME M2 + Tensor TComp
+// (src/ingestion/listing-stream). Applied only to WARM slugs (a Collection
+// page touched them recently) — cold slugs get a fresh snapshot the moment
+// the page opens, so tracking rows for them would be wasted memory.
+//   list / edit → upsert one row, emit `listing_upsert`
+//   delist      → remove that source+seller row, emit `listing_remove`
+// Name / image / rarity rank for a brand-new row come from our own DB
+// (sale_events + mint_rarity_cache), never from an external API.
+
+const LIST_STATE_MAX = 20_000;
+const listStateToMint = new Map<string, string>();
+function rememberListState(ls: string, mint: string): void {
+  if (listStateToMint.has(ls)) return;
+  listStateToMint.set(ls, mint);
+  if (listStateToMint.size > LIST_STATE_MAX) {
+    const oldest = listStateToMint.keys().next().value;
+    if (oldest !== undefined) listStateToMint.delete(oldest);
+  }
+}
+const TCOMP_PK = new PublicKey(TCOMP_PROGRAM);
+const derivedListStates = new Set<string>();   // Tensor row ids already derived
+/** TComp `edit` carries only the list-state PDA. Resolve via the map, else
+ *  derive PDAs (seeds ["list_state", mint]) for warm Tensor rows once each. */
+function mintForListState(ls: string): string | null {
+  const hit = listStateToMint.get(ls);
+  if (hit) return hit;
+  for (const [id, l] of byId) {
+    if (l.source !== 'TENSOR' || derivedListStates.has(id)) continue;
+    derivedListStates.add(id);
+    try {
+      const [pda] = PublicKey.findProgramAddressSync([Buffer.from('list_state'), new PublicKey(l.mint).toBuffer()], TCOMP_PK);
+      rememberListState(pda.toBase58(), l.mint);
+    } catch { /* bad mint string */ }
+  }
+  return listStateToMint.get(ls) ?? null;
+}
+
+const streamStats = { upsert: 0, remove: 0, cold: 0, unresolvedMint: 0, unresolvedEdit: 0 };
+setInterval(() => {
+  console.log(`[listings/stream] ${JSON.stringify(streamStats)}`);
+  for (const k of Object.keys(streamStats) as Array<keyof typeof streamStats>) streamStats[k] = 0;
+}, 5 * 60_000).unref();
+
+async function enrichStreamRow(id: string): Promise<void> {
+  const l = byId.get(id);
+  if (!l) return;
+  try {
+    const { rows } = await getPool().query<{ nft_name: string | null; image_url: string | null; rarity_rank: number | null }>(
+      `SELECT s.nft_name, s.image_url, r.rarity_rank
+         FROM (SELECT nft_name, image_url FROM sale_events WHERE mint_address = $1 ORDER BY block_time DESC LIMIT 1) s
+         FULL JOIN (SELECT rarity_rank FROM mint_rarity_cache WHERE mint_address = $1) r ON true`,
+      [l.mint],
+    );
+    const r = rows[0];
+    const cur = byId.get(id);
+    if (!r || !cur) return;
+    const next: Listing = {
+      ...cur,
+      nftName:  cur.nftName  ?? r.nft_name  ?? null,
+      imageUrl: cur.imageUrl ?? r.image_url ?? null,
+      rank:     cur.rank     ?? r.rarity_rank ?? null,
+    };
+    if (next.nftName === cur.nftName && next.imageUrl === cur.imageUrl && next.rank === cur.rank) return;
+    byId.set(id, next);
+    saleEventBus.emitListingUpsert({ slug: next.slug, listing: toWire(next) });
+  } catch (err) {
+    console.warn('[listings/stream] enrich failed', (err as Error).message);
+  }
+}
+
+export function applyStreamAction(a: StreamedListingAction): void {
+  const mint = a.mint ?? (a.listState ? mintForListState(a.listState) : null);
+  if (!mint) { streamStats.unresolvedEdit++; return; }
+  if (a.listState && a.mint) rememberListState(a.listState, a.mint);
+  const id = `${a.marketplace}:${mint}:${a.seller}`;
+
+  if (a.kind === 'delist') {
+    // Always record — a lagging snapshot must not re-add the cancelled row.
+    markSuppressed(mint, 'delisted');
+    const l = byId.get(id);
+    if (!l) return;
+    removeById(id);
+    streamStats.remove++;
+    saleEventBus.emitListingRemove({ slug: l.slug, id });
+    return;
+  }
+
+  if (a.priceLamports == null || a.priceLamports <= 0) return;
+  let slug: string | null = null;
+  const live = byMint.get(mint);
+  if (live) for (const lid of live) { const r = byId.get(lid); if (r) { slug = r.slug; break; } }
+  slug ??= mintToSlug.get(mint) ?? slugForCollection(a.collection);
+  if (!slug) { streamStats.unresolvedMint++; return; }
+  if (!lastTouch.has(slug)) { streamStats.cold++; return; }
+
+  // Same NFT listed elsewhere by the same seller keeps its metadata.
+  let prev = byId.get(id);
+  if (!prev && live) for (const lid of live) { const r = byId.get(lid); if (r) { prev = r; break; } }
+  // The stream is authoritative for a fresh list: clear sold/delisted
+  // suppression so add() doesn't drop a legitimate relist.
+  suppressedAt.delete(mint);
+  const row: Listing = {
+    id, mint, slug,
+    priceSol:     a.priceLamports / 1e9,
+    source:       a.marketplace,
+    type:         'listing',
+    seller:       a.seller,
+    auctionHouse: prev?.auctionHouse ?? '',
+    tokenAta:     prev?.tokenAta ?? '',
+    rank:         prev?.rank ?? null,
+    listedAt:     a.kind === 'list' ? a.ts : (prev?.listedAt ?? a.ts),
+    listedAtQuality: 'exact',
+    nftName:      prev?.nftName ?? null,
+    imageUrl:     prev?.imageUrl ?? null,
+  };
+  // A list by a different wallet means the NFT changed hands — any row by
+  // the previous owner is dead (pool rows are owned by the pool, keep them).
+  if (live) {
+    for (const lid of Array.from(live)) {
+      const r = byId.get(lid);
+      if (!r || r.type === 'pool' || r.seller === a.seller) continue;
+      removeById(lid);
+      streamStats.remove++;
+      saleEventBus.emitListingRemove({ slug: r.slug, id: lid });
+    }
+  }
+  add(row);
+  streamStats.upsert++;
+  saleEventBus.emitListingUpsert({ slug, listing: toWire(row) });
+  if (!row.imageUrl || row.rank == null) void enrichStreamRow(id);
 }

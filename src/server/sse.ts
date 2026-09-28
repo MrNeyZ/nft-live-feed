@@ -579,6 +579,7 @@ saleEventBus.onPoolTypePatch(  (patch)  => enqueue(`event: pool_type\ndata: ${JS
 saleEventBus.onRarityPatch(    (patch)  => enqueue(`event: rarity\ndata: ${JSON.stringify(patch)}\n\n`));
 saleEventBus.onListingRemove(  (delta)  => enqueue(`event: listing_remove\ndata: ${JSON.stringify(delta)}\n\n`));
 saleEventBus.onListingSnapshot((delta)  => enqueue(`event: listing_snapshot\ndata: ${JSON.stringify(delta)}\n\n`));
+saleEventBus.onListingUpsert(  (delta)  => enqueue(`event: listing_upsert\ndata: ${JSON.stringify(delta)}\n\n`));
 // Source-status flips are operator-relevant — keep them immediate so a
 // "tensor down" indicator doesn't sit in a 50 ms queue.
 saleEventBus.onSourceStatus(   (s)      => broadcast(buildStatusFrame(s)));

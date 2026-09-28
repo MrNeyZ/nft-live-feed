@@ -31,6 +31,9 @@ import { preloadBlockedMintsFromDb } from './db/blocked-mint-cache';
 import { hydrateOwnershipLoopCache } from './enrichment/ownership-loop-cache';
 import { hydrateRepeatFloorBuyerCache } from './enrichment/repeat-floor-buyer-cache';
 import { startTradingStatusSweep } from './mints/trading-status-sweep';
+import { startListingStream } from './ingestion/listing-stream/stream';
+import { startCollectionResolver } from './ingestion/listing-stream/collection-resolver';
+import { applyStreamAction } from './server/listings-store';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -211,6 +214,14 @@ async function main() {
     // Low-rate sweep that fills per-NFT names DAS indexed AFTER the bounded
     // collection-confirm retry window expired (see name-backfill.ts).
     startMintNameBackfill();
+  }
+
+  // Market-wide listing stream (Helius transactionSubscribe on ME M2 +
+  // Tensor TComp). Feeds live list / delist / reprice into listings-store for
+  // open collections. ~230–300k credits/month; kill switch LISTING_STREAM=0.
+  if (process.env.LISTING_STREAM !== '0') {
+    startCollectionResolver();
+    startListingStream(applyStreamAction);
   }
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
