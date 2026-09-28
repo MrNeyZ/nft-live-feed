@@ -38,7 +38,7 @@ import * as path from 'path';
 import { PublicKey } from '@solana/web3.js';
 import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
 import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
-import { primeSlugMints, slugForCollection } from '../ingestion/listing-stream/collection-resolver';
+import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -1262,10 +1262,11 @@ function mintForListState(ls: string): string | null {
   return listStateToMint.get(ls) ?? null;
 }
 
-const streamStats = { upsert: 0, remove: 0, cold: 0, unresolvedMint: 0, unresolvedEdit: 0, dasCalls: 0, dasHits: 0 };
+const streamStats = { upsert: 0, remove: 0, cold: 0, unresolvedMint: 0, unresolvedEdit: 0, lazyResolved: 0, dasCalls: 0, dasHits: 0 };
 setInterval(() => {
-  console.log(`[listings/stream] ${JSON.stringify(streamStats)}`);
+  console.log(`[listings/stream] ${JSON.stringify({ ...streamStats, lazyCalls: lazyStats.calls, lazyMints: lazyStats.mints })}`);
   for (const k of Object.keys(streamStats) as Array<keyof typeof streamStats>) streamStats[k] = 0;
+  lazyStats.calls = lazyStats.mints = lazyStats.resolved = 0;
 }, 5 * 60_000).unref();
 
 // ─── DAS fallback for stream rows with no local metadata ─────────────────────
@@ -1365,6 +1366,13 @@ async function enrichStreamRow(id: string): Promise<void> {
   }
 }
 
+const pendingStream = new Map<string, StreamedListingAction>();   // mint → latest action awaiting lazy resolve
+
+function anyWarmTruncated(): boolean {
+  for (const slug of lastTouch.keys()) if (isSlugTruncated(slug)) return true;
+  return false;
+}
+
 export function applyStreamAction(a: StreamedListingAction): void {
   const mint = a.mint ?? (a.listState ? mintForListState(a.listState) : null);
   if (!mint) { streamStats.unresolvedEdit++; return; }
@@ -1372,6 +1380,8 @@ export function applyStreamAction(a: StreamedListingAction): void {
   const id = `${a.marketplace}:${mint}:${a.seller}`;
 
   if (a.kind === 'delist') {
+    const pending = pendingStream.get(mint);
+    if (pending && pending.seller === a.seller && pending.marketplace === a.marketplace) pendingStream.delete(mint);
     // Always record — a lagging snapshot must not re-add the cancelled row.
     markSuppressed(mint, 'delisted');
     const l = byId.get(id);
@@ -1387,7 +1397,25 @@ export function applyStreamAction(a: StreamedListingAction): void {
   const live = byMint.get(mint);
   if (live) for (const lid of live) { const r = byId.get(lid); if (r) { slug = r.slug; break; } }
   slug ??= mintToSlug.get(mint) ?? slugForCollection(a.collection);
-  if (!slug) { streamStats.unresolvedMint++; return; }
+  if (!slug) {
+    // Unknown mint. Only worth an RPC lookup while an OPEN collection has a
+    // truncated (non-Core, >MAX_PAGES) mint list — otherwise it belongs to a
+    // cold collection and would be dropped anyway. Credits are tight.
+    if (!anyWarmTruncated()) { streamStats.unresolvedMint++; return; }
+    // Resolve from on-chain metadata, then replay the latest action.
+    const first = !pendingStream.has(mint);
+    pendingStream.set(mint, a);
+    if (first) void resolveMintSlug(mint).then(s => {
+      const p = pendingStream.get(mint);
+      pendingStream.delete(mint);
+      if (!p) return;
+      if (!s) { streamStats.unresolvedMint++; return; }
+      streamStats.lazyResolved++;
+      recordMintSlug(mint, s);
+      applyStreamAction(p);
+    });
+    return;
+  }
   if (!lastTouch.has(slug)) { streamStats.cold++; return; }
 
   // Same NFT listed elsewhere by the same seller keeps its metadata.

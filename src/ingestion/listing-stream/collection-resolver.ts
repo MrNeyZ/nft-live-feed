@@ -12,18 +12,29 @@
  *                              drops without a verified collection) fall back
  *                              to getAssetsByCreator on the first VERIFIED
  *                              creator of one of their sold mints (+1 getAsset).
+ *   mint → slug (lazy)         for mints the sweep missed (capped big
+ *                              collections, cold-primed slugs): one batched
+ *                              getMultipleAccounts on Metaplex metadata PDAs
+ *                              (1 credit / 100 mints) → verified collection
+ *                              or first verified creator → slug.
  */
 
+import { PublicKey } from '@solana/web3.js';
 import { getPool } from '../../db/client';
 
 const REFRESH_MS    = 30 * 60_000;
 const MINTS_TTL_MS  = 6 * 60 * 60_000;
 const PAGE_LIMIT    = 1000;
-const MAX_PAGES     = 30;
+// Sweeps stop here; mints past the cap resolve lazily via resolveMintSlug.
+const MAX_PAGES     = 10;
 
 const collToSlug = new Map<string, string>();
 const slugToColl = new Map<string, string>();
 const mintsLoadedAt = new Map<string, number>();
+/** Non-Core slugs whose sweep stopped at MAX_PAGES — the only case where a
+ *  listing of an OPEN collection can miss the mint map. */
+const truncatedSlugs = new Set<string>();
+export function isSlugTruncated(slug: string): boolean { return truncatedSlugs.has(slug); }
 const inFlight = new Set<string>();
 
 async function loadCollectionMap(): Promise<void> {
@@ -59,6 +70,7 @@ export function slugForCollection(collection: string | null): string | null {
 }
 
 const slugToCreator = new Map<string, string | null>();
+const creatorToSlug = new Map<string, string>();
 
 async function das<T>(method: string, params: unknown): Promise<T | undefined> {
   const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`, {
@@ -85,6 +97,7 @@ async function creatorForSlug(slug: string): Promise<string | null> {
     creator = asset?.creators?.find(c => c.verified)?.address ?? null;
   }
   slugToCreator.set(slug, creator);
+  if (creator) creatorToSlug.set(creator, slug);
   return creator;
 }
 
@@ -113,20 +126,131 @@ export async function primeSlugMints(slug: string, record: (mints: string[], slu
       base = { creatorAddress: creator, onlyVerified: true };
       by = `creator:${creator.slice(0, 6)}`;
     }
+    let truncated = false;
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const result = await das<{ items?: Array<{ id: string; burnt?: boolean }> }>(method, { ...base, page, limit: PAGE_LIMIT });
+      const result = await das<{ items?: Array<{ id: string; burnt?: boolean; interface?: string }> }>(method, { ...base, page, limit: PAGE_LIMIT });
       const items = result?.items ?? [];
       pages++;
       const mints = items.filter(i => !i.burnt).map(i => i.id);
       if (mints.length) record(mints, slug);
       total += mints.length;
       if (items.length < PAGE_LIMIT) break;
+      // Core listing txs carry the collection account → slugForCollection
+      // resolves them without a mint list; the rest of the sweep is waste.
+      if (items[0]?.interface === 'MplCoreAsset') { by += '/core-skip'; break; }
+      if (page === MAX_PAGES) { truncated = true; by += '/truncated'; }
     }
+    if (truncated) truncatedSlugs.add(slug); else truncatedSlugs.delete(slug);
     mintsLoadedAt.set(slug, Date.now());
     console.log(`[listing-stream/resolver] primed slug=${slug} by=${by} mints=${total} pages=${pages} (~${pages * 10} credits)`);
   } catch (err) {
     console.warn(`[listing-stream/resolver] prime failed slug=${slug}`, (err as Error).message);
   } finally {
     inFlight.delete(slug);
+  }
+}
+
+// ─── Lazy mint → slug via Metaplex metadata ──────────────────────────────────
+
+const TOKEN_METADATA = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const LAZY_FLUSH_MS  = 500;
+const LAZY_BATCH     = 100;           // getMultipleAccounts max
+const LAZY_CACHE_MAX = 100_000;
+const LAZY_MISS_TTL_MS = 6 * 60 * 60_000;
+const lazyCache   = new Map<string, string>();          // mint → slug
+const lazyMiss    = new Map<string, number>();          // mint → miss time (slug maps grow; retry later)
+const lazyWaiters = new Map<string, Array<(slug: string | null) => void>>();
+let lazyTimer: NodeJS.Timeout | null = null;
+export const lazyStats = { calls: 0, mints: 0, resolved: 0 };
+
+/** Verified collection + verified creators from a MetadataV1 account (borsh). */
+function parseMetadataGrouping(data: Buffer): { collection: string | null; creators: string[] } | null {
+  try {
+    if (data[0] !== 4) return null;
+    let off = 1 + 32 + 32;
+    for (let i = 0; i < 3; i++) off += 4 + data.readUInt32LE(off);   // name, symbol, uri
+    off += 2;                                                          // seller_fee_basis_points
+    const creators: string[] = [];
+    if (data[off++] === 1) {
+      const n = data.readUInt32LE(off); off += 4;
+      for (let i = 0; i < n; i++, off += 34) {
+        if (data[off + 32] === 1) creators.push(new PublicKey(data.subarray(off, off + 32)).toBase58());
+      }
+    }
+    off += 2;                                                          // primary_sale_happened, is_mutable
+    if (data[off++] === 1) off += 1;                                   // edition_nonce
+    if (data[off++] === 1) off += 1;                                   // token_standard
+    let collection: string | null = null;
+    if (data[off++] === 1 && data[off] === 1) collection = new PublicKey(data.subarray(off + 1, off + 33)).toBase58();
+    return { collection, creators };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve an unknown mint to a slug from its on-chain metadata. Batched and
+ * cached (misses too). Core / cNFT mints have no metadata PDA → null.
+ */
+export function resolveMintSlug(mint: string): Promise<string | null> {
+  const hit = lazyCache.get(mint);
+  if (hit) return Promise.resolve(hit);
+  const missAt = lazyMiss.get(mint);
+  if (missAt && Date.now() - missAt < LAZY_MISS_TTL_MS) return Promise.resolve(null);
+  return new Promise(resolve => {
+    let w = lazyWaiters.get(mint);
+    if (!w) lazyWaiters.set(mint, w = []);
+    w.push(resolve);
+    lazyTimer ??= setTimeout(() => void flushLazy(), LAZY_FLUSH_MS);
+  });
+}
+
+async function flushLazy(): Promise<void> {
+  lazyTimer = null;
+  const batch = Array.from(lazyWaiters.entries()).slice(0, LAZY_BATCH);
+  for (const [m] of batch) lazyWaiters.delete(m);
+  if (lazyWaiters.size) lazyTimer = setTimeout(() => void flushLazy(), LAZY_FLUSH_MS);
+  if (!batch.length) return;
+  const out = new Map<string, string | null>();
+  try {
+    const pdas = batch.map(([m]) => {
+      try {
+        return PublicKey.findProgramAddressSync(
+          [Buffer.from('metadata'), TOKEN_METADATA.toBuffer(), new PublicKey(m).toBuffer()], TOKEN_METADATA)[0].toBase58();
+      } catch { return null; }
+    });
+    const keys = pdas.filter((p): p is string => !!p);
+    lazyStats.calls++; lazyStats.mints += batch.length;
+    const res = await fetch(`https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 'listing-lazy', method: 'getMultipleAccounts', params: [keys, { encoding: 'base64' }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const json = await res.json() as { result?: { value?: Array<{ data: [string, string] } | null> } };
+    const vals = json.result?.value ?? [];
+    let k = 0;
+    batch.forEach(([m], i) => {
+      if (!pdas[i]) { out.set(m, null); return; }
+      const acc = vals[k++];
+      const g = acc ? parseMetadataGrouping(Buffer.from(acc.data[0], 'base64')) : null;
+      let slug: string | null = null;
+      if (g?.collection) slug = collToSlug.get(g.collection) ?? null;
+      if (!slug && g) for (const c of g.creators) { slug = creatorToSlug.get(c) ?? null; if (slug) break; }
+      out.set(m, slug);
+    });
+  } catch (err) {
+    console.warn('[listing-stream/resolver] lazy resolve failed', (err as Error).message);
+  }
+  for (const [m, waiters] of batch) {
+    const slug = out.get(m) ?? null;
+    // Failed fetches aren't cached, so the next listing of the mint retries.
+    if (out.has(m)) {
+      const cache: Map<string, unknown> = slug ? lazyCache : lazyMiss;
+      if (cache.size >= LAZY_CACHE_MAX) cache.delete(cache.keys().next().value!);
+      if (slug) lazyCache.set(m, slug); else lazyMiss.set(m, Date.now());
+    }
+    if (slug) lazyStats.resolved++;
+    for (const w of waiters) w(slug);
   }
 }
