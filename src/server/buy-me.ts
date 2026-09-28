@@ -35,11 +35,16 @@ import { Router, Request, Response } from 'express';
 import { VersionedTransaction, Transaction, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { rateLimit } from './rate-limit';
 import { requireAuth } from './runtime';
-import { slugForMint } from './listings-store';
+import { slugForMint, meListingForBuy } from './listings-store';
 import { hasMeApiKey, meAuthHeaders } from '../me-api-cooldown';
+import { rpcPost } from './tools-mmm-pools';
+import bs58 from 'bs58';
 
 const ME_API_BASE      = 'https://api-mainnet.magiceden.dev/v2';
 const FETCH_TIMEOUT_MS = 8_000;
+// Small fixed priority fee (µLamports per CU) — lands faster than a bare tx
+// without competing with snipers. ~0.00002 SOL on a ~200k CU buy.
+const BUY_PRIO_FEE_MICROLAMPORTS = Number(process.env.BUY_PRIO_FEE_MICROLAMPORTS) || 100_000;
 
 const ALLOWED_MARKETPLACES = new Set(['magic_eden', 'tensor']);
 
@@ -172,6 +177,33 @@ function unsatisfiedSigners(tx: VersionedTransaction | Transaction): string[] {
   return tx.signatures.filter(s => !s.signature).map(s => s.publicKey.toBase58());
 }
 
+// ── Send + confirm ───────────────────────────────────────────────────────
+// No preflight/simulation: the tx was just built by ME against live state,
+// and a stale listing fails on-chain for the base fee. Sent txs are
+// re-broadcast every REBROADCAST_MS until confirmed (the confirm poll marks
+// them done) or REBROADCAST_TTL_MS passes — plain sendTransaction with
+// maxRetries alone drops more often under load.
+const REBROADCAST_MS     = 2_000;
+const REBROADCAST_TTL_MS = 60_000;
+const CONFIRM_POLL_MS    = 400;
+const CONFIRM_WAIT_MS    = 25_000;
+const inFlightTx = new Map<string, NodeJS.Timeout>();
+
+function sendRaw(txBase64: string): Promise<unknown> {
+  return rpcPost('sendTransaction', [txBase64, { encoding: 'base64', skipPreflight: true, maxRetries: 0 }]);
+}
+
+function stopRebroadcast(sig: string): void {
+  const t = inFlightTx.get(sig);
+  if (t) { clearInterval(t); inFlightTx.delete(sig); }
+}
+
+type SigStatus = { confirmationStatus: string | null; err: unknown } | null;
+async function sigStatus(sig: string): Promise<SigStatus> {
+  const r = await rpcPost('getSignatureStatuses', [[sig]]) as { value: SigStatus[] };
+  return r.value[0] ?? null;
+}
+
 function rejectLog(fields: Record<string, unknown>): void {
   console.warn('[buy/me] REJECTED', JSON.stringify(fields));
 }
@@ -185,6 +217,72 @@ export function createBuyMeRouter(): Router {
   // render the Buy button's disabled state on mount.
   router.get('/me/status', (_req: Request, res: Response) => {
     res.json({ enabled: hasMeApiKey() });
+  });
+
+  const sendLimit = rateLimit({ limit: 20, windowMs: 60_000, label: 'buy/me/send' });
+  const confirmLimit = rateLimit({ limit: 60, windowMs: 60_000, label: 'buy/me/confirm' });
+
+  router.post('/me/send', sendLimit, requireAuth, async (req: Request, res: Response) => {
+    const txBase64 = (req.body as { tx?: unknown })?.tx;
+    if (typeof txBase64 !== 'string' || !txBase64) {
+      res.status(400).json({ ok: false, message: 'missing tx' });
+      return;
+    }
+    const tx = deserializeTx(Buffer.from(txBase64, 'base64'));
+    const sigBytes = tx instanceof VersionedTransaction ? tx.signatures[0] : tx?.signatures[0]?.signature;
+    if (!tx || !sigBytes || sigBytes.every(b => b === 0)) {
+      res.status(400).json({ ok: false, message: 'tx not signed' });
+      return;
+    }
+    const signature = bs58.encode(sigBytes);
+    try {
+      await sendRaw(txBase64);
+    } catch (err) {
+      console.warn('[buy/me] send failed', (err as Error).message);
+      res.status(502).json({ ok: false, message: (err as Error).message });
+      return;
+    }
+    if (!inFlightTx.has(signature)) {
+      const startedAt = Date.now();
+      const t = setInterval(() => {
+        if (Date.now() - startedAt > REBROADCAST_TTL_MS) { stopRebroadcast(signature); return; }
+        sendRaw(txBase64).catch(() => { /* already landed / expired — confirm poll decides */ });
+      }, REBROADCAST_MS);
+      t.unref?.();
+      inFlightTx.set(signature, t);
+    }
+    console.log(`[buy/me] sent sig=${signature.slice(0, 12)}…`);
+    res.json({ ok: true, signature });
+  });
+
+  // Long-poll: resolves as soon as the tx is confirmed/failed, else
+  // `pending` after CONFIRM_WAIT_MS (caller may call again).
+  router.get('/me/confirm', confirmLimit, requireAuth, async (req: Request, res: Response) => {
+    const sig = String(req.query.sig ?? '').trim();
+    if (!/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(sig)) {
+      res.status(400).json({ ok: false, message: 'invalid sig' });
+      return;
+    }
+    const deadline = Date.now() + CONFIRM_WAIT_MS;
+    let closed = false;
+    req.on('close', () => { closed = true; });
+    while (!closed && Date.now() < deadline) {
+      try {
+        const st = await sigStatus(sig);
+        if (st?.err) {
+          stopRebroadcast(sig);
+          res.json({ ok: true, status: 'failed', err: st.err });
+          return;
+        }
+        if (st?.confirmationStatus === 'confirmed' || st?.confirmationStatus === 'finalized') {
+          stopRebroadcast(sig);
+          res.json({ ok: true, status: 'confirmed' });
+          return;
+        }
+      } catch { /* transient — keep polling */ }
+      await new Promise(r => setTimeout(r, CONFIRM_POLL_MS));
+    }
+    if (!closed) res.json({ ok: true, status: 'pending' });
   });
 
   router.get('/me', buyLimit, requireAuth, async (req: Request, res: Response) => {
@@ -225,23 +323,32 @@ export function createBuyMeRouter(): Router {
       return;
     }
 
-    // ── Fetch live listing (single source of truth for price) ───────────
-    const listing = await fetchMeListing(mint);
-    if (!listing) {
-      rejectLog({ reason: 'not_listed', mint, buyer: buyer.slice(0, 8) });
-      res.status(404).json({ error: 'not_listed', message: 'No active ME listing for this mint.' });
-      return;
+    // ── Listing: our store first, ME only as fallback ───────────────────
+    // The store row comes from ME's own snapshot or the on-chain listing
+    // stream (seller / auction house / token account decoded from the list
+    // tx), so it is as fresh as a re-fetch without the ~0.3–1 s round trip.
+    // If it is stale anyway, M2 rejects the price mismatch on-chain.
+    let listing: MeListing;
+    let resolvedSlug: string | null;
+    const local = meListingForBuy(mint);
+    if (local) {
+      listing = { price: local.priceSol, seller: local.seller, auctionHouse: local.auctionHouse, tokenAddress: local.tokenAta };
+      resolvedSlug = local.slug;
+    } else {
+      const fetched = await fetchMeListing(mint);
+      if (!fetched) {
+        rejectLog({ reason: 'not_listed', mint, buyer: buyer.slice(0, 8) });
+        res.status(404).json({ error: 'not_listed', message: 'No active ME listing for this mint.' });
+        return;
+      }
+      listing = fetched;
+      // Collection binding: our enriched index, then ME's listing fields,
+      // then /v2/tokens/:mint. Fail closed if none resolve.
+      resolvedSlug = slugForMint(mint) ?? listing.collection ?? listing.collectionSymbol ?? null;
+      if (!resolvedSlug) resolvedSlug = await fetchMeTokenCollection(mint);
     }
 
     // ── Collection binding ──────────────────────────────────────────────
-    // Prefer our own enriched index (mint → slug, populated from sale_events
-    // + live enrichment). Fall back to ME's `collection` field on the
-    // listing, then to `/v2/tokens/:mint`. If all three fail we fail closed
-    // — never ship a tx on unverifiable collection binding.
-    let resolvedSlug: string | null = slugForMint(mint) ?? listing.collection ?? listing.collectionSymbol ?? null;
-    if (!resolvedSlug) {
-      resolvedSlug = await fetchMeTokenCollection(mint);
-    }
     if (!resolvedSlug) {
       rejectLog({ reason: 'collection_unverifiable', mint, buyer: buyer.slice(0, 8) });
       res.status(409).json({ error: 'collection_unverifiable', message: 'Could not confirm this mint belongs to a known collection.' });
@@ -301,6 +408,7 @@ export function createBuyMeRouter(): Router {
     url.searchParams.set('tokenATA',            tokenAta);
     url.searchParams.set('price',               String(currentPrice));
     url.searchParams.set('buyerExpiry',         '-1');
+    url.searchParams.set('prioFeeMicroLamports', String(BUY_PRIO_FEE_MICROLAMPORTS));
 
     let meRes: Awaited<ReturnType<typeof fetch>>;
     try {

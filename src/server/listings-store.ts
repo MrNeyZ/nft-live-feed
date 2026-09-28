@@ -540,6 +540,18 @@ export function slugForMint(mint: string): string | null {
   return mintToSlug.get(mint) ?? null;
 }
 
+/** Live ME auction-house listing for `mint` with every field ME's buy_now
+ *  needs, or null. Lets the buy route skip re-fetching the listing from ME. */
+export function meListingForBuy(mint: string): Pick<Listing, 'slug' | 'seller' | 'auctionHouse' | 'tokenAta' | 'priceSol'> | null {
+  for (const id of byMint.get(mint) ?? []) {
+    const l = byId.get(id);
+    if (!l || l.source !== 'ME' || l.type !== 'listing') continue;
+    if (!l.auctionHouse || !l.tokenAta || !(l.priceSol > 0)) continue;
+    return { slug: l.slug, seller: l.seller, auctionHouse: l.auctionHouse, tokenAta: l.tokenAta, priceSol: l.priceSol };
+  }
+  return null;
+}
+
 /** Human collection name for a previously-enriched mint, or null. Mirror of
  *  slugForMint — lets insert.ts stamp the first `sale` frame + run the
  *  pre-emit name blacklist gate for any mint we've seen before. */
@@ -1478,8 +1490,8 @@ export function applyStreamAction(a: StreamedListingAction): void {
     source:       a.marketplace,
     type:         'listing',
     seller:       a.seller,
-    auctionHouse: prev?.auctionHouse ?? '',
-    tokenAta:     prev?.tokenAta ?? '',
+    auctionHouse: a.auctionHouse ?? prev?.auctionHouse ?? '',
+    tokenAta:     a.tokenAccount ?? prev?.tokenAta ?? '',
     rank:         prev?.rank ?? null,
     listedAt:     a.kind === 'list' ? a.ts : (prev?.listedAt ?? a.ts),
     listedAtQuality: 'exact',

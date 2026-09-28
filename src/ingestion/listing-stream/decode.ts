@@ -27,6 +27,11 @@ export interface ListingAction {
   priceLamports: number | null;     // list / edit only
   /** MPL Core collection address when the ix carries it. */
   collection:  string | null;
+  /** ME list only: auction house + the token account the NFT sits in (the
+   *  asset itself for Core) — exactly what ME's buy_now takes, so a buy can
+   *  skip re-fetching the listing. Null when the ix doesn't carry them. */
+  auctionHouse: string | null;
+  tokenAccount: string | null;
 }
 
 interface Spec {
@@ -36,6 +41,8 @@ interface Spec {
   sellerIdx:   number;
   listStateIdx?: number;
   collectionIdx?: number;
+  ahIdx?:      number;
+  tokenAccountIdx?: number;
   /** Byte offset of the u64 price in ix data (after the 8-byte disc). */
   priceOff?:   number;
   /** TComp arg tail: `expireInSec: Option<u64>, currency: Option<Pubkey>` —
@@ -45,9 +52,13 @@ interface Spec {
 
 const ME_SPECS: Spec[] = [
   // sell args: sellerStateBump u8, programAsSignerBump u8, buyerPrice u64, …
-  { name: 'sell',             kind: 'list',   mintIdx: 4, sellerIdx: 0, priceOff: 10 },
-  { name: 'mip1_sell',        kind: 'list',   mintIdx: 4, sellerIdx: 0, priceOff: 8 },
-  { name: 'core_sell',        kind: 'list',   mintIdx: 4, sellerIdx: 1, priceOff: 8, collectionIdx: 11 },
+  // ahIdx / tokenAccountIdx per M2 IDL, checked against ME's listing
+  // `auctionHouse` / `tokenAddress`: mip1Sell → tokenAta 10 (not tokenAccount 3),
+  // coreSell → the asset. Legacy `sell` token account is unverified, so it
+  // stays unset and a buy falls back to ME's listing fetch.
+  { name: 'sell',             kind: 'list',   mintIdx: 4, sellerIdx: 0, priceOff: 10, ahIdx: 7 },
+  { name: 'mip1_sell',        kind: 'list',   mintIdx: 4, sellerIdx: 0, priceOff: 8,  ahIdx: 6, tokenAccountIdx: 10 },
+  { name: 'core_sell',        kind: 'list',   mintIdx: 4, sellerIdx: 1, priceOff: 8, collectionIdx: 11, ahIdx: 5, tokenAccountIdx: 4 },
   { name: 'ext_sell',         kind: 'list',   mintIdx: 6, sellerIdx: 1, priceOff: 8 },
   { name: 'ocp_sell',         kind: 'list',   mintIdx: 4, sellerIdx: 0, priceOff: 8 },
   { name: 'cancel_sell',      kind: 'delist', mintIdx: 3, sellerIdx: 0 },
@@ -137,5 +148,7 @@ export function decodeIx(programId: string, accounts: string[], data: Uint8Array
     seller,
     priceLamports: price,
     collection:  spec.collectionIdx != null ? accounts[spec.collectionIdx] ?? null : null,
+    auctionHouse: spec.ahIdx != null ? accounts[spec.ahIdx] ?? null : null,
+    tokenAccount: spec.tokenAccountIdx != null ? accounts[spec.tokenAccountIdx] ?? null : null,
   };
 }

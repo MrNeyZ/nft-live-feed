@@ -1198,7 +1198,7 @@ export default function CollectionPage() {
         listing: { priceSol: number; seller: string; auctionHouse: string; tokenAta: string };
       };
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'signing' } }));
-      const { signature, txType } = await signSendAndConfirm(txBase64);
+      const { signature, txType } = await signSendAndConfirm(txBase64, { sendPath: `${API_BASE}/api/buy/me/send` });
       // eslint-disable-next-line no-console
       console.log('[buy/me] sent', {
         mint: listing.mint, seller: serverListing.seller, auctionHouse: serverListing.auctionHouse,
@@ -1208,26 +1208,22 @@ export default function CollectionPage() {
       setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'busy', step: 'confirming' } }));
 
       // A returned signature only means the RPC accepted it, not that it
-      // landed — poll the same tx-status endpoint the MMM pool tool uses
-      // (getSignatureStatuses + searchTransactionHistory server-side)
-      // before claiming success (Audit #10 TX1).
+      // landed. /confirm long-polls server-side (~400 ms cadence) and answers
+      // the moment the tx is confirmed or failed; two rounds ≈ 50 s, past
+      // blockhash expiry.
       let settled = false;
-      for (let attempt = 0; attempt < 5 && !settled; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 3000));
+      for (let attempt = 0; attempt < 2 && !settled; attempt++) {
         try {
           const r = await fetch(
-            `${API_BASE}/api/tools/mmm-pools/tx-status?sig=${encodeURIComponent(signature)}`,
+            `${API_BASE}/api/buy/me/confirm?sig=${encodeURIComponent(signature)}`,
             { headers: { ...authHeaders() } },
           );
           if (!r.ok) continue;
-          const d = await r.json() as { ok: boolean; found: boolean; confirmationStatus: string | null; err: unknown };
-          if (!d.ok || !d.found) continue;
-          if (d.err) {
+          const d = await r.json() as { ok: boolean; status: 'confirmed' | 'failed' | 'pending'; err?: unknown };
+          if (d.status === 'failed') {
             setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'error', message: 'Transaction failed on-chain: ' + JSON.stringify(d.err) } }));
             settled = true;
-            break;
-          }
-          if (d.confirmationStatus === 'confirmed' || d.confirmationStatus === 'finalized') {
+          } else if (d.status === 'confirmed') {
             setBuyStatuses(prev => ({ ...prev, [key]: { kind: 'done', signature } }));
             settled = true;
           }
