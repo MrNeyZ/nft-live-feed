@@ -203,8 +203,10 @@ frontend. Backend owns truth; UI is a presentation layer over SSE.
 - Tensor listings are a no-op without `TENSOR_API_KEY`.
 - MMM pool buys not wired — `/api/buy/me` is auction-house only.
 - Single-process SSE; no Redis pub/sub.
-- nft.storage / w3s IPFS art is permanently dead — labelled fallback is
-  intended, not a regression.
+- nft.storage / w3s / dweb / ipfs.io gateways are NOT dead — they 429 this
+  server's IP (and wsrv). `/thumb` rewrites them to ipfs.filebase.io by CID;
+  some CIDs only resolve via the user's browser (raw retry in ItemThumb).
+  Collection icon is the last-resort fallback, never the first.
 - Rare Feed (`feat/rare-feed-mvp`) is **not merged**; HowRare is the
   current working rarity source.
 
