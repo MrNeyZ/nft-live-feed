@@ -214,6 +214,12 @@ function noteImageFail(stage: 'proxy_fail' | 'raw_fallback' | 'primary_exhausted
 // sensei.launchifi.xyz. ItemThumb / CollectionIcon retry with this raw
 // URL once before showing the placeholder so those collections don't
 // lose their thumbnails. Non-proxy inputs pass through untouched.
+/** Hosts whose art is permanently gone (nft.storage / web3.storage shut down). */
+const DEAD_IMAGE_HOSTS = /(^|\.)(nftstorage\.link|w3s\.link)$/i;
+function isDeadImageHost(u: string): boolean {
+  try { return DEAD_IMAGE_HOSTS.test(new URL(u).hostname); } catch { return false; }
+}
+
 function rawUpstreamImage(u: string): string {
   try {
     // Relative `/thumb?url=…` — same-origin proxy. Parse against a dummy
@@ -284,7 +290,13 @@ export const ItemThumb = memo(function ItemThumb({
       // loads.
       fetchPriority="low"
       onError={() => {
-        if (!fellBack) {
+        if (!fellBack && isDeadImageHost(rawUpstreamImage(src))) {
+          // Proxy already failed and the raw host is permanently dead
+          // (nft.storage / w3s) — a raw retry just hangs as a black box.
+          noteImageFail('proxy_fail', src);
+          if (!useFallback && fallbackImageUrl) setUseFallback(true);
+          else setErrored(true);
+        } else if (!fellBack) {
           // First failure — proxy refused / upstream timeout. Try raw
           // upstream of the active URL (browser may follow redirect
           // chains wsrv refused, e.g. cross-host IPFS gateway hops).

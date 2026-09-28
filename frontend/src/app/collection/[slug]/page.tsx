@@ -1525,6 +1525,7 @@ export default function CollectionPage() {
                 return (
                   <ListingCard
                     key={`${l.id}:${l.priceSol}`}
+                    fallbackImageUrl={slug ? iconBySlug[slug] ?? null : null}
                     listing={{
                       id: l.id, mint: l.mint, seller: l.seller, priceSol: l.priceSol,
                       marketplace: l.marketplace, listedAt: l.listedAt,

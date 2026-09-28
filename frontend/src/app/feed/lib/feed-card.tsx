@@ -13,6 +13,7 @@ import { shortWallet, timeAgo } from '@/soloist/mock-data';
 import { useSnsDomain } from './use-sns-domain';
 import { marketplaceUrl } from '@/soloist/from-backend';
 import { ItemThumb, MktIconBadge, compressImage } from '@/soloist/shared';
+import { useCollectionIcon } from '@/soloist/collection-icons';
 import { displayPrice } from '@/soloist/price-mode';
 import { formatFeedPrice, safeFiniteNumber } from './format';
 import { RarityRankBadge } from './rarity-rank-badge';
@@ -664,6 +665,8 @@ export const FeedCard = memo(function FeedCard({
   // click; we request a 256 px source there so the modal stays sharp
   // without enlarging this rolling-feed card request.
   const thumbImg       = compressImage(event.imageUrl);
+  // No / dead NFT image → collection icon (same source as /dashboard).
+  const collIconImg    = compressImage(useCollectionIcon(event.meCollectionSlug));
   const previewImg     = compressImage(event.imageUrl, 256);
   const nftBorderColor = getNftBorderColor(event.nftType);
   const handleThumbClick = () => { if (previewImg) onPreview(previewImg); };
@@ -677,7 +680,7 @@ export const FeedCard = memo(function FeedCard({
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}
         >
           <div draggable={false} style={FC_THUMB_INNER_STYLE}>
-            <ItemThumb imageUrl={thumbImg} color={event.color} abbr={event.abbr} size={thumbSize} />
+            <ItemThumb imageUrl={thumbImg} fallbackImageUrl={collIconImg} color={event.color} abbr={event.abbr} size={thumbSize} />
           </div>
           {nftBorderColor && (
             <span
@@ -1022,7 +1025,7 @@ export interface ListingCardBuy {
 const seenListingIds = new Set<string>();
 
 export const ListingCard = memo(function ListingCard({
-  listing, floor, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false,
+  listing, floor, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false, fallbackImageUrl = null,
 }: {
   listing:   ListingCardData;
   floor:     number | null;
@@ -1033,6 +1036,8 @@ export const ListingCard = memo(function ListingCard({
   /** Listing appeared live (not in the initial snapshot) → purple flash. */
   isNew?:    boolean;
   snsDomainAuto?: boolean;
+  /** Collection icon shown when the NFT has no / a dead image. */
+  fallbackImageUrl?: string | null;
 }) {
   const [flash, setFlash] = useState(isNew);
   useEffect(() => {
@@ -1073,7 +1078,7 @@ export const ListingCard = memo(function ListingCard({
           onClick={() => { if (previewImg) onPreview(previewImg); }}
           style={{ cursor: thumbImg ? 'pointer' : 'default', position: 'relative' }}>
           <div draggable={false} style={FC_THUMB_INNER_STYLE}>
-            <ItemThumb imageUrl={thumbImg} color={color} abbr={abbr} size={56} />
+            <ItemThumb imageUrl={thumbImg} fallbackImageUrl={compressImage(fallbackImageUrl)} color={color} abbr={abbr} size={56} />
           </div>
         </div>
 
