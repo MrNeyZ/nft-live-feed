@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import { installRpcMethodCounter } from './runtime/rpc-method-counter';
+installRpcMethodCounter();
 import * as path from 'path';
 import { createApp } from './server/app';
 import { getPool } from './db/client';
