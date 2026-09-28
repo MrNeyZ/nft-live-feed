@@ -100,7 +100,7 @@ const GC_INTERVAL_MS    = 60_000;
 const DIRTY_DEBOUNCE_MS = 10_000;
 /** Upper bound on concurrent external snapshot fetches across all slugs —
  *  prevents a burst of freshly-opened tabs from hammering ME/Tensor/MMM. */
-const MAX_CONCURRENT_SNAPSHOTS = 2;
+const MAX_CONCURRENT_SNAPSHOTS = 4;
 /** Soft cap on the long-lived mint→slug reverse index. Bounded so a
  *  long-running process can't grow unbounded as it ingests millions of
  *  sales. FIFO eviction — older associations fall out first. */
@@ -658,14 +658,26 @@ async function fetchMeListedAtMap(slug: string): Promise<Map<string, number>> {
   // pages 3–9; 3-page cap recovered zero of them). Short-page early-exit
   // keeps cost bounded — we only hit this ceiling for the busiest slugs.
   const MAX_PAGES = 10;
-  try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const offset = page * PAGE_SIZE;
-      const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=list&offset=${offset}&limit=${PAGE_SIZE}`;
+  // Pages are fetched PAGE_CONCURRENCY at a time (not one-by-one): each ME
+  // activities page takes ~2 s, so 10 sequential pages held every first
+  // collection open for ~20 s. Same pages, same data, ~4 s.
+  const PAGE_CONCURRENCY = 5;
+  const fetchPage = async (page: number): Promise<MeListActivity[] | null> => {
+    const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=list&offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`;
+    try {
       const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
-      if (!res.ok) break;
+      if (!res.ok) return null;
       const json = await res.json() as MeListActivity[];
-      if (!Array.isArray(json) || json.length === 0) break;
+      return Array.isArray(json) ? json : null;
+    } catch { return null; }
+  };
+  for (let start = 0; start < MAX_PAGES; start += PAGE_CONCURRENCY) {
+    const pages = await Promise.all(
+      Array.from({ length: Math.min(PAGE_CONCURRENCY, MAX_PAGES - start) }, (_, k) => fetchPage(start + k)),
+    );
+    let exhausted = false;
+    for (const json of pages) {
+      if (!json || json.length === 0) { exhausted = true; break; }
       for (const a of json) {
         if (!a.tokenMint || typeof a.blockTime !== 'number' || a.blockTime <= 0) continue;
         const ms = a.blockTime * 1000;
@@ -673,9 +685,10 @@ async function fetchMeListedAtMap(slug: string): Promise<Map<string, number>> {
         // Keep the most recent list event per mint (covers list → delist → list cycles).
         if (ms > prev) out.set(a.tokenMint, ms);
       }
-      if (json.length < PAGE_SIZE) break;  // reached end of list-activity history
+      if (json.length < PAGE_SIZE) { exhausted = true; break; }  // end of list-activity history
     }
-  } catch { /* partial result fine — map just stays smaller */ }
+    if (exhausted) break;
+  }
   return out;
 }
 
@@ -878,6 +891,8 @@ async function fetchMmmPools(slug: string): Promise<Listing[]> {
 interface TensorActiveListing {
   mint?:       string;          // mint address (top-level string, not an object)
   rarityRank?: number;          // top-level, replaces v2's mint.rarityRankHR/TT
+  name?:       string;
+  imageUri?:   string;
   listing?: {
     seller?: string;
     price?:  string;            // lamports
@@ -1105,8 +1120,8 @@ async function fetchTensor(slug: string): Promise<Listing[]> {
         // A real list-transaction timestamp, same as ME's own — 'exact'.
         listedAt:        Number.isFinite(txAtMs) ? txAtMs : null,
         listedAtQuality: Number.isFinite(txAtMs) ? 'exact' : null,
-        nftName:      null,   // active_listings has `name`/`imageUri`; not wired to Listing yet
-        imageUrl:     null,
+        nftName:      m.name?.trim() || null,
+        imageUrl:     m.imageUri || null,
       });
     }
     return out;
