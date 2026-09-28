@@ -271,12 +271,67 @@ export const ItemThumb = memo(function ItemThumb({
     setUseFallback(false);
     setFellBack(false);
     setErrored(false);
-  }, [imageUrl, fallbackImageUrl]);
+  }, [imageUrl]);
+  // A fallback that arrives AFTER the primary already failed (collection
+  // icons load async) must not re-run the dead primary — resetting here
+  // re-rendered the same failed src, which fires no new error event and
+  // left a broken-image box. Switch straight to the fallback instead.
+  useEffect(() => {
+    if (errored && !useFallback && fallbackImageUrl) {
+      setUseFallback(true);
+      setFellBack(false);
+      setErrored(false);
+    }
+  }, [fallbackImageUrl, errored, useFallback]);
   const activeUrl = useFallback ? fallbackImageUrl : imageUrl;
-  if (!activeUrl || errored) return <NFTThumb color={color} abbr={abbr} size={size} />;
-  const src = fellBack ? rawUpstreamImage(activeUrl) : activeUrl;
+  const src = activeUrl && !errored ? (fellBack ? rawUpstreamImage(activeUrl) : activeUrl) : null;
+  const imgRef = useRef<HTMLImageElement>(null);
+  const handleError = () => {
+    if (!src) return;
+    if (!fellBack && isDeadImageHost(rawUpstreamImage(src))) {
+      // Proxy already failed and the raw host is permanently dead
+      // (nft.storage / w3s) — a raw retry just hangs as a black box.
+      noteImageFail('proxy_fail', src);
+      if (!useFallback && fallbackImageUrl) setUseFallback(true);
+      else setErrored(true);
+    } else if (!fellBack) {
+      // First failure — proxy refused / upstream timeout. Try raw
+      // upstream of the active URL (browser may follow redirect
+      // chains wsrv refused, e.g. cross-host IPFS gateway hops).
+      noteImageFail('proxy_fail', src);
+      setFellBack(true);
+    } else if (!useFallback && fallbackImageUrl) {
+      // Primary URL fully exhausted (proxy + raw both failed) and
+      // a fallback URL was supplied. Swap to it and reset the
+      // proxy/raw subchain so it gets its own two-step retry.
+      noteImageFail('primary_exhausted', src);
+      setUseFallback(true);
+      setFellBack(false);
+    } else {
+      // No fallback URL left (either was never supplied or has
+      // also exhausted). Render initials.
+      noteImageFail('raw_fallback', src);
+      setErrored(true);
+    }
+  };
+  // Some failures land before React's onError is wired (fast cached 404s),
+  // leaving a broken-image box forever. Re-check the element directly.
+  useEffect(() => {
+    if (!src) return;
+    const check = () => {
+      const el = imgRef.current;
+      if (el && el.complete && el.naturalWidth === 0) handleError();
+    };
+    check();
+    const t = setTimeout(check, 3_000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+  if (!src) return <NFTThumb color={color} abbr={abbr} size={size} />;
   return (
     <img
+      ref={imgRef}
+      key={src}
       src={src}
       alt=""
       width={size}
@@ -289,33 +344,7 @@ export const ItemThumb = memo(function ItemThumb({
       // feed; the lazy attribute already gates above-the-fold off-screen
       // loads.
       fetchPriority="low"
-      onError={() => {
-        if (!fellBack && isDeadImageHost(rawUpstreamImage(src))) {
-          // Proxy already failed and the raw host is permanently dead
-          // (nft.storage / w3s) — a raw retry just hangs as a black box.
-          noteImageFail('proxy_fail', src);
-          if (!useFallback && fallbackImageUrl) setUseFallback(true);
-          else setErrored(true);
-        } else if (!fellBack) {
-          // First failure — proxy refused / upstream timeout. Try raw
-          // upstream of the active URL (browser may follow redirect
-          // chains wsrv refused, e.g. cross-host IPFS gateway hops).
-          noteImageFail('proxy_fail', src);
-          setFellBack(true);
-        } else if (!useFallback && fallbackImageUrl) {
-          // Primary URL fully exhausted (proxy + raw both failed) and
-          // a fallback URL was supplied. Swap to it and reset the
-          // proxy/raw subchain so it gets its own two-step retry.
-          noteImageFail('primary_exhausted', src);
-          setUseFallback(true);
-          setFellBack(false);
-        } else {
-          // No fallback URL left (either was never supplied or has
-          // also exhausted). Render initials.
-          noteImageFail('raw_fallback', src);
-          setErrored(true);
-        }
-      }}
+      onError={handleError}
       style={{ width: size, height: size, borderRadius: 4, objectFit: 'cover', display: 'block', background: 'var(--vl-gray-base)' }}
     />
   );
