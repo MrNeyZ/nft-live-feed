@@ -1339,6 +1339,42 @@ export default function CollectionPage() {
   const vol24hSol     = statsData?.vol24h ?? null;
   void tick;  // retained for TradeRowItem timeAgo refresh
 
+  // Top offers: best live personal offer per listed mint (ME / Tensor) +
+  // the collection's best executable collection bid. Polled; shown only
+  // when above floor.
+  type Offer = { priceSol: number; src: 'ME' | 'TENSOR' };
+  const [offers, setOffers] = useState<{ byMint: Record<string, Offer>; collectionBid: Offer | null } | null>(null);
+  useEffect(() => {
+    if (!slug) return;
+    let cancelled = false;
+    setOffers(null);
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/collections/offers?slug=${encodeURIComponent(slug)}`);
+        if (!res.ok) return;
+        const j = await res.json() as { offers: Record<string, Offer>; collectionBid: Offer | null };
+        if (!cancelled) setOffers({ byMint: j.offers ?? {}, collectionBid: j.collectionBid ?? null });
+      } catch { /* transient */ }
+    };
+    // First pull after the listings snapshot has landed server-side.
+    const first = setTimeout(load, 1500);
+    const id = setInterval(load, 60_000);
+    return () => { cancelled = true; clearTimeout(first); clearInterval(id); };
+  }, [slug]);
+  const topOfferFor = (mint: string): Offer | null | undefined => {
+    if (!offers) return undefined;
+    const p = offers.byMint[mint], c = offers.collectionBid;
+    const best = p && (!c || p.priceSol >= c.priceSol) ? p : c;
+    return best && listingsFloor != null && best.priceSol > listingsFloor ? best : null;
+  };
+
+  // Live listings per seller (non-pool rows) → ×N badge on ListingCard.
+  const sellerListedCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of listings) if (!l.poolKey) m.set(l.seller, (m.get(l.seller) ?? 0) + 1);
+    return m;
+  }, [listings]);
+
   const renderListing = (l: ListingRow, nested = false) => {
     const d = resolveNftDisplay({ nftName: l.nftName, mint: l.mint, imageUrl: l.imageUrl, stem: nameStem ?? (resolvedName ?? slug), imageByMint });
     const card = (
@@ -1357,6 +1393,8 @@ export default function CollectionPage() {
         abbr={headerAbbr}
         buy={listingBuyProps(l, buyStatuses[l.mint] ?? { kind: 'idle' }, !!walletPubkey, buyEnabled, onBuyListing)}
         onPreview={setPreview}
+        sellerListedCount={sellerListedCounts.get(l.seller) ?? 1}
+        topOffer={topOfferFor(l.mint)}
         isNew={l.listedAt != null && l.listedAt > pageOpenedAtRef.current}
       />
     );
@@ -1533,7 +1571,7 @@ export default function CollectionPage() {
                 label="Filters"
                 size="sm"
               />
-              <span style={{ fontSize:10, color:'#4d4d6e' }}>Sort:</span>
+              <span style={{ fontSize:10, color:'var(--vl-text-muted)' }}>Sort:</span>
               <DropBtn label="listing date" />
             </div>
           </div>
@@ -1576,7 +1614,7 @@ export default function CollectionPage() {
                 {buyEnabled === false ? 'No active ME listings.' : 'Loading listings…'}
               </div>
             )}
-            <div className="feed-list feed-density-compact">
+            <div className="feed-list feed-density-compact coll-feed">
               {listingItems.slice(0, listingsShow).map(it => {
                 if (it.kind === 'row') return renderListing(it.l);
                 const open = openPools.has(it.poolKey);
@@ -1661,7 +1699,7 @@ export default function CollectionPage() {
                 label="Filters"
                 size="sm"
               />
-              <span style={{ fontSize:10, color:'#4d4d6e' }}>Sort:</span>
+              <span style={{ fontSize:10, color:'var(--vl-text-muted)' }}>Sort:</span>
               <DropBtn label="trade date" />
             </div>
           </div>
@@ -1704,7 +1742,7 @@ export default function CollectionPage() {
                 No trades yet for <code>{slug}</code>
               </div>
             )}
-            <div className="feed-list feed-density-compact">
+            <div className="feed-list feed-density-compact coll-feed">
               {tradeCards.slice(0, tradesShow).map(ev => (
                 <FeedCard
                   key={ev.id}

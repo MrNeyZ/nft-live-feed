@@ -1019,8 +1019,57 @@ a { color: inherit; text-decoration: none; }
 }
 .feed-card.sell-card:hover { background: rgb(var(--vl-red-strong) / 0.082); }
 .feed-card.listing-card {
-  border-left:  2px solid rgb(var(--vl-purple-tint) / 0.95);
-  border-right: 2px solid rgb(var(--vl-purple-tint) / 0.95);
+  /* Same frame construction as .buy-card/.sell-card: a faded 0.40 side
+     border as the top/bottom tail, a bright centre stripe (::before /
+     ::after below) and a faint body tint — in the listing lavender. */
+  border-left:  2px solid rgb(var(--vl-purple-tint) / 0.40);
+  border-right: 2px solid rgb(var(--vl-purple-tint) / 0.40);
+  background:   rgb(var(--vl-purple-tint) / 0.030);
+}
+.feed-card.listing-card:hover { background: rgb(var(--vl-purple-tint) / 0.085); }
+.feed-card.listing-card::before,
+.feed-card.listing-card::after {
+  content: '';
+  position: absolute;
+  top: 18%; bottom: 18%;
+  width: 2px;
+  pointer-events: none;
+  border-radius: 1px;
+  background: rgb(168, 144, 232);
+  box-shadow: 0 0 4px rgba(168, 144, 232, 0.45);
+}
+.feed-card.listing-card::before { left: -2px; }
+.feed-card.listing-card::after  { right: -2px; }
+
+
+/* /collection LISTINGS + TRADES panes only: lift the tertiary
+   `seller:` / `buyer:` / `pool:` labels (FeedCard's
+   FC_PARTY_ROW_STYLE reads --fc-label, default #63637A elsewhere) —
+   the panes are ~40 % narrower than /feed, so labels sit tighter
+   against the wallet and need a step more contrast to separate. */
+.coll-feed { --fc-label: #7e7e98; container-type: inline-size; }
+
+/* Narrow panes (laptop ≤ ~1100 px puts each pane near 270 px): the fixed
+   right column (time lane, action, price) used to squeeze the middle
+   column to zero, hiding the NFT name and wallets entirely. Give that
+   space back in order of least value: tertiary labels first (≤370 px, the
+   1280 px laptop case), then the % chip and a slightly smaller thumb
+   (≤330 px). Name, wallets, action and price always stay. */
+@container (max-width: 370px) {
+  .coll-feed .fc-party-label { display: none !important; }
+}
+@container (max-width: 330px) {
+  .coll-feed .fc-floor-chip { display: none !important; }
+  .coll-feed .fc-price { min-width: 0 !important; }
+  .coll-feed .feed-card { gap: 8px; padding: 8px 10px; }
+  .coll-feed .feed-thumb {
+    width: 44px !important; height: 44px !important;
+    flex-shrink: 0 !important; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .coll-feed .feed-thumb > div,
+  .coll-feed .feed-thumb > div > div { width: 100% !important; height: 100% !important; }
+  .coll-feed .feed-thumb img { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block; }
 }
 
 /* /feed Filters panel — terminal control surface. Sits as a darker

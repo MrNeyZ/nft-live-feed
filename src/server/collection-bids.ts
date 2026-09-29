@@ -38,7 +38,7 @@ const BID_TTL_MS = 60_000;
 // in chunks of ≤ 20, so legitimate usage is unaffected.
 const MAX_SLUGS_PER_REQUEST = 20;
 
-interface CachedBids {
+export interface CachedBids {
   floorLamports:    number | null;
   meBidLamports:    number | null;
   tnsrBidLamports:  number | null;
@@ -454,7 +454,7 @@ async function refreshBidsForSlug(slug: string): Promise<CachedBids> {
  *  used to make the client wait up to (visible slug count) seconds. Only a
  *  slug with NO cached value at all (true first-ever request, or nothing
  *  survived from disk) still blocks. */
-async function getBidsForSlug(slug: string): Promise<CachedBids> {
+export async function getBidsForSlug(slug: string): Promise<CachedBids> {
   const hit = cache.get(slug);
   const now = Date.now();
   if (hit) {

@@ -40,7 +40,7 @@ import { rpcPost } from './tools-mmm-pools';
 import { ME_AMM_PROGRAM } from '../ingestion/me-raw/programs';
 import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
 import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
-import { snapshotMeOnchain, rememberMeSeller, type OnchainMeListing } from './me-onchain-listings';
+import { snapshotMeOnchain, rememberMeSeller, forgetMeListingTime, type OnchainMeListing } from './me-onchain-listings';
 import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
@@ -1054,6 +1054,27 @@ function getByCollectionRaw(slug: string): Listing[] {
 
 const ME_HINT_WAIT_MS = 1_500;
 
+// Rarity rank for listing rows from our own mint_rarity_cache (same source
+// as /feed's badge) — chain rows carry none, ME hints only sometimes.
+const RANK_TTL_MS = 60 * 60_000;
+const rankCache = new Map<string, { rank: number | null; at: number }>();
+async function fillRanks(rows: Listing[]): Promise<void> {
+  const now = Date.now();
+  const need = Array.from(new Set(rows.filter(r => r.rank == null).map(r => r.mint)))
+    .filter(m => { const h = rankCache.get(m); return !h || now - h.at > RANK_TTL_MS; });
+  if (need.length) {
+    try {
+      const { rows: rr } = await getPool().query<{ m: string; r: number | null }>(
+        'SELECT mint_address AS m, rarity_rank AS r FROM mint_rarity_cache WHERE mint_address = ANY($1)', [need]);
+      const got = new Map(rr.map(x => [x.m, x.r]));
+      for (const m of need) rankCache.set(m, { rank: got.get(m) ?? null, at: now });
+    } catch (err) {
+      console.warn('[listings/rank] lookup failed', (err as Error).message);
+    }
+  }
+  for (const r of rows) if (r.rank == null) r.rank = rankCache.get(r.mint)?.rank ?? null;
+}
+
 /** Chain row → store Listing. rank / listedAt come from the ME hint row or
  *  the row already stored for this listing (stream-observed list time). */
 function onchainToListing(slug: string, r: OnchainMeListing, hint: Listing | undefined): Listing {
@@ -1070,8 +1091,8 @@ function onchainToListing(slug: string, r: OnchainMeListing, hint: Listing | und
     auctionHouse:    r.auctionHouse,
     tokenAta:        r.tokenAccount,
     rank:            hint?.rank ?? prev?.rank ?? null,
-    listedAt:        prev?.listedAt ?? null,
-    listedAtQuality: prev?.listedAtQuality ?? null,
+    listedAt:        r.listedAt ?? prev?.listedAt ?? null,
+    listedAtQuality: r.listedAt != null ? 'exact' : prev?.listedAtQuality ?? null,
     nftName:         r.nftName ?? hint?.nftName ?? prev?.nftName ?? null,
     imageUrl:        r.imageUrl ?? hint?.imageUrl ?? prev?.imageUrl ?? null,
   };
@@ -1080,13 +1101,16 @@ function onchainToListing(slug: string, r: OnchainMeListing, hint: Listing | und
 /** Late on-chain rows (background seller lookups): upsert, push snapshot. */
 function mergeLateOnchain(slug: string, rows: OnchainMeListing[]): void {
   if (!lastFetch.has(slug) && !inFlight.has(slug)) return;
-  for (const r of rows) {
-    for (const lid of Array.from(byMint.get(r.mint) ?? [])) {
-      if (lid.startsWith('ME:')) removeById(lid);
+  const fresh = rows.map(r => onchainToListing(slug, r, undefined));
+  void fillRanks(fresh).finally(() => {
+    for (const l of fresh) {
+      for (const lid of Array.from(byMint.get(l.mint) ?? [])) {
+        if (lid.startsWith('ME:')) removeById(lid);
+      }
+      add(l);
     }
-    add(onchainToListing(slug, r, undefined));
-  }
-  saleEventBus.emitListingSnapshot({ slug, listings: getByCollectionRaw(slug).map(toWire) });
+    saleEventBus.emitListingSnapshot({ slug, listings: getByCollectionRaw(slug).map(toWire) });
+  });
 }
 
 async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed: number | null }> {
@@ -1118,8 +1142,14 @@ async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed:
   let meFailed: number | null = null;
   if (onchain) {
     const hintRows = new Map((meRes?.rows ?? []).map(l => [l.mint, l]));
+    const fresh = onchain.map(r => onchainToListing(slug, r, hintRows.get(r.mint)));
+    if (onchain.partial) {
+      // Big collection: pages 2+ are still loading — keep what we had.
+      const have = new Set(fresh.map(l => l.mint));
+      for (const l of getByCollectionRaw(slug)) if (l.source === 'ME' && l.auctionHouse && !have.has(l.mint)) fresh.push(l);
+    }
     me = [
-      ...onchain.map(r => onchainToListing(slug, r, hintRows.get(r.mint))),
+      ...fresh,
       ...(meRes?.rows ?? []).filter(l => !l.auctionHouse),          // pool-hosted: name/image donors
     ];
   } else if (meRes === null) {
@@ -1155,7 +1185,9 @@ async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed:
       rank:     m?.rank ?? null,
     };
   });
-  return { rows: [...meAh, ...pools, ...tensor], meFailed };
+  const all = [...meAh, ...pools, ...tensor];
+  await fillRanks(all);
+  return { rows: all, meFailed };
 }
 
 // ─── Public surface ──────────────────────────────────────────────────────────
@@ -1438,6 +1470,7 @@ export function applyStreamAction(a: StreamedListingAction): void {
   const id = `${a.marketplace}:${mint}:${a.seller}`;
 
   if (a.kind === 'delist') {
+    if (a.marketplace === 'ME') forgetMeListingTime(mint);
     const pending = pendingStream.get(mint);
     if (pending && pending.seller === a.seller && pending.marketplace === a.marketplace) pendingStream.delete(mint);
     // Always record — a lagging snapshot must not re-add the cancelled row.
@@ -1454,7 +1487,7 @@ export function applyStreamAction(a: StreamedListingAction): void {
   // Market-wide: learn the M2 SellerTradeState for every ME listing we see,
   // so a later cold open of its collection prices it without a gPA.
   if (a.marketplace === 'ME' && a.auctionHouse && a.tokenAccount) {
-    rememberMeSeller(mint, a.seller, a.auctionHouse, a.tokenAccount);
+    rememberMeSeller(mint, a.seller, a.auctionHouse, a.tokenAccount, a.ts);
   }
   let slug: string | null = null;
   const live = byMint.get(mint);

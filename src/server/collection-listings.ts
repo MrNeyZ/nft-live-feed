@@ -16,6 +16,8 @@
 import { Router, Request, Response } from 'express';
 import { ensureFresh, getByCollection, Listing } from './listings-store';
 import { rateLimit, isValidSlug } from './rate-limit';
+import { getTopOffers } from './nft-offers';
+import { getBidsForSlug } from './collection-bids';
 
 const MAX_LIMIT     = 500;
 const DEFAULT_LIMIT = 40;
@@ -114,7 +116,11 @@ export function createCollectionListingsRouter(): Router {
       : DEFAULT_LIMIT;
 
     try {
-      await ensureFresh(slug);
+      // Stale-while-revalidate: a slug already in memory answers at once and
+      // refreshes in the background (open pages get it via listing_snapshot);
+      // only a cold slug waits for its first snapshot.
+      if (getByCollection(slug).length > 0) void ensureFresh(slug).catch(() => {});
+      else await ensureFresh(slug);
 
       // De-dup per mint across sources; then sort ascending by priceSol.
       const chosenByMint = new Map<string, Listing>();
@@ -134,6 +140,36 @@ export function createCollectionListingsRouter(): Router {
       res.json({ listings });
     } catch (err) {
       console.error('[collections/listings] error', err);
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  // Top offer per listed NFT: best live, funded personal offer (ME / Tensor)
+  // plus the collection's best executable collection bid. The client shows
+  // max(personal, collection) only when it beats the floor.
+  const offersLimit = rateLimit({ limit: 30, windowMs: 60_000, label: 'collections/offers' });
+  router.get('/offers', offersLimit, async (req: Request, res: Response) => {
+    const slug = String(req.query.slug ?? '').trim();
+    if (!isValidSlug(slug)) {
+      res.status(400).json({ error: 'invalid slug' });
+      return;
+    }
+    try {
+      const mints = Array.from(new Set(getByCollection(slug).filter(l => l.type === 'listing').map(l => l.mint)));
+      const [offers, bids] = await Promise.all([
+        getTopOffers(mints),
+        getBidsForSlug(slug).catch(() => null),
+      ]);
+      const me = bids?.meBidLamports ?? null;
+      const tn = bids?.tnsrBidLamports ?? null;
+      const collectionBid = me == null && tn == null ? null
+        : (tn ?? -1) > (me ?? -1) ? { priceSol: tn! / 1e9, src: 'TENSOR' as const }
+        : { priceSol: me! / 1e9, src: 'ME' as const };
+      const out: Record<string, { priceSol: number; src: 'ME' | 'TENSOR' }> = {};
+      for (const [m, o] of offers) if (o) out[m] = o;
+      res.json({ offers: out, collectionBid });
+    } catch (err) {
+      console.error('[collections/offers] error', err);
       res.status(500).json({ error: 'internal' });
     }
   });

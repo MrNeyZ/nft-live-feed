@@ -364,6 +364,7 @@ function FloorChip({ delta }: { delta: number }) {
   const txt  = rounded > 0 ? `+${rounded}%` : rounded < 0 ? `${rounded}%` : '0%';
   return (
     <span
+      className="fc-floor-chip"
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         height: 18, padding: '0 5px', borderRadius: 9, flexShrink: 0,
@@ -435,7 +436,10 @@ const FC_PARTY_ROW_STYLE: React.CSSProperties = {
   // to read. Row gap set to 2 px between label and wallet address.
   // (Was var(--vl-text-muted) — identical to the wallet, which made the two blur
   // together.)
-  fontSize: 10.5, color: VLText.faint, display: 'flex', alignItems: 'center', gap: 2,
+  // `--fc-label` hook: unset everywhere except /collection's panes, which
+  // lift the tertiary label a step for their narrower rows. Default is the
+  // exact prior value, so /feed / Rare Feed / /multi render unchanged.
+  fontSize: 10.5, color: `var(--fc-label, ${VLText.faint})`, display: 'flex', alignItems: 'center', gap: 2,
   // UX audit C1: minWidth:0 + overflow:hidden let this row actually shrink
   // and clip instead of visually overflowing onto the card's right column
   // (badge/price) once the card is squeezed — e.g. the /multi tablet
@@ -783,7 +787,7 @@ export const FeedCard = memo(function FeedCard({
               11×11 ME icon match the underlying text metric). */}
           <div style={FC_PARTIES_COL_STYLE}>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span style={FC_PARTY_LABEL_STYLE}>seller:</span>
+              <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>seller:</span>
               <WalletLink wallet={event.seller} snsDomainAuto={snsDomainAuto} />
               {/* Seller-remaining badge — small, inline next to the
                   seller wallet. Renders only on sell-type events when
@@ -822,7 +826,7 @@ export const FeedCard = memo(function FeedCard({
               )}
             </div>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span style={FC_PARTY_LABEL_STYLE}>buyer:</span>
+              <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>buyer:</span>
               <WalletLink wallet={event.buyer} snsDomainAuto={snsDomainAuto} />
             </div>
           </div>
@@ -981,7 +985,7 @@ export const FeedCard = memo(function FeedCard({
               // see me-raw/price.ts's detectSaleCurrency).
               const currencyLabel = event.currency || 'SOL';
               return (
-                <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+                <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
                   {priceStr}{' '}
                   <span style={FC_PRICE_SUFFIX_STYLE}>{currencyLabel}</span>
                 </span>
@@ -995,6 +999,9 @@ export const FeedCard = memo(function FeedCard({
 });
 
 // ── ListingCard ──────────────────────────────────────────────────────────────
+// Third-line listing context (age / rank / pool quote): a value tone between
+// the wallet (#b9b7cb) and the tertiary label, so it reads as secondary info.
+
 // Listing-side sibling of FeedCard for the Collection page's listings pane.
 // Same row wrapper, card chrome, thumb, name row, party row, time-ago and
 // price row as FeedCard (shared constants above), so both panes read as one
@@ -1028,6 +1035,7 @@ const seenListingIds = new Set<string>();
 
 export const ListingCard = memo(function ListingCard({
   listing, floor, color, abbr, buy, onPreview, isNew = false, snsDomainAuto = false, fallbackImageUrl = null,
+  sellerListedCount = 1, topOffer,
 }: {
   listing:   ListingCardData;
   floor:     number | null;
@@ -1040,6 +1048,10 @@ export const ListingCard = memo(function ListingCard({
   snsDomainAuto?: boolean;
   /** Collection icon shown when the NFT has no / a dead image. */
   fallbackImageUrl?: string | null;
+  /** How many of this collection's current listings this seller has. */
+  sellerListedCount?: number;
+  /** Best offer above floor; null = none; undefined = not loaded yet. */
+  topOffer?: { priceSol: number; src: 'ME' | 'TENSOR' } | null;
 }) {
   const [flash, setFlash] = useState(isNew);
   useEffect(() => {
@@ -1099,15 +1111,35 @@ export const ListingCard = memo(function ListingCard({
             </a>
             <RarityRankBadge rarityRank={listing.rarityRank ?? null} totalSupply={listing.totalSupply ?? null} />
           </div>
+          {/* FeedCard's party block: seller, then the top offer (in FeedCard's
+              buyer slot — the would-be buyer if this listing sold now). */}
           <div style={FC_PARTIES_COL_STYLE}>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span style={FC_PARTY_LABEL_STYLE}>seller:</span>
+              <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>seller:</span>
               <WalletLink wallet={listing.seller} snsDomainAuto={snsDomainAuto} />
+              {/* Same micro-badge as FeedCard's seller-remaining count: here
+                  it's how many of this collection's live listings are the
+                  seller's (a wall / dumper tell). Only when ≥ 2. */}
+              {sellerListedCount >= 2 && (
+                <span className="seller-remaining-badge" style={SELLER_REMAINING_BADGE_STYLE}
+                  title={`${sellerListedCount} listings by this seller`}>
+                  <span className="seller-remaining-badge-num">{Math.min(99, sellerListedCount)}</span>
+                </span>
+              )}
             </div>
-            {listing.rarityRank != null && (
+            {topOffer !== undefined && (
               <div style={FC_PARTY_ROW_STYLE}>
-                <span style={FC_PARTY_LABEL_STYLE}>rank:</span>
-                <span style={{ color: VLText.muted }}>#{listing.rarityRank}</span>
+                <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>offer:</span>
+                {topOffer ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                    <span style={{ ...WALLET_LINK_STYLE, fontVariantNumeric: 'tabular-nums' }}>{formatFeedPrice(topOffer.priceSol)}</span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={topOffer.src === 'TENSOR' ? '/brand/tensor.png' : '/brand/me.png'} alt={topOffer.src} width={13} height={13}
+                      draggable={false} style={{ display: 'block', borderRadius: 2, opacity: 0.85, flexShrink: 0 }} />
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--fc-label, ' + VLText.faint + ')' }}>none</span>
+                )}
               </div>
             )}
           </div>
@@ -1115,7 +1147,7 @@ export const ListingCard = memo(function ListingCard({
 
         <div style={FC_RIGHT_COL_STYLE}>
           <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
-            {ts != null ? <TimeAgo ts={ts} /> : <span style={{ fontSize: 11, color: VLText.muted }}>—</span>}
+            {ts != null && <TimeAgo ts={ts} />}
             <span style={{ display: 'inline-flex', alignItems: 'center', lineHeight: 0, opacity: 0.78 }}>
               <MktIconBadge mp={listing.marketplace} href={itemHref} />
             </span>
@@ -1136,7 +1168,7 @@ export const ListingCard = memo(function ListingCard({
                 opacity: buy.disabled && !buy.busy ? 0.55 : 1,
                 padding: 0,
               }}>{buy.label}</button>
-            <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
               {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>
@@ -1195,14 +1227,15 @@ export const PoolGroupCard = memo(function PoolGroupCard({
           </div>
           <div style={FC_PARTIES_COL_STYLE}>
             <div style={FC_PARTY_ROW_STYLE}>
-              <span style={FC_PARTY_LABEL_STYLE}>pool:</span>
+              <span className="fc-party-label" style={FC_PARTY_LABEL_STYLE}>pool:</span>
               <a href={`https://solscan.io/account/${encodeURIComponent(poolKey)}`} target="_blank" rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()} style={{ color: VLText.muted, textDecoration: 'none' }}>
+                onClick={(e) => e.stopPropagation()} style={WALLET_LINK_STYLE}>
                 {poolKey.slice(0, 4)}…{poolKey.slice(-4)}
               </a>
             </div>
           </div>
         </div>
+
 
         <div style={FC_RIGHT_COL_STYLE}>
           <div style={FC_TOP_RIGHT_CLUSTER_STYLE}>
@@ -1213,7 +1246,7 @@ export const PoolGroupCard = memo(function PoolGroupCard({
           </div>
           <div className="feed-price-row" style={FC_PRICE_ROW_STYLE}>
             {floorDelta != null && Math.abs(floorDelta) >= 0.005 && <FloorChip delta={floorDelta} />}
-            <span style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
+            <span className="fc-price" style={{ ...FC_PRICE_TEXT_STYLE, fontSize: priceFontSize }}>
               {priceStr}{' '}<span style={FC_PRICE_SUFFIX_STYLE}>SOL</span>
             </span>
           </div>

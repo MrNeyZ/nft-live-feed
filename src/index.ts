@@ -36,6 +36,7 @@ import { startTradingStatusSweep } from './mints/trading-status-sweep';
 import { startListingStream } from './ingestion/listing-stream/stream';
 import { startCollectionResolver } from './ingestion/listing-stream/collection-resolver';
 import { applyStreamAction } from './server/listings-store';
+import { startNftOffersIndex } from './server/nft-offers';
 // Ingestion (listener + AMM gap-healer) is started on demand via the
 // runtime-mode endpoint (`POST /api/runtime/mode`). The HTTP server runs
 // always; ingestion subsystems are toggled without restarting the process.
@@ -225,6 +226,11 @@ async function main() {
     startCollectionResolver();
     startListingStream(applyStreamAction);
   }
+
+  // Per-NFT offer index for /collection "top offer" (ME M2 V2 + TComp
+  // AssetId bids): one gPA each per 15 min (~20 credits). Kill switch
+  // NFT_OFFERS=0.
+  if (process.env.NFT_OFFERS !== '0') startNftOffersIndex();
 
   // Ingestion starts in `off` by default. Operator auths via /api/auth/login
   // and calls /api/runtime/mode to pick FULL / BUDGET / SALES_ONLY. Previous

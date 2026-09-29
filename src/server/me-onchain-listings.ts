@@ -44,6 +44,8 @@ export interface OnchainMeListing {
   tokenAccount: string;
   nftName:      string | null;
   imageUrl:     string | null;
+  /** Latest list / reprice time of this STS (ms), null until resolved. */
+  listedAt:     number | null;
 }
 
 // ─── mint → STS cache ────────────────────────────────────────────────────────
@@ -52,6 +54,13 @@ const stsByMint = new Map<string, string>();
 const dbChecked = new Set<string>();
 const pendingWrites = new Map<string, { sts: string; seller: string }>();
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
+/** STS → listing time (ms). Keyed by STS, not mint: a relist by another
+ *  seller is a new STS and must not inherit the old time. */
+const listedAtBySts = new Map<string, number>();
+const pendingListedAt = new Map<string, number>();
+const scheduleWrite = (): void => {
+  writeTimer ??= setTimeout(() => { writeTimer = null; void flushWrites(); }, 2_000);
+};
 
 function deriveSts(seller: string, auctionHouse: string, tokenAccount: string, mint: string): string | null {
   try {
@@ -67,18 +76,27 @@ function deriveSts(seller: string, auctionHouse: string, tokenAccount: string, m
   }
 }
 
-function remember(mint: string, sts: string, seller: string): void {
+function remember(mint: string, sts: string, seller: string, listedAtMs?: number): void {
+  // Stream time only seeds an unknown STS: a later tx on a known one is a
+  // reprice, and the row's age is from the listing's start (ME semantics).
+  if (listedAtMs != null && !listedAtBySts.has(sts)) setListedAt(sts, listedAtMs);
   if (stsByMint.get(mint) === sts) return;
   stsByMint.set(mint, sts);
   pendingWrites.set(mint, { sts, seller });
-  writeTimer ??= setTimeout(() => { writeTimer = null; void flushWrites(); }, 2_000);
+  scheduleWrite();
+}
+
+function setListedAt(sts: string, ms: number): void {
+  if (listedAtBySts.get(sts) === ms) return;
+  listedAtBySts.set(sts, ms);
+  pendingListedAt.set(sts, ms);
+  scheduleWrite();
 }
 
 async function flushWrites(): Promise<void> {
   const rows = Array.from(pendingWrites.entries());
   pendingWrites.clear();
-  if (!rows.length) return;
-  try {
+  if (rows.length) try {
     await getPool().query(
       `INSERT INTO me_listing_sts (mint, sts, seller, updated_at)
        SELECT * , NOW() FROM UNNEST($1::text[], $2::text[], $3::text[])
@@ -88,25 +106,89 @@ async function flushWrites(): Promise<void> {
   } catch (err) {
     console.warn('[me-onchain] sts cache write failed', (err as Error).message);
   }
+  // Runs after the upsert above so a same-flush new row already exists.
+  const times = Array.from(pendingListedAt.entries());
+  pendingListedAt.clear();
+  if (!times.length) return;
+  try {
+    await getPool().query(
+      `UPDATE me_listing_sts t SET listed_at_ms = u.ms
+         FROM UNNEST($1::text[], $2::bigint[]) AS u(sts, ms)
+        WHERE t.sts = u.sts`,
+      [times.map(t => t[0]), times.map(t => t[1])],
+    );
+  } catch (err) {
+    console.warn('[me-onchain] listed_at write failed', (err as Error).message);
+  }
 }
 
 async function loadFromDb(mints: string[]): Promise<void> {
   const need = mints.filter(m => !stsByMint.has(m) && !dbChecked.has(m));
   if (!need.length) return;
   try {
-    const { rows } = await getPool().query<{ mint: string; sts: string }>(
-      'SELECT mint, sts FROM me_listing_sts WHERE mint = ANY($1)', [need]);
-    for (const r of rows) stsByMint.set(r.mint, r.sts);
+    const { rows } = await getPool().query<{ mint: string; sts: string; listed_at_ms: string | null }>(
+      'SELECT mint, sts, listed_at_ms FROM me_listing_sts WHERE mint = ANY($1)', [need]);
+    for (const r of rows) {
+      stsByMint.set(r.mint, r.sts);
+      if (r.listed_at_ms != null && !listedAtBySts.has(r.sts)) listedAtBySts.set(r.sts, Number(r.listed_at_ms));
+    }
     for (const m of need) dbChecked.add(m);
   } catch (err) {
     console.warn('[me-onchain] sts cache read failed', (err as Error).message);
   }
 }
 
-/** Seller hint from any source that knows (seller, AH, token account). */
-export function rememberMeSeller(mint: string, seller: string, auctionHouse: string, tokenAccount: string): void {
+/** Seller hint from any source that knows (seller, AH, token account).
+ *  `listedAtMs` only from the listing stream (the list / reprice itself). */
+export function rememberMeSeller(mint: string, seller: string, auctionHouse: string, tokenAccount: string, listedAtMs?: number): void {
   const sts = deriveSts(seller, auctionHouse, tokenAccount, mint);
-  if (sts) remember(mint, sts, seller);
+  if (sts) remember(mint, sts, seller, listedAtMs);
+}
+
+/** Listing cancelled: its STS closes, and a relist by the same seller
+ *  re-creates the SAME address — drop the cached start time. */
+export function forgetMeListingTime(mint: string): void {
+  const sts = stsByMint.get(mint);
+  if (sts) { listedAtBySts.delete(sts); pendingListedAt.delete(sts); }
+}
+
+// ─── listing-time lane ───────────────────────────────────────────────────────
+// Listing start = OLDEST successful tx on the STS: the account is created by
+// the list and closed by a sale / cancel, while bots reprice (another sell
+// ix on the same STS) as often as every ~18 min — so newest ≠ listed. Failed
+// buy attempts also touch it, hence the err filter. One
+// getSignaturesForAddress (1 credit, standard lane, up to 1000 sigs) per STS,
+// once — persisted. If an STS has >1000 txs the oldest of that page is used
+// (a lower bound on age). Own limiter so it never crowds other RPC users.
+
+const TIME_PER_SEC = 10;
+const timeQueue: Array<{ sts: string; done: () => void }> = [];
+const timeQueued = new Set<string>();
+let timeTimer: ReturnType<typeof setInterval> | null = null;
+
+function queueListedAt(sts: string, done: () => void): void {
+  if (listedAtBySts.has(sts) || timeQueued.has(sts)) return;
+  timeQueued.add(sts);
+  timeQueue.push({ sts, done });
+  timeTimer ??= setInterval(drainTime, Math.ceil(1000 / TIME_PER_SEC));
+}
+
+function drainTime(): void {
+  const job = timeQueue.shift();
+  if (!job) { clearInterval(timeTimer!); timeTimer = null; return; }
+  onchainStats.sigs++;
+  void (async () => {
+    try {
+      const sigs = await rpcPost('getSignaturesForAddress', [job.sts, { limit: 1000 }]) as
+        Array<{ err: unknown; blockTime: number | null }>;
+      const ok = (sigs ?? []).slice().reverse().find(x => x.err == null && x.blockTime != null);
+      if (ok) { setListedAt(job.sts, ok.blockTime! * 1000); job.done(); }
+    } catch (err) {
+      console.warn(`[me-onchain] listedAt lookup failed sts=${job.sts.slice(0, 8)}`, (err as Error).message.slice(0, 80));
+    } finally {
+      timeQueued.delete(job.sts);
+    }
+  })();
 }
 
 // ─── STS decode ──────────────────────────────────────────────────────────────
@@ -142,10 +224,15 @@ const gpaQueue: Array<{ mint: string; done: (found: boolean) => void; tries: num
 const GPA_MAX_TRIES = 3;
 const gpaQueued = new Set<string>();
 let gpaTimer: ReturnType<typeof setInterval> | null = null;
-export const onchainStats = { das: 0, gma: 0, gpa: 0, gpaFound: 0, gpaRetry: 0, hintHits: 0 };
+export const onchainStats = { das: 0, gma: 0, gpa: 0, gpaFound: 0, gpaRetry: 0, hintHits: 0, sigs: 0 };
+
+// A big cold collection can miss thousands of sellers (ponk: 2.5k). Cap the
+// backlog; the rest are retried by later snapshots or learned from the
+// listing stream / ME hints meanwhile. 600 ≈ 2 min at 5/s, ≈ 6k credits.
+const GPA_QUEUE_MAX = 600;
 
 function queueGpa(mint: string, done: (found: boolean) => void): void {
-  if (gpaQueued.has(mint)) return;
+  if (gpaQueued.has(mint) || gpaQueue.length >= GPA_QUEUE_MAX) return;
   gpaQueued.add(mint);
   gpaQueue.push({ mint, done, tries: 0 });
   gpaTimer ??= setInterval(drainGpa, Math.ceil(1000 / GPA_PER_SEC));
@@ -206,23 +293,36 @@ async function das<T>(method: string, params: unknown): Promise<T> {
   return json.result;
 }
 
-async function escrowedAssets(slug: string): Promise<DasItem[] | null> {
+/** Escrowed assets of `slug`: page 1 awaited, pages 2+ (big collections —
+ *  ponk has ~3.9k listings, 4 s per page on ME's huge escrow owner) fetched
+ *  in parallel in the background so they never hold the first paint. */
+async function escrowedAssets(slug: string): Promise<{ first: DasItem[]; rest: Promise<DasItem[]> | null } | null> {
   if (!process.env.HELIUS_API_KEY) return null;
   const group = await slugDasGroup(slug);
   if (!group) return null;
   const base: Record<string, unknown> = 'collection' in group
     ? { ownerAddress: ME_ESCROW, grouping: ['collection', group.collection] }
     : { ownerAddress: ME_ESCROW, creatorAddress: group.creator, creatorVerified: true };
-  const out: DasItem[] = [];
-  for (let page = 1; page <= DAS_MAX_PAGES; page++) {
+  const page = async (n: number): Promise<DasItem[]> => {
     onchainStats.das++;
-    const r = await das<{ items?: DasItem[] }>('searchAssets', { ...base, page, limit: DAS_PAGE });
-    const items = r.items ?? [];
-    out.push(...items.filter(i => !i.burnt));
-    if (items.length < DAS_PAGE) break;
-  }
-  return out;
+    const r = await das<{ items?: DasItem[] }>('searchAssets', { ...base, page: n, limit: DAS_PAGE });
+    return r.items ?? [];
+  };
+  const p1 = await page(1);
+  const first = p1.filter(i => !i.burnt);
+  if (p1.length < DAS_PAGE) return { first, rest: null };
+  const known = lastPageCount.get(slug) ?? DAS_MAX_PAGES;
+  const rest = Promise.all(Array.from({ length: Math.max(1, known - 1) }, (_, i) => page(i + 2)))
+    .then(async pages => {
+      let n = 1 + pages.length;
+      // Last page still full → the collection grew past our estimate.
+      while (pages[pages.length - 1].length === DAS_PAGE && n < DAS_MAX_PAGES) pages.push(await page(++n));
+      lastPageCount.set(slug, 1 + pages.filter(p => p.length > 0).length);
+      return pages.flat().filter(i => !i.burnt);
+    });
+  return { first, rest };
 }
+const lastPageCount = new Map<string, number>();
 
 async function readStsBatch(addrs: string[]): Promise<Map<string, Sts>> {
   const out = new Map<string, Sts>();
@@ -248,8 +348,9 @@ export interface SellerHint { mint: string; seller: string; auctionHouse: string
 const HINT_WAIT_MS = 1_500;
 const LATE_FLUSH_MS = 2_000;
 
-function toRow(mint: string, s: Sts, it: DasItem | undefined): OnchainMeListing {
+function toRow(mint: string, sts: string, s: Sts, it: DasItem | undefined): OnchainMeListing {
   return {
+    listedAt:     listedAtBySts.get(sts) ?? null,
     mint,
     seller:       s.seller,
     priceSol:     Number(s.priceLamports) / 1e9,
@@ -270,7 +371,7 @@ async function priceMints(mints: string[], meta: Map<string, DasItem>): Promise<
   for (const mint of known) {
     const s = states.get(stsByMint.get(mint)!);
     if (!s || s.mint !== mint) { stsByMint.delete(mint); missing.push(mint); continue; }
-    rows.push(toRow(mint, s, meta.get(mint)));
+    rows.push(toRow(mint, stsByMint.get(mint)!, s, meta.get(mint)));
   }
   return { rows, missing };
 }
@@ -286,11 +387,12 @@ export async function snapshotMeOnchain(
   slug: string,
   hints: Promise<SellerHint[] | null>,
   onLate: (rows: OnchainMeListing[]) => void,
-): Promise<OnchainMeListing[] | null> {
+): Promise<(OnchainMeListing[] & { partial: boolean }) | null> {
   let hintsDone = false;
   const hintsSettled = hints.catch(() => null).finally(() => { hintsDone = true; });
-  const items = await escrowedAssets(slug);
-  if (!items) return null;
+  const escrow = await escrowedAssets(slug);
+  if (!escrow) return null;
+  const items = escrow.first;
   const meta = new Map(items.map(i => [i.id, i]));
   const mints = items.map(i => i.id);
 
@@ -317,6 +419,9 @@ export async function snapshotMeOnchain(
     const batch = Array.from(resolved); resolved.clear();
     try {
       const { rows: late } = await priceMints(batch, meta);
+      for (const r of late) {
+        if (r.listedAt == null) queueListedAt(stsByMint.get(r.mint)!, () => markResolved(r.mint));
+      }
       if (late.length) onLate(late);
     } catch (err) {
       console.warn(`[me-onchain] late read failed slug=${slug}`, (err as Error).message);
@@ -327,6 +432,11 @@ export async function snapshotMeOnchain(
     lateTimer ??= setTimeout(() => void flushLate(), LATE_FLUSH_MS);
   };
 
+  // Rows without a known listing time: resolve in the background, then
+  // re-emit them through the same late path.
+  for (const r of rows) {
+    if (r.listedAt == null) queueListedAt(stsByMint.get(r.mint)!, () => markResolved(r.mint));
+  }
   const stillMissing = new Set(missing);
   if (!hintsDone && stillMissing.size) {
     // Give ME a head start on the stragglers before spending gPA on them.
@@ -338,8 +448,22 @@ export async function snapshotMeOnchain(
   } else {
     for (const m of stillMissing) queueGpa(m, found => { if (found) markResolved(m); });
   }
-  console.log(`[me-onchain] slug=${slug} escrowed=${mints.length} priced=${rows.length} missing=${missing.length} hints=${hintsDone ? 'in-time' : 'late'}`);
-  return rows;
+  // Pages 2+ of a big collection: same pipeline, delivered through onLate.
+  if (escrow.rest) void escrow.rest.then(async more => {
+    for (const i of more) meta.set(i.id, i);
+    const extra = more.map(i => i.id);
+    await loadFromDb(extra);
+    if (hintsDone) applyHints(await hintsSettled);
+    const { rows: late, missing: lateMissing } = await priceMints(extra, meta);
+    for (const r of late) if (r.listedAt == null) queueListedAt(stsByMint.get(r.mint)!, () => markResolved(r.mint));
+    for (const m of lateMissing) queueGpa(m, found => { if (found) markResolved(m); });
+    if (late.length) onLate(late);
+    console.log(`[me-onchain] slug=${slug} more pages: escrowed+=${extra.length} priced=${late.length} missing=${lateMissing.length}`);
+  }).catch(err => console.warn(`[me-onchain] more pages failed slug=${slug}`, (err as Error).message));
+  console.log(`[me-onchain] slug=${slug} escrowed=${mints.length}${escrow.rest ? '+more' : ''} priced=${rows.length} missing=${missing.length} hints=${hintsDone ? 'in-time' : 'late'}`);
+  // Partial = only DAS page 1 is in `rows`; the caller must keep its other
+  // stored ME rows rather than treat them as delisted.
+  return Object.assign(rows, { partial: escrow.rest != null });
 }
 
 /** Background gPA lookups still queued (all slugs). */
