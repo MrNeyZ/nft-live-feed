@@ -752,18 +752,19 @@ async function getMeActivitiesMaps(
 
 async function fetchMeDirect(slug: string): Promise<Listing[]> {
   const out: Listing[] = [];
-  // Activities maps come from a 5-min per-slug cache (getMeActivitiesMaps);
-  // first listings page still runs in parallel via the resolved promise so
-  // warm-cache snapshots avoid the round-trips entirely while cold snapshots
-  // preserve the prior parallel-fetch latency profile.
-  const meActivitiesPromise   = getMeActivitiesMaps(slug);
-  const listedAtByMintPromise = meActivitiesPromise.then(m => m.listedAt);
-  const buyNowByMintPromise   = meActivitiesPromise.then(m => m.buyNow);
+  // Activities (listedAt) are up to 12 sequential ME pages — seconds to tens
+  // of seconds cold. Never block the snapshot on them: use the cached maps if
+  // present, otherwise return listings now and patch listedAt in late.
+  const cachedActs = meActivitiesCache.get(slug);
+  const activitiesPromise = getMeActivitiesMaps(slug);
   try {
     for (let page = 0; page < ME_MAX_PAGES; page++) {
       const offset = page * ME_PAGE_SIZE;
       const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/listings?offset=${offset}&limit=${ME_PAGE_SIZE}`;
       const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
+      // First page failing (429 / 5xx) ≠ "no listings": surface it so the
+      // caller keeps the previous rows and retries instead of caching empty.
+      if (!res.ok && page === 0) throw new MeListingsUnavailable(res.status);
       if (!res.ok) break;
       const json = await res.json() as MeRawListing[];
       if (!Array.isArray(json) || json.length === 0) break;
@@ -797,31 +798,51 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
       // Short page → we've reached the end. Spare ME the extra round-trip.
       if (json.length < ME_PAGE_SIZE) break;
     }
-  } catch { /* partial result still useful — return what we have */ }
-  // Join the activities timestamps after listings are collected. A real
-  // list-transaction timestamp — 'exact' quality for mint-lifecycle.
-  const listedAtByMint = await listedAtByMintPromise;
-  if (listedAtByMint.size > 0) {
-    for (const l of out) {
-      const t = listedAtByMint.get(l.mint);
-      if (t) { l.listedAt = t; l.listedAtQuality = 'exact'; }
-    }
+  } catch (err) {
+    if (err instanceof MeListingsUnavailable) throw err;
+    /* partial result still useful — return what we have */
   }
-  // Second-pass: for anything still unresolved (primarily MMM pool-hosted
-  // rows, `auctionHouse=''`), fall back to the last buyNow block time —
-  // a surrogate, not a real list event, so 'approximate' quality.
-  const stillMissing = out.some(l => !l.listedAt);
-  if (stillMissing) {
-    const buyNowByMint = await buyNowByMintPromise;
-    if (buyNowByMint.size > 0) {
-      for (const l of out) {
-        if (l.listedAt) continue;
-        const t = buyNowByMint.get(l.mint);
-        if (t) { l.listedAt = t; l.listedAtQuality = 'approximate'; }
-      }
-    }
+  if (cachedActs && Date.now() - cachedActs.at < ME_ACTIVITIES_TTL_MS) {
+    applyMeActivities(out, cachedActs);
+  } else {
+    activitiesPromise.then(maps => patchListedAtLate(slug, maps)).catch(() => { /* keep nulls */ });
   }
   return out;
+}
+
+class MeListingsUnavailable extends Error {
+  constructor(readonly status: number) { super(`ME listings HTTP ${status}`); }
+}
+
+/** Join activity timestamps onto ME rows. listedAt = real list tx ('exact');
+ *  anything still unresolved (mostly pool-hosted rows) falls back to the last
+ *  buyNow block time — a surrogate, so 'approximate'. Mutates in place;
+ *  returns whether any row changed. */
+function applyMeActivities(
+  rows: Listing[],
+  maps: { listedAt: Map<string, number>; buyNow: Map<string, number> },
+): boolean {
+  let changed = false;
+  for (const l of rows) {
+    if (l.source !== 'ME' || l.listedAt) continue;
+    const exact = maps.listedAt.get(l.mint);
+    if (exact) { l.listedAt = exact; l.listedAtQuality = 'exact'; changed = true; continue; }
+    const approx = maps.buyNow.get(l.mint);
+    if (approx) { l.listedAt = approx; l.listedAtQuality = 'approximate'; changed = true; }
+  }
+  return changed;
+}
+
+/** Late listedAt merge for a snapshot that didn't wait on activities
+ *  (same shape as refreshTensorLate): patch stored rows, push a snapshot. */
+function patchListedAtLate(
+  slug: string,
+  maps: { listedAt: Map<string, number>; buyNow: Map<string, number> },
+): void {
+  if (!lastFetch.has(slug)) return;
+  const rows = getByCollectionRaw(slug);
+  if (!applyMeActivities(rows, maps)) return;
+  saleEventBus.emitListingSnapshot({ slug, listings: rows.map(toWire) });
 }
 
 interface MmmPoolRaw {
@@ -1204,9 +1225,17 @@ function getByCollectionRaw(slug: string): Listing[] {
   return out;
 }
 
-async function fetchSnapshot(slug: string): Promise<Listing[]> {
+async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed: number | null }> {
   const tensor = tensorNow(slug);
-  const [me, mmm] = await Promise.all([fetchMeDirect(slug), fetchMmmPools(slug)]);
+  const [meRes, mmm] = await Promise.all([
+    fetchMeDirect(slug).then(rows => ({ rows, failed: null as number | null }), (err) => {
+      if (!(err instanceof MeListingsUnavailable)) throw err;
+      // Keep the last good ME rows; the caller schedules a retry.
+      return { rows: getByCollectionRaw(slug).filter(l => l.source === 'ME'), failed: err.status as number | null };
+    }),
+    fetchMmmPools(slug),
+  ]);
+  const me = meRes.rows;
   refreshTensorLate(slug);
   // ME's /listings also returns pool-hosted NFTs (empty auctionHouse). The
   // on-chain-verified MMM rows are the source of truth for those: ME's copy
@@ -1233,10 +1262,27 @@ async function fetchSnapshot(slug: string): Promise<Listing[]> {
       rank:     m?.rank ?? null,
     };
   });
-  return [...meAh, ...pools, ...tensor];
+  return { rows: [...meAh, ...pools, ...tensor], meFailed: meRes.failed };
 }
 
 // ─── Public surface ──────────────────────────────────────────────────────────
+
+const ME_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
+const meRetryAttempts = new Map<string, number>();
+
+function scheduleMeRetry(slug: string, status: number): void {
+  const n = meRetryAttempts.get(slug) ?? 0;
+  if (n >= ME_RETRY_DELAYS_MS.length) {
+    // Give up the fast path; the page's periodic reconcile will try again.
+    meRetryAttempts.delete(slug);
+    lastFetch.set(slug, Date.now());
+    console.warn(`[listings/me] giving up slug=${slug} status=${status}`);
+    return;
+  }
+  meRetryAttempts.set(slug, n + 1);
+  console.warn(`[listings/me] listings unavailable slug=${slug} status=${status} retry=${n + 1} in ${ME_RETRY_DELAYS_MS[n]}ms`);
+  setTimeout(() => { void ensureFresh(slug).catch(() => {}); }, ME_RETRY_DELAYS_MS[n]).unref();
+}
 
 /**
  * Ensure `slug`'s rows in the store are fresher than `ttlMs`. Coalesces
@@ -1252,9 +1298,19 @@ export async function ensureFresh(slug: string, ttlMs: number = DEFAULT_TTL_MS):
   const task = (async () => {
     const release = await acquireSnapshotSlot();
     try {
-      const fresh = await fetchSnapshot(slug);
+      const { rows: fresh, meFailed } = await fetchSnapshot(slug);
+      // Activities may have landed while MMM was still loading.
+      const acts = meActivitiesCache.get(slug);
+      if (acts) applyMeActivities(fresh, acts);
       replaceCollection(slug, fresh);
-      lastFetch.set(slug, Date.now());
+      if (meFailed !== null) {
+        // Leave lastFetch stale so the next read refetches, and retry soon
+        // ourselves — the open page gets the result via listing_snapshot.
+        scheduleMeRetry(slug, meFailed);
+      } else {
+        meRetryAttempts.delete(slug);
+        lastFetch.set(slug, Date.now());
+      }
       // Push the new state to any SSE client viewing this slug. Frontend
       // replaces its local array on `listing_snapshot`.
       saleEventBus.emitListingSnapshot({
