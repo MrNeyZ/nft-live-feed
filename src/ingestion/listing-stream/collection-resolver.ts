@@ -101,6 +101,15 @@ async function creatorForSlug(slug: string): Promise<string | null> {
   return creator;
 }
 
+/** DAS grouping for `slug`: its verified collection when known, else its
+ *  first verified creator (same rule as primeSlugMints). */
+export async function slugDasGroup(slug: string): Promise<{ collection: string } | { creator: string } | null> {
+  const coll = slugToColl.get(slug);
+  if (coll) return { collection: coll };
+  const creator = await creatorForSlug(slug);
+  return creator ? { creator } : null;
+}
+
 /**
  * Fetch every mint of `slug`'s collection via DAS and hand them to `record`.
  * Groups by collection address when known, else by first verified creator.

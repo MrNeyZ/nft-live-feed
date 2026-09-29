@@ -40,6 +40,7 @@ import { rpcPost } from './tools-mmm-pools';
 import { ME_AMM_PROGRAM } from '../ingestion/me-raw/programs';
 import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
 import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
+import { snapshotMeOnchain, rememberMeSeller, type OnchainMeListing } from './me-onchain-listings';
 import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
@@ -614,149 +615,11 @@ interface MeRawListing {
 const ME_PAGE_SIZE = 100;
 const ME_MAX_PAGES = 10;   // hard upper bound = 1000 listings per collection
 
-/**
- * ME's /listings response carries no timestamp for when a listing was
- * created. The sibling /activities?type=list endpoint does — it returns the
- * `list` transaction block time per mint. We fetch one page (100 most-recent
- * list events) and build a mint→listedAtMs map. Listings whose tokenMint
- * appears in the map get a real timestamp; anything older than the 100-row
- * window stays `null` and renders as "—" on the frontend (truthful).
- *
- * One extra HTTP call per snapshot refresh, runs in parallel with the
- * listings pagination (Promise.all below).
- */
-interface MeListActivity { tokenMint?: string; blockTime?: number; type?: string }
-
-/**
- * Pool-hosted ME listings (rows where `listingSource=MMM`, `auctionHouse=""`)
- * do not emit `type=list` activities, so `fetchMeListedAtMap` can never
- * resolve them — they stay "—" forever. Their natural listed-at surrogate is
- * the NFT's most-recent `buyNow` sale: for a pool-listed NFT, the last sale
- * is when the pool acquired it, so the NFT has been in the pool (i.e.
- * listed) since that block. One page of `?type=buyNow` (500 rows) covers
- * days-to-months of pool churn for most collections.
- */
-async function fetchMeBuyNowMap(slug: string): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  const PAGE_SIZE = 500;
-  const MAX_PAGES = 2;      // up to 1 000 buyNow fills — enough for pool churn
-  try {
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const offset = page * PAGE_SIZE;
-      const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=buyNow&offset=${offset}&limit=${PAGE_SIZE}`;
-      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
-      if (!res.ok) break;
-      const json = await res.json() as MeListActivity[];
-      if (!Array.isArray(json) || json.length === 0) break;
-      for (const a of json) {
-        if (!a.tokenMint || typeof a.blockTime !== 'number' || a.blockTime <= 0) continue;
-        const ms = a.blockTime * 1000;
-        const prev = out.get(a.tokenMint) ?? 0;
-        if (ms > prev) out.set(a.tokenMint, ms);
-      }
-      if (json.length < PAGE_SIZE) break;
-    }
-  } catch { /* partial map is still useful */ }
-  return out;
-}
-
-async function fetchMeListedAtMap(slug: string): Promise<Map<string, number>> {
-  // Paginate across up to MAX_PAGES of list activities so busy collections
-  // (like degods with 118+ active listings) don't leave ~70% of rows with a
-  // null listedAt. ME returns 100 activities/page; a short page signals
-  // history exhausted. 3 pages = 300 events covers the active inventory
-  // window for most collections without a large extra ME load.
-  const out = new Map<string, number>();
-  const PAGE_SIZE = 100;
-  // 10 pages = 1 000 list events. Empirically covers active-listing inventory
-  // for mid-activity collections (sensei: 5 of 10 missing mints resolved on
-  // pages 3–9; 3-page cap recovered zero of them). Short-page early-exit
-  // keeps cost bounded — we only hit this ceiling for the busiest slugs.
-  const MAX_PAGES = 10;
-  // Pages are fetched PAGE_CONCURRENCY at a time (not one-by-one): each ME
-  // activities page takes ~2 s, so 10 sequential pages held every first
-  // collection open for ~20 s. Same pages, same data, ~4 s.
-  const PAGE_CONCURRENCY = 5;
-  const fetchPage = async (page: number): Promise<MeListActivity[] | null> => {
-    const url = `https://api-mainnet.magiceden.dev/v2/collections/${encodeURIComponent(slug)}/activities?type=list&offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`;
-    try {
-      const res = await fetch(url, { headers: meAuthHeaders(), signal: AbortSignal.timeout(6_000) });
-      if (!res.ok) return null;
-      const json = await res.json() as MeListActivity[];
-      return Array.isArray(json) ? json : null;
-    } catch { return null; }
-  };
-  for (let start = 0; start < MAX_PAGES; start += PAGE_CONCURRENCY) {
-    const pages = await Promise.all(
-      Array.from({ length: Math.min(PAGE_CONCURRENCY, MAX_PAGES - start) }, (_, k) => fetchPage(start + k)),
-    );
-    let exhausted = false;
-    for (const json of pages) {
-      if (!json || json.length === 0) { exhausted = true; break; }
-      for (const a of json) {
-        if (!a.tokenMint || typeof a.blockTime !== 'number' || a.blockTime <= 0) continue;
-        const ms = a.blockTime * 1000;
-        const prev = out.get(a.tokenMint) ?? 0;
-        // Keep the most recent list event per mint (covers list → delist → list cycles).
-        if (ms > prev) out.set(a.tokenMint, ms);
-      }
-      if (json.length < PAGE_SIZE) { exhausted = true; break; }  // end of list-activity history
-    }
-    if (exhausted) break;
-  }
-  return out;
-}
-
-// 2026-05-29: per-slug TTL cache + inflight dedup for the two ME activities
-// derived maps. The maps are pure enrichment (listedAt timestamp + buyNow
-// fallback URL grouping) — never the source of truth for "is this listing
-// active". The active-listings list itself is re-fetched on every snapshot
-// from /listings, so caching the activities maps for ~5 min cannot make
-// stale rows permanent. Saves ~12 ME API calls per snapshot per slug
-// (up to 10 list pages + 2 buyNow pages) on the common warm path.
-interface MeActivitiesCacheEntry {
-  listedAt: Map<string, number>;
-  buyNow:   Map<string, number>;
-  at:       number;
-}
-const ME_ACTIVITIES_TTL_MS = 5 * 60_000;
-const meActivitiesCache:    Map<string, MeActivitiesCacheEntry>                = new Map();
-const meActivitiesInflight: Map<string, Promise<{ listedAt: Map<string, number>; buyNow: Map<string, number> }>> = new Map();
-
-async function getMeActivitiesMaps(
-  slug: string,
-): Promise<{ listedAt: Map<string, number>; buyNow: Map<string, number> }> {
-  const now = Date.now();
-  const cached = meActivitiesCache.get(slug);
-  if (cached && now - cached.at < ME_ACTIVITIES_TTL_MS) {
-    console.log(`[listings/me-activities] cache=hit slug=${slug} ageMs=${now - cached.at}`);
-    return { listedAt: cached.listedAt, buyNow: cached.buyNow };
-  }
-  const inflight = meActivitiesInflight.get(slug);
-  if (inflight) {
-    console.log(`[listings/me-activities] cache=inflight slug=${slug}`);
-    return inflight;
-  }
-  console.log(`[listings/me-activities] cache=miss slug=${slug}`);
-  const p = (async () => {
-    const [listedAt, buyNow] = await Promise.all([
-      fetchMeListedAtMap(slug),
-      fetchMeBuyNowMap(slug),
-    ]);
-    meActivitiesCache.set(slug, { listedAt, buyNow, at: Date.now() });
-    return { listedAt, buyNow };
-  })().finally(() => meActivitiesInflight.delete(slug));
-  meActivitiesInflight.set(slug, p);
-  return p;
-}
-
 async function fetchMeDirect(slug: string): Promise<Listing[]> {
   const out: Listing[] = [];
-  // Activities (listedAt) are up to 12 sequential ME pages — seconds to tens
-  // of seconds cold. Never block the snapshot on them: use the cached maps if
-  // present, otherwise return listings now and patch listedAt in late.
-  const cachedActs = meActivitiesCache.get(slug);
-  const activitiesPromise = getMeActivitiesMaps(slug);
+  // No /activities here: those were up to 12 sequential ME pages per cold
+  // open (the 429 burst). listedAt now comes from the listing stream or the
+  // previously stored row (onchainToListing).
   try {
     for (let page = 0; page < ME_MAX_PAGES; page++) {
       const offset = page * ME_PAGE_SIZE;
@@ -802,47 +665,11 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
     if (err instanceof MeListingsUnavailable) throw err;
     /* partial result still useful — return what we have */
   }
-  if (cachedActs && Date.now() - cachedActs.at < ME_ACTIVITIES_TTL_MS) {
-    applyMeActivities(out, cachedActs);
-  } else {
-    activitiesPromise.then(maps => patchListedAtLate(slug, maps)).catch(() => { /* keep nulls */ });
-  }
   return out;
 }
 
 class MeListingsUnavailable extends Error {
   constructor(readonly status: number) { super(`ME listings HTTP ${status}`); }
-}
-
-/** Join activity timestamps onto ME rows. listedAt = real list tx ('exact');
- *  anything still unresolved (mostly pool-hosted rows) falls back to the last
- *  buyNow block time — a surrogate, so 'approximate'. Mutates in place;
- *  returns whether any row changed. */
-function applyMeActivities(
-  rows: Listing[],
-  maps: { listedAt: Map<string, number>; buyNow: Map<string, number> },
-): boolean {
-  let changed = false;
-  for (const l of rows) {
-    if (l.source !== 'ME' || l.listedAt) continue;
-    const exact = maps.listedAt.get(l.mint);
-    if (exact) { l.listedAt = exact; l.listedAtQuality = 'exact'; changed = true; continue; }
-    const approx = maps.buyNow.get(l.mint);
-    if (approx) { l.listedAt = approx; l.listedAtQuality = 'approximate'; changed = true; }
-  }
-  return changed;
-}
-
-/** Late listedAt merge for a snapshot that didn't wait on activities
- *  (same shape as refreshTensorLate): patch stored rows, push a snapshot. */
-function patchListedAtLate(
-  slug: string,
-  maps: { listedAt: Map<string, number>; buyNow: Map<string, number> },
-): void {
-  if (!lastFetch.has(slug)) return;
-  const rows = getByCollectionRaw(slug);
-  if (!applyMeActivities(rows, maps)) return;
-  saleEventBus.emitListingSnapshot({ slug, listings: rows.map(toWire) });
 }
 
 interface MmmPoolRaw {
@@ -1225,17 +1052,83 @@ function getByCollectionRaw(slug: string): Listing[] {
   return out;
 }
 
+const ME_HINT_WAIT_MS = 1_500;
+
+/** Chain row → store Listing. rank / listedAt come from the ME hint row or
+ *  the row already stored for this listing (stream-observed list time). */
+function onchainToListing(slug: string, r: OnchainMeListing, hint: Listing | undefined): Listing {
+  const id = `ME:${r.mint}:${r.seller}`;
+  const prev = byId.get(id);
+  return {
+    id,
+    mint:            r.mint,
+    priceSol:        r.priceSol,
+    source:          'ME',
+    type:            'listing',
+    seller:          r.seller,
+    slug,
+    auctionHouse:    r.auctionHouse,
+    tokenAta:        r.tokenAccount,
+    rank:            hint?.rank ?? prev?.rank ?? null,
+    listedAt:        prev?.listedAt ?? null,
+    listedAtQuality: prev?.listedAtQuality ?? null,
+    nftName:         r.nftName ?? hint?.nftName ?? prev?.nftName ?? null,
+    imageUrl:        r.imageUrl ?? hint?.imageUrl ?? prev?.imageUrl ?? null,
+  };
+}
+
+/** Late on-chain rows (background seller lookups): upsert, push snapshot. */
+function mergeLateOnchain(slug: string, rows: OnchainMeListing[]): void {
+  if (!lastFetch.has(slug) && !inFlight.has(slug)) return;
+  for (const r of rows) {
+    for (const lid of Array.from(byMint.get(r.mint) ?? [])) {
+      if (lid.startsWith('ME:')) removeById(lid);
+    }
+    add(onchainToListing(slug, r, undefined));
+  }
+  saleEventBus.emitListingSnapshot({ slug, listings: getByCollectionRaw(slug).map(toWire) });
+}
+
 async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed: number | null }> {
   const tensor = tensorNow(slug);
-  const [meRes, mmm] = await Promise.all([
-    fetchMeDirect(slug).then(rows => ({ rows, failed: null as number | null }), (err) => {
-      if (!(err instanceof MeListingsUnavailable)) throw err;
-      // Keep the last good ME rows; the caller schedules a retry.
-      return { rows: getByCollectionRaw(slug).filter(l => l.source === 'ME'), failed: err.status as number | null };
+  const meApi = fetchMeDirect(slug).then(rows => ({ rows, failed: null as number | null }), (err) => {
+    if (!(err instanceof MeListingsUnavailable)) throw err;
+    return { rows: null as Listing[] | null, failed: err.status as number | null };
+  });
+  // ME AH listings come from chain (escrow via DAS + SellerTradeState); the
+  // ME API rows are only seller hints for it — and the fallback when the
+  // collection can't be addressed via DAS.
+  const hints = meApi.then(r => (r.rows ?? []).filter(l => l.auctionHouse)
+    .map(l => ({ mint: l.mint, seller: l.seller, auctionHouse: l.auctionHouse, tokenAta: l.tokenAta })));
+  let meSettled: Awaited<typeof meApi> | null = null;
+  void meApi.then(r => { meSettled = r; }, () => {});
+  const [onchain, mmm] = await Promise.all([
+    snapshotMeOnchain(slug, hints, rows => mergeLateOnchain(slug, rows)).catch((err) => {
+      console.warn(`[me-onchain] snapshot failed slug=${slug}`, (err as Error).message);
+      return null;
     }),
     fetchMmmPools(slug),
   ]);
-  const me = meRes.rows;
+  // With chain rows, ME only lends pool names/images and rank — take it if it
+  // already landed, never wait. Without them it's the source: wait briefly.
+  const meRes = onchain
+    ? meSettled
+    : await Promise.race([meApi, new Promise<null>(r => setTimeout(() => r(null), ME_HINT_WAIT_MS))]);
+  let me: Listing[];
+  let meFailed: number | null = null;
+  if (onchain) {
+    const hintRows = new Map((meRes?.rows ?? []).map(l => [l.mint, l]));
+    me = [
+      ...onchain.map(r => onchainToListing(slug, r, hintRows.get(r.mint))),
+      ...(meRes?.rows ?? []).filter(l => !l.auctionHouse),          // pool-hosted: name/image donors
+    ];
+  } else if (meRes === null) {
+    me = getByCollectionRaw(slug).filter(l => l.source === 'ME');
+    meFailed = 0;                                                    // timed out → retry path
+  } else {
+    me = meRes.rows ?? getByCollectionRaw(slug).filter(l => l.source === 'ME');
+    meFailed = meRes.failed;
+  }
   refreshTensorLate(slug);
   // ME's /listings also returns pool-hosted NFTs (empty auctionHouse). The
   // on-chain-verified MMM rows are the source of truth for those: ME's copy
@@ -1262,7 +1155,7 @@ async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed:
       rank:     m?.rank ?? null,
     };
   });
-  return { rows: [...meAh, ...pools, ...tensor], meFailed: meRes.failed };
+  return { rows: [...meAh, ...pools, ...tensor], meFailed };
 }
 
 // ─── Public surface ──────────────────────────────────────────────────────────
@@ -1299,9 +1192,6 @@ export async function ensureFresh(slug: string, ttlMs: number = DEFAULT_TTL_MS):
     const release = await acquireSnapshotSlot();
     try {
       const { rows: fresh, meFailed } = await fetchSnapshot(slug);
-      // Activities may have landed while MMM was still loading.
-      const acts = meActivitiesCache.get(slug);
-      if (acts) applyMeActivities(fresh, acts);
       replaceCollection(slug, fresh);
       if (meFailed !== null) {
         // Leave lastFetch stale so the next read refetches, and retry soon
@@ -1561,6 +1451,11 @@ export function applyStreamAction(a: StreamedListingAction): void {
   }
 
   if (a.priceLamports == null || a.priceLamports <= 0) return;
+  // Market-wide: learn the M2 SellerTradeState for every ME listing we see,
+  // so a later cold open of its collection prices it without a gPA.
+  if (a.marketplace === 'ME' && a.auctionHouse && a.tokenAccount) {
+    rememberMeSeller(mint, a.seller, a.auctionHouse, a.tokenAccount);
+  }
   let slug: string | null = null;
   const live = byMint.get(mint);
   if (live) for (const lid of live) { const r = byId.get(lid); if (r) { slug = r.slug; break; } }
