@@ -42,6 +42,7 @@ import { rateLimit, isValidSlug } from './rate-limit';
 import { meAuthHeaders } from '../me-api-cooldown';
 import { getPool } from '../db/client';
 import { rarityForMints } from './rarity-lookup';
+import { nonBlankName } from '../enrichment/name-util';
 
 const ME_API           = 'https://api-mainnet.magiceden.dev/v2';
 const PAGE_SIZE        = 500;
@@ -311,7 +312,7 @@ export function createCollectionTradeHistoryRouter(): Router {
         const { rows } = await getPool().query<{ m: string; n: string | null; i: string | null; c: string | null }>(
           `SELECT DISTINCT ON (mint_address) mint_address AS m, nft_name AS n, image_url AS i, collection_name AS c
              FROM sale_events
-            WHERE mint_address = ANY($1) AND nft_name IS NOT NULL
+            WHERE mint_address = ANY($1) AND btrim(nft_name) <> ''
             ORDER BY mint_address, block_time DESC`, [mints]);
         const byMint = new Map(rows.map(r => [r.m, r]));
         const collName = rows.find(r => r.c)?.c ?? null;
@@ -319,7 +320,7 @@ export function createCollectionTradeHistoryRouter(): Router {
           const r = e.mint_address ? byMint.get(e.mint_address) : undefined;
           return {
             ...e,
-            nft_name:        e.nft_name ?? r?.n ?? null,
+            nft_name:        nonBlankName(e.nft_name) ?? r?.n ?? null,
             image_url:       e.image_url ?? r?.i ?? null,
             collection_name: e.collection_name ?? r?.c ?? collName,
           };

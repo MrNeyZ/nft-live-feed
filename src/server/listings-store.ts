@@ -42,6 +42,7 @@ import type { StreamedListingAction } from '../ingestion/listing-stream/stream';
 import { TCOMP_PROGRAM } from '../ingestion/tensor-raw/programs';
 import { snapshotMeOnchain, rememberMeSeller, forgetMeListingTime, type OnchainMeListing } from './me-onchain-listings';
 import { primeSlugMints, slugForCollection, resolveMintSlug, lazyStats, isSlugTruncated } from '../ingestion/listing-stream/collection-resolver';
+import { nonBlankName } from '../enrichment/name-util';
 
 export type ListingSource = 'ME' | 'MMM' | 'TENSOR';
 export type ListingType   = 'listing' | 'pool';
@@ -309,7 +310,7 @@ function toWire(l: Listing) {
     marketplace:  l.source === 'TENSOR' ? 'tensor' as const : 'me' as const,
     poolKey:      l.type === 'pool' && l.source === 'MMM' ? l.id.split(':')[1] : null,
     listedAt:     l.listedAt,
-    nftName:      l.nftName,
+    nftName:      nonBlankName(l.nftName),
     imageUrl:     l.imageUrl,
   };
 }
@@ -654,7 +655,7 @@ async function fetchMeDirect(slug: string): Promise<Listing[]> {
           rank:         l.rarity?.howrare?.rank ?? l.rarity?.moonrank?.rank ?? null,
           listedAt:        null,   // filled in after the activities map resolves
           listedAtQuality: null,
-          nftName:      l.token?.name ?? null,
+          nftName:      nonBlankName(l.token?.name),
           imageUrl:     l.extra?.img ?? l.token?.image ?? null,
         });
       }
@@ -1093,7 +1094,7 @@ function onchainToListing(slug: string, r: OnchainMeListing, hint: Listing | und
     rank:            hint?.rank ?? prev?.rank ?? null,
     listedAt:        r.listedAt ?? prev?.listedAt ?? null,
     listedAtQuality: r.listedAt != null ? 'exact' : prev?.listedAtQuality ?? null,
-    nftName:         r.nftName ?? hint?.nftName ?? prev?.nftName ?? null,
+    nftName:         nonBlankName(r.nftName) ?? nonBlankName(hint?.nftName) ?? nonBlankName(prev?.nftName),
     imageUrl:        r.imageUrl ?? hint?.imageUrl ?? prev?.imageUrl ?? null,
   };
 }
@@ -1180,7 +1181,7 @@ async function fetchSnapshot(slug: string): Promise<{ rows: Listing[]; meFailed:
     return {
       ...r,
       priceSol: pp ?? r.priceSol,
-      nftName:  m?.nftName ?? null,
+      nftName:  nonBlankName(m?.nftName),
       imageUrl: m?.imageUrl ?? null,
       rank:     m?.rank ?? null,
     };
@@ -1420,8 +1421,8 @@ async function flushDasMeta(): Promise<void> {
 
 function applyMeta(id: string, name: string | null, image: string | null): void {
   const cur = byId.get(id);
-  if (!cur || (cur.nftName && cur.imageUrl)) return;
-  const next: Listing = { ...cur, nftName: cur.nftName ?? name, imageUrl: cur.imageUrl ?? image };
+  if (!cur || (nonBlankName(cur.nftName) && cur.imageUrl)) return;
+  const next: Listing = { ...cur, nftName: nonBlankName(cur.nftName) ?? nonBlankName(name), imageUrl: cur.imageUrl ?? image };
   if (next.nftName === cur.nftName && next.imageUrl === cur.imageUrl) return;
   byId.set(id, next);
   saleEventBus.emitListingUpsert({ slug: next.slug, listing: toWire(next) });
@@ -1433,18 +1434,18 @@ async function enrichStreamRow(id: string): Promise<void> {
   try {
     const { rows } = await getPool().query<{ nft_name: string | null; image_url: string | null; rarity_rank: number | null }>(
       `SELECT s.nft_name, s.image_url, r.rarity_rank
-         FROM (SELECT nft_name, image_url FROM sale_events WHERE mint_address = $1 ORDER BY block_time DESC LIMIT 1) s
+         FROM (SELECT NULLIF(btrim(nft_name), '') AS nft_name, image_url FROM sale_events WHERE mint_address = $1 ORDER BY (NULLIF(btrim(nft_name), '') IS NULL), block_time DESC LIMIT 1) s
          FULL JOIN (SELECT rarity_rank FROM mint_rarity_cache WHERE mint_address = $1) r ON true`,
       [l.mint],
     );
     const r = rows[0];
     const cur = byId.get(id);
     if (!cur) return;
-    if (!(cur.imageUrl ?? r?.image_url) || !(cur.nftName ?? r?.nft_name)) queueDasMeta(cur.mint, id);
+    if (!(cur.imageUrl ?? r?.image_url) || !(nonBlankName(cur.nftName) ?? r?.nft_name)) queueDasMeta(cur.mint, id);
     if (!r) return;
     const next: Listing = {
       ...cur,
-      nftName:  cur.nftName  ?? r.nft_name  ?? null,
+      nftName:  nonBlankName(cur.nftName) ?? r.nft_name ?? null,
       imageUrl: cur.imageUrl ?? r.image_url ?? null,
       rank:     cur.rank     ?? r.rarity_rank ?? null,
     };

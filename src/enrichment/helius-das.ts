@@ -5,6 +5,7 @@
 
 import { TtlCache } from './cache';
 import { incGetAsset, incSearchAssets, incGetAssetsByOwner, type GetAssetSource } from '../helius-credit-metrics';
+import { nonBlankName } from './name-util';
 
 export interface NftMetadata {
   nftName: string | null;
@@ -234,7 +235,7 @@ export async function getAsset(mintAddress: string, reason?: GetAssetSource): Pr
 
   const collection = asset.grouping?.find((g) => g.group_key === 'collection');
   return {
-    nftName:           asset.content?.metadata?.name         ?? null,
+    nftName:           nonBlankName(asset.content?.metadata?.name),
     imageUrl:          extractImageUrl(asset),
     collectionName:    collection?.collection_metadata?.name  ?? null,
     collectionAddress: collection?.group_value                ?? null,
@@ -347,7 +348,7 @@ export async function verifyAndFetchAsset(mintAddress: string, reason?: GetAsset
   }
   const collection = asset.grouping?.find((g) => g.group_key === 'collection');
   const meta: NftMetadata = {
-    nftName:           asset.content?.metadata?.name        ?? null,
+    nftName:           nonBlankName(asset.content?.metadata?.name),
     imageUrl:          extractImageUrl(asset),
     collectionName:    collection?.collection_metadata?.name ?? null,
     collectionAddress: collection?.group_value               ?? null,

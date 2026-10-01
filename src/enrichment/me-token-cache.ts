@@ -25,6 +25,7 @@
 
 import { TtlCache } from './cache';
 import { meCooldownActive, setMeCooldown, meAuthHeaders } from '../me-api-cooldown';
+import { nonBlankName } from './name-util';
 
 export interface MeTokenData {
   slug:           string | null;
@@ -83,7 +84,7 @@ async function fetchMeTokenData(mint: string): Promise<{ data: MeTokenData; cach
           data: {
             slug:           json.collection     ?? null,
             collectionName: json.collectionName ?? null,
-            nftName:        json.name           ?? null,
+            nftName:        nonBlankName(json.name),
             imageUrl:       json.image          ?? null,
           },
           cacheable: true,

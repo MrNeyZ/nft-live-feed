@@ -12,6 +12,7 @@
 
 import { NftMetadata } from './helius-das';
 import { meAuthHeaders } from '../me-api-cooldown';
+import { nonBlankName } from './name-util';
 
 // Verified live shape of ME v2 /tokens/{mint} response:
 //   { mintAddress, collection (slug), collectionName, name, image, … }
@@ -49,7 +50,7 @@ export async function getMeTokenMetadata(mintAddress: string): Promise<NftMetada
   }
 
   return {
-    nftName:           json.name           ?? null,
+    nftName:           nonBlankName(json.name),
     imageUrl:          json.image          ?? null,
     collectionName:    json.collectionName ?? null,
     // ME v2 tokens API does not expose the on-chain collection group address

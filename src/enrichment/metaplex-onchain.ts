@@ -16,6 +16,7 @@
 import { createHash } from 'crypto';
 import bs58 from 'bs58';
 import { NftMetadata } from './helius-das';
+import { nonBlankName } from './name-util';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -258,7 +259,7 @@ export async function getMetaplexOnchainMetadata(
     };
 
     return {
-      nftName:  meta.name ?? (name || null),
+      nftName:  nonBlankName(meta.name) ?? nonBlankName(name),
       imageUrl: avifToPng(extractImage(meta)),
     };
   } catch (err) {
