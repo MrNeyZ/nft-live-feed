@@ -114,6 +114,8 @@ const buyer = loadBuyer();
 // ── targets: mint -> category ───────────────────────────────────────────────────────────────
 type Target = { category: Category; name: string; listState: PublicKey; feeVault: PublicKey; meMetadata: PublicKey; meBts: PublicKey };
 let targets = new Map<string, Target>();
+/** TComp list_state -> asset, so a Tensor `edit` (carries only list_state) maps back to a target. */
+let listStateToMint = new Map<string, string>();
 /** json_uri attrs we had to read ourselves (DAS blank) — cached so a refresh doesn't refetch ~175 files. */
 const jsonAttrCache = new Map<string, Record<string, string>>();
 let royalty = { creators: [] as PublicKey[], bps: 0 };
@@ -168,6 +170,7 @@ async function refreshTargets(): Promise<void> {
     if (r.items.length < 1000) break;
   }
   targets = next;
+  listStateToMint = new Map([...next].map(([mint, t]) => [t.listState.toBase58(), mint]));
   const by: Record<string, number> = {};
   for (const t of next.values()) by[t.category] = (by[t.category] ?? 0) + 1;
   log({ event: 'targets', total: next.size, by, dasBlankRead: blank });
@@ -448,7 +451,14 @@ const lagSamples: number[] = [];
 const handled = new Set<string>();
 
 async function onListing(a: ListingAction, slot: number, sig: string, recvAt: number, raw: { accounts: string[]; data: Uint8Array } | null, lagAtRecv: number): Promise<void> {
-  if (a.kind !== 'list' || !a.mint || a.priceLamports == null) return;
+  // Tensor price drop on an existing listing = `edit` (list_state only, no mint) -> resolve via target map.
+  // ME reprice is a fresh `core_sell` on the same STS, so it already arrives as kind 'list'.
+  if (a.kind === 'edit' && a.marketplace === 'TENSOR' && a.listState) {
+    const mint = listStateToMint.get(a.listState);
+    if (!mint) return;
+    a = { ...a, mint };
+  } else if (a.kind !== 'list') return;
+  if (!a.mint || a.priceLamports == null) return;
   const t = targets.get(a.mint);
   if (!t) return;
   const max = MAX_PRICE_LAMPORTS[t.category];
@@ -499,11 +509,12 @@ function startStream(): void {
   }, 30_000);
   ws.on('open', () => {
     ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'transactionSubscribe', params: [
-      { accountInclude: [COLLECTION], failed: false, vote: false },
+      // + every target's TComp list_state: a Tensor `edit` (reprice) tx doesn't carry the collection.
+      { accountInclude: [COLLECTION, ...listStateToMint.keys()], failed: false, vote: false },
       { commitment: 'processed', encoding: 'base64', transactionDetails: 'full', showRewards: false, maxSupportedTransactionVersion: 0 },
     ] }));
     ws.send(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'slotSubscribe', params: [] }));
-    log({ event: 'ws_subscribed', collection: COLLECTION });
+    log({ event: 'ws_subscribed', collection: COLLECTION, listStates: listStateToMint.size });
   });
   ws.on('message', (raw: WebSocket.RawData) => {
     lastMsg = Date.now();
